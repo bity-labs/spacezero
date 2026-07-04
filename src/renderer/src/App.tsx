@@ -1,5 +1,5 @@
-import { useCallback, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { Sidebar } from '@phosphor-icons/react'
+import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
 
 import { Button } from './components/ui/button'
 
@@ -10,6 +10,7 @@ const PANEL_MAX_WIDTH = 520
 const KEYBOARD_RESIZE_STEP = 24
 
 type ResizablePanel = 'left' | 'right'
+type ColorMode = 'dark' | 'light'
 
 function clampPanelWidth(width: number): number {
   return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, width))
@@ -18,8 +19,14 @@ function clampPanelWidth(width: number): number {
 export function App(): React.JSX.Element {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
+  const [colorMode, setColorMode] = useState<ColorMode>('dark')
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', colorMode === 'dark')
+    document.documentElement.style.colorScheme = colorMode
+  }, [colorMode])
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
@@ -80,7 +87,7 @@ export function App(): React.JSX.Element {
       <header className="app-titlebar grid h-12 grid-cols-[1fr_auto_1fr] items-center border-b border-border bg-background px-3">
         <div className="flex items-center justify-start">
           <div className="mac-traffic-light-space shrink-0" />
-          <div className="titlebar-control flex items-center">
+          <div className="titlebar-control flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon-sm"
@@ -90,6 +97,15 @@ export function App(): React.JSX.Element {
               onClick={() => setIsLeftPanelOpen((isOpen) => !isOpen)}
             >
               <Sidebar className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              aria-label={colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              onClick={() => setColorMode((currentMode) => (currentMode === 'dark' ? 'light' : 'dark'))}
+            >
+              {colorMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
           </div>
         </div>
@@ -112,7 +128,7 @@ export function App(): React.JSX.Element {
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
-          <aside aria-label="Left panel" className="min-w-0 border-r border-border bg-card p-4">
+          <aside aria-label="Left panel" className="min-w-0 border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
             <h2 className="text-sm font-medium">Left panel</h2>
           </aside>
         ) : null}
@@ -140,7 +156,7 @@ export function App(): React.JSX.Element {
         ) : null}
 
         {isRightPanelOpen ? (
-          <aside aria-label="Right panel" className="min-w-0 border-l border-border bg-card p-4">
+          <aside aria-label="Right panel" className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
             <h2 className="text-sm font-medium">Right panel</h2>
           </aside>
         ) : null}
@@ -164,11 +180,13 @@ function ResizeHandle({ label, value, onPointerDown, onKeyDown }: ResizeHandlePr
       aria-valuemax={PANEL_MAX_WIDTH}
       aria-valuemin={PANEL_MIN_WIDTH}
       aria-valuenow={value}
-      className="titlebar-control cursor-col-resize bg-border/60 transition-colors hover:bg-primary focus-visible:bg-primary focus-visible:outline-none"
+      className="titlebar-control flex cursor-col-resize items-center justify-center text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       role="separator"
       tabIndex={0}
       onKeyDown={onKeyDown}
       onPointerDown={onPointerDown}
-    />
+    >
+      <DotsSixVertical className="h-4 w-3" aria-hidden="true" />
+    </div>
   )
 }
