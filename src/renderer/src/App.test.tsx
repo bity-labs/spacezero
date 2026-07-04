@@ -26,6 +26,25 @@ describe('App', () => {
     expect(within(topBar).getByRole('button', { name: 'Show right panel' })).toBeInTheDocument()
   })
 
+  it('toggles between dark and light mode from the titlebar', () => {
+    render(<App />)
+
+    const topBar = screen.getByRole('banner')
+    expect(within(topBar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+      'Hide left panel',
+      'Switch to light mode',
+      'Hide right panel'
+    ])
+    expect(document.documentElement).toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'dark' })
+
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Switch to light mode' }))
+
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+    expect(within(topBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
+  })
+
   it('supports keyboard resizing for side columns', () => {
     render(<App />)
 
