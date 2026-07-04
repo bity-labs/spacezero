@@ -2,6 +2,7 @@
   "extends": "@electron-toolkit/tsconfig/tsconfig.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "composite": true,
     "strict": true,
     "moduleResolution": "Bundler",
