@@ -49,14 +49,17 @@ Preferred validation before opening a PR:
 ## Source Layout
 
 ```txt
-src/main      Electron main process: app lifecycle, windows, IPC handlers, SQLite, future git/agents
+src/main      Electron main process: app lifecycle, windows, global main infrastructure
 src/preload   Safe typed bridge exposed to the renderer as window.spacezero
-src/shared    Shared IPC channels, contracts, and cross-process TypeScript types
-src/renderer  React app UI, components, styles, and renderer tests
+src/shared    App-wide shared IPC channels, contracts, and cross-process TypeScript types
+src/renderer  React app UI entrypoint, global renderer components, styles, and renderer tests
+src/features  Process-aware feature modules split into main, renderer, and shared runtime surfaces
 docs          TStack harness docs, ADRs, and engineering doctrine
 .agents       TStack skills and prompts
 scripts       Project helper scripts
 ```
+
+For feature module layout, file naming, runtime-specific imports, and UI placement rules, follow `docs/feature-architecture.md`.
 
 Keep process-specific code in the right layer:
 
@@ -122,11 +125,13 @@ Rules:
 - Keep TypeScript strict.
 - Prefer explicit exported types at process boundaries.
 - Keep imports organized by source: Node/Electron, third-party, local.
+- Use kebab-case file and folder names with dot suffixes for architectural roles when useful, such as `.service.ts`, `.model.ts`, `.schema.ts`, `.contract.ts`, `.repository.ts`, and `.ipc.ts`.
 - Use aliases configured in `electron.vite.config.ts` and TypeScript configs where appropriate:
   - `@renderer/*` for renderer code.
   - `@shared/*` for shared cross-process contracts.
 - Do not import renderer-only modules into main/preload code.
 - Do not import main/preload-only modules into renderer code.
+- Do not create feature root barrels that re-export `main`, `renderer`, and `shared` together.
 
 ## Testing Standards
 
