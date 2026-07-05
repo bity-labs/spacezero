@@ -11,14 +11,16 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 1. Read this file first.
 2. Read `docs/coding-standards.md` before changing code.
 3. Read `docs/context.md` when the task touches product behavior, domain language, or user-facing concepts.
-4. Read `docs/engineering/index.md` and load only the engineering rule files relevant to the task.
-5. Check `docs/adr/` before changing Electron architecture, process boundaries, data ownership, persistence, IPC, packaging, or testing strategy.
+4. Read `docs/feature-architecture.md` before adding, moving, or reorganizing feature source code.
+5. Read `docs/engineering/index.md` and load only the engineering rule files relevant to the task.
+6. Check `docs/adr/` before changing Electron architecture, process boundaries, data ownership, persistence, IPC, packaging, or testing strategy.
 
 ## Source of Truth
 
 - GitHub Issues hold specs, tasks, and acceptance criteria.
 - `docs/context.md` holds durable Space Zero product and domain language.
 - `docs/coding-standards.md` holds project-level implementation expectations.
+- `docs/feature-architecture.md` holds feature module layout, file naming, and runtime-boundary rules.
 - `docs/engineering/` holds reusable TStack engineering doctrine.
 - `docs/adr/` holds important architectural decisions and rationale.
 - `.agents/skills/` holds reusable workflows that use the docs.
