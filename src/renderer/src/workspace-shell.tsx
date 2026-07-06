@@ -1,8 +1,10 @@
-import { useCallback, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
+import { appCommandRegistry } from '../../features/app-commands/renderer/app-command-registry'
+import { keyboardShortcutManager } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
 
@@ -25,6 +27,39 @@ export function WorkspaceShell(): React.JSX.Element {
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
   const { t } = useTranslation()
+
+  useEffect(() => {
+    const unregisterLeftCmd = appCommandRegistry.register({
+      id: 'workspace.toggleLeftSidebar',
+      title: 'Toggle left sidebar',
+      category: 'Workspace',
+      handler: () => setIsLeftPanelOpen((isOpen) => !isOpen)
+    })
+
+    const unregisterRightCmd = appCommandRegistry.register({
+      id: 'workspace.toggleRightSidebar',
+      title: 'Toggle right sidebar',
+      category: 'Workspace',
+      handler: () => setIsRightPanelOpen((isOpen) => !isOpen)
+    })
+
+    const unregisterLeftShortcut = keyboardShortcutManager.register({
+      commandId: 'workspace.toggleLeftSidebar',
+      defaultKeybinding: { normalized: 'mod+b' }
+    })
+
+    const unregisterRightShortcut = keyboardShortcutManager.register({
+      commandId: 'workspace.toggleRightSidebar',
+      defaultKeybinding: { normalized: 'mod+shift+b' }
+    })
+
+    return () => {
+      unregisterLeftCmd()
+      unregisterRightCmd()
+      unregisterLeftShortcut()
+      unregisterRightShortcut()
+    }
+  }, [setIsLeftPanelOpen, setIsRightPanelOpen])
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
