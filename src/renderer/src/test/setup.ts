@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom/vitest'
+import { vi } from 'vitest'
 
 beforeEach(() => {
+  window.scrollTo = vi.fn()
+
   window.spacezero = {
     app: {
       getInfo: async () => ({ name: 'Space Zero', version: '0.0.0-test', platform: 'darwin' }),
