@@ -9,6 +9,10 @@ const api: SpaceZeroAPI = {
   },
   db: {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)
+  },
+  settings: {
+    getLanguageSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getLanguageSettings),
+    updateLanguagePreference: (preference) => ipcRenderer.invoke(IPC_CHANNELS.settings.updateLanguagePreference, preference)
   }
 }
 

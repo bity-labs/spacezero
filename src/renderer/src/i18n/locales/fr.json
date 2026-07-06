@@ -1,0 +1,38 @@
+{
+  "app": {
+    "name": "Space Zero"
+  },
+  "workspace": {
+    "title": "Espace de travail",
+    "mainLabel": "Espace de travail principal",
+    "leftPanel": "Panneau gauche",
+    "rightPanel": "Panneau droit",
+    "navigation": "Navigation de l’espace de travail",
+    "settingsLink": "Paramètres",
+    "hideLeftPanel": "Masquer le panneau gauche",
+    "showLeftPanel": "Afficher le panneau gauche",
+    "hideRightPanel": "Masquer le panneau droit",
+    "showRightPanel": "Afficher le panneau droit",
+    "resizeLeftPanel": "Redimensionner le panneau gauche",
+    "resizeRightPanel": "Redimensionner le panneau droit",
+    "switchToLightMode": "Passer au mode clair",
+    "switchToDarkMode": "Passer au mode sombre"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "description": "Configurez les préférences de Space Zero ici.",
+    "mainLabel": "Paramètres",
+    "navigationLabel": "Navigation des paramètres",
+    "backToWorkspace": "Retour à l’espace de travail",
+    "language": {
+      "sectionTitle": "Langue",
+      "label": "Langue",
+      "description": "Choisissez comment Space Zero sélectionne la langue de l’interface.",
+      "useSystem": "Utiliser la langue du système",
+      "english": "Anglais",
+      "french": "Français",
+      "loading": "Chargement des paramètres de langue…",
+      "saveError": "Impossible de mettre à jour la préférence de langue."
+    }
+  }
+}
