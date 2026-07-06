@@ -1,7 +1,12 @@
 import { RouterProvider } from '@tanstack/react-router'
 
+import { ColorModeProvider } from './color-mode-provider'
 import { router } from './router'
 
 export function App(): React.JSX.Element {
-  return <RouterProvider router={router} />
+  return (
+    <ColorModeProvider>
+      <RouterProvider router={router} />
+    </ColorModeProvider>
+  )
 }

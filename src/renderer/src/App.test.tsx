@@ -5,6 +5,8 @@ import { App } from './App'
 describe('App', () => {
   beforeEach(() => {
     window.location.hash = ''
+    document.documentElement.classList.remove('dark')
+    document.documentElement.style.colorScheme = ''
   })
 
   it('renders the workspace route at /', async () => {
@@ -80,5 +82,28 @@ describe('App', () => {
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/')
+  })
+
+  it('keeps the app-wide theme when navigating between routes', async () => {
+    render(<App />)
+
+    const topBar = await screen.findByRole('banner')
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Switch to light mode' }))
+
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+    await screen.findByRole('main', { name: 'Main workspace' })
+    const workspaceTopBar = screen.getByRole('banner')
+
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+    expect(within(workspaceTopBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
   })
 })
