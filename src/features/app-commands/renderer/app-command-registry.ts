@@ -1,4 +1,4 @@
-import type { AppCommand, AppCommandId } from './app-command.model'
+import type { AppCommand, AppCommandId, AppCommandInvocationContext } from './app-command.model'
 
 export type UnregisterAppCommand = () => void
 export type AppCommandRegistryListener = () => void
@@ -33,13 +33,13 @@ export class AppCommandRegistry {
     return this.list().filter((command) => commandMatchesQuery(command, normalizedQuery))
   }
 
-  async invoke(commandId: AppCommandId): Promise<void> {
+  async invoke(commandId: AppCommandId, context: AppCommandInvocationContext): Promise<void> {
     const command = this.commands.get(commandId)
     if (!command) {
       throw new Error(`App command not found: ${commandId}`)
     }
 
-    await command.handler({ spacezero: window.spacezero })
+    await command.handler(context)
   }
 
   getVersion(): number {
@@ -64,7 +64,9 @@ export class AppCommandRegistry {
 }
 
 function commandMatchesQuery(command: AppCommand, query: string): boolean {
-  const searchableText = normalizeSearchText([command.title, command.category, ...(command.keywords ?? [])].join(' '))
+  const searchableText = normalizeSearchText(
+    [command.title, command.category, ...(command.keywords ?? [])].join(' ')
+  )
   return searchableText.includes(query)
 }
 

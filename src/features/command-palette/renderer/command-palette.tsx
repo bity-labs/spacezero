@@ -11,23 +11,36 @@ import {
   CommandList
 } from '@renderer/components/ui/command'
 
-import type { AppCommand, AppCommandId } from '../../app-commands/renderer/app-command.model'
+import type {
+  AppCommand,
+  AppCommandId,
+  AppCommandInvocationContext
+} from '../../app-commands/renderer/app-command.model'
 import type { AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
 
 type CommandPaletteProps = {
+  commands: readonly AppCommand[]
+  invocationContext: AppCommandInvocationContext
   isOpen: boolean
   registry: AppCommandRegistry
   onClose: () => void
 }
 
-export function CommandPalette({ isOpen, registry, onClose }: CommandPaletteProps): React.JSX.Element {
+export function CommandPalette({
+  commands,
+  invocationContext,
+  isOpen,
+  registry,
+  onClose
+}: CommandPaletteProps): React.JSX.Element {
   const { t } = useTranslation()
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
 
-    previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    previouslyFocusedElementRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null
 
     return () => {
       previouslyFocusedElementRef.current?.focus()
@@ -47,32 +60,58 @@ export function CommandPalette({ isOpen, registry, onClose }: CommandPaletteProp
       title={t('commandPalette.title')}
       onOpenChange={handleOpenChange}
     >
-      {isOpen ? <CommandPaletteContent registry={registry} onClose={onClose} /> : null}
+      {isOpen ? (
+        <CommandPaletteContent
+          commands={commands}
+          invocationContext={invocationContext}
+          registry={registry}
+          onClose={onClose}
+        />
+      ) : null}
     </CommandDialog>
   )
 }
 
 type CommandPaletteContentProps = {
+  commands: readonly AppCommand[]
+  invocationContext: AppCommandInvocationContext
   registry: AppCommandRegistry
   onClose: () => void
 }
 
-function CommandPaletteContent({ registry, onClose }: CommandPaletteContentProps): React.JSX.Element {
+function CommandPaletteContent({
+  commands,
+  invocationContext,
+  registry,
+  onClose
+}: CommandPaletteContentProps): React.JSX.Element {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [selectedCommandId, setSelectedCommandId] = useState<AppCommandId>('')
-  const filteredCommands = useMemo(() => registry.search(query), [query, registry])
+  const [invocationError, setInvocationError] = useState<string | null>(null)
+  const filteredCommands = useMemo(() => searchCommands(commands, query), [commands, query])
   const activeCommandId = filteredCommands.some((command) => command.id === selectedCommandId)
     ? selectedCommandId
     : (filteredCommands[0]?.id ?? '')
 
   async function invokeCommand(commandId: AppCommandId): Promise<void> {
-    await registry.invoke(commandId)
-    onClose()
+    setInvocationError(null)
+
+    try {
+      await registry.invoke(commandId, invocationContext)
+      onClose()
+    } catch {
+      setInvocationError(t('commandPalette.invocationError'))
+    }
   }
 
   return (
-    <Command label={t('commandPalette.searchLabel')} shouldFilter={false} value={activeCommandId} onValueChange={setSelectedCommandId}>
+    <Command
+      label={t('commandPalette.searchLabel')}
+      shouldFilter={false}
+      value={activeCommandId}
+      onValueChange={setSelectedCommandId}
+    >
       <CommandInput
         aria-label={t('commandPalette.searchLabel')}
         placeholder={t('commandPalette.searchPlaceholder')}
@@ -82,11 +121,20 @@ function CommandPaletteContent({ registry, onClose }: CommandPaletteContentProps
           setSelectedCommandId('')
         }}
       />
+      {invocationError ? (
+        <p className="px-3 py-2 text-sm text-destructive" role="alert">
+          {invocationError}
+        </p>
+      ) : null}
       <CommandList label={t('commandPalette.commandsLabel')}>
         {filteredCommands.length > 0 ? (
           <CommandGroup heading={t('commandPalette.commandsLabel')}>
             {filteredCommands.map((command) => (
-              <CommandOption key={command.id} command={command} onSelect={() => void invokeCommand(command.id)} />
+              <CommandOption
+                key={command.id}
+                command={command}
+                onSelect={() => void invokeCommand(command.id)}
+              />
             ))}
           </CommandGroup>
         ) : (
@@ -104,9 +152,31 @@ type CommandOptionProps = {
 
 function CommandOption({ command, onSelect }: CommandOptionProps): React.JSX.Element {
   return (
-    <CommandItem aria-label={`${command.title} — ${command.category}`} value={command.id} onSelect={onSelect}>
+    <CommandItem
+      aria-label={`${command.title} — ${command.category}`}
+      value={command.id}
+      onSelect={onSelect}
+    >
       <span className="font-medium">{command.title}</span>
       <span className="ml-auto text-xs text-muted-foreground">{command.category}</span>
     </CommandItem>
   )
+}
+
+function searchCommands(commands: readonly AppCommand[], query: string): AppCommand[] {
+  const normalizedQuery = normalizeSearchText(query)
+  if (!normalizedQuery) return [...commands]
+
+  return commands.filter((command) => commandMatchesQuery(command, normalizedQuery))
+}
+
+function commandMatchesQuery(command: AppCommand, query: string): boolean {
+  const searchableText = normalizeSearchText(
+    [command.title, command.category, ...(command.keywords ?? [])].join(' ')
+  )
+  return searchableText.includes(query)
+}
+
+function normalizeSearchText(text: string): string {
+  return text.trim().toLocaleLowerCase()
 }

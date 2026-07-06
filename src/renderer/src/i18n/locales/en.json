@@ -35,7 +35,8 @@
     "searchLabel": "Search commands",
     "searchPlaceholder": "Search commands…",
     "commandsLabel": "Commands",
-    "empty": "No commands found."
+    "empty": "No commands found.",
+    "invocationError": "Command failed. Try again."
   },
   "settings": {
     "title": "Settings",
