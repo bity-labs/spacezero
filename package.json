@@ -34,6 +34,7 @@
     "better-sqlite3": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",
+    "cmdk": "^1.1.1",
     "drizzle-orm": "latest",
     "electron-log": "latest",
     "i18next": "^26.3.4",

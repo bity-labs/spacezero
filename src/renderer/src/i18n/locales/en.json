@@ -29,6 +29,14 @@
       "workspace": "Workspace"
     }
   },
+  "commandPalette": {
+    "title": "Command Palette",
+    "description": "Search for a command to run.",
+    "searchLabel": "Search commands",
+    "searchPlaceholder": "Search commands…",
+    "commandsLabel": "Commands",
+    "empty": "No commands found."
+  },
   "settings": {
     "title": "Settings",
     "description": "Configure Space Zero preferences here.",
