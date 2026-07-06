@@ -89,7 +89,9 @@ function CommandPaletteContent({
   const [query, setQuery] = useState('')
   const [selectedCommandId, setSelectedCommandId] = useState<AppCommandId>('')
   const [invocationError, setInvocationError] = useState<string | null>(null)
-  const filteredCommands = useMemo(() => searchCommands(commands, query), [commands, query])
+  // `commands` is included as a dependency because `registry` keeps a stable reference;
+  // the command list from context signals when registrations have changed.
+  const filteredCommands = useMemo(() => registry.search(query), [commands, query, registry])
   const activeCommandId = filteredCommands.some((command) => command.id === selectedCommandId)
     ? selectedCommandId
     : (filteredCommands[0]?.id ?? '')
@@ -163,20 +165,3 @@ function CommandOption({ command, onSelect }: CommandOptionProps): React.JSX.Ele
   )
 }
 
-function searchCommands(commands: readonly AppCommand[], query: string): AppCommand[] {
-  const normalizedQuery = normalizeSearchText(query)
-  if (!normalizedQuery) return [...commands]
-
-  return commands.filter((command) => commandMatchesQuery(command, normalizedQuery))
-}
-
-function commandMatchesQuery(command: AppCommand, query: string): boolean {
-  const searchableText = normalizeSearchText(
-    [command.title, command.category, ...(command.keywords ?? [])].join(' ')
-  )
-  return searchableText.includes(query)
-}
-
-function normalizeSearchText(text: string): string {
-  return text.trim().toLocaleLowerCase()
-}
