@@ -1,96 +1,98 @@
-import { describe, expect, it, vi } from 'vitest'
-
 import { AppCommandRegistry } from './app-command-registry'
+import type { AppCommand, AppCommandInvocationContext } from './app-command.model'
+
+function command(overrides: Partial<AppCommand> & Pick<AppCommand, 'id' | 'title'>): AppCommand {
+  return {
+    category: 'General',
+    handler: () => undefined,
+    ...overrides
+  }
+}
+
+function invocationContext(): AppCommandInvocationContext {
+  return { spacezero: window.spacezero }
+}
 
 describe('AppCommandRegistry', () => {
-  it('registers and executes a command', () => {
+  it('registers and lists commands in registration order', () => {
     const registry = new AppCommandRegistry()
-    const handler = vi.fn<() => void>()
 
-    registry.register({
-      id: 'test.doThing',
-      title: 'Do thing',
-      category: 'Test',
-      handler
-    })
+    registry.register(command({ id: 'workspace.open', title: 'Open Workspace' }))
+    registry.register(command({ id: 'settings.open', title: 'Open Settings' }))
 
-    const executed = registry.execute('test.doThing')
-
-    expect(executed).toBe(true)
-    expect(handler).toHaveBeenCalledOnce()
+    expect(registry.list()).toEqual([
+      expect.objectContaining({ id: 'workspace.open', title: 'Open Workspace' }),
+      expect.objectContaining({ id: 'settings.open', title: 'Open Settings' })
+    ])
   })
 
-  it('returns false when executing an unknown command', () => {
+  it('rejects duplicate command IDs while the original command is registered', () => {
     const registry = new AppCommandRegistry()
 
-    const executed = registry.execute('test.unknown')
+    registry.register(command({ id: 'settings.open', title: 'Open Settings' }))
 
-    expect(executed).toBe(false)
+    expect(() =>
+      registry.register(command({ id: 'settings.open', title: 'Open Preferences' }))
+    ).toThrow('App command already registered: settings.open')
   })
 
-  it('unregisters a command when the unsubscribe function is called', () => {
+  it('unregisters commands through the returned disposable', () => {
     const registry = new AppCommandRegistry()
-    const handler = vi.fn<() => void>()
-
-    const unregister = registry.register({
-      id: 'test.doThing',
-      title: 'Do thing',
-      category: 'Test',
-      handler
-    })
+    const unregister = registry.register(command({ id: 'settings.open', title: 'Open Settings' }))
 
     unregister()
-    const executed = registry.execute('test.doThing')
 
-    expect(executed).toBe(false)
-    expect(handler).not.toHaveBeenCalled()
+    expect(registry.list()).toEqual([])
   })
 
-  it('overwrites a command registered with the same ID', () => {
+  it('searches command titles, categories, and keywords case-insensitively', () => {
     const registry = new AppCommandRegistry()
-    const firstHandler = vi.fn<() => void>()
-    const secondHandler = vi.fn<() => void>()
+    registry.register(
+      command({ id: 'workspace.open', title: 'Open Workspace', category: 'Navigation' })
+    )
+    registry.register(
+      command({
+        id: 'settings.open',
+        title: 'Open Settings',
+        category: 'Navigation',
+        keywords: ['preferences', 'options']
+      })
+    )
+    registry.register(
+      command({
+        id: 'workspace.toggle-left-panel',
+        title: 'Toggle Left Panel',
+        category: 'Workspace UI'
+      })
+    )
 
-    registry.register({
-      id: 'test.doThing',
-      title: 'Do thing',
-      category: 'Test',
-      handler: firstHandler
-    })
-
-    registry.register({
-      id: 'test.doThing',
-      title: 'Do thing',
-      category: 'Test',
-      handler: secondHandler
-    })
-
-    registry.execute('test.doThing')
-
-    expect(firstHandler).not.toHaveBeenCalled()
-    expect(secondHandler).toHaveBeenCalledOnce()
+    expect(registry.search('PREF')).toEqual([expect.objectContaining({ id: 'settings.open' })])
+    expect(registry.search('workspace')).toEqual([
+      expect.objectContaining({ id: 'workspace.open' }),
+      expect.objectContaining({ id: 'workspace.toggle-left-panel' })
+    ])
+    expect(registry.search('navigation')).toEqual([
+      expect.objectContaining({ id: 'workspace.open' }),
+      expect.objectContaining({ id: 'settings.open' })
+    ])
   })
 
-  it('lists all registered commands', () => {
+  it('invokes a command by stable ID with an explicit invocation context', async () => {
     const registry = new AppCommandRegistry()
+    const receivedContexts: AppCommandInvocationContext[] = []
+    const context = invocationContext()
+    registry.register(
+      command({
+        id: 'settings.open',
+        title: 'Open Settings',
+        handler: (receivedContext) => {
+          receivedContexts.push(receivedContext)
+        }
+      })
+    )
 
-    registry.register({
-      id: 'test.a',
-      title: 'A',
-      category: 'Test',
-      handler: () => {}
-    })
-    registry.register({
-      id: 'test.b',
-      title: 'B',
-      category: 'Test',
-      handler: () => {}
-    })
+    await registry.invoke('settings.open', context)
 
-    const all = registry.getAll()
-
-    expect(all).toHaveLength(2)
-    expect(all.map((cmd) => cmd.id)).toContain('test.a')
-    expect(all.map((cmd) => cmd.id)).toContain('test.b')
+    expect(receivedContexts).toEqual([context])
   })
 })

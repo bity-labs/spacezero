@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
+import { DotsSixVertical, MagnifyingGlass, Moon, Sidebar, Sun } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
-import { appCommandRegistry } from '../../features/app-commands/renderer/app-command-registry'
-import { keyboardShortcutManager } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
+import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
+import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
+import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
+import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
+import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
 
@@ -13,6 +16,11 @@ const RIGHT_PANEL_DEFAULT_WIDTH = 320
 const PANEL_MIN_WIDTH = 220
 const PANEL_MAX_WIDTH = 520
 const KEYBOARD_RESIZE_STEP = 24
+
+const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
+  { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
+  { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+]
 
 type ResizablePanel = 'left' | 'right'
 
@@ -26,40 +34,31 @@ export function WorkspaceShell(): React.JSX.Element {
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
+  const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
 
-  useEffect(() => {
-    const unregisterLeftCmd = appCommandRegistry.register({
-      id: 'workspace.toggleLeftSidebar',
-      title: 'Toggle left sidebar',
-      category: 'Workspace',
-      handler: () => setIsLeftPanelOpen((isOpen) => !isOpen)
-    })
+  const workspaceCommands = useMemo<readonly AppCommand[]>(
+    () => [
+      {
+        id: 'workspace.toggle-left-panel',
+        title: isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel'),
+        category: t('appCommands.categories.workspace'),
+        keywords: ['sidebar', 'navigation'],
+        handler: () => setIsLeftPanelOpen((isOpen) => !isOpen)
+      },
+      {
+        id: 'workspace.toggle-right-panel',
+        title: isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel'),
+        category: t('appCommands.categories.workspace'),
+        keywords: ['sidebar', 'inspector'],
+        handler: () => setIsRightPanelOpen((isOpen) => !isOpen)
+      }
+    ],
+    [isLeftPanelOpen, isRightPanelOpen, t]
+  )
 
-    const unregisterRightCmd = appCommandRegistry.register({
-      id: 'workspace.toggleRightSidebar',
-      title: 'Toggle right sidebar',
-      category: 'Workspace',
-      handler: () => setIsRightPanelOpen((isOpen) => !isOpen)
-    })
-
-    const unregisterLeftShortcut = keyboardShortcutManager.register({
-      commandId: 'workspace.toggleLeftSidebar',
-      defaultKeybinding: { normalized: 'mod+b' }
-    })
-
-    const unregisterRightShortcut = keyboardShortcutManager.register({
-      commandId: 'workspace.toggleRightSidebar',
-      defaultKeybinding: { normalized: 'mod+shift+b' }
-    })
-
-    return () => {
-      unregisterLeftCmd()
-      unregisterRightCmd()
-      unregisterLeftShortcut()
-      unregisterRightShortcut()
-    }
-  }, [setIsLeftPanelOpen, setIsRightPanelOpen])
+  useRegisterAppCommands(workspaceCommands)
+  useRegisterKeyboardShortcuts(workspaceShortcuts)
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
@@ -143,7 +142,18 @@ export function WorkspaceShell(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="text-sm font-medium text-muted-foreground">{t('app.name')}</div>
+        <div className="titlebar-control flex items-center justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-muted-foreground"
+            aria-label={t('app.openCommandPalette')}
+            onClick={() => commandPalette.open()}
+          >
+            <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
+            {t('app.name')}
+          </Button>
+        </div>
 
         <div className="titlebar-control flex items-center justify-end">
           <Button

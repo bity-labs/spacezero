@@ -1,8 +1,5 @@
-import {
-  AppCommandId,
-  AppCommandRegistry,
-  appCommandRegistry
-} from '../../app-commands/renderer/app-command-registry'
+import { AppCommandId, AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
+import { AppCommandInvocationContext } from '../../app-commands/renderer/app-command.model'
 import { Keybinding, ShortcutContext, createDefaultShortcutContext } from './keybinding.model'
 import { isTextInputElement, matchKeyboardEvent } from './keybinding-parser'
 
@@ -27,12 +24,18 @@ export interface KeyboardShortcutDefinition {
  */
 export class KeyboardShortcutManager {
   private readonly registry: AppCommandRegistry
+  private readonly invocationContext: AppCommandInvocationContext
   private readonly shortcuts = new Map<AppCommandId, KeyboardShortcutDefinition>()
   private context: ShortcutContext
   private readonly userOverrides = new Map<AppCommandId, Keybinding>()
 
-  constructor(registry: AppCommandRegistry, initialContext?: ShortcutContext) {
+  constructor(
+    registry: AppCommandRegistry,
+    invocationContext: AppCommandInvocationContext,
+    initialContext?: ShortcutContext
+  ) {
     this.registry = registry
+    this.invocationContext = invocationContext
     this.context = initialContext ?? createDefaultShortcutContext()
   }
 
@@ -64,7 +67,7 @@ export class KeyboardShortcutManager {
     return this.context
   }
 
-  handleKeyDown(event: KeyboardEvent): void {
+  async handleKeyDown(event: KeyboardEvent): Promise<void> {
     if (event.repeat) {
       return
     }
@@ -87,7 +90,14 @@ export class KeyboardShortcutManager {
       }
 
       event.preventDefault()
-      this.registry.execute(definition.commandId)
+
+      try {
+        await this.registry.invoke(definition.commandId, this.invocationContext)
+      } catch (error) {
+        // The command may have been unregistered between registration and the keystroke.
+        console.error(`Failed to invoke shortcut command ${definition.commandId}:`, error)
+      }
+
       return
     }
   }
@@ -108,6 +118,3 @@ export class KeyboardShortcutManager {
     return true
   }
 }
-
-/** Global renderer shortcut manager wired to the global App Command Registry. */
-export const keyboardShortcutManager = new KeyboardShortcutManager(appCommandRegistry)

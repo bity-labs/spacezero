@@ -7,8 +7,8 @@
   },
   "include": [
     "src/renderer/src/**/*",
-    "src/shared/**/*",
     "src/features/*/renderer/**/*",
-    "src/features/*/shared/**/*"
+    "src/features/*/shared/**/*",
+    "src/shared/**/*"
   ]
 }

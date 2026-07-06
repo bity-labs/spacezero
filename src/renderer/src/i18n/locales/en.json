@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Space Zero"
+    "name": "Space Zero",
+    "openCommandPalette": "Open command palette"
   },
   "workspace": {
     "title": "Workspace",
@@ -17,6 +18,25 @@
     "resizeRightPanel": "Resize right panel",
     "switchToLightMode": "Switch to light mode",
     "switchToDarkMode": "Switch to dark mode"
+  },
+  "appCommands": {
+    "openWorkspace": "Open Workspace",
+    "openSettings": "Open Settings",
+    "categories": {
+      "application": "Application",
+      "navigation": "Navigation",
+      "ui": "User Interface",
+      "workspace": "Workspace"
+    }
+  },
+  "commandPalette": {
+    "title": "Command Palette",
+    "description": "Search for a command to run.",
+    "searchLabel": "Search commands",
+    "searchPlaceholder": "Search commands…",
+    "commandsLabel": "Commands",
+    "empty": "No commands found.",
+    "invocationError": "Command failed. Try again."
   },
   "settings": {
     "title": "Settings",

@@ -1,46 +1,75 @@
-import { AppCommand, AppCommandId } from './app-command.model'
+import type { AppCommand, AppCommandId, AppCommandInvocationContext } from './app-command.model'
 
-export type { AppCommand, AppCommandId } from './app-command.model'
+export type UnregisterAppCommand = () => void
+export type AppCommandRegistryListener = () => void
 
-/**
- * In-memory catalog of App Commands.
- *
- * The registry does not own command behavior; it only maps stable command IDs
- * to their handlers. Commands are registered by the code that owns the state
- * they mutate (for example, the workspace shell registers sidebar toggles).
- */
 export class AppCommandRegistry {
   private readonly commands = new Map<AppCommandId, AppCommand>()
+  private readonly listeners = new Set<AppCommandRegistryListener>()
+  private version = 0
 
-  /**
-   * Register a command. Returns an unsubscribe function that removes the
-   * registration. Re-registering the same ID overwrites the previous entry.
-   */
-  register(command: AppCommand): () => void {
+  register(command: AppCommand): UnregisterAppCommand {
+    if (this.commands.has(command.id)) {
+      throw new Error(`App command already registered: ${command.id}`)
+    }
+
     this.commands.set(command.id, command)
+    this.notifyListeners()
+
     return () => {
-      this.commands.delete(command.id)
+      if (!this.commands.delete(command.id)) return
+      this.notifyListeners()
     }
   }
 
-  get(id: AppCommandId): AppCommand | undefined {
-    return this.commands.get(id)
-  }
-
-  getAll(): AppCommand[] {
+  list(): AppCommand[] {
     return Array.from(this.commands.values())
   }
 
-  /** Execute a registered command by ID. Returns true if the ID was known. */
-  execute(id: AppCommandId): boolean {
-    const command = this.commands.get(id)
+  search(query: string): AppCommand[] {
+    const normalizedQuery = normalizeSearchText(query)
+    if (!normalizedQuery) return this.list()
+
+    return this.list().filter((command) => commandMatchesQuery(command, normalizedQuery))
+  }
+
+  async invoke(commandId: AppCommandId, context: AppCommandInvocationContext): Promise<void> {
+    const command = this.commands.get(commandId)
     if (!command) {
-      return false
+      throw new Error(`App command not found: ${commandId}`)
     }
-    command.handler()
-    return true
+
+    await command.handler(context)
+  }
+
+  getVersion(): number {
+    return this.version
+  }
+
+  subscribe(listener: AppCommandRegistryListener): UnregisterAppCommand {
+    this.listeners.add(listener)
+
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  private notifyListeners(): void {
+    this.version += 1
+
+    for (const listener of this.listeners) {
+      listener()
+    }
   }
 }
 
-/** Global renderer registry used by the shortcut manager and UI surfaces. */
-export const appCommandRegistry = new AppCommandRegistry()
+function commandMatchesQuery(command: AppCommand, query: string): boolean {
+  const searchableText = normalizeSearchText(
+    [command.title, command.category, ...(command.keywords ?? [])].join(' ')
+  )
+  return searchableText.includes(query)
+}
+
+function normalizeSearchText(text: string): string {
+  return text.trim().toLocaleLowerCase()
+}
