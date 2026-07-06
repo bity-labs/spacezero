@@ -3,6 +3,15 @@ import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
 
+class TestResizeObserver implements ResizeObserver {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+
+globalThis.ResizeObserver = TestResizeObserver
+Element.prototype.scrollIntoView = vi.fn()
+
 beforeEach(async () => {
   window.scrollTo = vi.fn()
   window.location.hash = ''
