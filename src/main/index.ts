@@ -20,8 +20,8 @@ function createWindow(): void {
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 18, y: 18 },
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false,
+      preload: join(__dirname, '../preload/index.cjs'),
+      sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
     }

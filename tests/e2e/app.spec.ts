@@ -5,7 +5,7 @@ import { join } from 'node:path'
 const require = createRequire(import.meta.url)
 const electronPath = require('electron') as string
 
-test('launches the Electron app shell', async () => {
+test('launches the Electron app shell with sandboxed preload IPC available', async () => {
   const electronApp = await electron.launch({
     executablePath: electronPath,
     args: [join(process.cwd(), 'out/main/index.js')]
@@ -13,9 +13,37 @@ test('launches the Electron app shell', async () => {
 
   const window = await electronApp.firstWindow()
 
-  await expect(window.getByRole('heading', { name: 'Space Zero' })).toBeVisible()
-  await expect(window.getByTestId('ipc-version')).not.toHaveText('loading...')
-  await expect(window.getByTestId('db-health')).toHaveText('ready')
+  await expect(window.getByRole('heading', { name: 'Workspace' })).toBeVisible()
+
+  const sandbox = await electronApp.evaluate(({ BrowserWindow }) => {
+    const [mainWindow] = BrowserWindow.getAllWindows()
+    return mainWindow.webContents.getLastWebPreferences().sandbox
+  })
+
+  const bridgeResult = await window.evaluate(async () => {
+    const api = (
+      globalThis as unknown as {
+        spacezero: {
+          app: {
+            getInfo: () => Promise<{ name: string; version: string; platform: string }>
+            ping: () => Promise<string>
+          }
+          db: { health: () => Promise<{ ok: boolean; path: string; projectCount: number }> }
+        }
+      }
+    ).spacezero
+
+    const [info, ping, health] = await Promise.all([api.app.getInfo(), api.app.ping(), api.db.health()])
+    return { info, ping, health }
+  })
+
+  expect(sandbox).toBe(true)
+  expect(bridgeResult.info.name).toBeTruthy()
+  expect(bridgeResult.info.version).toBeTruthy()
+  expect(bridgeResult.info.platform).toBe(process.platform)
+  expect(bridgeResult.ping).toBe('pong')
+  expect(bridgeResult.health.ok).toBe(true)
+  expect(bridgeResult.health.projectCount).toBeGreaterThanOrEqual(0)
 
   await electronApp.close()
 })
