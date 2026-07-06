@@ -1,0 +1,67 @@
+import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+
+import type { AppCommand } from './app-command.model'
+import { AppCommandRegistry } from './app-command-registry'
+
+type AppCommandContextValue = {
+  registry: AppCommandRegistry
+  commands: AppCommand[]
+}
+
+const AppCommandContext = createContext<AppCommandContextValue | null>(null)
+
+type AppCommandProviderProps = {
+  children: ReactNode
+  registry?: AppCommandRegistry
+}
+
+export function AppCommandProvider({ children, registry: providedRegistry }: AppCommandProviderProps): React.JSX.Element {
+  const [ownedRegistry] = useState(() => providedRegistry ?? new AppCommandRegistry())
+  const registry = providedRegistry ?? ownedRegistry
+  const registryVersion = useSyncExternalStore(
+    (listener) => registry.subscribe(listener),
+    () => registry.getVersion(),
+    () => registry.getVersion()
+  )
+
+  const value = useMemo<AppCommandContextValue>(
+    () => ({
+      registry,
+      commands: registry.list()
+    }),
+    [registry, registryVersion]
+  )
+
+  return <AppCommandContext.Provider value={value}>{children}</AppCommandContext.Provider>
+}
+
+export function useAppCommandRegistry(): AppCommandRegistry {
+  return useAppCommandContext().registry
+}
+
+export function useAppCommands(): AppCommand[] {
+  return useAppCommandContext().commands
+}
+
+export function useRegisterAppCommands(commands: readonly AppCommand[]): void {
+  const registry = useAppCommandRegistry()
+
+  useEffect(() => {
+    const unregisterCommands = commands.map((command) => registry.register(command))
+
+    return () => {
+      for (const unregisterCommand of unregisterCommands.reverse()) {
+        unregisterCommand()
+      }
+    }
+  }, [commands, registry])
+}
+
+function useAppCommandContext(): AppCommandContextValue {
+  const context = useContext(AppCommandContext)
+  if (!context) {
+    throw new Error('App command hooks must be used inside AppCommandProvider')
+  }
+
+  return context
+}

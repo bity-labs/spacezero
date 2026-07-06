@@ -1,8 +1,11 @@
 import { useEffect, useState, type ChangeEvent } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { MagnifyingGlass } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
+import { useCommandPaletteController } from '../../../features/command-palette/renderer/command-palette-controller'
+import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 import { i18n } from '../i18n'
 
@@ -12,6 +15,7 @@ export const Route = createFileRoute('/settings')({
 
 function SettingsPage(): React.JSX.Element {
   const { t } = useTranslation()
+  const commandPalette = useCommandPaletteController()
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
 
@@ -53,7 +57,19 @@ function SettingsPage(): React.JSX.Element {
         <div className="flex items-center justify-start">
           <div className="mac-traffic-light-space shrink-0" />
         </div>
-        <div className="text-sm font-medium text-muted-foreground">{t('app.name')}</div>
+        <div className="titlebar-control flex items-center justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-muted-foreground"
+            aria-keyshortcuts="Control+K Meta+K"
+            aria-label={t('app.openCommandPalette')}
+            onClick={() => commandPalette.open()}
+          >
+            <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
+            {t('app.name')}
+          </Button>
+        </div>
         <nav className="titlebar-control flex items-center justify-end" aria-label={t('settings.navigationLabel')}>
           <Link className="text-sm text-muted-foreground hover:text-foreground" to="/">
             {t('settings.backToWorkspace')}

@@ -1,8 +1,11 @@
-import { useCallback, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link } from '@tanstack/react-router'
-import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
+import { DotsSixVertical, MagnifyingGlass, Moon, Sidebar, Sun } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
+import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
+import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
+import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
 
@@ -24,7 +27,30 @@ export function WorkspaceShell(): React.JSX.Element {
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
+  const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
+
+  const workspaceCommands = useMemo<readonly AppCommand[]>(
+    () => [
+      {
+        id: 'workspace.toggle-left-panel',
+        title: isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel'),
+        category: t('appCommands.categories.workspace'),
+        keywords: ['sidebar', 'navigation'],
+        handler: () => setIsLeftPanelOpen((isOpen) => !isOpen)
+      },
+      {
+        id: 'workspace.toggle-right-panel',
+        title: isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel'),
+        category: t('appCommands.categories.workspace'),
+        keywords: ['sidebar', 'inspector'],
+        handler: () => setIsRightPanelOpen((isOpen) => !isOpen)
+      }
+    ],
+    [isLeftPanelOpen, isRightPanelOpen, t]
+  )
+
+  useRegisterAppCommands(workspaceCommands)
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
@@ -108,7 +134,19 @@ export function WorkspaceShell(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="text-sm font-medium text-muted-foreground">{t('app.name')}</div>
+        <div className="titlebar-control flex items-center justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 text-muted-foreground"
+            aria-keyshortcuts="Control+K Meta+K"
+            aria-label={t('app.openCommandPalette')}
+            onClick={() => commandPalette.open()}
+          >
+            <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
+            {t('app.name')}
+          </Button>
+        </div>
 
         <div className="titlebar-control flex items-center justify-end">
           <Button
