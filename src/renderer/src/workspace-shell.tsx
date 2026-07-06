@@ -139,7 +139,6 @@ export function WorkspaceShell(): React.JSX.Element {
             variant="outline"
             size="sm"
             className="gap-2 text-muted-foreground"
-            aria-keyshortcuts="Control+K Meta+K"
             aria-label={t('app.openCommandPalette')}
             onClick={() => commandPalette.open()}
           >

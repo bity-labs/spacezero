@@ -1,6 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 
-import { useAppCommandRegistry } from '../../app-commands/renderer/app-command-context'
+import {
+  useAppCommandInvocationContext,
+  useAppCommandRegistry,
+  useAppCommands
+} from '../../app-commands/renderer/app-command-context'
 import { CommandPalette } from './command-palette'
 
 type CommandPaletteControllerValue = {
@@ -16,7 +20,11 @@ type CommandPaletteControllerProviderProps = {
   children: ReactNode
 }
 
-export function CommandPaletteControllerProvider({ children }: CommandPaletteControllerProviderProps): React.JSX.Element {
+export function CommandPaletteControllerProvider({
+  children
+}: CommandPaletteControllerProviderProps): React.JSX.Element {
+  const commands = useAppCommands()
+  const invocationContext = useAppCommandInvocationContext()
   const registry = useAppCommandRegistry()
   const [isOpen, setIsOpen] = useState(false)
 
@@ -24,25 +32,21 @@ export function CommandPaletteControllerProvider({ children }: CommandPaletteCon
   const close = useCallback(() => setIsOpen(false), [])
   const toggle = useCallback(() => setIsOpen((currentIsOpen) => !currentIsOpen), [])
 
-  useEffect(() => {
-    function handleKeyDown(event: globalThis.KeyboardEvent): void {
-      const isPaletteChord = (event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 'k'
-      if (!isPaletteChord) return
-
-      event.preventDefault()
-      toggle()
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [toggle])
-
-  const value = useMemo<CommandPaletteControllerValue>(() => ({ isOpen, open, close, toggle }), [close, isOpen, open, toggle])
+  const value = useMemo<CommandPaletteControllerValue>(
+    () => ({ isOpen, open, close, toggle }),
+    [close, isOpen, open, toggle]
+  )
 
   return (
     <CommandPaletteControllerContext.Provider value={value}>
       {children}
-      <CommandPalette isOpen={isOpen} registry={registry} onClose={close} />
+      <CommandPalette
+        commands={commands}
+        invocationContext={invocationContext}
+        isOpen={isOpen}
+        registry={registry}
+        onClose={close}
+      />
     </CommandPaletteControllerContext.Provider>
   )
 }

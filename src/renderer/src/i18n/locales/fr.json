@@ -35,7 +35,8 @@
     "searchLabel": "Rechercher des commandes",
     "searchPlaceholder": "Rechercher des commandes…",
     "commandsLabel": "Commandes",
-    "empty": "Aucune commande trouvée."
+    "empty": "Aucune commande trouvée.",
+    "invocationError": "La commande a échoué. Réessayez."
   },
   "settings": {
     "title": "Paramètres",

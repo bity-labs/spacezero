@@ -1,11 +1,20 @@
-import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode
+} from 'react'
 
-import type { AppCommand } from './app-command.model'
+import type { AppCommand, AppCommandInvocationContext } from './app-command.model'
 import { AppCommandRegistry } from './app-command-registry'
 
 type AppCommandContextValue = {
   registry: AppCommandRegistry
   commands: AppCommand[]
+  invocationContext: AppCommandInvocationContext
 }
 
 const AppCommandContext = createContext<AppCommandContextValue | null>(null)
@@ -13,9 +22,14 @@ const AppCommandContext = createContext<AppCommandContextValue | null>(null)
 type AppCommandProviderProps = {
   children: ReactNode
   registry?: AppCommandRegistry
+  invocationContext?: AppCommandInvocationContext
 }
 
-export function AppCommandProvider({ children, registry: providedRegistry }: AppCommandProviderProps): React.JSX.Element {
+export function AppCommandProvider({
+  children,
+  invocationContext: providedInvocationContext,
+  registry: providedRegistry
+}: AppCommandProviderProps): React.JSX.Element {
   const [ownedRegistry] = useState(() => providedRegistry ?? new AppCommandRegistry())
   const registry = providedRegistry ?? ownedRegistry
   const registryVersion = useSyncExternalStore(
@@ -24,12 +38,19 @@ export function AppCommandProvider({ children, registry: providedRegistry }: App
     () => registry.getVersion()
   )
 
+  const defaultInvocationContext = useMemo<AppCommandInvocationContext>(
+    () => ({ spacezero: window.spacezero }),
+    []
+  )
+  const invocationContext = providedInvocationContext ?? defaultInvocationContext
+
   const value = useMemo<AppCommandContextValue>(
     () => ({
       registry,
-      commands: registry.list()
+      commands: registry.list(),
+      invocationContext
     }),
-    [registry, registryVersion]
+    [invocationContext, registry, registryVersion]
   )
 
   return <AppCommandContext.Provider value={value}>{children}</AppCommandContext.Provider>
@@ -41,6 +62,10 @@ export function useAppCommandRegistry(): AppCommandRegistry {
 
 export function useAppCommands(): AppCommand[] {
   return useAppCommandContext().commands
+}
+
+export function useAppCommandInvocationContext(): AppCommandInvocationContext {
+  return useAppCommandContext().invocationContext
 }
 
 export function useRegisterAppCommands(commands: readonly AppCommand[]): void {

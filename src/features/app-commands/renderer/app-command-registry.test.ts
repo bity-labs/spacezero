@@ -1,5 +1,5 @@
 import { AppCommandRegistry } from './app-command-registry'
-import type { AppCommand } from './app-command.model'
+import type { AppCommand, AppCommandInvocationContext } from './app-command.model'
 
 function command(overrides: Partial<AppCommand> & Pick<AppCommand, 'id' | 'title'>): AppCommand {
   return {
@@ -7,6 +7,10 @@ function command(overrides: Partial<AppCommand> & Pick<AppCommand, 'id' | 'title
     handler: () => undefined,
     ...overrides
   }
+}
+
+function invocationContext(): AppCommandInvocationContext {
+  return { spacezero: window.spacezero }
 }
 
 describe('AppCommandRegistry', () => {
@@ -27,9 +31,9 @@ describe('AppCommandRegistry', () => {
 
     registry.register(command({ id: 'settings.open', title: 'Open Settings' }))
 
-    expect(() => registry.register(command({ id: 'settings.open', title: 'Open Preferences' }))).toThrow(
-      'App command already registered: settings.open'
-    )
+    expect(() =>
+      registry.register(command({ id: 'settings.open', title: 'Open Preferences' }))
+    ).toThrow('App command already registered: settings.open')
   })
 
   it('unregisters commands through the returned disposable', () => {
@@ -43,11 +47,24 @@ describe('AppCommandRegistry', () => {
 
   it('searches command titles, categories, and keywords case-insensitively', () => {
     const registry = new AppCommandRegistry()
-    registry.register(command({ id: 'workspace.open', title: 'Open Workspace', category: 'Navigation' }))
     registry.register(
-      command({ id: 'settings.open', title: 'Open Settings', category: 'Navigation', keywords: ['preferences', 'options'] })
+      command({ id: 'workspace.open', title: 'Open Workspace', category: 'Navigation' })
     )
-    registry.register(command({ id: 'workspace.toggle-left-panel', title: 'Toggle Left Panel', category: 'Workspace UI' }))
+    registry.register(
+      command({
+        id: 'settings.open',
+        title: 'Open Settings',
+        category: 'Navigation',
+        keywords: ['preferences', 'options']
+      })
+    )
+    registry.register(
+      command({
+        id: 'workspace.toggle-left-panel',
+        title: 'Toggle Left Panel',
+        category: 'Workspace UI'
+      })
+    )
 
     expect(registry.search('PREF')).toEqual([expect.objectContaining({ id: 'settings.open' })])
     expect(registry.search('workspace')).toEqual([
@@ -60,21 +77,22 @@ describe('AppCommandRegistry', () => {
     ])
   })
 
-  it('invokes a command by stable ID', async () => {
+  it('invokes a command by stable ID with an explicit invocation context', async () => {
     const registry = new AppCommandRegistry()
-    const invocations: string[] = []
+    const receivedContexts: AppCommandInvocationContext[] = []
+    const context = invocationContext()
     registry.register(
       command({
         id: 'settings.open',
         title: 'Open Settings',
-        handler: () => {
-          invocations.push('opened settings')
+        handler: (receivedContext) => {
+          receivedContexts.push(receivedContext)
         }
       })
     )
 
-    await registry.invoke('settings.open')
+    await registry.invoke('settings.open', context)
 
-    expect(invocations).toEqual(['opened settings'])
+    expect(receivedContexts).toEqual([context])
   })
 })
