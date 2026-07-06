@@ -1,0 +1,59 @@
+import type { AgentActivityRecord } from '../shared/workspace-tool.model'
+
+/** Input for recording a Workspace Tool activity event. */
+export type AgentActivityRecordInput = Omit<AgentActivityRecord, 'id' | 'recordedAt'>
+
+export type AgentActivityHistoryInit = {
+  now?: () => Date
+  id?: () => string
+}
+
+const sequentialId = (() => {
+  let counter = 0
+  return () => `rec-${(counter += 1)}`
+})()
+
+/**
+ * Lightweight Agent Activity History for Workspace Tool calls.
+ *
+ * This is the storage boundary: it captures enough metadata to explain what
+ * happened for visibility and debugging, without persisting full tool input or
+ * output payloads by default. It is not a compliance-grade audit log.
+ */
+export interface AgentActivityHistory {
+  record(entry: AgentActivityRecordInput): AgentActivityRecord
+  list(): readonly AgentActivityRecord[]
+}
+
+/**
+ * In-memory default Agent Activity History.
+ *
+ * Space Zero keeps activity history lightweight; the v0 boundary is in-memory
+ * storage behind this interface so a durable implementation can be swapped in
+ * later without changing callers.
+ */
+export class InMemoryAgentActivityHistory implements AgentActivityHistory {
+  private readonly records: AgentActivityRecord[] = []
+  private readonly now: () => Date
+  private readonly id: () => string
+
+  constructor(init: AgentActivityHistoryInit = {}) {
+    this.now = init.now ?? (() => new Date())
+    this.id = init.id ?? sequentialId
+  }
+
+  record(entry: AgentActivityRecordInput): AgentActivityRecord {
+    const record: AgentActivityRecord = {
+      id: this.id(),
+      recordedAt: this.now().toISOString(),
+      ...entry
+    }
+    this.records.push(record)
+    return record
+  }
+
+  list(): readonly AgentActivityRecord[] {
+    // Return a frozen copy so callers cannot mutate internal state or the snapshot.
+    return Object.freeze([...this.records])
+  }
+}
