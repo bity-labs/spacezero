@@ -75,6 +75,8 @@ export function useRegisterAppCommands(commands: readonly AppCommand[]): void {
     const unregisterCommands = commands.map((command) => registry.register(command))
 
     return () => {
+      // Unregister in reverse registration order so cleanup mirrors setup and avoids
+      // surprises if commands ever share stateful side effects.
       for (const unregisterCommand of unregisterCommands.reverse()) {
         unregisterCommand()
       }
