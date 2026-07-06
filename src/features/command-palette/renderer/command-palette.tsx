@@ -1,6 +1,17 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
-import type { AppCommand } from '../../app-commands/renderer/app-command.model'
+import {
+  Command,
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList
+} from '@renderer/components/ui/command'
+
+import type { AppCommand, AppCommandId } from '../../app-commands/renderer/app-command.model'
 import type { AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
 
 type CommandPaletteProps = {
@@ -9,152 +20,93 @@ type CommandPaletteProps = {
   onClose: () => void
 }
 
-export function CommandPalette({ isOpen, registry, onClose }: CommandPaletteProps): React.JSX.Element | null {
-  const [query, setQuery] = useState('')
-  const [selectedIndex, setSelectedIndex] = useState(0)
-  const searchInputRef = useRef<HTMLInputElement>(null)
-  const filteredCommands = registry.search(query)
-  const clampedSelectedIndex = Math.min(selectedIndex, Math.max(filteredCommands.length - 1, 0))
+export function CommandPalette({ isOpen, registry, onClose }: CommandPaletteProps): React.JSX.Element {
+  const { t } = useTranslation()
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!isOpen) return
 
-    window.requestAnimationFrame(() => searchInputRef.current?.focus())
+    previouslyFocusedElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+    return () => {
+      previouslyFocusedElementRef.current?.focus()
+      previouslyFocusedElementRef.current = null
+    }
   }, [isOpen])
 
-  if (!isOpen) return null
-
-  function closePalette(): void {
-    setQuery('')
-    setSelectedIndex(0)
-    onClose()
-  }
-
-  async function invokeSelectedCommand(): Promise<void> {
-    const selectedCommand = filteredCommands[clampedSelectedIndex]
-    if (!selectedCommand) return
-
-    await registry.invoke(selectedCommand.id)
-    closePalette()
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      closePalette()
-      return
-    }
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      setSelectedIndex(() => (filteredCommands.length === 0 ? 0 : Math.min(clampedSelectedIndex + 1, filteredCommands.length - 1)))
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setSelectedIndex(Math.max(clampedSelectedIndex - 1, 0))
-      return
-    }
-
-    if (event.key === 'Home') {
-      event.preventDefault()
-      setSelectedIndex(0)
-      return
-    }
-
-    if (event.key === 'End') {
-      event.preventDefault()
-      setSelectedIndex(Math.max(filteredCommands.length - 1, 0))
-      return
-    }
-
-    if (event.key === 'Enter') {
-      event.preventDefault()
-      void invokeSelectedCommand()
-    }
+  function handleOpenChange(open: boolean): void {
+    if (!open) onClose()
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-background/65 px-4 pt-[12vh] backdrop-blur-sm" role="presentation">
-      <div
-        aria-label="Command Palette"
-        aria-modal="true"
-        className="w-full max-w-2xl overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-2xl"
-        role="dialog"
-        onKeyDown={handleKeyDown}
-      >
-        <div className="border-b border-border p-3">
-          <label className="sr-only" htmlFor="command-palette-search">
-            Search commands
-          </label>
-          <input
-            ref={searchInputRef}
-            aria-activedescendant={filteredCommands[clampedSelectedIndex] ? commandOptionId(filteredCommands[clampedSelectedIndex]) : undefined}
-            aria-controls="command-palette-list"
-            aria-label="Search commands"
-            className="h-11 w-full rounded-md border border-transparent bg-transparent px-3 text-base outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            id="command-palette-search"
-            placeholder="Search commands…"
-            role="searchbox"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setSelectedIndex(0)
-            }}
-          />
-        </div>
+    <CommandDialog
+      className="max-w-2xl border border-border shadow-2xl"
+      description={t('commandPalette.description')}
+      open={isOpen}
+      title={t('commandPalette.title')}
+      onOpenChange={handleOpenChange}
+    >
+      {isOpen ? <CommandPaletteContent registry={registry} onClose={onClose} /> : null}
+    </CommandDialog>
+  )
+}
 
-        <div className="max-h-96 overflow-y-auto p-2">
-          {filteredCommands.length > 0 ? (
-            <div aria-label="Commands" id="command-palette-list" role="listbox">
-              {filteredCommands.map((command, index) => (
-                <CommandOption
-                  key={command.id}
-                  command={command}
-                  isSelected={index === clampedSelectedIndex}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  onSelect={() => {
-                    setSelectedIndex(index)
-                    void registry.invoke(command.id).then(closePalette)
-                  }}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="px-3 py-8 text-center text-sm text-muted-foreground">No commands found.</p>
-          )}
-        </div>
-      </div>
-    </div>
+type CommandPaletteContentProps = {
+  registry: AppCommandRegistry
+  onClose: () => void
+}
+
+function CommandPaletteContent({ registry, onClose }: CommandPaletteContentProps): React.JSX.Element {
+  const { t } = useTranslation()
+  const [query, setQuery] = useState('')
+  const [selectedCommandId, setSelectedCommandId] = useState<AppCommandId>('')
+  const filteredCommands = useMemo(() => registry.search(query), [query, registry])
+  const activeCommandId = filteredCommands.some((command) => command.id === selectedCommandId)
+    ? selectedCommandId
+    : (filteredCommands[0]?.id ?? '')
+
+  async function invokeCommand(commandId: AppCommandId): Promise<void> {
+    await registry.invoke(commandId)
+    onClose()
+  }
+
+  return (
+    <Command label={t('commandPalette.searchLabel')} shouldFilter={false} value={activeCommandId} onValueChange={setSelectedCommandId}>
+      <CommandInput
+        aria-label={t('commandPalette.searchLabel')}
+        placeholder={t('commandPalette.searchPlaceholder')}
+        value={query}
+        onValueChange={(nextQuery) => {
+          setQuery(nextQuery)
+          setSelectedCommandId('')
+        }}
+      />
+      <CommandList label={t('commandPalette.commandsLabel')}>
+        {filteredCommands.length > 0 ? (
+          <CommandGroup heading={t('commandPalette.commandsLabel')}>
+            {filteredCommands.map((command) => (
+              <CommandOption key={command.id} command={command} onSelect={() => void invokeCommand(command.id)} />
+            ))}
+          </CommandGroup>
+        ) : (
+          <CommandEmpty>{t('commandPalette.empty')}</CommandEmpty>
+        )}
+      </CommandList>
+    </Command>
   )
 }
 
 type CommandOptionProps = {
   command: AppCommand
-  isSelected: boolean
-  onMouseEnter: () => void
   onSelect: () => void
 }
 
-function CommandOption({ command, isSelected, onMouseEnter, onSelect }: CommandOptionProps): React.JSX.Element {
+function CommandOption({ command, onSelect }: CommandOptionProps): React.JSX.Element {
   return (
-    <button
-      aria-label={`${command.title} — ${command.category}`}
-      aria-selected={isSelected}
-      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm outline-none aria-selected:bg-accent aria-selected:text-accent-foreground hover:bg-accent hover:text-accent-foreground focus-visible:ring-3 focus-visible:ring-ring/50"
-      id={commandOptionId(command)}
-      role="option"
-      type="button"
-      onClick={onSelect}
-      onMouseEnter={onMouseEnter}
-    >
+    <CommandItem aria-label={`${command.title} — ${command.category}`} value={command.id} onSelect={onSelect}>
       <span className="font-medium">{command.title}</span>
-      <span className="text-xs text-muted-foreground">{command.category}</span>
-    </button>
+      <span className="ml-auto text-xs text-muted-foreground">{command.category}</span>
+    </CommandItem>
   )
-}
-
-function commandOptionId(command: AppCommand): string {
-  return `command-palette-option-${command.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`
 }

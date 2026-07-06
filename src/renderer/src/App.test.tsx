@@ -92,8 +92,9 @@ describe('App', () => {
     fireEvent.click(within(topBar).getByRole('button', { name: 'Open command palette' }))
 
     const palette = await screen.findByRole('dialog', { name: 'Command Palette' })
-    fireEvent.change(within(palette).getByRole('searchbox', { name: 'Search commands' }), { target: { value: 'settings' } })
-    fireEvent.keyDown(palette, { key: 'Enter' })
+    const input = within(palette).getByRole('combobox', { name: 'Search commands' })
+    fireEvent.change(input, { target: { value: 'settings' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument())
@@ -106,8 +107,9 @@ describe('App', () => {
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
 
     const palette = await screen.findByRole('dialog', { name: 'Command Palette' })
-    fireEvent.change(within(palette).getByRole('searchbox', { name: 'Search commands' }), { target: { value: 'right panel' } })
-    fireEvent.keyDown(palette, { key: 'Enter' })
+    const input = within(palette).getByRole('combobox', { name: 'Search commands' })
+    fireEvent.change(input, { target: { value: 'right panel' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(screen.queryByRole('complementary', { name: 'Right panel' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument())
