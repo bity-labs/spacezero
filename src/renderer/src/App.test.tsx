@@ -1,10 +1,12 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { App } from './App'
+import { router } from './router'
 
 describe('App', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     window.location.hash = ''
+    await router.navigate({ to: '/' })
     document.documentElement.classList.remove('dark')
     document.documentElement.style.colorScheme = ''
   })
@@ -36,9 +38,14 @@ describe('App', () => {
     render(<App />)
 
     const topBar = await screen.findByRole('banner')
-    expect(within(topBar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
+    expect(
+      within(topBar)
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual([
       'Hide left panel',
       'Switch to light mode',
+      'Open command palette',
       'Hide right panel'
     ])
     expect(document.documentElement).toHaveClass('dark')
@@ -84,6 +91,48 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
+  it('opens the command palette, searches, and invokes a navigation command', async () => {
+    render(<App />)
+
+    const topBar = await screen.findByRole('banner')
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Open command palette' }))
+
+    const palette = await screen.findByRole('dialog', { name: 'Command Palette' })
+    const input = within(palette).getByRole('combobox', { name: 'Search commands' })
+    fireEvent.change(input, { target: { value: 'settings' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
+    )
+  })
+
+  it('invokes renderer-local workspace UI commands from the command palette', async () => {
+    render(<App />)
+
+    const topBar = await screen.findByRole('banner')
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Open command palette' }))
+
+    const input = await screen.findByRole('combobox', { name: 'Search commands' })
+    fireEvent.change(input, { target: { value: 'right panel' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.queryByRole('complementary', { name: 'Right panel' })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
+    )
+  })
+
+  it('does not open the command palette through a hard-coded keyboard shortcut', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+
+    expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
+  })
+
   it('updates the language from Settings without requiring a restart', async () => {
     render(<App />)
 
@@ -95,7 +144,9 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
-    expect(await screen.findByRole('main', { name: 'Espace de travail principal' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('main', { name: 'Espace de travail principal' })
+    ).toBeInTheDocument()
   })
 
   it('keeps the app-wide theme when navigating between routes', async () => {
@@ -118,6 +169,8 @@ describe('App', () => {
 
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
-    expect(within(workspaceTopBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
+    expect(
+      within(workspaceTopBar).getByRole('button', { name: 'Switch to dark mode' })
+    ).toBeInTheDocument()
   })
 })

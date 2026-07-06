@@ -11,6 +11,8 @@
     "drizzle.config.ts",
     "src/main/**/*",
     "src/preload/**/*",
+    "src/features/*/main/**/*",
+    "src/features/*/shared/**/*",
     "src/shared/**/*"
   ]
 }
