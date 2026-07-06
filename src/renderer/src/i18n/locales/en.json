@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Space Zero"
+    "name": "Space Zero",
+    "openCommandPalette": "Open command palette"
   },
   "workspace": {
     "title": "Workspace",
@@ -17,6 +18,16 @@
     "resizeRightPanel": "Resize right panel",
     "switchToLightMode": "Switch to light mode",
     "switchToDarkMode": "Switch to dark mode"
+  },
+  "appCommands": {
+    "openWorkspace": "Open Workspace",
+    "openSettings": "Open Settings",
+    "categories": {
+      "application": "Application",
+      "navigation": "Navigation",
+      "ui": "User Interface",
+      "workspace": "Workspace"
+    }
   },
   "settings": {
     "title": "Settings",

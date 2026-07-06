@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { App } from './App'
 
@@ -39,6 +39,7 @@ describe('App', () => {
     expect(within(topBar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       'Hide left panel',
       'Switch to light mode',
+      'Open command palette',
       'Hide right panel'
     ])
     expect(document.documentElement).toHaveClass('dark')
@@ -82,6 +83,34 @@ describe('App', () => {
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/')
+  })
+
+  it('opens the command palette, searches, and invokes a navigation command', async () => {
+    render(<App />)
+
+    const topBar = await screen.findByRole('banner')
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Open command palette' }))
+
+    const palette = await screen.findByRole('dialog', { name: 'Command Palette' })
+    fireEvent.change(within(palette).getByRole('searchbox', { name: 'Search commands' }), { target: { value: 'settings' } })
+    fireEvent.keyDown(palette, { key: 'Enter' })
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument())
+  })
+
+  it('invokes renderer-local workspace UI commands from the command palette', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true })
+
+    const palette = await screen.findByRole('dialog', { name: 'Command Palette' })
+    fireEvent.change(within(palette).getByRole('searchbox', { name: 'Search commands' }), { target: { value: 'right panel' } })
+    fireEvent.keyDown(palette, { key: 'Enter' })
+
+    expect(screen.queryByRole('complementary', { name: 'Right panel' })).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument())
   })
 
   it('updates the language from Settings without requiring a restart', async () => {
