@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next'
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
 import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
+import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
+import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
 
@@ -14,6 +16,11 @@ const RIGHT_PANEL_DEFAULT_WIDTH = 320
 const PANEL_MIN_WIDTH = 220
 const PANEL_MAX_WIDTH = 520
 const KEYBOARD_RESIZE_STEP = 24
+
+const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
+  { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
+  { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+]
 
 type ResizablePanel = 'left' | 'right'
 
@@ -51,6 +58,7 @@ export function WorkspaceShell(): React.JSX.Element {
   )
 
   useRegisterAppCommands(workspaceCommands)
+  useRegisterKeyboardShortcuts(workspaceShortcuts)
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
