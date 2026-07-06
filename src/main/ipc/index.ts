@@ -1,3 +1,4 @@
+import { registerSettingsIpc } from '../../features/settings/main/settings.ipc'
 import { registerAppIpc } from './app'
 import { registerDbIpc } from './db'
 
@@ -8,6 +9,7 @@ export function registerIpcHandlers(): void {
 
   registerAppIpc()
   registerDbIpc()
+  registerSettingsIpc()
 
   registered = true
 }

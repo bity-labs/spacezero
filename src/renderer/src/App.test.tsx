@@ -84,6 +84,20 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
+  it('updates the language from Settings without requiring a restart', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+    const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
+
+    fireEvent.change(languageSelect, { target: { value: 'fr' } })
+
+    expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
+    expect(await screen.findByRole('main', { name: 'Espace de travail principal' })).toBeInTheDocument()
+  })
+
   it('keeps the app-wide theme when navigating between routes', async () => {
     render(<App />)
 
