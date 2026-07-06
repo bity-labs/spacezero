@@ -4,10 +4,7 @@ import { useState } from 'react'
 import { i18n } from '@renderer/i18n'
 
 import { AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
-import type {
-  AppCommand,
-  AppCommandInvocationContext
-} from '../../app-commands/renderer/app-command.model'
+import type { AppCommand } from '../../app-commands/renderer/app-command.model'
 import { CommandPalette } from './command-palette'
 
 function command(overrides: Partial<AppCommand> & Pick<AppCommand, 'id' | 'title'>): AppCommand {
@@ -18,7 +15,7 @@ function command(overrides: Partial<AppCommand> & Pick<AppCommand, 'id' | 'title
   }
 }
 
-function createInvocationContext(): AppCommandInvocationContext {
+function createInvocationContext() {
   return { spacezero: window.spacezero }
 }
 
@@ -32,9 +29,9 @@ function renderPalette(
     ...render(
       <CommandPalette
         commands={commands}
-        invocationContext={createInvocationContext()}
+        invokeCommand={(commandId) => registry.invoke(commandId, createInvocationContext())}
         isOpen
-        registry={registry}
+        searchCommands={(query) => registry.search(query)}
         onClose={onClose}
       />
     )
@@ -137,18 +134,18 @@ describe('CommandPalette', () => {
     rerender(
       <CommandPalette
         commands={registry.list()}
-        invocationContext={createInvocationContext()}
+        invokeCommand={(commandId) => registry.invoke(commandId, createInvocationContext())}
         isOpen={false}
-        registry={registry}
+        searchCommands={(query) => registry.search(query)}
         onClose={onClose}
       />
     )
     rerender(
       <CommandPalette
         commands={registry.list()}
-        invocationContext={createInvocationContext()}
+        invokeCommand={(commandId) => registry.invoke(commandId, createInvocationContext())}
         isOpen
-        registry={registry}
+        searchCommands={(query) => registry.search(query)}
         onClose={onClose}
       />
     )
@@ -178,9 +175,9 @@ describe('CommandPalette', () => {
     rerender(
       <CommandPalette
         commands={registry.list()}
-        invocationContext={createInvocationContext()}
+        invokeCommand={(commandId) => registry.invoke(commandId, createInvocationContext())}
         isOpen
-        registry={registry}
+        searchCommands={(query) => registry.search(query)}
         onClose={onClose}
       />
     )
@@ -242,9 +239,9 @@ describe('CommandPalette', () => {
           <button type="button">Background action</button>
           <CommandPalette
             commands={registry.list()}
-            invocationContext={createInvocationContext()}
+            invokeCommand={(commandId) => registry.invoke(commandId, createInvocationContext())}
             isOpen={isOpen}
-            registry={registry}
+            searchCommands={(query) => registry.search(query)}
             onClose={() => setIsOpen(false)}
           />
         </>

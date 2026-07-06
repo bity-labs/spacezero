@@ -11,26 +11,21 @@ import {
   CommandList
 } from '@renderer/components/ui/command'
 
-import type {
-  AppCommand,
-  AppCommandId,
-  AppCommandInvocationContext
-} from '../../app-commands/renderer/app-command.model'
-import type { AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
+import type { AppCommand, AppCommandId } from '../../app-commands/renderer/app-command.model'
 
 type CommandPaletteProps = {
   commands: readonly AppCommand[]
-  invocationContext: AppCommandInvocationContext
   isOpen: boolean
-  registry: AppCommandRegistry
+  invokeCommand: (commandId: AppCommandId) => void | Promise<void>
+  searchCommands: (query: string) => AppCommand[]
   onClose: () => void
 }
 
 export function CommandPalette({
   commands,
-  invocationContext,
   isOpen,
-  registry,
+  invokeCommand,
+  searchCommands,
   onClose
 }: CommandPaletteProps): React.JSX.Element {
   const { t } = useTranslation()
@@ -63,8 +58,8 @@ export function CommandPalette({
       {isOpen ? (
         <CommandPaletteContent
           commands={commands}
-          invocationContext={invocationContext}
-          registry={registry}
+          invokeCommand={invokeCommand}
+          searchCommands={searchCommands}
           onClose={onClose}
         />
       ) : null}
@@ -74,33 +69,33 @@ export function CommandPalette({
 
 type CommandPaletteContentProps = {
   commands: readonly AppCommand[]
-  invocationContext: AppCommandInvocationContext
-  registry: AppCommandRegistry
+  invokeCommand: (commandId: AppCommandId) => void | Promise<void>
+  searchCommands: (query: string) => AppCommand[]
   onClose: () => void
 }
 
 function CommandPaletteContent({
   commands,
-  invocationContext,
-  registry,
+  invokeCommand,
+  searchCommands,
   onClose
 }: CommandPaletteContentProps): React.JSX.Element {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [selectedCommandId, setSelectedCommandId] = useState<AppCommandId>('')
   const [invocationError, setInvocationError] = useState<string | null>(null)
-  // `commands` is included as a dependency because `registry` keeps a stable reference;
-  // the command list from context signals when registrations have changed.
-  const filteredCommands = useMemo(() => registry.search(query), [commands, query, registry])
+  // `commands` is included as a dependency because `searchCommands` closes over a stable
+  // registry reference; the command list from context signals when registrations changed.
+  const filteredCommands = useMemo(() => searchCommands(query), [commands, query, searchCommands])
   const activeCommandId = filteredCommands.some((command) => command.id === selectedCommandId)
     ? selectedCommandId
     : (filteredCommands[0]?.id ?? '')
 
-  async function invokeCommand(commandId: AppCommandId): Promise<void> {
+  async function handleInvokeCommand(commandId: AppCommandId): Promise<void> {
     setInvocationError(null)
 
     try {
-      await registry.invoke(commandId, invocationContext)
+      await invokeCommand(commandId)
       onClose()
     } catch {
       setInvocationError(t('commandPalette.invocationError'))
@@ -135,7 +130,7 @@ function CommandPaletteContent({
               <CommandOption
                 key={command.id}
                 command={command}
-                onSelect={() => void invokeCommand(command.id)}
+                onSelect={() => void handleInvokeCommand(command.id)}
               />
             ))}
           </CommandGroup>

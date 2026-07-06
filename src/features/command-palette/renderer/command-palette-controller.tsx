@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
 
+import type { AppCommandId } from '../../app-commands/renderer/app-command.model'
 import {
   useAppCommandInvocationContext,
   useAppCommandRegistry,
@@ -11,7 +12,6 @@ type CommandPaletteControllerValue = {
   isOpen: boolean
   open: () => void
   close: () => void
-  toggle: () => void
 }
 
 const CommandPaletteControllerContext = createContext<CommandPaletteControllerValue | null>(null)
@@ -30,11 +30,21 @@ export function CommandPaletteControllerProvider({
 
   const open = useCallback(() => setIsOpen(true), [])
   const close = useCallback(() => setIsOpen(false), [])
-  const toggle = useCallback(() => setIsOpen((currentIsOpen) => !currentIsOpen), [])
+
+  const searchCommands = useCallback(
+    (query: string) => registry.search(query),
+    [registry]
+  )
+  const invokeCommand = useCallback(
+    async (commandId: AppCommandId) => {
+      await registry.invoke(commandId, invocationContext)
+    },
+    [invocationContext, registry]
+  )
 
   const value = useMemo<CommandPaletteControllerValue>(
-    () => ({ isOpen, open, close, toggle }),
-    [close, isOpen, open, toggle]
+    () => ({ isOpen, open, close }),
+    [close, isOpen, open]
   )
 
   return (
@@ -42,9 +52,9 @@ export function CommandPaletteControllerProvider({
       {children}
       <CommandPalette
         commands={commands}
-        invocationContext={invocationContext}
+        invokeCommand={invokeCommand}
         isOpen={isOpen}
-        registry={registry}
+        searchCommands={searchCommands}
         onClose={close}
       />
     </CommandPaletteControllerContext.Provider>
