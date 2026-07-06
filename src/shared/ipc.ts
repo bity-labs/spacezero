@@ -1,3 +1,5 @@
+import type { LanguagePreference, LanguageSettings } from './i18n'
+
 export const IPC_CHANNELS = {
   app: {
     getInfo: 'app:getInfo',
@@ -5,6 +7,10 @@ export const IPC_CHANNELS = {
   },
   db: {
     health: 'db:health'
+  },
+  settings: {
+    getLanguageSettings: 'settings:getLanguageSettings',
+    updateLanguagePreference: 'settings:updateLanguagePreference'
   }
 } as const
 
@@ -27,5 +33,9 @@ export type SpaceZeroAPI = {
   }
   db: {
     health: () => Promise<DbHealth>
+  }
+  settings: {
+    getLanguageSettings: () => Promise<LanguageSettings>
+    updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
   }
 }

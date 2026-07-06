@@ -1,0 +1,38 @@
+{
+  "app": {
+    "name": "Space Zero"
+  },
+  "workspace": {
+    "title": "Workspace",
+    "mainLabel": "Main workspace",
+    "leftPanel": "Left panel",
+    "rightPanel": "Right panel",
+    "navigation": "Workspace navigation",
+    "settingsLink": "Settings",
+    "hideLeftPanel": "Hide left panel",
+    "showLeftPanel": "Show left panel",
+    "hideRightPanel": "Hide right panel",
+    "showRightPanel": "Show right panel",
+    "resizeLeftPanel": "Resize left panel",
+    "resizeRightPanel": "Resize right panel",
+    "switchToLightMode": "Switch to light mode",
+    "switchToDarkMode": "Switch to dark mode"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Configure Space Zero preferences here.",
+    "mainLabel": "Settings",
+    "navigationLabel": "Settings navigation",
+    "backToWorkspace": "Back to Workspace",
+    "language": {
+      "sectionTitle": "Language",
+      "label": "Language",
+      "description": "Choose how Space Zero picks the interface language.",
+      "useSystem": "Use system language",
+      "english": "English",
+      "french": "French",
+      "loading": "Loading language settings…",
+      "saveError": "Could not update language preference."
+    }
+  }
+}

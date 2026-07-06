@@ -36,8 +36,10 @@
     "clsx": "latest",
     "drizzle-orm": "latest",
     "electron-log": "latest",
+    "i18next": "^26.3.4",
     "react": "latest",
     "react-dom": "latest",
+    "react-i18next": "^17.0.8",
     "tailwind-merge": "latest",
     "zod": "latest"
   },
