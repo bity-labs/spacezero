@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
 
 import { Button } from './components/ui/button'
+import { useColorMode } from './color-mode-provider'
 
 const LEFT_PANEL_DEFAULT_WIDTH = 280
 const RIGHT_PANEL_DEFAULT_WIDTH = 320
@@ -11,7 +12,6 @@ const PANEL_MAX_WIDTH = 520
 const KEYBOARD_RESIZE_STEP = 24
 
 type ResizablePanel = 'left' | 'right'
-type ColorMode = 'dark' | 'light'
 
 function clampPanelWidth(width: number): number {
   return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, width))
@@ -20,14 +20,9 @@ function clampPanelWidth(width: number): number {
 export function WorkspaceShell(): React.JSX.Element {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
-  const [colorMode, setColorMode] = useState<ColorMode>('dark')
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', colorMode === 'dark')
-    document.documentElement.style.colorScheme = colorMode
-  }, [colorMode])
+  const { colorMode, setColorMode } = useColorMode()
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
