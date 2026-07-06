@@ -1,6 +1,7 @@
 import { useCallback, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import { DotsSixVertical, Moon, Sidebar, Sun } from '@phosphor-icons/react'
+import { useTranslation } from 'react-i18next'
 
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
@@ -23,6 +24,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
+  const { t } = useTranslation()
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
@@ -88,7 +90,7 @@ export function WorkspaceShell(): React.JSX.Element {
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground"
-              aria-label={isLeftPanelOpen ? 'Hide left panel' : 'Show left panel'}
+              aria-label={isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel')}
               aria-pressed={isLeftPanelOpen}
               onClick={() => setIsLeftPanelOpen((isOpen) => !isOpen)}
             >
@@ -98,7 +100,7 @@ export function WorkspaceShell(): React.JSX.Element {
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground"
-              aria-label={colorMode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={colorMode === 'dark' ? t('workspace.switchToLightMode') : t('workspace.switchToDarkMode')}
               onClick={() => setColorMode((currentMode) => (currentMode === 'dark' ? 'light' : 'dark'))}
             >
               {colorMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
@@ -106,14 +108,14 @@ export function WorkspaceShell(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="text-sm font-medium text-muted-foreground">Space Zero</div>
+        <div className="text-sm font-medium text-muted-foreground">{t('app.name')}</div>
 
         <div className="titlebar-control flex items-center justify-end">
           <Button
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
-            aria-label={isRightPanelOpen ? 'Hide right panel' : 'Show right panel'}
+            aria-label={isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')}
             aria-pressed={isRightPanelOpen}
             onClick={() => setIsRightPanelOpen((isOpen) => !isOpen)}
           >
@@ -124,11 +126,11 @@ export function WorkspaceShell(): React.JSX.Element {
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
-          <aside aria-label="Left panel" className="min-w-0 border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
-            <h2 className="text-sm font-medium">Left panel</h2>
-            <nav className="mt-4 flex flex-col gap-1" aria-label="Workspace navigation">
+          <aside aria-label={t('workspace.leftPanel')} className="min-w-0 border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
+            <h2 className="text-sm font-medium">{t('workspace.leftPanel')}</h2>
+            <nav className="mt-4 flex flex-col gap-1" aria-label={t('workspace.navigation')}>
               <Link className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground" to="/settings">
-                Settings
+                {t('workspace.settingsLink')}
               </Link>
             </nav>
           </aside>
@@ -136,20 +138,20 @@ export function WorkspaceShell(): React.JSX.Element {
 
         {isLeftPanelOpen ? (
           <ResizeHandle
-            label="Resize left panel"
+            label={t('workspace.resizeLeftPanel')}
             value={leftPanelWidth}
             onPointerDown={(event) => startResize('left', event)}
             onKeyDown={(event) => resizeWithKeyboard('left', event)}
           />
         ) : null}
 
-        <section aria-label="Main workspace" className="min-w-0 bg-background p-4" role="main">
-          <h1 className="text-sm font-medium">Workspace</h1>
+        <section aria-label={t('workspace.mainLabel')} className="min-w-0 bg-background p-4" role="main">
+          <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
         </section>
 
         {isRightPanelOpen ? (
           <ResizeHandle
-            label="Resize right panel"
+            label={t('workspace.resizeRightPanel')}
             value={rightPanelWidth}
             onPointerDown={(event) => startResize('right', event)}
             onKeyDown={(event) => resizeWithKeyboard('right', event)}
@@ -157,8 +159,8 @@ export function WorkspaceShell(): React.JSX.Element {
         ) : null}
 
         {isRightPanelOpen ? (
-          <aside aria-label="Right panel" className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
-            <h2 className="text-sm font-medium">Right panel</h2>
+          <aside aria-label={t('workspace.rightPanel')} className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
+            <h2 className="text-sm font-medium">{t('workspace.rightPanel')}</h2>
           </aside>
         ) : null}
       </div>
