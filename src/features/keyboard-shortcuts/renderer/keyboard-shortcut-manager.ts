@@ -1,5 +1,5 @@
-import { AppCommandId, AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
-import { AppCommandInvocationContext } from '../../app-commands/renderer/app-command.model'
+import { AppCommandRegistry } from '../../app-commands/renderer/app-command-registry'
+import { type AppCommandId, AppCommandInvocationContext } from '../../app-commands/renderer/app-command.model'
 import { Keybinding, ShortcutContext, createDefaultShortcutContext } from './keybinding.model'
 import { isTextInputElement, matchKeyboardEvent } from './keybinding-parser'
 

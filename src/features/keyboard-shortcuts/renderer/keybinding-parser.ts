@@ -90,13 +90,9 @@ export function matchKeyboardEvent(event: KeyboardEvent, binding: Keybinding): b
       return false
     }
   } else {
-    // On non-macOS, `mod` maps to Control. If `mod` is present, Control is
-    // already accounted for; checking it again would conflict with bindings
-    // like `mod+k` while the user is holding Control.
-    if (event.ctrlKey !== parsed.mod) {
-      return false
-    }
-    if (!parsed.mod && event.ctrlKey !== parsed.ctrl) {
+    // On non-macOS, `mod` and the literal `ctrl` modifier both map to the
+    // Control key. Either (or both) being set requires Control to be held.
+    if (event.ctrlKey !== (parsed.mod || parsed.ctrl)) {
       return false
     }
   }

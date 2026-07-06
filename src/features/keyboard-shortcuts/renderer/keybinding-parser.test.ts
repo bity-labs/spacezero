@@ -95,6 +95,26 @@ describe('matchKeyboardEvent', () => {
 
     expect(matchKeyboardEvent(event, { normalized: 'mod+k' })).toBe(false)
   })
+
+  it('matches literal ctrl+k with Control on Windows/Linux', () => {
+    stubPlatform('Win32')
+    const event = new KeyboardEvent('keydown', { key: 'k', ctrlKey: true })
+
+    expect(matchKeyboardEvent(event, { normalized: 'ctrl+k' })).toBe(true)
+  })
+
+  it('does not match ctrl+k without Control on Windows/Linux', () => {
+    stubPlatform('Linux x86_64')
+    const event = new KeyboardEvent('keydown', { key: 'k' })
+
+    expect(matchKeyboardEvent(event, { normalized: 'ctrl+k' })).toBe(false)
+  })
+
+  it('does not match literal ctrl+k with Command on macOS', () => {
+    const event = new KeyboardEvent('keydown', { key: 'k', metaKey: true })
+
+    expect(matchKeyboardEvent(event, { normalized: 'ctrl+k' })).toBe(false)
+  })
 })
 
 describe('toPlatformDisplayLabel', () => {
