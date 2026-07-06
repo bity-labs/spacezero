@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import tailwindcss from '@tailwindcss/vite'
+import { tanstackRouter } from '@tanstack/router-plugin/vite'
 import react from '@vitejs/plugin-react'
 
 export default defineConfig({
@@ -26,6 +27,14 @@ export default defineConfig({
         '@shared': resolve('src/shared')
       }
     },
-    plugins: [react(), tailwindcss()]
+    plugins: [
+      tanstackRouter({
+        target: 'react',
+        routesDirectory: './src/routes',
+        generatedRouteTree: './src/routeTree.gen.ts'
+      }),
+      react(),
+      tailwindcss()
+    ]
   }
 })

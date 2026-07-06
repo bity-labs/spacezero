@@ -3,20 +3,26 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { App } from './App'
 
 describe('App', () => {
-  it('renders a three-column base workspace layout', () => {
+  beforeEach(() => {
+    window.location.hash = ''
+    document.documentElement.classList.remove('dark')
+    document.documentElement.style.colorScheme = ''
+  })
+
+  it('renders the workspace route at /', async () => {
     render(<App />)
 
-    expect(screen.getByRole('banner')).toBeInTheDocument()
+    expect(await screen.findByRole('banner')).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Left panel' })).toBeInTheDocument()
     expect(screen.getByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Right panel' })).toBeInTheDocument()
     expect(screen.queryByText('Desktop foundation')).not.toBeInTheDocument()
   })
 
-  it('toggles the side columns from the top bar corner buttons', () => {
+  it('toggles the side columns from the top bar corner buttons', async () => {
     render(<App />)
 
-    const topBar = screen.getByRole('banner')
+    const topBar = await screen.findByRole('banner')
     fireEvent.click(within(topBar).getByRole('button', { name: 'Hide left panel' }))
     fireEvent.click(within(topBar).getByRole('button', { name: 'Hide right panel' }))
 
@@ -26,10 +32,10 @@ describe('App', () => {
     expect(within(topBar).getByRole('button', { name: 'Show right panel' })).toBeInTheDocument()
   })
 
-  it('toggles between dark and light mode from the titlebar', () => {
+  it('toggles between dark and light mode from the titlebar', async () => {
     render(<App />)
 
-    const topBar = screen.getByRole('banner')
+    const topBar = await screen.findByRole('banner')
     expect(within(topBar).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual([
       'Hide left panel',
       'Switch to light mode',
@@ -45,9 +51,10 @@ describe('App', () => {
     expect(within(topBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
   })
 
-  it('supports keyboard resizing for side columns', () => {
+  it('supports keyboard resizing for side columns', async () => {
     render(<App />)
 
+    await screen.findByRole('banner')
     const leftResize = screen.getByRole('separator', { name: 'Resize left panel' })
     const rightResize = screen.getByRole('separator', { name: 'Resize right panel' })
 
@@ -59,5 +66,44 @@ describe('App', () => {
 
     expect(leftResize).toHaveAttribute('aria-valuenow', '304')
     expect(rightResize).toHaveAttribute('aria-valuenow', '344')
+  })
+
+  it('navigates from the workspace to Settings and back', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings')
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/')
+  })
+
+  it('keeps the app-wide theme when navigating between routes', async () => {
+    render(<App />)
+
+    const topBar = await screen.findByRole('banner')
+    fireEvent.click(within(topBar).getByRole('button', { name: 'Switch to light mode' }))
+
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+    await screen.findByRole('main', { name: 'Main workspace' })
+    const workspaceTopBar = screen.getByRole('banner')
+
+    expect(document.documentElement).not.toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+    expect(within(workspaceTopBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
   })
 })
