@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "Space Zero"
+    "name": "Space Zero",
+    "openCommandPalette": "Ouvrir la palette de commandes"
   },
   "workspace": {
     "title": "Espace de travail",
@@ -17,6 +18,25 @@
     "resizeRightPanel": "Redimensionner le panneau droit",
     "switchToLightMode": "Passer au mode clair",
     "switchToDarkMode": "Passer au mode sombre"
+  },
+  "appCommands": {
+    "openWorkspace": "Ouvrir l’espace de travail",
+    "openSettings": "Ouvrir les paramètres",
+    "categories": {
+      "application": "Application",
+      "navigation": "Navigation",
+      "ui": "Interface utilisateur",
+      "workspace": "Espace de travail"
+    }
+  },
+  "commandPalette": {
+    "title": "Palette de commandes",
+    "description": "Recherchez une commande à exécuter.",
+    "searchLabel": "Rechercher des commandes",
+    "searchPlaceholder": "Rechercher des commandes…",
+    "commandsLabel": "Commandes",
+    "empty": "Aucune commande trouvée.",
+    "invocationError": "La commande a échoué. Réessayez."
   },
   "settings": {
     "title": "Paramètres",

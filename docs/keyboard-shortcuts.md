@@ -2,7 +2,8 @@
 
 Space Zero keyboard shortcuts are **in-app only** (v0) and resolve to stable
 **App Command IDs**. They are not owned by the Command Palette; both the palette
-and shortcuts dispatch through the same neutral App Command Registry.
+and shortcuts dispatch through the same `AppCommandRegistry` provided by
+`AppCommandProvider`.
 
 ## Architecture
 
@@ -13,43 +14,55 @@ Keyboard event
   -> normalized keybinding match
   -> context / when check
   -> App Command ID
-  -> AppCommandRegistry
+  -> AppCommandRegistry.invoke(commandId, invocationContext)
   -> command handler
   -> optional preload/IPC/main service for app-state/native behavior
 ```
+
+`AppCommandProvider` owns the registry and the invocation context (the narrow
+`window.spacezero` API). `KeyboardShortcutsProvider` reads both from context and
+attaches the global keydown listener.
 
 ## Adding a default shortcut
 
 1. **Register the App Command** where the behavior/state lives.
 
    ```ts
-   import { appCommandRegistry } from '@/features/app-commands/renderer/app-command-registry'
+   import { useRegisterAppCommands } from '@/features/app-commands/renderer/app-command-context'
+   import type { AppCommand } from '@/features/app-commands/renderer/app-command.model'
 
-   useEffect(() => {
-     const unregister = appCommandRegistry.register({
+   const myCommands: readonly AppCommand[] = [
+     {
        id: 'myFeature.doThing',
        title: 'Do thing',
        category: 'My Feature',
        handler: () => {
-         // mutate renderer state or call window.spacezero.* for main behavior
+         // mutate renderer state or call context.spacezero.* for main behavior
        }
-     })
-     return unregister
-   }, [])
+     }
+   ]
+
+   function MyFeature(): React.JSX.Element {
+     useRegisterAppCommands(myCommands)
+     // ...
+   }
    ```
 
 2. **Register the default keybinding** with the shortcut manager.
 
    ```ts
-   import { keyboardShortcutManager } from '@/features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
+   import type { KeyboardShortcutDefinition } from '@/features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
+   import { useRegisterKeyboardShortcuts } from '@/features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 
-   useEffect(() => {
-     const unregister = keyboardShortcutManager.register({
-       commandId: 'myFeature.doThing',
-       defaultKeybinding: { normalized: 'mod+shift+t' }
-     })
-     return unregister
-   }, [])
+   const myShortcuts: readonly KeyboardShortcutDefinition[] = [
+     { commandId: 'myFeature.doThing', defaultKeybinding: { normalized: 'mod+shift+t' } }
+   ]
+
+   function MyFeature(): React.JSX.Element {
+     useRegisterAppCommands(myCommands)
+     useRegisterKeyboardShortcuts(myShortcuts)
+     // ...
+   }
    ```
 
 3. **Gate the shortcut** when needed:
@@ -79,8 +92,9 @@ literally.
 The manager supports per-command user overrides:
 
 ```ts
-keyboardShortcutManager.setUserOverride('myFeature.doThing', { normalized: 'alt+t' })
-keyboardShortcutManager.setUserOverride('myFeature.doThing', null) // restore default
+const manager = useKeyboardShortcutsManager()
+manager.setUserOverride('myFeature.doThing', { normalized: 'alt+t' })
+manager.setUserOverride('myFeature.doThing', null) // restore default
 ```
 
 Future settings UI can persist these overrides and replay them on app start.
@@ -89,5 +103,5 @@ Future settings UI can persist these overrides and replay them on app start.
 
 | Command ID | Default keybinding | Behavior |
 | --- | --- | --- |
-| `workspace.toggleLeftSidebar` | `mod+b` | Toggle the left sidebar |
-| `workspace.toggleRightSidebar` | `mod+shift+b` | Toggle the right sidebar |
+| `workspace.toggle-left-panel` | `mod+b` | Toggle the left sidebar |
+| `workspace.toggle-right-panel` | `mod+shift+b` | Toggle the right sidebar |
