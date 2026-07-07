@@ -69,6 +69,7 @@ The primary user is a software builder who uses AI agents while building applica
 - **UI commands vs app-state commands:** App Commands can represent renderer-local UI/navigation actions or privileged app-state actions. Privileged or persisted actions must cross the preload/IPC boundary into main-process application services.
 - **App Commands vs Workspace Tools:** App Commands are human-facing commands for the Command Palette, keyboard shortcuts, menus, and future human UI surfaces. Workspace Tools are agent-facing typed capabilities. They use separate registries, but app-state actions should converge on the same main-process application services.
 - **Workspace tools vs backdoors:** Agents should operate Space Zero through typed Workspace Tools that route into the same application services as the UI. They should not directly mutate SQLite, bypass IPC/application validation, or rely on brittle renderer UI automation for first-class app actions.
+- **UI base vs agent runtime:** The agent UI base (shadcn Chat Components + AI Elements) is presentational only — components accept props and emit callbacks and do not bundle an agent runtime, transport, or backend. The renderer feeds them state from `window.spacezero.agent.*` IPC events brokered through main. assistant-ui's `@assistant-ui/react-pi` and CopilotKit couple to their own runtime/transport and are not used as dependencies; `react-pi`'s source is a reference pattern only (issue #48) for the Pi event → UI state projection.
 - **Tool safety vs user autonomy:** Workspace Tools should declare safety levels such as read, write, and dangerous. Confirmation requirements are controlled by user settings so cautious builders can require approval while power users can allow dangerous actions without confirmation.
 
 ## Business and Product Rules
@@ -115,6 +116,8 @@ The primary user is a software builder who uses AI agents while building applica
 | GitHub API / Octokit | GitHub account, issues, PRs, checks, workflow runs, comments, and status sync. | Credentials must be stored safely and not exposed to renderer code. |
 | SQLite | Local app persistence. | Lives in main process behind typed IPC APIs. |
 | Chromium/Electron | Desktop shell, renderer runtime, and future embedded preview/debug surface. | Preserve secure Electron defaults. |
+| shadcn Chat Components | Conversation container UI for agent chat (scroll, message rows, bubbles, markers). | shadcn registry (June 2026) — copied source. `MessageScroller` owns anchored streaming, saved-thread restore, prepend history, jump-to-message as a headless tested primitive (`@shadcn/react`). Native to Space Zero's shadcn/Tailwind v4/Base UI setup. See `docs/adr/0007-...md`. |
+| AI Elements | AI-specific and IDE-specific UI components (tool, confirmation, model-selector, reasoning, prompt-input, and future file-tree, terminal, commit, code-block, web-preview, test-results, stack-trace). | shadcn registry by Vercel — copied source, not an npm dependency. Presentational (props/callbacks, no runtime). Components adapted: AI SDK type imports replaced with Space Zero types, lucide icons swapped for Phosphor. See `docs/adr/0007-...md`. |
 
 ## Decisions and References
 
@@ -124,6 +127,7 @@ The primary user is a software builder who uses AI agents while building applica
 - `docs/adr/0004-adopt-process-aware-feature-modules.md`
 - `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md`
 - `docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`
+- `docs/adr/0007-ui-component-base-shadcn-chat-and-ai-elements.md`
 - Engineering rules: `docs/engineering/`
 
 ## Maintenance Rules
