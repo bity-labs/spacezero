@@ -16,7 +16,7 @@ decision in `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-
   (`app-state` or `ui-control`), a domain, a description, and a handler.
 - **Workspace Tool Registry** — the approved catalog of tools composed from
   feature-owned definitions and handed to the agent harness.
-- **Workspace ToolSafety Policy** — the global policy that decides whether
+- **Workspace Tool Safety Policy** — the global policy that decides whether
   write or dangerous tools require confirmation before they run.
 - **Agent Activity History** — lightweight records of tool calls for visibility
   and debugging. It stores metadata only, never full input or output payloads.

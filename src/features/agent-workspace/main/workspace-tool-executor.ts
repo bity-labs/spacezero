@@ -122,6 +122,12 @@ export class WorkspaceToolExecutor {
   }
 
   private record(entry: Parameters<AgentActivityHistory['record']>[0]): void {
-    this.history.record(entry)
+    try {
+      this.history.record(entry)
+    } catch {
+      // Activity history is an observability boundary. Recording failures must
+      // not break the structured Workspace Tool execution contract or turn a
+      // successful tool result into an unstructured exception.
+    }
   }
 }
