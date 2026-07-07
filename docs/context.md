@@ -35,7 +35,7 @@ The primary user is a software builder who uses AI agents while building applica
 |---|---|---|
 | Builder | A software creator using Space Zero to build and ship software. | Primary user. |
 | Project | A local software repository or workspace managed by Space Zero. | Stored locally and eventually linked to GitHub repositories. |
-| Session | A focused agent or builder workflow attached to a project/task. | May produce terminal output, code changes, branch/worktree state, and summaries. |
+| Session | A focused agent or builder workflow. Space Zero has two session kinds: **Project Session** and **Workspace Session** (see below). | A session may produce terminal output, code changes, branch/worktree state, and summaries. Both session kinds are built from the same reusable **Chat Components** UI and backed by one Pi `AgentSession` each. |
 | Agent harness | The implementation layer used to run agent work. | Pi first. Multi-harness support is out of scope for v0. |
 | Workspace | The desktop environment containing projects, sessions, code, terminal output, preview/debug surfaces, and knowledge. | Core product layer. |
 | Command Palette | The user-facing searchable action launcher for Space Zero commands. | Product/UI name. Intended as a mini Raycast-like launcher inside the application for builder-driven command discovery and execution. It is UI over the App Command Registry, not the owner of command behavior. |
@@ -44,6 +44,9 @@ The primary user is a software builder who uses AI agents while building applica
 | Workspace Control Plane | The internal application-level command/query layer for inspecting and operating the workspace. | Architecture term shared by human UI flows and agent tools. |
 | Workspace Tools | Typed capabilities exposed to agents so they can safely call Space Zero application behavior. | Agent-facing and separate from human-facing App Commands. Route into the same main-process application services used by the UI when affecting app state. Each tool should declare a safety level and be grouped by product domain. |
 | Workspace Tool Registry | The explicit catalog of Workspace Tools available to agents. | Separate from the App Command Registry. Used to expose approved tools to Pi, validate inputs, enforce safety policy, and record activity history. |
+| Project Session | An agent session triggered from a Project that runs with that project's context and working directory. | The builder's coding agent operating on the project repository. Uses Pi's built-in project tools against the project cwd plus Space Zero Workspace Tools. |
+| Workspace Session | A global agent session spawnable at any time (command-palette-like), with no required project context. | The agent that operates Space Zero itself via Workspace Tools and answers quick workspace questions. May be invoked from the Command Palette. |
+| Chat Components | A reusable pure-UI component package covering everything needed to run an agent session. | Includes chat messages (user/assistant text + thinking), chat input, streaming text, per-session model selector, per-session thinking selector, tool-call rendering, inline tool-use confirmation, and running/idle indicators. Both Project Sessions and Workspace Sessions are built from Chat Components. |
 | Workspace Tool Safety Policy | Global user-configurable rules that decide whether agent tool calls require confirmation. | Defaults should be conservative, but builders can opt into allowing write or dangerous tools without confirmation. Per-project overrides are out of scope for v0. |
 | Agent Activity History | Lightweight history of Workspace Tool calls performed by agents. | Used for visibility, debugging, status summaries, and future undo support. Not a compliance-grade audit log. |
 | App Command | A stable human-facing command ID representing an action the builder can trigger in Space Zero. | Inspired by editor command systems such as VS Code. Used by keyboard shortcuts, command palette, menus, and buttons where useful. |
@@ -56,6 +59,10 @@ The primary user is a software builder who uses AI agents while building applica
 
 - **Renderer vs main process:** Renderer code is UI. Main process code owns native desktop capabilities, SQLite, Git/GitHub system work, and future agent process orchestration.
 - **Agent harness vs product layer:** Pi powers agent execution, but users should experience Space Zero as a workspace, not as a thin CLI wrapper.
+- **Project tools vs Workspace Tools:** Pi's built-in tools (`bash`, `edit`, `write`, `read`, `grep`, `find`, `ls`) operate the project layer — the builder's repository — and run entirely inside the utility process. Space Zero Workspace Tools operate the app layer — Space Zero itself — and are registered as additional Pi custom tools whose `execute()` is a thin proxy that calls main over the `MessagePort`; the real handler, validation, safety policy, and Agent Activity History run in main. One Pi `AgentSession` carries both domains. The no-backdoors rule applies to Space Zero app internals, not to the user's project files.
+- **One AgentSession per Space Zero Session, many live concurrently:** The utility process holds a `Map<sessionId, AgentSession>`. Multiple sessions run in the background; the active session is a UI focus concept, not a runtime limit. A resource cap on concurrent live sessions is a tunable, not an architectural constraint.
+- **Pi internals vs Space Zero source of truth:** Pi's `SessionManager`/`SettingsManager`/`DefaultResourceLoader` are used only inside the utility for the agent transcript and runtime config. Space Zero SQLite owns project/session/branch metadata and links to Pi transcript paths. Pi's `~/.pi`/`.pi` auto-discovery is not used for v0; tool and extension composition is programmatic via the SDK.
+- **LLM auth/models vs app state:** LLM provider credentials and the model catalog are owned by Pi inside the utility (`auth.json`/`models.json` under the Space Zero agent dir), not mirrored in SQLite. The model catalog is workspace-global (one shared Pi `ModelRegistry`); each session selects its own model and thinking level. New sessions start from a workspace-global default model + default thinking level defined in Space Zero Settings; sessions may override both. Per-project default model/thinking is a v1 enhancement. OAuth is supported from day one via the OS browser + a `spacezero://` deep link routed through main. User-defined custom providers are deferred to a tracked enhancement issue but must be designed for.
 - **Git CLI vs GitHub API:** Local repository operations should use the Git CLI. GitHub data and workflows should use Octokit.
 - **Browser preview vs external browser:** The integrated preview/debug surface should bring app state and inspection closer to agent instructions.
 - **Command Palette vs command behavior:** The Command Palette is a human-facing discovery and invocation surface for App Commands. It should not own the implementation of command behavior.
@@ -72,6 +79,8 @@ The primary user is a software builder who uses AI agents while building applica
 - Electron is the v0 desktop shell because embedded browser/devtools capability and desktop process control matter more than a tiny binary.
 - GitHub should be integrated deeply, not treated as a link-out-only experience.
 - Project source repositories live outside the vault under `~/ws/dev/`; the vault tracks metadata and decisions only.
+- New sessions should start from a workspace-global default model and default thinking level defined in Space Zero Settings. A session may override both independently. Per-project default model/thinking is a v1 enhancement with project settings, not v0.
+- LLM provider credentials and the model catalog are owned by Pi in the utility, not mirrored in SQLite. Renderer Settings/Model UI brokers to the utility through main over `window.spacezero`. OAuth providers are supported from day one via the OS browser plus a `spacezero://` deep link handled by main.
 - Meaningful user actions should be implemented as application capabilities that can be reached by the renderer UI and, when appropriate, exposed as Workspace Tools for agents.
 - The Command Palette should be a searchable mini Raycast-like UI inside Space Zero over the App Command Registry, not a place where command behavior is implemented directly.
 - App commands should have stable IDs, user-facing titles, categories, optional search keywords, optional default keyboard shortcuts, and handlers or invocation targets.
@@ -79,6 +88,7 @@ The primary user is a software builder who uses AI agents while building applica
 - The Command Palette itself is renderer-owned UI. It owns presentation, search, keyboard interaction, and selection state, not privileged app behavior.
 - The v0 App Command Registry should be generic to the app and does not need context-aware command availability. Context-aware commands, such as commands depending on the current project, session, selection, or focused panel, are a later enhancement.
 - Workspace Tools should be designed as reusable internal application capabilities, but v0 exposes them only to the in-app Agent Workspace. External automation surfaces such as a CLI, MCP server, local socket, or public API are future possibilities, not v0 commitments.
+- Space Zero has two session kinds: **Project Sessions** (triggered from a Project, run with that project's context and cwd) and **Workspace Sessions** (global, spawnable at any time, e.g. from the Command Palette, with no required project context). Both are built from the same reusable Chat Components and backed by one Pi `AgentSession` each. Project Sessions use Pi's built-in project tools against the project cwd; Workspace Sessions primarily use Workspace Tools.
 - Workspace Tools should be grouped by product domain, matching feature areas such as workspace, projects, sessions, settings, and preview. Composed tools such as `workspace.getStatus` are allowed when they serve a clear product need, but teams should not create aggregate tools speculatively for every feature.
 - Space Zero should keep a lightweight Agent Activity History for agent Workspace Tool calls. It should capture enough to explain what happened without becoming a heavy compliance audit system or storing sensitive full payloads by default.
 - Keyboard shortcuts should be app-focused command accelerators in v0. They work when Space Zero is focused and should not use OS-global Electron `globalShortcut` registration for normal app actions.
@@ -100,7 +110,7 @@ The primary user is a software builder who uses AI agents while building applica
 
 | System | Role | Boundary Notes |
 |---|---|---|
-| Pi | Default agent harness. | Future sessions should be orchestrated from main/utility process code, not renderer code. |
+| Pi | Default agent harness. | Integrated via the `@earendil-works/pi-coding-agent` SDK, in-process, inside an Electron utility process. The renderer never imports Pi, never spawns the Pi CLI, and never holds a direct channel to the utility. Main brokers all renderer↔agent traffic over typed `window.spacezero` IPC plus a `MessagePort` to the utility. The utility owns the agent loop, LLM streaming, transcript, and Pi's built-in project tools. `@earendil-works/pi-tui` and `@earendil-works/pi-orchestrator` are not used. See `docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`. |
 | Git CLI | Local repository operations. | Main process should own child-process execution and validation. |
 | GitHub API / Octokit | GitHub account, issues, PRs, checks, workflow runs, comments, and status sync. | Credentials must be stored safely and not exposed to renderer code. |
 | SQLite | Local app persistence. | Lives in main process behind typed IPC APIs. |
@@ -111,6 +121,9 @@ The primary user is a software builder who uses AI agents while building applica
 - `docs/adr/0001-use-electron-for-the-desktop-shell.md`
 - `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md`
 - `docs/adr/0003-store-local-app-state-in-sqlite-from-the-main-process.md`
+- `docs/adr/0004-adopt-process-aware-feature-modules.md`
+- `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md`
+- `docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`
 - Engineering rules: `docs/engineering/`
 
 ## Maintenance Rules
