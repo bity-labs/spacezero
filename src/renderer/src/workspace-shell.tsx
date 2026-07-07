@@ -10,6 +10,7 @@ import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcu
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
+import { cn } from './lib/utils'
 
 const LEFT_PANEL_DEFAULT_WIDTH = 280
 const RIGHT_PANEL_DEFAULT_WIDTH = 320
@@ -114,10 +115,21 @@ export function WorkspaceShell(): React.JSX.Element {
     .filter(Boolean)
     .join(' ')
 
+  const titlebarGridTemplateColumns = [
+    isLeftPanelOpen ? `${leftPanelWidth}px` : 'minmax(0, 1fr)',
+    'minmax(0, 1fr)',
+    isRightPanelOpen ? `${rightPanelWidth}px` : 'minmax(0, 1fr)'
+  ].join(' ')
+
   return (
     <div className="flex h-screen min-h-screen flex-col bg-background text-foreground">
-      <header className="app-titlebar grid h-12 grid-cols-[1fr_auto_1fr] items-center border-b border-border bg-background px-3">
-        <div className="flex items-center justify-start">
+      <header className="app-titlebar grid h-12 items-stretch bg-background" style={{ gridTemplateColumns: titlebarGridTemplateColumns }}>
+        <div
+          className={cn(
+            'flex items-center justify-start px-3',
+            isLeftPanelOpen ? 'border-r border-sidebar-border bg-sidebar' : 'bg-background'
+          )}
+        >
           <div className="mac-traffic-light-space shrink-0" />
           <div className="titlebar-control flex items-center gap-1">
             <Button
@@ -142,7 +154,7 @@ export function WorkspaceShell(): React.JSX.Element {
           </div>
         </div>
 
-        <div className="titlebar-control flex items-center justify-center">
+        <div className="titlebar-control flex items-center justify-center px-3">
           <Button
             variant="outline"
             size="sm"
@@ -155,7 +167,12 @@ export function WorkspaceShell(): React.JSX.Element {
           </Button>
         </div>
 
-        <div className="titlebar-control flex items-center justify-end">
+        <div
+          className={cn(
+            'titlebar-control flex items-center justify-end px-3',
+            isRightPanelOpen ? 'border-l border-sidebar-border bg-sidebar' : 'bg-background'
+          )}
+        >
           <Button
             variant="ghost"
             size="icon-sm"
