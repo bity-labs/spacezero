@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
-import type { WorkspaceTool } from './workspace-tool.model'
+import type { AnyWorkspaceTool } from './workspace-tool.model'
 import { WorkspaceToolRegistry, composeWorkspaceToolRegistry } from './workspace-tool-registry'
 
-function tool(overrides: Partial<WorkspaceTool> & Pick<WorkspaceTool, 'name'>): WorkspaceTool {
+function tool(overrides: Partial<AnyWorkspaceTool> & Pick<AnyWorkspaceTool, 'name'>): AnyWorkspaceTool {
   return {
     description: `${overrides.name} tool`,
     safetyLevel: 'read',

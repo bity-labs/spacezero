@@ -5,10 +5,25 @@ import { InMemoryAgentActivityHistory } from './agent-activity-history'
 import type { AgentActivityHistory } from './agent-activity-history'
 import { WorkspaceToolRegistry, composeWorkspaceToolRegistry } from './workspace-tool-registry'
 import { DEFAULT_WORKSPACE_TOOL_SAFETY_POLICY } from './workspace-tool-safety-policy'
-import type { WorkspaceTool, WorkspaceToolHandler } from './workspace-tool.model'
+import type { AnyWorkspaceTool } from './workspace-tool.model'
+import { defineWorkspaceTool } from './workspace-tool.model'
+import type { WorkspaceToolResult } from '../shared/workspace-tool.model'
 import { WorkspaceToolExecutor, type WorkspaceToolExecutorInit } from './workspace-tool-executor'
 
-function tool(overrides: Partial<WorkspaceTool> & Pick<WorkspaceTool, 'name'>): WorkspaceTool {
+/**
+ * Narrows a WorkspaceToolResult to its failure error so tests can assert on
+ * `error.code` against the discriminated union without unsafe casts.
+ */
+function failureError(result: WorkspaceToolResult): { code: string; message: string } {
+  if (result.ok) {
+    throw new Error('expected a failure result, got a success')
+  }
+  return result.error
+}
+
+function tool(
+  overrides: Partial<AnyWorkspaceTool> & Pick<AnyWorkspaceTool, 'name'>
+): AnyWorkspaceTool {
   return {
     description: `${overrides.name} tool`,
     safetyLevel: 'read',
@@ -26,7 +41,7 @@ type BuildExecutorInit = Partial<WorkspaceToolExecutorInit> & {
 }
 
 function buildExecutor(
-  tools: WorkspaceTool[],
+  tools: AnyWorkspaceTool[],
   init: BuildExecutorInit = {}
 ): {
   executor: WorkspaceToolExecutor
@@ -51,14 +66,17 @@ function buildExecutor(
 describe('WorkspaceToolExecutor', () => {
   describe('successful execution', () => {
     it('resolves, validates, executes a read tool and returns structured data', async () => {
-      const handler = vi.fn(async ({ name }: { name: string }) => ({
+      const handler = vi.fn(async ({ name }: { name: string }): Promise<WorkspaceToolResult> => ({
         ok: true,
         data: { created: name }
-      })) as unknown as WorkspaceToolHandler
+      }))
       const tools = [
-        tool({
+        defineWorkspaceTool({
           name: 'projects.create',
+          description: 'projects.create tool',
           safetyLevel: 'write',
+          kind: 'app-state',
+          domain: 'workspace',
           inputSchema: z.object({ name: z.string() }).strict(),
           handler
         })
@@ -106,7 +124,7 @@ describe('WorkspaceToolExecutor', () => {
       const result = await executor.execute('projects.unknown', { x: 1 })
 
       expect(result.ok).toBe(false)
-      expect(result.error?.code).toBe('unknown-tool')
+      expect(failureError(result).code).toBe('unknown-tool')
       expect(history.list()[0]).toMatchObject({
         toolName: 'projects.unknown',
         outcome: 'rejected'
@@ -116,7 +134,7 @@ describe('WorkspaceToolExecutor', () => {
 
   describe('invalid input', () => {
     it('validates input against the tool schema before calling the handler', async () => {
-      const handler = vi.fn(async () => ({ ok: true }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true }))
       const tools = [
         tool({
           name: 'projects.create',
@@ -135,7 +153,7 @@ describe('WorkspaceToolExecutor', () => {
 
       expect(handler).not.toHaveBeenCalled()
       expect(result.ok).toBe(false)
-      expect(result.error?.code).toBe('invalid-input')
+      expect(failureError(result).code).toBe('invalid-input')
       expect(history.list()[0]).toMatchObject({
         toolName: 'projects.create',
         outcome: 'rejected',
@@ -146,7 +164,7 @@ describe('WorkspaceToolExecutor', () => {
 
   describe('safety policy behavior', () => {
     it('does not execute a write tool when confirmation is required by policy', async () => {
-      const handler = vi.fn(async () => ({ ok: true }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true }))
       const tools = [
         tool({
           name: 'projects.create',
@@ -162,7 +180,7 @@ describe('WorkspaceToolExecutor', () => {
 
       expect(handler).not.toHaveBeenCalled()
       expect(result.ok).toBe(false)
-      expect(result.error?.code).toBe('confirmation-required')
+      expect(failureError(result).code).toBe('confirmation-required')
       expect(history.list()[0]).toMatchObject({
         toolName: 'projects.create',
         outcome: 'confirmation-required',
@@ -171,7 +189,7 @@ describe('WorkspaceToolExecutor', () => {
     })
 
     it('executes a read tool without confirmation regardless of policy', async () => {
-      const handler = vi.fn(async () => ({ ok: true, data: { ok: true } }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true, data: { ok: true } }))
       const tools = [tool({ name: 'projects.list', safetyLevel: 'read', handler })]
       const { executor } = buildExecutor(tools)
 
@@ -182,7 +200,7 @@ describe('WorkspaceToolExecutor', () => {
     })
 
     it('blocks dangerous tools under the default policy and allows them when opted in', async () => {
-      const handler = vi.fn(async () => ({ ok: true }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true }))
       const dangerousTool = tool({
         name: 'projects.delete',
         safetyLevel: 'dangerous',
@@ -193,7 +211,7 @@ describe('WorkspaceToolExecutor', () => {
       const blocked = buildExecutor([dangerousTool]).executor
       const blockedResult = await blocked.execute('projects.delete', { id: 'p1' })
       expect(handler).not.toHaveBeenCalled()
-      expect(blockedResult.error?.code).toBe('confirmation-required')
+      expect(failureError(blockedResult).code).toBe('confirmation-required')
 
       const allowed = buildExecutor([dangerousTool], {
         policy: { allowWriteWithoutConfirmation: false, allowDangerousWithoutConfirmation: true }
@@ -206,14 +224,17 @@ describe('WorkspaceToolExecutor', () => {
 
   describe('activity history recording', () => {
     it('records every outcome but never tool input or output payloads', async () => {
-      const handler = vi.fn(async ({ value }: { value: string }) => ({
+      const handler = vi.fn(async ({ value }: { value: string }): Promise<WorkspaceToolResult> => ({
         ok: true,
         data: { echoed: value }
-      })) as unknown as WorkspaceToolHandler
+      }))
       const tools = [
-        tool({
+        defineWorkspaceTool({
           name: 'workspace.echo',
+          description: 'workspace.echo tool',
           safetyLevel: 'read',
+          kind: 'app-state',
+          domain: 'workspace',
           inputSchema: z.object({ value: z.string() }),
           handler
         })
@@ -246,7 +267,7 @@ describe('WorkspaceToolExecutor', () => {
       const result = await executor.execute('workspace.broken', {})
 
       expect(result.ok).toBe(false)
-      expect(result.error?.code).toBe('handler-error')
+      expect(failureError(result).code).toBe('handler-error')
       expect(history.list()[0]).toMatchObject({
         toolName: 'workspace.broken',
         outcome: 'error'
@@ -254,7 +275,7 @@ describe('WorkspaceToolExecutor', () => {
     })
 
     it('records an error outcome when a handler returns a structured failure', async () => {
-      const handler = vi.fn(async () => ({
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({
         ok: false,
         error: { code: 'not-found', message: 'no' }
       }))
@@ -271,7 +292,7 @@ describe('WorkspaceToolExecutor', () => {
       const result = await executor.execute('workspace.fail', {})
 
       expect(result.ok).toBe(false)
-      expect(result.error?.code).toBe('not-found')
+      expect(failureError(result).code).toBe('not-found')
       const record = history.list()[0]
       expect(record.outcome).toBe('error')
       expect(record.error?.code).toBe('not-found')
