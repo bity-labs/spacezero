@@ -63,6 +63,13 @@ function buildExecutor(
   return { executor, history, registry }
 }
 
+const failingHistory: AgentActivityHistory = {
+  record: () => {
+    throw new Error('history unavailable')
+  },
+  list: () => []
+}
+
 describe('WorkspaceToolExecutor', () => {
   describe('successful execution', () => {
     it('resolves, validates, executes a read tool and returns structured data', async () => {
@@ -223,6 +230,29 @@ describe('WorkspaceToolExecutor', () => {
   })
 
   describe('activity history recording', () => {
+    it('does not throw or change the tool result when activity history recording fails', async () => {
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({
+        ok: true,
+        data: { value: 'kept' }
+      }))
+      const tools = [tool({ name: 'workspace.status', safetyLevel: 'read', handler })]
+      const { executor } = buildExecutor(tools, { history: failingHistory })
+
+      const result = await executor.execute('workspace.status', {})
+
+      expect(result).toEqual({ ok: true, data: { value: 'kept' } })
+      expect(handler).toHaveBeenCalledOnce()
+    })
+
+    it('still returns structured executor errors when activity history recording fails', async () => {
+      const { executor } = buildExecutor([], { history: failingHistory })
+
+      const result = await executor.execute('workspace.missing', {})
+
+      expect(result.ok).toBe(false)
+      expect(failureError(result).code).toBe('unknown-tool')
+    })
+
     it('records every outcome but never tool input or output payloads', async () => {
       const handler = vi.fn(async ({ value }: { value: string }): Promise<WorkspaceToolResult> => ({
         ok: true,
