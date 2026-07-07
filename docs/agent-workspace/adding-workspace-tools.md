@@ -47,10 +47,10 @@ A tool file exports an array of owned tools:
 import { z } from 'zod'
 
 import { defineWorkspaceTool } from '../../agent-workspace/main'
-import type { WorkspaceTool } from '../../agent-workspace/main'
+import type { AnyWorkspaceTool } from '../../agent-workspace/main'
 import { listProjects, createProject } from './projects.service'
 
-export const projectsTools: WorkspaceTool[] = [
+export const projectsTools: AnyWorkspaceTool[] = [
   defineWorkspaceTool({
     name: 'projects.list',
     description: 'List Space Zero projects.',
@@ -76,8 +76,8 @@ export const projectsTools: WorkspaceTool[] = [
 ```
 
 Use `defineWorkspaceTool` so the handler input is inferred and validated
-against the zod schema at compile time, without manual casts. The returned
-tool is assignable to the erased `WorkspaceTool` used by the registry.
+against the zod schema at compile time, without manual casts. Export heterogeneous
+tool sets as `AnyWorkspaceTool[]`, the erased type used by the registry.
 
 ### UI-control tools
 

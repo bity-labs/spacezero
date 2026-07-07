@@ -50,20 +50,32 @@ describe('InMemoryAgentActivityHistory', () => {
   it('does not store tool input or output payloads', () => {
     const history = new InMemoryAgentActivityHistory()
 
-    // The record entry surface has no payload field; history must reject attempts
-    // to smuggle sensitive payloads through the structured error/detail channel.
-    history.record({ toolName: 'projects.create', outcome: 'success' })
+    // The record entry surface has no payload field, and runtime callers may
+    // still pass extra properties through casts or JavaScript. History keeps an
+    // explicit metadata allowlist so sensitive payloads cannot be smuggled in.
+    history.record({
+      toolName: 'projects.create',
+      outcome: 'success',
+      input: { path: '-sensitive-input-' },
+      output: { id: '-sensitive-output-' },
+      data: '-sensitive-data-'
+    } as Parameters<InMemoryAgentActivityHistory['record']>[0])
 
     expect(history.list()[0]).not.toHaveProperty('input')
     expect(history.list()[0]).not.toHaveProperty('output')
     expect(history.list()[0]).not.toHaveProperty('data')
+    expect(JSON.stringify(history.list()[0])).not.toContain('sensitive')
   })
 
-  it('returns a readonly snapshot that cannot mutate internal state', () => {
+  it('returns readonly defensive copies that cannot mutate internal state', () => {
     const history = new InMemoryAgentActivityHistory()
-    history.record({ toolName: 'projects.list', outcome: 'success' })
+    const record = history.record({ toolName: 'projects.list', outcome: 'success' })
+
+    expect(() => ((record as Record<string, unknown>).toolName = 'injected')).toThrow()
 
     const snapshot = history.list()
     expect(() => (snapshot as Array<unknown>).push('injected')).toThrow()
+    expect(() => ((snapshot[0] as Record<string, unknown>).toolName = 'injected')).toThrow()
+    expect(history.list()[0].toolName).toBe('projects.list')
   })
 })
