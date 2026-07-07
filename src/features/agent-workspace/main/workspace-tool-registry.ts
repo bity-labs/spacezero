@@ -1,4 +1,4 @@
-import type { WorkspaceTool } from './workspace-tool.model'
+import type { AnyWorkspaceTool } from './workspace-tool.model'
 
 /**
  * The approved catalog of Workspace Tools available to agents.
@@ -9,16 +9,16 @@ import type { WorkspaceTool } from './workspace-tool.model'
  * record activity history.
  */
 export class WorkspaceToolRegistry {
-  private readonly tools = new Map<string, WorkspaceTool>()
+  private readonly tools = new Map<string, AnyWorkspaceTool>()
 
-  register(tool: WorkspaceTool): void {
+  register(tool: AnyWorkspaceTool): void {
     if (this.tools.has(tool.name)) {
       throw new Error(`Workspace tool already registered: ${tool.name}`)
     }
     this.tools.set(tool.name, tool)
   }
 
-  resolve(name: string): WorkspaceTool | undefined {
+  resolve(name: string): AnyWorkspaceTool | undefined {
     return this.tools.get(name)
   }
 
@@ -26,7 +26,7 @@ export class WorkspaceToolRegistry {
     return this.tools.has(name)
   }
 
-  list(): WorkspaceTool[] {
+  list(): AnyWorkspaceTool[] {
     return Array.from(this.tools.values())
   }
 }
@@ -38,7 +38,7 @@ export class WorkspaceToolRegistry {
  * services and passes them to the composition layer as a set.
  */
 export function composeWorkspaceToolRegistry(
-  ...featureToolSets: WorkspaceTool[][]
+  ...featureToolSets: AnyWorkspaceTool[][]
 ): WorkspaceToolRegistry {
   const registry = new WorkspaceToolRegistry()
   for (const toolSet of featureToolSets) {

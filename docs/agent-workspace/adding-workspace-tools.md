@@ -46,11 +46,12 @@ A tool file exports an array of owned tools:
 // src/features/projects/main/projects.tools.ts
 import { z } from 'zod'
 
+import { defineWorkspaceTool } from '../../agent-workspace/main'
 import type { WorkspaceTool } from '../../agent-workspace/main'
 import { listProjects, createProject } from './projects.service'
 
 export const projectsTools: WorkspaceTool[] = [
-  {
+  defineWorkspaceTool({
     name: 'projects.list',
     description: 'List Space Zero projects.',
     safetyLevel: 'read',
@@ -58,8 +59,8 @@ export const projectsTools: WorkspaceTool[] = [
     domain: 'projects',
     inputSchema: z.object({}).strict(),
     handler: async () => ({ ok: true, data: { projects: await listProjects() } })
-  },
-  {
+  }),
+  defineWorkspaceTool({
     name: 'projects.create',
     description: 'Create a Space Zero project.',
     safetyLevel: 'write',
@@ -70,9 +71,13 @@ export const projectsTools: WorkspaceTool[] = [
       const project = await createProject(input)
       return { ok: true, data: { id: project.id, name: project.name, path: project.path } }
     }
-  }
+  })
 ]
 ```
+
+Use `defineWorkspaceTool` so the handler input is inferred and validated
+against the zod schema at compile time, without manual casts. The returned
+tool is assignable to the erased `WorkspaceTool` used by the registry.
 
 ### UI-control tools
 

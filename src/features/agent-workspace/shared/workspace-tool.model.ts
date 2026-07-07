@@ -35,20 +35,38 @@ export type WorkspaceToolMetadata = {
 }
 
 /**
- * Structured result returned by every Workspace Tool call.
+ * Structured success result returned by every Workspace Tool call.
  *
  * Tools return structured data only. Agents interpret and summarize results in
  * conversation; Space Zero never returns polished conversational summaries from
  * a tool.
  */
-export type WorkspaceToolResult = {
-  ok: boolean
+export type WorkspaceToolSuccess = {
+  ok: true
   data?: unknown
-  error?: {
+}
+
+/**
+ * Structured failure result returned by every Workspace Tool call.
+ *
+ * Failures always carry a stable machine-readable `code` and a `message`.
+ */
+export type WorkspaceToolFailure = {
+  ok: false
+  error: {
     code: string
     message: string
   }
 }
+
+/**
+ * Structured result returned by every Workspace Tool call.
+ *
+ * This is a discriminated union on `ok` so invalid results such as
+ * `{ ok: false }` without an error, `{ ok: true, error: ... }`, or
+ * `{ ok: false, data: ... }` are rejected at compile time.
+ */
+export type WorkspaceToolResult = WorkspaceToolSuccess | WorkspaceToolFailure
 
 /**
  * Global user-configurable policy that decides whether agent tool calls require
