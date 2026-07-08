@@ -75,6 +75,24 @@ describe('App', () => {
     expect(rightResize).toHaveAttribute('aria-valuenow', '344')
   })
 
+  it('keeps the left sidebar width in sync between workspace and Settings', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), { key: 'ArrowRight' })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute('aria-valuenow', '304')
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), { key: 'ArrowRight' })
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute('aria-valuenow', '328')
+  })
+
   it('navigates from the workspace to Settings and back', async () => {
     render(<App />)
 

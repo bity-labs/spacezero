@@ -21,7 +21,6 @@ import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/
 import { AccountMenu } from './components/app-shell/account-menu'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import {
-  SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_KEYBOARD_RESIZE_STEP,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
@@ -29,6 +28,7 @@ import {
   clampSidebarWidth
 } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
+import { useSidebarWidth } from './components/sidebar/use-sidebar-width'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
@@ -45,7 +45,7 @@ type ResizablePanel = 'left' | 'right'
 export function WorkspaceShell(): React.JSX.Element {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(SIDEBAR_DEFAULT_WIDTH)
+  const [leftPanelWidth, setLeftPanelWidth] = useSidebarWidth()
   const [rightPanelWidth, setRightPanelWidth] = useState(SIDEBAR_RIGHT_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
