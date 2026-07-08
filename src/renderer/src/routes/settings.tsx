@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useEffect, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select'
 import { SidebarMenu } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
 import { i18n } from '../i18n'
@@ -113,8 +114,7 @@ function SettingsPage(): React.JSX.Element {
     [resizeSidebar, sidebarWidth]
   )
 
-  async function handleLanguagePreferenceChange(event: ChangeEvent<HTMLSelectElement>): Promise<void> {
-    const preference = event.target.value as LanguagePreference
+  async function handleLanguagePreferenceChange(preference: LanguagePreference): Promise<void> {
     setLanguageError(false)
 
     try {
@@ -203,32 +203,44 @@ function SettingsPage(): React.JSX.Element {
 
             <SettingsSection title="Pull Requests">
               <SettingsRow title="Review Provider" description="Choose GitHub for pull request links on web and desktop">
-                <select className="h-8 w-36 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
-                  <option>GitHub</option>
-                </select>
+                <Select defaultValue="github">
+                  <SelectTrigger size="sm" className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="github">GitHub</SelectItem>
+                  </SelectContent>
+                </Select>
               </SettingsRow>
               <SettingsRow title="PR Link Destination" description="Open pull request links inside Space Zero or in the default browser">
-                <select className="h-8 w-40 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40">
-                  <option>Inside Space Zero</option>
-                  <option>Default browser</option>
-                </select>
+                <Select defaultValue="inside-space-zero">
+                  <SelectTrigger size="sm" className="w-40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="inside-space-zero">Inside Space Zero</SelectItem>
+                    <SelectItem value="default-browser">Default browser</SelectItem>
+                  </SelectContent>
+                </Select>
               </SettingsRow>
             </SettingsSection>
 
             <SettingsSection title="Preferences">
               <SettingsRow title={t('settings.language.label')} description={t('settings.language.description')}>
-                <select
-                  id="language-preference"
-                  className="h-8 w-40 rounded-md border border-border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!languageSettings}
+                <Select
                   value={languageSettings?.preference ?? 'system'}
-                  aria-label={t('settings.language.label')}
-                  onChange={handleLanguagePreferenceChange}
+                  onValueChange={(value) => void handleLanguagePreferenceChange(value as LanguagePreference)}
+                  disabled={!languageSettings}
                 >
-                  <option value="system">{t('settings.language.useSystem')}</option>
-                  <option value="en">{t('settings.language.english')}</option>
-                  <option value="fr">{t('settings.language.french')}</option>
-                </select>
+                  <SelectTrigger size="sm" className="w-40" aria-label={t('settings.language.label')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="system">{t('settings.language.useSystem')}</SelectItem>
+                    <SelectItem value="en">{t('settings.language.english')}</SelectItem>
+                    <SelectItem value="fr">{t('settings.language.french')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </SettingsRow>
               {!languageSettings ? <p className="px-4 pb-3 text-sm text-muted-foreground">{t('settings.language.loading')}</p> : null}
               {languageError ? <p className="px-4 pb-3 text-sm text-destructive">{t('settings.language.saveError')}</p> : null}
