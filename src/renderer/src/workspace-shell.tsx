@@ -206,7 +206,7 @@ export function WorkspaceShell(): React.JSX.Element {
         {isLeftPanelOpen ? (
           <AppSidebar
             aria-label={t('workspace.leftPanel')}
-            className="px-2 pt-4"
+            className="pt-4"
             contentClassName="px-0"
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
