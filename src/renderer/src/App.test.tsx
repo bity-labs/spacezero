@@ -78,7 +78,7 @@ describe('App', () => {
   it('navigates from the workspace to Settings and back', async () => {
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
@@ -136,7 +136,7 @@ describe('App', () => {
   it('updates the language from Settings without requiring a restart', async () => {
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
     const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
 
     fireEvent.change(languageSelect, { target: { value: 'fr' } })
@@ -158,7 +158,7 @@ describe('App', () => {
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
 
-    fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })

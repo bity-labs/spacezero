@@ -1,6 +1,17 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
-import { Link } from '@tanstack/react-router'
-import { DotsSixVertical, MagnifyingGlass, Moon, Sidebar, Sun } from '@phosphor-icons/react'
+import {
+  CalendarBlank,
+  CaretDown,
+  DotsSixVertical,
+  FolderPlus,
+  FunnelSimple,
+  MagnifyingGlass,
+  Moon,
+  PaperPlaneTilt,
+  Sidebar,
+  SquaresFour,
+  Sun
+} from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
@@ -190,12 +201,28 @@ export function WorkspaceShell(): React.JSX.Element {
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
           <aside aria-label={t('workspace.leftPanel')} className="flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar px-2 pb-3 pt-4 text-sidebar-foreground">
-            <h2 className="px-2 text-sm font-medium">{t('workspace.leftPanel')}</h2>
-            <nav className="mt-4 flex flex-col gap-1 px-2" aria-label={t('workspace.navigation')}>
-              <Link className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground" to="/settings">
-                {t('workspace.settingsLink')}
-              </Link>
+            <nav className="space-y-1 px-2" aria-label={t('workspace.navigation')}>
+              <SidebarMenuItem icon={PaperPlaneTilt} label="New Agent" />
+              <SidebarMenuItem icon={MagnifyingGlass} label="Search" />
+              <SidebarMenuItem icon={CalendarBlank} label="Automations" />
+              <SidebarMenuItem icon={SquaresFour} label="Customize" />
             </nav>
+
+            <section className="mt-8 px-2" aria-label="Repositories">
+              <div className="flex items-center gap-1 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
+                <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button">
+                  <span className="truncate">Repositories</span>
+                  <CaretDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                </button>
+                <Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="Filter repositories">
+                  <FunnelSimple className="h-4 w-4" aria-hidden="true" />
+                </Button>
+                <Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="Add repository">
+                  <FolderPlus className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </div>
+            </section>
+
             <div className="mt-auto pt-4">
               <AccountMenu settingsLabel={t('workspace.openAppSettings')} />
             </div>
@@ -231,6 +258,23 @@ export function WorkspaceShell(): React.JSX.Element {
         ) : null}
       </div>
     </div>
+  )
+}
+
+type SidebarMenuItemProps = {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+}
+
+function SidebarMenuItem({ icon: Icon, label }: SidebarMenuItemProps): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
   )
 }
 
