@@ -169,7 +169,11 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
     const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
 
-    fireEvent.change(languageSelect, { target: { value: 'fr' } })
+    fireEvent.click(languageSelect)
+    const frenchOption = await screen.findByRole('option', { name: 'French' })
+    fireEvent.pointerDown(frenchOption)
+    fireEvent.pointerUp(frenchOption)
+    fireEvent.click(frenchOption)
 
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
 
