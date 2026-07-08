@@ -45,6 +45,7 @@
     "mainLabel": "Settings",
     "navigationLabel": "Settings navigation",
     "backToWorkspace": "Back to Workspace",
+    "closeSettings": "Close settings",
     "language": {
       "sectionTitle": "Language",
       "label": "Language",

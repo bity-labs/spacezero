@@ -10,13 +10,15 @@ export type AccountMenuProps = {
   avatarUrl?: string
   avatarFallback?: string
   settingsLabel?: string
+  settingsTo?: '/' | '/settings'
 }
 
 export function AccountMenu({
   username = 'tiby',
   avatarUrl = 'https://avatars.githubusercontent.com/u/101003754?s=96&v=4',
   avatarFallback = 'T',
-  settingsLabel = 'Settings'
+  settingsLabel = 'Settings',
+  settingsTo = '/settings'
 }: AccountMenuProps): React.JSX.Element {
   return (
     <section className="flex items-center gap-2 rounded-lg px-1 py-1" aria-label="Account menu">
@@ -30,7 +32,7 @@ export function AccountMenu({
       </div>
 
       <Link
-        to="/settings"
+        to={settingsTo}
         className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'text-muted-foreground')}
         aria-label={settingsLabel}
       >

@@ -45,6 +45,7 @@
     "mainLabel": "Paramètres",
     "navigationLabel": "Navigation des paramètres",
     "backToWorkspace": "Retour à l’espace de travail",
+    "closeSettings": "Fermer les paramètres",
     "language": {
       "sectionTitle": "Langue",
       "label": "Langue",
