@@ -28,7 +28,7 @@ function AppSidebar({ side = 'left', header, footer, className, contentClassName
         <Sidebar collapsible="none" side={side} className="w-full flex-1">
           {header ? <SidebarHeader>{header}</SidebarHeader> : null}
           <SidebarContent className={cn('px-2 pb-3', contentClassName)}>{children}</SidebarContent>
-          {footer ? <SidebarFooter className="px-2 pb-3">{footer}</SidebarFooter> : null}
+          {footer ? <SidebarFooter className="titlebar-control px-2 pb-3">{footer}</SidebarFooter> : null}
         </Sidebar>
       </SidebarProvider>
     </aside>
