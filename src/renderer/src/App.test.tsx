@@ -109,6 +109,18 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
+  it('toggles back to the workspace from the Settings account button', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Close settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/')
+  })
+
   it('opens the command palette, searches, and invokes a navigation command', async () => {
     render(<App />)
 
