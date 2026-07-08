@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
-  CaretDown,
   DotsSixVertical,
   FolderPlus,
   FunnelSimple,
@@ -20,15 +19,21 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
+import { AppSidebar } from './components/sidebar/app-sidebar'
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_KEYBOARD_RESIZE_STEP,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  SIDEBAR_RIGHT_DEFAULT_WIDTH,
+  clampSidebarWidth
+} from './components/sidebar/sidebar-layout'
+import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
+import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
+import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useColorMode } from './color-mode-provider'
 import { cn } from './lib/utils'
-
-const LEFT_PANEL_DEFAULT_WIDTH = 280
-const RIGHT_PANEL_DEFAULT_WIDTH = 320
-const PANEL_MIN_WIDTH = 220
-const PANEL_MAX_WIDTH = 520
-const KEYBOARD_RESIZE_STEP = 24
 
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
@@ -37,15 +42,11 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
 
 type ResizablePanel = 'left' | 'right'
 
-function clampPanelWidth(width: number): number {
-  return Math.min(PANEL_MAX_WIDTH, Math.max(PANEL_MIN_WIDTH, width))
-}
-
 export function WorkspaceShell(): React.JSX.Element {
   const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
-  const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_WIDTH)
-  const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT_WIDTH)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(SIDEBAR_DEFAULT_WIDTH)
+  const [rightPanelWidth, setRightPanelWidth] = useState(SIDEBAR_RIGHT_DEFAULT_WIDTH)
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
@@ -75,7 +76,7 @@ export function WorkspaceShell(): React.JSX.Element {
 
   const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
     const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
-    setWidth(clampPanelWidth(width))
+    setWidth(clampSidebarWidth(width))
   }, [])
 
   const startResize = useCallback(
@@ -106,10 +107,10 @@ export function WorkspaceShell(): React.JSX.Element {
       const currentWidth = panel === 'left' ? leftPanelWidth : rightPanelWidth
       let nextWidth = currentWidth
 
-      if (event.key === 'Home') nextWidth = PANEL_MIN_WIDTH
-      if (event.key === 'End') nextWidth = PANEL_MAX_WIDTH
-      if (event.key === 'ArrowLeft') nextWidth = currentWidth + (panel === 'right' ? KEYBOARD_RESIZE_STEP : -KEYBOARD_RESIZE_STEP)
-      if (event.key === 'ArrowRight') nextWidth = currentWidth + (panel === 'left' ? KEYBOARD_RESIZE_STEP : -KEYBOARD_RESIZE_STEP)
+      if (event.key === 'Home') nextWidth = SIDEBAR_MIN_WIDTH
+      if (event.key === 'End') nextWidth = SIDEBAR_MAX_WIDTH
+      if (event.key === 'ArrowLeft') nextWidth = currentWidth + (panel === 'right' ? SIDEBAR_KEYBOARD_RESIZE_STEP : -SIDEBAR_KEYBOARD_RESIZE_STEP)
+      if (event.key === 'ArrowRight') nextWidth = currentWidth + (panel === 'left' ? SIDEBAR_KEYBOARD_RESIZE_STEP : -SIDEBAR_KEYBOARD_RESIZE_STEP)
 
       if (nextWidth !== currentWidth) {
         event.preventDefault()
@@ -200,33 +201,30 @@ export function WorkspaceShell(): React.JSX.Element {
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
-          <aside aria-label={t('workspace.leftPanel')} className="flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar px-2 pb-3 pt-4 text-sidebar-foreground">
-            <nav className="space-y-1 px-2" aria-label={t('workspace.navigation')}>
-              <SidebarMenuItem icon={PaperPlaneTilt} label="New Agent" />
-              <SidebarMenuItem icon={MagnifyingGlass} label="Search" />
-              <SidebarMenuItem icon={CalendarBlank} label="Automations" />
-              <SidebarMenuItem icon={SquaresFour} label="Customize" />
-            </nav>
+          <AppSidebar
+            aria-label={t('workspace.leftPanel')}
+            className="px-2 pt-4"
+            contentClassName="px-0"
+            footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
+          >
+            <SidebarMenu className="px-2" aria-label={t('workspace.navigation')}>
+              <SidebarNavItem icon={PaperPlaneTilt} label="New Agent" />
+              <SidebarNavItem icon={MagnifyingGlass} label="Search" />
+              <SidebarNavItem icon={CalendarBlank} label="Automations" />
+              <SidebarNavItem icon={SquaresFour} label="Customize" />
+            </SidebarMenu>
 
-            <section className="mt-8 px-2" aria-label="Repositories">
-              <div className="flex items-center gap-1 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground">
-                <button className="flex min-w-0 flex-1 items-center gap-1 text-left" type="button">
-                  <span className="truncate">Repositories</span>
-                  <CaretDown className="h-4 w-4 shrink-0" aria-hidden="true" />
-                </button>
-                <Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="Filter repositories">
-                  <FunnelSimple className="h-4 w-4" aria-hidden="true" />
-                </Button>
-                <Button variant="ghost" size="icon-xs" className="text-muted-foreground hover:bg-transparent hover:text-foreground" aria-label="Add repository">
-                  <FolderPlus className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </section>
-
-            <div className="mt-auto pt-4">
-              <AccountMenu settingsLabel={t('workspace.openAppSettings')} />
-            </div>
-          </aside>
+            <SidebarGroup className="mt-8" aria-label="Repositories">
+              <SidebarSectionHeader
+                label="Repositories"
+                expandable
+                actions={[
+                  { label: 'Filter repositories', icon: FunnelSimple },
+                  { label: 'Add repository', icon: FolderPlus }
+                ]}
+              />
+            </SidebarGroup>
+          </AppSidebar>
         ) : null}
 
         {isLeftPanelOpen ? (
@@ -261,23 +259,6 @@ export function WorkspaceShell(): React.JSX.Element {
   )
 }
 
-type SidebarMenuItemProps = {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-}
-
-function SidebarMenuItem({ icon: Icon, label }: SidebarMenuItemProps): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      <Icon className="h-4 w-4 shrink-0" />
-      <span className="truncate">{label}</span>
-    </button>
-  )
-}
-
 type ResizeHandleProps = {
   label: string
   value: number
@@ -290,8 +271,8 @@ function ResizeHandle({ label, value, onPointerDown, onKeyDown }: ResizeHandlePr
     <div
       aria-label={label}
       aria-orientation="vertical"
-      aria-valuemax={PANEL_MAX_WIDTH}
-      aria-valuemin={PANEL_MIN_WIDTH}
+      aria-valuemax={SIDEBAR_MAX_WIDTH}
+      aria-valuemin={SIDEBAR_MIN_WIDTH}
       aria-valuenow={value}
       className="titlebar-control flex cursor-col-resize items-center justify-center text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       role="separator"
