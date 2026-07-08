@@ -8,6 +8,7 @@ import type { AppCommand } from '../../features/app-commands/renderer/app-comman
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import { AccountMenu } from './components/app-shell/account-menu'
 import { Button } from './components/ui/button'
 import { useColorMode } from './color-mode-provider'
 import { cn } from './lib/utils'
@@ -188,13 +189,16 @@ export function WorkspaceShell(): React.JSX.Element {
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
-          <aside aria-label={t('workspace.leftPanel')} className="min-w-0 border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
+          <aside aria-label={t('workspace.leftPanel')} className="flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
             <h2 className="text-sm font-medium">{t('workspace.leftPanel')}</h2>
             <nav className="mt-4 flex flex-col gap-1" aria-label={t('workspace.navigation')}>
               <Link className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground" to="/settings">
                 {t('workspace.settingsLink')}
               </Link>
             </nav>
+            <div className="mt-auto pt-4">
+              <AccountMenu settingsLabel={t('workspace.openAppSettings')} />
+            </div>
           </aside>
         ) : null}
 
