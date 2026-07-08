@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useMemo, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -24,16 +24,15 @@ import {
   SIDEBAR_KEYBOARD_RESIZE_STEP,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-  SIDEBAR_RIGHT_DEFAULT_WIDTH,
   clampSidebarWidth
 } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
-import { useSidebarWidth } from './components/sidebar/use-sidebar-width'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useColorMode } from './color-mode-provider'
 import { cn } from './lib/utils'
+import { useUiLayoutStore } from './stores/ui-layout-store'
 
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
@@ -43,10 +42,14 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
 type ResizablePanel = 'left' | 'right'
 
 export function WorkspaceShell(): React.JSX.Element {
-  const [isLeftPanelOpen, setIsLeftPanelOpen] = useState(true)
-  const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
-  const [leftPanelWidth, setLeftPanelWidth] = useSidebarWidth()
-  const [rightPanelWidth, setRightPanelWidth] = useState(SIDEBAR_RIGHT_DEFAULT_WIDTH)
+  const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
+  const isRightPanelOpen = useUiLayoutStore((state) => state.isRightSidebarOpen)
+  const leftPanelWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
+  const rightPanelWidth = useUiLayoutStore((state) => state.rightSidebarWidth)
+  const setLeftPanelWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
+  const setRightPanelWidth = useUiLayoutStore((state) => state.setRightSidebarWidth)
+  const toggleLeftPanel = useUiLayoutStore((state) => state.toggleLeftSidebar)
+  const toggleRightPanel = useUiLayoutStore((state) => state.toggleRightSidebar)
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
@@ -58,17 +61,17 @@ export function WorkspaceShell(): React.JSX.Element {
         title: isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel'),
         category: t('appCommands.categories.workspace'),
         keywords: ['sidebar', 'navigation'],
-        handler: () => setIsLeftPanelOpen((isOpen) => !isOpen)
+        handler: toggleLeftPanel
       },
       {
         id: 'workspace.toggle-right-panel',
         title: isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel'),
         category: t('appCommands.categories.workspace'),
         keywords: ['sidebar', 'inspector'],
-        handler: () => setIsRightPanelOpen((isOpen) => !isOpen)
+        handler: toggleRightPanel
       }
     ],
-    [isLeftPanelOpen, isRightPanelOpen, t]
+    [isLeftPanelOpen, isRightPanelOpen, t, toggleLeftPanel, toggleRightPanel]
   )
 
   useRegisterAppCommands(workspaceCommands)
@@ -151,7 +154,7 @@ export function WorkspaceShell(): React.JSX.Element {
               className="text-muted-foreground"
               aria-label={isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel')}
               aria-pressed={isLeftPanelOpen}
-              onClick={() => setIsLeftPanelOpen((isOpen) => !isOpen)}
+              onClick={toggleLeftPanel}
             >
               <Sidebar className="h-4 w-4" />
             </Button>
@@ -192,7 +195,7 @@ export function WorkspaceShell(): React.JSX.Element {
             className="text-muted-foreground"
             aria-label={isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')}
             aria-pressed={isRightPanelOpen}
-            onClick={() => setIsRightPanelOpen((isOpen) => !isOpen)}
+            onClick={toggleRightPanel}
           >
             <Sidebar className="h-4 w-4 rotate-180" />
           </Button>

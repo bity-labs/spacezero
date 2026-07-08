@@ -22,7 +22,6 @@ import {
   clampSidebarWidth
 } from '../components/sidebar/sidebar-layout'
 import { SidebarNavItem } from '../components/sidebar/sidebar-nav-item'
-import { useSidebarWidth } from '../components/sidebar/use-sidebar-width'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
 import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
@@ -31,6 +30,7 @@ import { Card } from '../components/ui/card'
 import { SidebarMenu } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
 import { i18n } from '../i18n'
+import { useUiLayoutStore } from '../stores/ui-layout-store'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage
@@ -47,7 +47,8 @@ const settingsNavigation = [
 
 function SettingsPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const [sidebarWidth, setSidebarWidth] = useSidebarWidth()
+  const sidebarWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
+  const setSidebarWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
 

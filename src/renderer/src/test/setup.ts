@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
+import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
   observe(): void {}
@@ -29,6 +30,7 @@ Object.defineProperty(window, 'matchMedia', {
 beforeEach(async () => {
   window.scrollTo = vi.fn()
   window.localStorage.clear()
+  resetUiLayoutStore()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 
