@@ -1,11 +1,10 @@
-import { useEffect, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import {
   ArrowLeft,
   Cloud,
   Cube,
   GearSix,
-  MagnifyingGlass,
   PaintBrush,
   PaperPlaneTilt,
   UserCircle
@@ -14,10 +13,24 @@ import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 import { AccountMenu } from '../components/app-shell/account-menu'
+import { SettingsRow } from '../components/settings/settings-row'
+import { SettingsSection } from '../components/settings/settings-section'
+import {
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_KEYBOARD_RESIZE_STEP,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+  clampSidebarWidth
+} from '../components/sidebar/sidebar-layout'
+import { SidebarNavItem } from '../components/sidebar/sidebar-nav-item'
+import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
+import { SidebarSearch } from '../components/sidebar/sidebar-search'
+import { AppSidebar } from '../components/sidebar/app-sidebar'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
+import { SidebarMenu } from '../components/ui/sidebar'
+import { Switch } from '../components/ui/switch'
 import { i18n } from '../i18n'
-import { cn } from '../lib/utils'
 
 export const Route = createFileRoute('/settings')({
   component: SettingsPage
@@ -34,6 +47,7 @@ const settingsNavigation = [
 
 function SettingsPage(): React.JSX.Element {
   const { t } = useTranslation()
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH)
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
 
@@ -56,6 +70,48 @@ function SettingsPage(): React.JSX.Element {
     }
   }, [])
 
+  const resizeSidebar = useCallback((width: number) => {
+    setSidebarWidth(clampSidebarWidth(width))
+  }, [])
+
+  const startResize = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+
+      const startX = event.clientX
+      const startWidth = sidebarWidth
+
+      function handlePointerMove(moveEvent: globalThis.PointerEvent): void {
+        resizeSidebar(startWidth + moveEvent.clientX - startX)
+      }
+
+      function handlePointerUp(): void {
+        window.removeEventListener('pointermove', handlePointerMove)
+      }
+
+      window.addEventListener('pointermove', handlePointerMove)
+      window.addEventListener('pointerup', handlePointerUp, { once: true })
+    },
+    [resizeSidebar, sidebarWidth]
+  )
+
+  const resizeWithKeyboard = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      let nextWidth = sidebarWidth
+
+      if (event.key === 'Home') nextWidth = SIDEBAR_MIN_WIDTH
+      if (event.key === 'End') nextWidth = SIDEBAR_MAX_WIDTH
+      if (event.key === 'ArrowLeft') nextWidth = sidebarWidth - SIDEBAR_KEYBOARD_RESIZE_STEP
+      if (event.key === 'ArrowRight') nextWidth = sidebarWidth + SIDEBAR_KEYBOARD_RESIZE_STEP
+
+      if (nextWidth !== sidebarWidth) {
+        event.preventDefault()
+        resizeSidebar(nextWidth)
+      }
+    },
+    [resizeSidebar, sidebarWidth]
+  )
+
   async function handleLanguagePreferenceChange(event: ChangeEvent<HTMLSelectElement>): Promise<void> {
     const preference = event.target.value as LanguagePreference
     setLanguageError(false)
@@ -71,56 +127,62 @@ function SettingsPage(): React.JSX.Element {
 
   return (
     <div className="flex h-screen min-h-screen bg-background text-foreground">
-      <aside className="app-titlebar flex w-[280px] shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-        <div className="flex h-12 items-center px-3">
-          <div className="mac-traffic-light-space shrink-0" />
-        </div>
-
-        <div className="titlebar-control flex min-h-0 flex-1 flex-col px-2 pb-3">
-          <Link className="mb-5 flex w-fit items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground" to="/">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-            {t('settings.backToWorkspace')}
-          </Link>
-
-          <label className="relative mb-5 block">
-            <span className="sr-only">Search Settings</span>
-            <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <input
-              className="h-9 w-full rounded-md border border-border bg-muted/50 pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-              placeholder="Search Settings"
-              type="search"
-            />
-          </label>
-
-          <nav className="space-y-1" aria-label={t('settings.navigationLabel')}>
-            {settingsNavigation.map((item) => {
-              const Icon = item.icon
-
-              return (
-                <a
-                  key={item.label}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground',
-                    item.label === 'General' ? 'bg-muted text-foreground' : null
-                  )}
-                  href={`#${item.label.toLowerCase().replaceAll(' ', '-')}`}
-                >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                  {item.label}
-                </a>
-              )
-            })}
-          </nav>
-
-          <Button variant="outline" size="sm" className="mt-auto justify-start gap-2 text-muted-foreground">
-            <Cube className="h-4 w-4" aria-hidden="true" />
-            Upgrade to Pro
-          </Button>
-          <div className="mt-3">
-            <AccountMenu settingsLabel={t('settings.closeSettings')} settingsTo="/" />
+      <AppSidebar
+        className="app-titlebar shrink-0"
+        style={{ width: `${sidebarWidth}px` }}
+        contentClassName="titlebar-control flex flex-col px-2"
+        header={
+          <div className="flex h-12 items-center px-3">
+            <div className="mac-traffic-light-space shrink-0" />
           </div>
-        </div>
-      </aside>
+        }
+        footer={
+          <>
+            <Button variant="outline" size="sm" className="w-full justify-start gap-2 text-muted-foreground">
+              <Cube className="h-4 w-4" aria-hidden="true" />
+              Upgrade to Pro
+            </Button>
+            <div className="mt-3">
+              <AccountMenu settingsLabel={t('settings.closeSettings')} settingsTo="/" />
+            </div>
+          </>
+        }
+      >
+        <Link className="mb-5 flex w-fit items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground" to="/">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          {t('settings.backToWorkspace')}
+        </Link>
+
+        <SidebarSearch
+          label="Search Settings"
+          className="mb-5"
+          inputClassName="h-9 bg-muted/50 pl-9"
+          placeholder="Search Settings"
+        />
+
+        <SidebarMenu aria-label={t('settings.navigationLabel')}>
+          {settingsNavigation.map((item) => (
+            <SidebarNavItem
+              key={item.label}
+              type="link"
+              href={`#${item.label.toLowerCase().replaceAll(' ', '-')}`}
+              icon={item.icon}
+              label={item.label}
+              active={item.label === 'General'}
+            />
+          ))}
+        </SidebarMenu>
+      </AppSidebar>
+
+      <SidebarResizeHandle
+        label={t('workspace.resizeLeftPanel')}
+        value={sidebarWidth}
+        min={SIDEBAR_MIN_WIDTH}
+        max={SIDEBAR_MAX_WIDTH}
+        className="w-1 bg-background"
+        onPointerDown={startResize}
+        onKeyDown={resizeWithKeyboard}
+      />
 
       <main aria-label={t('settings.mainLabel')} className="relative min-h-0 flex-1 overflow-auto bg-background">
         <div className="app-titlebar sticky top-0 z-10 h-12" aria-hidden="true" />
@@ -173,16 +235,16 @@ function SettingsPage(): React.JSX.Element {
 
             <SettingsSection title="Notifications">
               <SettingsRow title="System Notifications" description="Show system notifications when an Agent completes or needs attention">
-                <Toggle checked label="System Notifications" />
+                <Switch checked aria-label="System Notifications" />
               </SettingsRow>
               <SettingsRow title="Warning Notifications" description="Show warning-level in-app toasts">
-                <Toggle label="Warning Notifications" />
+                <Switch aria-label="Warning Notifications" />
               </SettingsRow>
               <SettingsRow title="Menu Bar Icon" description="Show Space Zero in menu bar">
-                <Toggle checked label="Menu Bar Icon" />
+                <Switch checked aria-label="Menu Bar Icon" />
               </SettingsRow>
               <SettingsRow title="Completion Sound" description="Play a sound when Agent finishes responding">
-                <Toggle label="Completion Sound" />
+                <Switch aria-label="Completion Sound" />
               </SettingsRow>
             </SettingsSection>
           </div>
@@ -192,61 +254,3 @@ function SettingsPage(): React.JSX.Element {
   )
 }
 
-type SettingsSectionProps = {
-  title: string
-  children: React.ReactNode
-}
-
-function SettingsSection({ title, children }: SettingsSectionProps): React.JSX.Element {
-  return (
-    <section className="space-y-3">
-      <h3 className="px-2 text-sm text-muted-foreground">{title}</h3>
-      <Card className="gap-0 py-0">{children}</Card>
-    </section>
-  )
-}
-
-type SettingsRowProps = {
-  title: string
-  description: string
-  children: React.ReactNode
-}
-
-function SettingsRow({ title, description, children }: SettingsRowProps): React.JSX.Element {
-  return (
-    <div className="flex min-h-18 items-center gap-4 border-b border-border/70 px-4 py-3 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-foreground">{title}</p>
-        <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
-}
-
-type ToggleProps = {
-  checked?: boolean
-  label: string
-}
-
-function Toggle({ checked = false, label }: ToggleProps): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      className={cn(
-        'relative h-5 w-9 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
-        checked ? 'bg-emerald-600' : 'bg-muted'
-      )}
-    >
-      <span
-        className={cn(
-          'absolute top-0.5 size-4 rounded-full bg-white transition-transform',
-          checked ? 'translate-x-4' : 'translate-x-0.5'
-        )}
-      />
-    </button>
-  )
-}

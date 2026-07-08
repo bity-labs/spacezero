@@ -1,4 +1,4 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useRouterState } from '@tanstack/react-router'
 import { GearSix } from '@phosphor-icons/react'
 
 import { cn } from '../../lib/utils'
@@ -17,9 +17,12 @@ export function AccountMenu({
   username = 'tiby',
   avatarUrl = 'https://avatars.githubusercontent.com/u/101003754?s=96&v=4',
   avatarFallback = 'T',
-  settingsLabel = 'Settings',
-  settingsTo = '/settings'
+  settingsLabel,
+  settingsTo
 }: AccountMenuProps): React.JSX.Element {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  const resolvedSettingsTo = settingsTo ?? (pathname === '/settings' ? '/' : '/settings')
+  const resolvedSettingsLabel = settingsLabel ?? (resolvedSettingsTo === '/settings' ? 'Settings' : 'Close settings')
   return (
     <section className="flex items-center gap-2 rounded-lg px-1 py-1" aria-label="Account menu">
       <Avatar className="size-8 bg-muted">
@@ -32,9 +35,9 @@ export function AccountMenu({
       </div>
 
       <Link
-        to={settingsTo}
+        to={resolvedSettingsTo}
         className={cn(buttonVariants({ variant: 'ghost', size: 'icon-sm' }), 'text-muted-foreground')}
-        aria-label={settingsLabel}
+        aria-label={resolvedSettingsLabel}
       >
         <GearSix className="h-5 w-5" aria-hidden="true" />
       </Link>

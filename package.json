@@ -41,6 +41,7 @@
     "react": "latest",
     "react-dom": "latest",
     "react-i18next": "^17.0.8",
+    "react-resizable-panels": "^4.12.1",
     "tailwind-merge": "latest",
     "zod": "latest"
   },
