@@ -13,8 +13,8 @@ import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 import { AccountMenu } from '../components/app-shell/account-menu'
-import { SettingsRow } from '../components/settings/settings-row'
-import { SettingsSection } from '../components/settings/settings-section'
+import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
+import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
 import {
   SIDEBAR_KEYBOARD_RESIZE_STEP,
   SIDEBAR_MAX_WIDTH,
