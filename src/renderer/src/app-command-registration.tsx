@@ -24,7 +24,7 @@ export function AppCommandRegistration(): null {
         title: t('appCommands.openSettings'),
         category: t('appCommands.categories.navigation'),
         keywords: ['preferences', 'options', 'configuration'],
-        handler: () => void router.navigate({ to: '/settings' })
+        handler: () => void router.navigate({ to: router.state.location.pathname === '/settings' ? '/' : '/settings' })
       },
       {
         id: 'ui.toggle-color-mode',

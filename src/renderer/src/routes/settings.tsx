@@ -25,7 +25,7 @@ import { SidebarNavItem } from '../components/sidebar/sidebar-nav-item'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
 import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
-import { Button } from '../components/ui/button'
+import { Button, buttonVariants } from '../components/ui/button'
 import { Card } from '../components/ui/card'
 import { SidebarMenu } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
@@ -144,12 +144,12 @@ function SettingsPage(): React.JSX.Element {
               Upgrade to Pro
             </Button>
             <div className="mt-3">
-              <AccountMenu settingsLabel={t('settings.closeSettings')} settingsTo="/" />
+              <AccountMenu settingsLabel={t('settings.closeSettings')} />
             </div>
           </>
         }
       >
-        <Link className="mb-5 flex w-fit items-center gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground hover:text-foreground" to="/">
+        <Link className={buttonVariants({ variant: 'ghost', size: 'sm', className: 'mb-5 w-full justify-start gap-2 text-muted-foreground' })} to="/">
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {t('settings.backToWorkspace')}
         </Link>
@@ -157,7 +157,7 @@ function SettingsPage(): React.JSX.Element {
         <SidebarSearch
           label="Search Settings"
           className="mb-5"
-          inputClassName="h-9 bg-muted/50 pl-9"
+          inputClassName="h-9 bg-muted pl-9"
           placeholder="Search Settings"
         />
 
