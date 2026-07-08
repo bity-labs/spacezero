@@ -189,9 +189,9 @@ export function WorkspaceShell(): React.JSX.Element {
 
       <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
         {isLeftPanelOpen ? (
-          <aside aria-label={t('workspace.leftPanel')} className="flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
-            <h2 className="text-sm font-medium">{t('workspace.leftPanel')}</h2>
-            <nav className="mt-4 flex flex-col gap-1" aria-label={t('workspace.navigation')}>
+          <aside aria-label={t('workspace.leftPanel')} className="flex min-w-0 flex-col border-r border-sidebar-border bg-sidebar px-2 pb-3 pt-4 text-sidebar-foreground">
+            <h2 className="px-2 text-sm font-medium">{t('workspace.leftPanel')}</h2>
+            <nav className="mt-4 flex flex-col gap-1 px-2" aria-label={t('workspace.navigation')}>
               <Link className="rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground" to="/settings">
                 {t('workspace.settingsLink')}
               </Link>
