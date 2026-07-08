@@ -16,13 +16,13 @@ import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../components/settings/settings-row'
 import { SettingsSection } from '../components/settings/settings-section'
 import {
-  SIDEBAR_DEFAULT_WIDTH,
   SIDEBAR_KEYBOARD_RESIZE_STEP,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   clampSidebarWidth
 } from '../components/sidebar/sidebar-layout'
 import { SidebarNavItem } from '../components/sidebar/sidebar-nav-item'
+import { useSidebarWidth } from '../components/sidebar/use-sidebar-width'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
 import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
@@ -47,7 +47,7 @@ const settingsNavigation = [
 
 function SettingsPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH)
+  const [sidebarWidth, setSidebarWidth] = useSidebarWidth()
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
 

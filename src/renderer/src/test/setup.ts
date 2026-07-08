@@ -28,6 +28,7 @@ Object.defineProperty(window, 'matchMedia', {
 
 beforeEach(async () => {
   window.scrollTo = vi.fn()
+  window.localStorage.clear()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 
