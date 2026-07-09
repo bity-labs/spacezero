@@ -19,16 +19,19 @@ export type ChatMessageData = {
 
 export type ChatMessageProps = {
   message: ChatMessageData
+  isStreaming?: boolean
   className?: string
 }
 
-export function ChatMessage({ message, className }: ChatMessageProps): React.JSX.Element {
+export function ChatMessage({ message, isStreaming = false, className }: ChatMessageProps): React.JSX.Element {
   const isUser = message.role === 'user'
 
   return (
     <article
       data-testid={`chat-message-${message.id}`}
       data-role={message.role}
+      data-streaming={isStreaming ? 'true' : undefined}
+      aria-live={isStreaming ? 'polite' : undefined}
       className={cn('flex w-full gap-3 py-3', isUser ? 'justify-end' : 'justify-start', className)}
     >
       <div className={cn('max-w-[78%] space-y-2', isUser && 'items-end')}>
