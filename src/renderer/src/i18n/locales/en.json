@@ -10,6 +10,7 @@
     "rightPanel": "Right panel",
     "navigation": "Workspace navigation",
     "settingsLink": "Settings",
+    "openAppSettings": "Open app settings",
     "hideLeftPanel": "Hide left panel",
     "showLeftPanel": "Show left panel",
     "hideRightPanel": "Hide right panel",
@@ -17,7 +18,18 @@
     "resizeLeftPanel": "Resize left panel",
     "resizeRightPanel": "Resize right panel",
     "switchToLightMode": "Switch to light mode",
-    "switchToDarkMode": "Switch to dark mode"
+    "switchToDarkMode": "Switch to dark mode",
+    "sidebar": {
+      "newAgent": "New Agent",
+      "search": "Search",
+      "automations": "Automations",
+      "customize": "Customize"
+    },
+    "repositories": {
+      "label": "Repositories",
+      "filter": "Filter repositories",
+      "add": "Add repository"
+    }
   },
   "appCommands": {
     "openWorkspace": "Open Workspace",
@@ -44,6 +56,7 @@
     "mainLabel": "Settings",
     "navigationLabel": "Settings navigation",
     "backToWorkspace": "Back to Workspace",
+    "closeSettings": "Close settings",
     "language": {
       "sectionTitle": "Language",
       "label": "Language",
@@ -53,6 +66,64 @@
       "french": "French",
       "loading": "Loading language settings…",
       "saveError": "Could not update language preference."
+    },
+    "upgradeToPro": "Upgrade to Pro",
+    "search": {
+      "label": "Search Settings",
+      "placeholder": "Search Settings"
+    },
+    "navigation": {
+      "general": "General",
+      "profile": "Profile",
+      "appearance": "Appearance",
+      "agents": "Agents",
+      "models": "Models",
+      "cloudAgents": "Cloud Agents"
+    },
+    "account": {
+      "title": "Space Zero Account",
+      "description": "Manage your account and billing",
+      "open": "Open"
+    },
+    "pro": {
+      "title": "Upgrade to Pro",
+      "description": "Unlock premium models, workspace features, and more.",
+      "upgrade": "Upgrade"
+    },
+    "pullRequests": {
+      "sectionTitle": "Pull Requests",
+      "reviewProvider": {
+        "title": "Review Provider",
+        "description": "Choose GitHub for pull request links on web and desktop"
+      },
+      "linkDestination": {
+        "title": "PR Link Destination",
+        "description": "Open pull request links inside Space Zero or in the default browser",
+        "insideSpaceZero": "Inside Space Zero",
+        "defaultBrowser": "Default browser"
+      }
+    },
+    "preferences": {
+      "sectionTitle": "Preferences"
+    },
+    "notifications": {
+      "sectionTitle": "Notifications",
+      "system": {
+        "title": "System Notifications",
+        "description": "Show system notifications when an Agent completes or needs attention"
+      },
+      "warning": {
+        "title": "Warning Notifications",
+        "description": "Show warning-level in-app toasts"
+      },
+      "menuBar": {
+        "title": "Menu Bar Icon",
+        "description": "Show Space Zero in menu bar"
+      },
+      "completionSound": {
+        "title": "Completion Sound",
+        "description": "Play a sound when Agent finishes responding"
+      }
     }
   }
 }

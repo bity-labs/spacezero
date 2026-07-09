@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
+import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
   observe(): void {}
@@ -12,8 +13,24 @@ class TestResizeObserver implements ResizeObserver {
 globalThis.ResizeObserver = TestResizeObserver
 Element.prototype.scrollIntoView = vi.fn()
 
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn()
+  }))
+})
+
 beforeEach(async () => {
   window.scrollTo = vi.fn()
+  window.localStorage.clear()
+  resetUiLayoutStore()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 

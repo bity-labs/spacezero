@@ -75,10 +75,38 @@ describe('App', () => {
     expect(rightResize).toHaveAttribute('aria-valuenow', '344')
   })
 
+  it('keeps the left sidebar width in sync between workspace and Settings', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), {
+      key: 'ArrowRight'
+    })
+
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute(
+      'aria-valuenow',
+      '304'
+    )
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), {
+      key: 'ArrowRight'
+    })
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute(
+      'aria-valuenow',
+      '328'
+    )
+  })
+
   it('navigates from the workspace to Settings and back', async () => {
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
@@ -88,6 +116,18 @@ describe('App', () => {
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/')
+  })
+
+  it('toggles back to the workspace from the Settings account button', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Close settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/')
   })
 
@@ -133,20 +173,40 @@ describe('App', () => {
     expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
   })
 
+  it('toggles the workspace left panel through the app command keyboard shortcut', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    expect(screen.getByRole('complementary', { name: 'Left panel' })).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+
+    expect(screen.queryByRole('complementary', { name: 'Left panel' })).not.toBeInTheDocument()
+  })
+
   it('updates the language from Settings without requiring a restart', async () => {
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
     const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
 
-    fireEvent.change(languageSelect, { target: { value: 'fr' } })
+    fireEvent.click(languageSelect)
+    const frenchOption = await screen.findByRole('option', { name: 'French' })
+    fireEvent.pointerDown(frenchOption)
+    fireEvent.pointerUp(frenchOption)
+    fireEvent.click(frenchOption)
 
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Général' })).toBeInTheDocument()
+    expect(screen.getByText('Compte Space Zero')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Notifications système' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
     expect(
       await screen.findByRole('main', { name: 'Espace de travail principal' })
     ).toBeInTheDocument()
+    expect(screen.getByText('Nouvel agent')).toBeInTheDocument()
+    expect(screen.getByText('Dépôts')).toBeInTheDocument()
   })
 
   it('keeps the app-wide theme when navigating between routes', async () => {
@@ -158,7 +218,7 @@ describe('App', () => {
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
 
-    fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })

@@ -42,7 +42,8 @@
     "react-dom": "latest",
     "react-i18next": "^17.0.8",
     "tailwind-merge": "latest",
-    "zod": "latest"
+    "zod": "latest",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@electron-toolkit/tsconfig": "latest",
