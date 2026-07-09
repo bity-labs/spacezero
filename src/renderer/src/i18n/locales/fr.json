@@ -10,6 +10,7 @@
     "rightPanel": "Panneau droit",
     "navigation": "Navigation de l’espace de travail",
     "settingsLink": "Paramètres",
+    "openAppSettings": "Ouvrir les paramètres de l’application",
     "hideLeftPanel": "Masquer le panneau gauche",
     "showLeftPanel": "Afficher le panneau gauche",
     "hideRightPanel": "Masquer le panneau droit",
@@ -17,7 +18,18 @@
     "resizeLeftPanel": "Redimensionner le panneau gauche",
     "resizeRightPanel": "Redimensionner le panneau droit",
     "switchToLightMode": "Passer au mode clair",
-    "switchToDarkMode": "Passer au mode sombre"
+    "switchToDarkMode": "Passer au mode sombre",
+    "sidebar": {
+      "newAgent": "Nouvel agent",
+      "search": "Rechercher",
+      "automations": "Automatisations",
+      "customize": "Personnaliser"
+    },
+    "repositories": {
+      "label": "Dépôts",
+      "filter": "Filtrer les dépôts",
+      "add": "Ajouter un dépôt"
+    }
   },
   "appCommands": {
     "openWorkspace": "Ouvrir l’espace de travail",
@@ -44,6 +56,7 @@
     "mainLabel": "Paramètres",
     "navigationLabel": "Navigation des paramètres",
     "backToWorkspace": "Retour à l’espace de travail",
+    "closeSettings": "Fermer les paramètres",
     "language": {
       "sectionTitle": "Langue",
       "label": "Langue",
@@ -53,6 +66,64 @@
       "french": "Français",
       "loading": "Chargement des paramètres de langue…",
       "saveError": "Impossible de mettre à jour la préférence de langue."
+    },
+    "upgradeToPro": "Passer à Pro",
+    "search": {
+      "label": "Rechercher dans les paramètres",
+      "placeholder": "Rechercher dans les paramètres"
+    },
+    "navigation": {
+      "general": "Général",
+      "profile": "Profil",
+      "appearance": "Apparence",
+      "agents": "Agents",
+      "models": "Modèles",
+      "cloudAgents": "Agents cloud"
+    },
+    "account": {
+      "title": "Compte Space Zero",
+      "description": "Gérez votre compte et votre facturation",
+      "open": "Ouvrir"
+    },
+    "pro": {
+      "title": "Passer à Pro",
+      "description": "Débloquez les modèles premium, les fonctionnalités d’espace de travail et plus encore.",
+      "upgrade": "Mettre à niveau"
+    },
+    "pullRequests": {
+      "sectionTitle": "Pull requests",
+      "reviewProvider": {
+        "title": "Fournisseur de revue",
+        "description": "Choisissez GitHub pour les liens de pull request sur le web et le bureau"
+      },
+      "linkDestination": {
+        "title": "Destination des liens de PR",
+        "description": "Ouvrir les liens de pull request dans Space Zero ou dans le navigateur par défaut",
+        "insideSpaceZero": "Dans Space Zero",
+        "defaultBrowser": "Navigateur par défaut"
+      }
+    },
+    "preferences": {
+      "sectionTitle": "Préférences"
+    },
+    "notifications": {
+      "sectionTitle": "Notifications",
+      "system": {
+        "title": "Notifications système",
+        "description": "Afficher des notifications système quand un agent termine ou requiert une attention"
+      },
+      "warning": {
+        "title": "Notifications d’avertissement",
+        "description": "Afficher les toasts intégrés de niveau avertissement"
+      },
+      "menuBar": {
+        "title": "Icône de barre de menus",
+        "description": "Afficher Space Zero dans la barre de menus"
+      },
+      "completionSound": {
+        "title": "Son de fin",
+        "description": "Jouer un son quand un agent a terminé de répondre"
+      }
     }
   }
 }
