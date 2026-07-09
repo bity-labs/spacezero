@@ -79,18 +79,28 @@ describe('App', () => {
     render(<App />)
 
     await screen.findByRole('banner')
-    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), { key: 'ArrowRight' })
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), {
+      key: 'ArrowRight'
+    })
 
     fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute('aria-valuenow', '304')
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute(
+      'aria-valuenow',
+      '304'
+    )
 
-    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), { key: 'ArrowRight' })
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize left panel' }), {
+      key: 'ArrowRight'
+    })
     fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute('aria-valuenow', '328')
+    expect(screen.getByRole('separator', { name: 'Resize left panel' })).toHaveAttribute(
+      'aria-valuenow',
+      '328'
+    )
   })
 
   it('navigates from the workspace to Settings and back', async () => {
@@ -163,6 +173,17 @@ describe('App', () => {
     expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
   })
 
+  it('toggles the workspace left panel through the app command keyboard shortcut', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
+    expect(screen.getByRole('complementary', { name: 'Left panel' })).toBeInTheDocument()
+
+    fireEvent.keyDown(window, { key: 'b', ctrlKey: true })
+
+    expect(screen.queryByRole('complementary', { name: 'Left panel' })).not.toBeInTheDocument()
+  })
+
   it('updates the language from Settings without requiring a restart', async () => {
     render(<App />)
 
@@ -176,11 +197,16 @@ describe('App', () => {
     fireEvent.click(frenchOption)
 
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Général' })).toBeInTheDocument()
+    expect(screen.getByText('Compte Space Zero')).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Notifications système' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
     expect(
       await screen.findByRole('main', { name: 'Espace de travail principal' })
     ).toBeInTheDocument()
+    expect(screen.getByText('Nouvel agent')).toBeInTheDocument()
+    expect(screen.getByText('Dépôts')).toBeInTheDocument()
   })
 
   it('keeps the app-wide theme when navigating between routes', async () => {

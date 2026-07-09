@@ -1,4 +1,4 @@
-import { useCallback, useMemo, type KeyboardEvent, type PointerEvent } from 'react'
+import { useMemo, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -20,17 +20,13 @@ import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcu
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
 import { AppSidebar } from './components/sidebar/app-sidebar'
-import {
-  SIDEBAR_KEYBOARD_RESIZE_STEP,
-  SIDEBAR_MAX_WIDTH,
-  SIDEBAR_MIN_WIDTH,
-  clampSidebarWidth
-} from './components/sidebar/sidebar-layout'
+import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useColorMode } from './color-mode-provider'
+import { useSidebarResize } from './hooks/use-sidebar-resize'
 import { cn } from './lib/utils'
 import { useUiLayoutStore } from './stores/ui-layout-store'
 
@@ -38,8 +34,6 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
-
-type ResizablePanel = 'left' | 'right'
 
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
@@ -50,6 +44,16 @@ export function WorkspaceShell(): React.JSX.Element {
   const setRightPanelWidth = useUiLayoutStore((state) => state.setRightSidebarWidth)
   const toggleLeftPanel = useUiLayoutStore((state) => state.toggleLeftSidebar)
   const toggleRightPanel = useUiLayoutStore((state) => state.toggleRightSidebar)
+  const leftPanelResize = useSidebarResize({
+    side: 'left',
+    width: leftPanelWidth,
+    setWidth: setLeftPanelWidth
+  })
+  const rightPanelResize = useSidebarResize({
+    side: 'right',
+    width: rightPanelWidth,
+    setWidth: setRightPanelWidth
+  })
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
@@ -77,52 +81,6 @@ export function WorkspaceShell(): React.JSX.Element {
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
 
-  const resizePanel = useCallback((panel: ResizablePanel, width: number) => {
-    const setWidth = panel === 'left' ? setLeftPanelWidth : setRightPanelWidth
-    setWidth(clampSidebarWidth(width))
-  }, [])
-
-  const startResize = useCallback(
-    (panel: ResizablePanel, event: PointerEvent<HTMLDivElement>) => {
-      event.preventDefault()
-
-      const startX = event.clientX
-      const startWidth = panel === 'left' ? leftPanelWidth : rightPanelWidth
-
-      function handlePointerMove(moveEvent: globalThis.PointerEvent): void {
-        const pointerDelta = moveEvent.clientX - startX
-        const nextWidth = panel === 'left' ? startWidth + pointerDelta : startWidth - pointerDelta
-        resizePanel(panel, nextWidth)
-      }
-
-      function handlePointerUp(): void {
-        window.removeEventListener('pointermove', handlePointerMove)
-      }
-
-      window.addEventListener('pointermove', handlePointerMove)
-      window.addEventListener('pointerup', handlePointerUp, { once: true })
-    },
-    [leftPanelWidth, resizePanel, rightPanelWidth]
-  )
-
-  const resizeWithKeyboard = useCallback(
-    (panel: ResizablePanel, event: KeyboardEvent<HTMLDivElement>) => {
-      const currentWidth = panel === 'left' ? leftPanelWidth : rightPanelWidth
-      let nextWidth = currentWidth
-
-      if (event.key === 'Home') nextWidth = SIDEBAR_MIN_WIDTH
-      if (event.key === 'End') nextWidth = SIDEBAR_MAX_WIDTH
-      if (event.key === 'ArrowLeft') nextWidth = currentWidth + (panel === 'right' ? SIDEBAR_KEYBOARD_RESIZE_STEP : -SIDEBAR_KEYBOARD_RESIZE_STEP)
-      if (event.key === 'ArrowRight') nextWidth = currentWidth + (panel === 'left' ? SIDEBAR_KEYBOARD_RESIZE_STEP : -SIDEBAR_KEYBOARD_RESIZE_STEP)
-
-      if (nextWidth !== currentWidth) {
-        event.preventDefault()
-        resizePanel(panel, nextWidth)
-      }
-    },
-    [leftPanelWidth, resizePanel, rightPanelWidth]
-  )
-
   const gridTemplateColumns = [
     isLeftPanelOpen ? `${leftPanelWidth}px 4px` : '',
     'minmax(0, 1fr)',
@@ -139,7 +97,10 @@ export function WorkspaceShell(): React.JSX.Element {
 
   return (
     <div className="flex h-screen min-h-screen flex-col bg-background text-foreground">
-      <header className="app-titlebar grid h-12 items-stretch bg-background" style={{ gridTemplateColumns: titlebarGridTemplateColumns }}>
+      <header
+        className="app-titlebar grid h-12 items-stretch bg-background"
+        style={{ gridTemplateColumns: titlebarGridTemplateColumns }}
+      >
         <div
           className={cn(
             'flex items-center justify-start px-3',
@@ -152,7 +113,9 @@ export function WorkspaceShell(): React.JSX.Element {
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground"
-              aria-label={isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel')}
+              aria-label={
+                isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel')
+              }
               aria-pressed={isLeftPanelOpen}
               onClick={toggleLeftPanel}
             >
@@ -162,8 +125,14 @@ export function WorkspaceShell(): React.JSX.Element {
               variant="ghost"
               size="icon-sm"
               className="text-muted-foreground"
-              aria-label={colorMode === 'dark' ? t('workspace.switchToLightMode') : t('workspace.switchToDarkMode')}
-              onClick={() => setColorMode((currentMode) => (currentMode === 'dark' ? 'light' : 'dark'))}
+              aria-label={
+                colorMode === 'dark'
+                  ? t('workspace.switchToLightMode')
+                  : t('workspace.switchToDarkMode')
+              }
+              onClick={() =>
+                setColorMode((currentMode) => (currentMode === 'dark' ? 'light' : 'dark'))
+              }
             >
               {colorMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -193,7 +162,9 @@ export function WorkspaceShell(): React.JSX.Element {
             variant="ghost"
             size="icon-sm"
             className="text-muted-foreground"
-            aria-label={isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')}
+            aria-label={
+              isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')
+            }
             aria-pressed={isRightPanelOpen}
             onClick={toggleRightPanel}
           >
@@ -211,19 +182,19 @@ export function WorkspaceShell(): React.JSX.Element {
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
             <SidebarMenu className="px-2" aria-label={t('workspace.navigation')}>
-              <SidebarNavItem icon={PaperPlaneTilt} label="New Agent" />
-              <SidebarNavItem icon={MagnifyingGlass} label="Search" />
-              <SidebarNavItem icon={CalendarBlank} label="Automations" />
-              <SidebarNavItem icon={SquaresFour} label="Customize" />
+              <SidebarNavItem icon={PaperPlaneTilt} label={t('workspace.sidebar.newAgent')} />
+              <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
+              <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
+              <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
             </SidebarMenu>
 
-            <SidebarGroup className="mt-8" aria-label="Repositories">
+            <SidebarGroup className="mt-8" aria-label={t('workspace.repositories.label')}>
               <SidebarSectionHeader
-                label="Repositories"
+                label={t('workspace.repositories.label')}
                 expandable
                 actions={[
-                  { label: 'Filter repositories', icon: FunnelSimple },
-                  { label: 'Add repository', icon: FolderPlus }
+                  { label: t('workspace.repositories.filter'), icon: FunnelSimple },
+                  { label: t('workspace.repositories.add'), icon: FolderPlus }
                 ]}
               />
             </SidebarGroup>
@@ -234,12 +205,16 @@ export function WorkspaceShell(): React.JSX.Element {
           <ResizeHandle
             label={t('workspace.resizeLeftPanel')}
             value={leftPanelWidth}
-            onPointerDown={(event) => startResize('left', event)}
-            onKeyDown={(event) => resizeWithKeyboard('left', event)}
+            onPointerDown={leftPanelResize.startResize}
+            onKeyDown={leftPanelResize.resizeWithKeyboard}
           />
         ) : null}
 
-        <section aria-label={t('workspace.mainLabel')} className="min-w-0 bg-background p-4" role="main">
+        <section
+          aria-label={t('workspace.mainLabel')}
+          className="min-w-0 bg-background p-4"
+          role="main"
+        >
           <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
         </section>
 
@@ -247,13 +222,16 @@ export function WorkspaceShell(): React.JSX.Element {
           <ResizeHandle
             label={t('workspace.resizeRightPanel')}
             value={rightPanelWidth}
-            onPointerDown={(event) => startResize('right', event)}
-            onKeyDown={(event) => resizeWithKeyboard('right', event)}
+            onPointerDown={rightPanelResize.startResize}
+            onKeyDown={rightPanelResize.resizeWithKeyboard}
           />
         ) : null}
 
         {isRightPanelOpen ? (
-          <aside aria-label={t('workspace.rightPanel')} className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground">
+          <aside
+            aria-label={t('workspace.rightPanel')}
+            className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground"
+          >
             <h2 className="text-sm font-medium">{t('workspace.rightPanel')}</h2>
           </aside>
         ) : null}
@@ -269,7 +247,12 @@ type ResizeHandleProps = {
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
 }
 
-function ResizeHandle({ label, value, onPointerDown, onKeyDown }: ResizeHandleProps): React.JSX.Element {
+function ResizeHandle({
+  label,
+  value,
+  onPointerDown,
+  onKeyDown
+}: ResizeHandleProps): React.JSX.Element {
   return (
     <div
       aria-label={label}
