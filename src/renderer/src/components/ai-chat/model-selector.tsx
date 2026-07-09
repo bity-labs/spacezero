@@ -1,13 +1,19 @@
 import * as React from 'react'
 import { CaretDownIcon, CheckIcon } from '@phosphor-icons/react'
 
+import { Button } from '@renderer/components/ui/button'
 import {
+  ModelSelector as ModelSelectorPrimitive,
   ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorInput,
   ModelSelectorItem,
   ModelSelectorList,
-  ModelSelectorRoot,
+  ModelSelectorLogo,
+  ModelSelectorName,
   ModelSelectorTrigger
-} from './elements/model-selector'
+} from '@renderer/components/ui/model-selector'
+
 import type { AiChatModelOption } from './types'
 
 export type ModelSelectorProps = {
@@ -28,67 +34,54 @@ export function ModelSelector({
   className
 }: ModelSelectorProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
-  const rootRef = React.useRef<HTMLDivElement>(null)
   const selected = models.find((model) => model.id === selectedModelId)
   const isDisabled = disabled || loading || models.length === 0
 
-  React.useEffect(() => {
-    if (!open) return undefined
-
-    function closeOnOutsidePointerDown(event: PointerEvent): void {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-
-    document.addEventListener('pointerdown', closeOnOutsidePointerDown)
-    return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown)
-  }, [open])
-
   return (
-    <ModelSelectorRoot ref={rootRef} className={className}>
+    <ModelSelectorPrimitive open={open} onOpenChange={setOpen}>
       <ModelSelectorTrigger
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label="Session model"
-        disabled={isDisabled}
-        onClick={() => setOpen((current) => !current)}
+        render={
+          <Button
+            className={className}
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Session model"
+            disabled={isDisabled}
+          />
+        }
       >
         <span className="text-muted-foreground">Model</span>
         <span>{loading ? 'Loading…' : selected?.label ?? (models.length ? 'Select model' : 'No models available')}</span>
         <CaretDownIcon />
       </ModelSelectorTrigger>
 
-      {open ? (
-        <ModelSelectorContent>
-          <ModelSelectorList aria-label="Session model">
-            {models.map((model) => (
-              <ModelSelectorItem
-                key={model.id}
-                type="button"
-                role="option"
-                aria-selected={model.id === selectedModelId}
-                disabled={model.disabled}
-                onClick={() => {
-                  onSelect(model)
-                  setOpen(false)
-                }}
-              >
-                <span className="mt-0.5 size-4">{model.id === selectedModelId ? <CheckIcon /> : null}</span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{model.label}</span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {model.provider} · {model.modelId}
-                    {model.description ? ` — ${model.description}` : ''}
-                  </span>
-                </span>
-              </ModelSelectorItem>
-            ))}
-          </ModelSelectorList>
-        </ModelSelectorContent>
-      ) : null}
-    </ModelSelectorRoot>
+      <ModelSelectorContent title="Session model">
+        <ModelSelectorInput placeholder="Search models..." />
+        <ModelSelectorList>
+          <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+          {models.map((model) => (
+            <ModelSelectorItem
+              key={model.id}
+              value={`${model.provider} ${model.label} ${model.modelId}`}
+              disabled={model.disabled}
+              onSelect={() => {
+                onSelect(model)
+                setOpen(false)
+              }}
+            >
+              <span className="size-4">{model.id === selectedModelId ? <CheckIcon /> : null}</span>
+              <ModelSelectorLogo provider={model.provider} />
+              <ModelSelectorName>{model.label}</ModelSelectorName>
+              <span className="truncate text-xs text-muted-foreground">
+                {model.modelId}
+                {model.description ? ` — ${model.description}` : ''}
+              </span>
+            </ModelSelectorItem>
+          ))}
+        </ModelSelectorList>
+      </ModelSelectorContent>
+    </ModelSelectorPrimitive>
   )
 }
 

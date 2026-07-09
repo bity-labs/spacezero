@@ -1,5 +1,10 @@
 import * as React from 'react'
 
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton
+} from '@renderer/components/ui/conversation'
 import { cn } from '@renderer/lib/utils'
 
 import { ChatMessage } from './chat-message'
@@ -17,15 +22,18 @@ export function ChatTranscript({
   className
 }: ChatTranscriptProps): React.JSX.Element {
   return (
-    <div className={cn('space-y-1 overflow-y-auto', className)} aria-label="Conversation">
-      {messages.map((message) => (
-        <ChatMessage
-          key={message.id}
-          message={message}
-          onResolveToolConfirmation={onResolveToolConfirmation}
-        />
-      ))}
-    </div>
+    <Conversation className={cn(className)} aria-label="Conversation">
+      <ConversationContent className="gap-1 p-0">
+        {messages.map((message) => (
+          <ChatMessage
+            key={message.id}
+            message={message}
+            onResolveToolConfirmation={onResolveToolConfirmation}
+          />
+        ))}
+      </ConversationContent>
+      <ConversationScrollButton aria-label="Scroll to bottom" />
+    </Conversation>
   )
 }
 

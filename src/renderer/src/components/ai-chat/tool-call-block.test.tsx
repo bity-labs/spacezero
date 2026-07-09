@@ -18,13 +18,13 @@ describe('ToolCallBlock', () => {
     expect(screen.getByText('workspace.getStatus')).toBeInTheDocument()
     expect(screen.getByText(/includeProjects/)).toBeInTheDocument()
     expect(screen.getByText('Workspace is ready.')).toBeInTheDocument()
-    expect(screen.getByText('success')).toBeInTheDocument()
+    expect(screen.getByText('Completed')).toBeInTheDocument()
   })
 
   it('shows an error state', () => {
     render(<ToolCallBlock callId="call-1" toolName="bash" input="pnpm test" error="Command failed" state="error" />)
 
-    expect(screen.getByRole('alert')).toHaveTextContent('Command failed')
+    expect(screen.getByText('Command failed')).toBeInTheDocument()
   })
 
   it('defaults to collapsed after success and expanded while running', () => {

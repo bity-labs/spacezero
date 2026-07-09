@@ -1,13 +1,15 @@
 import * as React from 'react'
 import { CaretDownIcon, CheckIcon } from '@phosphor-icons/react'
 
+import { Button } from '@renderer/components/ui/button'
 import {
+  ModelSelector as ModelSelectorPrimitive,
   ModelSelectorContent,
   ModelSelectorItem,
   ModelSelectorList,
-  ModelSelectorRoot,
   ModelSelectorTrigger
-} from './elements/model-selector'
+} from '@renderer/components/ui/model-selector'
+
 import { type ThinkingLevel, thinkingLevels } from './types'
 
 export type ThinkingSelectorProps = {
@@ -24,59 +26,44 @@ export function ThinkingSelector({
   className
 }: ThinkingSelectorProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
-  const rootRef = React.useRef<HTMLDivElement>(null)
-
-  React.useEffect(() => {
-    if (!open) return undefined
-
-    function closeOnOutsidePointerDown(event: PointerEvent): void {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-
-    document.addEventListener('pointerdown', closeOnOutsidePointerDown)
-    return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown)
-  }, [open])
 
   return (
-    <ModelSelectorRoot ref={rootRef} className={className}>
+    <ModelSelectorPrimitive open={open} onOpenChange={setOpen}>
       <ModelSelectorTrigger
-        type="button"
-        variant="outline"
-        size="sm"
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        aria-label="Session thinking level"
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
+        render={
+          <Button
+            className={className}
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label="Session thinking level"
+            disabled={disabled}
+          />
+        }
       >
         <span className="text-muted-foreground">Thinking</span>
         <span>{value}</span>
         <CaretDownIcon />
       </ModelSelectorTrigger>
 
-      {open ? (
-        <ModelSelectorContent className="w-40">
-          <ModelSelectorList aria-label="Session thinking level">
-            {thinkingLevels.map((level) => (
-              <ModelSelectorItem
-                key={level}
-                type="button"
-                role="option"
-                aria-selected={level === value}
-                className="items-center py-1.5"
-                onClick={() => {
-                  onChange(level)
-                  setOpen(false)
-                }}
-              >
-                <span className="size-4">{level === value ? <CheckIcon /> : null}</span>
-                {level}
-              </ModelSelectorItem>
-            ))}
-          </ModelSelectorList>
-        </ModelSelectorContent>
-      ) : null}
-    </ModelSelectorRoot>
+      <ModelSelectorContent title="Session thinking level" className="max-w-48">
+        <ModelSelectorList>
+          {thinkingLevels.map((level) => (
+            <ModelSelectorItem
+              key={level}
+              value={level}
+              onSelect={() => {
+                onChange(level)
+                setOpen(false)
+              }}
+            >
+              <span className="size-4">{level === value ? <CheckIcon /> : null}</span>
+              {level}
+            </ModelSelectorItem>
+          ))}
+        </ModelSelectorList>
+      </ModelSelectorContent>
+    </ModelSelectorPrimitive>
   )
 }
 

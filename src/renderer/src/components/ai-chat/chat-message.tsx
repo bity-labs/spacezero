@@ -2,7 +2,7 @@ import * as React from 'react'
 
 import { cn } from '@renderer/lib/utils'
 
-import { Reasoning, ReasoningContent, ReasoningTrigger } from './elements/reasoning'
+import { Reasoning, ReasoningContent, ReasoningTrigger } from '@renderer/components/ui/reasoning'
 import { ToolCallBlock } from './tool-call-block'
 import { ToolConfirmationCard } from './tool-confirmation-card'
 import type { AiChatMessage as AiChatMessageData, AiChatMessagePart } from './types'
@@ -25,8 +25,8 @@ function ChatMessagePartView({
       return <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{part.text}</div>
     case 'thinking':
       return (
-        <Reasoning isStreaming={part.state === 'streaming'} collapsed={part.collapsed}>
-          <ReasoningTrigger isStreaming={part.state === 'streaming'} />
+        <Reasoning isStreaming={part.state === 'streaming'} defaultOpen={part.collapsed === undefined ? undefined : !part.collapsed}>
+          <ReasoningTrigger />
           <ReasoningContent>{part.text}</ReasoningContent>
         </Reasoning>
       )

@@ -1,9 +1,16 @@
 import * as React from 'react'
 import { XIcon } from '@phosphor-icons/react'
 
-import { Button } from '@renderer/components/ui/button'
+import {
+  Confirmation,
+  ConfirmationAccepted,
+  ConfirmationAction,
+  ConfirmationActions,
+  ConfirmationRejected,
+  ConfirmationRequest,
+  ConfirmationTitle
+} from '@renderer/components/ui/confirmation'
 
-import { Confirmation, ConfirmationActions, ConfirmationBody } from './elements/confirmation'
 import type { ToolConfirmationState } from './types'
 
 export type ToolConfirmationCardProps = {
@@ -26,42 +33,45 @@ export function ToolConfirmationCard({
   const isPending = state === 'pending'
   const isResolving = state === 'resolving'
   const disabled = !isPending || isResolving
-  const statusLabel =
-    state === 'pending' ? 'Approval needed' : state === 'resolving' ? 'Resolving…' : state === 'approved' ? 'Approved' : 'Denied'
+  const approval =
+    state === 'approved'
+      ? { id: callId, approved: true as const }
+      : state === 'denied'
+        ? { id: callId, approved: false as const }
+        : { id: callId }
+  const confirmationState = state === 'pending' || state === 'resolving' ? 'approval-requested' : 'approval-responded'
 
   return (
-    <Confirmation className={className}>
-      <ConfirmationBody>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{statusLabel}</span>
+    <Confirmation className={className} approval={approval} state={confirmationState}>
+      <ConfirmationRequest>
+        <ConfirmationTitle>
+          {isResolving ? 'Resolving…' : 'Approval needed'} for{' '}
           <span className="rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
             {toolName}
           </span>
-        </div>
+        </ConfirmationTitle>
         <p className="text-muted-foreground">{summary}</p>
-        <ConfirmationActions>
-          <Button
-            type="button"
-            size="sm"
-            disabled={disabled}
-            aria-label="Approve tool use"
-            onClick={() => onResolve(callId, true)}
-          >
-            Yes
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            disabled={disabled}
-            aria-label="Deny tool use"
-            onClick={() => onResolve(callId, false)}
-          >
-            <XIcon />
-            No
-          </Button>
-        </ConfirmationActions>
-      </ConfirmationBody>
+      </ConfirmationRequest>
+      <ConfirmationAccepted>
+        <ConfirmationTitle>Approved {toolName}</ConfirmationTitle>
+      </ConfirmationAccepted>
+      <ConfirmationRejected>
+        <ConfirmationTitle>Denied {toolName}</ConfirmationTitle>
+      </ConfirmationRejected>
+      <ConfirmationActions>
+        <ConfirmationAction disabled={disabled} aria-label="Approve tool use" onClick={() => onResolve(callId, true)}>
+          Yes
+        </ConfirmationAction>
+        <ConfirmationAction
+          variant="outline"
+          disabled={disabled}
+          aria-label="Deny tool use"
+          onClick={() => onResolve(callId, false)}
+        >
+          <XIcon />
+          No
+        </ConfirmationAction>
+      </ConfirmationActions>
     </Confirmation>
   )
 }

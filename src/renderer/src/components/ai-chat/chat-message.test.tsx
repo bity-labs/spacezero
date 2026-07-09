@@ -29,7 +29,7 @@ describe('ChatMessage', () => {
           id: 'assistant-1',
           role: 'assistant',
           parts: [
-            { type: 'thinking', text: 'I inspected the relevant components.', state: 'complete' },
+            { type: 'thinking', text: 'I inspected the relevant components.', state: 'complete', collapsed: false },
             { type: 'tool-call', callId: 'call-1', toolName: 'workspace.getStatus', input: { includeProjects: true }, state: 'success', output: 'Ready' },
             { type: 'tool-confirmation', callId: 'call-2', toolName: 'workspace.openProject', summary: 'Open project' },
             { type: 'text', text: 'Here is the answer.' }
@@ -38,10 +38,10 @@ describe('ChatMessage', () => {
       />
     )
 
-    expect(screen.getByText('Thinking')).toBeInTheDocument()
+    expect(screen.getByText('Thought for a few seconds')).toBeInTheDocument()
     expect(screen.getByText('I inspected the relevant components.')).toBeInTheDocument()
     expect(screen.getByText('workspace.getStatus')).toBeInTheDocument()
-    expect(screen.getByText('Approval needed')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Approval needed')
     fireEvent.click(screen.getByRole('button', { name: 'Approve tool use' }))
     expect(onResolve).toHaveBeenCalledWith('call-2', true)
   })

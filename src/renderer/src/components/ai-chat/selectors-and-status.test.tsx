@@ -21,7 +21,7 @@ describe('AI chat selectors and status', () => {
 
     expect(screen.getByRole('button', { name: 'Session model' })).toHaveTextContent('Claude Sonnet 4.5')
     fireEvent.click(screen.getByRole('button', { name: 'Session model' }))
-    fireEvent.click(screen.getByRole('option', { name: /OpenAI · gpt-5/ }))
+    fireEvent.click(screen.getByRole('option', { name: /GPT-5/ }))
 
     expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ id: 'openai:gpt-5' }))
   })
