@@ -27,7 +27,7 @@ describe('ChatInput', () => {
   })
 
   it('disables input and submit while running', () => {
-    render(<ChatInput onSubmit={vi.fn()} isRunning />)
+    render(<ChatInput onSubmit={vi.fn()} disabled />)
 
     expect(screen.getByLabelText('Message')).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()

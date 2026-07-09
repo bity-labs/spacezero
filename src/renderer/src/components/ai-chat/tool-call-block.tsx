@@ -1,22 +1,12 @@
+// Adapted from AI Elements tool for Space Zero tool-call state and Phosphor icons.
 import * as React from 'react'
 import { CaretDownIcon, CaretRightIcon, WrenchIcon } from '@phosphor-icons/react'
 
 import { cn } from '@renderer/lib/utils'
 
-export type ToolCallStatus = 'pending' | 'running' | 'completed' | 'error'
+import type { ToolCallViewModel } from './types'
 
-export type ToolCallViewModel = {
-  id: string
-  toolName: string
-  arguments?: unknown
-  output?: string
-  result?: unknown
-  error?: string
-  status: ToolCallStatus
-}
-
-export type ToolCallBlockProps = {
-  toolCall: ToolCallViewModel
+export type ToolCallBlockProps = ToolCallViewModel & {
   defaultExpanded?: boolean
   className?: string
 }
@@ -28,15 +18,20 @@ function formatValue(value: unknown): string {
 }
 
 export function ToolCallBlock({
-  toolCall,
-  defaultExpanded = true,
+  callId,
+  toolName,
+  state,
+  input,
+  output,
+  error,
+  defaultExpanded,
   className
 }: ToolCallBlockProps): React.JSX.Element {
-  const [expanded, setExpanded] = React.useState(defaultExpanded)
-  const statusTone = toolCall.status === 'error' ? 'text-destructive' : 'text-muted-foreground'
+  const [expanded, setExpanded] = React.useState(defaultExpanded ?? (state === 'running' || state === 'error'))
+  const statusTone = state === 'error' ? 'text-destructive' : 'text-muted-foreground'
 
   return (
-    <section className={cn('rounded-xl border border-border bg-card text-sm shadow-xs', className)}>
+    <section className={cn('rounded-xl border border-border bg-card text-sm shadow-xs', className)} data-call-id={callId}>
       <button
         type="button"
         className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left"
@@ -45,34 +40,34 @@ export function ToolCallBlock({
       >
         <span className="flex min-w-0 items-center gap-2 font-medium">
           <WrenchIcon className="size-4 text-muted-foreground" />
-          <span className="truncate">{toolCall.toolName}</span>
+          <span className="truncate">{toolName}</span>
         </span>
         <span className={cn('flex items-center gap-2 text-xs', statusTone)}>
-          {toolCall.status}
+          {state}
           {expanded ? <CaretDownIcon className="size-3" /> : <CaretRightIcon className="size-3" />}
         </span>
       </button>
 
       {expanded ? (
         <div className="space-y-3 border-t border-border px-3 py-3">
-          {toolCall.arguments !== undefined ? (
+          {input !== undefined ? (
             <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs text-muted-foreground">
-              {formatValue(toolCall.arguments)}
+              {formatValue(input)}
             </pre>
           ) : null}
-          {toolCall.output ? (
+          {output !== undefined && state !== 'success' ? (
             <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-background p-2 text-xs" aria-live="polite">
-              {toolCall.output}
+              {formatValue(output)}
             </pre>
           ) : null}
-          {toolCall.result !== undefined ? (
+          {output !== undefined && state === 'success' ? (
             <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-emerald-500/10 p-2 text-xs">
-              {formatValue(toolCall.result)}
+              {formatValue(output)}
             </pre>
           ) : null}
-          {toolCall.error ? (
+          {error ? (
             <div role="alert" className="rounded-md bg-destructive/10 p-2 text-xs text-destructive">
-              {toolCall.error}
+              {error}
             </div>
           ) : null}
         </div>

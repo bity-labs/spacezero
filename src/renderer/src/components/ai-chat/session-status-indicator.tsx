@@ -6,16 +6,22 @@ export type SessionStatus = 'running' | 'idle'
 
 export type SessionStatusIndicatorProps = {
   status: SessionStatus
+  showLabel?: boolean
   className?: string
 }
 
-export function SessionStatusIndicator({ status, className }: SessionStatusIndicatorProps): React.JSX.Element {
+export function SessionStatusIndicator({
+  status,
+  showLabel = true,
+  className
+}: SessionStatusIndicatorProps): React.JSX.Element {
   const isRunning = status === 'running'
 
   return (
     <div
       role="status"
       data-status={status}
+      aria-label={showLabel ? undefined : isRunning ? 'Running' : 'Idle'}
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium',
         isRunning
@@ -31,7 +37,7 @@ export function SessionStatusIndicator({ status, className }: SessionStatusIndic
         )}
         aria-hidden="true"
       />
-      {isRunning ? 'Running' : 'Idle'}
+      {showLabel ? (isRunning ? 'Running' : 'Idle') : null}
     </div>
   )
 }

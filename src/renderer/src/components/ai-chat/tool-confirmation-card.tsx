@@ -1,37 +1,34 @@
+// Adapted from AI Elements confirmation for Space Zero tool approvals.
 import * as React from 'react'
 import { ShieldCheckIcon, XIcon } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/utils'
 
-export type ToolConfirmationStatus = 'pending' | 'approved' | 'denied'
+import type { ToolConfirmationState } from './types'
 
-export type ToolConfirmationRequest = {
+export type ToolConfirmationCardProps = {
   callId: string
   toolName: string
   summary: string
-  status?: ToolConfirmationStatus
-}
-
-export type ToolConfirmationResolution = {
-  callId: string
-  approved: boolean
-}
-
-export type ToolConfirmationCardProps = {
-  request: ToolConfirmationRequest
-  onResolve: (resolution: ToolConfirmationResolution) => void
+  state?: ToolConfirmationState
+  onResolve: (callId: string, approved: boolean) => void
   className?: string
 }
 
 export function ToolConfirmationCard({
-  request,
+  callId,
+  toolName,
+  summary,
+  state = 'pending',
   onResolve,
   className
 }: ToolConfirmationCardProps): React.JSX.Element {
-  const status = request.status ?? 'pending'
-  const isPending = status === 'pending'
-  const statusLabel = status === 'pending' ? 'Approval needed' : status === 'approved' ? 'Approved' : 'Denied'
+  const isPending = state === 'pending'
+  const isResolving = state === 'resolving'
+  const disabled = !isPending || isResolving
+  const statusLabel =
+    state === 'pending' ? 'Approval needed' : state === 'resolving' ? 'Resolving…' : state === 'approved' ? 'Approved' : 'Denied'
 
   return (
     <section className={cn('rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm', className)}>
@@ -41,17 +38,17 @@ export function ToolConfirmationCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-medium">{statusLabel}</span>
             <span className="rounded-md bg-background/80 px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-              {request.toolName}
+              {toolName}
             </span>
           </div>
-          <p className="text-muted-foreground">{request.summary}</p>
+          <p className="text-muted-foreground">{summary}</p>
           <div className="flex gap-2">
             <Button
               type="button"
               size="sm"
-              disabled={!isPending}
+              disabled={disabled}
               aria-label="Approve tool use"
-              onClick={() => onResolve({ callId: request.callId, approved: true })}
+              onClick={() => onResolve(callId, true)}
             >
               Yes
             </Button>
@@ -59,9 +56,9 @@ export function ToolConfirmationCard({
               type="button"
               size="sm"
               variant="outline"
-              disabled={!isPending}
+              disabled={disabled}
               aria-label="Deny tool use"
-              onClick={() => onResolve({ callId: request.callId, approved: false })}
+              onClick={() => onResolve(callId, false)}
             >
               <XIcon />
               No
