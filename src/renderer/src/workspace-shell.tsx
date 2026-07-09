@@ -1,4 +1,4 @@
-import { useMemo, type KeyboardEvent, type PointerEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -19,6 +19,12 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
+import {
+  ChatInput,
+  SessionStatusIndicator,
+  type AiChatThinkingLevel
+} from './components/ai-chat'
+import { AgentChat, type AgentChatMessage } from './components/agent-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
@@ -33,6 +39,65 @@ import { useUiLayoutStore } from './stores/ui-layout-store'
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+]
+
+const agentChatDebugModels = [
+  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'anthropic' },
+  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
+]
+
+const agentChatDebugMessages: AgentChatMessage[] = [
+  {
+    id: 'debug-user-1',
+    role: 'user',
+    parts: [{ type: 'text', text: 'Show me the current workspace context.' }]
+  },
+  {
+    id: 'debug-agent-thinking',
+    role: 'assistant',
+    status: 'streaming',
+    parts: [
+      {
+        type: 'thinking',
+        text: 'Reading workspace-shell.tsx and checking the AgentChat debug mount...',
+        state: 'streaming',
+        collapsed: false
+      }
+    ]
+  },
+  {
+    id: 'debug-agent-complete',
+    role: 'assistant',
+    status: 'complete',
+    parts: [
+      {
+        type: 'thinking',
+        text: 'Inspected the workspace shell and verified AgentChat is mounted in the main workspace for debugging.',
+        state: 'complete',
+        collapsed: true
+      },
+      {
+        type: 'text',
+        text: 'This is the AgentChat debug surface. Use this area to validate layout, scrolling, message styling, reasoning blocks, tool calls, and inline confirmations in the main workspace.'
+      },
+      {
+        type: 'tool-call',
+        callId: 'debug-tool',
+        toolName: 'workspace.getStatus',
+        state: 'running',
+        input: { includeSessions: true, includeProjects: true },
+        output: 'Collecting workspace status...'
+      },
+      {
+        type: 'tool-confirmation',
+        callId: 'debug-confirmation',
+        toolName: 'workspace.writeSettings',
+        summary: 'The agent wants to update workspace settings for this session.',
+        state: 'pending'
+      }
+    ]
+  }
 ]
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -57,6 +122,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
+  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -212,10 +278,29 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <section
           aria-label={t('workspace.mainLabel')}
-          className="min-w-0 bg-background p-4"
+          className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
           role="main"
         >
           <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
+          <AgentChat
+            messages={agentChatDebugMessages}
+            className="min-h-0 rounded-lg border bg-card"
+            composer={
+              <div className="space-y-4">
+                <div className="flex items-center gap-3 rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
+                  <span>Session controls</span>
+                  <SessionStatusIndicator status="idle" label="Idle session preview" />
+                  <SessionStatusIndicator status="running" label="Running session preview" />
+                </div>
+                <ChatInput
+                  models={agentChatDebugModels}
+                  thinkingLevel={debugThinkingLevel}
+                  onThinkingChange={setDebugThinkingLevel}
+                  onSubmit={() => undefined}
+                />
+              </div>
+            }
+          />
         </section>
 
         {isRightPanelOpen ? (
