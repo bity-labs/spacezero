@@ -1,4 +1,3 @@
-import type { UIMessage } from 'ai'
 import type { ReactNode } from 'react'
 
 import {
@@ -7,16 +6,10 @@ import {
   ConversationEmptyState,
   ConversationScrollButton
 } from '@renderer/components/ui/conversation'
-import { Message, MessageContent } from '@renderer/components/ui/message'
+import { ChatMessage, type AiChatMessage } from '@renderer/components/ai-chat'
 import { cn } from '@renderer/lib/utils'
 
-export type AgentChatMessageRole = UIMessage['role']
-
-export type AgentChatMessage = {
-  id: string
-  role: AgentChatMessageRole
-  content: ReactNode
-}
+export type AgentChatMessage = AiChatMessage
 
 export type AgentChatProps = {
   messages: AgentChatMessage[]
@@ -39,11 +32,7 @@ export function AgentChat({
         <ConversationContent className={contentClassName}>
           {messages.length === 0
             ? (emptyState ?? <ConversationEmptyState />)
-            : messages.map((message) => (
-                <Message key={message.id} from={message.role}>
-                  <MessageContent>{message.content}</MessageContent>
-                </Message>
-              ))}
+            : messages.map((message) => <ChatMessage key={message.id} message={message} />)}
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
