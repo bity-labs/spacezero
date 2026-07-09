@@ -3,14 +3,32 @@ export type {
   AiChatMessagePart,
   AiChatMessageRole,
   AiChatMessageStatus,
+  AiChatSessionStatus,
   AiChatTextPart,
+  AiChatThinkingLevel,
   AiChatThinkingPart,
-  AiChatThinkingState
+  AiChatThinkingState,
+  AiChatToolCallState,
+  AiChatToolConfirmationState
 } from './ai-chat.types'
 export { ChatInput, type ChatInputProps } from './chat-input'
 export { ChatMessage, type ChatMessageProps } from './chat-message'
 export { ChatThinkingBlock, type ChatThinkingBlockProps } from './chat-thinking-block'
 export { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
+export {
+  SessionStatusIndicator,
+  type SessionStatusIndicatorProps
+} from './session-status-indicator'
+export {
+  getNextThinkingLevel,
+  ThinkingSelector,
+  type ThinkingSelectorProps
+} from './thinking-selector'
+export { ToolCallBlock, type ToolCallBlockProps } from './tool-call-block'
+export {
+  ToolConfirmationCard,
+  type ToolConfirmationCardProps
+} from './tool-confirmation-card'
 export {
   applyTranscriptEvent,
   type AiChatAssistantCompleteEvent,
