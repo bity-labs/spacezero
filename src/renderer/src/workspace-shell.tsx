@@ -19,6 +19,7 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
+import { ChatInput } from './components/ai-chat'
 import { AgentChat, type AgentChatMessage } from './components/agent-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
@@ -26,7 +27,6 @@ import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
-import { Textarea } from './components/ui/textarea'
 import { useColorMode } from './color-mode-provider'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
 import { cn } from './lib/utils'
@@ -259,19 +259,7 @@ export function WorkspaceShell(): React.JSX.Element {
           <AgentChat
             messages={agentChatDebugMessages}
             className="min-h-0 rounded-lg border bg-card"
-            composer={
-              <form className="flex gap-2" onSubmit={(event) => event.preventDefault()}>
-                <Textarea
-                  aria-label="Agent prompt"
-                  className="min-h-10 resize-none"
-                  placeholder="Ask the agent anything..."
-                  rows={1}
-                />
-                <Button type="submit" size="icon" aria-label="Send message">
-                  <PaperPlaneTilt className="h-4 w-4" aria-hidden="true" />
-                </Button>
-              </form>
-            }
+            composer={<ChatInput onSubmit={() => undefined} />}
           />
         </section>
 
