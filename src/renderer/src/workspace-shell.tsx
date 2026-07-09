@@ -41,13 +41,23 @@ const agentChatDebugMessages: AgentChatMessage[] = [
   {
     id: 'debug-user-1',
     role: 'user',
-    content: 'Show me the current workspace context.'
+    parts: [{ type: 'text', text: 'Show me the current workspace context.' }]
   },
   {
     id: 'debug-agent-1',
     role: 'assistant',
-    content:
-      'This is the AgentChat debug surface. Use this area to validate layout, scrolling, and message styling in the main workspace.'
+    parts: [
+      {
+        type: 'thinking',
+        text: 'Inspecting the workspace shell and checking how AgentChat is mounted for debugging.',
+        state: 'complete',
+        collapsed: false
+      },
+      {
+        type: 'text',
+        text: 'This is the AgentChat debug surface. Use this area to validate layout, scrolling, message styling, and reasoning blocks in the main workspace.'
+      }
+    ]
   }
 ]
 
