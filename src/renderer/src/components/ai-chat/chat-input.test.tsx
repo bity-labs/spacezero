@@ -73,4 +73,19 @@ describe('ChatInput', () => {
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
   })
+
+  it('renders thinking selection next to composer tools', () => {
+    const handleThinkingChange = vi.fn()
+    render(
+      <ChatInput
+        thinkingLevel="medium"
+        onThinkingChange={handleThinkingChange}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thinking: Medium' }))
+
+    expect(handleThinkingChange).toHaveBeenCalledWith('high')
+  })
 })
