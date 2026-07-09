@@ -1,4 +1,4 @@
-import { useMemo, type KeyboardEvent, type PointerEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -19,7 +19,14 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { ChatInput } from './components/ai-chat'
+import {
+  ChatInput,
+  SessionStatusIndicator,
+  ThinkingSelector,
+  ToolCallBlock,
+  ToolConfirmationCard,
+  type AiChatThinkingLevel
+} from './components/ai-chat'
 import { AgentChat, type AgentChatMessage } from './components/agent-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
@@ -103,6 +110,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
+  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -265,7 +273,37 @@ export function WorkspaceShell(): React.JSX.Element {
           <AgentChat
             messages={agentChatDebugMessages}
             className="min-h-0 rounded-lg border bg-card"
-            composer={<ChatInput models={agentChatDebugModels} onSubmit={() => undefined} />}
+            composer={
+              <div className="space-y-4">
+                <div className="grid gap-3 rounded-md border bg-background/60 p-3 lg:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                      <span>Session controls</span>
+                      <SessionStatusIndicator status="idle" label="Idle session preview" />
+                      <SessionStatusIndicator status="running" label="Running session preview" />
+                      <ThinkingSelector
+                        value={debugThinkingLevel}
+                        onChange={setDebugThinkingLevel}
+                      />
+                    </div>
+                    <ToolConfirmationCard
+                      callId="debug-confirmation"
+                      toolName="workspace.writeSettings"
+                      summary="The agent wants to update workspace settings for this session."
+                      onResolve={() => undefined}
+                    />
+                  </div>
+                  <ToolCallBlock
+                    callId="debug-tool"
+                    toolName="workspace.getStatus"
+                    state="running"
+                    input={{ includeSessions: true, includeProjects: true }}
+                    output="Collecting workspace status..."
+                  />
+                </div>
+                <ChatInput models={agentChatDebugModels} onSubmit={() => undefined} />
+              </div>
+            }
           />
         </section>
 
