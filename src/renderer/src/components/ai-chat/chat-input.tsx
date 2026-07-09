@@ -70,12 +70,14 @@ export function ChatInput({
   onSubmit,
   className
 }: ChatInputProps) {
-  const [uncontrolledModelId, setUncontrolledModelId] = useState(models[0]?.id)
-  const activeModelId = selectedModelId ?? uncontrolledModelId
+  const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
+  const fallbackModelId = models[0]?.id
+  const activeModelId = selectedModelId ?? uncontrolledModelId ?? fallbackModelId
   const selectedModel = useMemo(
     () => models.find((model) => model.id === activeModelId),
     [activeModelId, models]
   )
+
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
 
   const handleModelChange = (modelId: string) => {
@@ -139,7 +141,7 @@ export function ChatInput({
                         <ModelSelectorItem
                           key={model.id}
                           data-checked={model.id === activeModelId}
-                          onClick={() => handleModelChange(model.id)}
+                          onSelect={() => handleModelChange(model.id)}
                         >
                           {model.provider ? <ModelSelectorLogo provider={model.provider} /> : null}
                           <ModelSelectorName>{model.label}</ModelSelectorName>
