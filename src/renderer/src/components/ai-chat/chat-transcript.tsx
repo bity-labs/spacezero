@@ -4,6 +4,7 @@ import {
   Conversation,
   ConversationContent,
   ConversationEmptyState,
+  ConversationItem,
   ConversationScrollButton
 } from '@renderer/components/ui/conversation'
 import { cn } from '@renderer/lib/utils'
@@ -32,11 +33,12 @@ export function ChatTranscript({
         {messages.length === 0
           ? (emptyState ?? <ConversationEmptyState />)
           : messages.map((message) => (
-              <ChatTranscriptMessage
-                key={message.id}
-                message={message}
-                onToolConfirmationResolve={onToolConfirmationResolve}
-              />
+              <ConversationItem key={message.id} messageId={message.id} scrollAnchor>
+                <ChatTranscriptMessage
+                  message={message}
+                  onToolConfirmationResolve={onToolConfirmationResolve}
+                />
+              </ConversationItem>
             ))}
       </ConversationContent>
       <ConversationScrollButton />
