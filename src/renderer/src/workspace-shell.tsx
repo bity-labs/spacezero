@@ -22,7 +22,6 @@ import { AccountMenu } from './components/app-shell/account-menu'
 import {
   ChatInput,
   SessionStatusIndicator,
-  ThinkingSelector,
   type AiChatThinkingLevel
 } from './components/ai-chat'
 import { AgentChat, type AgentChatMessage } from './components/agent-chat'
@@ -292,9 +291,13 @@ export function WorkspaceShell(): React.JSX.Element {
                   <span>Session controls</span>
                   <SessionStatusIndicator status="idle" label="Idle session preview" />
                   <SessionStatusIndicator status="running" label="Running session preview" />
-                  <ThinkingSelector value={debugThinkingLevel} onChange={setDebugThinkingLevel} />
                 </div>
-                <ChatInput models={agentChatDebugModels} onSubmit={() => undefined} />
+                <ChatInput
+                  models={agentChatDebugModels}
+                  thinkingLevel={debugThinkingLevel}
+                  onThinkingChange={setDebugThinkingLevel}
+                  onSubmit={() => undefined}
+                />
               </div>
             }
           />

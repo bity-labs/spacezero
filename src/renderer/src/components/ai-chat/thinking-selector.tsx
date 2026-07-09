@@ -40,11 +40,11 @@ export function ThinkingSelector({ value, disabled = false, onChange, className 
       className={className}
       disabled={disabled}
       onClick={handleClick}
-      size="sm"
+      size="xs"
       type="button"
       variant="ghost"
     >
-      <Brain className="size-4" aria-hidden="true" />
+      <Brain className="size-3" aria-hidden="true" />
       <span>{thinkingLevelLabels[value]}</span>
     </Button>
   )

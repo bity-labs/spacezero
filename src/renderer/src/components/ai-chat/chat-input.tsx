@@ -13,6 +13,9 @@ import {
   ModelSelectorName,
   ModelSelectorTrigger
 } from '@renderer/components/ui/model-selector'
+import type { AiChatThinkingLevel } from './ai-chat.types'
+import { ThinkingSelector } from './thinking-selector'
+
 import {
   PromptInput,
   PromptInputActionAddAttachments,
@@ -47,7 +50,9 @@ export type ChatInputProps = {
   autoFocus?: boolean
   models?: ChatInputModel[]
   selectedModelId?: string
+  thinkingLevel?: AiChatThinkingLevel
   onModelChange?: (modelId: string) => void
+  onThinkingChange?: (level: AiChatThinkingLevel) => void
   onSubmit: (input: ChatInputSubmit) => void
   className?: string
 }
@@ -59,7 +64,9 @@ export function ChatInput({
   autoFocus = false,
   models = [],
   selectedModelId,
+  thinkingLevel,
   onModelChange,
+  onThinkingChange,
   onSubmit,
   className
 }: ChatInputProps) {
@@ -105,43 +112,52 @@ export function ChatInput({
               <PromptInputActionAddAttachments />
             </PromptInputActionMenuContent>
           </PromptInputActionMenu>
-          {models.length > 0 ? (
-            <ModelSelector>
-              <ModelSelectorTrigger
-                render={
-                  <button
-                    className="flex max-w-48 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-                    disabled={isRunning}
-                    type="button"
-                  />
-                }
-              >
-                {selectedModel?.provider ? (
-                  <ModelSelectorLogo provider={selectedModel.provider} />
-                ) : null}
-                <span className="truncate">{selectedModel?.label ?? 'Select model'}</span>
-                <CaretDownIcon className="size-3" aria-hidden="true" />
-              </ModelSelectorTrigger>
-              <ModelSelectorContent>
-                <ModelSelectorInput placeholder="Search models..." />
-                <ModelSelectorList>
-                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
-                  <ModelSelectorGroup>
-                    {models.map((model) => (
-                      <ModelSelectorItem
-                        key={model.id}
-                        data-checked={model.id === activeModelId}
-                        onClick={() => handleModelChange(model.id)}
-                      >
-                        {model.provider ? <ModelSelectorLogo provider={model.provider} /> : null}
-                        <ModelSelectorName>{model.label}</ModelSelectorName>
-                      </ModelSelectorItem>
-                    ))}
-                  </ModelSelectorGroup>
-                </ModelSelectorList>
-              </ModelSelectorContent>
-            </ModelSelector>
-          ) : null}
+          <div className="flex items-center gap-1">
+            {models.length > 0 ? (
+              <ModelSelector>
+                <ModelSelectorTrigger
+                  render={
+                    <button
+                      className="flex max-w-48 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                      disabled={isRunning}
+                      type="button"
+                    />
+                  }
+                >
+                  {selectedModel?.provider ? (
+                    <ModelSelectorLogo provider={selectedModel.provider} />
+                  ) : null}
+                  <span className="truncate">{selectedModel?.label ?? 'Select model'}</span>
+                  <CaretDownIcon className="size-3" aria-hidden="true" />
+                </ModelSelectorTrigger>
+                <ModelSelectorContent>
+                  <ModelSelectorInput placeholder="Search models..." />
+                  <ModelSelectorList>
+                    <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                    <ModelSelectorGroup>
+                      {models.map((model) => (
+                        <ModelSelectorItem
+                          key={model.id}
+                          data-checked={model.id === activeModelId}
+                          onClick={() => handleModelChange(model.id)}
+                        >
+                          {model.provider ? <ModelSelectorLogo provider={model.provider} /> : null}
+                          <ModelSelectorName>{model.label}</ModelSelectorName>
+                        </ModelSelectorItem>
+                      ))}
+                    </ModelSelectorGroup>
+                  </ModelSelectorList>
+                </ModelSelectorContent>
+              </ModelSelector>
+            ) : null}
+            {thinkingLevel && onThinkingChange ? (
+              <ThinkingSelector
+                value={thinkingLevel}
+                disabled={isRunning}
+                onChange={onThinkingChange}
+              />
+            ) : null}
+          </div>
         </PromptInputTools>
         <PromptInputSubmit disabled={isRunning} status={status} />
       </PromptInputFooter>
