@@ -81,6 +81,7 @@ export const Reasoning = memo(
     })
 
     const hasEverStreamedRef = useRef(isStreaming)
+    const hasUserToggledRef = useRef(false)
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const startTimeRef = useRef<number | null>(null)
 
@@ -97,9 +98,9 @@ export const Reasoning = memo(
       }
     }, [isStreaming, setDuration])
 
-    // Auto-open when streaming starts (unless explicitly closed)
+    // Auto-open when streaming starts unless the caller or user explicitly closed it.
     useEffect(() => {
-      if (isStreaming && !isOpen && !isExplicitlyClosed) {
+      if (isStreaming && !isOpen && !isExplicitlyClosed && !hasUserToggledRef.current) {
         setIsOpen(true)
       }
     }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed])
@@ -120,6 +121,7 @@ export const Reasoning = memo(
 
     const handleOpenChange = useCallback(
       (newOpen: boolean) => {
+        hasUserToggledRef.current = true
         setIsOpen(newOpen)
       },
       [setIsOpen]
