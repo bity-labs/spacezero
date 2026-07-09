@@ -65,7 +65,7 @@ const agentChatDebugMessages: AgentChatMessage[] = [
         type: 'thinking',
         text: 'Inspected the workspace shell and verified AgentChat is mounted in the main workspace for debugging.',
         state: 'complete',
-        collapsed: false
+        collapsed: true
       },
       {
         type: 'text',

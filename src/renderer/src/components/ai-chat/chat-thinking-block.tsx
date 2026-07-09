@@ -14,7 +14,7 @@ export function ChatThinkingBlock({ part, className }: ChatThinkingBlockProps) {
   return (
     <Reasoning
       className={cn('rounded-md border border-border/70 bg-muted/30 p-3', className)}
-      defaultOpen={isStreaming || !part.collapsed}
+      defaultOpen={isStreaming || part.collapsed === false}
       isStreaming={isStreaming}
     >
       <ReasoningTrigger />
