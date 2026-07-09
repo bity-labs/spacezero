@@ -19,12 +19,14 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AccountMenu } from './components/app-shell/account-menu'
+import { AgentChat, type AgentChatMessage } from './components/agent-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
+import { Textarea } from './components/ui/textarea'
 import { useColorMode } from './color-mode-provider'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
 import { cn } from './lib/utils'
@@ -33,6 +35,20 @@ import { useUiLayoutStore } from './stores/ui-layout-store'
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+]
+
+const agentChatDebugMessages: AgentChatMessage[] = [
+  {
+    id: 'debug-user-1',
+    role: 'user',
+    content: 'Show me the current workspace context.'
+  },
+  {
+    id: 'debug-agent-1',
+    role: 'assistant',
+    content:
+      'This is the AgentChat debug surface. Use this area to validate layout, scrolling, and message styling in the main workspace.'
+  }
 ]
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -212,10 +228,27 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <section
           aria-label={t('workspace.mainLabel')}
-          className="min-w-0 bg-background p-4"
+          className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
           role="main"
         >
           <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
+          <AgentChat
+            messages={agentChatDebugMessages}
+            className="min-h-0 rounded-lg border bg-card"
+            composer={
+              <form className="flex gap-2" onSubmit={(event) => event.preventDefault()}>
+                <Textarea
+                  aria-label="Agent prompt"
+                  className="min-h-10 resize-none"
+                  placeholder="Ask the agent anything..."
+                  rows={1}
+                />
+                <Button type="submit" size="icon" aria-label="Send message">
+                  <PaperPlaneTilt className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              </form>
+            }
+          />
         </section>
 
         {isRightPanelOpen ? (
