@@ -62,6 +62,7 @@
     "@tanstack/router-plugin": "^1.168.19",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",
+    "@testing-library/user-event": "latest",
     "@types/better-sqlite3": "latest",
     "@types/node": "latest",
     "@types/react": "latest",

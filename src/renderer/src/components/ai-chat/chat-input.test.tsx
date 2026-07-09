@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { ChatInput } from './chat-input'
 
@@ -87,5 +88,49 @@ describe('ChatInput', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Thinking: Medium' }))
 
     expect(handleThinkingChange).toHaveBeenCalledWith('high')
+  })
+
+  it('selects a model via keyboard when the selector is open', async () => {
+    const handleModelChange = vi.fn()
+    render(
+      <ChatInput
+        models={[{ id: 'sonnet', label: 'Claude Sonnet', provider: 'anthropic' }]}
+        onModelChange={handleModelChange}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: /Claude Sonnet/i }))
+    await userEvent.keyboard('Claude')
+    await userEvent.keyboard('{Enter}')
+
+    expect(handleModelChange).toHaveBeenCalledWith('sonnet')
+  })
+
+  it('falls back to the first available model when models arrive after mount', () => {
+    const handleSubmit = vi.fn()
+    const { rerender } = render(<ChatInput models={[]} onSubmit={handleSubmit} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'hello' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(handleSubmit).toHaveBeenCalledWith({ text: 'hello', files: [], modelId: undefined })
+
+    rerender(
+      <ChatInput
+        models={[{ id: 'sonnet', label: 'Claude Sonnet', provider: 'anthropic' }]}
+        onSubmit={handleSubmit}
+      />
+    )
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'hello again' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'hello again',
+      files: [],
+      modelId: 'sonnet'
+    })
   })
 })
