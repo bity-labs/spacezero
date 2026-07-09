@@ -36,6 +36,7 @@ export const ModelSelectorContent = ({
   <DialogContent
     aria-describedby={undefined}
     className={cn('outline! border-none! p-0 outline-border! outline-solid!', className)}
+    showCloseButton={false}
     {...props}
   >
     <DialogTitle className="sr-only">{title}</DialogTitle>
