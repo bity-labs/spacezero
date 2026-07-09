@@ -26,6 +26,9 @@ importers:
       '@radix-ui/react-use-controllable-state':
         specifier: ^1.2.3
         version: 1.2.3(@types/react@19.2.17)(react@19.2.7)
+      '@shadcn/react':
+        specifier: ^0.2.1
+        version: 0.2.1(@types/react@19.2.17)(react@19.2.7)
       '@streamdown/cjk':
         specifier: ^1.0.3
         version: 1.0.3(@types/mdast@4.0.4)(micromark-util-types@2.0.2)(micromark@4.0.2)(react@19.2.7)(unified@11.0.5)
@@ -41,9 +44,6 @@ importers:
       '@tanstack/react-router':
         specifier: ^1.170.17
         version: 1.170.17(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      ai:
-        specifier: ^7.0.18
-        version: 7.0.18(zod@4.4.3)
       better-sqlite3:
         specifier: latest
         version: 12.11.1
@@ -86,9 +86,6 @@ importers:
       tailwind-merge:
         specifier: latest
         version: 3.6.0
-      use-stick-to-bottom:
-        specifier: ^1.1.6
-        version: 1.1.6(react@19.2.7)
       zod:
         specifier: latest
         version: 4.4.3
@@ -194,22 +191,6 @@ packages:
 
   '@adobe/css-tools@4.5.0':
     resolution: {integrity: sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q==}
-
-  '@ai-sdk/gateway@4.0.14':
-    resolution: {integrity: sha512-wbYqQKpASsuK7bdoa1fp+QA6oy3ddqqBOukN3IkyaR8PAp0pWoc66ch2td+ixeknoCcO4F6VTkSFKVC6MP3bTQ==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider-utils@5.0.6':
-    resolution: {integrity: sha512-i4mVayGtC+HrRmtfPFOxvKKQgFU+1dwTTsh4MY0jY1MaGuppOwDFrNYrJ3dDXWMkO3o6FDVAKY8ZDsy7hLsO9Q==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider@4.0.2':
-    resolution: {integrity: sha512-pfPoy9J1B1xV7cqJ8MYHOsDYrMv5tR3+EMNfI249OhkD2uRakvav3Fo7XpD2luuN/YNCBY7KfEQc7vEV7KEtyw==}
-    engines: {node: '>=22'}
 
   '@antfu/install-pkg@1.1.0':
     resolution: {integrity: sha512-MGQsmw10ZyI+EJo45CdSER4zEb+p31LpDAFp2Z3gkSd1yqVZGi0Ebx++YTEMonJy4oChEMLsxZ64j8FH6sSqtQ==}
@@ -1452,6 +1433,17 @@ packages:
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
 
+  '@shadcn/react@0.2.1':
+    resolution: {integrity: sha512-5krgi3dRMKb5jH6a+qPzVJUy/54s0kKE4Rw4LjDfLqOdVQTWKUgxWf1kW8r912I0jX/Lzxqc+pgjkjWxUIK5BQ==}
+    peerDependencies:
+      '@types/react': '>=19'
+      react: '>=19'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      react:
+        optional: true
+
   '@shikijs/core@3.23.0':
     resolution: {integrity: sha512-NSWQz0riNb67xthdm5br6lAkvpDJRTgB36fxlo37ZzM2yq0PQFFzbd8psqC2XMPgCzo1fW6cVi18+ArJ44wqgA==}
 
@@ -1934,10 +1926,6 @@ packages:
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
 
-  '@vercel/oidc@3.2.0':
-    resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
-    engines: {node: '>= 20'}
-
   '@vitejs/plugin-react@5.2.0':
     resolution: {integrity: sha512-YmKkfhOAi3wsB1PhJq5Scj3GXMn3WvtQ/JC0xoopuHoXSdmtdStOpFrYaT1kie2YgFBcIe64ROzMYRjCrYOdYw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1973,9 +1961,6 @@ packages:
   '@vitest/utils@4.1.9':
     resolution: {integrity: sha512-A51o8ymO5PpqlWNnBP9ZHPXDIpuMtTLlGSjN7la4US+LJzoUMyhwjA5QXlm39JexgwHKW4Xjs8Z2d3dLCXOeuA==}
 
-  '@workflow/serde@4.1.0':
-    resolution: {integrity: sha512-pav4F2BoirECWR7Nf1TKt+2eETcBj7jj4cBefQ8VXQCA6NPkaKeLfj/zMgi+3zYV5ZIBT4GuUiphsj0/b9hPQQ==}
-
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
@@ -2001,12 +1986,6 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
-
-  ai@7.0.18:
-    resolution: {integrity: sha512-/DsiRfbLPtoHf9C47Hy+LK+HkjNowX1DQo3id4zWegfU6z1WjVDRAHYJAiX7SXhGp0mWX4tcenUhfIFessDWnw==}
-    engines: {node: '>=22'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
 
   ajv-formats@2.1.1:
     resolution: {integrity: sha512-Wx0Kx52hxE7C18hkMEggYlEifqWZtYaRgouJor+WMdPnQyEK13vgEWyVNup7SoeeoLMsr4kf5h6dOW11I15MUA==}
@@ -3658,9 +3637,6 @@ packages:
   json-schema-typed@8.0.2:
     resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
 
-  json-schema@0.4.0:
-    resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
-
   json-stable-stringify-without-jsonify@1.0.1:
     resolution: {integrity: sha512-Bdboy+l7tA3OGW6FjyFHWkP5LuByj1Tk33Ljyq0axyzdk9//JSi2u3fP1QSmd1KNwq6VOKYGlAu87CisVir6Pw==}
 
@@ -5283,11 +5259,6 @@ packages:
       '@types/react':
         optional: true
 
-  use-stick-to-bottom@1.1.6:
-    resolution: {integrity: sha512-z3Up8jYQGTkUCsGBnwg6/wj70KgXoW5Kz1AAc1j8MtQuYMBo6ZsdhrIXoegxa7gaMMilgQYyTohTrt3p94jHog==}
-    peerDependencies:
-      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
   use-sync-external-store@1.6.0:
     resolution: {integrity: sha512-Pp6GSwGP/NrPIrxVFAIkOQeyw8lFenOHijQWkUTrDvrF4ALqylP2C/KCkeS9dpUM3KvYRQhna5vt7IL95+ZQ9w==}
     peerDependencies:
@@ -5556,25 +5527,6 @@ packages:
 snapshots:
 
   '@adobe/css-tools@4.5.0': {}
-
-  '@ai-sdk/gateway@4.0.14(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.2
-      '@ai-sdk/provider-utils': 5.0.6(zod@4.4.3)
-      '@vercel/oidc': 3.2.0
-      zod: 4.4.3
-
-  '@ai-sdk/provider-utils@5.0.6(zod@4.4.3)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.2
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.0
-      zod: 4.4.3
-
-  '@ai-sdk/provider@4.0.2':
-    dependencies:
-      json-schema: 0.4.0
 
   '@antfu/install-pkg@1.1.0':
     dependencies:
@@ -6628,6 +6580,11 @@ snapshots:
 
   '@sec-ant/readable-stream@0.4.1': {}
 
+  '@shadcn/react@0.2.1(@types/react@19.2.17)(react@19.2.7)':
+    optionalDependencies:
+      '@types/react': 19.2.17
+      react: 19.2.7
+
   '@shikijs/core@3.23.0':
     dependencies:
       '@shikijs/types': 3.23.0
@@ -7209,8 +7166,6 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@vercel/oidc@3.2.0': {}
-
   '@vitejs/plugin-react@5.2.0(vite@7.3.6(@types/node@26.1.0)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0))':
     dependencies:
       '@babel/core': 7.29.7
@@ -7264,8 +7219,6 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
-  '@workflow/serde@4.1.0': {}
-
   '@xmldom/xmldom@0.8.13': {}
 
   abbrev@4.0.0: {}
@@ -7282,13 +7235,6 @@ snapshots:
   acorn@8.17.0: {}
 
   agent-base@7.1.4: {}
-
-  ai@7.0.18(zod@4.4.3):
-    dependencies:
-      '@ai-sdk/gateway': 4.0.14(zod@4.4.3)
-      '@ai-sdk/provider': 4.0.2
-      '@ai-sdk/provider-utils': 5.0.6(zod@4.4.3)
-      zod: 4.4.3
 
   ajv-formats@2.1.1(ajv@8.20.0):
     optionalDependencies:
@@ -9077,8 +9023,6 @@ snapshots:
   json-schema-typed@7.0.3: {}
 
   json-schema-typed@8.0.2: {}
-
-  json-schema@0.4.0: {}
 
   json-stable-stringify-without-jsonify@1.0.1: {}
 
@@ -10947,10 +10891,6 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.2.17
-
-  use-stick-to-bottom@1.1.6(react@19.2.7):
-    dependencies:
-      react: 19.2.7
 
   use-sync-external-store@1.6.0(react@19.2.7):
     dependencies:

@@ -13,14 +13,15 @@ import { cjk } from '@streamdown/cjk'
 import { code } from '@streamdown/code'
 import { math } from '@streamdown/math'
 import { mermaid } from '@streamdown/mermaid'
-import type { UIMessage } from 'ai'
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react'
 import type { ComponentProps, HTMLAttributes, ReactElement } from 'react'
 import { createContext, memo, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { Streamdown } from 'streamdown'
 
+export type MessageRole = 'user' | 'assistant' | 'system' | 'data'
+
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage['role']
+  from: MessageRole
 }
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
