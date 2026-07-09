@@ -302,21 +302,13 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-w-0 flex-col bg-background p-4"
           role="main"
         >
-          <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col rounded-2xl border border-border bg-card/40 shadow-xs">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col bg-background">
+            <div className="flex items-center justify-between gap-3 px-4 py-3">
               <div>
                 <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
                 <p className="text-xs text-muted-foreground">AI chat component preview</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <SessionStatusIndicator status="running" />
-                <ModelSelector
-                  models={demoModels}
-                  selectedModelId={selectedDemoModel.id}
-                  onSelect={() => undefined}
-                />
-                <ThinkingSelector value={selectedDemoThinking} onChange={() => undefined} />
-              </div>
+              <SessionStatusIndicator status="running" />
             </div>
 
             <ChatTranscript
@@ -325,8 +317,24 @@ export function WorkspaceShell(): React.JSX.Element {
               onResolveToolConfirmation={() => undefined}
             />
 
-            <div className="border-t border-border p-4">
-              <ChatInput onSubmit={() => undefined} placeholder="Ask Space Zero to inspect, build, or debug…" />
+            <div className="p-4">
+              <div className="rounded-xl border border-border bg-card p-2 shadow-xs">
+                <ChatInput
+                  className="border-0 bg-transparent p-0 shadow-none"
+                  footerLeading={
+                    <>
+                      <ModelSelector
+                        models={demoModels}
+                        selectedModelId={selectedDemoModel.id}
+                        onSelect={() => undefined}
+                      />
+                      <ThinkingSelector value={selectedDemoThinking} onChange={() => undefined} />
+                    </>
+                  }
+                  onSubmit={() => undefined}
+                  placeholder="Ask Space Zero to inspect, build, or debug…"
+                />
+              </div>
             </div>
           </div>
         </section>

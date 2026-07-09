@@ -24,9 +24,21 @@ export function ThinkingSelector({
   className
 }: ThinkingSelectorProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!open) return undefined
+
+    function closeOnOutsidePointerDown(event: PointerEvent): void {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown)
+  }, [open])
 
   return (
-    <ModelSelectorRoot className={className}>
+    <ModelSelectorRoot ref={rootRef} className={className}>
       <ModelSelectorTrigger
         type="button"
         variant="outline"

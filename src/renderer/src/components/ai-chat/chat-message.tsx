@@ -22,11 +22,7 @@ function ChatMessagePartView({
 }): React.JSX.Element | null {
   switch (part.type) {
     case 'text':
-      return (
-        <div className="whitespace-pre-wrap rounded-2xl border border-border bg-card px-3 py-2 text-sm leading-relaxed text-card-foreground shadow-xs">
-          {part.text}
-        </div>
-      )
+      return <div className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{part.text}</div>
     case 'thinking':
       return (
         <Reasoning isStreaming={part.state === 'streaming'} collapsed={part.collapsed}>

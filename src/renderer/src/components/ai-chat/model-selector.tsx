@@ -28,11 +28,23 @@ export function ModelSelector({
   className
 }: ModelSelectorProps): React.JSX.Element {
   const [open, setOpen] = React.useState(false)
+  const rootRef = React.useRef<HTMLDivElement>(null)
   const selected = models.find((model) => model.id === selectedModelId)
   const isDisabled = disabled || loading || models.length === 0
 
+  React.useEffect(() => {
+    if (!open) return undefined
+
+    function closeOnOutsidePointerDown(event: PointerEvent): void {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown)
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointerDown)
+  }, [open])
+
   return (
-    <ModelSelectorRoot className={className}>
+    <ModelSelectorRoot ref={rootRef} className={className}>
       <ModelSelectorTrigger
         type="button"
         variant="outline"

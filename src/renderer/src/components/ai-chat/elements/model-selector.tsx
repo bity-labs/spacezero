@@ -21,7 +21,7 @@ export type ModelSelectorContentProps = React.ComponentProps<'div'>
 export function ModelSelectorContent({ className, ...props }: ModelSelectorContentProps): React.JSX.Element {
   return (
     <div
-      className={cn('absolute z-50 mt-2 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md', className)}
+      className={cn('absolute bottom-full z-50 mb-2 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md', className)}
       {...props}
     />
   )

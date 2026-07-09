@@ -10,6 +10,7 @@ export type ChatInputProps = {
   disabled?: boolean
   placeholder?: string
   autoFocus?: boolean
+  footerLeading?: React.ReactNode
   className?: string
 }
 
@@ -18,6 +19,7 @@ export function ChatInput({
   disabled = false,
   placeholder = 'Message Space Zero…',
   autoFocus,
+  footerLeading,
   className
 }: ChatInputProps): React.JSX.Element {
   const [value, setValue] = React.useState('')
@@ -51,7 +53,8 @@ export function ChatInput({
           }
         }}
       />
-      <PromptInputFooter>
+      <PromptInputFooter className="justify-between">
+        <div className="flex flex-wrap items-center gap-2">{footerLeading}</div>
         <PromptInputSubmit disabled={disabled || !value.trim()} aria-label="Send message">
           <PaperPlaneTiltIcon />
           Send
