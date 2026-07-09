@@ -1,75 +1,150 @@
-import { PaperPlaneTilt } from '@phosphor-icons/react'
-import { useCallback, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { CaretDownIcon } from '@phosphor-icons/react'
+import { useMemo, useState } from 'react'
 
-import { Button } from '@renderer/components/ui/button'
-import { Textarea } from '@renderer/components/ui/textarea'
-import { cn } from '@renderer/lib/utils'
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorEmpty,
+  ModelSelectorGroup,
+  ModelSelectorInput,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorLogo,
+  ModelSelectorName,
+  ModelSelectorTrigger
+} from '@renderer/components/ui/model-selector'
+import {
+  PromptInput,
+  PromptInputActionAddAttachments,
+  PromptInputActionMenu,
+  PromptInputActionMenuContent,
+  PromptInputActionMenuTrigger,
+  PromptInputAttachments,
+  PromptInputFooter,
+  PromptInputSubmit,
+  PromptInputTextarea,
+  PromptInputTools,
+  type PromptInputFile
+} from '@renderer/components/ui/prompt-input'
+export type ChatInputStatus = 'ready' | 'submitted' | 'streaming' | 'error'
+
+export type ChatInputModel = {
+  id: string
+  label: string
+  provider?: string
+}
+
+export type ChatInputSubmit = {
+  text: string
+  files: File[]
+  modelId?: string
+}
 
 export type ChatInputProps = {
   disabled?: boolean
+  status?: ChatInputStatus
   placeholder?: string
   autoFocus?: boolean
-  onSubmit: (text: string) => void
+  models?: ChatInputModel[]
+  selectedModelId?: string
+  onModelChange?: (modelId: string) => void
+  onSubmit: (input: ChatInputSubmit) => void
   className?: string
 }
 
 export function ChatInput({
   disabled = false,
+  status = 'ready',
   placeholder = 'Ask the agent anything...',
   autoFocus = false,
+  models = [],
+  selectedModelId,
+  onModelChange,
   onSubmit,
   className
 }: ChatInputProps) {
-  const [text, setText] = useState('')
-  const canSubmit = !disabled && text.trim().length > 0
-
-  const submitText = useCallback(() => {
-    const submittedText = text.trim()
-
-    if (disabled || submittedText.length === 0) {
-      return
-    }
-
-    onSubmit(submittedText)
-    setText('')
-  }, [disabled, onSubmit, text])
-
-  const handleSubmit = useCallback(
-    (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault()
-      submitText()
-    },
-    [submitText]
+  const [uncontrolledModelId, setUncontrolledModelId] = useState(models[0]?.id)
+  const activeModelId = selectedModelId ?? uncontrolledModelId
+  const selectedModel = useMemo(
+    () => models.find((model) => model.id === activeModelId),
+    [activeModelId, models]
   )
+  const isRunning = disabled || status === 'submitted' || status === 'streaming'
 
-  const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
-        return
-      }
+  const handleModelChange = (modelId: string) => {
+    setUncontrolledModelId(modelId)
+    onModelChange?.(modelId)
+  }
 
-      event.preventDefault()
-      submitText()
-    },
-    [submitText]
-  )
+  const handleSubmit = ({ text, files }: { text: string; files: PromptInputFile[] }) => {
+    onSubmit({
+      text,
+      files: files.map((item) => item.file),
+      modelId: activeModelId
+    })
+  }
 
   return (
-    <form className={cn('flex gap-2', className)} onSubmit={handleSubmit}>
-      <Textarea
+    <PromptInput
+      className={className}
+      disabled={isRunning}
+      onSubmit={(message) => handleSubmit(message)}
+    >
+      <PromptInputAttachments />
+      <PromptInputTextarea
         aria-label="Agent prompt"
         autoFocus={autoFocus}
-        className="min-h-10 resize-none"
-        disabled={disabled}
-        onChange={(event) => setText(event.currentTarget.value)}
-        onKeyDown={handleKeyDown}
+        disabled={isRunning}
         placeholder={placeholder}
-        rows={1}
-        value={text}
       />
-      <Button type="submit" size="icon" aria-label="Send message" disabled={!canSubmit}>
-        <PaperPlaneTilt className="h-4 w-4" aria-hidden="true" />
-      </Button>
-    </form>
+      <PromptInputFooter>
+        <PromptInputTools>
+          <PromptInputActionMenu>
+            <PromptInputActionMenuTrigger aria-label="Add attachment" disabled={isRunning} />
+            <PromptInputActionMenuContent>
+              <PromptInputActionAddAttachments />
+            </PromptInputActionMenuContent>
+          </PromptInputActionMenu>
+          {models.length > 0 ? (
+            <ModelSelector>
+              <ModelSelectorTrigger
+                render={
+                  <button
+                    className="flex max-w-48 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                    disabled={isRunning}
+                    type="button"
+                  />
+                }
+              >
+                {selectedModel?.provider ? (
+                  <ModelSelectorLogo provider={selectedModel.provider} />
+                ) : null}
+                <span className="truncate">{selectedModel?.label ?? 'Select model'}</span>
+                <CaretDownIcon className="size-3" aria-hidden="true" />
+              </ModelSelectorTrigger>
+              <ModelSelectorContent>
+                <ModelSelectorInput placeholder="Search models..." />
+                <ModelSelectorList>
+                  <ModelSelectorEmpty>No models found.</ModelSelectorEmpty>
+                  <ModelSelectorGroup>
+                    {models.map((model) => (
+                      <ModelSelectorItem
+                        key={model.id}
+                        data-checked={model.id === activeModelId}
+                        onClick={() => handleModelChange(model.id)}
+                      >
+                        {model.provider ? <ModelSelectorLogo provider={model.provider} /> : null}
+                        <ModelSelectorName>{model.label}</ModelSelectorName>
+                      </ModelSelectorItem>
+                    ))}
+                  </ModelSelectorGroup>
+                </ModelSelectorList>
+              </ModelSelectorContent>
+            </ModelSelector>
+          ) : null}
+        </PromptInputTools>
+        <PromptInputSubmit disabled={isRunning} status={status} />
+      </PromptInputFooter>
+    </PromptInput>
   )
 }
