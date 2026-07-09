@@ -37,6 +37,12 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
+const agentChatDebugModels = [
+  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'anthropic' },
+  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
+]
+
 const agentChatDebugMessages: AgentChatMessage[] = [
   {
     id: 'debug-user-1',
@@ -259,7 +265,7 @@ export function WorkspaceShell(): React.JSX.Element {
           <AgentChat
             messages={agentChatDebugMessages}
             className="min-h-0 rounded-lg border bg-card"
-            composer={<ChatInput onSubmit={() => undefined} />}
+            composer={<ChatInput models={agentChatDebugModels} onSubmit={() => undefined} />}
           />
         </section>
 

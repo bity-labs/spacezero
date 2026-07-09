@@ -11,7 +11,11 @@ describe('ChatInput', () => {
     fireEvent.change(input, { target: { value: '  hello agent  ' } })
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(handleSubmit).toHaveBeenCalledWith('hello agent')
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'hello agent',
+      files: [],
+      modelId: undefined
+    })
     expect(input).toHaveValue('')
   })
 
@@ -36,12 +40,35 @@ describe('ChatInput', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
-    expect(handleSubmit).toHaveBeenCalledWith('run checks')
+    expect(handleSubmit).toHaveBeenCalledWith({ text: 'run checks', files: [], modelId: undefined })
+  })
+
+  it('includes attachments and selected model in submitted input', () => {
+    const handleSubmit = vi.fn()
+    const file = new File(['hello'], 'context.txt', { type: 'text/plain' })
+    render(
+      <ChatInput
+        models={[{ id: 'sonnet', label: 'Claude Sonnet', provider: 'anthropic' }]}
+        onSubmit={handleSubmit}
+      />
+    )
+
+    fireEvent.change(screen.getByLabelText('Upload files'), { target: { files: [file] } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'use this context' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'use this context',
+      files: [file],
+      modelId: 'sonnet'
+    })
   })
 
   it('disables input and submit while a turn is running', () => {
     const handleSubmit = vi.fn()
-    render(<ChatInput disabled onSubmit={handleSubmit} />)
+    render(<ChatInput status="streaming" onSubmit={handleSubmit} />)
 
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()

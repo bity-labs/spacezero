@@ -45,6 +45,7 @@
     "electron-log": "latest",
     "i18next": "^26.3.4",
     "motion": "^12.42.2",
+    "nanoid": "^5.1.16",
     "react": "latest",
     "react-dom": "latest",
     "react-i18next": "^17.0.8",
