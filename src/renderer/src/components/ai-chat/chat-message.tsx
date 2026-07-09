@@ -1,8 +1,8 @@
-// Uses shadcn chat message/bubble and AI Elements reasoning/tool patterns with Space Zero message parts.
 import * as React from 'react'
 
 import { cn } from '@renderer/lib/utils'
 
+import { Reasoning, ReasoningContent, ReasoningTrigger } from './elements/reasoning'
 import { ToolCallBlock } from './tool-call-block'
 import { ToolConfirmationCard } from './tool-confirmation-card'
 import type { AiChatMessage as AiChatMessageData, AiChatMessagePart } from './types'
@@ -29,15 +29,10 @@ function ChatMessagePartView({
       )
     case 'thinking':
       return (
-        <details
-          className="rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground"
-          open={part.collapsed === undefined ? part.state === 'streaming' : !part.collapsed}
-        >
-          <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide">
-            {part.state === 'streaming' ? 'Thinking…' : 'Thinking'}
-          </summary>
-          <div className="mt-2 whitespace-pre-wrap leading-relaxed">{part.text}</div>
-        </details>
+        <Reasoning isStreaming={part.state === 'streaming'} collapsed={part.collapsed}>
+          <ReasoningTrigger isStreaming={part.state === 'streaming'} />
+          <ReasoningContent>{part.text}</ReasoningContent>
+        </Reasoning>
       )
     case 'tool-call':
       return <ToolCallBlock {...part} />

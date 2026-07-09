@@ -1,10 +1,9 @@
-// Adapted from AI Elements prompt-input for Space Zero's renderer-only contract.
 import * as React from 'react'
 import { PaperPlaneTiltIcon } from '@phosphor-icons/react'
 
-import { Button } from '@renderer/components/ui/button'
-import { Textarea } from '@renderer/components/ui/textarea'
 import { cn } from '@renderer/lib/utils'
+
+import { PromptInput, PromptInputFooter, PromptInputSubmit, PromptInputTextarea } from './elements/prompt-input'
 
 export type ChatInputProps = {
   onSubmit: (text: string) => void
@@ -32,17 +31,11 @@ export function ChatInput({
   }
 
   return (
-    <form
-      className={cn('rounded-xl border border-border bg-card p-2 shadow-xs', className)}
-      onSubmit={(event) => {
-        event.preventDefault()
-        submit()
-      }}
-    >
+    <PromptInput className={cn(className)} onSubmit={submit}>
       <label className="sr-only" htmlFor="chat-input-message">
         Message
       </label>
-      <Textarea
+      <PromptInputTextarea
         id="chat-input-message"
         name="message"
         value={value}
@@ -58,12 +51,12 @@ export function ChatInput({
           }
         }}
       />
-      <div className="mt-2 flex justify-end">
-        <Button type="submit" size="sm" disabled={disabled || !value.trim()} aria-label="Send message">
+      <PromptInputFooter>
+        <PromptInputSubmit disabled={disabled || !value.trim()} aria-label="Send message">
           <PaperPlaneTiltIcon />
           Send
-        </Button>
-      </div>
-    </form>
+        </PromptInputSubmit>
+      </PromptInputFooter>
+    </PromptInput>
   )
 }

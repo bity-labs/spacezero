@@ -1,10 +1,13 @@
-// Adapted from AI Elements model-selector for Space Zero-owned model options.
 import * as React from 'react'
 import { CaretDownIcon, CheckIcon } from '@phosphor-icons/react'
 
-import { Button } from '@renderer/components/ui/button'
-import { cn } from '@renderer/lib/utils'
-
+import {
+  ModelSelectorContent,
+  ModelSelectorItem,
+  ModelSelectorList,
+  ModelSelectorRoot,
+  ModelSelectorTrigger
+} from './elements/model-selector'
 import type { AiChatModelOption } from './types'
 
 export type ModelSelectorProps = {
@@ -29,8 +32,8 @@ export function ModelSelector({
   const isDisabled = disabled || loading || models.length === 0
 
   return (
-    <div className={cn('relative inline-block text-sm', className)}>
-      <Button
+    <ModelSelectorRoot className={className}>
+      <ModelSelectorTrigger
         type="button"
         variant="outline"
         size="sm"
@@ -43,19 +46,18 @@ export function ModelSelector({
         <span className="text-muted-foreground">Model</span>
         <span>{loading ? 'Loading…' : selected?.label ?? (models.length ? 'Select model' : 'No models available')}</span>
         <CaretDownIcon />
-      </Button>
+      </ModelSelectorTrigger>
 
       {open ? (
-        <div className="absolute z-50 mt-2 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
-          <div role="listbox" aria-label="Session model" className="max-h-72 overflow-y-auto">
+        <ModelSelectorContent>
+          <ModelSelectorList aria-label="Session model">
             {models.map((model) => (
-              <button
+              <ModelSelectorItem
                 key={model.id}
                 type="button"
                 role="option"
                 aria-selected={model.id === selectedModelId}
                 disabled={model.disabled}
-                className="flex w-full items-start gap-2 rounded-sm px-2 py-2 text-left hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                 onClick={() => {
                   onSelect(model)
                   setOpen(false)
@@ -69,12 +71,12 @@ export function ModelSelector({
                     {model.description ? ` — ${model.description}` : ''}
                   </span>
                 </span>
-              </button>
+              </ModelSelectorItem>
             ))}
-          </div>
-        </div>
+          </ModelSelectorList>
+        </ModelSelectorContent>
       ) : null}
-    </div>
+    </ModelSelectorRoot>
   )
 }
 
