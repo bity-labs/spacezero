@@ -18,6 +18,16 @@ import type { AppCommand } from '../../features/app-commands/renderer/app-comman
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
+  ChatInput,
+  ChatTranscript,
+  ModelSelector,
+  SessionStatusIndicator,
+  ThinkingSelector,
+  type AiChatMessage,
+  type AiChatModelOption,
+  type ThinkingLevel
+} from './components/ai-chat'
 import { AccountMenu } from './components/app-shell/account-menu'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
@@ -33,6 +43,83 @@ import { useUiLayoutStore } from './stores/ui-layout-store'
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+]
+
+const demoModels: AiChatModelOption[] = [
+  {
+    id: 'anthropic:claude-sonnet-4.5',
+    provider: 'Anthropic',
+    modelId: 'claude-sonnet-4.5',
+    label: 'Claude Sonnet 4.5',
+    description: 'Default builder model'
+  },
+  {
+    id: 'openai:gpt-5',
+    provider: 'OpenAI',
+    modelId: 'gpt-5',
+    label: 'GPT-5'
+  }
+]
+
+const selectedDemoModel = demoModels[0]
+const selectedDemoThinking: ThinkingLevel = 'medium'
+
+const demoMessages: AiChatMessage[] = [
+  {
+    id: 'user-1',
+    role: 'user',
+    parts: [{ type: 'text', text: 'Can you inspect the app shell and show me where the chat will live?' }],
+    status: 'complete'
+  },
+  {
+    id: 'assistant-1',
+    role: 'assistant',
+    parts: [
+      {
+        type: 'thinking',
+        text: 'I should inspect the workspace layout, identify the main content area, and keep the answer grounded in the current UI structure.',
+        state: 'complete',
+        collapsed: false
+      },
+      {
+        type: 'tool-call',
+        callId: 'call-1',
+        toolName: 'read',
+        state: 'success',
+        input: { path: 'src/renderer/src/workspace-shell.tsx' },
+        output: 'Found the main workspace section between the left and right panels.'
+      },
+      {
+        type: 'text',
+        text: 'The chat belongs in the central workspace surface. I can render the reusable AI chat transcript there with controls above and the prompt input pinned below.'
+      }
+    ],
+    status: 'complete'
+  },
+  {
+    id: 'assistant-2',
+    role: 'assistant',
+    parts: [
+      {
+        type: 'tool-confirmation',
+        callId: 'call-2',
+        toolName: 'workspace.openProject',
+        summary: 'Open ~/ws/dev/spacezero in the current workspace',
+        state: 'pending'
+      },
+      {
+        type: 'text',
+        text: 'This is how an inline confirmation will appear inside the same conversation stream.'
+      }
+    ],
+    status: 'complete'
+  },
+  {
+    id: 'assistant-3',
+    role: 'assistant',
+    parts: [{ type: 'text', text: 'Streaming response preview… the assistant answer grows in place.' }],
+    status: 'streaming'
+  }
 ]
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -212,10 +299,36 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <section
           aria-label={t('workspace.mainLabel')}
-          className="min-w-0 bg-background p-4"
+          className="flex min-w-0 flex-col bg-background p-4"
           role="main"
         >
-          <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
+          <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col rounded-2xl border border-border bg-card/40 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <div>
+                <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
+                <p className="text-xs text-muted-foreground">AI chat component preview</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <SessionStatusIndicator status="running" />
+                <ModelSelector
+                  models={demoModels}
+                  selectedModelId={selectedDemoModel.id}
+                  onSelect={() => undefined}
+                />
+                <ThinkingSelector value={selectedDemoThinking} onChange={() => undefined} />
+              </div>
+            </div>
+
+            <ChatTranscript
+              className="min-h-0 flex-1 px-4 py-3"
+              messages={demoMessages}
+              onResolveToolConfirmation={() => undefined}
+            />
+
+            <div className="border-t border-border p-4">
+              <ChatInput onSubmit={() => undefined} placeholder="Ask Space Zero to inspect, build, or debug…" />
+            </div>
+          </div>
         </section>
 
         {isRightPanelOpen ? (
