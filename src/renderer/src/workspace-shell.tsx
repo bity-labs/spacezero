@@ -23,8 +23,6 @@ import {
   ChatInput,
   SessionStatusIndicator,
   ThinkingSelector,
-  ToolCallBlock,
-  ToolConfirmationCard,
   type AiChatThinkingLevel
 } from './components/ai-chat'
 import { AgentChat, type AgentChatMessage } from './components/agent-chat'
@@ -82,7 +80,22 @@ const agentChatDebugMessages: AgentChatMessage[] = [
       },
       {
         type: 'text',
-        text: 'This is the AgentChat debug surface. Use this area to validate layout, scrolling, message styling, and reasoning blocks in the main workspace.'
+        text: 'This is the AgentChat debug surface. Use this area to validate layout, scrolling, message styling, reasoning blocks, tool calls, and inline confirmations in the main workspace.'
+      },
+      {
+        type: 'tool-call',
+        callId: 'debug-tool',
+        toolName: 'workspace.getStatus',
+        state: 'running',
+        input: { includeSessions: true, includeProjects: true },
+        output: 'Collecting workspace status...'
+      },
+      {
+        type: 'tool-confirmation',
+        callId: 'debug-confirmation',
+        toolName: 'workspace.writeSettings',
+        summary: 'The agent wants to update workspace settings for this session.',
+        state: 'pending'
       }
     ]
   }
@@ -275,31 +288,11 @@ export function WorkspaceShell(): React.JSX.Element {
             className="min-h-0 rounded-lg border bg-card"
             composer={
               <div className="space-y-4">
-                <div className="grid gap-3 rounded-md border bg-background/60 p-3 lg:grid-cols-2">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                      <span>Session controls</span>
-                      <SessionStatusIndicator status="idle" label="Idle session preview" />
-                      <SessionStatusIndicator status="running" label="Running session preview" />
-                      <ThinkingSelector
-                        value={debugThinkingLevel}
-                        onChange={setDebugThinkingLevel}
-                      />
-                    </div>
-                    <ToolConfirmationCard
-                      callId="debug-confirmation"
-                      toolName="workspace.writeSettings"
-                      summary="The agent wants to update workspace settings for this session."
-                      onResolve={() => undefined}
-                    />
-                  </div>
-                  <ToolCallBlock
-                    callId="debug-tool"
-                    toolName="workspace.getStatus"
-                    state="running"
-                    input={{ includeSessions: true, includeProjects: true }}
-                    output="Collecting workspace status..."
-                  />
+                <div className="flex items-center gap-3 rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
+                  <span>Session controls</span>
+                  <SessionStatusIndicator status="idle" label="Idle session preview" />
+                  <SessionStatusIndicator status="running" label="Running session preview" />
+                  <ThinkingSelector value={debugThinkingLevel} onChange={setDebugThinkingLevel} />
                 </div>
                 <ChatInput models={agentChatDebugModels} onSubmit={() => undefined} />
               </div>

@@ -20,7 +20,11 @@ export type AiChatMessage = {
   createdAt?: string
 }
 
-export type AiChatMessagePart = AiChatTextPart | AiChatThinkingPart
+export type AiChatMessagePart =
+  | AiChatTextPart
+  | AiChatThinkingPart
+  | AiChatToolCallPart
+  | AiChatToolConfirmationPart
 
 export type AiChatTextPart = {
   type: 'text'
@@ -32,4 +36,23 @@ export type AiChatThinkingPart = {
   text: string
   state?: AiChatThinkingState
   collapsed?: boolean
+}
+
+export type AiChatToolCallPart = {
+  type: 'tool-call'
+  callId: string
+  toolName: string
+  state: AiChatToolCallState
+  input?: unknown
+  output?: unknown
+  error?: string
+  defaultExpanded?: boolean
+}
+
+export type AiChatToolConfirmationPart = {
+  type: 'tool-confirmation'
+  callId: string
+  toolName: string
+  summary: string
+  state?: AiChatToolConfirmationState
 }
