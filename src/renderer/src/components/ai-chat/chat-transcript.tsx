@@ -16,20 +16,28 @@ export type ChatTranscriptProps = {
   emptyState?: ReactNode
   className?: string
   contentClassName?: string
+  onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
 
 export function ChatTranscript({
   messages,
   emptyState,
   className,
-  contentClassName
+  contentClassName,
+  onToolConfirmationResolve
 }: ChatTranscriptProps) {
   return (
     <Conversation className={cn('min-h-0', className)}>
       <ConversationContent className={contentClassName}>
         {messages.length === 0
           ? (emptyState ?? <ConversationEmptyState />)
-          : messages.map((message) => <ChatTranscriptMessage key={message.id} message={message} />)}
+          : messages.map((message) => (
+              <ChatTranscriptMessage
+                key={message.id}
+                message={message}
+                onToolConfirmationResolve={onToolConfirmationResolve}
+              />
+            ))}
       </ConversationContent>
       <ConversationScrollButton />
     </Conversation>
@@ -37,9 +45,11 @@ export function ChatTranscript({
 }
 
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
-  message
+  message,
+  onToolConfirmationResolve
 }: {
   message: AiChatMessage
+  onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }) {
-  return <ChatMessage message={message} />
+  return <ChatMessage message={message} onToolConfirmationResolve={onToolConfirmationResolve} />
 })

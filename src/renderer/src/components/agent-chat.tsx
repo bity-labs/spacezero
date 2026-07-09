@@ -11,6 +11,7 @@ export type AgentChatProps = {
   emptyState?: ReactNode
   className?: string
   contentClassName?: string
+  onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
 
 export function AgentChat({
@@ -18,7 +19,8 @@ export function AgentChat({
   composer,
   emptyState,
   className,
-  contentClassName
+  contentClassName,
+  onToolConfirmationResolve
 }: AgentChatProps) {
   return (
     <section className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', className)}>
@@ -26,6 +28,7 @@ export function AgentChat({
         messages={messages}
         emptyState={emptyState}
         contentClassName={contentClassName}
+        onToolConfirmationResolve={onToolConfirmationResolve}
       />
       {composer ? <div className="border-t p-4">{composer}</div> : null}
     </section>

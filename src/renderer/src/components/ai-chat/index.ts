@@ -8,7 +8,9 @@ export type {
   AiChatThinkingLevel,
   AiChatThinkingPart,
   AiChatThinkingState,
+  AiChatToolCallPart,
   AiChatToolCallState,
+  AiChatToolConfirmationPart,
   AiChatToolConfirmationState
 } from './ai-chat.types'
 export { ChatInput, type ChatInputProps } from './chat-input'
