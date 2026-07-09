@@ -44,12 +44,26 @@ const agentChatDebugMessages: AgentChatMessage[] = [
     parts: [{ type: 'text', text: 'Show me the current workspace context.' }]
   },
   {
-    id: 'debug-agent-1',
+    id: 'debug-agent-thinking',
     role: 'assistant',
+    status: 'streaming',
     parts: [
       {
         type: 'thinking',
-        text: 'Inspecting the workspace shell and checking how AgentChat is mounted for debugging.',
+        text: 'Reading workspace-shell.tsx and checking the AgentChat debug mount...',
+        state: 'streaming',
+        collapsed: false
+      }
+    ]
+  },
+  {
+    id: 'debug-agent-complete',
+    role: 'assistant',
+    status: 'complete',
+    parts: [
+      {
+        type: 'thinking',
+        text: 'Inspected the workspace shell and verified AgentChat is mounted in the main workspace for debugging.',
         state: 'complete',
         collapsed: false
       },
