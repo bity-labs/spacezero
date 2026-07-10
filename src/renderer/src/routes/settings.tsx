@@ -4,6 +4,7 @@ import { ArrowLeft, Cube, GearSix } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
+import type { ThemePreference } from '@shared/theme'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
@@ -12,7 +13,6 @@ import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle
 import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
 import { Button, buttonVariants } from '../components/ui/button'
-import { Card } from '../components/ui/card'
 import {
   Select,
   SelectContent,
@@ -21,7 +21,7 @@ import {
   SelectValue
 } from '../components/ui/select'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '../components/ui/sidebar'
-import { Switch } from '../components/ui/switch'
+import { useColorMode } from '../color-mode-provider'
 import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
@@ -55,6 +55,8 @@ function SettingsPage(): React.JSX.Element {
   const setSidebarWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
+  const [themeError, setThemeError] = useState(false)
+  const { themePreference, updateThemePreference } = useColorMode()
   const leftSidebarResize = useSidebarResize({ width: sidebarWidth, setWidth: setSidebarWidth })
   const navigationItems = useMemo(
     () =>
@@ -93,6 +95,16 @@ function SettingsPage(): React.JSX.Element {
       await i18n.changeLanguage(settings.resolvedLanguage)
     } catch {
       setLanguageError(true)
+    }
+  }
+
+  async function handleThemePreferenceChange(preference: ThemePreference): Promise<void> {
+    setThemeError(false)
+
+    try {
+      await updateThemePreference(preference)
+    } catch {
+      setThemeError(true)
     }
   }
 
@@ -188,7 +200,10 @@ function SettingsPage(): React.JSX.Element {
             <GeneralSettingsSection
               languageSettings={languageSettings}
               languageError={languageError}
+              themePreference={themePreference}
+              themeError={themeError}
               onLanguagePreferenceChange={handleLanguagePreferenceChange}
+              onThemePreferenceChange={handleThemePreferenceChange}
             />
           ) : (
             <ModelsSettingsSection />
@@ -202,13 +217,19 @@ function SettingsPage(): React.JSX.Element {
 type GeneralSettingsSectionProps = {
   languageSettings: LanguageSettings | null
   languageError: boolean
+  themePreference: ThemePreference
+  themeError: boolean
   onLanguagePreferenceChange: (preference: LanguagePreference) => Promise<void>
+  onThemePreferenceChange: (preference: ThemePreference) => Promise<void>
 }
 
 function GeneralSettingsSection({
   languageSettings,
   languageError,
-  onLanguagePreferenceChange
+  themePreference,
+  themeError,
+  onLanguagePreferenceChange,
+  onThemePreferenceChange
 }: GeneralSettingsSectionProps): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -217,54 +238,6 @@ function GeneralSettingsSection({
       <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.general')}</h2>
 
       <div className="space-y-8">
-        <Card className="gap-0 py-0">
-          <SettingsRow
-            title={t('settings.account.title')}
-            description={t('settings.account.description')}
-          >
-            <Button variant="outline" size="sm">
-              {t('settings.account.open')}
-            </Button>
-          </SettingsRow>
-          <SettingsRow title={t('settings.pro.title')} description={t('settings.pro.description')}>
-            <Button size="sm">{t('settings.pro.upgrade')}</Button>
-          </SettingsRow>
-        </Card>
-
-        <SettingsSection title={t('settings.pullRequests.sectionTitle')}>
-          <SettingsRow
-            title={t('settings.pullRequests.reviewProvider.title')}
-            description={t('settings.pullRequests.reviewProvider.description')}
-          >
-            <Select defaultValue="github">
-              <SelectTrigger size="sm" className="w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="github">GitHub</SelectItem>
-              </SelectContent>
-            </Select>
-          </SettingsRow>
-          <SettingsRow
-            title={t('settings.pullRequests.linkDestination.title')}
-            description={t('settings.pullRequests.linkDestination.description')}
-          >
-            <Select defaultValue="inside-space-zero">
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="inside-space-zero">
-                  {t('settings.pullRequests.linkDestination.insideSpaceZero')}
-                </SelectItem>
-                <SelectItem value="default-browser">
-                  {t('settings.pullRequests.linkDestination.defaultBrowser')}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </SettingsRow>
-        </SettingsSection>
-
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -272,18 +245,33 @@ function GeneralSettingsSection({
           >
             <Select
               value={languageSettings?.preference ?? 'system'}
-              onValueChange={(value) =>
-                void onLanguagePreferenceChange(value as LanguagePreference)
-              }
+              onValueChange={(value) => void onLanguagePreferenceChange(value as LanguagePreference)}
               disabled={!languageSettings}
             >
               <SelectTrigger size="sm" className="w-40" aria-label={t('settings.language.label')}>
-                <SelectValue />
+                <SelectValue>
+                  {(value: LanguagePreference) => getLanguagePreferenceLabel(value, t)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="system">{t('settings.language.useSystem')}</SelectItem>
                 <SelectItem value="en">{t('settings.language.english')}</SelectItem>
                 <SelectItem value="fr">{t('settings.language.french')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+          <SettingsRow title={t('settings.theme.label')} description={t('settings.theme.description')}>
+            <Select
+              value={themePreference}
+              onValueChange={(value) => void onThemePreferenceChange(value as ThemePreference)}
+            >
+              <SelectTrigger size="sm" className="w-40" aria-label={t('settings.theme.label')}>
+                <SelectValue>{(value: ThemePreference) => getThemePreferenceLabel(value, t)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">{t('settings.theme.system')}</SelectItem>
+                <SelectItem value="light">{t('settings.theme.light')}</SelectItem>
+                <SelectItem value="dark">{t('settings.theme.dark')}</SelectItem>
               </SelectContent>
             </Select>
           </SettingsRow>
@@ -297,37 +285,31 @@ function GeneralSettingsSection({
               {t('settings.language.saveError')}
             </p>
           ) : null}
-        </SettingsSection>
-
-        <SettingsSection title={t('settings.notifications.sectionTitle')}>
-          <SettingsRow
-            title={t('settings.notifications.system.title')}
-            description={t('settings.notifications.system.description')}
-          >
-            <Switch checked aria-label={t('settings.notifications.system.title')} />
-          </SettingsRow>
-          <SettingsRow
-            title={t('settings.notifications.warning.title')}
-            description={t('settings.notifications.warning.description')}
-          >
-            <Switch aria-label={t('settings.notifications.warning.title')} />
-          </SettingsRow>
-          <SettingsRow
-            title={t('settings.notifications.menuBar.title')}
-            description={t('settings.notifications.menuBar.description')}
-          >
-            <Switch checked aria-label={t('settings.notifications.menuBar.title')} />
-          </SettingsRow>
-          <SettingsRow
-            title={t('settings.notifications.completionSound.title')}
-            description={t('settings.notifications.completionSound.description')}
-          >
-            <Switch aria-label={t('settings.notifications.completionSound.title')} />
-          </SettingsRow>
+          {themeError ? (
+            <p className="px-4 pb-3 text-sm text-destructive">{t('settings.theme.saveError')}</p>
+          ) : null}
         </SettingsSection>
       </div>
     </>
   )
+}
+
+function getLanguagePreferenceLabel(
+  preference: LanguagePreference,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (preference === 'system') return t('settings.language.useSystem')
+  if (preference === 'fr') return t('settings.language.french')
+  return t('settings.language.english')
+}
+
+function getThemePreferenceLabel(
+  preference: ThemePreference,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (preference === 'system') return t('settings.theme.system')
+  if (preference === 'dark') return t('settings.theme.dark')
+  return t('settings.theme.light')
 }
 
 function ModelsSettingsSection(): React.JSX.Element {

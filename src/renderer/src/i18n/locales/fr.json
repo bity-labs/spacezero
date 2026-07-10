@@ -67,6 +67,14 @@
       "loading": "Chargement des paramètres de langue…",
       "saveError": "Impossible de mettre à jour la préférence de langue."
     },
+    "theme": {
+      "label": "Thème",
+      "description": "Choisissez comment Space Zero sélectionne l’apparence de l’application.",
+      "system": "Système",
+      "light": "Clair",
+      "dark": "Sombre",
+      "saveError": "Impossible de mettre à jour la préférence de thème."
+    },
     "upgradeToPro": "Passer à Pro",
     "search": {
       "label": "Rechercher dans les paramètres",
