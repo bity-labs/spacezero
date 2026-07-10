@@ -79,6 +79,17 @@ beforeEach(async () => {
         updatedAt: new Date(1).toISOString()
       })
     },
+    sessions: {
+      listProjectSessions: async () => [],
+      createProjectSession: async ({ projectId, title }) => ({
+        id: 'session-test',
+        projectId,
+        title: title ?? 'Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      })
+    },
     agent: {
       getModelAuthSettings: async () => ({
         subscriptions: {

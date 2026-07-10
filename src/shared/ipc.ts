@@ -6,6 +6,10 @@ import type {
   Project,
   UpdateProjectRequest
 } from '../features/projects/shared/project.model'
+import type {
+  CreateProjectSessionRequest,
+  ProjectSession
+} from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 
 export const IPC_CHANNELS = {
@@ -21,6 +25,10 @@ export const IPC_CHANNELS = {
     createEmpty: 'projects:createEmpty',
     addFromFolder: 'projects:addFromFolder',
     update: 'projects:update'
+  },
+  sessions: {
+    listProjectSessions: 'sessions:listProjectSessions',
+    createProjectSession: 'sessions:createProjectSession'
   },
   agent: {
     getModelAuthSettings: 'agent:getModelAuthSettings',
@@ -65,6 +73,10 @@ export type SpaceZeroAPI = {
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
     addFromFolder: () => Promise<Project | null>
     update: (request: UpdateProjectRequest) => Promise<Project>
+  }
+  sessions: {
+    listProjectSessions: () => Promise<ProjectSession[]>
+    createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   }
   agent: {
     getModelAuthSettings: () => Promise<ModelAuthSettings>

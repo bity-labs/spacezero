@@ -35,6 +35,30 @@
       "add": "Ajouter un dépôt"
     }
   },
+  "sessions": {
+    "new": "Nouvelle session",
+    "status": {
+      "idle": "Inactive",
+      "running": "En cours",
+      "completed": "Terminée",
+      "failed": "Échouée"
+    },
+    "list": {
+      "loading": "Chargement des sessions…",
+      "error": "Impossible de charger les sessions.",
+      "empty": "Aucune session pour le moment."
+    },
+    "workspace": {
+      "layoutLabel": "Disposition de l’espace des sessions",
+      "panelLabel": "Panneau de session",
+      "emptyTitle": "Aucune session sélectionnée",
+      "emptyDescription": "Sélectionnez une session de projet ou créez-en une sous un projet pour commencer.",
+      "emptyProjectTitle": "Aucune session ouverte pour {{project}}",
+      "emptyProjectDescription": "Créez une nouvelle session de projet depuis la barre latérale ou sélectionnez une session existante.",
+      "placeholder": "Emplacement réservé pour l’hôte de session de projet",
+      "missingSession": "Session manquante"
+    }
+  },
   "projects": {
     "sidebar": {
       "label": "Projets",
@@ -46,7 +70,9 @@
       "loading": "Chargement des projets…",
       "error": "Impossible de charger les projets.",
       "empty": "Aucun projet pour le moment.",
-      "addFirst": "Ajouter un projet"
+      "addFirst": "Ajouter un projet",
+      "expand": "Afficher les sessions de {{name}}",
+      "collapse": "Masquer les sessions de {{name}}"
     },
     "add": {
       "title": "Ajouter un projet",

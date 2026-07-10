@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import type { ProjectSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
 import { App } from './App'
@@ -95,8 +96,116 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
 
     expect(await screen.findByRole('button', { name: 'Agent Workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Agent Workspace' })).toBeInTheDocument()
-    expect(screen.getByText('/tmp/agent-workspace')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Agent Workspace')
+    expect(screen.queryByText('/tmp/agent-workspace')).not.toBeInTheDocument()
+  })
+
+  it('shows persisted project sessions, creates a new session, and restores metadata after reload', async () => {
+    const projects = [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    const sessions: ProjectSession[] = [
+      {
+        id: 'session-1',
+        projectId: 'project-1',
+        title: 'Session 1',
+        status: 'running' as const,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.sessions.listProjectSessions = async () => sessions
+    window.spacezero.sessions.createProjectSession = async ({ projectId }) => {
+      const session = {
+        id: 'session-2',
+        projectId,
+        title: 'Session 2',
+        status: 'idle' as const,
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }
+      sessions.push(session)
+      return session
+    }
+
+    const rendered = render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    expect(await screen.findByRole('button', { name: /Session 1/ })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Running' })).toBeInTheDocument()
+    expect(screen.getByText('No session open for Space Zero')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
+
+    expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
+    expect(screen.getByText('Project Session host placeholder for Session 2. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
+
+    rendered.unmount()
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    expect(await screen.findByRole('button', { name: /Session 1/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
+  })
+
+  it('opens one focused AgentChat for the selected project session', async () => {
+    const projects = [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.sessions.listProjectSessions = async () => [
+      {
+        id: 'session-1',
+        projectId: 'project-1',
+        title: 'Session 1',
+        status: 'running',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      },
+      {
+        id: 'session-2',
+        projectId: 'project-1',
+        title: 'Session 2',
+        status: 'idle',
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      },
+      {
+        id: 'session-3',
+        projectId: 'project-1',
+        title: 'Session 3',
+        status: 'idle',
+        createdAt: new Date(2).toISOString(),
+        updatedAt: new Date(2).toISOString()
+      }
+    ]
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Session 1/ }))
+
+    expect(screen.getByText('Project Session host placeholder for Session 1. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 1')
+
+    fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
+
+    expect(screen.getByText('Project Session host placeholder for Session 2. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
+    expect(screen.queryByText('Project Session host placeholder for Session 1. Pi streaming will attach here in a later slice.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
   })
 
   it('loads persisted projects, opens them, and edits project metadata', async () => {
@@ -124,7 +233,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
-    expect(screen.getByRole('heading', { name: 'Space Zero' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space Zero')
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit Space Zero' }))
     fireEvent.change(await screen.findByLabelText('Project name'), {
@@ -136,8 +245,8 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByRole('button', { name: 'Space Zero Desktop' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Space Zero Desktop' })).toBeInTheDocument()
-    expect(screen.getByText('/Users/tiby/ws/dev/spacezero-desktop')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space Zero Desktop')
+    expect(screen.queryByText('/Users/tiby/ws/dev/spacezero-desktop')).not.toBeInTheDocument()
   })
 
   it('supports keyboard resizing for side columns', async () => {
@@ -197,7 +306,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Workspace')
     expect(window.location.hash).toBe('#/')
   })
 
