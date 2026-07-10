@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
+
 import { App } from './App'
 import { router } from './router'
 
@@ -149,9 +151,10 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Models' })).toHaveAttribute('data-active')
-    expect(screen.getByText('Authentication')).toBeInTheDocument()
-    expect(screen.getByText('Subscriptions')).toBeInTheDocument()
-    expect(screen.getByText('API Keys')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Subscriptions' })).toBeInTheDocument()
+    expect(screen.getByText('No subscriptions connected.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'API Keys' })).toBeInTheDocument()
+    expect(screen.getByText('No API keys configured.')).toBeInTheDocument()
     expect(screen.getByText('Defaults')).toBeInTheDocument()
     expect(screen.getByText('Available Models')).toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings?section=models')
@@ -163,6 +166,220 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
+  })
+
+  it('adds an API key through the Models Settings flow without rendering the raw key after save', async () => {
+    const configuredApiKeys: Array<{
+      providerId: string
+      label: string
+      configured: true
+      source: 'stored'
+      displayLabel: string
+      removable: true
+    }> = []
+
+    window.spacezero.agent.getModelAuthSettings = async () => ({
+      subscriptions: { connected: [], availableProviders: [] },
+      apiKeys: {
+        configured: configuredApiKeys,
+        availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+      }
+    })
+    window.spacezero.agent.addApiKey = async ({ providerId, apiKey }) => {
+      expect(providerId).toBe('anthropic')
+      expect(apiKey).toBe('sk-test-secret')
+      configuredApiKeys.push({
+        providerId,
+        label: 'Anthropic',
+        configured: true,
+        source: 'stored',
+        displayLabel: 'Stored API key',
+        removable: true
+      })
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'models' } })
+    })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add API key' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Anthropic' }))
+
+    const saveButton = await screen.findByRole('button', { name: 'Save' })
+    expect(saveButton).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'sk-test-secret' } })
+    fireEvent.click(saveButton)
+
+    expect(await screen.findByText('Stored API key')).toBeInTheDocument()
+    expect(screen.getByText('Anthropic')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('sk-test-secret')).not.toBeInTheDocument()
+    expect(screen.queryByText('sk-test-secret')).not.toBeInTheDocument()
+  })
+
+  it('connects and disconnects a subscription provider through Models Settings', async () => {
+    const connectedSubscriptions: Array<{
+      providerId: string
+      label: string
+      configured: true
+      source: 'stored'
+      removable: true
+    }> = []
+    const originalConfirm = window.confirm
+    window.confirm = () => true
+
+    window.spacezero.agent.getModelAuthSettings = async () => ({
+      subscriptions: {
+        connected: connectedSubscriptions,
+        availableProviders: [{ providerId: 'chatgpt', label: 'ChatGPT Plus/Pro' }]
+      },
+      apiKeys: { configured: [], availableProviders: [] }
+    })
+    window.spacezero.agent.loginOAuth = async ({ providerId }) => {
+      connectedSubscriptions.push({
+        providerId,
+        label: 'ChatGPT Plus/Pro',
+        configured: true,
+        source: 'stored',
+        removable: true
+      })
+    }
+    window.spacezero.agent.logoutOAuth = async ({ providerId }) => {
+      const index = connectedSubscriptions.findIndex(
+        (provider) => provider.providerId === providerId
+      )
+      if (index >= 0) connectedSubscriptions.splice(index, 1)
+    }
+
+    try {
+      await act(async () => {
+        await router.navigate({ to: '/settings', search: { section: 'models' } })
+      })
+      render(<App />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Add subscription' }))
+      fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT Plus/Pro' }))
+
+      expect(await screen.findByText('Connected')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+      expect(await screen.findByText('No subscriptions connected.')).toBeInTheDocument()
+    } finally {
+      window.confirm = originalConfirm
+    }
+  })
+
+  it('shows disabled defaults and available-model states until authentication unlocks models', async () => {
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'models' } })
+    })
+    render(<App />)
+
+    expect(
+      await screen.findByText('Add a subscription or API key to choose a default model.')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText('Add a subscription or API key to browse available models.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()
+  })
+
+  it('summarizes available models, browses them, and makes a model the default', async () => {
+    const availableModels = [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4',
+        description: 'Balanced Claude model',
+        supportsThinking: true
+      },
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-opus-4',
+        modelLabel: 'Claude Opus 4',
+        supportsThinking: true
+      },
+      {
+        providerId: 'openai',
+        providerLabel: 'OpenAI',
+        modelId: 'gpt-5',
+        modelLabel: 'GPT-5',
+        supportsThinking: true
+      }
+    ]
+    let modelDefaults: ModelDefaults = { defaultThinking: 'medium' }
+
+    window.spacezero.agent.getAvailableModels = async () => availableModels
+    window.spacezero.settings.getModelDefaults = async () => modelDefaults
+    window.spacezero.settings.updateModelDefaults = async (request) => {
+      modelDefaults = { ...modelDefaults, ...request }
+      return modelDefaults
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'models' } })
+    })
+    render(<App />)
+
+    expect(await screen.findByText('3 models available from 2 providers')).toBeInTheDocument()
+    expect(screen.getByText('Anthropic')).toBeInTheDocument()
+    expect(screen.getByText('2 models')).toBeInTheDocument()
+    expect(screen.getByText('OpenAI')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse models' }))
+    const browser = await screen.findByRole('dialog', { name: 'Browse models' })
+    fireEvent.change(within(browser).getByLabelText('Search models'), {
+      target: { value: 'openai' }
+    })
+
+    expect(within(browser).getByText('GPT-5')).toBeInTheDocument()
+    expect(within(browser).queryByText('Claude Sonnet 4')).not.toBeInTheDocument()
+
+    fireEvent.click(within(browser).getByRole('button', { name: 'Make default' }))
+
+    expect(await within(browser).findByText('Default')).toBeInTheDocument()
+    fireEvent.click(within(browser).getByRole('button', { name: 'Close' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Browse models' })).not.toBeInTheDocument()
+    )
+    expect(screen.getByRole('button', { name: 'OpenAI · GPT-5' })).toBeInTheDocument()
+  })
+
+  it('updates default thinking from Models Settings', async () => {
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4'
+      }
+    ]
+
+    let savedThinking: ThinkingLevel = 'medium'
+    window.spacezero.settings.getModelDefaults = async () => ({ defaultThinking: savedThinking })
+    window.spacezero.settings.updateModelDefaults = async (request) => {
+      if (request.defaultThinking) savedThinking = request.defaultThinking
+      return { defaultThinking: savedThinking }
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'models' } })
+    })
+    render(<App />)
+
+    const thinkingSelect = await screen.findByRole('combobox', { name: 'Default thinking' })
+    fireEvent.click(thinkingSelect)
+    const highOption = await screen.findByRole('option', { name: 'High' })
+    fireEvent.pointerDown(highOption)
+    fireEvent.pointerUp(highOption)
+    fireEvent.click(highOption)
+
+    expect(await screen.findByRole('combobox', { name: 'Default thinking' })).toHaveTextContent(
+      'High'
+    )
   })
 
   it('opens the command palette, searches, and invokes a navigation command', async () => {
