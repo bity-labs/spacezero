@@ -72,7 +72,7 @@ export function ProjectSidebarList({
   }
 
   return (
-    <SidebarMenu className="px-2" aria-label={t('projects.list.label')}>
+    <SidebarMenu className="mt-2 px-2" aria-label={t('projects.list.label')}>
       {projects.map((project) => {
         const isActive = activeProject?.id === project.id
         const isExpanded = expandedProjectIds.has(project.id)

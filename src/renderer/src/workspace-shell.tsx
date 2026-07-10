@@ -17,17 +17,20 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { Project } from '../../features/projects/shared'
-import type { ProjectSession } from '../../features/sessions/shared'
+import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import {
   AddProjectDialog,
   EditProjectDialog,
   ProjectSidebarList,
   useProjects
 } from '../../features/projects/renderer'
-import { useProjectSessions } from '../../features/sessions/renderer'
+import {
+  ProjectSessionHostSurface,
+  WorkspaceSessionHostSurface,
+  useProjectSessions
+} from '../../features/sessions/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { ChatInput, type AiChatThinkingLevel } from './components/ai-chat'
-import { AgentChat, type AgentChatMessage } from './components/agent-chat'
+import { type AiChatThinkingLevel } from './components/ai-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
@@ -50,26 +53,21 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
-const agentChatDebugModels = [
-  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'anthropic' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
-]
+type ActiveSessionSurface =
+  | { kind: 'project'; sessionId: string }
+  | { kind: 'workspace'; session: WorkspaceSession }
 
-function createSessionPlaceholderMessages(session: ProjectSession): AgentChatMessage[] {
-  return [
-    {
-      id: `${session.id}-placeholder`,
-      role: 'assistant',
-      status: 'complete',
-      parts: [
-        {
-          type: 'text',
-          text: `Project Session host placeholder for ${session.title}. Pi streaming will attach here in a later slice.`
-        }
-      ]
-    }
-  ]
+function createWorkspaceSession(): WorkspaceSession {
+  const now = new Date().toISOString()
+
+  return {
+    id: `workspace-session-${Date.now()}`,
+    kind: 'workspace',
+    title: 'Workspace Session',
+    status: 'idle',
+    createdAt: now,
+    updatedAt: now
+  }
 }
 
 export function WorkspaceShell(): React.JSX.Element {
@@ -97,7 +95,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [activeSurface, setActiveSurface] = useState<ActiveSessionSurface | null>(null)
   const {
     projects,
     activeProject,
@@ -115,7 +113,14 @@ export function WorkspaceShell(): React.JSX.Element {
     error: sessionsError,
     createProjectSession
   } = useProjectSessions()
-  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null
+  const activeProjectSession =
+    activeSurface?.kind === 'project'
+      ? (sessions.find((session) => session.id === activeSurface.sessionId) ?? null)
+      : null
+  const activeWorkspaceSession = activeSurface?.kind === 'workspace' ? activeSurface.session : null
+  const activeSessionProject = activeProjectSession
+    ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
+    : null
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -132,6 +137,13 @@ export function WorkspaceShell(): React.JSX.Element {
         category: t('appCommands.categories.workspace'),
         keywords: ['sidebar', 'inspector'],
         handler: toggleRightPanel
+      },
+      {
+        id: 'workspace.open-workspace-session',
+        title: t('workspace.sidebar.newAgent'),
+        category: t('appCommands.categories.workspace'),
+        keywords: ['agent', 'global', 'workspace session'],
+        handler: () => setActiveSurface({ kind: 'workspace', session: createWorkspaceSession() })
       }
     ],
     [isLeftPanelOpen, isRightPanelOpen, t, toggleLeftPanel, toggleRightPanel]
@@ -143,13 +155,13 @@ export function WorkspaceShell(): React.JSX.Element {
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
     const session = await createProjectSession({ projectId: project.id })
-    setActiveSessionId(session.id)
+    setActiveSurface({ kind: 'project', sessionId: session.id })
   }
 
   function handleSelectSession(session: ProjectSession): void {
     const sessionProject = projects.find((project) => project.id === session.projectId)
     if (sessionProject) selectProject(sessionProject)
-    setActiveSessionId(session.id)
+    setActiveSurface({ kind: 'project', sessionId: session.id })
   }
 
   const gridTemplateColumns = [
@@ -205,7 +217,11 @@ export function WorkspaceShell(): React.JSX.Element {
         </div>
 
         <div className="flex h-full w-full items-center justify-start px-3">
-          <WorkspaceBreadcrumb project={activeProject} session={activeSession} />
+          <WorkspaceBreadcrumb
+            project={activeSessionProject ?? activeProject}
+            projectSession={activeProjectSession}
+            workspaceSession={activeWorkspaceSession}
+          />
         </div>
 
         <div
@@ -237,7 +253,12 @@ export function WorkspaceShell(): React.JSX.Element {
             contentClassName="px-0 overflow-hidden"
             header={
               <SidebarMenu className="px-0" aria-label={t('workspace.navigation')}>
-                <SidebarNavItem icon={PaperPlaneTilt} label={t('workspace.sidebar.newAgent')} />
+                <SidebarNavItem
+                  icon={PaperPlaneTilt}
+                  label={t('workspace.sidebar.newAgent')}
+                  active={activeSurface?.kind === 'workspace'}
+                  onClick={() => setActiveSurface({ kind: 'workspace', session: createWorkspaceSession() })}
+                />
                 <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
                 <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
                 <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
@@ -270,11 +291,11 @@ export function WorkspaceShell(): React.JSX.Element {
                     onAddProject={() => setAddProjectOpen(true)}
                     onSelectProject={(project) => {
                       selectProject(project)
-                      if (activeSession?.projectId !== project.id) setActiveSessionId(null)
+                      if (activeProjectSession?.projectId !== project.id) setActiveSurface(null)
                     }}
                     onEditProject={setEditingProject}
                     sessionsByProjectId={sessionsByProjectId}
-                    activeSessionId={activeSessionId}
+                    activeSessionId={activeProjectSession?.id ?? null}
                     sessionsStatus={sessionsStatus}
                     sessionsError={sessionsError}
                     onNewSession={(project) => void handleNewSession(project)}
@@ -316,19 +337,20 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
           role="main"
         >
-          {activeSession ? (
-            <AgentChat
-              key={activeSession.id}
-              messages={createSessionPlaceholderMessages(activeSession)}
-              className="min-h-0 rounded-lg border bg-card"
-              composer={
-                <ChatInput
-                  models={agentChatDebugModels}
-                  thinkingLevel={debugThinkingLevel}
-                  onThinkingChange={setDebugThinkingLevel}
-                  onSubmit={() => undefined}
-                />
-              }
+          {activeWorkspaceSession ? (
+            <WorkspaceSessionHostSurface
+              key={activeWorkspaceSession.id}
+              session={activeWorkspaceSession}
+              thinkingLevel={debugThinkingLevel}
+              onThinkingChange={setDebugThinkingLevel}
+            />
+          ) : activeProjectSession && activeSessionProject ? (
+            <ProjectSessionHostSurface
+              key={activeProjectSession.id}
+              project={activeSessionProject}
+              session={activeProjectSession}
+              thinkingLevel={debugThinkingLevel}
+              onThinkingChange={setDebugThinkingLevel}
             />
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
@@ -372,10 +394,12 @@ export function WorkspaceShell(): React.JSX.Element {
 
 function WorkspaceBreadcrumb({
   project,
-  session
+  projectSession,
+  workspaceSession
 }: {
   project: Project | null
-  session: ProjectSession | null
+  projectSession: ProjectSession | null
+  workspaceSession: WorkspaceSession | null
 }): React.JSX.Element {
   return (
     <Breadcrumb>
@@ -383,11 +407,19 @@ function WorkspaceBreadcrumb({
         <BreadcrumbItem>
           <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
         </BreadcrumbItem>
-        {session ? (
+        {projectSession ? (
           <>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>{session.title}</BreadcrumbPage>
+              <BreadcrumbPage>{projectSession.title}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </>
+        ) : null}
+        {workspaceSession ? (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{workspaceSession.title}</BreadcrumbPage>
             </BreadcrumbItem>
           </>
         ) : null}
