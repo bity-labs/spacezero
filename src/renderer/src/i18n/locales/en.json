@@ -35,6 +35,52 @@
       "add": "Add repository"
     }
   },
+  "projects": {
+    "sidebar": {
+      "label": "Projects",
+      "filter": "Filter projects",
+      "add": "Add project"
+    },
+    "list": {
+      "label": "Project list",
+      "loading": "Loading projects…",
+      "error": "Could not load projects.",
+      "empty": "No projects yet.",
+      "addFirst": "Add project"
+    },
+    "add": {
+      "title": "Add Project",
+      "description": "Register an existing folder or create a new project workspace.",
+      "saveError": "Could not create project.",
+      "folderError": "Could not add folder.",
+      "empty": {
+        "title": "Empty Project",
+        "description": "Create a blank local project folder.",
+        "nameLabel": "Project name",
+        "namePlaceholder": "My new project",
+        "create": "Create project"
+      },
+      "folder": {
+        "title": "Open Folder",
+        "description": "Register an existing local folder.",
+        "help": "Choose a local folder through Space Zero's secure desktop picker.",
+        "choose": "Choose folder"
+      },
+      "git": {
+        "title": "Git Repository URL",
+        "description": "Clone or link a remote repository URL.",
+        "comingSoon": "Coming soon"
+      }
+    },
+    "edit": {
+      "title": "Edit Project",
+      "description": "Update the stored project name and local path.",
+      "action": "Edit {{name}}",
+      "nameLabel": "Project name",
+      "pathLabel": "Project path",
+      "saveError": "Could not update project."
+    }
+  },
   "appCommands": {
     "openWorkspace": "Open Workspace",
     "openSettings": "Open Settings",

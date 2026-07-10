@@ -48,6 +48,98 @@ describe('App', () => {
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
+  it('shows Projects in the sidebar with empty state and add setup paths', async () => {
+    render(<App />)
+
+    expect(await screen.findByText('Projects')).toBeInTheDocument()
+    expect(screen.queryByText('Repositories')).not.toBeInTheDocument()
+    expect(screen.getByText('No projects yet.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add project' })[0])
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Empty Project')).toBeInTheDocument()
+    expect(screen.getByText('Open Folder')).toBeInTheDocument()
+    expect(screen.getByText('Git Repository URL')).toBeInTheDocument()
+    expect(screen.getByText('Coming soon')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
+  })
+
+  it('creates an empty project and selects it in the workspace', async () => {
+    const projects: Array<{
+      id: string
+      name: string
+      path: string
+      createdAt: string
+      updatedAt: string
+    }> = []
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.projects.createEmpty = async ({ name }) => {
+      const project = {
+        id: 'project-1',
+        name,
+        path: '/tmp/agent-workspace',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+      projects.push(project)
+      return project
+    }
+
+    render(<App />)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add project' }))[0])
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'Agent Workspace' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+
+    expect(await screen.findByRole('button', { name: 'Agent Workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Agent Workspace' })).toBeInTheDocument()
+    expect(screen.getByText('/tmp/agent-workspace')).toBeInTheDocument()
+  })
+
+  it('loads persisted projects, opens them, and edits project metadata', async () => {
+    let projects = [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.projects.update = async (request) => {
+      const updated = {
+        ...projects[0],
+        name: request.name,
+        path: request.path,
+        updatedAt: new Date(1).toISOString()
+      }
+      projects = [updated]
+      return updated
+    }
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    expect(screen.getByRole('heading', { name: 'Space Zero' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Space Zero' }))
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'Space Zero Desktop' }
+    })
+    fireEvent.change(screen.getByLabelText('Project path'), {
+      target: { value: '/Users/tiby/ws/dev/spacezero-desktop' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByRole('button', { name: 'Space Zero Desktop' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Space Zero Desktop' })).toBeInTheDocument()
+    expect(screen.getByText('/Users/tiby/ws/dev/spacezero-desktop')).toBeInTheDocument()
+  })
+
   it('supports keyboard resizing for side columns', async () => {
     render(<App />)
 
@@ -458,7 +550,7 @@ describe('App', () => {
       await screen.findByRole('main', { name: 'Espace de travail principal' })
     ).toBeInTheDocument()
     expect(screen.getByText('Nouvel agent')).toBeInTheDocument()
-    expect(screen.getByText('Dépôts')).toBeInTheDocument()
+    expect(screen.getByText('Projets')).toBeInTheDocument()
   })
 
   it('updates the theme from Settings without requiring a restart', async () => {

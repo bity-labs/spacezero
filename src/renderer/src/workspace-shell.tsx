@@ -16,6 +16,13 @@ import type { AppCommand } from '../../features/app-commands/renderer/app-comman
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import type { Project } from '../../features/projects/shared'
+import {
+  AddProjectDialog,
+  EditProjectDialog,
+  ProjectSidebarList,
+  useProjects
+} from '../../features/projects/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
 import {
   ChatInput,
@@ -119,6 +126,18 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
+  const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const {
+    projects,
+    activeProject,
+    status: projectsStatus,
+    error: projectsError,
+    selectProject,
+    createEmptyProject,
+    addProjectFromFolder,
+    updateProject
+  } = useProjects()
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -236,16 +255,45 @@ export function WorkspaceShell(): React.JSX.Element {
               <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
             </SidebarMenu>
 
-            <SidebarGroup className="mt-8" aria-label={t('workspace.repositories.label')}>
+            <SidebarGroup className="mt-8" aria-label={t('projects.sidebar.label')}>
               <SidebarSectionHeader
-                label={t('workspace.repositories.label')}
+                label={t('projects.sidebar.label')}
                 expandable
                 actions={[
-                  { label: t('workspace.repositories.filter'), icon: FunnelSimple },
-                  { label: t('workspace.repositories.add'), icon: FolderPlus }
+                  { label: t('projects.sidebar.filter'), icon: FunnelSimple },
+                  {
+                    label: t('projects.sidebar.add'),
+                    icon: FolderPlus,
+                    onClick: () => setAddProjectOpen(true)
+                  }
                 ]}
               />
+              <ProjectSidebarList
+                projects={projects}
+                activeProject={activeProject}
+                status={projectsStatus}
+                error={projectsError}
+                onAddProject={() => setAddProjectOpen(true)}
+                onSelectProject={selectProject}
+                onEditProject={setEditingProject}
+              />
             </SidebarGroup>
+
+            <AddProjectDialog
+              open={isAddProjectOpen}
+              onOpenChange={setAddProjectOpen}
+              onCreateEmptyProject={createEmptyProject}
+              onAddFromFolder={addProjectFromFolder}
+            />
+            <EditProjectDialog
+              key={editingProject?.id ?? 'no-project'}
+              open={editingProject !== null}
+              project={editingProject}
+              onOpenChange={(open) => {
+                if (!open) setEditingProject(null)
+              }}
+              onUpdateProject={updateProject}
+            />
           </AppSidebar>
         ) : null}
 
@@ -263,7 +311,14 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
           role="main"
         >
-          <h1 className="text-sm font-medium">{t('workspace.title')}</h1>
+          <div>
+            <h1 className="text-sm font-medium">
+              {activeProject ? activeProject.name : t('workspace.title')}
+            </h1>
+            {activeProject ? (
+              <p className="mt-1 text-xs text-muted-foreground">{activeProject.path}</p>
+            ) : null}
+          </div>
           <AgentChat
             messages={agentChatDebugMessages}
             className="min-h-0 rounded-lg border bg-card"

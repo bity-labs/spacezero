@@ -35,6 +35,52 @@
       "add": "Ajouter un dépôt"
     }
   },
+  "projects": {
+    "sidebar": {
+      "label": "Projets",
+      "filter": "Filtrer les projets",
+      "add": "Ajouter un projet"
+    },
+    "list": {
+      "label": "Liste des projets",
+      "loading": "Chargement des projets…",
+      "error": "Impossible de charger les projets.",
+      "empty": "Aucun projet pour le moment.",
+      "addFirst": "Ajouter un projet"
+    },
+    "add": {
+      "title": "Ajouter un projet",
+      "description": "Enregistrez un dossier existant ou créez un nouvel espace de projet.",
+      "saveError": "Impossible de créer le projet.",
+      "folderError": "Impossible d'ajouter le dossier.",
+      "empty": {
+        "title": "Projet vide",
+        "description": "Créer un dossier local vide pour le projet.",
+        "nameLabel": "Nom du projet",
+        "namePlaceholder": "Mon nouveau projet",
+        "create": "Créer le projet"
+      },
+      "folder": {
+        "title": "Ouvrir un dossier",
+        "description": "Enregistrer un dossier local existant.",
+        "help": "Choisissez un dossier local via le sélecteur sécurisé de Space Zero.",
+        "choose": "Choisir un dossier"
+      },
+      "git": {
+        "title": "URL du dépôt Git",
+        "description": "Cloner ou lier l'URL d'un dépôt distant.",
+        "comingSoon": "Bientôt disponible"
+      }
+    },
+    "edit": {
+      "title": "Modifier le projet",
+      "description": "Mettre à jour le nom du projet et le chemin local enregistrés.",
+      "action": "Modifier {{name}}",
+      "nameLabel": "Nom du projet",
+      "pathLabel": "Chemin du projet",
+      "saveError": "Impossible de mettre à jour le projet."
+    }
+  },
   "appCommands": {
     "openWorkspace": "Ouvrir l’espace de travail",
     "openSettings": "Ouvrir les paramètres",
