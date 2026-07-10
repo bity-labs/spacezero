@@ -145,7 +145,9 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
-    expect(screen.getByText('Project Session host placeholder for Session 2. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Project Session host placeholder. Pi streaming will attach here in a later slice.')
+    ).toBeInTheDocument()
 
     rendered.unmount()
     render(<App />)
@@ -198,14 +200,41 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
     fireEvent.click(await screen.findByRole('button', { name: /Session 1/ }))
 
-    expect(screen.getByText('Project Session host placeholder for Session 1. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Project Session host placeholder. Pi streaming will attach here in a later slice.')
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Space Zero → Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
+    expect(screen.getByText('Streaming projection placeholder for the project-bound agent turn.')).toBeInTheDocument()
+    expect(screen.getByText('project.context.preview')).toBeInTheDocument()
+    expect(screen.getByText('Inline confirmation placeholder for future Workspace Tool requests.')).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 1')
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
-    expect(screen.getByText('Project Session host placeholder for Session 2. Pi streaming will attach here in a later slice.')).toBeInTheDocument()
-    expect(screen.queryByText('Project Session host placeholder for Session 1. Pi streaming will attach here in a later slice.')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Project Session host placeholder. Pi streaming will attach here in a later slice.')
+    ).toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+  })
+
+  it('opens a global Workspace Session without selecting a project', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
+
+    expect(screen.getAllByText('Workspace Session').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(
+        'Workspace Session host for the global Space Zero agent. This surface does not require a project, cwd, or repository path.'
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByText('workspace.getStatus.preview')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session'
+    )
+    expect(screen.queryByText('Project ID')).not.toBeInTheDocument()
+    expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
   })
 
   it('loads persisted projects, opens them, and edits project metadata', async () => {
