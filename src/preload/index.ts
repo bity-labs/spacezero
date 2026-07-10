@@ -10,11 +10,24 @@ const api: SpaceZeroAPI = {
   db: {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)
   },
+  agent: {
+    getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
+    getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
+    addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),
+    removeApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.removeApiKey, request),
+    loginOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.loginOAuth, request),
+    logoutOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.logoutOAuth, request)
+  },
   settings: {
     getLanguageSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getLanguageSettings),
-    updateLanguagePreference: (preference) => ipcRenderer.invoke(IPC_CHANNELS.settings.updateLanguagePreference, preference),
+    updateLanguagePreference: (preference) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateLanguagePreference, preference),
     getThemeSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getThemeSettings),
-    updateThemePreference: (preference) => ipcRenderer.invoke(IPC_CHANNELS.settings.updateThemePreference, preference)
+    updateThemePreference: (preference) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateThemePreference, preference),
+    getModelDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getModelDefaults),
+    updateModelDefaults: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateModelDefaults, request)
   }
 }
 

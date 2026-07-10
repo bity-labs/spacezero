@@ -25,7 +25,8 @@ Object.defineProperty(window, 'matchMedia', {
     media: query,
     onchange: null,
     addEventListener: (_event: 'change', listener: () => void) => mediaListeners.add(listener),
-    removeEventListener: (_event: 'change', listener: () => void) => mediaListeners.delete(listener),
+    removeEventListener: (_event: 'change', listener: () => void) =>
+      mediaListeners.delete(listener),
     addListener: (listener: () => void) => mediaListeners.add(listener),
     removeListener: (listener: () => void) => mediaListeners.delete(listener),
     dispatchEvent: vi.fn()
@@ -54,17 +55,52 @@ beforeEach(async () => {
     db: {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
     },
+    agent: {
+      getModelAuthSettings: async () => ({
+        subscriptions: {
+          connected: [],
+          availableProviders: [
+            { providerId: 'chatgpt', label: 'ChatGPT Plus/Pro' },
+            { providerId: 'claude', label: 'Claude Pro/Max' }
+          ]
+        },
+        apiKeys: {
+          configured: [],
+          availableProviders: [
+            { providerId: 'anthropic', label: 'Anthropic' },
+            { providerId: 'openai', label: 'OpenAI' }
+          ]
+        }
+      }),
+      getAvailableModels: async () => [],
+      addApiKey: async () => undefined,
+      removeApiKey: async () => undefined,
+      loginOAuth: async () => undefined,
+      logoutOAuth: async () => undefined
+    },
     settings: {
-      getLanguageSettings: async () => ({ preference: 'system', resolvedLanguage: 'en', systemLanguage: 'en-US' }),
+      getLanguageSettings: async () => ({
+        preference: 'system',
+        resolvedLanguage: 'en',
+        systemLanguage: 'en-US'
+      }),
       updateLanguagePreference: async (preference) => ({
         preference,
         resolvedLanguage: preference === 'system' ? 'en' : preference,
         systemLanguage: 'en-US'
       }),
-      getThemeSettings: async () => ({ preference: 'system', resolvedTheme: prefersDark ? 'dark' : 'light' }),
+      getThemeSettings: async () => ({
+        preference: 'system',
+        resolvedTheme: prefersDark ? 'dark' : 'light'
+      }),
       updateThemePreference: async (preference) => ({
         preference,
         resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
+      }),
+      getModelDefaults: async () => ({ defaultThinking: 'medium' }),
+      updateModelDefaults: async (request) => ({
+        defaultThinking: request.defaultThinking ?? 'medium',
+        defaultModel: request.defaultModel
       })
     }
   }

@@ -3,6 +3,10 @@
     "name": "Space Zero",
     "openCommandPalette": "Ouvrir la palette de commandes"
   },
+  "common": {
+    "cancel": "Annuler",
+    "save": "Enregistrer"
+  },
   "workspace": {
     "title": "Espace de travail",
     "mainLabel": "Espace de travail principal",
@@ -135,26 +139,88 @@
     },
     "models": {
       "comingSoon": "Bientôt disponible",
-      "authentication": {
-        "sectionTitle": "Authentification",
-        "subscriptions": {
-          "title": "Abonnements",
-          "description": "Connectez les abonnements des fournisseurs pour l’accès aux modèles via OAuth."
-        },
-        "apiKeys": {
-          "title": "Clés API",
-          "description": "Gérez les clés API des fournisseurs pour les modèles nécessitant des identifiants directs."
+      "auth": {
+        "loading": "Chargement des paramètres d’authentification des modèles…",
+        "loadError": "Impossible de charger les paramètres d’authentification des modèles.",
+        "connected": "Connecté",
+        "notRemovable": "Non supprimable",
+        "searchProviders": "Rechercher des fournisseurs",
+        "noProviders": "Aucun fournisseur trouvé.",
+        "source": {
+          "stored": "Stocké",
+          "environment": "Environnement",
+          "runtime": "Exécution",
+          "modelConfig": "Configuration modèle"
         }
       },
+      "subscriptions": {
+        "title": "Abonnements",
+        "description": "Connectez les abonnements des fournisseurs pour l’accès aux modèles via navigateur.",
+        "add": "Ajouter un abonnement",
+        "disconnect": "Déconnecter",
+        "emptyTitle": "Aucun abonnement connecté.",
+        "emptyDescription": "Connectez un fournisseur d’abonnement pour débloquer ses modèles.",
+        "pickerTitle": "Ajouter un abonnement",
+        "pickerDescription": "Choisissez un fournisseur d’abonnement à connecter dans votre navigateur.",
+        "loginError": "Impossible de démarrer la connexion à l’abonnement.",
+        "logoutError": "Impossible de déconnecter l’abonnement.",
+        "disconnectConfirm": "Déconnecter {{provider}} ?"
+      },
+      "apiKeys": {
+        "title": "Clés API",
+        "description": "Gérez les clés API des fournisseurs pour les modèles nécessitant des identifiants directs.",
+        "add": "Ajouter une clé API",
+        "remove": "Supprimer",
+        "emptyTitle": "Aucune clé API configurée.",
+        "emptyDescription": "Ajoutez une clé API pour débloquer les modèles des fournisseurs à clé API.",
+        "pickerTitle": "Ajouter une clé API",
+        "pickerDescription": "Choisissez un fournisseur à clé API.",
+        "dialogTitle": "Saisir la clé API",
+        "dialogDescription": "Collez la clé API pour {{provider}}.",
+        "inputLabel": "Clé API",
+        "inputPlaceholder": "Coller la clé API",
+        "saveError": "Impossible d’enregistrer la clé API.",
+        "removeError": "Impossible de supprimer la clé API.",
+        "removeConfirm": "Supprimer la clé API stockée pour {{provider}} ?"
+      },
+      "modelDisplay": "{{provider}} · {{model}}",
       "defaults": {
         "sectionTitle": "Valeurs par défaut",
-        "title": "Modèle et réflexion par défaut",
-        "description": "Choisissez les valeurs par défaut utilisées par les nouvelles sessions avant personnalisation."
+        "loading": "Chargement des valeurs par défaut des modèles…",
+        "empty": "Ajoutez un abonnement ou une clé API pour choisir un modèle par défaut.",
+        "unavailable": "Le modèle par défaut enregistré n’est plus disponible. Choisissez un autre modèle.",
+        "defaultModel": "Modèle par défaut",
+        "defaultModelDescription": "Choisissez le modèle global de l’espace de travail utilisé par les nouvelles sessions.",
+        "defaultThinking": "Réflexion par défaut",
+        "defaultThinkingDescription": "Choisissez le niveau de réflexion global utilisé par les nouvelles sessions.",
+        "chooseModel": "Choisir un modèle",
+        "pickerTitle": "Choisir le modèle par défaut",
+        "pickerDescription": "Recherchez les modèles disponibles débloqués par l’authentification configurée.",
+        "useAsDefault": "Utiliser par défaut",
+        "saveError": "Impossible de mettre à jour les valeurs par défaut des modèles.",
+        "thinking": {
+          "off": "Désactivée",
+          "minimal": "Minimale",
+          "low": "Faible",
+          "medium": "Moyenne",
+          "high": "Élevée",
+          "xhigh": "Très élevée"
+        }
       },
       "available": {
         "sectionTitle": "Modèles disponibles",
-        "title": "Catalogue de modèles",
-        "description": "Parcourez les modèles installés et fournis par les fournisseurs disponibles pour les sessions Space Zero."
+        "loading": "Chargement des modèles disponibles…",
+        "empty": "Ajoutez un abonnement ou une clé API pour parcourir les modèles disponibles.",
+        "summary": "{{count}} modèles disponibles depuis {{providerCount}} fournisseurs",
+        "summaryDescription": "Seuls les modèles débloqués par l’authentification configurée sont affichés.",
+        "providerCount": "{{count}} modèles",
+        "browse": "Parcourir les modèles",
+        "browserTitle": "Parcourir les modèles",
+        "browserDescription": "Recherchez des modèles par fournisseur ou nom de modèle.",
+        "search": "Rechercher des modèles",
+        "noMatches": "Aucun modèle trouvé.",
+        "makeDefault": "Définir par défaut",
+        "defaultBadge": "Par défaut"
       }
     }
   }
