@@ -1,3 +1,4 @@
+import { registerProjectsIpc } from '../../features/projects/main/projects.ipc'
 import { registerSettingsIpc } from '../../features/settings/main/settings.ipc'
 import { registerAppIpc } from './app'
 import { registerDbIpc } from './db'
@@ -9,6 +10,7 @@ export function registerIpcHandlers(): void {
 
   registerAppIpc()
   registerDbIpc()
+  registerProjectsIpc()
   registerSettingsIpc()
 
   registered = true

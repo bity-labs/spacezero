@@ -55,6 +55,30 @@ beforeEach(async () => {
     db: {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
     },
+    projects: {
+      list: async () => [],
+      createEmpty: async ({ name }) => ({
+        id: 'project-test',
+        name,
+        path: `/tmp/${name}`,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      addFromFolder: async () => ({
+        id: 'folder-project-test',
+        name: 'Existing Folder',
+        path: '/tmp/existing-folder',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      update: async (request) => ({
+        id: request.id,
+        name: request.name,
+        path: request.path,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      })
+    },
     agent: {
       getModelAuthSettings: async () => ({
         subscriptions: {

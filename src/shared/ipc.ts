@@ -1,6 +1,11 @@
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
+import type {
+  CreateEmptyProjectRequest,
+  Project,
+  UpdateProjectRequest
+} from '../features/projects/shared/project.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 
 export const IPC_CHANNELS = {
@@ -10,6 +15,12 @@ export const IPC_CHANNELS = {
   },
   db: {
     health: 'db:health'
+  },
+  projects: {
+    list: 'projects:list',
+    createEmpty: 'projects:createEmpty',
+    addFromFolder: 'projects:addFromFolder',
+    update: 'projects:update'
   },
   agent: {
     getModelAuthSettings: 'agent:getModelAuthSettings',
@@ -48,6 +59,12 @@ export type SpaceZeroAPI = {
   }
   db: {
     health: () => Promise<DbHealth>
+  }
+  projects: {
+    list: () => Promise<Project[]>
+    createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
+    addFromFolder: () => Promise<Project | null>
+    update: (request: UpdateProjectRequest) => Promise<Project>
   }
   agent: {
     getModelAuthSettings: () => Promise<ModelAuthSettings>
