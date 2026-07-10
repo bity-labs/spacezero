@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { App } from './App'
 import { router } from './router'
@@ -129,6 +129,48 @@ describe('App', () => {
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(window.location.hash).toBe('#/')
+  })
+
+  it('shows only implemented Settings categories and defaults to General', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+
+    expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
+    expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
+    expect(screen.queryByText('Profile')).not.toBeInTheDocument()
+    expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
+    expect(screen.queryByText('Agents')).not.toBeInTheDocument()
+    expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('deep-links to the Models Settings section and returns to General when the section is missing', async () => {
+    await act(async () => {
+      await router.navigate({ to: '/settings' })
+    })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Models' }))
+
+    expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Models' })).toHaveAttribute('data-active')
+    expect(screen.getByText('Authentication')).toBeInTheDocument()
+    expect(screen.getByText('Subscriptions')).toBeInTheDocument()
+    expect(screen.getByText('API Keys')).toBeInTheDocument()
+    expect(screen.getByText('Defaults')).toBeInTheDocument()
+    expect(screen.getByText('Available Models')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings?section=models')
+
+    await act(async () => {
+      await router.navigate({ to: '/settings' })
+    })
+
+    expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
+    expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
   })
 
   it('opens the command palette, searches, and invokes a navigation command', async () => {

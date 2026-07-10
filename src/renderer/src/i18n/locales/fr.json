@@ -124,6 +124,30 @@
         "title": "Son de fin",
         "description": "Jouer un son quand un agent a terminé de répondre"
       }
+    },
+    "models": {
+      "comingSoon": "Bientôt disponible",
+      "authentication": {
+        "sectionTitle": "Authentification",
+        "subscriptions": {
+          "title": "Abonnements",
+          "description": "Connectez les abonnements des fournisseurs pour l’accès aux modèles via OAuth."
+        },
+        "apiKeys": {
+          "title": "Clés API",
+          "description": "Gérez les clés API des fournisseurs pour les modèles nécessitant des identifiants directs."
+        }
+      },
+      "defaults": {
+        "sectionTitle": "Valeurs par défaut",
+        "title": "Modèle et réflexion par défaut",
+        "description": "Choisissez les valeurs par défaut utilisées par les nouvelles sessions avant personnalisation."
+      },
+      "available": {
+        "sectionTitle": "Modèles disponibles",
+        "title": "Catalogue de modèles",
+        "description": "Parcourez les modèles installés et fournis par les fournisseurs disponibles pour les sessions Space Zero."
+      }
     }
   }
 }
