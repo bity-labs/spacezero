@@ -124,6 +124,30 @@
         "title": "Completion Sound",
         "description": "Play a sound when Agent finishes responding"
       }
+    },
+    "models": {
+      "comingSoon": "Coming soon",
+      "authentication": {
+        "sectionTitle": "Authentication",
+        "subscriptions": {
+          "title": "Subscriptions",
+          "description": "Connect provider subscriptions for OAuth-backed model access."
+        },
+        "apiKeys": {
+          "title": "API Keys",
+          "description": "Manage provider API keys for models that require direct credentials."
+        }
+      },
+      "defaults": {
+        "sectionTitle": "Defaults",
+        "title": "Default model and thinking",
+        "description": "Choose the workspace defaults new sessions use before they are customized."
+      },
+      "available": {
+        "sectionTitle": "Available Models",
+        "title": "Model catalog",
+        "description": "Browse installed and provider-backed models available to Space Zero sessions."
+      }
     }
   }
 }
