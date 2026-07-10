@@ -34,7 +34,7 @@ describe('App', () => {
     expect(within(topBar).getByRole('button', { name: 'Show right panel' })).toBeInTheDocument()
   })
 
-  it('toggles between dark and light mode from the titlebar', async () => {
+  it('does not render a theme toggle in the titlebar', async () => {
     render(<App />)
 
     const topBar = await screen.findByRole('banner')
@@ -42,20 +42,8 @@ describe('App', () => {
       within(topBar)
         .getAllByRole('button')
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual([
-      'Hide left panel',
-      'Switch to light mode',
-      'Open command palette',
-      'Hide right panel'
-    ])
-    expect(document.documentElement).toHaveClass('dark')
-    expect(document.documentElement).toHaveStyle({ colorScheme: 'dark' })
-
-    fireEvent.click(within(topBar).getByRole('button', { name: 'Switch to light mode' }))
-
-    expect(document.documentElement).not.toHaveClass('dark')
-    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
-    expect(within(topBar).getByRole('button', { name: 'Switch to dark mode' })).toBeInTheDocument()
+    ).toEqual(['Hide left panel', 'Open command palette', 'Hide right panel'])
+    expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
   it('supports keyboard resizing for side columns', async () => {
@@ -144,6 +132,10 @@ describe('App', () => {
     expect(screen.queryByText('Agents')).not.toBeInTheDocument()
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument()
+    expect(screen.queryByText('Space Zero Account')).not.toBeInTheDocument()
+    expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
+    expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
   })
 
@@ -240,8 +232,9 @@ describe('App', () => {
 
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Général' })).toBeInTheDocument()
-    expect(screen.getByText('Compte Space Zero')).toBeInTheDocument()
-    expect(screen.getByRole('switch', { name: 'Notifications système' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Langue' })).toHaveTextContent('Français')
+    expect(screen.getByRole('combobox', { name: 'Thème' })).toBeInTheDocument()
+    expect(screen.queryByText('Compte Space Zero')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
     expect(
@@ -251,28 +244,42 @@ describe('App', () => {
     expect(screen.getByText('Dépôts')).toBeInTheDocument()
   })
 
-  it('keeps the app-wide theme when navigating between routes', async () => {
+  it('updates the theme from Settings without requiring a restart', async () => {
     render(<App />)
 
-    const topBar = await screen.findByRole('banner')
-    fireEvent.click(within(topBar).getByRole('button', { name: 'Switch to light mode' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    const themeSelect = await screen.findByRole('combobox', { name: 'Theme' })
 
+    expect(themeSelect).toHaveTextContent('System')
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
 
-    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
-    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
-    expect(document.documentElement).not.toHaveClass('dark')
-    expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
+    fireEvent.click(themeSelect)
+    const darkOption = await screen.findByRole('option', { name: 'Dark' })
+    fireEvent.pointerDown(darkOption)
+    fireEvent.pointerUp(darkOption)
+    fireEvent.click(darkOption)
+
+    await waitFor(() => expect(document.documentElement).toHaveClass('dark'))
+    expect(themeSelect).toHaveTextContent('Dark')
+    expect(themeSelect).not.toHaveTextContent('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'dark' })
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
-    await screen.findByRole('main', { name: 'Main workspace' })
-    const workspaceTopBar = screen.getByRole('banner')
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(document.documentElement).toHaveClass('dark')
+  })
 
+  it('follows OS color scheme changes when Theme is System', async () => {
+    render(<App />)
+
+    await screen.findByRole('banner')
     expect(document.documentElement).not.toHaveClass('dark')
     expect(document.documentElement).toHaveStyle({ colorScheme: 'light' })
-    expect(
-      within(workspaceTopBar).getByRole('button', { name: 'Switch to dark mode' })
-    ).toBeInTheDocument()
+
+    act(() => window.setTestPrefersDark?.(true))
+
+    expect(document.documentElement).toHaveClass('dark')
+    expect(document.documentElement).toHaveStyle({ colorScheme: 'dark' })
   })
 })

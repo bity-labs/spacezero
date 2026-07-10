@@ -13,22 +13,34 @@ class TestResizeObserver implements ResizeObserver {
 globalThis.ResizeObserver = TestResizeObserver
 Element.prototype.scrollIntoView = vi.fn()
 
+let prefersDark = false
+const mediaListeners = new Set<() => void>()
+
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
+    get matches() {
+      return query === '(prefers-color-scheme: dark)' ? prefersDark : false
+    },
     media: query,
     onchange: null,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
+    addEventListener: (_event: 'change', listener: () => void) => mediaListeners.add(listener),
+    removeEventListener: (_event: 'change', listener: () => void) => mediaListeners.delete(listener),
+    addListener: (listener: () => void) => mediaListeners.add(listener),
+    removeListener: (listener: () => void) => mediaListeners.delete(listener),
     dispatchEvent: vi.fn()
   }))
 })
 
+window.setTestPrefersDark = (matches: boolean): void => {
+  prefersDark = matches
+  mediaListeners.forEach((listener) => listener())
+}
+
 beforeEach(async () => {
   window.scrollTo = vi.fn()
+  prefersDark = false
+  mediaListeners.clear()
   window.localStorage.clear()
   resetUiLayoutStore()
   window.location.hash = ''
@@ -48,6 +60,11 @@ beforeEach(async () => {
         preference,
         resolvedLanguage: preference === 'system' ? 'en' : preference,
         systemLanguage: 'en-US'
+      }),
+      getThemeSettings: async () => ({ preference: 'system', resolvedTheme: prefersDark ? 'dark' : 'light' }),
+      updateThemePreference: async (preference) => ({
+        preference,
+        resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
       })
     }
   }

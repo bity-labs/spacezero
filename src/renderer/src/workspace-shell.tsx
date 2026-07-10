@@ -5,11 +5,9 @@ import {
   FolderPlus,
   FunnelSimple,
   MagnifyingGlass,
-  Moon,
   PaperPlaneTilt,
   Sidebar,
-  SquaresFour,
-  Sun
+  SquaresFour
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
@@ -31,7 +29,6 @@ import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
-import { useColorMode } from './color-mode-provider'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
 import { cn } from './lib/utils'
 import { useUiLayoutStore } from './stores/ui-layout-store'
@@ -119,7 +116,6 @@ export function WorkspaceShell(): React.JSX.Element {
     width: rightPanelWidth,
     setWidth: setRightPanelWidth
   })
-  const { colorMode, setColorMode } = useColorMode()
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
@@ -187,21 +183,7 @@ export function WorkspaceShell(): React.JSX.Element {
             >
               <Sidebar className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground"
-              aria-label={
-                colorMode === 'dark'
-                  ? t('workspace.switchToLightMode')
-                  : t('workspace.switchToDarkMode')
-              }
-              onClick={() =>
-                setColorMode((currentMode) => (currentMode === 'dark' ? 'light' : 'dark'))
-              }
-            >
-              {colorMode === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
+
           </div>
         </div>
 

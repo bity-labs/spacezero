@@ -67,6 +67,14 @@
       "loading": "Loading language settings…",
       "saveError": "Could not update language preference."
     },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose how Space Zero picks the app appearance.",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark",
+      "saveError": "Could not update theme preference."
+    },
     "upgradeToPro": "Upgrade to Pro",
     "search": {
       "label": "Search Settings",

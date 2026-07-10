@@ -1,4 +1,5 @@
 import type { LanguagePreference, LanguageSettings } from './i18n'
+import type { ThemePreference, ThemeSettings } from './theme'
 
 export const IPC_CHANNELS = {
   app: {
@@ -10,7 +11,9 @@ export const IPC_CHANNELS = {
   },
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
-    updateLanguagePreference: 'settings:updateLanguagePreference'
+    updateLanguagePreference: 'settings:updateLanguagePreference',
+    getThemeSettings: 'settings:getThemeSettings',
+    updateThemePreference: 'settings:updateThemePreference'
   }
 } as const
 
@@ -37,5 +40,7 @@ export type SpaceZeroAPI = {
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
+    getThemeSettings: () => Promise<ThemeSettings>
+    updateThemePreference: (preference: ThemePreference) => Promise<ThemeSettings>
   }
 }
