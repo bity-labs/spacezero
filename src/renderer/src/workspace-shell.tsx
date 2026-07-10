@@ -17,23 +17,28 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { Project } from '../../features/projects/shared'
+import type { ProjectSession } from '../../features/sessions/shared'
 import {
   AddProjectDialog,
   EditProjectDialog,
   ProjectSidebarList,
   useProjects
 } from '../../features/projects/renderer'
+import { useProjectSessions } from '../../features/sessions/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import {
-  ChatInput,
-  SessionStatusIndicator,
-  type AiChatThinkingLevel
-} from './components/ai-chat'
+import { ChatInput, type AiChatThinkingLevel } from './components/ai-chat'
 import { AgentChat, type AgentChatMessage } from './components/agent-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator
+} from './components/ui/breadcrumb'
 import { Button } from './components/ui/button'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
@@ -51,58 +56,21 @@ const agentChatDebugModels = [
   { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
 ]
 
-const agentChatDebugMessages: AgentChatMessage[] = [
-  {
-    id: 'debug-user-1',
-    role: 'user',
-    parts: [{ type: 'text', text: 'Show me the current workspace context.' }]
-  },
-  {
-    id: 'debug-agent-thinking',
-    role: 'assistant',
-    status: 'streaming',
-    parts: [
-      {
-        type: 'thinking',
-        text: 'Reading workspace-shell.tsx and checking the AgentChat debug mount...',
-        state: 'streaming',
-        collapsed: false
-      }
-    ]
-  },
-  {
-    id: 'debug-agent-complete',
-    role: 'assistant',
-    status: 'complete',
-    parts: [
-      {
-        type: 'thinking',
-        text: 'Inspected the workspace shell and verified AgentChat is mounted in the main workspace for debugging.',
-        state: 'complete',
-        collapsed: true
-      },
-      {
-        type: 'text',
-        text: 'This is the AgentChat debug surface. Use this area to validate layout, scrolling, message styling, reasoning blocks, tool calls, and inline confirmations in the main workspace.'
-      },
-      {
-        type: 'tool-call',
-        callId: 'debug-tool',
-        toolName: 'workspace.getStatus',
-        state: 'running',
-        input: { includeSessions: true, includeProjects: true },
-        output: 'Collecting workspace status...'
-      },
-      {
-        type: 'tool-confirmation',
-        callId: 'debug-confirmation',
-        toolName: 'workspace.writeSettings',
-        summary: 'The agent wants to update workspace settings for this session.',
-        state: 'pending'
-      }
-    ]
-  }
-]
+function createSessionPlaceholderMessages(session: ProjectSession): AgentChatMessage[] {
+  return [
+    {
+      id: `${session.id}-placeholder`,
+      role: 'assistant',
+      status: 'complete',
+      parts: [
+        {
+          type: 'text',
+          text: `Project Session host placeholder for ${session.title}. Pi streaming will attach here in a later slice.`
+        }
+      ]
+    }
+  ]
+}
 
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
@@ -125,9 +93,11 @@ export function WorkspaceShell(): React.JSX.Element {
   })
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
-  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const {
     projects,
     activeProject,
@@ -138,6 +108,14 @@ export function WorkspaceShell(): React.JSX.Element {
     addProjectFromFolder,
     updateProject
   } = useProjects()
+  const {
+    sessions,
+    sessionsByProjectId,
+    status: sessionsStatus,
+    error: sessionsError,
+    createProjectSession
+  } = useProjectSessions()
+  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -161,6 +139,18 @@ export function WorkspaceShell(): React.JSX.Element {
 
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
+
+  async function handleNewSession(project: Project): Promise<void> {
+    selectProject(project)
+    const session = await createProjectSession({ projectId: project.id })
+    setActiveSessionId(session.id)
+  }
+
+  function handleSelectSession(session: ProjectSession): void {
+    const sessionProject = projects.find((project) => project.id === session.projectId)
+    if (sessionProject) selectProject(sessionProject)
+    setActiveSessionId(session.id)
+  }
 
   const gridTemplateColumns = [
     isLeftPanelOpen ? `${leftPanelWidth}px 4px` : '',
@@ -202,33 +192,32 @@ export function WorkspaceShell(): React.JSX.Element {
             >
               <Sidebar className="h-4 w-4" />
             </Button>
-
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="text-muted-foreground"
+              aria-label={t('app.openCommandPalette')}
+              onClick={() => commandPalette.open()}
+            >
+              <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
+            </Button>
           </div>
         </div>
 
-        <div className="titlebar-control flex items-center justify-center px-3">
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2 text-muted-foreground"
-            aria-label={t('app.openCommandPalette')}
-            onClick={() => commandPalette.open()}
-          >
-            <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
-            {t('app.name')}
-          </Button>
+        <div className="flex h-full w-full items-center justify-start px-3">
+          <WorkspaceBreadcrumb project={activeProject} session={activeSession} />
         </div>
 
         <div
           className={cn(
-            'titlebar-control flex items-center justify-end px-3',
+            'flex h-full w-full items-center justify-end px-3',
             isRightPanelOpen ? 'border-l border-sidebar-border bg-sidebar' : 'bg-background'
           )}
         >
           <Button
             variant="ghost"
             size="icon-sm"
-            className="text-muted-foreground"
+            className="titlebar-control text-muted-foreground"
             aria-label={
               isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')
             }
@@ -245,20 +234,23 @@ export function WorkspaceShell(): React.JSX.Element {
           <AppSidebar
             aria-label={t('workspace.leftPanel')}
             className="pt-4"
-            contentClassName="px-0"
+            contentClassName="px-0 overflow-hidden"
+            header={
+              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')}>
+                <SidebarNavItem icon={PaperPlaneTilt} label={t('workspace.sidebar.newAgent')} />
+                <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
+                <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
+                <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
+              </SidebarMenu>
+            }
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
-            <SidebarMenu className="px-2" aria-label={t('workspace.navigation')}>
-              <SidebarNavItem icon={PaperPlaneTilt} label={t('workspace.sidebar.newAgent')} />
-              <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
-              <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
-              <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
-            </SidebarMenu>
-
-            <SidebarGroup className="mt-8" aria-label={t('projects.sidebar.label')}>
+            <SidebarGroup className="mt-8 min-h-0 flex-1 overflow-hidden" aria-label={t('projects.sidebar.label')}>
               <SidebarSectionHeader
                 label={t('projects.sidebar.label')}
                 expandable
+                expanded={isProjectsExpanded}
+                onToggle={() => setProjectsExpanded((expanded) => !expanded)}
                 actions={[
                   { label: t('projects.sidebar.filter'), icon: FunnelSimple },
                   {
@@ -268,15 +260,28 @@ export function WorkspaceShell(): React.JSX.Element {
                   }
                 ]}
               />
-              <ProjectSidebarList
-                projects={projects}
-                activeProject={activeProject}
-                status={projectsStatus}
-                error={projectsError}
-                onAddProject={() => setAddProjectOpen(true)}
-                onSelectProject={selectProject}
-                onEditProject={setEditingProject}
-              />
+              {isProjectsExpanded ? (
+                <div className="min-h-0 flex-1 overflow-auto">
+                  <ProjectSidebarList
+                    projects={projects}
+                    activeProject={activeProject}
+                    status={projectsStatus}
+                    error={projectsError}
+                    onAddProject={() => setAddProjectOpen(true)}
+                    onSelectProject={(project) => {
+                      selectProject(project)
+                      if (activeSession?.projectId !== project.id) setActiveSessionId(null)
+                    }}
+                    onEditProject={setEditingProject}
+                    sessionsByProjectId={sessionsByProjectId}
+                    activeSessionId={activeSessionId}
+                    sessionsStatus={sessionsStatus}
+                    sessionsError={sessionsError}
+                    onNewSession={(project) => void handleNewSession(project)}
+                    onSelectSession={handleSelectSession}
+                  />
+                </div>
+              ) : null}
             </SidebarGroup>
 
             <AddProjectDialog
@@ -311,33 +316,36 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
           role="main"
         >
-          <div>
-            <h1 className="text-sm font-medium">
-              {activeProject ? activeProject.name : t('workspace.title')}
-            </h1>
-            {activeProject ? (
-              <p className="mt-1 text-xs text-muted-foreground">{activeProject.path}</p>
-            ) : null}
-          </div>
-          <AgentChat
-            messages={agentChatDebugMessages}
-            className="min-h-0 rounded-lg border bg-card"
-            composer={
-              <div className="space-y-4">
-                <div className="flex items-center gap-3 rounded-md border bg-background/60 p-3 text-sm text-muted-foreground">
-                  <span>Session controls</span>
-                  <SessionStatusIndicator status="idle" label="Idle session preview" />
-                  <SessionStatusIndicator status="running" label="Running session preview" />
-                </div>
+          {activeSession ? (
+            <AgentChat
+              key={activeSession.id}
+              messages={createSessionPlaceholderMessages(activeSession)}
+              className="min-h-0 rounded-lg border bg-card"
+              composer={
                 <ChatInput
                   models={agentChatDebugModels}
                   thinkingLevel={debugThinkingLevel}
                   onThinkingChange={setDebugThinkingLevel}
                   onSubmit={() => undefined}
                 />
+              }
+            />
+          ) : (
+            <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
+              <div>
+                <h2 className="text-sm font-medium">
+                  {activeProject
+                    ? t('sessions.workspace.emptyProjectTitle', { project: activeProject.name })
+                    : t('sessions.workspace.emptyTitle')}
+                </h2>
+                <p className="mt-2 max-w-sm text-xs text-muted-foreground">
+                  {activeProject
+                    ? t('sessions.workspace.emptyProjectDescription')
+                    : t('sessions.workspace.emptyDescription')}
+                </p>
               </div>
-            }
-          />
+            </div>
+          )}
         </section>
 
         {isRightPanelOpen ? (
@@ -359,6 +367,32 @@ export function WorkspaceShell(): React.JSX.Element {
         ) : null}
       </div>
     </div>
+  )
+}
+
+function WorkspaceBreadcrumb({
+  project,
+  session
+}: {
+  project: Project | null
+  session: ProjectSession | null
+}): React.JSX.Element {
+  return (
+    <Breadcrumb>
+      <BreadcrumbList className="justify-start text-xs">
+        <BreadcrumbItem>
+          <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
+        </BreadcrumbItem>
+        {session ? (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage>{session.title}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </>
+        ) : null}
+      </BreadcrumbList>
+    </Breadcrumb>
   )
 }
 

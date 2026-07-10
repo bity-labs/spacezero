@@ -16,6 +16,11 @@ const api: SpaceZeroAPI = {
     addFromFolder: () => ipcRenderer.invoke(IPC_CHANNELS.projects.addFromFolder),
     update: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.update, request)
   },
+  sessions: {
+    listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
+    createProjectSession: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request)
+  },
   agent: {
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),

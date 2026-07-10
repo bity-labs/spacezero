@@ -35,6 +35,30 @@
       "add": "Add repository"
     }
   },
+  "sessions": {
+    "new": "New Session",
+    "status": {
+      "idle": "Idle",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "list": {
+      "loading": "Loading sessions…",
+      "error": "Could not load sessions.",
+      "empty": "No sessions yet."
+    },
+    "workspace": {
+      "layoutLabel": "Session workspace layout",
+      "panelLabel": "Session panel",
+      "emptyTitle": "No session selected",
+      "emptyDescription": "Select a project session or create one under a project to start working.",
+      "emptyProjectTitle": "No session open for {{project}}",
+      "emptyProjectDescription": "Create a new project session from the sidebar or select an existing session.",
+      "placeholder": "Project Session host placeholder",
+      "missingSession": "Missing session"
+    }
+  },
   "projects": {
     "sidebar": {
       "label": "Projects",
@@ -46,7 +70,9 @@
       "loading": "Loading projects…",
       "error": "Could not load projects.",
       "empty": "No projects yet.",
-      "addFirst": "Add project"
+      "addFirst": "Add project",
+      "expand": "Expand {{name}} sessions",
+      "collapse": "Collapse {{name}} sessions"
     },
     "add": {
       "title": "Add Project",
