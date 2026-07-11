@@ -1,4 +1,16 @@
 import type { LanguagePreference, LanguageSettings } from './i18n'
+import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
+import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
+import type {
+  CreateEmptyProjectRequest,
+  Project,
+  UpdateProjectRequest
+} from '../features/projects/shared/project.model'
+import type {
+  CreateProjectSessionRequest,
+  ProjectSession
+} from '../features/sessions/shared/session.model'
+import type { ThemePreference, ThemeSettings } from './theme'
 
 export const IPC_CHANNELS = {
   app: {
@@ -8,9 +20,31 @@ export const IPC_CHANNELS = {
   db: {
     health: 'db:health'
   },
+  projects: {
+    list: 'projects:list',
+    createEmpty: 'projects:createEmpty',
+    addFromFolder: 'projects:addFromFolder',
+    update: 'projects:update'
+  },
+  sessions: {
+    listProjectSessions: 'sessions:listProjectSessions',
+    createProjectSession: 'sessions:createProjectSession'
+  },
+  agent: {
+    getModelAuthSettings: 'agent:getModelAuthSettings',
+    getAvailableModels: 'agent:getAvailableModels',
+    addApiKey: 'agent:addApiKey',
+    removeApiKey: 'agent:removeApiKey',
+    loginOAuth: 'agent:loginOAuth',
+    logoutOAuth: 'agent:logoutOAuth'
+  },
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
-    updateLanguagePreference: 'settings:updateLanguagePreference'
+    updateLanguagePreference: 'settings:updateLanguagePreference',
+    getThemeSettings: 'settings:getThemeSettings',
+    updateThemePreference: 'settings:updateThemePreference',
+    getModelDefaults: 'settings:getModelDefaults',
+    updateModelDefaults: 'settings:updateModelDefaults'
   }
 } as const
 
@@ -34,8 +68,30 @@ export type SpaceZeroAPI = {
   db: {
     health: () => Promise<DbHealth>
   }
+  projects: {
+    list: () => Promise<Project[]>
+    createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
+    addFromFolder: () => Promise<Project | null>
+    update: (request: UpdateProjectRequest) => Promise<Project>
+  }
+  sessions: {
+    listProjectSessions: () => Promise<ProjectSession[]>
+    createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+  }
+  agent: {
+    getModelAuthSettings: () => Promise<ModelAuthSettings>
+    getAvailableModels: () => Promise<AvailableModel[]>
+    addApiKey: (request: AddApiKeyRequest) => Promise<void>
+    removeApiKey: (request: ProviderRequest) => Promise<void>
+    loginOAuth: (request: ProviderRequest) => Promise<void>
+    logoutOAuth: (request: ProviderRequest) => Promise<void>
+  }
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
+    getThemeSettings: () => Promise<ThemeSettings>
+    updateThemePreference: (preference: ThemePreference) => Promise<ThemeSettings>
+    getModelDefaults: () => Promise<ModelDefaults>
+    updateModelDefaults: (request: UpdateModelDefaultsRequest) => Promise<ModelDefaults>
   }
 }

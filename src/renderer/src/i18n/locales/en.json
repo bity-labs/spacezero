@@ -3,6 +3,10 @@
     "name": "Space Zero",
     "openCommandPalette": "Open command palette"
   },
+  "common": {
+    "cancel": "Cancel",
+    "save": "Save"
+  },
   "workspace": {
     "title": "Workspace",
     "mainLabel": "Main workspace",
@@ -29,6 +33,78 @@
       "label": "Repositories",
       "filter": "Filter repositories",
       "add": "Add repository"
+    }
+  },
+  "sessions": {
+    "new": "New Session",
+    "status": {
+      "idle": "Idle",
+      "running": "Running",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "list": {
+      "loading": "Loading sessions…",
+      "error": "Could not load sessions.",
+      "empty": "No sessions yet."
+    },
+    "workspace": {
+      "layoutLabel": "Session workspace layout",
+      "panelLabel": "Session panel",
+      "emptyTitle": "No session selected",
+      "emptyDescription": "Select a project session or create one under a project to start working.",
+      "emptyProjectTitle": "No session open for {{project}}",
+      "emptyProjectDescription": "Create a new project session from the sidebar or select an existing session.",
+      "placeholder": "Project Session host placeholder",
+      "missingSession": "Missing session"
+    }
+  },
+  "projects": {
+    "sidebar": {
+      "label": "Projects",
+      "filter": "Filter projects",
+      "add": "Add project"
+    },
+    "list": {
+      "label": "Project list",
+      "loading": "Loading projects…",
+      "error": "Could not load projects.",
+      "empty": "No projects yet.",
+      "addFirst": "Add project",
+      "expand": "Expand {{name}} sessions",
+      "collapse": "Collapse {{name}} sessions"
+    },
+    "add": {
+      "title": "Add Project",
+      "description": "Register an existing folder or create a new project workspace.",
+      "saveError": "Could not create project.",
+      "folderError": "Could not add folder.",
+      "empty": {
+        "title": "Empty Project",
+        "description": "Create a blank local project folder.",
+        "nameLabel": "Project name",
+        "namePlaceholder": "My new project",
+        "create": "Create project"
+      },
+      "folder": {
+        "title": "Open Folder",
+        "description": "Register an existing local folder.",
+        "help": "Choose a local folder through Space Zero's secure desktop picker.",
+        "choose": "Choose folder"
+      },
+      "git": {
+        "title": "Git Repository URL",
+        "description": "Clone or link a remote repository URL.",
+        "comingSoon": "Coming soon"
+      }
+    },
+    "edit": {
+      "title": "Edit Project",
+      "description": "Update the stored project name and local path.",
+      "action": "Edit {{name}}",
+      "nameLabel": "Project name",
+      "pathLabel": "Project path",
+      "saveError": "Could not update project."
     }
   },
   "appCommands": {
@@ -66,6 +142,14 @@
       "french": "French",
       "loading": "Loading language settings…",
       "saveError": "Could not update language preference."
+    },
+    "theme": {
+      "label": "Theme",
+      "description": "Choose how Space Zero picks the app appearance.",
+      "system": "System",
+      "light": "Light",
+      "dark": "Dark",
+      "saveError": "Could not update theme preference."
     },
     "upgradeToPro": "Upgrade to Pro",
     "search": {
@@ -123,6 +207,92 @@
       "completionSound": {
         "title": "Completion Sound",
         "description": "Play a sound when Agent finishes responding"
+      }
+    },
+    "models": {
+      "comingSoon": "Coming soon",
+      "auth": {
+        "loading": "Loading model authentication settings…",
+        "loadError": "Could not load model authentication settings.",
+        "connected": "Connected",
+        "notRemovable": "Not removable",
+        "searchProviders": "Search providers",
+        "noProviders": "No providers found.",
+        "source": {
+          "stored": "Stored",
+          "environment": "Environment",
+          "runtime": "Runtime",
+          "modelConfig": "Model config"
+        }
+      },
+      "subscriptions": {
+        "title": "Subscriptions",
+        "description": "Browser-based subscription auth will be enabled when the Pi auth broker lands.",
+        "add": "Add subscription",
+        "disconnect": "Disconnect",
+        "emptyTitle": "No subscriptions connected.",
+        "emptyDescription": "Subscription setup is coming soon and is disabled for now.",
+        "pickerTitle": "Add subscription",
+        "pickerDescription": "Choose a subscription provider to connect in your browser.",
+        "loginError": "Could not start subscription login.",
+        "logoutError": "Could not disconnect subscription.",
+        "disconnectConfirm": "Disconnect {{provider}}?"
+      },
+      "apiKeys": {
+        "title": "API Keys",
+        "description": "API-key auth will be enabled when the Pi auth broker lands.",
+        "add": "Add API key",
+        "remove": "Remove",
+        "emptyTitle": "No API keys configured.",
+        "emptyDescription": "API-key setup is coming soon and is disabled for now.",
+        "pickerTitle": "Add API key",
+        "pickerDescription": "Choose an API-key provider.",
+        "dialogTitle": "Enter API key",
+        "dialogDescription": "Paste the API key for {{provider}}.",
+        "inputLabel": "API key",
+        "inputPlaceholder": "Paste API key",
+        "saveError": "Could not save API key.",
+        "removeError": "Could not remove API key.",
+        "removeConfirm": "Remove the temporary API key for {{provider}}?"
+      },
+      "modelDisplay": "{{provider}} · {{model}}",
+      "defaults": {
+        "sectionTitle": "Defaults",
+        "loading": "Loading model defaults…",
+        "empty": "Configure credentials through environment variables to choose a default model. In-app auth setup is coming soon.",
+        "unavailable": "The saved default model is no longer available. Choose another model.",
+        "defaultModel": "Default model",
+        "defaultModelDescription": "Choose the workspace-global model new sessions start with.",
+        "defaultThinking": "Default thinking",
+        "defaultThinkingDescription": "Choose the workspace-global thinking level new sessions start with.",
+        "chooseModel": "Choose model",
+        "pickerTitle": "Choose default model",
+        "pickerDescription": "Search available models unlocked by configured authentication.",
+        "useAsDefault": "Use as default",
+        "saveError": "Could not update model defaults.",
+        "thinking": {
+          "off": "Off",
+          "minimal": "Minimal",
+          "low": "Low",
+          "medium": "Medium",
+          "high": "High",
+          "xhigh": "X-High"
+        }
+      },
+      "available": {
+        "sectionTitle": "Available Models",
+        "loading": "Loading available models…",
+        "empty": "Configure credentials through environment variables to browse available models. In-app auth setup is coming soon.",
+        "summary": "{{count}} models available from {{providerCount}} providers",
+        "summaryDescription": "Only models unlocked by configured authentication are shown.",
+        "providerCount": "{{count}} models",
+        "browse": "Browse models",
+        "browserTitle": "Browse models",
+        "browserDescription": "Search models by provider or model name.",
+        "search": "Search models",
+        "noMatches": "No models found.",
+        "makeDefault": "Make default",
+        "defaultBadge": "Default"
       }
     }
   }

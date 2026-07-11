@@ -34,14 +34,14 @@ function AppSidebar({
   return (
     <aside
       className={cn(
-        'flex min-w-0 flex-col bg-sidebar text-sidebar-foreground',
+        'flex min-h-0 min-w-0 overflow-hidden flex-col bg-sidebar text-sidebar-foreground',
         side === 'left' ? 'border-r border-sidebar-border' : 'border-l border-sidebar-border',
         className
       )}
       {...props}
     >
-      <SidebarProvider className="min-h-0 w-full flex-1" open={isOpen} onOpenChange={setOpen}>
-        <Sidebar collapsible="none" side={side} className="w-full flex-1">
+      <SidebarProvider className="min-h-0 w-full flex-1 overflow-hidden" open={isOpen} onOpenChange={setOpen}>
+        <Sidebar collapsible="none" side={side} className="min-h-0 w-full flex-1 overflow-hidden">
           {header ? <SidebarHeader>{header}</SidebarHeader> : null}
           <SidebarContent className={cn('px-2 pb-3', contentClassName)}>{children}</SidebarContent>
           {footer ? (
