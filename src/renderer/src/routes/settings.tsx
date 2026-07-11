@@ -535,6 +535,8 @@ function ModelsSettingsSection(): React.JSX.Element {
           isLoading={isLoading}
           providers={connectedSubscriptions}
           pendingProviderId={pendingProviderId}
+          addDisabled
+          disabledReason={t('settings.models.comingSoon')}
           onAdd={() => setSubscriptionPickerOpen(true)}
           onRemove={handleDisconnectSubscription}
           removeLabel={t('settings.models.subscriptions.disconnect')}
@@ -550,6 +552,8 @@ function ModelsSettingsSection(): React.JSX.Element {
           isLoading={isLoading}
           providers={configuredApiKeys}
           pendingProviderId={pendingProviderId}
+          addDisabled
+          disabledReason={t('settings.models.comingSoon')}
           onAdd={() => setApiKeyPickerOpen(true)}
           onRemove={handleRemoveApiKey}
           removeLabel={t('settings.models.apiKeys.remove')}
@@ -991,6 +995,8 @@ type ModelAuthCardProps = {
   providers: AuthProviderStatus[]
   pendingProviderId: string | null
   removeLabel: string
+  addDisabled?: boolean
+  disabledReason?: string
   onAdd: () => void
   onRemove: (provider: AuthProviderStatus) => Promise<void>
 }
@@ -1006,6 +1012,8 @@ function ModelAuthCard({
   providers,
   pendingProviderId,
   removeLabel,
+  addDisabled = false,
+  disabledReason,
   onAdd,
   onRemove
 }: ModelAuthCardProps): React.JSX.Element {
@@ -1018,10 +1026,13 @@ function ModelAuthCard({
           <h3 className="text-sm text-muted-foreground">{title}</h3>
           <p className="mt-1 text-xs text-muted-foreground">{description}</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={onAdd}>
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          {addLabel}
-        </Button>
+        <div className="flex items-center gap-2">
+          {disabledReason ? <Badge variant="secondary">{disabledReason}</Badge> : null}
+          <Button variant="outline" size="sm" className="gap-2" disabled={addDisabled} onClick={onAdd}>
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            {addLabel}
+          </Button>
+        </div>
       </div>
       <Card className="gap-0 py-0">
         {isLoading ? (

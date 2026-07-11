@@ -127,22 +127,10 @@ const subscriptionProviders: readonly AuthProviderOption[] = [
   }
 ]
 
-const storedApiKeyProviderIds = new Set<string>()
-const connectedSubscriptionProviderIds = new Set<string>()
-
 export async function getModelAuthSettings(): Promise<ModelAuthSettings> {
   return {
     subscriptions: {
-      connected: subscriptionProviders
-        .filter((provider) => connectedSubscriptionProviderIds.has(provider.providerId))
-        .map((provider) => ({
-          providerId: provider.providerId,
-          label: provider.label,
-          configured: true,
-          source: 'runtime',
-          displayLabel: 'Temporary runtime connection',
-          removable: true
-        })),
+      connected: [],
       availableProviders: [...subscriptionProviders]
     },
     apiKeys: {
@@ -159,12 +147,6 @@ export async function getAvailableModels(): Promise<AvailableModel[]> {
     configuredProviders.set(provider.providerId, provider.label)
   }
 
-  for (const provider of subscriptionProviders) {
-    if (connectedSubscriptionProviderIds.has(provider.providerId)) {
-      configuredProviders.set(provider.providerId, provider.label)
-    }
-  }
-
   return [...configuredProviders.entries()].flatMap(([providerId, providerLabel]) =>
     (availableModelCatalog[providerId] ?? []).map((model) => ({ ...model, providerLabel }))
   )
@@ -174,32 +156,29 @@ export async function addApiKey(providerId: string, apiKey: string): Promise<voi
   assertKnownApiKeyProvider(providerId)
   if (!apiKey.trim()) throw new Error('agent.emptyApiKey')
 
-  storedApiKeyProviderIds.add(providerId)
+  throw new Error('agent.apiKeyAuthNotImplemented')
 }
 
 export async function removeApiKey(providerId: string): Promise<void> {
   assertKnownApiKeyProvider(providerId)
-  storedApiKeyProviderIds.delete(providerId)
+  throw new Error('agent.apiKeyAuthNotImplemented')
 }
 
 export async function loginOAuth(providerId: string): Promise<void> {
   assertKnownSubscriptionProvider(providerId)
-  connectedSubscriptionProviderIds.add(providerId)
+  throw new Error('agent.oauthNotImplemented')
 }
 
 export async function logoutOAuth(providerId: string): Promise<void> {
   assertKnownSubscriptionProvider(providerId)
-  connectedSubscriptionProviderIds.delete(providerId)
+  throw new Error('agent.oauthNotImplemented')
 }
 
 function getConfiguredApiKeyProviders(): AuthProviderStatus[] {
   const configuredProviders: AuthProviderStatus[] = []
 
   for (const provider of apiKeyProviders) {
-    const envConfigured = Boolean(process.env[provider.envKey])
-    const storedConfigured = storedApiKeyProviderIds.has(provider.providerId)
-
-    if (envConfigured) {
+    if (process.env[provider.envKey]) {
       configuredProviders.push({
         providerId: provider.providerId,
         label: provider.label,
@@ -207,18 +186,6 @@ function getConfiguredApiKeyProviders(): AuthProviderStatus[] {
         source: 'environment',
         displayLabel: `Configured from ${provider.envKey}`,
         removable: false
-      })
-      continue
-    }
-
-    if (storedConfigured) {
-      configuredProviders.push({
-        providerId: provider.providerId,
-        label: provider.label,
-        configured: true,
-        source: 'runtime',
-        displayLabel: 'Temporary runtime API key',
-        removable: true
       })
     }
   }
