@@ -398,106 +398,19 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
   })
 
-  it('adds an API key through the Models Settings flow without rendering the raw key after save', async () => {
-    const configuredApiKeys: Array<{
-      providerId: string
-      label: string
-      configured: true
-      source: 'runtime'
-      displayLabel: string
-      removable: true
-    }> = []
-
-    window.spacezero.agent.getModelAuthSettings = async () => ({
-      subscriptions: { connected: [], availableProviders: [] },
-      apiKeys: {
-        configured: configuredApiKeys,
-        availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
-      }
-    })
-    window.spacezero.agent.addApiKey = async ({ providerId, apiKey }) => {
-      expect(providerId).toBe('anthropic')
-      expect(apiKey).toBe('sk-test-secret')
-      configuredApiKeys.push({
-        providerId,
-        label: 'Anthropic',
-        configured: true,
-        source: 'runtime',
-        displayLabel: 'Temporary runtime API key',
-        removable: true
-      })
-    }
-
+  it('keeps model auth actions disabled until the real auth broker is implemented', async () => {
     await act(async () => {
       await router.navigate({ to: '/settings', search: { section: 'models' } })
     })
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Add API key' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Anthropic' }))
-
-    const saveButton = await screen.findByRole('button', { name: 'Save' })
-    expect(saveButton).toBeDisabled()
-
-    fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'sk-test-secret' } })
-    fireEvent.click(saveButton)
-
-    expect(await screen.findByText('Temporary runtime API key')).toBeInTheDocument()
-    expect(screen.getByText('Anthropic')).toBeInTheDocument()
-    expect(screen.queryByDisplayValue('sk-test-secret')).not.toBeInTheDocument()
-    expect(screen.queryByText('sk-test-secret')).not.toBeInTheDocument()
-  })
-
-  it('connects and disconnects a subscription provider through Models Settings', async () => {
-    const connectedSubscriptions: Array<{
-      providerId: string
-      label: string
-      configured: true
-      source: 'runtime'
-      removable: true
-    }> = []
-    const originalConfirm = window.confirm
-    window.confirm = () => true
-
-    window.spacezero.agent.getModelAuthSettings = async () => ({
-      subscriptions: {
-        connected: connectedSubscriptions,
-        availableProviders: [{ providerId: 'chatgpt', label: 'ChatGPT Plus/Pro' }]
-      },
-      apiKeys: { configured: [], availableProviders: [] }
-    })
-    window.spacezero.agent.loginOAuth = async ({ providerId }) => {
-      connectedSubscriptions.push({
-        providerId,
-        label: 'ChatGPT Plus/Pro',
-        configured: true,
-        source: 'runtime',
-        removable: true
-      })
-    }
-    window.spacezero.agent.logoutOAuth = async ({ providerId }) => {
-      const index = connectedSubscriptions.findIndex(
-        (provider) => provider.providerId === providerId
-      )
-      if (index >= 0) connectedSubscriptions.splice(index, 1)
-    }
-
-    try {
-      await act(async () => {
-        await router.navigate({ to: '/settings', search: { section: 'models' } })
-      })
-      render(<App />)
-
-      fireEvent.click(await screen.findByRole('button', { name: 'Add subscription' }))
-      fireEvent.click(await screen.findByRole('button', { name: 'ChatGPT Plus/Pro' }))
-
-      expect(await screen.findByText('Connected')).toBeInTheDocument()
-      fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
-
-      expect(await screen.findByText('No subscriptions connected.')).toBeInTheDocument()
-    } finally {
-      window.confirm = originalConfirm
-    }
+    expect(await screen.findByRole('button', { name: 'Add subscription' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Add API key' })).toBeDisabled()
+    expect(screen.getAllByText('Coming soon')).toHaveLength(2)
+    expect(screen.getByText('No subscriptions connected.')).toBeInTheDocument()
+    expect(screen.getByText('No API keys configured.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Add subscription' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Add API key' })).not.toBeInTheDocument()
   })
 
   it('shows disabled defaults and available-model states until authentication unlocks models', async () => {
@@ -507,10 +420,14 @@ describe('App', () => {
     render(<App />)
 
     expect(
-      await screen.findByText('Add a subscription or API key to choose a default model.')
+      await screen.findByText(
+        'Configure credentials through environment variables to choose a default model. In-app auth setup is coming soon.'
+      )
     ).toBeInTheDocument()
     expect(
-      screen.getByText('Add a subscription or API key to browse available models.')
+      screen.getByText(
+        'Configure credentials through environment variables to browse available models. In-app auth setup is coming soon.'
+      )
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()
   })
