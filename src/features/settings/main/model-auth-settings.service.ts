@@ -139,7 +139,8 @@ export async function getModelAuthSettings(): Promise<ModelAuthSettings> {
           providerId: provider.providerId,
           label: provider.label,
           configured: true,
-          source: 'stored',
+          source: 'runtime',
+          displayLabel: 'Temporary runtime connection',
           removable: true
         })),
       availableProviders: [...subscriptionProviders]
@@ -215,8 +216,8 @@ function getConfiguredApiKeyProviders(): AuthProviderStatus[] {
         providerId: provider.providerId,
         label: provider.label,
         configured: true,
-        source: 'stored',
-        displayLabel: 'Stored API key',
+        source: 'runtime',
+        displayLabel: 'Temporary runtime API key',
         removable: true
       })
     }

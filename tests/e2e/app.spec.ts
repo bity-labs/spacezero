@@ -13,7 +13,7 @@ test('launches the Electron app shell with sandboxed preload IPC available', asy
 
   const window = await electronApp.firstWindow()
 
-  await expect(window.getByRole('heading', { name: 'Workspace' })).toBeVisible()
+  await expect(window.getByRole('main', { name: 'Main workspace' })).toBeVisible()
 
   const sandbox = await electronApp.evaluate(({ BrowserWindow }) => {
     const [mainWindow] = BrowserWindow.getAllWindows()

@@ -253,7 +253,7 @@
         "inputPlaceholder": "Coller la clé API",
         "saveError": "Impossible d’enregistrer la clé API.",
         "removeError": "Impossible de supprimer la clé API.",
-        "removeConfirm": "Supprimer la clé API stockée pour {{provider}} ?"
+        "removeConfirm": "Supprimer la clé API temporaire pour {{provider}} ?"
       },
       "modelDisplay": "{{provider}} · {{model}}",
       "defaults": {
