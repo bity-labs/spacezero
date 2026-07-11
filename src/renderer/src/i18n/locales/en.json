@@ -253,7 +253,7 @@
         "inputPlaceholder": "Paste API key",
         "saveError": "Could not save API key.",
         "removeError": "Could not remove API key.",
-        "removeConfirm": "Remove the stored API key for {{provider}}?"
+        "removeConfirm": "Remove the temporary API key for {{provider}}?"
       },
       "modelDisplay": "{{provider}} · {{model}}",
       "defaults": {

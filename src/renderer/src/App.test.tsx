@@ -403,7 +403,7 @@ describe('App', () => {
       providerId: string
       label: string
       configured: true
-      source: 'stored'
+      source: 'runtime'
       displayLabel: string
       removable: true
     }> = []
@@ -422,8 +422,8 @@ describe('App', () => {
         providerId,
         label: 'Anthropic',
         configured: true,
-        source: 'stored',
-        displayLabel: 'Stored API key',
+        source: 'runtime',
+        displayLabel: 'Temporary runtime API key',
         removable: true
       })
     }
@@ -442,7 +442,7 @@ describe('App', () => {
     fireEvent.change(screen.getByLabelText('API key'), { target: { value: 'sk-test-secret' } })
     fireEvent.click(saveButton)
 
-    expect(await screen.findByText('Stored API key')).toBeInTheDocument()
+    expect(await screen.findByText('Temporary runtime API key')).toBeInTheDocument()
     expect(screen.getByText('Anthropic')).toBeInTheDocument()
     expect(screen.queryByDisplayValue('sk-test-secret')).not.toBeInTheDocument()
     expect(screen.queryByText('sk-test-secret')).not.toBeInTheDocument()
@@ -453,7 +453,7 @@ describe('App', () => {
       providerId: string
       label: string
       configured: true
-      source: 'stored'
+      source: 'runtime'
       removable: true
     }> = []
     const originalConfirm = window.confirm
@@ -471,7 +471,7 @@ describe('App', () => {
         providerId,
         label: 'ChatGPT Plus/Pro',
         configured: true,
-        source: 'stored',
+        source: 'runtime',
         removable: true
       })
     }

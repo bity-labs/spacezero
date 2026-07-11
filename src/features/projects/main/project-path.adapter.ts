@@ -1,6 +1,6 @@
 import { app, dialog } from 'electron'
-import { existsSync, mkdirSync } from 'node:fs'
-import { basename, join, resolve } from 'node:path'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 
 import type { ProjectPathAdapter } from './projects.service'
 
@@ -40,11 +40,21 @@ export function createProjectPathAdapter(): ProjectPathAdapter {
     },
 
     normalizeProjectPath(path) {
-      const normalized = resolve(path.trim())
-      if (!normalized) throw new Error('Project path is required')
-      return normalized
+      return normalizeExistingProjectPath(path)
     }
   }
+}
+
+export function normalizeExistingProjectPath(path: string): string {
+  const trimmedPath = path.trim()
+  if (!trimmedPath) throw new Error('Project path is required')
+  if (!isAbsolute(trimmedPath)) throw new Error('Project path must be absolute')
+
+  const normalized = resolve(trimmedPath)
+  if (!existsSync(normalized)) throw new Error('Project path does not exist')
+  if (!statSync(normalized).isDirectory()) throw new Error('Project path must be a directory')
+
+  return normalized
 }
 
 function slugify(value: string): string {
