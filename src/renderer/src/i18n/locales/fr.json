@@ -3,6 +3,10 @@
     "name": "Space Zero",
     "openCommandPalette": "Ouvrir la palette de commandes"
   },
+  "common": {
+    "cancel": "Annuler",
+    "save": "Enregistrer"
+  },
   "workspace": {
     "title": "Espace de travail",
     "mainLabel": "Espace de travail principal",
@@ -29,6 +33,78 @@
       "label": "Dépôts",
       "filter": "Filtrer les dépôts",
       "add": "Ajouter un dépôt"
+    }
+  },
+  "sessions": {
+    "new": "Nouvelle session",
+    "status": {
+      "idle": "Inactive",
+      "running": "En cours",
+      "completed": "Terminée",
+      "failed": "Échouée"
+    },
+    "list": {
+      "loading": "Chargement des sessions…",
+      "error": "Impossible de charger les sessions.",
+      "empty": "Aucune session pour le moment."
+    },
+    "workspace": {
+      "layoutLabel": "Disposition de l’espace des sessions",
+      "panelLabel": "Panneau de session",
+      "emptyTitle": "Aucune session sélectionnée",
+      "emptyDescription": "Sélectionnez une session de projet ou créez-en une sous un projet pour commencer.",
+      "emptyProjectTitle": "Aucune session ouverte pour {{project}}",
+      "emptyProjectDescription": "Créez une nouvelle session de projet depuis la barre latérale ou sélectionnez une session existante.",
+      "placeholder": "Emplacement réservé pour l’hôte de session de projet",
+      "missingSession": "Session manquante"
+    }
+  },
+  "projects": {
+    "sidebar": {
+      "label": "Projets",
+      "filter": "Filtrer les projets",
+      "add": "Ajouter un projet"
+    },
+    "list": {
+      "label": "Liste des projets",
+      "loading": "Chargement des projets…",
+      "error": "Impossible de charger les projets.",
+      "empty": "Aucun projet pour le moment.",
+      "addFirst": "Ajouter un projet",
+      "expand": "Afficher les sessions de {{name}}",
+      "collapse": "Masquer les sessions de {{name}}"
+    },
+    "add": {
+      "title": "Ajouter un projet",
+      "description": "Enregistrez un dossier existant ou créez un nouvel espace de projet.",
+      "saveError": "Impossible de créer le projet.",
+      "folderError": "Impossible d'ajouter le dossier.",
+      "empty": {
+        "title": "Projet vide",
+        "description": "Créer un dossier local vide pour le projet.",
+        "nameLabel": "Nom du projet",
+        "namePlaceholder": "Mon nouveau projet",
+        "create": "Créer le projet"
+      },
+      "folder": {
+        "title": "Ouvrir un dossier",
+        "description": "Enregistrer un dossier local existant.",
+        "help": "Choisissez un dossier local via le sélecteur sécurisé de Space Zero.",
+        "choose": "Choisir un dossier"
+      },
+      "git": {
+        "title": "URL du dépôt Git",
+        "description": "Cloner ou lier l'URL d'un dépôt distant.",
+        "comingSoon": "Bientôt disponible"
+      }
+    },
+    "edit": {
+      "title": "Modifier le projet",
+      "description": "Mettre à jour le nom du projet et le chemin local enregistrés.",
+      "action": "Modifier {{name}}",
+      "nameLabel": "Nom du projet",
+      "pathLabel": "Chemin du projet",
+      "saveError": "Impossible de mettre à jour le projet."
     }
   },
   "appCommands": {
@@ -66,6 +142,14 @@
       "french": "Français",
       "loading": "Chargement des paramètres de langue…",
       "saveError": "Impossible de mettre à jour la préférence de langue."
+    },
+    "theme": {
+      "label": "Thème",
+      "description": "Choisissez comment Space Zero sélectionne l’apparence de l’application.",
+      "system": "Système",
+      "light": "Clair",
+      "dark": "Sombre",
+      "saveError": "Impossible de mettre à jour la préférence de thème."
     },
     "upgradeToPro": "Passer à Pro",
     "search": {
@@ -123,6 +207,92 @@
       "completionSound": {
         "title": "Son de fin",
         "description": "Jouer un son quand un agent a terminé de répondre"
+      }
+    },
+    "models": {
+      "comingSoon": "Bientôt disponible",
+      "auth": {
+        "loading": "Chargement des paramètres d’authentification des modèles…",
+        "loadError": "Impossible de charger les paramètres d’authentification des modèles.",
+        "connected": "Connecté",
+        "notRemovable": "Non supprimable",
+        "searchProviders": "Rechercher des fournisseurs",
+        "noProviders": "Aucun fournisseur trouvé.",
+        "source": {
+          "stored": "Stocké",
+          "environment": "Environnement",
+          "runtime": "Exécution",
+          "modelConfig": "Configuration modèle"
+        }
+      },
+      "subscriptions": {
+        "title": "Abonnements",
+        "description": "L’authentification par abonnement sera activée quand le broker d’authentification Pi sera prêt.",
+        "add": "Ajouter un abonnement",
+        "disconnect": "Déconnecter",
+        "emptyTitle": "Aucun abonnement connecté.",
+        "emptyDescription": "La configuration des abonnements arrive bientôt et est désactivée pour le moment.",
+        "pickerTitle": "Ajouter un abonnement",
+        "pickerDescription": "Choisissez un fournisseur d’abonnement à connecter dans votre navigateur.",
+        "loginError": "Impossible de démarrer la connexion à l’abonnement.",
+        "logoutError": "Impossible de déconnecter l’abonnement.",
+        "disconnectConfirm": "Déconnecter {{provider}} ?"
+      },
+      "apiKeys": {
+        "title": "Clés API",
+        "description": "L’authentification par clé API sera activée quand le broker d’authentification Pi sera prêt.",
+        "add": "Ajouter une clé API",
+        "remove": "Supprimer",
+        "emptyTitle": "Aucune clé API configurée.",
+        "emptyDescription": "La configuration des clés API arrive bientôt et est désactivée pour le moment.",
+        "pickerTitle": "Ajouter une clé API",
+        "pickerDescription": "Choisissez un fournisseur à clé API.",
+        "dialogTitle": "Saisir la clé API",
+        "dialogDescription": "Collez la clé API pour {{provider}}.",
+        "inputLabel": "Clé API",
+        "inputPlaceholder": "Coller la clé API",
+        "saveError": "Impossible d’enregistrer la clé API.",
+        "removeError": "Impossible de supprimer la clé API.",
+        "removeConfirm": "Supprimer la clé API temporaire pour {{provider}} ?"
+      },
+      "modelDisplay": "{{provider}} · {{model}}",
+      "defaults": {
+        "sectionTitle": "Valeurs par défaut",
+        "loading": "Chargement des valeurs par défaut des modèles…",
+        "empty": "Configurez les identifiants via les variables d’environnement pour choisir un modèle par défaut. La configuration dans l’app arrive bientôt.",
+        "unavailable": "Le modèle par défaut enregistré n’est plus disponible. Choisissez un autre modèle.",
+        "defaultModel": "Modèle par défaut",
+        "defaultModelDescription": "Choisissez le modèle global de l’espace de travail utilisé par les nouvelles sessions.",
+        "defaultThinking": "Réflexion par défaut",
+        "defaultThinkingDescription": "Choisissez le niveau de réflexion global utilisé par les nouvelles sessions.",
+        "chooseModel": "Choisir un modèle",
+        "pickerTitle": "Choisir le modèle par défaut",
+        "pickerDescription": "Recherchez les modèles disponibles débloqués par l’authentification configurée.",
+        "useAsDefault": "Utiliser par défaut",
+        "saveError": "Impossible de mettre à jour les valeurs par défaut des modèles.",
+        "thinking": {
+          "off": "Désactivée",
+          "minimal": "Minimale",
+          "low": "Faible",
+          "medium": "Moyenne",
+          "high": "Élevée",
+          "xhigh": "Très élevée"
+        }
+      },
+      "available": {
+        "sectionTitle": "Modèles disponibles",
+        "loading": "Chargement des modèles disponibles…",
+        "empty": "Configurez les identifiants via les variables d’environnement pour parcourir les modèles disponibles. La configuration dans l’app arrive bientôt.",
+        "summary": "{{count}} modèles disponibles depuis {{providerCount}} fournisseurs",
+        "summaryDescription": "Seuls les modèles débloqués par l’authentification configurée sont affichés.",
+        "providerCount": "{{count}} modèles",
+        "browse": "Parcourir les modèles",
+        "browserTitle": "Parcourir les modèles",
+        "browserDescription": "Recherchez des modèles par fournisseur ou nom de modèle.",
+        "search": "Rechercher des modèles",
+        "noMatches": "Aucun modèle trouvé.",
+        "makeDefault": "Définir par défaut",
+        "defaultBadge": "Par défaut"
       }
     }
   }
