@@ -22,6 +22,7 @@ const api: SpaceZeroAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request)
   },
   agent: {
+    ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),

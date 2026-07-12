@@ -1,3 +1,4 @@
+import type { AgentPingResponse } from './agent-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
@@ -31,6 +32,7 @@ export const IPC_CHANNELS = {
     createProjectSession: 'sessions:createProjectSession'
   },
   agent: {
+    ping: 'agent:ping',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAvailableModels: 'agent:getAvailableModels',
     addApiKey: 'agent:addApiKey',
@@ -79,6 +81,7 @@ export type SpaceZeroAPI = {
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   }
   agent: {
+    ping: () => Promise<AgentPingResponse>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
