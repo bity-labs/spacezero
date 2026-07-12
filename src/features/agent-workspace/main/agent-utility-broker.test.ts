@@ -4,6 +4,7 @@ import { AgentUtilityBroker, type AgentUtilityPort } from './agent-utility-broke
 class FakeAgentUtilityPort implements AgentUtilityPort {
   postedFrames: AgentUtilityFrame[] = []
   private messageHandler: ((frame: AgentUtilityFrame) => void) | undefined
+  private closeHandler: (() => void) | undefined
 
   postMessage(frame: AgentUtilityFrame): void {
     this.postedFrames.push(frame)
@@ -13,8 +14,16 @@ class FakeAgentUtilityPort implements AgentUtilityPort {
     this.messageHandler = handler
   }
 
+  onClose(handler: () => void): void {
+    this.closeHandler = handler
+  }
+
   emit(frame: AgentUtilityFrame): void {
     this.messageHandler?.(frame)
+  }
+
+  close(): void {
+    this.closeHandler?.()
   }
 }
 
@@ -71,5 +80,47 @@ describe('AgentUtilityBroker', () => {
     })
 
     await expect(pingPromise).rejects.toThrow('Unknown command')
+  })
+
+  it('rejects pending commands when the broker is disposed', async () => {
+    const port = new FakeAgentUtilityPort()
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })
+
+    const pingPromise = broker.ping({ sessionId: 'session-1' })
+
+    broker.dispose(new Error('agent.utilityExited:1'))
+
+    await expect(pingPromise).rejects.toThrow('agent.utilityExited:1')
+  })
+
+  it('rejects pending commands when the utility port closes', async () => {
+    const port = new FakeAgentUtilityPort()
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })
+
+    const pingPromise = broker.ping({ sessionId: 'session-1' })
+
+    port.close()
+
+    await expect(pingPromise).rejects.toThrow('agent.utilityPortClosed')
+  })
+
+  it('rejects pending commands when the utility does not answer before the timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => 'request-1',
+        requestTimeoutMs: 50
+      })
+
+      const pingPromise = broker.ping({ sessionId: 'session-1' })
+
+      vi.advanceTimersByTime(50)
+
+      await expect(pingPromise).rejects.toThrow('agent.utilityRequestTimedOut')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
