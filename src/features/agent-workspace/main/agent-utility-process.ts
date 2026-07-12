@@ -26,6 +26,10 @@ class MessagePortMainAgentUtilityPort implements AgentUtilityPort {
     this.port.start()
   }
 
+  onClose(handler: () => void): void {
+    this.port.on('close', handler)
+  }
+
   close(): void {
     this.port.close()
   }
@@ -35,10 +39,12 @@ export class AgentUtilityProcessHost {
   private utility: UtilityProcess | undefined
   private mainPort: MessagePortMainAgentUtilityPort | undefined
   private broker: AgentUtilityBroker | undefined
+  private stopping = false
 
   start(): void {
     if (this.utility) return
 
+    this.stopping = false
     const utility = utilityProcess.fork(join(__dirname, 'agent-utility.js'), [], {
       serviceName: 'spacezero-agent-utility'
     })
@@ -46,10 +52,18 @@ export class AgentUtilityProcessHost {
     const mainPort = new MessagePortMainAgentUtilityPort(port1)
 
     utility.once('exit', (code) => {
-      log.warn(`Agent utility process exited with code ${code}`)
+      if (this.stopping) {
+        log.debug(`Agent utility process stopped with code ${code}`)
+      } else {
+        log.warn(`Agent utility process exited with code ${code}`)
+      }
+
+      this.broker?.dispose(new Error(`agent.utilityExited:${code ?? 'unknown'}`))
+      this.mainPort?.close()
       this.utility = undefined
       this.broker = undefined
       this.mainPort = undefined
+      this.stopping = false
     })
 
     utility.postMessage({ type: 'spacezero.agent.connect' }, [port2])
@@ -70,6 +84,8 @@ export class AgentUtilityProcessHost {
   }
 
   stop(): void {
+    this.stopping = this.utility !== undefined
+    this.broker?.dispose(new Error('agent.utilityStopped'))
     this.mainPort?.close()
     this.utility?.kill()
     this.mainPort = undefined
