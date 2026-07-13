@@ -36,6 +36,16 @@ export function createSessionsRepository(): SessionsRepository {
         .limit(1)
 
       return Boolean(project)
+    },
+
+    async findProjectById(projectId) {
+      const [project] = await getDatabase()
+        .select({ id: schema.projects.id, path: schema.projects.path })
+        .from(schema.projects)
+        .where(eq(schema.projects.id, projectId))
+        .limit(1)
+
+      return project
     }
   }
 }

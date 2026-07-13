@@ -15,6 +15,7 @@ import type {
   AgentSessionState,
   AgentUtilityFrame,
   CreateAgentSessionRequest,
+  DeleteAgentSessionRequest,
   GetAgentSessionStateRequest
 } from '../../../shared/agent-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
@@ -91,6 +92,10 @@ export class AgentUtilityProcessHost {
 
   createSession(request: CreateAgentSessionRequest): Promise<AgentSessionState> {
     return this.getBroker().createSession(request)
+  }
+
+  deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
+    return this.getBroker().deleteSession(request)
   }
 
   getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {

@@ -23,6 +23,7 @@ export type SessionsRepository = {
   create: (session: StoredSession) => Promise<StoredSession>
   countByProjectId: (projectId: string) => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
+  findProjectById: (projectId: string) => Promise<{ id: string; path: string } | undefined>
 }
 
 export type Clock = () => Date

@@ -11,6 +11,7 @@ import type {
   AgentUtilityFrame,
   AgentUtilityResponse,
   CreateAgentSessionRequest,
+  DeleteAgentSessionRequest,
   GetAgentSessionStateRequest
 } from '../shared/agent-protocol'
 import { createAgentPingResponse, createAgentSuccessResponse } from '../shared/agent-protocol'
@@ -51,6 +52,11 @@ async function handleCommand(command: AgentUtilityCommand): Promise<AgentUtility
     if (command.command === 'agent.createSession') {
       const result = await sessionRegistry.createSession(command.payload as CreateAgentSessionRequest)
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.deleteSession') {
+      await sessionRegistry.deleteSession(command.payload as DeleteAgentSessionRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
     }
 
     if (command.command === 'agent.getState') {

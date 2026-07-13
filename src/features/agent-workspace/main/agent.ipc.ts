@@ -1,18 +1,12 @@
 import { ipcMain } from 'electron'
-import { nanoid } from 'nanoid'
 import { z } from 'zod'
 
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
-import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import { createProjectAgentSession } from './agent-session-handler'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
-
-const createSessionRequestSchema = z.object({
-  projectId: z.string().trim().min(1),
-  cwd: z.string().trim().min(1)
-})
 
 const getStateRequestSchema = z.object({
   sessionId: z.string().trim().min(1)
@@ -23,25 +17,11 @@ export function registerAgentIpc(): void {
     return getAgentUtilityProcessHost().ping({ sessionId: PING_SESSION_ID })
   })
 
-  ipcMain.handle(IPC_CHANNELS.agent.createSession, async (_event, input) => {
-    const request = createSessionRequestSchema.parse(input)
-    const repository = createSessionsRepository()
-    if (!(await repository.projectExists(request.projectId))) throw new Error('Project not found')
-
-    const sessionId = nanoid()
-    const state = await getAgentUtilityProcessHost().createSession({
-      sessionId,
-      projectId: request.projectId,
-      cwd: request.cwd
+  ipcMain.handle(IPC_CHANNELS.agent.createSession, (_event, input) => {
+    return createProjectAgentSession(input, {
+      repository: createSessionsRepository(),
+      utilityHost: getAgentUtilityProcessHost()
     })
-
-    await createSessionsService({ repository }).createProjectAgentSession({
-      id: sessionId,
-      projectId: request.projectId,
-      transcriptPath: state.transcriptPath
-    })
-
-    return state
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {

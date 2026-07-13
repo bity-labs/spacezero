@@ -1,6 +1,11 @@
 import { resolve } from 'node:path'
 
-import type { AgentSessionState, CreateAgentSessionRequest, GetAgentSessionStateRequest } from '../shared/agent-protocol'
+import type {
+  AgentSessionState,
+  CreateAgentSessionRequest,
+  DeleteAgentSessionRequest,
+  GetAgentSessionStateRequest
+} from '../shared/agent-protocol'
 
 export type CreatedPiAgentSession = {
   sessionId: string
@@ -43,6 +48,15 @@ export class AgentSessionRegistry {
     if (!session) throw new Error('agent.sessionNotFound')
 
     return this.toState(sessionId, session)
+  }
+
+  async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (!session) return
+
+    session.piSession.dispose()
+    this.sessions.delete(sessionId)
   }
 
   async listSessions(): Promise<AgentSessionState[]> {
