@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 import { IPC_CHANNELS, type SpaceZeroAPI } from '../shared/ipc'
 
@@ -26,6 +26,13 @@ const api: SpaceZeroAPI = {
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
     getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.getState, request),
     listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.agent.listSessions),
+    onEvent: (handler) => {
+      const listener = (_event: IpcRendererEvent, payload: unknown): void => {
+        handler(payload as Parameters<typeof handler>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.agent.event, listener)
+      return () => ipcRenderer.off(IPC_CHANNELS.agent.event, listener)
+    },
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),

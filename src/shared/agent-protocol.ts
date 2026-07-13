@@ -14,6 +14,7 @@ export type CreateAgentSessionRequest = {
   sessionId: AgentSessionId
   projectId: string
   cwd: string
+  transcriptPath?: string
 }
 
 export type GetAgentSessionStateRequest = {
@@ -31,9 +32,10 @@ export type AgentSessionState = {
   projectId: string
   cwd: string
   status: AgentSessionStatus
+  live: boolean
   transcriptPath: string | undefined
-  modelProvider: string
-  modelId: string
+  modelProvider: string | undefined
+  modelId: string | undefined
 }
 
 export type AgentUtilityCommandName =
@@ -51,11 +53,33 @@ export type AgentUtilityCommand = {
   payload?: unknown
 }
 
-export type AgentUtilityEvent = {
-  type: 'agent.event'
-  event: 'agent.utilityReady'
-  sessionId: AgentSessionId
-}
+export type AgentUtilityEvent =
+  | {
+      type: 'agent.event'
+      event: 'agent.utilityReady'
+      sessionId: AgentSessionId
+      payload?: undefined
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionStatusChanged'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionRehydrated'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionSuspended'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
+
+export type AgentUtilityEventName = AgentUtilityEvent['event']
 
 export type AgentUtilitySuccessResponse = {
   type: 'agent.response'
