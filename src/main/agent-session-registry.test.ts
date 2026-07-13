@@ -434,12 +434,13 @@ describe('AgentSessionRegistry', () => {
     expect(aborted).toBe(true)
   })
 
-  it('forwards streaming events from the Pi session with the session id', async () => {
+  it('forwards streaming events with the Space Zero session id when the Pi session id differs', async () => {
     const events: unknown[] = []
     let listener: ((event: { type: 'agent_start'; sessionId: string }) => void) | undefined
     const registry = new AgentSessionRegistry({
       createPiSession: async () =>
         createFakeSession({
+          sessionId: 'pi-internal-session-1',
           subscribe: (next) => {
             listener = next
             return () => undefined
@@ -448,10 +449,10 @@ describe('AgentSessionRegistry', () => {
       onStreamingEvent: (event) => events.push(event)
     })
 
-    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
-    listener?.({ type: 'agent_start', sessionId: 'session-1' })
+    await registry.createSession({ projectId: 'project-1', sessionId: 'spacezero-session-1', cwd: '/repo' })
+    listener?.({ type: 'agent_start', sessionId: 'pi-internal-session-1' })
 
-    expect(events).toEqual([{ type: 'agent_start', sessionId: 'session-1' }])
+    expect(events).toEqual([{ type: 'agent_start', sessionId: 'spacezero-session-1' }])
   })
 
   it('keeps the existing live session active when creating a replacement fails', async () => {

@@ -68,7 +68,7 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
       ? SessionManager.open(request.transcriptPath, sessionsDir, request.cwd)
-      : SessionManager.create(request.cwd, sessionsDir)
+      : SessionManager.create(request.cwd, sessionsDir, { id: request.sessionId })
 
     const { session } = await createAgentSession({
       cwd: request.cwd,

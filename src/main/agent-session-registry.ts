@@ -114,7 +114,7 @@ export class AgentSessionRegistry {
         }
 
         this.suspendCandidateIfNeeded()
-        const unsubscribe = piSession.subscribe((event) => this.options.onStreamingEvent?.(event))
+        const unsubscribe = piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event))
         this.sessions.set(sessionId, {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
@@ -259,7 +259,7 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       piSession,
-      unsubscribe: piSession.subscribe((event) => this.options.onStreamingEvent?.(event)),
+      unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
     }
 
@@ -325,6 +325,10 @@ export class AgentSessionRegistry {
     this.sessions.delete(sessionId)
     this.dormantSessions.set(sessionId, dormantSession)
     this.onEvent?.({ event: 'agent.sessionSuspended', sessionId, state })
+  }
+
+  private forwardStreamingEvent(sessionId: string, event: AgentStreamingEvent): void {
+    this.options.onStreamingEvent?.({ ...event, sessionId })
   }
 
   private toLiveState(sessionId: string, session: RegisteredAgentSession): AgentSessionState {
