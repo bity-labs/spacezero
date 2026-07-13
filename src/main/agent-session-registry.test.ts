@@ -226,6 +226,54 @@ describe('AgentSessionRegistry', () => {
     ])
   })
 
+  it('cancels and disposes an in-flight dormant session rehydration when deletion arrives first', async () => {
+    let resolveRehydrate: ((session: CreatedPiAgentSession) => void) | undefined
+    let rehydrateStarted: (() => void) | undefined
+    const rehydrateStartedPromise = new Promise<void>((resolve) => {
+      rehydrateStarted = resolve
+    })
+    let disposed = false
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        if (request.sessionId === 'session-1' && request.transcriptPath) {
+          rehydrateStarted?.()
+          return new Promise<CreatedPiAgentSession>((resolve) => {
+            resolveRehydrate = resolve
+          })
+        }
+
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    const rehydratePromise = registry.getState({ sessionId: 'session-1' })
+    await rehydrateStartedPromise
+    await registry.deleteSession({ sessionId: 'session-1' })
+
+    resolveRehydrate?.(
+      createFakeSession({
+        sessionId: 'session-1',
+        sessionFile: '/tmp/spacezero/agent/sessions/session-1.jsonl',
+        dispose: () => {
+          disposed = true
+        }
+      })
+    )
+
+    await expect(rehydratePromise).rejects.toThrow('agent.sessionRehydrationCancelled')
+    expect(disposed).toBe(true)
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      { sessionId: 'session-2', live: true, status: 'idle' }
+    ])
+  })
+
   it('keeps the existing live session active when creating a replacement fails', async () => {
     const disposedSessionIds: string[] = []
     const events: string[] = []
