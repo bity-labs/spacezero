@@ -53,18 +53,33 @@ export type AgentUtilityCommand = {
   payload?: unknown
 }
 
-export type AgentUtilityEventName =
-  | 'agent.utilityReady'
-  | 'agent.sessionStatusChanged'
-  | 'agent.sessionRehydrated'
-  | 'agent.sessionSuspended'
+export type AgentUtilityEvent =
+  | {
+      type: 'agent.event'
+      event: 'agent.utilityReady'
+      sessionId: AgentSessionId
+      payload?: undefined
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionStatusChanged'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionRehydrated'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.sessionSuspended'
+      sessionId: AgentSessionId
+      payload: AgentSessionState
+    }
 
-export type AgentUtilityEvent = {
-  type: 'agent.event'
-  event: AgentUtilityEventName
-  sessionId: AgentSessionId
-  payload?: unknown
-}
+export type AgentUtilityEventName = AgentUtilityEvent['event']
 
 export type AgentUtilitySuccessResponse = {
   type: 'agent.response'

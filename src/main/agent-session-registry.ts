@@ -62,6 +62,7 @@ export class AgentSessionRegistry {
   private readonly rehydratingSessionIds = new Set<string>()
   private readonly pendingDeleteSessionIds = new Set<string>()
   private lifecycleQueue: Promise<void> = Promise.resolve()
+  private disposed = false
   private readonly maxLiveSessions: number
   private readonly now: () => number
   private readonly onEvent: ((event: AgentSessionRegistryEvent) => void) | undefined
@@ -88,8 +89,15 @@ export class AgentSessionRegistry {
     return this.enqueueLifecycle(async () => {
       let piSession: CreatedPiAgentSession | undefined
       try {
+        this.throwIfDisposed()
         const suspensionCandidate = this.findSuspensionCandidate()
         piSession = await this.options.createPiSession(normalizedRequest)
+
+        if (this.disposed) {
+          piSession.dispose()
+          piSession = undefined
+          throw new Error('agent.sessionRegistryDisposed')
+        }
 
         if (this.pendingDeleteSessionIds.delete(sessionId)) {
           piSession.dispose()
@@ -138,6 +146,7 @@ export class AgentSessionRegistry {
 
       this.rehydratingSessionIds.add(sessionId)
       try {
+        this.throwIfDisposed()
         return await this.rehydrateSession(sessionId, dormantSession)
       } finally {
         this.rehydratingSessionIds.delete(sessionId)
@@ -172,6 +181,7 @@ export class AgentSessionRegistry {
   }
 
   dispose(): void {
+    this.disposed = true
     for (const session of this.sessions.values()) {
       session.piSession.dispose()
     }
@@ -180,6 +190,10 @@ export class AgentSessionRegistry {
     this.creatingSessionIds.clear()
     this.rehydratingSessionIds.clear()
     this.pendingDeleteSessionIds.clear()
+  }
+
+  private throwIfDisposed(): void {
+    if (this.disposed) throw new Error('agent.sessionRegistryDisposed')
   }
 
   private normalizeCreateRequest(request: CreateAgentSessionRequest): CreateAgentSessionRequest {
@@ -202,6 +216,12 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath
     })
+
+    if (this.disposed) {
+      piSession.dispose()
+      throw new Error('agent.sessionRegistryDisposed')
+    }
+
     const liveSession: RegisteredAgentSession = {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
