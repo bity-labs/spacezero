@@ -39,6 +39,7 @@ type AgentUtilityBrokerOptions = {
   createRequestId?: () => string
   requestTimeoutMs?: number
   sessionLifecycleTimeoutMs?: number
+  onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
 }
 
 type SendOptions = {
@@ -51,6 +52,7 @@ export class AgentUtilityBroker {
   private readonly createRequestId: () => string
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
+  private readonly onEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
   private disposed = false
 
   constructor(
@@ -60,6 +62,7 @@ export class AgentUtilityBroker {
     this.createRequestId = options.createRequestId ?? randomUUID
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
+    this.onEvent = options.onEvent
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -126,6 +129,11 @@ export class AgentUtilityBroker {
   }
 
   private handleFrame(frame: AgentUtilityFrame): void {
+    if (frame.type === 'agent.event') {
+      this.onEvent?.(frame)
+      return
+    }
+
     if (frame.type !== 'agent.response') return
 
     const pendingRequest = this.pendingRequests.get(frame.requestId)

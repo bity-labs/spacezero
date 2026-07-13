@@ -101,6 +101,7 @@ beforeEach(async () => {
         projectId,
         cwd,
         status: 'idle',
+        live: true,
         transcriptPath: '/tmp/agent-session-test.jsonl',
         modelProvider: 'faux',
         modelId: 'faux-1'
@@ -110,11 +111,13 @@ beforeEach(async () => {
         projectId: 'project-test',
         cwd: '/tmp/project-test',
         status: 'idle',
+        live: true,
         transcriptPath: '/tmp/agent-session-test.jsonl',
         modelProvider: 'faux',
         modelId: 'faux-1'
       }),
       listSessions: async () => [],
+      onEvent: () => () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],

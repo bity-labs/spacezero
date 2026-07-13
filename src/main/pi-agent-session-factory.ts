@@ -65,11 +65,16 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
       noContextFiles: true
     })
 
+    const sessionsDir = join(agentDir, 'sessions')
+    const sessionManager = request.transcriptPath
+      ? SessionManager.open(request.transcriptPath, sessionsDir, request.cwd)
+      : SessionManager.create(request.cwd, sessionsDir)
+
     const { session } = await createAgentSession({
       cwd: request.cwd,
       model: modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
       tools: PROJECT_TOOL_NAMES,
-      sessionManager: SessionManager.create(request.cwd, join(agentDir, 'sessions')),
+      sessionManager,
       authStorage,
       modelRegistry,
       resourceLoader

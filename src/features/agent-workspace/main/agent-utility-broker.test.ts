@@ -72,6 +72,7 @@ describe('AgentUtilityBroker', () => {
       projectId: 'project-1',
       cwd: '/repo',
       status: 'idle',
+      live: true,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
       modelId: 'faux-1'
@@ -147,6 +148,31 @@ describe('AgentUtilityBroker', () => {
       result: [createdSession]
     })
     await expect(listPromise).resolves.toEqual([createdSession])
+  })
+
+  it('routes session-tagged utility events without resolving pending requests', async () => {
+    const port = new FakeAgentUtilityPort()
+    const events: AgentUtilityFrame[] = []
+    new AgentUtilityBroker(port, {
+      createRequestId: () => 'request-1',
+      onEvent: (event) => events.push(event)
+    })
+
+    port.emit({
+      type: 'agent.event',
+      event: 'agent.sessionSuspended',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1' }
+    })
+
+    expect(events).toEqual([
+      {
+        type: 'agent.event',
+        event: 'agent.sessionSuspended',
+        sessionId: 'session-1',
+        payload: { sessionId: 'session-1' }
+      }
+    ])
   })
 
   it('rejects a pending command when the utility reports a failure', async () => {
