@@ -202,4 +202,56 @@ describe('AgentSessionRegistry', () => {
       registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
     ).rejects.toThrow('agent.concurrentSessionLimitReached')
   })
+
+  it('enforces the live cap when create requests arrive concurrently', async () => {
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        await Promise.resolve()
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+      }
+    })
+
+    await Promise.all([
+      registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' }),
+      registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    ])
+
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      { sessionId: 'session-1', live: false, status: 'idle' },
+      { sessionId: 'session-2', live: true, status: 'idle' }
+    ])
+  })
+
+  it('keeps the existing live session active when creating a replacement fails', async () => {
+    const disposedSessionIds: string[] = []
+    const events: string[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      onEvent: (event) => events.push(`${event.event}:${event.sessionId}`),
+      createPiSession: async (request) => {
+        if (request.sessionId === 'session-2') throw new Error('agent.createFailed')
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`,
+          dispose: () => disposedSessionIds.push(request.sessionId)
+        })
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+
+    await expect(
+      registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    ).rejects.toThrow('agent.createFailed')
+
+    expect(disposedSessionIds).toEqual([])
+    expect(events).toEqual([])
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      { sessionId: 'session-1', live: true, status: 'idle' }
+    ])
+  })
 })

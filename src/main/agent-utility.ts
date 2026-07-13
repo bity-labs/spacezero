@@ -79,8 +79,10 @@ function getMaxLiveSessions(): number | undefined {
   const rawValue = process.env.SPACEZERO_AGENT_MAX_LIVE_SESSIONS
   if (!rawValue) return undefined
 
-  const parsedValue = Number.parseInt(rawValue, 10)
-  return Number.isFinite(parsedValue) ? parsedValue : undefined
+  const trimmedValue = rawValue.trim()
+  if (!/^\d+$/.test(trimmedValue)) return undefined
+
+  return Number.parseInt(trimmedValue, 10)
 }
 
 function attachAgentPort(port: MessagePortMain): void {
