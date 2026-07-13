@@ -197,10 +197,12 @@ describe('AgentUtilityBroker', () => {
   it('routes session-tagged utility events without resolving pending requests', async () => {
     const port = new FakeAgentUtilityPort()
     const events: AgentUtilityFrame[] = []
-    new AgentUtilityBroker(port, {
+    const streamingEvents: unknown[] = []
+    const broker = new AgentUtilityBroker(port, {
       createRequestId: () => 'request-1',
       onEvent: (event) => events.push(event)
     })
+    broker.onEvent((event) => streamingEvents.push(event))
 
     const suspendedSession: AgentSessionState = {
       sessionId: 'session-1',
@@ -228,6 +230,7 @@ describe('AgentUtilityBroker', () => {
         payload: suspendedSession
       }
     ])
+    expect(streamingEvents).toEqual([])
   })
 
   it('rejects a pending command when the utility reports a failure', async () => {
@@ -270,6 +273,33 @@ describe('AgentUtilityBroker', () => {
     port.close()
 
     await expect(pingPromise).rejects.toThrow('agent.utilityPortClosed')
+  })
+
+  it('does not time out a long-running prompt while the utility turn is still active', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => 'request-1',
+        requestTimeoutMs: 10,
+        sessionLifecycleTimeoutMs: 50
+      })
+
+      const promptPromise = broker.prompt({ sessionId: 'session-1', message: 'Implement the issue' })
+      const rejectionSpy = vi.fn()
+      promptPromise.catch(rejectionSpy)
+
+      vi.advanceTimersByTime(60)
+      await Promise.resolve()
+
+      expect(rejectionSpy).not.toHaveBeenCalled()
+
+      port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'session-1', result: undefined })
+      await expect(promptPromise).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects pending commands when the utility does not answer before the timeout', async () => {
