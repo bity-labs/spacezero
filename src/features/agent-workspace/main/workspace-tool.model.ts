@@ -1,5 +1,6 @@
 import type { ZodTypeAny } from 'zod'
 
+import type { WorkspaceToolAgentDescriptor } from '../../../shared/workspace-tool-protocol'
 import type { WorkspaceToolMetadata, WorkspaceToolResult } from '../shared/workspace-tool.model'
 
 /** A zod schema used to validate Workspace Tool input before execution. */
@@ -34,6 +35,7 @@ export type WorkspaceToolHandler<I = unknown> = (
 export type WorkspaceTool<S extends WorkspaceToolInputSchema = ZodTypeAny> =
   WorkspaceToolMetadata & {
     inputSchema: S
+    agentParameters?: WorkspaceToolAgentDescriptor['parameters']
     handler: WorkspaceToolHandler<WorkspaceToolInput<S>>
   }
 
@@ -49,6 +51,7 @@ export type WorkspaceTool<S extends WorkspaceToolInputSchema = ZodTypeAny> =
  */
 export type AnyWorkspaceTool = WorkspaceToolMetadata & {
   inputSchema: WorkspaceToolInputSchema
+  agentParameters?: WorkspaceToolAgentDescriptor['parameters']
   // `any` is required here so a schema-typed `WorkspaceTool<S>` is assignable
   // to this erased registry entry regardless of its input schema. The handler
   // is never called with unvalidated input: the executor parses input against

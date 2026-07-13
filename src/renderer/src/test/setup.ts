@@ -118,6 +118,7 @@ beforeEach(async () => {
       }),
       listSessions: async () => [],
       onEvent: () => () => undefined,
+      onToolExecution: () => () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],

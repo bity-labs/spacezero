@@ -33,6 +33,13 @@ const api: SpaceZeroAPI = {
       ipcRenderer.on(IPC_CHANNELS.agent.event, listener)
       return () => ipcRenderer.off(IPC_CHANNELS.agent.event, listener)
     },
+    onToolExecution: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.agent.toolExecution, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.agent.toolExecution, handler)
+    },
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),

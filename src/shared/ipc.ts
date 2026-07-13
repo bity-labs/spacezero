@@ -1,4 +1,5 @@
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
+import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
@@ -37,6 +38,7 @@ export const IPC_CHANNELS = {
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
     event: 'agent:event',
+    toolExecution: 'agent:toolExecution',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAvailableModels: 'agent:getAvailableModels',
     addApiKey: 'agent:addApiKey',
@@ -90,6 +92,7 @@ export type SpaceZeroAPI = {
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
+    onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>

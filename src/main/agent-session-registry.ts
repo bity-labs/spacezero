@@ -201,7 +201,8 @@ export class AgentSessionRegistry {
       sessionId: request.sessionId.trim(),
       projectId: request.projectId.trim(),
       cwd: resolve(request.cwd),
-      transcriptPath: request.transcriptPath
+      transcriptPath: request.transcriptPath,
+      workspaceTools: request.workspaceTools
     }
   }
 
