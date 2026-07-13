@@ -39,6 +39,7 @@ describe('agent utility framing protocol', () => {
       projectId: 'project-1',
       cwd: '/repo',
       status: 'idle',
+      live: true,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
       modelId: 'faux-1'

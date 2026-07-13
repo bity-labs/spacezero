@@ -35,6 +35,7 @@ function createState(overrides: Partial<AgentSessionState> = {}): AgentSessionSt
     projectId: 'project-1',
     cwd: '/repo',
     status: 'idle',
+    live: true,
     transcriptPath: '/agent/sessions/session-1.jsonl',
     modelProvider: 'faux',
     modelId: 'faux-1',
