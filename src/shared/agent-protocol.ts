@@ -1,3 +1,5 @@
+import type { AgentSessionProjectionEvent } from './agent-session-projection.model'
+
 export type AgentSessionId = string
 
 export type AgentPingRequest = {
@@ -25,6 +27,12 @@ export type DeleteAgentSessionRequest = {
   sessionId: AgentSessionId
 }
 
+export type ResolveAgentToolConfirmationCommandRequest = {
+  sessionId: AgentSessionId
+  callId: string
+  approved: boolean
+}
+
 export type AgentSessionStatus = 'idle' | 'running'
 
 export type AgentSessionState = {
@@ -44,6 +52,7 @@ export type AgentUtilityCommandName =
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'agent.resolveToolConfirmation'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
@@ -102,7 +111,16 @@ export type AgentUtilityFailureResponse = {
 
 export type AgentUtilityResponse = AgentUtilitySuccessResponse | AgentUtilityFailureResponse
 
-export type AgentUtilityFrame = AgentUtilityCommand | AgentUtilityEvent | AgentUtilityResponse
+export type AgentUtilityProjectionEvent = {
+  type: 'agent.sessionProjectionEvent'
+  event: AgentSessionProjectionEvent
+}
+
+export type AgentUtilityFrame =
+  | AgentUtilityCommand
+  | AgentUtilityEvent
+  | AgentUtilityProjectionEvent
+  | AgentUtilityResponse
 
 export type AgentUtilityConnectMessage = {
   type: 'spacezero.agent.connect'
@@ -165,6 +183,19 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
     requestId,
     command: 'agent.listSessions',
     sessionId: 'agent-session-list'
+  }
+}
+
+export function createAgentResolveToolConfirmationCommand(
+  requestId: string,
+  request: ResolveAgentToolConfirmationCommandRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.resolveToolConfirmation',
+    sessionId: request.sessionId,
+    payload: request
   }
 }
 
