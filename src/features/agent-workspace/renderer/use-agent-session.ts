@@ -26,6 +26,7 @@ type HookState = {
 }
 
 type HookAction =
+  | { type: 'session-changed'; sessionId: AgentSessionId }
   | { type: 'projection-event'; event: AgentSessionProjectionEvent }
   | { type: 'session-state-loaded'; sessionState: AgentSessionState }
   | { type: 'load-failed'; error: string }
@@ -35,6 +36,10 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     projection: createAgentSessionProjectionState(id),
     sessionState: undefined
   }))
+
+  useEffect(() => {
+    dispatch({ type: 'session-changed', sessionId })
+  }, [sessionId])
 
   useEffect(() => {
     let cancelled = false
@@ -80,12 +85,19 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
 
 function hookReducer(state: HookState, action: HookAction): HookState {
   switch (action.type) {
+    case 'session-changed':
+      if (state.projection.sessionId === action.sessionId) return state
+      return {
+        projection: createAgentSessionProjectionState(action.sessionId),
+        sessionState: undefined
+      }
     case 'projection-event':
       return {
         ...state,
         projection: reduceAgentSessionProjectionState(state.projection, action.event)
       }
     case 'session-state-loaded':
+      if (action.sessionState.sessionId !== state.projection.sessionId) return state
       return {
         ...state,
         sessionState: action.sessionState,
