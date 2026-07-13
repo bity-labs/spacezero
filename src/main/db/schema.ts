@@ -14,7 +14,8 @@ export const sessions = sqliteTable('sessions', {
   title: text('title').notNull(),
   status: text('status', { enum: ['idle', 'running', 'completed', 'failed'] }).notNull().default('idle'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  transcriptPath: text('transcript_path')
 })
 
 export const appSettings = sqliteTable('app_settings', {
