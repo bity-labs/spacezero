@@ -22,7 +22,8 @@ describe('AgentSessionRegistry', () => {
           projectId: 'project-1',
           sessionId: 'session-1',
           cwd: '/repo',
-          transcriptPath: undefined
+          transcriptPath: undefined,
+          workspaceTools: undefined
         })
         return createFakeSession()
       }
@@ -268,13 +269,53 @@ describe('AgentSessionRegistry', () => {
       sessionId: 'session-1',
       projectId: 'project-1',
       cwd: '/repo-1',
-      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl'
+      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
+      workspaceTools: undefined
     })
     expect(events).toEqual([
       'agent.sessionSuspended:session-1',
       'agent.sessionSuspended:session-2',
       'agent.sessionRehydrated:session-1'
     ])
+  })
+
+  it('preserves workspace tool descriptors when a suspended session is rehydrated', async () => {
+    const createRequests: unknown[] = []
+    const workspaceTools = [
+      {
+        name: 'workspace.getStatus',
+        description: 'Read workspace status',
+        safetyLevel: 'read' as const,
+        kind: 'app-state' as const,
+        domain: 'workspace' as const,
+        parameters: { type: 'object', properties: {} }
+      }
+    ]
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+      }
+    })
+
+    await registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo-1',
+      workspaceTools
+    })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    await registry.getState({ sessionId: 'session-1' })
+
+    expect(createRequests.at(-1)).toMatchObject({
+      sessionId: 'session-1',
+      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
+      workspaceTools
+    })
   })
 
   it('does not suspend running sessions to satisfy the live cap', async () => {

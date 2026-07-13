@@ -99,7 +99,7 @@ export class AgentUtilityProcessHost {
           callId: request.callId,
           toolName: request.toolName,
           state: 'running',
-          input: request.input
+          input: summarizeForRenderer(request.input)
         })
 
         const result = await getWorkspaceToolExecutor().execute(request.toolName, request.input)
@@ -108,8 +108,8 @@ export class AgentUtilityProcessHost {
           callId: request.callId,
           toolName: request.toolName,
           state: result.ok ? 'success' : 'error',
-          input: request.input,
-          output: result,
+          input: summarizeForRenderer(request.input),
+          output: summarizeForRenderer(result),
           error: result.ok ? undefined : result.error.message
         })
         return result
@@ -162,6 +162,14 @@ export class AgentUtilityProcessHost {
     this.broker = undefined
     this.utility = undefined
   }
+}
+
+function summarizeForRenderer(value: unknown): unknown {
+  if (value === undefined || value === null) return value
+  if (typeof value !== 'object') return typeof value
+  if (Array.isArray(value)) return { type: 'array', itemCount: value.length }
+
+  return { type: 'object', keys: Object.keys(value as Record<string, unknown>).sort() }
 }
 
 let host: AgentUtilityProcessHost | undefined
