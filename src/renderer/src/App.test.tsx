@@ -291,9 +291,18 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Session 2' }))
 
-    expect(screen.getByRole('tab', { name: 'Session 2' })).toHaveAttribute('aria-selected', 'true')
+    const sessionTwoTab = screen.getByRole('tab', { name: 'Session 2' })
+    const sessionTwoPanel = screen.getByRole('tabpanel', { name: 'Session 2' })
+    expect(sessionTwoTab).toHaveAttribute('aria-selected', 'true')
+    expect(sessionTwoTab).toHaveAttribute('aria-controls', sessionTwoPanel.id)
+    expect(sessionTwoPanel).toHaveAttribute('aria-labelledby', sessionTwoTab.id)
     expect(screen.getByRole('tab', { name: 'Session 1' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getAllByRole('status', { name: 'Running' }).length).toBeGreaterThan(0)
+
+    fireEvent.keyDown(sessionTwoTab, { key: 'ArrowRight' })
+
+    expect(screen.getByRole('tab', { name: 'Session 3' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Session 3' })).toBeInTheDocument()
   })
 
   it('opens a global Workspace Session without selecting a project', async () => {
