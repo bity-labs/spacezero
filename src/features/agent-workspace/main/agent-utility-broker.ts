@@ -37,7 +37,7 @@ type AgentUtilityResult = AgentPingResponse | AgentSessionState | AgentSessionSt
 type PendingRequest = {
   resolve: (response: AgentUtilityResult) => void
   reject: (error: Error) => void
-  timeout: NodeJS.Timeout
+  timeout: NodeJS.Timeout | undefined
 }
 
 type AgentUtilityBrokerOptions = {
@@ -48,7 +48,7 @@ type AgentUtilityBrokerOptions = {
 }
 
 type SendOptions = {
-  timeoutMs?: number
+  timeoutMs?: number | false
   onTimeout?: () => void
 }
 
@@ -101,9 +101,7 @@ export class AgentUtilityBroker {
   }
 
   async prompt(request: PromptAgentSessionRequest): Promise<void> {
-    await this.send(createAgentPromptCommand(this.createRequestId(), request), {
-      timeoutMs: this.sessionLifecycleTimeoutMs
-    })
+    await this.send(createAgentPromptCommand(this.createRequestId(), request), { timeoutMs: false })
   }
 
   async abort(request: AbortAgentSessionRequest): Promise<void> {
@@ -134,18 +132,21 @@ export class AgentUtilityBroker {
     }
 
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        if (!this.pendingRequests.delete(command.requestId)) return
-        options.onTimeout?.()
-        reject(new Error('agent.utilityRequestTimedOut'))
-      }, options.timeoutMs ?? this.requestTimeoutMs)
+      const timeout =
+        options.timeoutMs === false
+          ? undefined
+          : setTimeout(() => {
+              if (!this.pendingRequests.delete(command.requestId)) return
+              options.onTimeout?.()
+              reject(new Error('agent.utilityRequestTimedOut'))
+            }, options.timeoutMs ?? this.requestTimeoutMs)
 
       this.pendingRequests.set(command.requestId, { resolve, reject, timeout })
 
       try {
         this.port.postMessage(command)
       } catch (error) {
-        clearTimeout(timeout)
+        if (timeout) clearTimeout(timeout)
         this.pendingRequests.delete(command.requestId)
         reject(error instanceof Error ? error : new Error('agent.utilityPostMessageFailed'))
       }
@@ -175,7 +176,7 @@ export class AgentUtilityBroker {
   }
 
   private resolvePendingRequest(frame: AgentUtilityResponse, pendingRequest: PendingRequest): void {
-    clearTimeout(pendingRequest.timeout)
+    if (pendingRequest.timeout) clearTimeout(pendingRequest.timeout)
 
     if (frame.ok) {
       pendingRequest.resolve(frame.result)
@@ -187,7 +188,7 @@ export class AgentUtilityBroker {
 
   private rejectPendingRequests(reason: Error): void {
     for (const pendingRequest of this.pendingRequests.values()) {
-      clearTimeout(pendingRequest.timeout)
+      if (pendingRequest.timeout) clearTimeout(pendingRequest.timeout)
       pendingRequest.reject(reason)
     }
 
