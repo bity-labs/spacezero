@@ -19,6 +19,7 @@ import {
 } from '../../../shared/agent-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
+const DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000
 
 export type AgentUtilityPort = {
   postMessage: (frame: AgentUtilityFrame) => void
@@ -37,12 +38,19 @@ type PendingRequest = {
 type AgentUtilityBrokerOptions = {
   createRequestId?: () => string
   requestTimeoutMs?: number
+  sessionLifecycleTimeoutMs?: number
+}
+
+type SendOptions = {
+  timeoutMs?: number
+  onTimeout?: () => void
 }
 
 export class AgentUtilityBroker {
   private readonly pendingRequests = new Map<string, PendingRequest>()
   private readonly createRequestId: () => string
   private readonly requestTimeoutMs: number
+  private readonly sessionLifecycleTimeoutMs: number
   private disposed = false
 
   constructor(
@@ -51,6 +59,7 @@ export class AgentUtilityBroker {
   ) {
     this.createRequestId = options.createRequestId ?? randomUUID
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -60,11 +69,18 @@ export class AgentUtilityBroker {
   }
 
   createSession(request: CreateAgentSessionRequest): Promise<AgentSessionState> {
-    return this.send(createAgentCreateSessionCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
+    return this.send(createAgentCreateSessionCommand(this.createRequestId(), request), {
+      timeoutMs: this.sessionLifecycleTimeoutMs,
+      onTimeout: () => {
+        void this.deleteSession({ sessionId: request.sessionId }).catch(() => undefined)
+      }
+    }) as Promise<AgentSessionState>
   }
 
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
-    await this.send(createAgentDeleteSessionCommand(this.createRequestId(), request))
+    await this.send(createAgentDeleteSessionCommand(this.createRequestId(), request), {
+      timeoutMs: this.sessionLifecycleTimeoutMs
+    })
   }
 
   getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {
@@ -82,7 +98,10 @@ export class AgentUtilityBroker {
     this.rejectPendingRequests(reason)
   }
 
-  private send(command: AgentUtilityFrame & { type: 'agent.command'; requestId: string }): Promise<AgentUtilityResult> {
+  private send(
+    command: AgentUtilityFrame & { type: 'agent.command'; requestId: string },
+    options: SendOptions = {}
+  ): Promise<AgentUtilityResult> {
     if (this.disposed) {
       return Promise.reject(new Error('agent.utilityUnavailable'))
     }
@@ -90,8 +109,9 @@ export class AgentUtilityBroker {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         if (!this.pendingRequests.delete(command.requestId)) return
+        options.onTimeout?.()
         reject(new Error('agent.utilityRequestTimedOut'))
-      }, this.requestTimeoutMs)
+      }, options.timeoutMs ?? this.requestTimeoutMs)
 
       this.pendingRequests.set(command.requestId, { resolve, reject, timeout })
 
