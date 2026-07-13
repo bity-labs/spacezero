@@ -3,6 +3,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
 import { join } from 'node:path'
 
+import { stopAgentUtilityProcessHost, getAgentUtilityProcessHost } from '../features/agent-workspace/main/agent-utility-process'
 import { closeDatabase, getDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 
@@ -51,6 +52,7 @@ app.whenReady().then(() => {
   })
 
   registerIpcHandlers()
+  getAgentUtilityProcessHost().start()
   getDatabase()
   createWindow()
 
@@ -64,5 +66,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  stopAgentUtilityProcessHost()
   closeDatabase()
 })

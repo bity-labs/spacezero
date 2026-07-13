@@ -91,6 +91,11 @@ beforeEach(async () => {
       })
     },
     agent: {
+      ping: async () => ({
+        sessionId: 'agent-ping',
+        message: 'pong-from-agent-utility',
+        utilityProcessId: 1234
+      }),
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],
