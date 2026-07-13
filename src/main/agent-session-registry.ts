@@ -60,6 +60,7 @@ export class AgentSessionRegistry {
   private readonly dormantSessions = new Map<string, DormantAgentSession>()
   private readonly creatingSessionIds = new Set<string>()
   private readonly pendingDeleteSessionIds = new Set<string>()
+  private lifecycleQueue: Promise<void> = Promise.resolve()
   private readonly maxLiveSessions: number
   private readonly now: () => number
   private readonly onEvent: ((event: AgentSessionRegistryEvent) => void) | undefined
@@ -83,29 +84,35 @@ export class AgentSessionRegistry {
     }
 
     this.creatingSessionIds.add(sessionId)
-    try {
-      await this.makeRoomForLiveSession()
-      const piSession = await this.options.createPiSession(normalizedRequest)
+    return this.enqueueLifecycle(async () => {
+      let piSession: CreatedPiAgentSession | undefined
+      try {
+        const suspensionCandidate = this.findSuspensionCandidate()
+        piSession = await this.options.createPiSession(normalizedRequest)
 
-      if (this.pendingDeleteSessionIds.delete(sessionId)) {
-        piSession.dispose()
-        throw new Error('agent.sessionCreationCancelled')
+        if (this.pendingDeleteSessionIds.delete(sessionId)) {
+          piSession.dispose()
+          piSession = undefined
+          throw new Error('agent.sessionCreationCancelled')
+        }
+
+        this.suspendCandidateIfNeeded(suspensionCandidate)
+        this.sessions.set(sessionId, {
+          projectId: normalizedRequest.projectId,
+          cwd: normalizedRequest.cwd,
+          piSession,
+          lastAccessedAt: this.now()
+        })
+
+        return this.toLiveState(sessionId, this.sessions.get(sessionId)!)
+      } catch (error) {
+        this.pendingDeleteSessionIds.delete(sessionId)
+        if (piSession) piSession.dispose()
+        throw error
+      } finally {
+        this.creatingSessionIds.delete(sessionId)
       }
-
-      this.sessions.set(sessionId, {
-        projectId: normalizedRequest.projectId,
-        cwd: normalizedRequest.cwd,
-        piSession,
-        lastAccessedAt: this.now()
-      })
-
-      return this.toLiveState(sessionId, this.sessions.get(sessionId)!)
-    } catch (error) {
-      this.pendingDeleteSessionIds.delete(sessionId)
-      throw error
-    } finally {
-      this.creatingSessionIds.delete(sessionId)
-    }
+    })
   }
 
   async getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {
@@ -119,7 +126,7 @@ export class AgentSessionRegistry {
     const dormantSession = this.dormantSessions.get(sessionId)
     if (!dormantSession) throw new Error('agent.sessionNotFound')
 
-    return this.rehydrateSession(sessionId, dormantSession)
+    return this.enqueueLifecycle(() => this.rehydrateSession(sessionId, dormantSession))
   }
 
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
@@ -169,8 +176,7 @@ export class AgentSessionRegistry {
     sessionId: string,
     dormantSession: DormantAgentSession
   ): Promise<AgentSessionState> {
-    await this.makeRoomForLiveSession()
-
+    const suspensionCandidate = this.findSuspensionCandidate()
     const piSession = await this.options.createPiSession({
       sessionId,
       projectId: dormantSession.projectId,
@@ -184,6 +190,13 @@ export class AgentSessionRegistry {
       lastAccessedAt: this.now()
     }
 
+    try {
+      this.suspendCandidateIfNeeded(suspensionCandidate)
+    } catch (error) {
+      piSession.dispose()
+      throw error
+    }
+
     this.dormantSessions.delete(sessionId)
     this.sessions.set(sessionId, liveSession)
 
@@ -192,16 +205,42 @@ export class AgentSessionRegistry {
     return state
   }
 
-  private async makeRoomForLiveSession(): Promise<void> {
-    if (this.sessions.size < this.maxLiveSessions) return
+  private enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.lifecycleQueue.then(operation, operation)
+    this.lifecycleQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  private findSuspensionCandidate(): [string, RegisteredAgentSession] | undefined {
+    if (this.sessions.size < this.maxLiveSessions) return undefined
 
     const candidate = [...this.sessions.entries()]
       .filter(([, session]) => !session.piSession.isStreaming)
       .sort(([, a], [, b]) => a.lastAccessedAt - b.lastAccessedAt)[0]
 
     if (!candidate) throw new Error('agent.concurrentSessionLimitReached')
+    return candidate
+  }
 
-    const [sessionId, session] = candidate
+  private suspendCandidateIfNeeded(candidate: [string, RegisteredAgentSession] | undefined): void {
+    if (this.sessions.size < this.maxLiveSessions) return
+
+    let candidateToSuspend = candidate
+    if (candidateToSuspend) {
+      const [sessionId, session] = candidateToSuspend
+      if (this.sessions.get(sessionId) !== session || session.piSession.isStreaming) {
+        candidateToSuspend = this.findSuspensionCandidate()
+      }
+    } else {
+      candidateToSuspend = this.findSuspensionCandidate()
+    }
+
+    if (!candidateToSuspend) return
+
+    const [sessionId, session] = candidateToSuspend
     const dormantSession: DormantAgentSession = {
       projectId: session.projectId,
       cwd: session.cwd,
