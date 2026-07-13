@@ -8,14 +8,16 @@ import type {
   AgentUtilityResponse,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
 import {
   createAgentCreateSessionCommand,
   createAgentDeleteSessionCommand,
   createAgentGetStateCommand,
   createAgentListSessionsCommand,
-  createAgentPingCommand
+  createAgentPingCommand,
+  createAgentResolveToolConfirmationCommand
 } from '../../../shared/agent-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
@@ -40,6 +42,7 @@ type AgentUtilityBrokerOptions = {
   requestTimeoutMs?: number
   sessionLifecycleTimeoutMs?: number
   onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
+  onProjectionEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void
 }
 
 type SendOptions = {
@@ -53,6 +56,9 @@ export class AgentUtilityBroker {
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
   private readonly onEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
+  private readonly onProjectionEvent:
+    | ((event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void)
+    | undefined
   private disposed = false
 
   constructor(
@@ -63,6 +69,7 @@ export class AgentUtilityBroker {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
     this.onEvent = options.onEvent
+    this.onProjectionEvent = options.onProjectionEvent
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -92,6 +99,12 @@ export class AgentUtilityBroker {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.send(createAgentListSessionsCommand(this.createRequestId())) as Promise<AgentSessionState[]>
+  }
+
+  async resolveToolConfirmation(
+    request: ResolveAgentToolConfirmationCommandRequest
+  ): Promise<void> {
+    await this.send(createAgentResolveToolConfirmationCommand(this.createRequestId(), request))
   }
 
   dispose(reason = new Error('agent.utilityUnavailable')): void {
@@ -131,6 +144,11 @@ export class AgentUtilityBroker {
   private handleFrame(frame: AgentUtilityFrame): void {
     if (frame.type === 'agent.event') {
       this.onEvent?.(frame)
+      return
+    }
+
+    if (frame.type === 'agent.sessionProjectionEvent') {
+      this.onProjectionEvent?.(frame)
       return
     }
 

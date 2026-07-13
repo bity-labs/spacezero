@@ -12,9 +12,11 @@ import type {
   AgentUtilityResponse,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
 import { createAgentPingResponse, createAgentSuccessResponse } from '../shared/agent-protocol'
+import type { AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
 
 function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
   return (
@@ -48,9 +50,18 @@ function getAgentErrorCode(message: string): string {
   return /^agent\.[A-Za-z0-9._-]+$/.test(message) ? message : 'agent.commandFailed'
 }
 
+type AgentSessionProjectionEventWithoutSeq = AgentSessionProjectionEvent extends infer Event
+  ? Event extends { seq: number }
+    ? Omit<Event, 'seq'>
+    : never
+  : never
+
+type EmitProjectionEvent = (event: AgentSessionProjectionEventWithoutSeq) => void
+
 async function handleCommand(
   command: AgentUtilityCommand,
-  sessionRegistry: AgentSessionRegistry
+  sessionRegistry: AgentSessionRegistry,
+  emitProjectionEvent: EmitProjectionEvent
 ): Promise<AgentUtilityResponse> {
   try {
     if (command.command === 'agent.ping') {
@@ -59,6 +70,11 @@ async function handleCommand(
 
     if (command.command === 'agent.createSession') {
       const result = await sessionRegistry.createSession(command.payload as CreateAgentSessionRequest)
+      emitProjectionEvent({
+        type: 'snapshot',
+        sessionId: result.sessionId,
+        snapshot: { status: result.status, messages: [] }
+      })
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 
@@ -75,6 +91,18 @@ async function handleCommand(
     if (command.command === 'agent.listSessions') {
       const result = await sessionRegistry.listSessions()
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.resolveToolConfirmation') {
+      const request = command.payload as ResolveAgentToolConfirmationCommandRequest
+      await sessionRegistry.resolveToolConfirmation(request)
+      emitProjectionEvent({
+        type: 'tool_confirmation_resolved',
+        sessionId: request.sessionId,
+        callId: request.callId,
+        approved: request.approved
+      })
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
     }
 
     return createFailureResponse(command, `Unknown agent utility command: ${command.command}`, 'agent.unknownCommand')
@@ -94,6 +122,16 @@ function getMaxLiveSessions(): number | undefined {
 }
 
 function attachAgentPort(port: MessagePortMain): void {
+  const projectionSeqBySessionId = new Map<string, number>()
+  const emitProjectionEvent: EmitProjectionEvent = (event) => {
+    const seq = (projectionSeqBySessionId.get(event.sessionId) ?? 0) + 1
+    projectionSeqBySessionId.set(event.sessionId, seq)
+    port.postMessage({
+      type: 'agent.sessionProjectionEvent',
+      event: { ...event, seq }
+    })
+  }
+
   const sessionRegistry = new AgentSessionRegistry({
     createPiSession: createPiAgentSessionFactory({ agentDir }),
     maxLiveSessions: getMaxLiveSessions(),
@@ -112,7 +150,9 @@ function attachAgentPort(port: MessagePortMain): void {
 
     if (frame.type !== 'agent.command') return
 
-    void handleCommand(frame, sessionRegistry).then((response) => port.postMessage(response))
+    void handleCommand(frame, sessionRegistry, emitProjectionEvent).then((response) =>
+      port.postMessage(response)
+    )
   })
   port.on('close', () => sessionRegistry.dispose())
   port.start()
