@@ -1,3 +1,7 @@
+import type {
+  AgentSessionProjectionEvent,
+  ResolveAgentToolConfirmationRequest
+} from './agent-session-projection.model'
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
@@ -37,6 +41,8 @@ export const IPC_CHANNELS = {
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
     event: 'agent:event',
+    sessionProjectionEvent: 'agent:sessionProjectionEvent',
+    resolveToolConfirmation: 'agent:resolveToolConfirmation',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAvailableModels: 'agent:getAvailableModels',
     addApiKey: 'agent:addApiKey',
@@ -90,6 +96,8 @@ export type SpaceZeroAPI = {
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
+    onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
+    resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
