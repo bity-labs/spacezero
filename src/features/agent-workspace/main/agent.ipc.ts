@@ -12,6 +12,12 @@ const getStateRequestSchema = z.object({
   sessionId: z.string().trim().min(1)
 })
 
+const resolveToolConfirmationRequestSchema = z.object({
+  sessionId: z.string().trim().min(1),
+  callId: z.string().trim().min(1),
+  approved: z.boolean()
+})
+
 export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.ping, () => {
     return getAgentUtilityProcessHost().ping({ sessionId: PING_SESSION_ID })
@@ -31,5 +37,12 @@ export function registerAgentIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.agent.listSessions, () => {
     return getAgentUtilityProcessHost().listSessions()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.resolveToolConfirmation, (_event, input) => {
+    resolveToolConfirmationRequestSchema.parse(input)
+    // Confirmation answers intentionally enter through main so safety policy,
+    // activity history, and paused tool-call routing can stay main-owned per ADR 0005/0006.
+    // The utility-side paused-call resolver is added with the Workspace Tool confirmation slice.
   })
 }
