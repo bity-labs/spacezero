@@ -42,6 +42,76 @@ describe('useAgentSession', () => {
     expect(listener).toBeUndefined()
   })
 
+  it('resets projection state when the session changes', async () => {
+    let listener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    let subscriptionCount = 0
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      subscriptionCount += 1
+      listener = nextListener
+      return () => {
+        listener = undefined
+      }
+    }
+
+    const { result, rerender } = renderHook(({ sessionId }) => useAgentSession(sessionId), {
+      initialProps: { sessionId: 'session-1' }
+    })
+
+    await waitFor(() => expect(result.current.sessionState?.sessionId).toBe('session-1'))
+
+    act(() => {
+      listener?.({
+        type: 'snapshot',
+        sessionId: 'session-1',
+        seq: 1,
+        snapshot: {
+          status: 'idle',
+          messages: [{ role: 'user', content: 'Old session message', timestamp: 100 }]
+        }
+      })
+    })
+
+    expect(result.current.messages).toHaveLength(1)
+
+    rerender({ sessionId: 'session-2' })
+
+    await waitFor(() => {
+      expect(result.current.state.sessionId).toBe('session-2')
+      expect(result.current.sessionState?.sessionId).toBe('session-2')
+      expect(result.current.messages).toEqual([])
+      expect(subscriptionCount).toBe(2)
+    })
+
+    act(() => {
+      listener?.({
+        type: 'snapshot',
+        sessionId: 'session-2',
+        seq: 1,
+        snapshot: {
+          status: 'running',
+          messages: [
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'New session message' }],
+              timestamp: 200
+            }
+          ]
+        }
+      })
+    })
+
+    expect(result.current.status).toBe('running')
+    expect(result.current.messages).toEqual([
+      {
+        id: 'agent-msg:0',
+        role: 'assistant',
+        createdAt: '1970-01-01T00:00:00.200Z',
+        status: 'streaming',
+        parts: [{ type: 'text', text: 'New session message' }]
+      }
+    ])
+  })
+
   it('routes tool confirmation answers through the preload API', async () => {
     const resolveToolConfirmation = vi.fn(async () => undefined)
     window.spacezero.agent.resolveToolConfirmation = resolveToolConfirmation
