@@ -24,8 +24,10 @@ import type {
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
+import { getWorkspaceToolExecutor } from './workspace-tool-control-plane'
 
 class MessagePortMainAgentUtilityPort implements AgentUtilityPort {
   constructor(private readonly port: MessagePortMain) {}
@@ -100,6 +102,27 @@ export class AgentUtilityProcessHost {
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
         }
+      },
+      executeWorkspaceTool: async (request) => {
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: 'running',
+          input: summarizeForRenderer(request.input)
+        })
+
+        const result = await getWorkspaceToolExecutor().execute(request.toolName, request.input)
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: result.ok ? 'success' : 'error',
+          input: summarizeForRenderer(request.input),
+          output: summarizeForRenderer(result),
+          error: result.ok ? undefined : result.error.message
+        })
+        return result
       }
     })
     for (const listener of this.eventListeners) this.broker.onStreamingEvent(listener)
@@ -150,6 +173,12 @@ export class AgentUtilityProcessHost {
     return this.onStreamingEvent(listener)
   }
 
+  private sendToolExecution(event: AgentToolExecutionEvent): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.agent.toolExecution, event)
+    }
+  }
+
   private getBroker(): AgentUtilityBroker {
     this.start()
 
@@ -169,6 +198,14 @@ export class AgentUtilityProcessHost {
     this.broker = undefined
     this.utility = undefined
   }
+}
+
+function summarizeForRenderer(value: unknown): unknown {
+  if (value === undefined || value === null) return value
+  if (typeof value !== 'object') return typeof value
+  if (Array.isArray(value)) return { type: 'array', itemCount: value.length }
+
+  return { type: 'object', keys: Object.keys(value as Record<string, unknown>).sort() }
 }
 
 let host: AgentUtilityProcessHost | undefined
