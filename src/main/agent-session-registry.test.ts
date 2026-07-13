@@ -434,6 +434,41 @@ describe('AgentSessionRegistry', () => {
     expect(aborted).toBe(true)
   })
 
+  it('rehydrates a suspended session before prompting it', async () => {
+    const createRequests: unknown[] = []
+    const prompts: string[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`,
+          prompt: async (message) => {
+            prompts.push(`${request.sessionId}:${message}`)
+          }
+        })
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    await registry.prompt({ sessionId: 'session-1', message: '  continue work  ' })
+
+    expect(createRequests.at(-1)).toEqual({
+      sessionId: 'session-1',
+      projectId: 'project-1',
+      cwd: '/repo-1',
+      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl'
+    })
+    expect(prompts).toEqual(['session-1:continue work'])
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      { sessionId: 'session-1', live: true },
+      { sessionId: 'session-2', live: false }
+    ])
+  })
+
   it('forwards streaming events with the Space Zero session id when the Pi session id differs', async () => {
     const events: unknown[] = []
     let listener: ((event: { type: 'agent_start'; sessionId: string }) => void) | undefined
