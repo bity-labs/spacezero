@@ -11,13 +11,16 @@ import log from 'electron-log/main'
 import { join } from 'node:path'
 
 import type {
+  AbortAgentSessionRequest,
   AgentPingRequest,
   AgentPingResponse,
   AgentSessionState,
+  AgentStreamingEvent,
   AgentUtilityFrame,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import type { AgentUtilityPort } from './agent-utility-broker'
@@ -50,6 +53,7 @@ export class AgentUtilityProcessHost {
   private utility: UtilityProcess | undefined
   private mainPort: MessagePortMainAgentUtilityPort | undefined
   private broker: AgentUtilityBroker | undefined
+  private readonly eventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private stopping = false
 
   start(): void {
@@ -87,11 +91,13 @@ export class AgentUtilityProcessHost {
     this.mainPort = mainPort
     this.broker = new AgentUtilityBroker(mainPort, {
       onEvent: (event) => {
+        if (event.event === 'agent.streaming') return
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(IPC_CHANNELS.agent.event, event)
         }
       }
     })
+    for (const listener of this.eventListeners) this.broker.onEvent(listener)
   }
 
   ping(request: AgentPingRequest): Promise<AgentPingResponse> {
@@ -112,6 +118,23 @@ export class AgentUtilityProcessHost {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.getBroker().listSessions()
+  }
+
+  prompt(request: PromptAgentSessionRequest): Promise<void> {
+    return this.getBroker().prompt(request)
+  }
+
+  abort(request: AbortAgentSessionRequest): Promise<void> {
+    return this.getBroker().abort(request)
+  }
+
+  onEvent(listener: (event: AgentStreamingEvent) => void): () => void {
+    this.eventListeners.add(listener)
+    const unsubscribe = this.broker?.onEvent(listener)
+    return () => {
+      unsubscribe?.()
+      this.eventListeners.delete(listener)
+    }
   }
 
   private getBroker(): AgentUtilityBroker {

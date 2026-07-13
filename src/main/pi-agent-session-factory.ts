@@ -11,7 +11,7 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
-import type { CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
 import type { CreatedPiAgentSession } from './agent-session-registry'
 
 const FAUX_PROVIDER_ID = 'faux'
@@ -97,6 +97,44 @@ function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
     get modelId() {
       return session.model?.id ?? FAUX_MODEL_ID
     },
+    prompt: (message) => session.prompt(message),
+    abort: () => session.abort(),
+    subscribe: (listener) => session.subscribe((event) => {
+      const streamingEvent = toStreamingEvent(session.sessionId, event)
+      if (streamingEvent) listener(streamingEvent)
+    }),
     dispose: () => session.dispose()
   }
+}
+
+function toStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
+  if (event.type === 'agent_start' || event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'agent_end') {
+    return { type: event.type, sessionId }
+  }
+
+  if (event.type === 'message_start' || event.type === 'message_end') {
+    return { type: event.type, sessionId, messageId: getMessageId(event.message) }
+  }
+
+  if (event.type === 'message_update') {
+    const assistantMessageEvent = event.assistantMessageEvent as { type?: string; delta?: unknown } | undefined
+    if (assistantMessageEvent?.type !== 'text_delta' || typeof assistantMessageEvent.delta !== 'string') {
+      return undefined
+    }
+
+    return {
+      type: 'message_update',
+      sessionId,
+      messageId: getMessageId(event.message),
+      delta: assistantMessageEvent.delta
+    }
+  }
+
+  return undefined
+}
+
+function getMessageId(message: unknown): string | undefined {
+  if (typeof message !== 'object' || message === null || !('id' in message)) return undefined
+  const id = (message as { id?: unknown }).id
+  return typeof id === 'string' ? id : undefined
 }

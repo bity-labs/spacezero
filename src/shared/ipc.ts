@@ -1,4 +1,4 @@
-import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
+import type { AgentPingResponse, AgentSessionState, AgentStreamingEvent } from './agent-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
@@ -36,6 +36,8 @@ export const IPC_CHANNELS = {
     createSession: 'agent:createSession',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
+    prompt: 'agent:prompt',
+    abort: 'agent:abort',
     event: 'agent:event',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAvailableModels: 'agent:getAvailableModels',
@@ -89,7 +91,9 @@ export type SpaceZeroAPI = {
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
-    onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
+    prompt: (request: { sessionId: string; message: string }) => Promise<void>
+    abort: (request: { sessionId: string }) => Promise<void>
+    onEvent: (handler: (event: AgentStreamingEvent) => void) => () => void
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>

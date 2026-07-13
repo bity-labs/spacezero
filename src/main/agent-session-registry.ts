@@ -1,10 +1,13 @@
 import { resolve } from 'node:path'
 
 import type {
+  AbortAgentSessionRequest,
   AgentSessionState,
+  AgentStreamingEvent,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest
 } from '../shared/agent-protocol'
 
 export type CreatedPiAgentSession = {
@@ -13,6 +16,9 @@ export type CreatedPiAgentSession = {
   isStreaming: boolean
   modelProvider: string
   modelId: string
+  prompt: (message: string) => Promise<void>
+  abort: () => Promise<void>
+  subscribe: (listener: (event: AgentStreamingEvent) => void) => () => void
   dispose: () => void
 }
 
@@ -34,6 +40,7 @@ type RegisteredAgentSession = {
   projectId: string
   cwd: string
   piSession: CreatedPiAgentSession
+  unsubscribe: () => void
   lastAccessedAt: number
 }
 
@@ -51,6 +58,7 @@ type AgentSessionRegistryOptions = {
   maxLiveSessions?: number
   now?: () => number
   onEvent?: (event: AgentSessionRegistryEvent) => void
+  onStreamingEvent?: (event: AgentStreamingEvent) => void
 }
 
 const DEFAULT_MAX_LIVE_SESSIONS = 4
@@ -106,10 +114,12 @@ export class AgentSessionRegistry {
         }
 
         this.suspendCandidateIfNeeded()
+        const unsubscribe = piSession.subscribe((event) => this.options.onStreamingEvent?.(event))
         this.sessions.set(sessionId, {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           piSession,
+          unsubscribe,
           lastAccessedAt: this.now()
         })
 
@@ -154,6 +164,27 @@ export class AgentSessionRegistry {
     })
   }
 
+  async prompt(request: PromptAgentSessionRequest): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error('agent.sessionNotFound')
+
+    const message = request.message.trim()
+    if (!message) throw new Error('agent.emptyPrompt')
+
+    session.lastAccessedAt = this.now()
+    await session.piSession.prompt(message)
+  }
+
+  async abort(request: AbortAgentSessionRequest): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error('agent.sessionNotFound')
+
+    session.lastAccessedAt = this.now()
+    await session.piSession.abort()
+  }
+
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
     const sessionId = request.sessionId.trim()
     const session = this.sessions.get(sessionId)
@@ -165,6 +196,7 @@ export class AgentSessionRegistry {
       return
     }
 
+    session.unsubscribe()
     session.piSession.dispose()
     this.sessions.delete(sessionId)
     this.dormantSessions.delete(sessionId)
@@ -183,6 +215,7 @@ export class AgentSessionRegistry {
   dispose(): void {
     this.disposed = true
     for (const session of this.sessions.values()) {
+      session.unsubscribe()
       session.piSession.dispose()
     }
     this.sessions.clear()
@@ -226,6 +259,7 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       piSession,
+      unsubscribe: piSession.subscribe((event) => this.options.onStreamingEvent?.(event)),
       lastAccessedAt: this.now()
     }
 
@@ -286,6 +320,7 @@ export class AgentSessionRegistry {
     }
     const state = this.toDormantState(sessionId, dormantSession)
 
+    session.unsubscribe()
     session.piSession.dispose()
     this.sessions.delete(sessionId)
     this.dormantSessions.set(sessionId, dormantSession)

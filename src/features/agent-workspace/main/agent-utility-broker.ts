@@ -2,20 +2,25 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   AgentPingRequest,
+  AbortAgentSessionRequest,
   AgentPingResponse,
   AgentSessionState,
+  AgentStreamingEvent,
   AgentUtilityFrame,
   AgentUtilityResponse,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest
 } from '../../../shared/agent-protocol'
 import {
+  createAgentAbortCommand,
   createAgentCreateSessionCommand,
   createAgentDeleteSessionCommand,
   createAgentGetStateCommand,
   createAgentListSessionsCommand,
-  createAgentPingCommand
+  createAgentPingCommand,
+  createAgentPromptCommand
 } from '../../../shared/agent-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
@@ -52,7 +57,8 @@ export class AgentUtilityBroker {
   private readonly createRequestId: () => string
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
-  private readonly onEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
+  private readonly forwardEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
+  private readonly streamingEventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private disposed = false
 
   constructor(
@@ -62,7 +68,7 @@ export class AgentUtilityBroker {
     this.createRequestId = options.createRequestId ?? randomUUID
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
-    this.onEvent = options.onEvent
+    this.forwardEvent = options.onEvent
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -94,10 +100,28 @@ export class AgentUtilityBroker {
     return this.send(createAgentListSessionsCommand(this.createRequestId())) as Promise<AgentSessionState[]>
   }
 
+  async prompt(request: PromptAgentSessionRequest): Promise<void> {
+    await this.send(createAgentPromptCommand(this.createRequestId(), request), {
+      timeoutMs: this.sessionLifecycleTimeoutMs
+    })
+  }
+
+  async abort(request: AbortAgentSessionRequest): Promise<void> {
+    await this.send(createAgentAbortCommand(this.createRequestId(), request), {
+      timeoutMs: this.sessionLifecycleTimeoutMs
+    })
+  }
+
+  onEvent(listener: (event: AgentStreamingEvent) => void): () => void {
+    this.streamingEventListeners.add(listener)
+    return () => this.streamingEventListeners.delete(listener)
+  }
+
   dispose(reason = new Error('agent.utilityUnavailable')): void {
     if (this.disposed) return
 
     this.disposed = true
+    this.streamingEventListeners.clear()
     this.rejectPendingRequests(reason)
   }
 
@@ -130,7 +154,10 @@ export class AgentUtilityBroker {
 
   private handleFrame(frame: AgentUtilityFrame): void {
     if (frame.type === 'agent.event') {
-      this.onEvent?.(frame)
+      this.forwardEvent?.(frame)
+      if (frame.event === 'agent.streaming') {
+        this.emitEvent(frame.payload)
+      }
       return
     }
 
@@ -141,6 +168,10 @@ export class AgentUtilityBroker {
 
     this.pendingRequests.delete(frame.requestId)
     this.resolvePendingRequest(frame, pendingRequest)
+  }
+
+  private emitEvent(event: AgentStreamingEvent): void {
+    for (const listener of this.streamingEventListeners) listener(event)
   }
 
   private resolvePendingRequest(frame: AgentUtilityResponse, pendingRequest: PendingRequest): void {

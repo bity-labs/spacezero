@@ -9,6 +9,9 @@ function createFakeSession(overrides: Partial<CreatedPiAgentSession> = {}): Crea
     isStreaming: false,
     modelProvider: 'faux',
     modelId: 'faux-1',
+    prompt: async () => undefined,
+    abort: async () => undefined,
+    subscribe: () => () => undefined,
     dispose: () => {},
     ...overrides
   }
@@ -406,6 +409,49 @@ describe('AgentSessionRegistry', () => {
     await expect(rehydratePromise).rejects.toThrow('agent.sessionRegistryDisposed')
     expect(disposed).toBe(true)
     await expect(registry.listSessions()).resolves.toEqual([])
+  })
+
+  it('prompts and aborts an existing Pi session', async () => {
+    let prompted = ''
+    let aborted = false
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () =>
+        createFakeSession({
+          prompt: async (message) => {
+            prompted = message
+          },
+          abort: async () => {
+            aborted = true
+          }
+        })
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    await registry.prompt({ sessionId: 'session-1', message: '  hello agent  ' })
+    await registry.abort({ sessionId: 'session-1' })
+
+    expect(prompted).toBe('hello agent')
+    expect(aborted).toBe(true)
+  })
+
+  it('forwards streaming events from the Pi session with the session id', async () => {
+    const events: unknown[] = []
+    let listener: ((event: { type: 'agent_start'; sessionId: string }) => void) | undefined
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () =>
+        createFakeSession({
+          subscribe: (next) => {
+            listener = next
+            return () => undefined
+          }
+        }),
+      onStreamingEvent: (event) => events.push(event)
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    listener?.({ type: 'agent_start', sessionId: 'session-1' })
+
+    expect(events).toEqual([{ type: 'agent_start', sessionId: 'session-1' }])
   })
 
   it('keeps the existing live session active when creating a replacement fails', async () => {

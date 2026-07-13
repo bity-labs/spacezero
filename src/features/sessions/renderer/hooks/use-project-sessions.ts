@@ -11,6 +11,7 @@ export function useProjectSessions(): {
   error: string | null
   refreshSessions: () => Promise<void>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+  upsertProjectSession: (session: ProjectSession) => void
 } {
   const [sessions, setSessions] = useState<ProjectSession[]>([])
   const [status, setStatus] = useState<ProjectSessionsStatus>('loading')
@@ -61,6 +62,13 @@ export function useProjectSessions(): {
     return session
   }, [])
 
+  const upsertProjectSession = useCallback((session: ProjectSession) => {
+    setSessions((currentSessions) => {
+      const withoutDuplicate = currentSessions.filter((existing) => existing.id !== session.id)
+      return [...withoutDuplicate, session]
+    })
+  }, [])
+
   const sessionsByProjectId = useMemo(() => {
     const grouped = new Map<string, ProjectSession[]>()
     for (const session of sessions) {
@@ -69,5 +77,5 @@ export function useProjectSessions(): {
     return grouped
   }, [sessions])
 
-  return { sessions, sessionsByProjectId, status, error, refreshSessions, createProjectSession }
+  return { sessions, sessionsByProjectId, status, error, refreshSessions, createProjectSession, upsertProjectSession }
 }
