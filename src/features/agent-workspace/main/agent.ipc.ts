@@ -40,10 +40,7 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.resolveToolConfirmation, (_event, input) => {
-    resolveToolConfirmationRequestSchema.parse(input)
-    // Confirmation answers intentionally enter through main so safety policy,
-    // activity history, and paused tool-call routing can stay main-owned per ADR 0005/0006.
-    // The utility-side paused-call resolver is added with the Workspace Tool confirmation slice.
-    throw new Error('agent.toolConfirmationResolverUnavailable')
+    const request = resolveToolConfirmationRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().resolveToolConfirmation(request)
   })
 }

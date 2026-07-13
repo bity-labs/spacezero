@@ -36,21 +36,34 @@ describe('agent session projection reducer', () => {
     expect(next.lastSeq).toBe(2)
   })
 
-  it('ignores stale non-snapshot events by sequence number', () => {
+  it('ignores stale events by sequence number, including authoritative snapshots', () => {
     const state = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
       type: 'agent_start',
       sessionId: 'session-1',
       seq: 2
     })
 
-    const next = reduceAgentSessionProjectionState(state, {
+    const staleIncremental = reduceAgentSessionProjectionState(state, {
       type: 'agent_end',
       sessionId: 'session-1',
       seq: 1
     })
 
-    expect(next).toBe(state)
-    expect(next.status).toBe('running')
+    expect(staleIncremental).toBe(state)
+    expect(staleIncremental.status).toBe('running')
+
+    const staleSnapshot = reduceAgentSessionProjectionState(state, {
+      type: 'snapshot',
+      sessionId: 'session-1',
+      seq: 1,
+      snapshot: {
+        status: 'idle',
+        messages: [{ role: 'user', content: 'stale', timestamp: 100 }]
+      }
+    })
+
+    expect(staleSnapshot).toBe(state)
+    expect(staleSnapshot.messages).toEqual([])
   })
 
   it('merges maximal assistant and tool-result runs into one UI assistant message', () => {

@@ -5,6 +5,7 @@ import {
   createAgentListSessionsCommand,
   createAgentPingCommand,
   createAgentPingResponse,
+  createAgentResolveToolConfirmationCommand,
   createAgentSuccessResponse,
   type AgentSessionState
 } from './agent-protocol'
@@ -92,6 +93,21 @@ describe('agent utility framing protocol', () => {
       sessionId: 'session-1',
       result: undefined
     })
+  })
 
+  it('tags tool confirmation answer commands with the session and call id', () => {
+    expect(
+      createAgentResolveToolConfirmationCommand('request-1', {
+        sessionId: 'session-1',
+        callId: 'call-1',
+        approved: false
+      })
+    ).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.resolveToolConfirmation',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', callId: 'call-1', approved: false }
+    })
   })
 })

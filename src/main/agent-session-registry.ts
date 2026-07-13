@@ -4,7 +4,8 @@ import type {
   AgentSessionState,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
 
 export type CreatedPiAgentSession = {
@@ -178,6 +179,19 @@ export class AgentSessionRegistry {
         this.toDormantState(sessionId, session)
       )
     ].sort((a, b) => a.sessionId.localeCompare(b.sessionId))
+  }
+
+  async resolveToolConfirmation(
+    request: ResolveAgentToolConfirmationCommandRequest
+  ): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      session.lastAccessedAt = this.now()
+      return
+    }
+
+    if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
   }
 
   dispose(): void {

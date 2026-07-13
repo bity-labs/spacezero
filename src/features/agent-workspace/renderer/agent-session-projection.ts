@@ -45,7 +45,7 @@ export function reduceAgentSessionProjectionState(
   event: AgentSessionProjectionEvent
 ): AgentSessionProjectionState {
   if (event.sessionId !== state.sessionId) return state
-  if (event.type !== 'snapshot' && event.seq <= state.lastSeq) return state
+  if (event.seq <= state.lastSeq) return state
 
   const stamp = (next: AgentSessionProjectionState): AgentSessionProjectionState => ({
     ...next,
