@@ -21,6 +21,15 @@ export type GetAgentSessionStateRequest = {
   sessionId: AgentSessionId
 }
 
+export type PromptAgentSessionRequest = {
+  sessionId: AgentSessionId
+  message: string
+}
+
+export type AbortAgentSessionRequest = {
+  sessionId: AgentSessionId
+}
+
 export type DeleteAgentSessionRequest = {
   sessionId: AgentSessionId
 }
@@ -38,12 +47,30 @@ export type AgentSessionState = {
   modelId: string | undefined
 }
 
+export type AgentStreamingEventType =
+  | 'agent_start'
+  | 'turn_start'
+  | 'message_start'
+  | 'message_update'
+  | 'message_end'
+  | 'turn_end'
+  | 'agent_end'
+
+export type AgentStreamingEvent = {
+  type: AgentStreamingEventType
+  sessionId: AgentSessionId
+  messageId?: string
+  delta?: string
+}
+
 export type AgentUtilityCommandName =
   | 'agent.ping'
   | 'agent.createSession'
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'agent.prompt'
+  | 'agent.abort'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
@@ -77,6 +104,12 @@ export type AgentUtilityEvent =
       event: 'agent.sessionSuspended'
       sessionId: AgentSessionId
       payload: AgentSessionState
+    }
+  | {
+      type: 'agent.event'
+      event: 'agent.streaming'
+      sessionId: AgentSessionId
+      payload: AgentStreamingEvent
     }
 
 export type AgentUtilityEventName = AgentUtilityEvent['event']
@@ -165,6 +198,32 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
     requestId,
     command: 'agent.listSessions',
     sessionId: 'agent-session-list'
+  }
+}
+
+export function createAgentPromptCommand(
+  requestId: string,
+  request: PromptAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.prompt',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentAbortCommand(
+  requestId: string,
+  request: AbortAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.abort',
+    sessionId: request.sessionId,
+    payload: request
   }
 }
 

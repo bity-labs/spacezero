@@ -150,6 +150,50 @@ describe('AgentUtilityBroker', () => {
     await expect(listPromise).resolves.toEqual([createdSession])
   })
 
+  it('prompts, aborts, and relays streaming events by session id', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const events: unknown[] = []
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+    broker.onEvent((event) => events.push(event))
+
+    const promptPromise = broker.prompt({ sessionId: 'session-1', message: 'Hello' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.prompt',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', message: 'Hello' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'session-1', result: undefined })
+    await expect(promptPromise).resolves.toBeUndefined()
+
+    port.emit({
+      type: 'agent.event',
+      event: 'agent.streaming',
+      sessionId: 'session-1',
+      payload: {
+        type: 'message_update',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        delta: 'Hi'
+      }
+    })
+
+    const abortPromise = broker.abort({ sessionId: 'session-1' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.abort',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-2', ok: true, sessionId: 'session-1', result: undefined })
+    await expect(abortPromise).resolves.toBeUndefined()
+
+    expect(events).toEqual([{ type: 'message_update', sessionId: 'session-1', messageId: 'message-1', delta: 'Hi' }])
+  })
+
   it('routes session-tagged utility events without resolving pending requests', async () => {
     const port = new FakeAgentUtilityPort()
     const events: AgentUtilityFrame[] = []

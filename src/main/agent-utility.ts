@@ -7,12 +7,14 @@ import { AgentSessionRegistry } from './agent-session-registry'
 import { createPiAgentSessionFactory } from './pi-agent-session-factory'
 import type {
   AgentUtilityCommand,
+  AbortAgentSessionRequest,
   AgentUtilityConnectMessage,
   AgentUtilityFrame,
   AgentUtilityResponse,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest
 } from '../shared/agent-protocol'
 import { createAgentPingResponse, createAgentSuccessResponse } from '../shared/agent-protocol'
 
@@ -77,6 +79,16 @@ async function handleCommand(
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 
+    if (command.command === 'agent.prompt') {
+      await sessionRegistry.prompt(command.payload as PromptAgentSessionRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.abort') {
+      await sessionRegistry.abort(command.payload as AbortAgentSessionRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
     return createFailureResponse(command, `Unknown agent utility command: ${command.command}`, 'agent.unknownCommand')
   } catch (error) {
     return createFailureResponse(command, error instanceof Error ? error.message : String(error))
@@ -103,6 +115,14 @@ function attachAgentPort(port: MessagePortMain): void {
         event: event.event,
         sessionId: event.sessionId,
         payload: event.state
+      })
+    },
+    onStreamingEvent: (event) => {
+      port.postMessage({
+        type: 'agent.event',
+        event: 'agent.streaming',
+        sessionId: event.sessionId,
+        payload: event
       })
     }
   })

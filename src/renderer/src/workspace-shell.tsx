@@ -111,7 +111,8 @@ export function WorkspaceShell(): React.JSX.Element {
     sessionsByProjectId,
     status: sessionsStatus,
     error: sessionsError,
-    createProjectSession
+    refreshSessions,
+    upsertProjectSession
   } = useProjectSessions()
   const activeProjectSession =
     activeSurface?.kind === 'project'
@@ -154,8 +155,17 @@ export function WorkspaceShell(): React.JSX.Element {
 
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
-    const session = await createProjectSession({ projectId: project.id })
-    setActiveSurface({ kind: 'project', sessionId: session.id })
+    const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
+    upsertProjectSession({
+      id: agentSession.sessionId,
+      projectId: agentSession.projectId,
+      title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
+      status: agentSession.status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    })
+    await refreshSessions()
+    setActiveSurface({ kind: 'project', sessionId: agentSession.sessionId })
   }
 
   function handleSelectSession(session: ProjectSession): void {

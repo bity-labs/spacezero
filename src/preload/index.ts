@@ -26,6 +26,8 @@ const api: SpaceZeroAPI = {
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
     getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.getState, request),
     listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.agent.listSessions),
+    prompt: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.prompt, request),
+    abort: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.abort, request),
     onEvent: (handler) => {
       const listener = (_event: IpcRendererEvent, payload: unknown): void => {
         handler(payload as Parameters<typeof handler>[0])
