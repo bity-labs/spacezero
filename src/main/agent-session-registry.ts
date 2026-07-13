@@ -188,10 +188,11 @@ export class AgentSessionRegistry {
     const session = this.sessions.get(sessionId)
     if (session) {
       session.lastAccessedAt = this.now()
-      return
+      throw new Error('agent.toolConfirmationResolverUnavailable')
     }
 
     if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
+    throw new Error('agent.toolConfirmationResolverUnavailable')
   }
 
   dispose(): void {

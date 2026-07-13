@@ -85,11 +85,6 @@ async function handleCommand(
 
     if (command.command === 'agent.getState') {
       const result = await sessionRegistry.getState(command.payload as GetAgentSessionStateRequest)
-      emitProjectionEvent({
-        type: 'snapshot',
-        sessionId: result.sessionId,
-        snapshot: { status: result.status, messages: [] }
-      })
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 
