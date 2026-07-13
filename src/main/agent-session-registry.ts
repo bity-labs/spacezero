@@ -59,6 +59,7 @@ export class AgentSessionRegistry {
   private readonly sessions = new Map<string, RegisteredAgentSession>()
   private readonly dormantSessions = new Map<string, DormantAgentSession>()
   private readonly creatingSessionIds = new Set<string>()
+  private readonly rehydratingSessionIds = new Set<string>()
   private readonly pendingDeleteSessionIds = new Set<string>()
   private lifecycleQueue: Promise<void> = Promise.resolve()
   private readonly maxLiveSessions: number
@@ -123,10 +124,25 @@ export class AgentSessionRegistry {
       return this.toLiveState(sessionId, session)
     }
 
-    const dormantSession = this.dormantSessions.get(sessionId)
-    if (!dormantSession) throw new Error('agent.sessionNotFound')
+    if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
 
-    return this.enqueueLifecycle(() => this.rehydrateSession(sessionId, dormantSession))
+    return this.enqueueLifecycle(async () => {
+      const liveSession = this.sessions.get(sessionId)
+      if (liveSession) {
+        liveSession.lastAccessedAt = this.now()
+        return this.toLiveState(sessionId, liveSession)
+      }
+
+      const dormantSession = this.dormantSessions.get(sessionId)
+      if (!dormantSession) throw new Error('agent.sessionNotFound')
+
+      this.rehydratingSessionIds.add(sessionId)
+      try {
+        return await this.rehydrateSession(sessionId, dormantSession)
+      } finally {
+        this.rehydratingSessionIds.delete(sessionId)
+      }
+    })
   }
 
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
@@ -134,7 +150,9 @@ export class AgentSessionRegistry {
     const session = this.sessions.get(sessionId)
     if (!session) {
       this.dormantSessions.delete(sessionId)
-      if (this.creatingSessionIds.has(sessionId)) this.pendingDeleteSessionIds.add(sessionId)
+      if (this.creatingSessionIds.has(sessionId) || this.rehydratingSessionIds.has(sessionId)) {
+        this.pendingDeleteSessionIds.add(sessionId)
+      }
       return
     }
 
@@ -160,6 +178,7 @@ export class AgentSessionRegistry {
     this.sessions.clear()
     this.dormantSessions.clear()
     this.creatingSessionIds.clear()
+    this.rehydratingSessionIds.clear()
     this.pendingDeleteSessionIds.clear()
   }
 
@@ -188,6 +207,11 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       piSession,
       lastAccessedAt: this.now()
+    }
+
+    if (this.pendingDeleteSessionIds.delete(sessionId) || this.dormantSessions.get(sessionId) !== dormantSession) {
+      piSession.dispose()
+      throw new Error('agent.sessionRehydrationCancelled')
     }
 
     try {
