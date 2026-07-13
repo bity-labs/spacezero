@@ -29,12 +29,24 @@ test('launches the Electron app shell with sandboxed preload IPC available', asy
             ping: () => Promise<string>
           }
           db: { health: () => Promise<{ ok: boolean; path: string; projectCount: number }> }
+          agent: {
+            ping: () => Promise<{
+              sessionId: string
+              message: 'pong-from-agent-utility'
+              utilityProcessId: number | null
+            }>
+          }
         }
       }
     ).spacezero
 
-    const [info, ping, health] = await Promise.all([api.app.getInfo(), api.app.ping(), api.db.health()])
-    return { info, ping, health }
+    const [info, ping, health, agentPing] = await Promise.all([
+      api.app.getInfo(),
+      api.app.ping(),
+      api.db.health(),
+      api.agent.ping()
+    ])
+    return { info, ping, health, agentPing }
   })
 
   expect(sandbox).toBe(true)
@@ -44,6 +56,11 @@ test('launches the Electron app shell with sandboxed preload IPC available', asy
   expect(bridgeResult.ping).toBe('pong')
   expect(bridgeResult.health.ok).toBe(true)
   expect(bridgeResult.health.projectCount).toBeGreaterThanOrEqual(0)
+  expect(bridgeResult.agentPing).toMatchObject({
+    sessionId: 'agent-ping',
+    message: 'pong-from-agent-utility'
+  })
+  expect(bridgeResult.agentPing.utilityProcessId).toEqual(expect.any(Number))
 
   await electronApp.close()
 })
