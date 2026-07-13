@@ -33,9 +33,10 @@ function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
 }
 
 const agentDir = process.env.SPACEZERO_AGENT_DIR ?? join(process.cwd(), '.spacezero-agent')
+const WORKSPACE_TOOL_REQUEST_TIMEOUT_MS = 30_000
 const pendingWorkspaceToolRequests = new Map<
   string,
-  { resolve: (result: WorkspaceToolResult) => void; reject: (error: Error) => void }
+  { resolve: (result: WorkspaceToolResult) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
 >()
 let agentPort: MessagePortMain | undefined
 
@@ -49,7 +50,12 @@ function executeWorkspaceToolInMain(request: ExecuteWorkspaceToolRequest): Promi
 
   const requestId = randomUUID()
   return new Promise((resolve, reject) => {
-    pendingWorkspaceToolRequests.set(requestId, { resolve, reject })
+    const timeout = setTimeout(() => {
+      if (!pendingWorkspaceToolRequests.delete(requestId)) return
+      reject(new Error('workspace-tool-request-timeout'))
+    }, WORKSPACE_TOOL_REQUEST_TIMEOUT_MS)
+
+    pendingWorkspaceToolRequests.set(requestId, { resolve, reject, timeout })
     agentPort!.postMessage(createExecuteWorkspaceToolCommand(requestId, request))
   })
 }
@@ -125,6 +131,7 @@ function handleResponse(response: AgentUtilityResponse): void {
   if (!pending) return
 
   pendingWorkspaceToolRequests.delete(response.requestId)
+  clearTimeout(pending.timeout)
   if (response.ok) {
     pending.resolve(response.result as WorkspaceToolResult)
     return
@@ -166,6 +173,7 @@ function attachAgentPort(port: MessagePortMain): void {
   port.on('close', () => {
     agentPort = undefined
     for (const pending of pendingWorkspaceToolRequests.values()) {
+      clearTimeout(pending.timeout)
       pending.reject(new Error('workspace-tool-port-closed'))
     }
     pendingWorkspaceToolRequests.clear()

@@ -1,6 +1,14 @@
+import { useEffect, useMemo, useState } from 'react'
+
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
-import { ChatInput, type AiChatMessage, type AiChatThinkingLevel } from '@renderer/components/ai-chat'
+import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
+import {
+  ChatInput,
+  type AiChatMessage,
+  type AiChatThinkingLevel,
+  type AiChatToolCallPart
+} from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
 
 const hostModels = [
@@ -28,10 +36,13 @@ export function ProjectSessionHostSurface({
   thinkingLevel,
   onThinkingChange
 }: ProjectSessionHostSurfaceProps): React.JSX.Element {
+  const messages = useMemo(() => createProjectSessionPlaceholderMessages(project, session), [project, session])
+
   return (
     <SessionHostFrame
+      sessionId={session.id}
       status={session.status === 'running' ? 'running' : 'idle'}
-      messages={createProjectSessionPlaceholderMessages(project, session)}
+      messages={messages}
       thinkingLevel={thinkingLevel}
       onThinkingChange={onThinkingChange}
       placeholder={`Message ${project.name} / ${session.title}…`}
@@ -44,10 +55,13 @@ export function WorkspaceSessionHostSurface({
   thinkingLevel,
   onThinkingChange
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
+  const messages = useMemo(() => createWorkspaceSessionPlaceholderMessages(session), [session])
+
   return (
     <SessionHostFrame
+      sessionId={session.id}
       status={session.status === 'running' ? 'running' : 'idle'}
-      messages={createWorkspaceSessionPlaceholderMessages(session)}
+      messages={messages}
       thinkingLevel={thinkingLevel}
       onThinkingChange={onThinkingChange}
       placeholder="Ask about Space Zero…"
@@ -56,6 +70,7 @@ export function WorkspaceSessionHostSurface({
 }
 
 type SessionHostFrameProps = {
+  sessionId: string
   status: 'idle' | 'running'
   messages: AiChatMessage[]
   thinkingLevel: AiChatThinkingLevel
@@ -64,16 +79,19 @@ type SessionHostFrameProps = {
 }
 
 function SessionHostFrame({
+  sessionId,
   status,
   messages,
   thinkingLevel,
   onThinkingChange,
   placeholder
 }: SessionHostFrameProps): React.JSX.Element {
+  const projectedMessages = useToolExecutionMessages(sessionId, messages)
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
       <AgentChat
-        messages={messages}
+        messages={projectedMessages}
         contentClassName="px-4 py-4"
         composer={
           <ChatInput
@@ -88,6 +106,71 @@ function SessionHostFrame({
       />
     </div>
   )
+}
+
+function useToolExecutionMessages(sessionId: string, baseMessages: AiChatMessage[]): AiChatMessage[] {
+  const [toolExecutionState, setToolExecutionState] = useState<{
+    sessionId: string
+    toolCalls: AiChatToolCallPart[]
+  }>({ sessionId, toolCalls: [] })
+
+  useEffect(() => {
+    return window.spacezero.agent.onToolExecution((event) => {
+      if (event.sessionId !== sessionId) return
+
+      setToolExecutionState((current) => ({
+        sessionId,
+        toolCalls: upsertToolCall(current.sessionId === sessionId ? current.toolCalls : [], event)
+      }))
+    })
+  }, [sessionId])
+
+  return useMemo(() => {
+    const toolCalls = toolExecutionState.sessionId === sessionId ? toolExecutionState.toolCalls : []
+    if (toolCalls.length === 0) return baseMessages
+
+    return [
+      ...baseMessages,
+      {
+        id: `${sessionId}-workspace-tool-executions`,
+        role: 'assistant',
+        status: toolCalls.some((toolCall) => toolCall.state === 'running') ? 'streaming' : 'complete',
+        parts: toolCalls
+      }
+    ]
+  }, [baseMessages, sessionId, toolExecutionState])
+}
+
+function upsertToolCall(
+  toolCalls: AiChatToolCallPart[],
+  event: AgentToolExecutionEvent
+): AiChatToolCallPart[] {
+  const nextPart: AiChatToolCallPart = {
+    type: 'tool-call',
+    callId: event.callId,
+    toolName: event.toolName,
+    state: event.state,
+    input: event.input,
+    output: event.output,
+    error: event.error
+  }
+  const existingIndex = toolCalls.findIndex((toolCall) => toolCall.callId === event.callId)
+
+  if (existingIndex === -1) return [...toolCalls, nextPart]
+
+  return toolCalls.map((toolCall, index) =>
+    index === existingIndex ? mergeToolCall(toolCall, nextPart) : toolCall
+  )
+}
+
+function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): AiChatToolCallPart {
+  return {
+    ...current,
+    ...next,
+    input: next.input ?? current.input,
+    output: next.output ?? current.output,
+    error: next.error ?? current.error
+  }
 }
 
 function createProjectSessionPlaceholderMessages(
