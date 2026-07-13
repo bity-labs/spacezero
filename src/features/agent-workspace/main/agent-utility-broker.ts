@@ -7,10 +7,12 @@ import type {
   AgentUtilityFrame,
   AgentUtilityResponse,
   CreateAgentSessionRequest,
+  DeleteAgentSessionRequest,
   GetAgentSessionStateRequest
 } from '../../../shared/agent-protocol'
 import {
   createAgentCreateSessionCommand,
+  createAgentDeleteSessionCommand,
   createAgentGetStateCommand,
   createAgentListSessionsCommand,
   createAgentPingCommand
@@ -24,7 +26,7 @@ export type AgentUtilityPort = {
   onClose: (handler: () => void) => void
 }
 
-type AgentUtilityResult = AgentPingResponse | AgentSessionState | AgentSessionState[]
+type AgentUtilityResult = AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
 
 type PendingRequest = {
   resolve: (response: AgentUtilityResult) => void
@@ -59,6 +61,10 @@ export class AgentUtilityBroker {
 
   createSession(request: CreateAgentSessionRequest): Promise<AgentSessionState> {
     return this.send(createAgentCreateSessionCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
+  }
+
+  async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
+    await this.send(createAgentDeleteSessionCommand(this.createRequestId(), request))
   }
 
   getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {

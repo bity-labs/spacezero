@@ -98,17 +98,34 @@ describe('AgentUtilityBroker', () => {
     })
     await expect(createPromise).resolves.toEqual(createdSession)
 
-    const statePromise = broker.getState({ sessionId: 'session-1' })
+    const deletePromise = broker.deleteSession({ sessionId: 'session-1' })
     expect(port.postedFrames.at(-1)).toEqual({
       type: 'agent.command',
       requestId: 'request-2',
-      command: 'agent.getState',
+      command: 'agent.deleteSession',
       sessionId: 'session-1',
       payload: { sessionId: 'session-1' }
     })
     port.emit({
       type: 'agent.response',
       requestId: 'request-2',
+      ok: true,
+      sessionId: 'session-1',
+      result: undefined
+    })
+    await expect(deletePromise).resolves.toBeUndefined()
+
+    const statePromise = broker.getState({ sessionId: 'session-1' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-3',
+      command: 'agent.getState',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1' }
+    })
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-3',
       ok: true,
       sessionId: 'session-1',
       result: createdSession
@@ -118,13 +135,13 @@ describe('AgentUtilityBroker', () => {
     const listPromise = broker.listSessions()
     expect(port.postedFrames.at(-1)).toEqual({
       type: 'agent.command',
-      requestId: 'request-3',
+      requestId: 'request-4',
       command: 'agent.listSessions',
       sessionId: 'agent-session-list'
     })
     port.emit({
       type: 'agent.response',
-      requestId: 'request-3',
+      requestId: 'request-4',
       ok: true,
       sessionId: 'agent-session-list',
       result: [createdSession]

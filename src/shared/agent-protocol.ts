@@ -20,6 +20,10 @@ export type GetAgentSessionStateRequest = {
   sessionId: AgentSessionId
 }
 
+export type DeleteAgentSessionRequest = {
+  sessionId: AgentSessionId
+}
+
 export type AgentSessionStatus = 'idle' | 'running'
 
 export type AgentSessionState = {
@@ -32,7 +36,12 @@ export type AgentSessionState = {
   modelId: string
 }
 
-export type AgentUtilityCommandName = 'agent.ping' | 'agent.createSession' | 'agent.getState' | 'agent.listSessions'
+export type AgentUtilityCommandName =
+  | 'agent.ping'
+  | 'agent.createSession'
+  | 'agent.deleteSession'
+  | 'agent.getState'
+  | 'agent.listSessions'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
@@ -53,7 +62,7 @@ export type AgentUtilitySuccessResponse = {
   requestId: string
   ok: true
   sessionId: AgentSessionId
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[]
+  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
 }
 
 export type AgentUtilityFailureResponse = {
@@ -113,6 +122,19 @@ export function createAgentGetStateCommand(
   }
 }
 
+export function createAgentDeleteSessionCommand(
+  requestId: string,
+  request: DeleteAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.deleteSession',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
 export function createAgentListSessionsCommand(requestId: string): AgentUtilityCommand {
   return {
     type: 'agent.command',
@@ -125,7 +147,7 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
 export function createAgentSuccessResponse(
   requestId: string,
   sessionId: AgentSessionId,
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[]
+  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
 ): AgentUtilitySuccessResponse {
   return {
     type: 'agent.response',

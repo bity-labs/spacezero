@@ -1,5 +1,6 @@
 import {
   createAgentCreateSessionCommand,
+  createAgentDeleteSessionCommand,
   createAgentGetStateCommand,
   createAgentListSessionsCommand,
   createAgentPingCommand,
@@ -63,18 +64,33 @@ describe('agent utility framing protocol', () => {
       sessionId: 'session-1',
       payload: { sessionId: 'session-1' }
     })
-    expect(createAgentListSessionsCommand('request-3')).toEqual({
+    expect(createAgentDeleteSessionCommand('request-3', { sessionId: 'session-1' })).toEqual({
       type: 'agent.command',
       requestId: 'request-3',
+      command: 'agent.deleteSession',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1' }
+    })
+    expect(createAgentListSessionsCommand('request-4')).toEqual({
+      type: 'agent.command',
+      requestId: 'request-4',
       command: 'agent.listSessions',
       sessionId: 'agent-session-list'
     })
-    expect(createAgentSuccessResponse('request-4', 'session-1', state)).toEqual({
+    expect(createAgentSuccessResponse('request-5', 'session-1', state)).toEqual({
       type: 'agent.response',
-      requestId: 'request-4',
+      requestId: 'request-5',
       ok: true,
       sessionId: 'session-1',
       result: state
     })
+    expect(createAgentSuccessResponse('request-6', 'session-1', undefined)).toEqual({
+      type: 'agent.response',
+      requestId: 'request-6',
+      ok: true,
+      sessionId: 'session-1',
+      result: undefined
+    })
+
   })
 })

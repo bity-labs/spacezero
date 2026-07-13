@@ -54,6 +54,21 @@ describe('AgentSessionRegistry', () => {
     })
   })
 
+  it('deletes a session and disposes the underlying Pi session', async () => {
+    let disposed = false
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () => createFakeSession({ dispose: () => { disposed = true } })
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+
+    await registry.deleteSession({ sessionId: 'session-1' })
+
+    expect(disposed).toBe(true)
+    await expect(registry.listSessions()).resolves.toEqual([])
+    await expect(registry.getState({ sessionId: 'session-1' })).rejects.toThrow('agent.sessionNotFound')
+  })
+
   it('rejects duplicate and missing sessions', async () => {
     const registry = new AgentSessionRegistry({ createPiSession: async () => createFakeSession() })
 

@@ -25,6 +25,10 @@ function createMemoryRepository({
     },
     async projectExists(projectId) {
       return projects.has(projectId)
+    },
+    async findProjectById(projectId) {
+      if (!projects.has(projectId)) return undefined
+      return { id: projectId, path: `/tmp/${projectId}` }
     }
   }
 }
