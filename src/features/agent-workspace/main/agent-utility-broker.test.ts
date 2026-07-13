@@ -158,11 +158,22 @@ describe('AgentUtilityBroker', () => {
       onEvent: (event) => events.push(event)
     })
 
+    const suspendedSession: AgentSessionState = {
+      sessionId: 'session-1',
+      projectId: 'project-1',
+      cwd: '/repo',
+      status: 'idle',
+      live: false,
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'faux',
+      modelId: 'faux-1'
+    }
+
     port.emit({
       type: 'agent.event',
       event: 'agent.sessionSuspended',
       sessionId: 'session-1',
-      payload: { sessionId: 'session-1' }
+      payload: suspendedSession
     })
 
     expect(events).toEqual([
@@ -170,7 +181,7 @@ describe('AgentUtilityBroker', () => {
         type: 'agent.event',
         event: 'agent.sessionSuspended',
         sessionId: 'session-1',
-        payload: { sessionId: 'session-1' }
+        payload: suspendedSession
       }
     ])
   })

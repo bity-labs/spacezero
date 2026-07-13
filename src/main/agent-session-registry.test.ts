@@ -113,6 +113,39 @@ describe('AgentSessionRegistry', () => {
     await expect(registry.listSessions()).resolves.toEqual([])
   })
 
+  it('disposes an in-flight created Pi session when the registry is disposed', async () => {
+    let resolveCreate: ((session: CreatedPiAgentSession) => void) | undefined
+    let createStarted: (() => void) | undefined
+    const createStartedPromise = new Promise<void>((resolve) => {
+      createStarted = resolve
+    })
+    let disposed = false
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () => {
+        createStarted?.()
+        return new Promise<CreatedPiAgentSession>((resolve) => {
+          resolveCreate = resolve
+        })
+      }
+    })
+
+    const createPromise = registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    await createStartedPromise
+    registry.dispose()
+
+    resolveCreate?.(
+      createFakeSession({
+        dispose: () => {
+          disposed = true
+        }
+      })
+    )
+
+    await expect(createPromise).rejects.toThrow('agent.sessionRegistryDisposed')
+    expect(disposed).toBe(true)
+    await expect(registry.listSessions()).resolves.toEqual([])
+  })
+
   it('rejects duplicate and missing sessions', async () => {
     const registry = new AgentSessionRegistry({ createPiSession: async () => createFakeSession() })
 
@@ -272,6 +305,52 @@ describe('AgentSessionRegistry', () => {
     await expect(registry.listSessions()).resolves.toMatchObject([
       { sessionId: 'session-2', live: true, status: 'idle' }
     ])
+  })
+
+  it('disposes an in-flight rehydrated Pi session when the registry is disposed', async () => {
+    let resolveRehydrate: ((session: CreatedPiAgentSession) => void) | undefined
+    let rehydrateStarted: (() => void) | undefined
+    const rehydrateStartedPromise = new Promise<void>((resolve) => {
+      rehydrateStarted = resolve
+    })
+    let disposed = false
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        if (request.sessionId === 'session-1' && request.transcriptPath) {
+          rehydrateStarted?.()
+          return new Promise<CreatedPiAgentSession>((resolve) => {
+            resolveRehydrate = resolve
+          })
+        }
+
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    const rehydratePromise = registry.getState({ sessionId: 'session-1' })
+    await rehydrateStartedPromise
+    registry.dispose()
+
+    resolveRehydrate?.(
+      createFakeSession({
+        sessionId: 'session-1',
+        sessionFile: '/tmp/spacezero/agent/sessions/session-1.jsonl',
+        dispose: () => {
+          disposed = true
+        }
+      })
+    )
+
+    await expect(rehydratePromise).rejects.toThrow('agent.sessionRegistryDisposed')
+    expect(disposed).toBe(true)
+    await expect(registry.listSessions()).resolves.toEqual([])
   })
 
   it('keeps the existing live session active when creating a replacement fails', async () => {
