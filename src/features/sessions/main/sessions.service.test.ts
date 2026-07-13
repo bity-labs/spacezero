@@ -36,8 +36,9 @@ function createMemoryRepository({
 describe('createSessionsService', () => {
   it('creates project agent session metadata with a transcript path link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository()
     const service = createSessionsService({
-      repository: createMemoryRepository(),
+      repository,
       now: () => now
     })
 
@@ -52,10 +53,13 @@ describe('createSessionsService', () => {
       projectId: 'project-1',
       title: 'Session 1',
       status: 'idle',
-      transcriptPath: '/agent/sessions/session.jsonl',
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     })
+    expect(session).not.toHaveProperty('transcriptPath')
+    await expect(repository.listProjectSessions()).resolves.toEqual([
+      expect.objectContaining({ transcriptPath: '/agent/sessions/session.jsonl' })
+    ])
   })
 
   it('creates project session metadata with an idle typed status', async () => {

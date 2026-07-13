@@ -104,7 +104,6 @@ function toProjectSession(session: StoredSession): ProjectSession {
     title: session.title,
     status: session.status,
     createdAt: session.createdAt.toISOString(),
-    updatedAt: session.updatedAt.toISOString(),
-    transcriptPath: session.transcriptPath ?? undefined
+    updatedAt: session.updatedAt.toISOString()
   }
 }

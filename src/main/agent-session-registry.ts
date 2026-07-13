@@ -26,6 +26,8 @@ type RegisteredAgentSession = {
 
 export class AgentSessionRegistry {
   private readonly sessions = new Map<string, RegisteredAgentSession>()
+  private readonly creatingSessionIds = new Set<string>()
+  private readonly pendingDeleteSessionIds = new Set<string>()
 
   constructor(private readonly options: { createPiSession: CreatePiAgentSession }) {}
 
@@ -34,12 +36,28 @@ export class AgentSessionRegistry {
     const projectId = request.projectId.trim()
     const cwd = resolve(request.cwd)
 
-    if (this.sessions.has(sessionId)) throw new Error('agent.sessionAlreadyExists')
+    if (this.sessions.has(sessionId) || this.creatingSessionIds.has(sessionId)) {
+      throw new Error('agent.sessionAlreadyExists')
+    }
 
-    const piSession = await this.options.createPiSession({ sessionId, projectId, cwd })
-    this.sessions.set(sessionId, { projectId, cwd, piSession })
+    this.creatingSessionIds.add(sessionId)
+    try {
+      const piSession = await this.options.createPiSession({ sessionId, projectId, cwd })
 
-    return this.toState(sessionId, this.sessions.get(sessionId)!)
+      if (this.pendingDeleteSessionIds.delete(sessionId)) {
+        piSession.dispose()
+        throw new Error('agent.sessionCreationCancelled')
+      }
+
+      this.sessions.set(sessionId, { projectId, cwd, piSession })
+
+      return this.toState(sessionId, this.sessions.get(sessionId)!)
+    } catch (error) {
+      this.pendingDeleteSessionIds.delete(sessionId)
+      throw error
+    } finally {
+      this.creatingSessionIds.delete(sessionId)
+    }
   }
 
   async getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {
@@ -53,10 +71,14 @@ export class AgentSessionRegistry {
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
     const sessionId = request.sessionId.trim()
     const session = this.sessions.get(sessionId)
-    if (!session) return
+    if (!session) {
+      if (this.creatingSessionIds.has(sessionId)) this.pendingDeleteSessionIds.add(sessionId)
+      return
+    }
 
     session.piSession.dispose()
     this.sessions.delete(sessionId)
+    this.pendingDeleteSessionIds.delete(sessionId)
   }
 
   async listSessions(): Promise<AgentSessionState[]> {
@@ -68,6 +90,8 @@ export class AgentSessionRegistry {
       session.piSession.dispose()
     }
     this.sessions.clear()
+    this.creatingSessionIds.clear()
+    this.pendingDeleteSessionIds.clear()
   }
 
   private toState(sessionId: string, session: RegisteredAgentSession): AgentSessionState {

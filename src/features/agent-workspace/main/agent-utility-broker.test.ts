@@ -210,4 +210,40 @@ describe('AgentUtilityBroker', () => {
       vi.useRealTimers()
     }
   })
+
+  it('uses a lifecycle timeout for session creation and requests cleanup after timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      let requestNumber = 0
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => `request-${++requestNumber}`,
+        requestTimeoutMs: 10,
+        sessionLifecycleTimeoutMs: 50
+      })
+
+      const createPromise = broker.createSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: '/repo'
+      })
+
+      vi.advanceTimersByTime(10)
+      expect(port.postedFrames).toHaveLength(1)
+
+      vi.advanceTimersByTime(40)
+
+      await expect(createPromise).rejects.toThrow('agent.utilityRequestTimedOut')
+      expect(port.postedFrames.at(-1)).toEqual({
+        type: 'agent.command',
+        requestId: 'request-2',
+        command: 'agent.deleteSession',
+        sessionId: 'session-1',
+        payload: { sessionId: 'session-1' }
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

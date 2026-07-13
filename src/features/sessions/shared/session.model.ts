@@ -7,7 +7,6 @@ export type ProjectSession = {
   status: SessionStatus
   createdAt: string
   updatedAt: string
-  transcriptPath?: string
 }
 
 export type WorkspaceSession = {

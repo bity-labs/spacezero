@@ -57,7 +57,12 @@ describe('AgentSessionRegistry', () => {
   it('deletes a session and disposes the underlying Pi session', async () => {
     let disposed = false
     const registry = new AgentSessionRegistry({
-      createPiSession: async () => createFakeSession({ dispose: () => { disposed = true } })
+      createPiSession: async () =>
+        createFakeSession({
+          dispose: () => {
+            disposed = true
+          }
+        })
     })
 
     await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
@@ -67,6 +72,32 @@ describe('AgentSessionRegistry', () => {
     expect(disposed).toBe(true)
     await expect(registry.listSessions()).resolves.toEqual([])
     await expect(registry.getState({ sessionId: 'session-1' })).rejects.toThrow('agent.sessionNotFound')
+  })
+
+  it('cancels and disposes an in-flight session when deletion arrives before creation completes', async () => {
+    let resolveCreate: ((session: CreatedPiAgentSession) => void) | undefined
+    let disposed = false
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () =>
+        new Promise<CreatedPiAgentSession>((resolve) => {
+          resolveCreate = resolve
+        })
+    })
+
+    const createPromise = registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    await registry.deleteSession({ sessionId: 'session-1' })
+
+    resolveCreate?.(
+      createFakeSession({
+        dispose: () => {
+          disposed = true
+        }
+      })
+    )
+
+    await expect(createPromise).rejects.toThrow('agent.sessionCreationCancelled')
+    expect(disposed).toBe(true)
+    await expect(registry.listSessions()).resolves.toEqual([])
   })
 
   it('rejects duplicate and missing sessions', async () => {
