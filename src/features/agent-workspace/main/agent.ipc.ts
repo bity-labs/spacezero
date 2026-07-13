@@ -8,8 +8,12 @@ import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
 
-const getStateRequestSchema = z.object({
+const sessionIdRequestSchema = z.object({
   sessionId: z.string().trim().min(1)
+})
+
+const promptRequestSchema = sessionIdRequestSchema.extend({
+  message: z.string().trim().min(1)
 })
 
 const resolveToolConfirmationRequestSchema = z.object({
@@ -31,12 +35,22 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {
-    const request = getStateRequestSchema.parse(input)
+    const request = sessionIdRequestSchema.parse(input)
     return getAgentUtilityProcessHost().getState(request)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.listSessions, () => {
     return getAgentUtilityProcessHost().listSessions()
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.prompt, (_event, input) => {
+    const request = promptRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().prompt(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.abort, (_event, input) => {
+    const request = sessionIdRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().abort(request)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.resolveToolConfirmation, (_event, input) => {

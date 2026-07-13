@@ -40,6 +40,8 @@ export const IPC_CHANNELS = {
     createSession: 'agent:createSession',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
+    prompt: 'agent:prompt',
+    abort: 'agent:abort',
     event: 'agent:event',
     sessionProjectionEvent: 'agent:sessionProjectionEvent',
     resolveToolConfirmation: 'agent:resolveToolConfirmation',
@@ -95,6 +97,8 @@ export type SpaceZeroAPI = {
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
+    prompt: (request: { sessionId: string; message: string }) => Promise<void>
+    abort: (request: { sessionId: string }) => Promise<void>
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
     onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>

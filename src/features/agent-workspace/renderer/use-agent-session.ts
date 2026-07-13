@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useEffect, useMemo, useReducer } from 'react'
 
 import type { AiChatMessage } from '@renderer/components/ai-chat'
 
@@ -17,6 +17,8 @@ export type UseAgentSessionResult = {
   sessionState: AgentSessionState | undefined
   status: 'idle' | 'running'
   lastError: string | undefined
+  prompt: (message: string) => Promise<void>
+  abort: () => Promise<void>
   resolveToolConfirmation: (callId: string, approved: boolean) => Promise<void>
 }
 
@@ -70,6 +72,24 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     })
   }, [sessionId])
 
+  const prompt = useCallback(
+    async (message: string) => {
+      const text = message.trim()
+      if (!text) return
+
+      try {
+        await window.spacezero.agent.prompt({ sessionId, message: text })
+      } catch (error) {
+        dispatch({ type: 'load-failed', error: error instanceof Error ? error.message : String(error) })
+      }
+    },
+    [sessionId]
+  )
+
+  const abort = useCallback(async () => {
+    await window.spacezero.agent.abort({ sessionId })
+  }, [sessionId])
+
   const effectiveState = useMemo<HookState>(() => {
     if (state.projection.sessionId === sessionId) return state
 
@@ -90,6 +110,8 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     sessionState: effectiveState.sessionState,
     status: effectiveState.projection.status,
     lastError: effectiveState.projection.lastError,
+    prompt,
+    abort,
     resolveToolConfirmation: (callId, approved) =>
       window.spacezero.agent.resolveToolConfirmation({ sessionId, callId, approved })
   }

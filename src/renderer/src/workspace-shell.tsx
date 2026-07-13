@@ -121,7 +121,8 @@ export function WorkspaceShell(): React.JSX.Element {
     sessionsByProjectId,
     status: sessionsStatus,
     error: sessionsError,
-    createProjectSession
+    refreshSessions,
+    upsertProjectSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
     () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
@@ -184,7 +185,17 @@ export function WorkspaceShell(): React.JSX.Element {
 
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
-    const session = await createProjectSession({ projectId: project.id })
+    const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
+    const session: ProjectSession = {
+      id: agentSession.sessionId,
+      projectId: agentSession.projectId,
+      title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
+      status: agentSession.status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    upsertProjectSession(session)
+    await refreshSessions()
     openProjectSession(session)
   }
 

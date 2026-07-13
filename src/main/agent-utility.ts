@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { AgentSessionRegistry } from './agent-session-registry'
 import { createPiAgentSessionFactory } from './pi-agent-session-factory'
 import type {
+  AbortAgentSessionRequest,
+  AgentStreamingEvent,
   AgentUtilityCommand,
   AgentUtilityConnectMessage,
   AgentUtilityFrame,
@@ -13,10 +15,11 @@ import type {
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest,
+  PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
 import { createAgentPingResponse, createAgentSuccessResponse } from '../shared/agent-protocol'
-import type { AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
+import type { AgentAssistantMessage, AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
 
 function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
   return (
@@ -105,6 +108,26 @@ async function handleCommand(
       return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
     }
 
+    if (command.command === 'agent.prompt') {
+      const request = command.payload as PromptAgentSessionRequest
+      emitProjectionEvent({
+        type: 'message_start',
+        sessionId: request.sessionId,
+        message: {
+          role: 'user',
+          content: request.message,
+          timestamp: Date.now()
+        }
+      })
+      await sessionRegistry.prompt(request)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.abort') {
+      await sessionRegistry.abort(command.payload as AbortAgentSessionRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
     return createFailureResponse(command, `Unknown agent utility command: ${command.command}`, 'agent.unknownCommand')
   } catch (error) {
     return createFailureResponse(command, error instanceof Error ? error.message : String(error))
@@ -123,6 +146,7 @@ function getMaxLiveSessions(): number | undefined {
 
 function attachAgentPort(port: MessagePortMain): void {
   const projectionSeqBySessionId = new Map<string, number>()
+  const assistantMessagesBySessionId = new Map<string, AgentAssistantMessage>()
   const emitProjectionEvent: EmitProjectionEvent = (event) => {
     const seq = (projectionSeqBySessionId.get(event.sessionId) ?? 0) + 1
     projectionSeqBySessionId.set(event.sessionId, seq)
@@ -130,6 +154,55 @@ function attachAgentPort(port: MessagePortMain): void {
       type: 'agent.sessionProjectionEvent',
       event: { ...event, seq }
     })
+  }
+
+  const emitStreamingProjectionEvent = (event: AgentStreamingEvent): void => {
+    if (event.type === 'agent_start' || event.type === 'turn_start') {
+      emitProjectionEvent({ type: 'agent_start', sessionId: event.sessionId })
+      return
+    }
+
+    if (event.type === 'agent_end' || event.type === 'turn_end') {
+      emitProjectionEvent({ type: 'agent_end', sessionId: event.sessionId })
+      return
+    }
+
+    if (event.type === 'message_start') {
+      const message: AgentAssistantMessage = {
+        role: 'assistant',
+        content: [],
+        timestamp: Date.now()
+      }
+      assistantMessagesBySessionId.set(event.sessionId, message)
+      emitProjectionEvent({ type: 'message_start', sessionId: event.sessionId, message })
+      return
+    }
+
+    if (event.type === 'message_update') {
+      const existing = assistantMessagesBySessionId.get(event.sessionId) ?? {
+        role: 'assistant',
+        content: [],
+        timestamp: Date.now()
+      }
+      const currentText = existing.content.find((part) => part.type === 'text')?.text ?? ''
+      const message: AgentAssistantMessage = {
+        ...existing,
+        content: [{ type: 'text', text: `${currentText}${event.delta ?? ''}` }]
+      }
+      assistantMessagesBySessionId.set(event.sessionId, message)
+      emitProjectionEvent({ type: 'message_update', sessionId: event.sessionId, message })
+      return
+    }
+
+    if (event.type === 'message_end') {
+      const message = assistantMessagesBySessionId.get(event.sessionId) ?? {
+        role: 'assistant',
+        content: [],
+        timestamp: Date.now()
+      }
+      assistantMessagesBySessionId.delete(event.sessionId)
+      emitProjectionEvent({ type: 'message_end', sessionId: event.sessionId, message })
+    }
   }
 
   const sessionRegistry = new AgentSessionRegistry({
@@ -142,6 +215,15 @@ function attachAgentPort(port: MessagePortMain): void {
         sessionId: event.sessionId,
         payload: event.state
       })
+    },
+    onStreamingEvent: (event) => {
+      port.postMessage({
+        type: 'agent.event',
+        event: 'agent.streaming',
+        sessionId: event.sessionId,
+        payload: event
+      })
+      emitStreamingProjectionEvent(event)
     }
   })
 

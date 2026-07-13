@@ -124,7 +124,7 @@ describe('App', () => {
     ]
     window.spacezero.projects.list = async () => projects
     window.spacezero.sessions.listProjectSessions = async () => sessions
-    window.spacezero.sessions.createProjectSession = async ({ projectId }) => {
+    window.spacezero.agent.createSession = async ({ projectId, cwd }) => {
       const session = {
         id: 'session-2',
         projectId,
@@ -134,7 +134,16 @@ describe('App', () => {
         updatedAt: new Date(1).toISOString()
       }
       sessions.push(session)
-      return session
+      return {
+        sessionId: session.id,
+        projectId,
+        cwd,
+        status: session.status,
+        live: true,
+        transcriptPath: '/tmp/agent-session-2.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1'
+      }
     }
 
     const rendered = render(<App />)
@@ -147,12 +156,9 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
-    expect(
-      screen.getByText(
-        'Project Session host placeholder. Pi streaming will attach here in a later slice.'
-      )
-    ).toBeInTheDocument()
+    expect(await screen.findByText('Ask the agent to work on this project. Streamed replies appear here.')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
 
     rendered.unmount()
     render(<App />)
@@ -206,31 +212,18 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Session 1/ }))
 
     expect(
-      screen.getByText(
-        'Project Session host placeholder. Pi streaming will attach here in a later slice.'
-      )
+      screen.getByText('Ask the agent to work on this project. Streamed replies appear here.')
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: 'Space Zero → Session 1' })
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
-    expect(
-      screen.getByText('Streaming projection placeholder for the project-bound agent turn.')
-    ).toBeInTheDocument()
-    expect(screen.getByText('project.context.preview')).toBeInTheDocument()
-    expect(
-      screen.getByText('Inline confirmation placeholder for future Workspace Tool requests.')
-    ).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'Space ZeroSession 1'
-    )
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 1')
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
     expect(
-      screen.getAllByText(
-        'Project Session host placeholder. Pi streaming will attach here in a later slice.'
-      ).length
+      screen.getAllByText('Ask the agent to work on this project. Streamed replies appear here.').length
     ).toBeGreaterThan(0)
     expect(screen.getAllByRole('tablist')).toHaveLength(2)
     expect(screen.getByRole('tab', { name: 'Session 1' })).toBeInTheDocument()

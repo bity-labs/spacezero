@@ -125,15 +125,23 @@ describe('useAgentSession', () => {
     ])
   })
 
-  it('routes tool confirmation answers through the preload API', async () => {
+  it('routes prompts, aborts, and tool confirmation answers through the preload API', async () => {
+    const prompt = vi.fn(async () => undefined)
+    const abort = vi.fn(async () => undefined)
     const resolveToolConfirmation = vi.fn(async () => undefined)
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.abort = abort
     window.spacezero.agent.resolveToolConfirmation = resolveToolConfirmation
 
     const { result } = renderHook(() => useAgentSession('session-1'))
     await act(async () => {
+      await result.current.prompt('  Hello  ')
+      await result.current.abort()
       await result.current.resolveToolConfirmation('call-1', true)
     })
 
+    expect(prompt).toHaveBeenCalledWith({ sessionId: 'session-1', message: 'Hello' })
+    expect(abort).toHaveBeenCalledWith({ sessionId: 'session-1' })
     expect(resolveToolConfirmation).toHaveBeenCalledWith({
       sessionId: 'session-1',
       callId: 'call-1',
