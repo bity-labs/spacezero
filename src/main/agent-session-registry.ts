@@ -90,7 +90,7 @@ export class AgentSessionRegistry {
       let piSession: CreatedPiAgentSession | undefined
       try {
         this.throwIfDisposed()
-        const suspensionCandidate = this.findSuspensionCandidate()
+        this.findSuspensionCandidate()
         piSession = await this.options.createPiSession(normalizedRequest)
 
         if (this.disposed) {
@@ -105,7 +105,7 @@ export class AgentSessionRegistry {
           throw new Error('agent.sessionCreationCancelled')
         }
 
-        this.suspendCandidateIfNeeded(suspensionCandidate)
+        this.suspendCandidateIfNeeded()
         this.sessions.set(sessionId, {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
@@ -209,7 +209,7 @@ export class AgentSessionRegistry {
     sessionId: string,
     dormantSession: DormantAgentSession
   ): Promise<AgentSessionState> {
-    const suspensionCandidate = this.findSuspensionCandidate()
+    this.findSuspensionCandidate()
     const piSession = await this.options.createPiSession({
       sessionId,
       projectId: dormantSession.projectId,
@@ -235,7 +235,7 @@ export class AgentSessionRegistry {
     }
 
     try {
-      this.suspendCandidateIfNeeded(suspensionCandidate)
+      this.suspendCandidateIfNeeded()
     } catch (error) {
       piSession.dispose()
       throw error
@@ -269,19 +269,10 @@ export class AgentSessionRegistry {
     return candidate
   }
 
-  private suspendCandidateIfNeeded(candidate: [string, RegisteredAgentSession] | undefined): void {
+  private suspendCandidateIfNeeded(): void {
     if (this.sessions.size < this.maxLiveSessions) return
 
-    let candidateToSuspend = candidate
-    if (candidateToSuspend) {
-      const [sessionId, session] = candidateToSuspend
-      if (this.sessions.get(sessionId) !== session || session.piSession.isStreaming) {
-        candidateToSuspend = this.findSuspensionCandidate()
-      }
-    } else {
-      candidateToSuspend = this.findSuspensionCandidate()
-    }
-
+    const candidateToSuspend = this.findSuspensionCandidate()
     if (!candidateToSuspend) return
 
     const [sessionId, session] = candidateToSuspend

@@ -187,6 +187,61 @@ describe('AgentSessionRegistry', () => {
     ])
   })
 
+  it('recomputes the least recently used idle session after slow replacement creation completes', async () => {
+    let resolveCreate: ((session: CreatedPiAgentSession) => void) | undefined
+    let createStarted: (() => void) | undefined
+    const createStartedPromise = new Promise<void>((resolve) => {
+      createStarted = resolve
+    })
+    const disposedSessionIds: string[] = []
+    let now = 0
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 2,
+      now: () => ++now,
+      createPiSession: async (request) => {
+        if (request.sessionId === 'session-3') {
+          createStarted?.()
+          return new Promise<CreatedPiAgentSession>((resolve) => {
+            resolveCreate = resolve
+          })
+        }
+
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`,
+          dispose: () => disposedSessionIds.push(request.sessionId)
+        })
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    const createPromise = registry.createSession({
+      projectId: 'project-3',
+      sessionId: 'session-3',
+      cwd: '/repo-3'
+    })
+    await createStartedPromise
+    await registry.getState({ sessionId: 'session-1' })
+
+    resolveCreate?.(
+      createFakeSession({
+        sessionId: 'session-3',
+        sessionFile: '/tmp/spacezero/agent/sessions/session-3.jsonl',
+        dispose: () => disposedSessionIds.push('session-3')
+      })
+    )
+    await createPromise
+
+    expect(disposedSessionIds).toEqual(['session-2'])
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      { sessionId: 'session-1', live: true },
+      { sessionId: 'session-2', live: false },
+      { sessionId: 'session-3', live: true }
+    ])
+  })
+
   it('rehydrates a suspended session from its transcript path when summoned', async () => {
     const createRequests: unknown[] = []
     const events: string[] = []

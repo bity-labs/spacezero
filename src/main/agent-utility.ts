@@ -27,17 +27,25 @@ function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
 
 const agentDir = process.env.SPACEZERO_AGENT_DIR ?? join(process.cwd(), '.spacezero-agent')
 
-function createFailureResponse(command: AgentUtilityCommand, message: string): AgentUtilityResponse {
+function createFailureResponse(
+  command: AgentUtilityCommand,
+  message: string,
+  code = getAgentErrorCode(message)
+): AgentUtilityResponse {
   return {
     type: 'agent.response',
     requestId: command.requestId,
     ok: false,
     sessionId: command.sessionId,
     error: {
-      code: 'agent.unknownCommand',
+      code,
       message
     }
   }
+}
+
+function getAgentErrorCode(message: string): string {
+  return /^agent\.[A-Za-z0-9._-]+$/.test(message) ? message : 'agent.commandFailed'
 }
 
 async function handleCommand(
@@ -69,7 +77,7 @@ async function handleCommand(
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 
-    return createFailureResponse(command, `Unknown agent utility command: ${command.command}`)
+    return createFailureResponse(command, `Unknown agent utility command: ${command.command}`, 'agent.unknownCommand')
   } catch (error) {
     return createFailureResponse(command, error instanceof Error ? error.message : String(error))
   }
