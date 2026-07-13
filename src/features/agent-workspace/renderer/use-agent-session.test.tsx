@@ -45,6 +45,7 @@ describe('useAgentSession', () => {
   it('resets projection state when the session changes', async () => {
     let listener: ((event: AgentSessionProjectionEvent) => void) | undefined
     let subscriptionCount = 0
+    const observedResults: Array<ReturnType<typeof useAgentSession>> = []
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       subscriptionCount += 1
       listener = nextListener
@@ -53,9 +54,16 @@ describe('useAgentSession', () => {
       }
     }
 
-    const { result, rerender } = renderHook(({ sessionId }) => useAgentSession(sessionId), {
-      initialProps: { sessionId: 'session-1' }
-    })
+    const { result, rerender } = renderHook(
+      ({ sessionId }) => {
+        const hookResult = useAgentSession(sessionId)
+        observedResults.push(hookResult)
+        return hookResult
+      },
+      {
+        initialProps: { sessionId: 'session-1' }
+      }
+    )
 
     await waitFor(() => expect(result.current.sessionState?.sessionId).toBe('session-1'))
 
@@ -73,7 +81,12 @@ describe('useAgentSession', () => {
 
     expect(result.current.messages).toHaveLength(1)
 
+    observedResults.length = 0
     rerender({ sessionId: 'session-2' })
+
+    expect(observedResults[0].state.sessionId).toBe('session-2')
+    expect(observedResults[0].sessionState).toBeUndefined()
+    expect(observedResults[0].messages).toEqual([])
 
     await waitFor(() => {
       expect(result.current.state.sessionId).toBe('session-2')

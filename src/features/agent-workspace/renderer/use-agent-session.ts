@@ -70,14 +70,26 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     })
   }, [sessionId])
 
-  const messages = useMemo(() => projectAgentSessionMessages(state.projection), [state.projection])
+  const effectiveState = useMemo<HookState>(() => {
+    if (state.projection.sessionId === sessionId) return state
+
+    return {
+      projection: createAgentSessionProjectionState(sessionId),
+      sessionState: undefined
+    }
+  }, [state, sessionId])
+
+  const messages = useMemo(
+    () => projectAgentSessionMessages(effectiveState.projection),
+    [effectiveState.projection]
+  )
 
   return {
-    state: state.projection,
+    state: effectiveState.projection,
     messages,
-    sessionState: state.sessionState,
-    status: state.projection.status,
-    lastError: state.projection.lastError,
+    sessionState: effectiveState.sessionState,
+    status: effectiveState.projection.status,
+    lastError: effectiveState.projection.lastError,
     resolveToolConfirmation: (callId, approved) =>
       window.spacezero.agent.resolveToolConfirmation({ sessionId, callId, approved })
   }
