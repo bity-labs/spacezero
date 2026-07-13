@@ -166,12 +166,10 @@ export class AgentSessionRegistry {
 
   async prompt(request: PromptAgentSessionRequest): Promise<void> {
     const sessionId = request.sessionId.trim()
-    const session = this.sessions.get(sessionId)
-    if (!session) throw new Error('agent.sessionNotFound')
-
     const message = request.message.trim()
     if (!message) throw new Error('agent.emptyPrompt')
 
+    const session = await this.getLiveSession(sessionId)
     session.lastAccessedAt = this.now()
     await session.piSession.prompt(message)
   }
@@ -236,6 +234,32 @@ export class AgentSessionRegistry {
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath
     }
+  }
+
+  private async getLiveSession(sessionId: string): Promise<RegisteredAgentSession> {
+    const session = this.sessions.get(sessionId)
+    if (session) return session
+
+    if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
+
+    return this.enqueueLifecycle(async () => {
+      const liveSession = this.sessions.get(sessionId)
+      if (liveSession) return liveSession
+
+      const dormantSession = this.dormantSessions.get(sessionId)
+      if (!dormantSession) throw new Error('agent.sessionNotFound')
+
+      this.rehydratingSessionIds.add(sessionId)
+      try {
+        this.throwIfDisposed()
+        await this.rehydrateSession(sessionId, dormantSession)
+        const rehydratedSession = this.sessions.get(sessionId)
+        if (!rehydratedSession) throw new Error('agent.sessionNotFound')
+        return rehydratedSession
+      } finally {
+        this.rehydratingSessionIds.delete(sessionId)
+      }
+    })
   }
 
   private async rehydrateSession(
