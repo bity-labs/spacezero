@@ -1,4 +1,5 @@
 import {
+  app,
   MessageChannelMain,
   type MessageEvent,
   type MessagePortMain,
@@ -8,7 +9,14 @@ import {
 import log from 'electron-log/main'
 import { join } from 'node:path'
 
-import type { AgentPingRequest, AgentPingResponse, AgentUtilityFrame } from '../../../shared/agent-protocol'
+import type {
+  AgentPingRequest,
+  AgentPingResponse,
+  AgentSessionState,
+  AgentUtilityFrame,
+  CreateAgentSessionRequest,
+  GetAgentSessionStateRequest
+} from '../../../shared/agent-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
 
@@ -46,7 +54,11 @@ export class AgentUtilityProcessHost {
 
     this.stopping = false
     const utility = utilityProcess.fork(join(__dirname, 'agent-utility.js'), [], {
-      serviceName: 'spacezero-agent-utility'
+      serviceName: 'spacezero-agent-utility',
+      env: {
+        ...process.env,
+        SPACEZERO_AGENT_DIR: join(app.getPath('userData'), 'agent')
+      }
     })
     const { port1, port2 } = new MessageChannelMain()
     const mainPort = new MessagePortMainAgentUtilityPort(port1)
@@ -74,13 +86,29 @@ export class AgentUtilityProcessHost {
   }
 
   ping(request: AgentPingRequest): Promise<AgentPingResponse> {
+    return this.getBroker().ping(request)
+  }
+
+  createSession(request: CreateAgentSessionRequest): Promise<AgentSessionState> {
+    return this.getBroker().createSession(request)
+  }
+
+  getState(request: GetAgentSessionStateRequest): Promise<AgentSessionState> {
+    return this.getBroker().getState(request)
+  }
+
+  listSessions(): Promise<AgentSessionState[]> {
+    return this.getBroker().listSessions()
+  }
+
+  private getBroker(): AgentUtilityBroker {
     this.start()
 
     if (!this.broker) {
       throw new Error('agent.utilityUnavailable')
     }
 
-    return this.broker.ping(request)
+    return this.broker
   }
 
   stop(): void {

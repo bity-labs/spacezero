@@ -96,6 +96,25 @@ beforeEach(async () => {
         message: 'pong-from-agent-utility',
         utilityProcessId: 1234
       }),
+      createSession: async ({ projectId, cwd }) => ({
+        sessionId: 'agent-session-test',
+        projectId,
+        cwd,
+        status: 'idle',
+        transcriptPath: '/tmp/agent-session-test.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1'
+      }),
+      getState: async ({ sessionId }) => ({
+        sessionId,
+        projectId: 'project-test',
+        cwd: '/tmp/project-test',
+        status: 'idle',
+        transcriptPath: '/tmp/agent-session-test.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1'
+      }),
+      listSessions: async () => [],
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],

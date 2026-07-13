@@ -9,6 +9,13 @@ export type StoredSession = {
   status: SessionStatus
   createdAt: Date
   updatedAt: Date
+  transcriptPath?: string | null
+}
+
+export type CreateProjectAgentSessionRequest = {
+  id: string
+  projectId: string
+  transcriptPath?: string
 }
 
 export type SessionsRepository = {
@@ -23,6 +30,7 @@ export type Clock = () => Date
 export type SessionsService = {
   listProjectSessions: () => Promise<ProjectSession[]>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+  createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
 }
 
 export function createSessionsService({
@@ -56,6 +64,26 @@ export function createSessionsService({
           updatedAt: timestamp
         })
       )
+    },
+
+    async createProjectAgentSession(request) {
+      const projectId = request.projectId.trim()
+      if (!(await repository.projectExists(projectId))) throw new Error('Project not found')
+
+      const timestamp = now()
+      const title = `Session ${(await repository.countByProjectId(projectId)) + 1}`
+
+      return toProjectSession(
+        await repository.create({
+          id: request.id.trim(),
+          projectId,
+          title,
+          status: 'idle',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          transcriptPath: request.transcriptPath
+        })
+      )
     }
   }
 }
@@ -75,6 +103,7 @@ function toProjectSession(session: StoredSession): ProjectSession {
     title: session.title,
     status: session.status,
     createdAt: session.createdAt.toISOString(),
-    updatedAt: session.updatedAt.toISOString()
+    updatedAt: session.updatedAt.toISOString(),
+    transcriptPath: session.transcriptPath ?? undefined
   }
 }

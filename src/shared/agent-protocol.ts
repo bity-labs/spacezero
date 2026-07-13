@@ -10,13 +10,36 @@ export type AgentPingResponse = {
   utilityProcessId: number | null
 }
 
-export type AgentUtilityCommandName = 'agent.ping'
+export type CreateAgentSessionRequest = {
+  sessionId: AgentSessionId
+  projectId: string
+  cwd: string
+}
+
+export type GetAgentSessionStateRequest = {
+  sessionId: AgentSessionId
+}
+
+export type AgentSessionStatus = 'idle' | 'running'
+
+export type AgentSessionState = {
+  sessionId: AgentSessionId
+  projectId: string
+  cwd: string
+  status: AgentSessionStatus
+  transcriptPath: string | undefined
+  modelProvider: string
+  modelId: string
+}
+
+export type AgentUtilityCommandName = 'agent.ping' | 'agent.createSession' | 'agent.getState' | 'agent.listSessions'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
   requestId: string
   command: AgentUtilityCommandName
   sessionId: AgentSessionId
+  payload?: unknown
 }
 
 export type AgentUtilityEvent = {
@@ -30,7 +53,7 @@ export type AgentUtilitySuccessResponse = {
   requestId: string
   ok: true
   sessionId: AgentSessionId
-  result: AgentPingResponse
+  result: AgentPingResponse | AgentSessionState | AgentSessionState[]
 }
 
 export type AgentUtilityFailureResponse = {
@@ -61,6 +84,55 @@ export function createAgentPingCommand(
     requestId,
     command: 'agent.ping',
     sessionId: request.sessionId
+  }
+}
+
+export function createAgentCreateSessionCommand(
+  requestId: string,
+  request: CreateAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.createSession',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentGetStateCommand(
+  requestId: string,
+  request: GetAgentSessionStateRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.getState',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentListSessionsCommand(requestId: string): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.listSessions',
+    sessionId: 'agent-session-list'
+  }
+}
+
+export function createAgentSuccessResponse(
+  requestId: string,
+  sessionId: AgentSessionId,
+  result: AgentPingResponse | AgentSessionState | AgentSessionState[]
+): AgentUtilitySuccessResponse {
+  return {
+    type: 'agent.response',
+    requestId,
+    ok: true,
+    sessionId,
+    result
   }
 }
 

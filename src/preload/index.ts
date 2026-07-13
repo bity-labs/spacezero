@@ -23,6 +23,9 @@ const api: SpaceZeroAPI = {
   },
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
+    createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
+    getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.getState, request),
+    listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.agent.listSessions),
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),
