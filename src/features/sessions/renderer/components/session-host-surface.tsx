@@ -35,6 +35,7 @@ export function ProjectSessionHostSurface({
     <SessionHostFrame
       status={agentSession.status}
       messages={agentSession.messages}
+      error={agentSession.error}
       thinkingLevel={thinkingLevel}
       onThinkingChange={onThinkingChange}
       placeholder={`Message ${project.name} / ${session.title}…`}
@@ -63,6 +64,7 @@ export function WorkspaceSessionHostSurface({
 type SessionHostFrameProps = {
   status: 'idle' | 'running'
   messages: AiChatMessage[]
+  error?: string | null
   thinkingLevel: AiChatThinkingLevel
   onThinkingChange: (level: AiChatThinkingLevel) => void
   placeholder: string
@@ -73,6 +75,7 @@ type SessionHostFrameProps = {
 function SessionHostFrame({
   status,
   messages,
+  error,
   thinkingLevel,
   onThinkingChange,
   placeholder,
@@ -81,6 +84,14 @@ function SessionHostFrame({
 }: SessionHostFrameProps): React.JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+      {error ? (
+        <div
+          className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          Agent prompt failed: {error}
+        </div>
+      ) : null}
       <AgentChat
         messages={messages}
         emptyState={emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined}
@@ -92,7 +103,7 @@ function SessionHostFrame({
             onThinkingChange={onThinkingChange}
             onSubmit={({ text }) => onSubmit?.(text)}
             placeholder={placeholder}
-            status={status === 'running' ? 'streaming' : 'ready'}
+            status={status === 'running' ? 'streaming' : error ? 'error' : 'ready'}
           />
         }
       />
