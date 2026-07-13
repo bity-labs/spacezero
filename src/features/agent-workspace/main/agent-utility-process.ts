@@ -90,6 +90,11 @@ export class AgentUtilityProcessHost {
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(IPC_CHANNELS.agent.event, event)
         }
+      },
+      onProjectionEvent: ({ event }) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
+        }
       }
     })
   }
@@ -112,6 +117,14 @@ export class AgentUtilityProcessHost {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.getBroker().listSessions()
+  }
+
+  resolveToolConfirmation(request: {
+    sessionId: string
+    callId: string
+    approved: boolean
+  }): Promise<void> {
+    return this.getBroker().resolveToolConfirmation(request)
   }
 
   private getBroker(): AgentUtilityBroker {

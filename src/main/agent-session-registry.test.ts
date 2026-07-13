@@ -408,6 +408,16 @@ describe('AgentSessionRegistry', () => {
     await expect(registry.listSessions()).resolves.toEqual([])
   })
 
+  it('fails tool confirmation answers explicitly until a resolver is wired', async () => {
+    const registry = new AgentSessionRegistry({ createPiSession: async () => createFakeSession() })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+
+    await expect(
+      registry.resolveToolConfirmation({ sessionId: 'session-1', callId: 'call-1', approved: true })
+    ).rejects.toThrow('agent.toolConfirmationResolverUnavailable')
+  })
+
   it('keeps the existing live session active when creating a replacement fails', async () => {
     const disposedSessionIds: string[] = []
     const events: string[] = []

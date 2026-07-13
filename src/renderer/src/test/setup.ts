@@ -120,6 +120,8 @@ beforeEach(async () => {
       }),
       listSessions: async () => [],
       onEvent: () => () => undefined,
+      onSessionProjectionEvent: () => () => undefined,
+      resolveToolConfirmation: async () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],

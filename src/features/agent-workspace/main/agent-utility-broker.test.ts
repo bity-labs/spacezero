@@ -186,6 +186,68 @@ describe('AgentUtilityBroker', () => {
     ])
   })
 
+  it('routes projection events from the utility to the dedicated projection handler', () => {
+    const port = new FakeAgentUtilityPort()
+    const projectionEvents: AgentUtilityFrame[] = []
+    new AgentUtilityBroker(port, {
+      createRequestId: () => 'request-1',
+      onProjectionEvent: (event) => projectionEvents.push(event)
+    })
+
+    port.emit({
+      type: 'agent.sessionProjectionEvent',
+      event: {
+        type: 'snapshot',
+        sessionId: 'session-1',
+        seq: 1,
+        snapshot: { status: 'idle', messages: [] }
+      }
+    })
+
+    expect(projectionEvents).toEqual([
+      {
+        type: 'agent.sessionProjectionEvent',
+        event: {
+          type: 'snapshot',
+          sessionId: 'session-1',
+          seq: 1,
+          snapshot: { status: 'idle', messages: [] }
+        }
+      }
+    ])
+  })
+
+  it('routes tool confirmation answers to the utility as session-tagged commands', async () => {
+    const port = new FakeAgentUtilityPort()
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })
+
+    const answerPromise = broker.resolveToolConfirmation({
+      sessionId: 'session-1',
+      callId: 'call-1',
+      approved: true
+    })
+
+    expect(port.postedFrames).toEqual([
+      {
+        type: 'agent.command',
+        requestId: 'request-1',
+        command: 'agent.resolveToolConfirmation',
+        sessionId: 'session-1',
+        payload: { sessionId: 'session-1', callId: 'call-1', approved: true }
+      }
+    ])
+
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-1',
+      ok: true,
+      sessionId: 'session-1',
+      result: undefined
+    })
+
+    await expect(answerPromise).resolves.toBeUndefined()
+  })
+
   it('rejects a pending command when the utility reports a failure', async () => {
     const port = new FakeAgentUtilityPort()
     const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })
