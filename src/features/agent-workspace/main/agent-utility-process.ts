@@ -1,5 +1,6 @@
 import {
   app,
+  BrowserWindow,
   MessageChannelMain,
   type MessageEvent,
   type MessagePortMain,
@@ -18,6 +19,7 @@ import type {
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest
 } from '../../../shared/agent-protocol'
+import { IPC_CHANNELS } from '../../../shared/ipc'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
 
@@ -83,7 +85,13 @@ export class AgentUtilityProcessHost {
 
     this.utility = utility
     this.mainPort = mainPort
-    this.broker = new AgentUtilityBroker(mainPort)
+    this.broker = new AgentUtilityBroker(mainPort, {
+      onEvent: (event) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.webContents.send(IPC_CHANNELS.agent.event, event)
+        }
+      }
+    })
   }
 
   ping(request: AgentPingRequest): Promise<AgentPingResponse> {
