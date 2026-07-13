@@ -10,6 +10,7 @@ import type {
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
+import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
 
 export type CreatedPiAgentSession = {
   sessionId: string
@@ -40,6 +41,7 @@ export type AgentSessionRegistryEvent =
 type RegisteredAgentSession = {
   projectId: string
   cwd: string
+  workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -48,6 +50,7 @@ type RegisteredAgentSession = {
 type DormantAgentSession = {
   projectId: string
   cwd: string
+  workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
@@ -119,6 +122,7 @@ export class AgentSessionRegistry {
         this.sessions.set(sessionId, {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
+          workspaceTools: normalizedRequest.workspaceTools,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -247,7 +251,8 @@ export class AgentSessionRegistry {
       sessionId: request.sessionId.trim(),
       projectId: request.projectId.trim(),
       cwd: resolve(request.cwd),
-      transcriptPath: request.transcriptPath
+      transcriptPath: request.transcriptPath,
+      workspaceTools: request.workspaceTools
     }
   }
 
@@ -286,7 +291,8 @@ export class AgentSessionRegistry {
       sessionId,
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
-      transcriptPath: dormantSession.transcriptPath
+      transcriptPath: dormantSession.transcriptPath,
+      workspaceTools: dormantSession.workspaceTools
     })
 
     if (this.disposed) {
@@ -297,6 +303,7 @@ export class AgentSessionRegistry {
     const liveSession: RegisteredAgentSession = {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
+      workspaceTools: dormantSession.workspaceTools,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -352,6 +359,7 @@ export class AgentSessionRegistry {
     const dormantSession: DormantAgentSession = {
       projectId: session.projectId,
       cwd: session.cwd,
+      workspaceTools: session.workspaceTools,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,

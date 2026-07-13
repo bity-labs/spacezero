@@ -195,8 +195,8 @@ export function WorkspaceShell(): React.JSX.Element {
       updatedAt: new Date().toISOString()
     }
     upsertProjectSession(session)
-    await refreshSessions()
     openProjectSession(session)
+    await refreshSessions()
   }
 
   function handleSelectSession(session: ProjectSession): void {

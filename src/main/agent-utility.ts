@@ -1,6 +1,7 @@
 import type { MessagePortMain } from 'electron/main'
 import type { MessageEvent, ParentPort } from 'electron/utility'
 
+import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import { AgentSessionRegistry } from './agent-session-registry'
@@ -18,8 +19,14 @@ import type {
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
-import { createAgentPingResponse, createAgentSuccessResponse } from '../shared/agent-protocol'
+import {
+  createAgentPingResponse,
+  createAgentSuccessResponse,
+  createExecuteWorkspaceToolCommand
+} from '../shared/agent-protocol'
+import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type { AgentAssistantMessage, AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
+import type { ExecuteWorkspaceToolRequest } from '../shared/workspace-tool-protocol'
 
 function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
   return (
@@ -31,6 +38,32 @@ function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
 }
 
 const agentDir = process.env.SPACEZERO_AGENT_DIR ?? join(process.cwd(), '.spacezero-agent')
+const WORKSPACE_TOOL_REQUEST_TIMEOUT_MS = 30_000
+const pendingWorkspaceToolRequests = new Map<
+  string,
+  { resolve: (result: WorkspaceToolResult) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
+>()
+let agentPort: MessagePortMain | undefined
+
+function executeWorkspaceToolInMain(request: ExecuteWorkspaceToolRequest): Promise<WorkspaceToolResult> {
+  if (!agentPort) {
+    return Promise.resolve({
+      ok: false,
+      error: { code: 'workspace-tool-port-unavailable', message: 'Workspace Tool port unavailable' }
+    })
+  }
+
+  const requestId = randomUUID()
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (!pendingWorkspaceToolRequests.delete(requestId)) return
+      reject(new Error('workspace-tool-request-timeout'))
+    }, WORKSPACE_TOOL_REQUEST_TIMEOUT_MS)
+
+    pendingWorkspaceToolRequests.set(requestId, { resolve, reject, timeout })
+    agentPort!.postMessage(createExecuteWorkspaceToolCommand(requestId, request))
+  })
+}
 
 function createFailureResponse(
   command: AgentUtilityCommand,
@@ -144,7 +177,22 @@ function getMaxLiveSessions(): number | undefined {
   return Number.parseInt(trimmedValue, 10)
 }
 
+function handleResponse(response: AgentUtilityResponse): void {
+  const pending = pendingWorkspaceToolRequests.get(response.requestId)
+  if (!pending) return
+
+  pendingWorkspaceToolRequests.delete(response.requestId)
+  clearTimeout(pending.timeout)
+  if (response.ok) {
+    pending.resolve(response.result as WorkspaceToolResult)
+    return
+  }
+
+  pending.reject(new Error(response.error.message))
+}
+
 function attachAgentPort(port: MessagePortMain): void {
+  agentPort = port
   const projectionSeqBySessionId = new Map<string, number>()
   const assistantMessagesBySessionId = new Map<string, AgentAssistantMessage>()
   const emitProjectionEvent: EmitProjectionEvent = (event) => {
@@ -206,7 +254,10 @@ function attachAgentPort(port: MessagePortMain): void {
   }
 
   const sessionRegistry = new AgentSessionRegistry({
-    createPiSession: createPiAgentSessionFactory({ agentDir }),
+    createPiSession: createPiAgentSessionFactory({
+      agentDir,
+      executeWorkspaceTool: (request) => executeWorkspaceToolInMain(request)
+    }),
     maxLiveSessions: getMaxLiveSessions(),
     onEvent: (event) => {
       port.postMessage({
@@ -230,13 +281,26 @@ function attachAgentPort(port: MessagePortMain): void {
   port.on('message', (event: MessageEvent) => {
     const frame = event.data as AgentUtilityFrame
 
+    if (frame.type === 'agent.response') {
+      handleResponse(frame)
+      return
+    }
+
     if (frame.type !== 'agent.command') return
 
     void handleCommand(frame, sessionRegistry, emitProjectionEvent).then((response) =>
       port.postMessage(response)
     )
   })
-  port.on('close', () => sessionRegistry.dispose())
+  port.on('close', () => {
+    agentPort = undefined
+    for (const pending of pendingWorkspaceToolRequests.values()) {
+      clearTimeout(pending.timeout)
+      pending.reject(new Error('workspace-tool-port-closed'))
+    }
+    pendingWorkspaceToolRequests.clear()
+    sessionRegistry.dispose()
+  })
   port.start()
 }
 
