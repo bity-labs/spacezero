@@ -1,3 +1,9 @@
+import type {
+  ExecuteWorkspaceToolRequest,
+  ExecuteWorkspaceToolResponse,
+  WorkspaceToolAgentDescriptor
+} from './workspace-tool-protocol'
+
 export type AgentSessionId = string
 
 export type AgentPingRequest = {
@@ -15,6 +21,7 @@ export type CreateAgentSessionRequest = {
   projectId: string
   cwd: string
   transcriptPath?: string
+  workspaceTools?: WorkspaceToolAgentDescriptor[]
 }
 
 export type GetAgentSessionStateRequest = {
@@ -44,6 +51,7 @@ export type AgentUtilityCommandName =
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'workspaceTool.execute'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
@@ -51,6 +59,11 @@ export type AgentUtilityCommand = {
   command: AgentUtilityCommandName
   sessionId: AgentSessionId
   payload?: unknown
+}
+
+export type ExecuteWorkspaceToolCommand = AgentUtilityCommand & {
+  command: 'workspaceTool.execute'
+  payload: ExecuteWorkspaceToolRequest
 }
 
 export type AgentUtilityEvent =
@@ -81,12 +94,19 @@ export type AgentUtilityEvent =
 
 export type AgentUtilityEventName = AgentUtilityEvent['event']
 
+export type AgentUtilityResult =
+  | AgentPingResponse
+  | AgentSessionState
+  | AgentSessionState[]
+  | ExecuteWorkspaceToolResponse
+  | undefined
+
 export type AgentUtilitySuccessResponse = {
   type: 'agent.response'
   requestId: string
   ok: true
   sessionId: AgentSessionId
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
+  result: AgentUtilityResult
 }
 
 export type AgentUtilityFailureResponse = {
@@ -168,10 +188,23 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
   }
 }
 
+export function createExecuteWorkspaceToolCommand(
+  requestId: string,
+  request: ExecuteWorkspaceToolRequest
+): ExecuteWorkspaceToolCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'workspaceTool.execute',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
 export function createAgentSuccessResponse(
   requestId: string,
   sessionId: AgentSessionId,
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
+  result: AgentUtilityResult
 ): AgentUtilitySuccessResponse {
   return {
     type: 'agent.response',

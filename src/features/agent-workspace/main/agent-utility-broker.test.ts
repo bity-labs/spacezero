@@ -186,6 +186,43 @@ describe('AgentUtilityBroker', () => {
     ])
   })
 
+  it('executes Workspace Tool proxy commands from the utility through main', async () => {
+    const port = new FakeAgentUtilityPort()
+    const executeWorkspaceTool = vi.fn(async () => ({ ok: true as const, data: { status: 'ready' } }))
+    new AgentUtilityBroker(port, { executeWorkspaceTool })
+
+    port.emit({
+      type: 'agent.command',
+      requestId: 'tool-request-1',
+      command: 'workspaceTool.execute',
+      sessionId: 'session-1',
+      payload: {
+        sessionId: 'session-1',
+        toolName: 'workspace.getStatus',
+        input: {},
+        safetyLevel: 'read',
+        callId: 'call-1'
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(port.postedFrames).toContainEqual({
+        type: 'agent.response',
+        requestId: 'tool-request-1',
+        ok: true,
+        sessionId: 'session-1',
+        result: { ok: true, data: { status: 'ready' } }
+      })
+    })
+    expect(executeWorkspaceTool).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      toolName: 'workspace.getStatus',
+      input: {},
+      safetyLevel: 'read',
+      callId: 'call-1'
+    })
+  })
+
   it('rejects a pending command when the utility reports a failure', async () => {
     const port = new FakeAgentUtilityPort()
     const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })

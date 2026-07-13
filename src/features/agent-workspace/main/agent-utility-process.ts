@@ -20,8 +20,10 @@ import type {
   GetAgentSessionStateRequest
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
+import { getWorkspaceToolExecutor } from './workspace-tool-control-plane'
 
 class MessagePortMainAgentUtilityPort implements AgentUtilityPort {
   constructor(private readonly port: MessagePortMain) {}
@@ -90,6 +92,27 @@ export class AgentUtilityProcessHost {
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(IPC_CHANNELS.agent.event, event)
         }
+      },
+      executeWorkspaceTool: async (request) => {
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: 'running',
+          input: request.input
+        })
+
+        const result = await getWorkspaceToolExecutor().execute(request.toolName, request.input)
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: result.ok ? 'success' : 'error',
+          input: request.input,
+          output: result,
+          error: result.ok ? undefined : result.error.message
+        })
+        return result
       }
     })
   }
@@ -112,6 +135,12 @@ export class AgentUtilityProcessHost {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.getBroker().listSessions()
+  }
+
+  private sendToolExecution(event: AgentToolExecutionEvent): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.agent.toolExecution, event)
+    }
   }
 
   private getBroker(): AgentUtilityBroker {

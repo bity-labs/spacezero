@@ -5,13 +5,20 @@ import {
   AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
+  defineTool,
   ModelRegistry,
   SessionManager,
-  type AgentSession
+  type AgentSession,
+  type ToolDefinition
 } from '@earendil-works/pi-coding-agent'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
+import type {
+  ExecuteWorkspaceToolRequest,
+  WorkspaceToolAgentDescriptor
+} from '../shared/workspace-tool-protocol'
 import type { CreatedPiAgentSession } from './agent-session-registry'
 
 const FAUX_PROVIDER_ID = 'faux'
@@ -20,9 +27,13 @@ const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls
 
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
+  executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
 }
 
-export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryOptions) {
+export function createPiAgentSessionFactory({
+  agentDir,
+  executeWorkspaceTool
+}: PiAgentSessionFactoryOptions) {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
 
@@ -69,11 +80,17 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
     const sessionManager = request.transcriptPath
       ? SessionManager.open(request.transcriptPath, sessionsDir, request.cwd)
       : SessionManager.create(request.cwd, sessionsDir)
+    const customTools = createWorkspaceToolProxies({
+      sessionId: request.sessionId,
+      descriptors: request.workspaceTools ?? [],
+      executeWorkspaceTool
+    })
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
       model: modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
-      tools: PROJECT_TOOL_NAMES,
+      tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
+      customTools,
       sessionManager,
       authStorage,
       modelRegistry,
@@ -82,6 +99,48 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
 
     return adaptAgentSession(session)
   }
+}
+
+function createWorkspaceToolProxies({
+  sessionId,
+  descriptors,
+  executeWorkspaceTool
+}: {
+  sessionId: string
+  descriptors: WorkspaceToolAgentDescriptor[]
+  executeWorkspaceTool: PiAgentSessionFactoryOptions['executeWorkspaceTool']
+}): ToolDefinition[] {
+  return descriptors.map((descriptor) =>
+    defineTool({
+      name: descriptor.name,
+      label: descriptor.name,
+      description: descriptor.description,
+      parameters: descriptor.parameters as ToolDefinition['parameters'],
+      execute: async (callId, input) => {
+        const result = executeWorkspaceTool
+          ? await executeWorkspaceTool({
+              sessionId,
+              callId,
+              toolName: descriptor.name,
+              input,
+              safetyLevel: descriptor.safetyLevel
+            })
+          : {
+              ok: false,
+              error: {
+                code: 'workspace-tool-unavailable',
+                message: 'Workspace Tool executor unavailable'
+              }
+            }
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          isError: !result.ok,
+          details: result
+        }
+      }
+    } as ToolDefinition)
+  )
 }
 
 function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {

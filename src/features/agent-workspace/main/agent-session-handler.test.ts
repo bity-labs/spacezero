@@ -60,7 +60,10 @@ describe('createProjectAgentSession', () => {
     expect(utilityHost.createSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
       projectId: 'project-1',
-      cwd: '/repo'
+      cwd: '/repo',
+      workspaceTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+      ])
     })
   })
 
@@ -105,7 +108,10 @@ describe('createProjectAgentSession', () => {
     expect(utilityHost.createSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
       projectId: 'project-1',
-      cwd: '/repo'
+      cwd: '/repo',
+      workspaceTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+      ])
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
   })

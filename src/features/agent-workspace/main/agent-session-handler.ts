@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
+import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
@@ -33,7 +34,8 @@ export async function createProjectAgentSession(
   const state = await utilityHost.createSession({
     sessionId,
     projectId: request.projectId,
-    cwd: projectPath
+    cwd: projectPath,
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
   })
 
   try {

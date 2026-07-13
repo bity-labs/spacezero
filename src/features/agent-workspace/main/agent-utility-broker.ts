@@ -6,6 +6,7 @@ import type {
   AgentSessionState,
   AgentUtilityFrame,
   AgentUtilityResponse,
+  AgentUtilityResult,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest
@@ -17,6 +18,7 @@ import {
   createAgentListSessionsCommand,
   createAgentPingCommand
 } from '../../../shared/agent-protocol'
+import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000
@@ -26,8 +28,6 @@ export type AgentUtilityPort = {
   onMessage: (handler: (frame: AgentUtilityFrame) => void) => void
   onClose: (handler: () => void) => void
 }
-
-type AgentUtilityResult = AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
 
 type PendingRequest = {
   resolve: (response: AgentUtilityResult) => void
@@ -40,6 +40,7 @@ type AgentUtilityBrokerOptions = {
   requestTimeoutMs?: number
   sessionLifecycleTimeoutMs?: number
   onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
+  executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
 }
 
 type SendOptions = {
@@ -53,6 +54,7 @@ export class AgentUtilityBroker {
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
   private readonly onEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
+  private readonly executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
   private disposed = false
 
   constructor(
@@ -63,6 +65,7 @@ export class AgentUtilityBroker {
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
     this.onEvent = options.onEvent
+    this.executeWorkspaceTool = options.executeWorkspaceTool
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -129,6 +132,11 @@ export class AgentUtilityBroker {
   }
 
   private handleFrame(frame: AgentUtilityFrame): void {
+    if (frame.type === 'agent.command' && frame.command === 'workspaceTool.execute') {
+      void this.handleWorkspaceToolCommand(frame)
+      return
+    }
+
     if (frame.type === 'agent.event') {
       this.onEvent?.(frame)
       return
@@ -141,6 +149,41 @@ export class AgentUtilityBroker {
 
     this.pendingRequests.delete(frame.requestId)
     this.resolvePendingRequest(frame, pendingRequest)
+  }
+
+  private async handleWorkspaceToolCommand(frame: AgentUtilityFrame & { type: 'agent.command' }): Promise<void> {
+    if (!this.executeWorkspaceTool) {
+      this.port.postMessage({
+        type: 'agent.response',
+        requestId: frame.requestId,
+        ok: false,
+        sessionId: frame.sessionId,
+        error: { code: 'workspace-tool-unavailable', message: 'Workspace Tool executor unavailable' }
+      })
+      return
+    }
+
+    try {
+      const result = await this.executeWorkspaceTool(frame.payload as ExecuteWorkspaceToolRequest)
+      this.port.postMessage({
+        type: 'agent.response',
+        requestId: frame.requestId,
+        ok: true,
+        sessionId: frame.sessionId,
+        result
+      })
+    } catch (error) {
+      this.port.postMessage({
+        type: 'agent.response',
+        requestId: frame.requestId,
+        ok: false,
+        sessionId: frame.sessionId,
+        error: {
+          code: 'workspace-tool-error',
+          message: error instanceof Error ? error.message : String(error)
+        }
+      })
+    }
   }
 
   private resolvePendingRequest(frame: AgentUtilityResponse, pendingRequest: PendingRequest): void {
