@@ -119,6 +119,8 @@ beforeEach(async () => {
         modelId: 'faux-1'
       }),
       listSessions: async () => [],
+      prompt: async () => undefined,
+      abort: async () => undefined,
       onEvent: () => () => undefined,
       onSessionProjectionEvent: () => () => undefined,
       resolveToolConfirmation: async () => undefined,
