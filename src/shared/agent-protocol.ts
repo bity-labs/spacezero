@@ -2,6 +2,8 @@ import type {
   AgentSessionProjectionEvent,
   AgentTranscriptMessage
 } from './agent-session-projection.model'
+import type { AuthTestResult, ModelAuthSettings } from './model-auth'
+import type { AvailableModel } from './model-settings'
 import type {
   ExecuteWorkspaceToolRequest,
   ExecuteWorkspaceToolResponse,
@@ -43,6 +45,15 @@ export type AbortAgentSessionRequest = {
 
 export type DeleteAgentSessionRequest = {
   sessionId: AgentSessionId
+}
+
+export type AgentAddApiKeyRequest = {
+  providerId: string
+  apiKey: string
+}
+
+export type AgentProviderRequest = {
+  providerId: string
 }
 
 export type ResolveAgentToolConfirmationCommandRequest = {
@@ -87,6 +98,11 @@ export type AgentUtilityCommandName =
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'agent.addApiKey'
+  | 'agent.removeApiKey'
+  | 'agent.getAuthStatus'
+  | 'agent.getAvailableModels'
+  | 'agent.testAuth'
   | 'agent.resolveToolConfirmation'
   | 'agent.prompt'
   | 'agent.abort'
@@ -144,6 +160,9 @@ export type AgentUtilityResult =
   | AgentSessionState
   | AgentSessionState[]
   | ExecuteWorkspaceToolResponse
+  | ModelAuthSettings
+  | AvailableModel[]
+  | AuthTestResult
   | undefined
 
 export type AgentUtilitySuccessResponse = {
@@ -239,6 +258,63 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
     requestId,
     command: 'agent.listSessions',
     sessionId: 'agent-session-list'
+  }
+}
+
+export function createAgentAddApiKeyCommand(
+  requestId: string,
+  request: AgentAddApiKeyRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.addApiKey',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentRemoveApiKeyCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.removeApiKey',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentGetAuthStatusCommand(requestId: string): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.getAuthStatus',
+    sessionId: 'agent-auth'
+  }
+}
+
+export function createAgentGetAvailableModelsCommand(requestId: string): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.getAvailableModels',
+    sessionId: 'agent-auth'
+  }
+}
+
+export function createAgentTestAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.testAuth',
+    sessionId: 'agent-auth',
+    payload: request
   }
 }
 

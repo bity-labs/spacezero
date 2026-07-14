@@ -12,8 +12,10 @@ import { join } from 'node:path'
 
 import type {
   AbortAgentSessionRequest,
+  AgentAddApiKeyRequest,
   AgentPingRequest,
   AgentPingResponse,
+  AgentProviderRequest,
   AgentSessionState,
   AgentStreamingEvent,
   AgentUtilityFrame,
@@ -24,6 +26,8 @@ import type {
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
+import type { AvailableModel } from '../../../shared/model-settings'
 import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
@@ -146,6 +150,26 @@ export class AgentUtilityProcessHost {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.getBroker().listSessions()
+  }
+
+  addApiKey(request: AgentAddApiKeyRequest): Promise<void> {
+    return this.getBroker().addApiKey(request)
+  }
+
+  removeApiKey(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().removeApiKey(request)
+  }
+
+  getAuthStatus(): Promise<ModelAuthSettings> {
+    return this.getBroker().getAuthStatus()
+  }
+
+  getAvailableModels(): Promise<AvailableModel[]> {
+    return this.getBroker().getAvailableModels()
+  }
+
+  testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
+    return this.getBroker().testAuth(request)
   }
 
   resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {

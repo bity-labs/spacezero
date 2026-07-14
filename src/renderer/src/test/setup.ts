@@ -141,9 +141,14 @@ beforeEach(async () => {
           ]
         }
       }),
+      getAuthStatus: async () => ({
+        subscriptions: { connected: [], availableProviders: [] },
+        apiKeys: { configured: [], availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }] }
+      }),
       getAvailableModels: async () => [],
       addApiKey: async () => undefined,
       removeApiKey: async () => undefined,
+      testAuth: async () => ({ ok: true }),
       loginOAuth: async () => undefined,
       logoutOAuth: async () => undefined
     },

@@ -12,6 +12,7 @@ import {
   getAvailableModels,
   getModelAuthSettings,
   loginOAuth,
+  testAuth,
   logoutOAuth,
   removeApiKey
 } from './model-auth-settings.service'
@@ -56,6 +57,8 @@ export function registerSettingsIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.agent.getModelAuthSettings, () => getModelAuthSettings())
 
+  ipcMain.handle(IPC_CHANNELS.agent.getAuthStatus, () => getModelAuthSettings())
+
   ipcMain.handle(IPC_CHANNELS.agent.getAvailableModels, () => getAvailableModels())
 
   ipcMain.handle(IPC_CHANNELS.agent.addApiKey, (_event, request: unknown) => {
@@ -76,6 +79,16 @@ export function registerSettingsIpc(): void {
     }
 
     return removeApiKey(parsedRequest.data.providerId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.testAuth, (_event, request: unknown) => {
+    const parsedRequest = providerRequestSchema.safeParse(request)
+
+    if (!parsedRequest.success) {
+      throw new Error('agent.invalidTestAuthRequest')
+    }
+
+    return testAuth(parsedRequest.data.providerId)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.loginOAuth, (_event, request: unknown) => {

@@ -5,7 +5,7 @@ import type {
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
-import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
+import type { AddApiKeyRequest, AuthTestResult, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
 import type {
   CreateEmptyProjectRequest,
@@ -48,9 +48,11 @@ export const IPC_CHANNELS = {
     toolExecution: 'agent:toolExecution',
     resolveToolConfirmation: 'agent:resolveToolConfirmation',
     getModelAuthSettings: 'agent:getModelAuthSettings',
+    getAuthStatus: 'agent:getAuthStatus',
     getAvailableModels: 'agent:getAvailableModels',
     addApiKey: 'agent:addApiKey',
     removeApiKey: 'agent:removeApiKey',
+    testAuth: 'agent:testAuth',
     loginOAuth: 'agent:loginOAuth',
     logoutOAuth: 'agent:logoutOAuth'
   },
@@ -106,9 +108,11 @@ export type SpaceZeroAPI = {
     onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
+    getAuthStatus: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
     removeApiKey: (request: ProviderRequest) => Promise<void>
+    testAuth: (request: ProviderRequest) => Promise<AuthTestResult>
     loginOAuth: (request: ProviderRequest) => Promise<void>
     logoutOAuth: (request: ProviderRequest) => Promise<void>
   }
