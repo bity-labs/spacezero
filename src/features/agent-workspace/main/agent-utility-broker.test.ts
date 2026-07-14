@@ -264,6 +264,52 @@ describe('AgentUtilityBroker', () => {
     ])
   })
 
+  it('brokers API-key auth commands without exposing credentials in status responses', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+
+    const addPromise = broker.addApiKey({ providerId: 'anthropic', apiKey: 'sk-secret' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.addApiKey',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'anthropic', apiKey: 'sk-secret' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(addPromise).resolves.toBeUndefined()
+
+    const statusPromise = broker.getAuthStatus()
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-2',
+      ok: true,
+      sessionId: 'agent-auth',
+      result: {
+        subscriptions: { connected: [], availableProviders: [] },
+        apiKeys: {
+          configured: [{ providerId: 'anthropic', label: 'Anthropic', configured: true, source: 'stored', removable: true }],
+          availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+        }
+      }
+    })
+    const status = await statusPromise
+    expect(status.apiKeys.configured[0]).toMatchObject({ providerId: 'anthropic', configured: true })
+    expect(JSON.stringify(status)).not.toContain('sk-secret')
+
+    const removePromise = broker.removeApiKey({ providerId: 'anthropic' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-3',
+      command: 'agent.removeApiKey',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'anthropic' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-3', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(removePromise).resolves.toBeUndefined()
+  })
+
   it('routes tool confirmation answers to the utility as session-tagged commands', async () => {
     const port = new FakeAgentUtilityPort()
     const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import { AgentSessionRegistry } from './agent-session-registry'
-import { createPiAgentSessionFactory } from './pi-agent-session-factory'
+import { createPiAgentRuntime, type PiAgentRuntime } from './pi-agent-session-factory'
 import type {
   AbortAgentSessionRequest,
   AgentStreamingEvent,
@@ -97,6 +97,7 @@ type EmitProjectionEvent = (event: AgentSessionProjectionEventWithoutSeq) => voi
 async function handleCommand(
   command: AgentUtilityCommand,
   sessionRegistry: AgentSessionRegistry,
+  piRuntime: PiAgentRuntime,
   emitProjectionEvent: EmitProjectionEvent
 ): Promise<AgentUtilityResponse> {
   try {
@@ -126,6 +127,34 @@ async function handleCommand(
 
     if (command.command === 'agent.listSessions') {
       const result = await sessionRegistry.listSessions()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.addApiKey') {
+      const request = command.payload as { providerId: string; apiKey: string }
+      await piRuntime.addApiKey(request.providerId, request.apiKey)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.removeApiKey') {
+      const request = command.payload as { providerId: string }
+      await piRuntime.removeApiKey(request.providerId)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.getAuthStatus') {
+      const result = await piRuntime.getAuthStatus()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.getAvailableModels') {
+      const result = await piRuntime.getAvailableModels()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.testAuth') {
+      const request = command.payload as { providerId: string }
+      const result = await piRuntime.testAuth(request.providerId)
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 
@@ -253,11 +282,13 @@ function attachAgentPort(port: MessagePortMain): void {
     }
   }
 
+  const piRuntime = createPiAgentRuntime({
+    agentDir,
+    executeWorkspaceTool: (request) => executeWorkspaceToolInMain(request)
+  })
+
   const sessionRegistry = new AgentSessionRegistry({
-    createPiSession: createPiAgentSessionFactory({
-      agentDir,
-      executeWorkspaceTool: (request) => executeWorkspaceToolInMain(request)
-    }),
+    createPiSession: piRuntime.createSession,
     maxLiveSessions: getMaxLiveSessions(),
     onEvent: (event) => {
       port.postMessage({
@@ -288,7 +319,7 @@ function attachAgentPort(port: MessagePortMain): void {
 
     if (frame.type !== 'agent.command') return
 
-    void handleCommand(frame, sessionRegistry, emitProjectionEvent).then((response) =>
+    void handleCommand(frame, sessionRegistry, piRuntime, emitProjectionEvent).then((response) =>
       port.postMessage(response)
     )
   })

@@ -14,6 +14,8 @@ import {
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type { AuthProviderOption, AuthProviderStatus, AuthTestResult, ModelAuthSettings } from '../shared/model-auth'
+import type { AvailableModel } from '../shared/model-settings'
 import type {
   AgentAssistantContent,
   AgentToolResultContent,
@@ -31,15 +33,49 @@ const FAUX_PROVIDER_ID = 'faux'
 const FAUX_MODEL_ID = 'faux-1'
 const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls']
 
+const API_KEY_PROVIDERS: readonly AuthProviderOption[] = [
+  { providerId: 'anthropic', label: 'Anthropic' },
+  { providerId: 'openai', label: 'OpenAI' },
+  { providerId: 'openrouter', label: 'OpenRouter' },
+  { providerId: 'google', label: 'Google AI' }
+]
+
+const SUBSCRIPTION_PROVIDERS: readonly AuthProviderOption[] = [
+  {
+    providerId: 'chatgpt',
+    label: 'ChatGPT Plus/Pro',
+    description: 'Connect a ChatGPT subscription through your browser.'
+  },
+  {
+    providerId: 'claude',
+    label: 'Claude Pro/Max',
+    description: 'Connect a Claude subscription through your browser.'
+  },
+  {
+    providerId: 'github-copilot',
+    label: 'GitHub Copilot',
+    description: 'Connect a GitHub Copilot subscription through your browser.'
+  }
+]
+
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
 }
 
-export function createPiAgentSessionFactory({
+export type PiAgentRuntime = {
+  createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
+  addApiKey: (providerId: string, apiKey: string) => Promise<void>
+  removeApiKey: (providerId: string) => Promise<void>
+  getAuthStatus: () => Promise<ModelAuthSettings>
+  getAvailableModels: () => Promise<AvailableModel[]>
+  testAuth: (providerId: string) => Promise<AuthTestResult>
+}
+
+export function createPiAgentRuntime({
   agentDir,
   executeWorkspaceTool
-}: PiAgentSessionFactoryOptions) {
+}: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
 
@@ -69,7 +105,7 @@ export function createPiAgentSessionFactory({
     }))
   })
 
-  return async function createPiSession(
+  async function createSession(
     request: CreateAgentSessionRequest
   ): Promise<CreatedPiAgentSession> {
     const resourceLoader = new DefaultResourceLoader({
@@ -94,7 +130,7 @@ export function createPiAgentSessionFactory({
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
-      model: modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+      model: findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
       tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
       customTools,
       sessionManager,
@@ -104,6 +140,103 @@ export function createPiAgentSessionFactory({
     })
 
     return adaptAgentSession(session)
+  }
+
+  return {
+    createSession,
+    addApiKey: async (providerId, apiKey) => {
+      assertKnownApiKeyProvider(providerId)
+      const trimmedApiKey = apiKey.trim()
+      if (!trimmedApiKey) throw new Error('agent.emptyApiKey')
+
+      authStorage.set(providerId, { type: 'api_key', key: trimmedApiKey })
+      modelRegistry.refresh()
+    },
+    removeApiKey: async (providerId) => {
+      assertKnownApiKeyProvider(providerId)
+      authStorage.remove(providerId)
+      authStorage.removeRuntimeApiKey(providerId)
+      modelRegistry.refresh()
+    },
+    getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry),
+    getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
+    testAuth: async (providerId) => testProviderAuth(modelRegistry, providerId)
+  }
+}
+
+export function createPiAgentSessionFactory(options: PiAgentSessionFactoryOptions) {
+  return createPiAgentRuntime(options).createSession
+}
+
+function findInitialModel(modelRegistry: ModelRegistry) {
+  return modelRegistry.getAvailable().find((model) => model.provider !== FAUX_PROVIDER_ID)
+}
+
+function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry): ModelAuthSettings {
+  return {
+    subscriptions: {
+      connected: [],
+      availableProviders: [...SUBSCRIPTION_PROVIDERS]
+    },
+    apiKeys: {
+      configured: API_KEY_PROVIDERS.flatMap((provider) => {
+        const status = modelRegistry.getProviderAuthStatus(provider.providerId)
+        if (!status.configured) return []
+
+        return [
+          {
+            providerId: provider.providerId,
+            label: provider.label,
+            configured: true,
+            source: status.source,
+            displayLabel: getAuthStatusDisplayLabel(status.source),
+            removable: status.source === 'stored'
+          } satisfies AuthProviderStatus
+        ]
+      }),
+      availableProviders: [...API_KEY_PROVIDERS]
+    }
+  }
+}
+
+function getAvailableModelsFromRegistry(modelRegistry: ModelRegistry): AvailableModel[] {
+  return modelRegistry
+    .getAvailable()
+    .filter((model) => model.provider !== FAUX_PROVIDER_ID)
+    .map((model) => ({
+      providerId: model.provider,
+      providerLabel: modelRegistry.getProviderDisplayName(model.provider),
+      modelId: model.id,
+      modelLabel: model.name,
+      contextWindow: model.contextWindow,
+      supportsThinking: model.reasoning
+    }))
+}
+
+async function testProviderAuth(
+  modelRegistry: ModelRegistry,
+  providerId: string
+): Promise<AuthTestResult> {
+  assertKnownApiKeyProvider(providerId)
+  const status = modelRegistry.getProviderAuthStatus(providerId)
+  if (!status.configured) return { ok: false, message: 'agent.authNotConfigured' }
+
+  const apiKey = await modelRegistry.getApiKeyForProvider(providerId)
+  return apiKey ? { ok: true } : { ok: false, message: 'agent.authUnavailable' }
+}
+
+function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
+  if (source === 'environment') return 'Configured from environment'
+  if (source === 'stored') return 'Configured in Space Zero'
+  if (source === 'runtime') return 'Configured for this run'
+  if (source === 'models_json_key' || source === 'models_json_command') return 'Configured from models.json'
+  if (source === 'fallback') return 'Configured from provider fallback'
+  return undefined
+}
+
+function assertKnownApiKeyProvider(providerId: string): void {
+  if (!API_KEY_PROVIDERS.some((provider) => provider.providerId === providerId)) {
+    throw new Error('agent.unknownApiKeyProvider')
   }
 }
 

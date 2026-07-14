@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   AbortAgentSessionRequest,
+  AgentAddApiKeyRequest,
   AgentPingRequest,
   AgentPingResponse,
+  AgentProviderRequest,
   AgentSessionState,
   AgentStreamingEvent,
   AgentUtilityFrame,
@@ -17,14 +19,21 @@ import type {
 } from '../../../shared/agent-protocol'
 import {
   createAgentAbortCommand,
+  createAgentAddApiKeyCommand,
   createAgentCreateSessionCommand,
   createAgentDeleteSessionCommand,
+  createAgentGetAuthStatusCommand,
+  createAgentGetAvailableModelsCommand,
   createAgentGetStateCommand,
   createAgentListSessionsCommand,
   createAgentPingCommand,
+  createAgentRemoveApiKeyCommand,
+  createAgentTestAuthCommand,
   createAgentPromptCommand,
   createAgentResolveToolConfirmationCommand
 } from '../../../shared/agent-protocol'
+import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
+import type { AvailableModel } from '../../../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
@@ -108,6 +117,26 @@ export class AgentUtilityBroker {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.send(createAgentListSessionsCommand(this.createRequestId())) as Promise<AgentSessionState[]>
+  }
+
+  async addApiKey(request: AgentAddApiKeyRequest): Promise<void> {
+    await this.send(createAgentAddApiKeyCommand(this.createRequestId(), request))
+  }
+
+  async removeApiKey(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentRemoveApiKeyCommand(this.createRequestId(), request))
+  }
+
+  getAuthStatus(): Promise<ModelAuthSettings> {
+    return this.send(createAgentGetAuthStatusCommand(this.createRequestId())) as Promise<ModelAuthSettings>
+  }
+
+  getAvailableModels(): Promise<AvailableModel[]> {
+    return this.send(createAgentGetAvailableModelsCommand(this.createRequestId())) as Promise<AvailableModel[]>
+  }
+
+  testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
+    return this.send(createAgentTestAuthCommand(this.createRequestId(), request)) as Promise<AuthTestResult>
   }
 
   async resolveToolConfirmation(

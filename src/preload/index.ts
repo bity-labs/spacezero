@@ -52,9 +52,11 @@ const api: SpaceZeroAPI = {
     resolveToolConfirmation: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agent.resolveToolConfirmation, request),
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
+    getAuthStatus: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAuthStatus),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),
     removeApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.removeApiKey, request),
+    testAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.testAuth, request),
     loginOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.loginOAuth, request),
     logoutOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.logoutOAuth, request)
   },
