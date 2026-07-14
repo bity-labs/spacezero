@@ -529,6 +529,27 @@ describe('AgentUtilityBroker', () => {
     }
   })
 
+  it('rejects OAuth login when the utility does not finish before the lifecycle timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => 'request-1',
+        requestTimeoutMs: 10,
+        oauthLoginTimeoutMs: 50
+      })
+
+      const loginPromise = broker.loginOAuth({ providerId: 'claude' })
+
+      vi.advanceTimersByTime(50)
+
+      await expect(loginPromise).rejects.toThrow('agent.utilityRequestTimedOut')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('brokers OAuth login, browser open requests, callbacks, and logout', async () => {
     const port = new FakeAgentUtilityPort()
     let requestNumber = 0
