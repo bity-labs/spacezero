@@ -58,6 +58,10 @@ export type AgentProviderRequest = {
   providerId: string
 }
 
+export type AgentOAuthCallbackRequest = {
+  url: string
+}
+
 export type ResolveAgentToolConfirmationCommandRequest = {
   sessionId: AgentSessionId
   callId: string
@@ -108,6 +112,10 @@ export type AgentUtilityCommandName =
   | 'agent.setModel'
   | 'agent.setThinkingLevel'
   | 'agent.testAuth'
+  | 'agent.loginOAuth'
+  | 'agent.logoutOAuth'
+  | 'agent.handleOAuthCallback'
+  | 'agent.openOAuthUrl'
   | 'agent.resolveToolConfirmation'
   | 'agent.prompt'
   | 'agent.abort'
@@ -168,6 +176,7 @@ export type AgentUtilityResult =
   | ModelAuthSettings
   | AvailableModel[]
   | AuthTestResult
+  | { handled: boolean }
   | undefined
 
 export type AgentUtilitySuccessResponse = {
@@ -344,6 +353,45 @@ export function createAgentTestAuthCommand(
     type: 'agent.command',
     requestId,
     command: 'agent.testAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentLoginOAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.loginOAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentLogoutOAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.logoutOAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentHandleOAuthCallbackCommand(
+  requestId: string,
+  request: AgentOAuthCallbackRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.handleOAuthCallback',
     sessionId: 'agent-auth',
     payload: request
   }

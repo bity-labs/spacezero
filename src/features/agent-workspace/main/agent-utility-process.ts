@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  shell,
   MessageChannelMain,
   type MessageEvent,
   type MessagePortMain,
@@ -13,6 +14,7 @@ import { join } from 'node:path'
 import type {
   AbortAgentSessionRequest,
   AgentAddApiKeyRequest,
+  AgentOAuthCallbackRequest,
   AgentPingRequest,
   AgentPingResponse,
   AgentProviderRequest,
@@ -116,6 +118,7 @@ export class AgentUtilityProcessHost {
           window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
         }
       },
+      openExternal: (url) => shell.openExternal(url),
       executeWorkspaceTool: async (request) => {
         this.sendToolExecution({
           sessionId: request.sessionId,
@@ -187,6 +190,18 @@ export class AgentUtilityProcessHost {
 
   testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
     return this.getBroker().testAuth(request)
+  }
+
+  loginOAuth(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().loginOAuth(request)
+  }
+
+  logoutOAuth(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().logoutOAuth(request)
+  }
+
+  handleOAuthCallback(request: AgentOAuthCallbackRequest): Promise<{ handled: boolean }> {
+    return this.getBroker().handleOAuthCallback(request)
   }
 
   async resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {

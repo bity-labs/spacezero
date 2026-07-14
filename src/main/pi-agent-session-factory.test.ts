@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -35,6 +35,35 @@ describe('createPiAgentSessionFactory', () => {
 })
 
 describe('createPiAgentRuntime auth', () => {
+  it('reports OAuth credentials as configured and logout clears them without exposing tokens', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-oauth-'))
+    const agentDir = join(tempDir, 'agent')
+
+    try {
+      mkdirSync(agentDir, { recursive: true })
+      writeFileSync(
+        join(agentDir, 'auth.json'),
+        JSON.stringify({ anthropic: { type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires: Date.now() + 60_000 } }),
+        { mode: 0o600 }
+      )
+      const runtime = createPiAgentRuntime({ agentDir })
+
+      const status = await runtime.getAuthStatus()
+      expect(status.subscriptions.connected).toContainEqual(
+        expect.objectContaining({ providerId: 'anthropic', configured: true, removable: true })
+      )
+      expect(JSON.stringify(status)).not.toContain('access-token')
+      expect(JSON.stringify(status)).not.toContain('refresh-token')
+
+      await runtime.logoutOAuth('anthropic')
+      expect((await runtime.getAuthStatus()).subscriptions.connected).not.toContainEqual(
+        expect.objectContaining({ providerId: 'anthropic' })
+      )
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('persists API-key auth under the Space Zero agent dir with 0600 permissions and returns sanitized status', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-auth-'))
     const agentDir = join(tempDir, 'agent')

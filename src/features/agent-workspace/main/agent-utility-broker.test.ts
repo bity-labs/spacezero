@@ -529,6 +529,66 @@ describe('AgentUtilityBroker', () => {
     }
   })
 
+  it('brokers OAuth login, browser open requests, callbacks, and logout', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const openExternal = vi.fn(async () => undefined)
+    const broker = new AgentUtilityBroker(port, {
+      createRequestId: () => `request-${++requestNumber}`,
+      openExternal
+    })
+
+    const loginPromise = broker.loginOAuth({ providerId: 'claude' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.loginOAuth',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'claude' }
+    })
+
+    port.emit({
+      type: 'agent.command',
+      requestId: 'utility-request-1',
+      command: 'agent.openOAuthUrl',
+      sessionId: 'agent-auth',
+      payload: { url: 'https://provider.example/authorize' }
+    })
+    await expect(openExternal).toHaveBeenCalledWith('https://provider.example/authorize')
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.response',
+      requestId: 'utility-request-1',
+      ok: true,
+      sessionId: 'agent-auth',
+      result: undefined
+    })
+
+    const callbackPromise = broker.handleOAuthCallback({ url: 'spacezero://oauth/claude?code=abc' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.handleOAuthCallback',
+      sessionId: 'agent-auth',
+      payload: { url: 'spacezero://oauth/claude?code=abc' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-2', ok: true, sessionId: 'agent-auth', result: { handled: true } })
+    await expect(callbackPromise).resolves.toEqual({ handled: true })
+
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(loginPromise).resolves.toBeUndefined()
+
+    const logoutPromise = broker.logoutOAuth({ providerId: 'claude' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-3',
+      command: 'agent.logoutOAuth',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'claude' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-3', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(logoutPromise).resolves.toBeUndefined()
+  })
+
   it('uses a lifecycle timeout for session creation and requests cleanup after timeout', async () => {
     vi.useFakeTimers()
 

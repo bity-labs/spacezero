@@ -6,8 +6,34 @@ import { join } from 'node:path'
 import { stopAgentUtilityProcessHost, getAgentUtilityProcessHost } from '../features/agent-workspace/main/agent-utility-process'
 import { closeDatabase, getDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
+import { findSpaceZeroOAuthUrl, registerSpaceZeroProtocol, routeSpaceZeroOAuthUrl } from './protocol'
 
 log.initialize()
+
+registerSpaceZeroProtocol()
+
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const oauthUrl = findSpaceZeroOAuthUrl(argv)
+    if (oauthUrl) void routeSpaceZeroOAuthUrl(oauthUrl)
+
+    const [window] = BrowserWindow.getAllWindows()
+    if (window) {
+      if (window.isMinimized()) window.restore()
+      window.focus()
+    }
+  })
+}
+
+app.on('open-url', (event, url) => {
+  if (!findSpaceZeroOAuthUrl([url])) return
+  event.preventDefault()
+  void routeSpaceZeroOAuthUrl(url)
+})
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
