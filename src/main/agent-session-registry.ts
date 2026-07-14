@@ -10,6 +10,7 @@ import type {
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
+import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
 import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
 
 export type CreatedPiAgentSession = {
@@ -22,6 +23,7 @@ export type CreatedPiAgentSession = {
   abort: () => Promise<void>
   subscribe: (listener: (event: AgentStreamingEvent) => void) => () => void
   dispose: () => void
+  getTranscriptSnapshot: () => AgentTranscriptMessage[]
 }
 
 export type CreatePiAgentSession = (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
@@ -379,6 +381,8 @@ export class AgentSessionRegistry {
   }
 
   private toLiveState(sessionId: string, session: RegisteredAgentSession): AgentSessionState {
+    const transcriptSnapshot = session.piSession.getTranscriptSnapshot()
+
     return {
       sessionId,
       projectId: session.projectId,
@@ -387,7 +391,8 @@ export class AgentSessionRegistry {
       live: true,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
-      modelId: session.piSession.modelId
+      modelId: session.piSession.modelId,
+      ...(transcriptSnapshot.length > 0 ? { transcriptSnapshot } : {})
     }
   }
 

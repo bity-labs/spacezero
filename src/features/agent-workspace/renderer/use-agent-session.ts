@@ -130,17 +130,30 @@ function hookReducer(state: HookState, action: HookAction): HookState {
         ...state,
         projection: reduceAgentSessionProjectionState(state.projection, action.event)
       }
-    case 'session-state-loaded':
+    case 'session-state-loaded': {
       if (action.sessionState.sessionId !== state.projection.sessionId) return state
+      const projection = action.sessionState.transcriptSnapshot
+        ? reduceAgentSessionProjectionState(state.projection, {
+            type: 'snapshot',
+            sessionId: action.sessionState.sessionId,
+            seq: state.projection.lastSeq + 1,
+            snapshot: {
+              status: action.sessionState.status,
+              messages: action.sessionState.transcriptSnapshot
+            }
+          })
+        : {
+            ...state.projection,
+            status: action.sessionState.status,
+            lastError: undefined
+          }
+
       return {
         ...state,
         sessionState: action.sessionState,
-        projection: {
-          ...state.projection,
-          status: action.sessionState.status,
-          lastError: undefined
-        }
+        projection
       }
+    }
     case 'load-failed':
       return {
         ...state,

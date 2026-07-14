@@ -14,6 +14,12 @@ import {
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type {
+  AgentAssistantContent,
+  AgentToolResultContent,
+  AgentTranscriptMessage,
+  AgentUserContent
+} from '../shared/agent-session-projection.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type {
   ExecuteWorkspaceToolRequest,
@@ -162,8 +168,113 @@ function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
       const streamingEvent = toStreamingEvent(session.sessionId, event)
       if (streamingEvent) listener(streamingEvent)
     }),
-    dispose: () => session.dispose()
+    dispose: () => session.dispose(),
+    getTranscriptSnapshot: () => toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
+}
+
+function toTranscriptSnapshot(
+  messages: unknown[],
+  streamingMessage: unknown | undefined
+): AgentTranscriptMessage[] {
+  const snapshot = messages.flatMap(toTranscriptMessage)
+  if (streamingMessage) snapshot.push(...toTranscriptMessage(streamingMessage))
+  return snapshot
+}
+
+function toTranscriptMessage(message: unknown): AgentTranscriptMessage[] {
+  if (!isRecord(message)) return []
+  const timestamp = getTimestamp(message)
+
+  if (message.role === 'user') {
+    return [{ role: 'user', content: toUserContent(message.content), timestamp }]
+  }
+
+  if (message.role === 'assistant') {
+    return [
+      {
+        role: 'assistant',
+        content: toAssistantContent(message.content),
+        timestamp,
+        stopReason: toAssistantStopReason(message.stopReason),
+        errorMessage: typeof message.errorMessage === 'string' ? message.errorMessage : undefined
+      }
+    ]
+  }
+
+  if (message.role === 'toolResult') {
+    return [
+      {
+        role: 'toolResult',
+        toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : '',
+        toolName: typeof message.toolName === 'string' ? message.toolName : '',
+        content: toToolResultContent(message.content),
+        isError: message.isError === true,
+        details: message.details,
+        timestamp
+      }
+    ]
+  }
+
+  return [{ ...message, role: typeof message.role === 'string' ? message.role : 'unknown', timestamp }]
+}
+
+function toUserContent(content: unknown): string | AgentUserContent[] {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentUserContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+      return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
+    }
+    return []
+  })
+}
+
+function toToolResultContent(content: unknown): AgentToolResultContent[] {
+  const userContent = toUserContent(content)
+  if (typeof userContent === 'string') return [{ type: 'text', text: userContent }]
+  return userContent
+}
+
+function toAssistantContent(content: unknown): AgentAssistantContent[] {
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentAssistantContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'thinking' && typeof part.thinking === 'string') {
+      return [{ type: 'thinking', thinking: part.thinking, redacted: part.redacted === true }]
+    }
+    if (part.type === 'toolCall' && typeof part.id === 'string' && typeof part.name === 'string') {
+      return [
+        {
+          type: 'toolCall',
+          id: part.id,
+          name: part.name,
+          arguments: isRecord(part.arguments) ? part.arguments : {}
+        }
+      ]
+    }
+    return []
+  })
+}
+
+function toAssistantStopReason(value: unknown): 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined {
+  return value === 'stop' || value === 'length' || value === 'toolUse' || value === 'error' || value === 'aborted'
+    ? value
+    : undefined
+}
+
+function getTimestamp(message: Record<string, unknown>): number {
+  if (typeof message.timestamp === 'number') return message.timestamp
+  return Date.now()
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }
 
 function toStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
