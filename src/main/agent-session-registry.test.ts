@@ -13,6 +13,7 @@ function createFakeSession(overrides: Partial<CreatedPiAgentSession> = {}): Crea
     abort: async () => undefined,
     subscribe: () => () => undefined,
     dispose: () => {},
+    getTranscriptSnapshot: () => [],
     ...overrides
   }
 }
@@ -50,6 +51,28 @@ describe('AgentSessionRegistry', () => {
     })
     await expect(registry.getState({ sessionId: 'session-1' })).resolves.toEqual(created)
     await expect(registry.listSessions()).resolves.toEqual([created])
+  })
+
+  it('includes the live Pi transcript snapshot in session state when one exists', async () => {
+    const registry = new AgentSessionRegistry({
+      createPiSession: async () =>
+        createFakeSession({
+          getTranscriptSnapshot: () => [{ role: 'user', content: 'Hello again', timestamp: 100 }]
+        })
+    })
+
+    const created = await registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo'
+    })
+
+    expect(created.transcriptSnapshot).toEqual([
+      { role: 'user', content: 'Hello again', timestamp: 100 }
+    ])
+    await expect(registry.getState({ sessionId: 'session-1' })).resolves.toMatchObject({
+      transcriptSnapshot: [{ role: 'user', content: 'Hello again', timestamp: 100 }]
+    })
   })
 
   it('keeps multiple live sessions independent and reports each running or idle status', async () => {

@@ -125,6 +125,37 @@ describe('useAgentSession', () => {
     ])
   })
 
+  it('hydrates projected messages from the loaded session transcript snapshot after remounting', async () => {
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-test',
+      cwd: '/tmp/project-test',
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/agent-session-test.jsonl',
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      transcriptSnapshot: [{ role: 'user', content: 'Still here', timestamp: 100 }]
+    })
+
+    const firstRender = renderHook(() => useAgentSession('session-1'))
+    await waitFor(() => expect(firstRender.result.current.messages).toHaveLength(1))
+    firstRender.unmount()
+
+    const secondRender = renderHook(() => useAgentSession('session-1'))
+
+    await waitFor(() => {
+      expect(secondRender.result.current.messages).toEqual([
+        {
+          id: 'agent-msg:0',
+          role: 'user',
+          createdAt: '1970-01-01T00:00:00.100Z',
+          parts: [{ type: 'text', text: 'Still here' }]
+        }
+      ])
+    })
+  })
+
   it('routes prompts, aborts, and tool confirmation answers through the preload API', async () => {
     const prompt = vi.fn(async () => undefined)
     const abort = vi.fn(async () => undefined)

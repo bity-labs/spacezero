@@ -1,4 +1,7 @@
-import type { AgentSessionProjectionEvent } from './agent-session-projection.model'
+import type {
+  AgentSessionProjectionEvent,
+  AgentTranscriptMessage
+} from './agent-session-projection.model'
 import type {
   ExecuteWorkspaceToolRequest,
   ExecuteWorkspaceToolResponse,
@@ -59,6 +62,7 @@ export type AgentSessionState = {
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
+  transcriptSnapshot?: AgentTranscriptMessage[]
 }
 
 export type AgentStreamingEventType =
