@@ -15,7 +15,7 @@ import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
 import type { AuthProviderOption, AuthProviderStatus, AuthTestResult, ModelAuthSettings } from '../shared/model-auth'
-import type { AvailableModel } from '../shared/model-settings'
+import type { AvailableModel, ThinkingLevel } from '../shared/model-settings'
 import type {
   AgentAssistantContent,
   AgentToolResultContent,
@@ -130,7 +130,10 @@ export function createPiAgentRuntime({
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
-      model: findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+      model: request.defaultModel
+        ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
+        : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+      thinkingLevel: request.thinkingLevel,
       tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
       customTools,
       sessionManager,
@@ -139,7 +142,7 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session)
+    return adaptAgentSession(session, modelRegistry)
   }
 
   return {
@@ -170,6 +173,19 @@ export function createPiAgentSessionFactory(options: PiAgentSessionFactoryOption
 
 function findInitialModel(modelRegistry: ModelRegistry) {
   return modelRegistry.getAvailable().find((model) => model.provider !== FAUX_PROVIDER_ID)
+}
+
+function findConfiguredModel(
+  modelRegistry: ModelRegistry,
+  providerId: string,
+  modelId: string
+): ReturnType<ModelRegistry['getAvailable']>[number] {
+  const model = modelRegistry
+    .getAvailable()
+    .find((availableModel) => availableModel.provider === providerId && availableModel.id === modelId)
+
+  if (!model) throw new Error('agent.modelAuthNotConfigured')
+  return model
 }
 
 function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry): ModelAuthSettings {
@@ -282,7 +298,7 @@ function createWorkspaceToolProxies({
   )
 }
 
-function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
+function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry): CreatedPiAgentSession {
   return {
     sessionId: session.sessionId,
     sessionFile: session.sessionFile,
@@ -295,6 +311,13 @@ function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
     get modelId() {
       return session.model?.id ?? FAUX_MODEL_ID
     },
+    get thinkingLevel() {
+      return session.thinkingLevel as ThinkingLevel | undefined
+    },
+    setModel: async ({ provider, modelId }) => {
+      await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
+    },
+    setThinkingLevel: (level) => session.setThinkingLevel(level),
     prompt: (message) => session.prompt(message),
     abort: () => session.abort(),
     subscribe: (listener) => session.subscribe((event) => {

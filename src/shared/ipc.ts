@@ -6,7 +6,13 @@ import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, AuthTestResult, ModelAuthSettings, ProviderRequest } from './model-auth'
-import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
+import type {
+  AvailableModel,
+  ModelDefaults,
+  SetAgentModelRequest,
+  SetAgentThinkingLevelRequest,
+  UpdateModelDefaultsRequest
+} from './model-settings'
 import type {
   CreateEmptyProjectRequest,
   Project,
@@ -50,6 +56,8 @@ export const IPC_CHANNELS = {
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAuthStatus: 'agent:getAuthStatus',
     getAvailableModels: 'agent:getAvailableModels',
+    setModel: 'agent:setModel',
+    setThinkingLevel: 'agent:setThinkingLevel',
     addApiKey: 'agent:addApiKey',
     removeApiKey: 'agent:removeApiKey',
     testAuth: 'agent:testAuth',
@@ -110,6 +118,8 @@ export type SpaceZeroAPI = {
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAuthStatus: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
+    setModel: (request: SetAgentModelRequest) => Promise<AgentSessionState>
+    setThinkingLevel: (request: SetAgentThinkingLevelRequest) => Promise<AgentSessionState>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
     removeApiKey: (request: ProviderRequest) => Promise<void>
     testAuth: (request: ProviderRequest) => Promise<AuthTestResult>

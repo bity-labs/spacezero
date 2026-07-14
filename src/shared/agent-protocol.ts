@@ -3,7 +3,7 @@ import type {
   AgentTranscriptMessage
 } from './agent-session-projection.model'
 import type { AuthTestResult, ModelAuthSettings } from './model-auth'
-import type { AvailableModel } from './model-settings'
+import type { AvailableModel, DefaultModelSetting, SetAgentModelRequest, SetAgentThinkingLevelRequest, ThinkingLevel } from './model-settings'
 import type {
   ExecuteWorkspaceToolRequest,
   ExecuteWorkspaceToolResponse,
@@ -28,6 +28,8 @@ export type CreateAgentSessionRequest = {
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
+  defaultModel?: DefaultModelSetting
+  thinkingLevel?: ThinkingLevel
 }
 
 export type GetAgentSessionStateRequest = {
@@ -73,6 +75,7 @@ export type AgentSessionState = {
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
+  thinkingLevel?: ThinkingLevel
   transcriptSnapshot?: AgentTranscriptMessage[]
 }
 
@@ -102,6 +105,8 @@ export type AgentUtilityCommandName =
   | 'agent.removeApiKey'
   | 'agent.getAuthStatus'
   | 'agent.getAvailableModels'
+  | 'agent.setModel'
+  | 'agent.setThinkingLevel'
   | 'agent.testAuth'
   | 'agent.resolveToolConfirmation'
   | 'agent.prompt'
@@ -302,6 +307,32 @@ export function createAgentGetAvailableModelsCommand(requestId: string): AgentUt
     requestId,
     command: 'agent.getAvailableModels',
     sessionId: 'agent-auth'
+  }
+}
+
+export function createAgentSetModelCommand(
+  requestId: string,
+  request: SetAgentModelRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.setModel',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentSetThinkingLevelCommand(
+  requestId: string,
+  request: SetAgentThinkingLevelRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.setThinkingLevel',
+    sessionId: request.sessionId,
+    payload: request
   }
 }
 
