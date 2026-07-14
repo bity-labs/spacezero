@@ -1,5 +1,6 @@
 import type {
   AgentSessionProjectionEvent,
+  AgentToolConfirmationRequest,
   ResolveAgentToolConfirmationRequest
 } from './agent-session-projection.model'
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
@@ -52,6 +53,7 @@ export const IPC_CHANNELS = {
     event: 'agent:event',
     sessionProjectionEvent: 'agent:sessionProjectionEvent',
     toolExecution: 'agent:toolExecution',
+    toolConfirmationRequest: 'agent:toolConfirmationRequest',
     resolveToolConfirmation: 'agent:resolveToolConfirmation',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAuthStatus: 'agent:getAuthStatus',
@@ -114,6 +116,7 @@ export type SpaceZeroAPI = {
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
     onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
     onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
+    onToolConfirmationRequest: (listener: (event: AgentToolConfirmationRequest) => void) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAuthStatus: () => Promise<ModelAuthSettings>

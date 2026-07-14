@@ -124,6 +124,7 @@ beforeEach(async () => {
       onEvent: () => () => undefined,
       onSessionProjectionEvent: () => () => undefined,
       onToolExecution: () => () => undefined,
+      onToolConfirmationRequest: () => () => undefined,
       resolveToolConfirmation: async () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
