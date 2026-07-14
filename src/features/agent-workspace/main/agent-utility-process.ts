@@ -27,7 +27,7 @@ import type {
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
-import type { AvailableModel } from '../../../shared/model-settings'
+import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
@@ -166,6 +166,14 @@ export class AgentUtilityProcessHost {
 
   getAvailableModels(): Promise<AvailableModel[]> {
     return this.getBroker().getAvailableModels()
+  }
+
+  setModel(request: SetAgentModelRequest): Promise<AgentSessionState> {
+    return this.getBroker().setModel(request)
+  }
+
+  setThinkingLevel(request: SetAgentThinkingLevelRequest): Promise<AgentSessionState> {
+    return this.getBroker().setThinkingLevel(request)
   }
 
   testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {

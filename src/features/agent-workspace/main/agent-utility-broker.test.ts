@@ -75,7 +75,8 @@ describe('AgentUtilityBroker', () => {
       live: true,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     }
 
     const createPromise = broker.createSession({
@@ -212,7 +213,8 @@ describe('AgentUtilityBroker', () => {
       live: false,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     }
 
     port.emit({
@@ -308,6 +310,66 @@ describe('AgentUtilityBroker', () => {
     })
     port.emit({ type: 'agent.response', requestId: 'request-3', ok: true, sessionId: 'agent-auth', result: undefined })
     await expect(removePromise).resolves.toBeUndefined()
+  })
+
+  it('routes model and thinking-level changes to the utility as session-tagged commands', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+
+    const modelPromise = broker.setModel({ sessionId: 'session-1', provider: 'anthropic', modelId: 'claude-sonnet' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.setModel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', provider: 'anthropic', modelId: 'claude-sonnet' }
+    })
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-1',
+      ok: true,
+      sessionId: 'session-1',
+      result: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: '/repo',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        modelProvider: 'anthropic',
+        modelId: 'claude-sonnet',
+        thinkingLevel: 'medium'
+      }
+    })
+    await expect(modelPromise).resolves.toMatchObject({ modelProvider: 'anthropic', modelId: 'claude-sonnet' })
+
+    const thinkingPromise = broker.setThinkingLevel({ sessionId: 'session-1', level: 'high' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.setThinkingLevel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', level: 'high' }
+    })
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-2',
+      ok: true,
+      sessionId: 'session-1',
+      result: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: '/repo',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        modelProvider: 'anthropic',
+        modelId: 'claude-sonnet',
+        thinkingLevel: 'high'
+      }
+    })
+    await expect(thinkingPromise).resolves.toMatchObject({ thinkingLevel: 'high' })
   })
 
   it('routes tool confirmation answers to the utility as session-tagged commands', async () => {

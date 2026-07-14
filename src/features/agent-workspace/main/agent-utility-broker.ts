@@ -28,12 +28,14 @@ import {
   createAgentListSessionsCommand,
   createAgentPingCommand,
   createAgentRemoveApiKeyCommand,
+  createAgentSetModelCommand,
+  createAgentSetThinkingLevelCommand,
   createAgentTestAuthCommand,
   createAgentPromptCommand,
   createAgentResolveToolConfirmationCommand
 } from '../../../shared/agent-protocol'
 import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
-import type { AvailableModel } from '../../../shared/model-settings'
+import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
@@ -133,6 +135,14 @@ export class AgentUtilityBroker {
 
   getAvailableModels(): Promise<AvailableModel[]> {
     return this.send(createAgentGetAvailableModelsCommand(this.createRequestId())) as Promise<AvailableModel[]>
+  }
+
+  setModel(request: SetAgentModelRequest): Promise<AgentSessionState> {
+    return this.send(createAgentSetModelCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
+  }
+
+  setThinkingLevel(request: SetAgentThinkingLevelRequest): Promise<AgentSessionState> {
+    return this.send(createAgentSetThinkingLevelCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
   }
 
   testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {

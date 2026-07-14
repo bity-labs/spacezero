@@ -39,9 +39,15 @@ function createState(overrides: Partial<AgentSessionState> = {}): AgentSessionSt
     transcriptPath: '/agent/sessions/session-1.jsonl',
     modelProvider: 'faux',
     modelId: 'faux-1',
+    thinkingLevel: 'medium',
     ...overrides
   }
 }
+
+const readModelDefaults = async () => ({
+  defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+  defaultThinking: 'high' as const
+})
 
 describe('createProjectAgentSession', () => {
   it('derives the utility cwd from stored project metadata', async () => {
@@ -53,7 +59,7 @@ describe('createProjectAgentSession', () => {
     await expect(
       createProjectAgentSession(
         { projectId: 'project-1', cwd: '/repo/../repo' },
-        { repository: createRepository(), utilityHost, createSessionId: () => 'session-1' }
+        { repository: createRepository(), utilityHost, createSessionId: () => 'session-1', readModelDefaults }
       )
     ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/repo' })
 
@@ -63,7 +69,9 @@ describe('createProjectAgentSession', () => {
       cwd: '/repo',
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ])
+      ]),
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+      thinkingLevel: 'high'
     })
   })
 
@@ -100,7 +108,8 @@ describe('createProjectAgentSession', () => {
             }
           }),
           utilityHost,
-          createSessionId: () => 'session-1'
+          createSessionId: () => 'session-1',
+          readModelDefaults
         }
       )
     ).rejects.toThrow('db write failed')
@@ -111,7 +120,9 @@ describe('createProjectAgentSession', () => {
       cwd: '/repo',
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ])
+      ]),
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+      thinkingLevel: 'high'
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
   })

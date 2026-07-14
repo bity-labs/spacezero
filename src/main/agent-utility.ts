@@ -26,6 +26,7 @@ import {
 } from '../shared/agent-protocol'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type { AgentAssistantMessage, AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
+import type { SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../shared/workspace-tool-protocol'
 
 function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
@@ -149,6 +150,16 @@ async function handleCommand(
 
     if (command.command === 'agent.getAvailableModels') {
       const result = await piRuntime.getAvailableModels()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.setModel') {
+      const result = await sessionRegistry.setModel(command.payload as SetAgentModelRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.setThinkingLevel') {
+      const result = await sessionRegistry.setThinkingLevel(command.payload as SetAgentThinkingLevelRequest)
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 

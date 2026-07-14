@@ -8,6 +8,8 @@ import {
   createAgentPromptCommand,
   createAgentPingResponse,
   createAgentResolveToolConfirmationCommand,
+  createAgentSetModelCommand,
+  createAgentSetThinkingLevelCommand,
   createAgentSuccessResponse,
   type AgentSessionState
 } from './agent-protocol'
@@ -45,7 +47,8 @@ describe('agent utility framing protocol', () => {
       live: true,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     }
 
     expect(
@@ -95,16 +98,36 @@ describe('agent utility framing protocol', () => {
       sessionId: 'session-1',
       payload: { sessionId: 'session-1' }
     })
-    expect(createAgentSuccessResponse('request-7', 'session-1', state)).toEqual({
-      type: 'agent.response',
+    expect(
+      createAgentSetModelCommand('request-7', {
+        sessionId: 'session-1',
+        provider: 'anthropic',
+        modelId: 'claude-sonnet'
+      })
+    ).toEqual({
+      type: 'agent.command',
       requestId: 'request-7',
+      command: 'agent.setModel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', provider: 'anthropic', modelId: 'claude-sonnet' }
+    })
+    expect(createAgentSetThinkingLevelCommand('request-8', { sessionId: 'session-1', level: 'high' })).toEqual({
+      type: 'agent.command',
+      requestId: 'request-8',
+      command: 'agent.setThinkingLevel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', level: 'high' }
+    })
+    expect(createAgentSuccessResponse('request-9', 'session-1', state)).toEqual({
+      type: 'agent.response',
+      requestId: 'request-9',
       ok: true,
       sessionId: 'session-1',
       result: state
     })
-    expect(createAgentSuccessResponse('request-8', 'session-1', undefined)).toEqual({
+    expect(createAgentSuccessResponse('request-10', 'session-1', undefined)).toEqual({
       type: 'agent.response',
-      requestId: 'request-8',
+      requestId: 'request-10',
       ok: true,
       sessionId: 'session-1',
       result: undefined

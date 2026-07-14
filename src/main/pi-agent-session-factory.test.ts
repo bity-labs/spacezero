@@ -23,6 +23,7 @@ describe('createPiAgentSessionFactory', () => {
         expect(session.isStreaming).toBe(false)
         expect(session.modelProvider).toBe('faux')
         expect(session.modelId).toBe('faux-1')
+        expect(session.thinkingLevel).toBe('off')
         expect(session.sessionFile).toContain(join(tempDir, 'agent', 'sessions'))
       } finally {
         session.dispose()
@@ -42,6 +43,7 @@ describe('createPiAgentRuntime auth', () => {
       const runtime = createPiAgentRuntime({ agentDir })
 
       await expect(runtime.getAuthStatus()).resolves.toMatchObject({ apiKeys: { configured: [] } })
+      await expect(runtime.getAvailableModels()).resolves.toEqual([])
 
       await runtime.addApiKey('anthropic', 'sk-secret')
 
@@ -53,13 +55,27 @@ describe('createPiAgentRuntime auth', () => {
       expect(statSync(join(agentDir, 'auth.json')).mode & 0o777).toBe(0o600)
       await expect(runtime.testAuth('anthropic')).resolves.toEqual({ ok: true })
 
+      const availableModels = await runtime.getAvailableModels()
+      expect(availableModels.every((model) => model.providerId === 'anthropic')).toBe(true)
+      const [anthropicModel] = availableModels.filter((model) => model.providerId === 'anthropic')
+      expect(anthropicModel).toBeDefined()
+
       const session = await runtime.createSession({
         sessionId: 'session-anthropic',
         projectId: 'project-1',
-        cwd: tempDir
+        cwd: tempDir,
+        defaultModel: { providerId: anthropicModel!.providerId, modelId: anthropicModel!.modelId },
+        thinkingLevel: 'high'
       })
       try {
         expect(session.modelProvider).toBe('anthropic')
+        expect(session.modelId).toBe(anthropicModel!.modelId)
+        expect(session.thinkingLevel).toBe('high')
+        await expect(session.setModel({ provider: 'openai', modelId: 'gpt-5' })).rejects.toThrow(
+          'agent.modelAuthNotConfigured'
+        )
+        await session.setThinkingLevel('low')
+        expect(session.thinkingLevel).toBe('low')
       } finally {
         session.dispose()
       }
