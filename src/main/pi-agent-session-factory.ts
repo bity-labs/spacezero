@@ -42,12 +42,12 @@ const API_KEY_PROVIDERS: readonly AuthProviderOption[] = [
 
 const SUBSCRIPTION_PROVIDERS: readonly AuthProviderOption[] = [
   {
-    providerId: 'chatgpt',
+    providerId: 'openai-codex',
     label: 'ChatGPT Plus/Pro',
     description: 'Connect a ChatGPT subscription through your browser.'
   },
   {
-    providerId: 'claude',
+    providerId: 'anthropic',
     label: 'Claude Pro/Max',
     description: 'Connect a Claude subscription through your browser.'
   },
@@ -70,6 +70,13 @@ export type PiAgentRuntime = {
   getAuthStatus: () => Promise<ModelAuthSettings>
   getAvailableModels: () => Promise<AvailableModel[]>
   testAuth: (providerId: string) => Promise<AuthTestResult>
+  loginOAuth: (providerId: string, callbacks: OAuthRuntimeCallbacks) => Promise<void>
+  logoutOAuth: (providerId: string) => Promise<void>
+}
+
+type OAuthRuntimeCallbacks = {
+  openExternal: (url: string) => Promise<void>
+  waitForCallback: (providerId: string) => Promise<string>
 }
 
 export function createPiAgentRuntime({
@@ -161,9 +168,26 @@ export function createPiAgentRuntime({
       authStorage.removeRuntimeApiKey(providerId)
       modelRegistry.refresh()
     },
-    getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry),
+    getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry, authStorage),
     getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
-    testAuth: async (providerId) => testProviderAuth(modelRegistry, providerId)
+    testAuth: async (providerId) => testProviderAuth(modelRegistry, providerId),
+    loginOAuth: async (providerId, callbacks) => {
+      assertKnownOAuthProvider(authStorage, providerId)
+      await authStorage.login(providerId, {
+        onAuth: ({ url }) => void callbacks.openExternal(url),
+        onDeviceCode: ({ verificationUri }) => void callbacks.openExternal(verificationUri),
+        onPrompt: async () => callbacks.waitForCallback(providerId),
+        onManualCodeInput: async () => callbacks.waitForCallback(providerId),
+        onSelect: async (prompt) => prompt.options[0]?.id,
+        onProgress: () => undefined
+      })
+      modelRegistry.refresh()
+    },
+    logoutOAuth: async (providerId) => {
+      assertKnownOAuthProvider(authStorage, providerId)
+      authStorage.logout(providerId)
+      modelRegistry.refresh()
+    }
   }
 }
 
@@ -188,10 +212,22 @@ function findConfiguredModel(
   return model
 }
 
-function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry): ModelAuthSettings {
+function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStorage: AuthStorage): ModelAuthSettings {
   return {
     subscriptions: {
-      connected: [],
+      connected: SUBSCRIPTION_PROVIDERS.flatMap((provider) => {
+        const status = authStorage.getAuthStatus(provider.providerId)
+        if (!status.configured) return []
+
+        return [{
+          providerId: provider.providerId,
+          label: provider.label,
+          configured: true,
+          source: status.source,
+          displayLabel: getAuthStatusDisplayLabel(status.source),
+          removable: status.source === 'stored'
+        } satisfies AuthProviderStatus]
+      }),
       availableProviders: [...SUBSCRIPTION_PROVIDERS]
     },
     apiKeys: {
@@ -253,6 +289,12 @@ function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string
 function assertKnownApiKeyProvider(providerId: string): void {
   if (!API_KEY_PROVIDERS.some((provider) => provider.providerId === providerId)) {
     throw new Error('agent.unknownApiKeyProvider')
+  }
+}
+
+function assertKnownOAuthProvider(authStorage: AuthStorage, providerId: string): void {
+  if (!authStorage.getOAuthProviders().some((provider) => provider.id === providerId)) {
+    throw new Error('agent.unknownOAuthProvider')
   }
 }
 

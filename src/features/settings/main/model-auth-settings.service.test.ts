@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { addApiKey, getModelAuthSettings, removeApiKey, testAuth } from './model-auth-settings.service'
+import { addApiKey, getModelAuthSettings, loginOAuth, logoutOAuth, removeApiKey, testAuth } from './model-auth-settings.service'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
 
 vi.mock('../../agent-workspace/main/agent-utility-process', () => ({
@@ -27,7 +27,9 @@ describe('model auth settings service', () => {
       })),
       addApiKey: vi.fn(async () => undefined),
       removeApiKey: vi.fn(async () => undefined),
-      testAuth: vi.fn(async () => ({ ok: true }))
+      testAuth: vi.fn(async () => ({ ok: true })),
+      loginOAuth: vi.fn(async () => undefined),
+      logoutOAuth: vi.fn(async () => undefined)
     } as unknown as ReturnType<typeof getAgentUtilityProcessHost>)
   })
 
@@ -37,12 +39,16 @@ describe('model auth settings service', () => {
     await addApiKey('anthropic', 'sk-secret')
     await removeApiKey('anthropic')
     await expect(testAuth('anthropic')).resolves.toEqual({ ok: true })
+    await loginOAuth('github-copilot')
+    await logoutOAuth('github-copilot')
 
     const status = await getModelAuthSettings()
 
     expect(host.addApiKey).toHaveBeenCalledWith({ providerId: 'anthropic', apiKey: 'sk-secret' })
     expect(host.removeApiKey).toHaveBeenCalledWith({ providerId: 'anthropic' })
     expect(host.testAuth).toHaveBeenCalledWith({ providerId: 'anthropic' })
+    expect(host.loginOAuth).toHaveBeenCalledWith({ providerId: 'github-copilot' })
+    expect(host.logoutOAuth).toHaveBeenCalledWith({ providerId: 'github-copilot' })
     expect(JSON.stringify(status)).not.toContain('sk-secret')
   })
 })

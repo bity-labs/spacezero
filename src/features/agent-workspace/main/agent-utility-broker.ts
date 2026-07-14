@@ -5,6 +5,7 @@ import type {
   AgentAddApiKeyRequest,
   AgentPingRequest,
   AgentPingResponse,
+  AgentOAuthCallbackRequest,
   AgentProviderRequest,
   AgentSessionState,
   AgentStreamingEvent,
@@ -25,9 +26,12 @@ import {
   createAgentGetAuthStatusCommand,
   createAgentGetAvailableModelsCommand,
   createAgentGetStateCommand,
+  createAgentHandleOAuthCallbackCommand,
+  createAgentLoginOAuthCommand,
   createAgentListSessionsCommand,
   createAgentPingCommand,
   createAgentRemoveApiKeyCommand,
+  createAgentLogoutOAuthCommand,
   createAgentSetModelCommand,
   createAgentSetThinkingLevelCommand,
   createAgentTestAuthCommand,
@@ -60,6 +64,7 @@ type AgentUtilityBrokerOptions = {
   onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
   onProjectionEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
+  openExternal?: (url: string) => Promise<void>
 }
 
 type SendOptions = {
@@ -77,6 +82,7 @@ export class AgentUtilityBroker {
     | ((event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void)
     | undefined
   private readonly executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
+  private readonly openExternal?: (url: string) => Promise<void>
   private readonly streamingEventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private disposed = false
 
@@ -90,6 +96,7 @@ export class AgentUtilityBroker {
     this.forwardEvent = options.onEvent
     this.onProjectionEvent = options.onProjectionEvent
     this.executeWorkspaceTool = options.executeWorkspaceTool
+    this.openExternal = options.openExternal
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -147,6 +154,18 @@ export class AgentUtilityBroker {
 
   testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
     return this.send(createAgentTestAuthCommand(this.createRequestId(), request)) as Promise<AuthTestResult>
+  }
+
+  async loginOAuth(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentLoginOAuthCommand(this.createRequestId(), request), { timeoutMs: false })
+  }
+
+  async logoutOAuth(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentLogoutOAuthCommand(this.createRequestId(), request))
+  }
+
+  handleOAuthCallback(request: AgentOAuthCallbackRequest): Promise<{ handled: boolean }> {
+    return this.send(createAgentHandleOAuthCallbackCommand(this.createRequestId(), request)) as Promise<{ handled: boolean }>
   }
 
   async resolveToolConfirmation(
@@ -218,6 +237,11 @@ export class AgentUtilityBroker {
       return
     }
 
+    if (frame.type === 'agent.command' && frame.command === 'agent.openOAuthUrl') {
+      void this.handleOpenOAuthUrlCommand(frame)
+      return
+    }
+
     if (frame.type === 'agent.event') {
       this.forwardEvent?.(frame)
       if (frame.event === 'agent.streaming') {
@@ -271,6 +295,24 @@ export class AgentUtilityBroker {
           code: 'workspace-tool-error',
           message: error instanceof Error ? error.message : String(error)
         }
+      })
+    }
+  }
+
+  private async handleOpenOAuthUrlCommand(frame: AgentUtilityFrame & { type: 'agent.command' }): Promise<void> {
+    const url = typeof (frame.payload as { url?: unknown } | undefined)?.url === 'string' ? (frame.payload as { url: string }).url : ''
+
+    try {
+      if (!this.openExternal) throw new Error('agent.oauthBrowserUnavailable')
+      await this.openExternal(url)
+      this.port.postMessage({ type: 'agent.response', requestId: frame.requestId, ok: true, sessionId: frame.sessionId, result: undefined })
+    } catch (error) {
+      this.port.postMessage({
+        type: 'agent.response',
+        requestId: frame.requestId,
+        ok: false,
+        sessionId: frame.sessionId,
+        error: { code: 'agent.oauthOpenExternalFailed', message: error instanceof Error ? error.message : String(error) }
       })
     }
   }
