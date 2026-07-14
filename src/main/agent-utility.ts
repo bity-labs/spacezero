@@ -40,11 +40,15 @@ function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
 
 const agentDir = process.env.SPACEZERO_AGENT_DIR ?? join(process.cwd(), '.spacezero-agent')
 const WORKSPACE_TOOL_REQUEST_TIMEOUT_MS = 30_000
+const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60_000
 const pendingUtilityRequests = new Map<
   string,
   { resolve: (result: unknown) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
 >()
-const pendingOAuthCallbacks = new Map<string, { resolve: (url: string) => void; reject: (error: Error) => void }>()
+const pendingOAuthCallbacks = new Map<
+  string,
+  { resolve: (url: string) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
+>()
 let agentPort: MessagePortMain | undefined
 
 function executeWorkspaceToolInMain(request: ExecuteWorkspaceToolRequest): Promise<WorkspaceToolResult> {
@@ -91,8 +95,19 @@ function requestOpenOAuthUrl(url: string): Promise<void> {
 }
 
 function waitForOAuthCallback(providerId: string): Promise<string> {
+  const existing = pendingOAuthCallbacks.get(providerId)
+  if (existing) {
+    clearTimeout(existing.timeout)
+    existing.reject(new Error('agent.oauthCallbackReplaced'))
+  }
+
   return new Promise((resolve, reject) => {
-    pendingOAuthCallbacks.set(providerId, { resolve, reject })
+    const timeout = setTimeout(() => {
+      if (!pendingOAuthCallbacks.delete(providerId)) return
+      reject(new Error('agent.oauthCallbackTimedOut'))
+    }, OAUTH_CALLBACK_TIMEOUT_MS)
+
+    pendingOAuthCallbacks.set(providerId, { resolve, reject, timeout })
   })
 }
 
@@ -110,6 +125,7 @@ function handleOAuthCallbackUrl(url: string): boolean {
   const pending = pendingOAuthCallbacks.get(providerId)
   if (!pending) return false
   pendingOAuthCallbacks.delete(providerId)
+  clearTimeout(pending.timeout)
   pending.resolve(url)
   return true
 }
@@ -409,6 +425,11 @@ function attachAgentPort(port: MessagePortMain): void {
       pending.reject(new Error('workspace-tool-port-closed'))
     }
     pendingUtilityRequests.clear()
+    for (const pending of pendingOAuthCallbacks.values()) {
+      clearTimeout(pending.timeout)
+      pending.reject(new Error('agent.oauthPortClosed'))
+    }
+    pendingOAuthCallbacks.clear()
     sessionRegistry.dispose()
   })
   port.start()

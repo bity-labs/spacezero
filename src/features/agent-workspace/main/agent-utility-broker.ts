@@ -44,6 +44,7 @@ import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000
+const DEFAULT_OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000
 
 export type AgentUtilityPort = {
   postMessage: (frame: AgentUtilityFrame) => void
@@ -61,6 +62,7 @@ type AgentUtilityBrokerOptions = {
   createRequestId?: () => string
   requestTimeoutMs?: number
   sessionLifecycleTimeoutMs?: number
+  oauthLoginTimeoutMs?: number
   onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
   onProjectionEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
@@ -77,6 +79,7 @@ export class AgentUtilityBroker {
   private readonly createRequestId: () => string
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
+  private readonly oauthLoginTimeoutMs: number
   private readonly forwardEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
   private readonly onProjectionEvent:
     | ((event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void)
@@ -93,6 +96,7 @@ export class AgentUtilityBroker {
     this.createRequestId = options.createRequestId ?? randomUUID
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
+    this.oauthLoginTimeoutMs = options.oauthLoginTimeoutMs ?? DEFAULT_OAUTH_LOGIN_TIMEOUT_MS
     this.forwardEvent = options.onEvent
     this.onProjectionEvent = options.onProjectionEvent
     this.executeWorkspaceTool = options.executeWorkspaceTool
@@ -157,7 +161,9 @@ export class AgentUtilityBroker {
   }
 
   async loginOAuth(request: AgentProviderRequest): Promise<void> {
-    await this.send(createAgentLoginOAuthCommand(this.createRequestId(), request), { timeoutMs: false })
+    await this.send(createAgentLoginOAuthCommand(this.createRequestId(), request), {
+      timeoutMs: this.oauthLoginTimeoutMs
+    })
   }
 
   async logoutOAuth(request: AgentProviderRequest): Promise<void> {
