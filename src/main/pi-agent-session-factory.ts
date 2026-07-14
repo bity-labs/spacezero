@@ -5,13 +5,26 @@ import {
   AuthStorage,
   createAgentSession,
   DefaultResourceLoader,
+  defineTool,
   ModelRegistry,
   SessionManager,
-  type AgentSession
+  type AgentSession,
+  type ToolDefinition
 } from '@earendil-works/pi-coding-agent'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
-import type { CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type {
+  AgentAssistantContent,
+  AgentToolResultContent,
+  AgentTranscriptMessage,
+  AgentUserContent
+} from '../shared/agent-session-projection.model'
+import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
+import type {
+  ExecuteWorkspaceToolRequest,
+  WorkspaceToolAgentDescriptor
+} from '../shared/workspace-tool-protocol'
 import type { CreatedPiAgentSession } from './agent-session-registry'
 
 const FAUX_PROVIDER_ID = 'faux'
@@ -20,9 +33,13 @@ const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls
 
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
+  executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
 }
 
-export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryOptions) {
+export function createPiAgentSessionFactory({
+  agentDir,
+  executeWorkspaceTool
+}: PiAgentSessionFactoryOptions) {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
 
@@ -68,12 +85,18 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
       ? SessionManager.open(request.transcriptPath, sessionsDir, request.cwd)
-      : SessionManager.create(request.cwd, sessionsDir)
+      : SessionManager.create(request.cwd, sessionsDir, { id: request.sessionId })
+    const customTools = createWorkspaceToolProxies({
+      sessionId: request.sessionId,
+      descriptors: request.workspaceTools ?? [],
+      executeWorkspaceTool
+    })
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
       model: modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
-      tools: PROJECT_TOOL_NAMES,
+      tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
+      customTools,
       sessionManager,
       authStorage,
       modelRegistry,
@@ -82,6 +105,48 @@ export function createPiAgentSessionFactory({ agentDir }: PiAgentSessionFactoryO
 
     return adaptAgentSession(session)
   }
+}
+
+function createWorkspaceToolProxies({
+  sessionId,
+  descriptors,
+  executeWorkspaceTool
+}: {
+  sessionId: string
+  descriptors: WorkspaceToolAgentDescriptor[]
+  executeWorkspaceTool: PiAgentSessionFactoryOptions['executeWorkspaceTool']
+}): ToolDefinition[] {
+  return descriptors.map((descriptor) =>
+    defineTool({
+      name: descriptor.name,
+      label: descriptor.name,
+      description: descriptor.description,
+      parameters: descriptor.parameters as ToolDefinition['parameters'],
+      execute: async (callId, input) => {
+        const result = executeWorkspaceTool
+          ? await executeWorkspaceTool({
+              sessionId,
+              callId,
+              toolName: descriptor.name,
+              input,
+              safetyLevel: descriptor.safetyLevel
+            })
+          : {
+              ok: false,
+              error: {
+                code: 'workspace-tool-unavailable',
+                message: 'Workspace Tool executor unavailable'
+              }
+            }
+
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          isError: !result.ok,
+          details: result
+        }
+      }
+    } as ToolDefinition)
+  )
 }
 
 function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
@@ -97,6 +162,149 @@ function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
     get modelId() {
       return session.model?.id ?? FAUX_MODEL_ID
     },
-    dispose: () => session.dispose()
+    prompt: (message) => session.prompt(message),
+    abort: () => session.abort(),
+    subscribe: (listener) => session.subscribe((event) => {
+      const streamingEvent = toStreamingEvent(session.sessionId, event)
+      if (streamingEvent) listener(streamingEvent)
+    }),
+    dispose: () => session.dispose(),
+    getTranscriptSnapshot: () => toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
+}
+
+function toTranscriptSnapshot(
+  messages: unknown[],
+  streamingMessage: unknown | undefined
+): AgentTranscriptMessage[] {
+  const snapshot = messages.flatMap(toTranscriptMessage)
+  if (streamingMessage) snapshot.push(...toTranscriptMessage(streamingMessage))
+  return snapshot
+}
+
+function toTranscriptMessage(message: unknown): AgentTranscriptMessage[] {
+  if (!isRecord(message)) return []
+  const timestamp = getTimestamp(message)
+
+  if (message.role === 'user') {
+    return [{ role: 'user', content: toUserContent(message.content), timestamp }]
+  }
+
+  if (message.role === 'assistant') {
+    return [
+      {
+        role: 'assistant',
+        content: toAssistantContent(message.content),
+        timestamp,
+        stopReason: toAssistantStopReason(message.stopReason),
+        errorMessage: typeof message.errorMessage === 'string' ? message.errorMessage : undefined
+      }
+    ]
+  }
+
+  if (message.role === 'toolResult') {
+    return [
+      {
+        role: 'toolResult',
+        toolCallId: typeof message.toolCallId === 'string' ? message.toolCallId : '',
+        toolName: typeof message.toolName === 'string' ? message.toolName : '',
+        content: toToolResultContent(message.content),
+        isError: message.isError === true,
+        details: message.details,
+        timestamp
+      }
+    ]
+  }
+
+  return [{ ...message, role: typeof message.role === 'string' ? message.role : 'unknown', timestamp }]
+}
+
+function toUserContent(content: unknown): string | AgentUserContent[] {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentUserContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+      return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
+    }
+    return []
+  })
+}
+
+function toToolResultContent(content: unknown): AgentToolResultContent[] {
+  const userContent = toUserContent(content)
+  if (typeof userContent === 'string') return [{ type: 'text', text: userContent }]
+  return userContent
+}
+
+function toAssistantContent(content: unknown): AgentAssistantContent[] {
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentAssistantContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'thinking' && typeof part.thinking === 'string') {
+      return [{ type: 'thinking', thinking: part.thinking, redacted: part.redacted === true }]
+    }
+    if (part.type === 'toolCall' && typeof part.id === 'string' && typeof part.name === 'string') {
+      return [
+        {
+          type: 'toolCall',
+          id: part.id,
+          name: part.name,
+          arguments: isRecord(part.arguments) ? part.arguments : {}
+        }
+      ]
+    }
+    return []
+  })
+}
+
+function toAssistantStopReason(value: unknown): 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined {
+  return value === 'stop' || value === 'length' || value === 'toolUse' || value === 'error' || value === 'aborted'
+    ? value
+    : undefined
+}
+
+function getTimestamp(message: Record<string, unknown>): number {
+  if (typeof message.timestamp === 'number') return message.timestamp
+  return Date.now()
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function toStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
+  if (event.type === 'agent_start' || event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'agent_end') {
+    return { type: event.type, sessionId }
+  }
+
+  if (event.type === 'message_start' || event.type === 'message_end') {
+    return { type: event.type, sessionId, messageId: getMessageId(event.message) }
+  }
+
+  if (event.type === 'message_update') {
+    const assistantMessageEvent = event.assistantMessageEvent as { type?: string; delta?: unknown } | undefined
+    if (assistantMessageEvent?.type !== 'text_delta' || typeof assistantMessageEvent.delta !== 'string') {
+      return undefined
+    }
+
+    return {
+      type: 'message_update',
+      sessionId,
+      messageId: getMessageId(event.message),
+      delta: assistantMessageEvent.delta
+    }
+  }
+
+  return undefined
+}
+
+function getMessageId(message: unknown): string | undefined {
+  if (typeof message !== 'object' || message === null || !('id' in message)) return undefined
+  const id = (message as { id?: unknown }).id
+  return typeof id === 'string' ? id : undefined
 }

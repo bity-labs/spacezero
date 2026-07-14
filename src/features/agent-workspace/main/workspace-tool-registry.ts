@@ -1,3 +1,4 @@
+import type { WorkspaceToolAgentDescriptor } from '../../../shared/workspace-tool-protocol'
 import type { AnyWorkspaceTool } from './workspace-tool.model'
 
 /**
@@ -28,6 +29,21 @@ export class WorkspaceToolRegistry {
 
   list(): AnyWorkspaceTool[] {
     return Array.from(this.tools.values())
+  }
+
+  listAgentDescriptors(): WorkspaceToolAgentDescriptor[] {
+    return this.list().map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      safetyLevel: tool.safetyLevel,
+      kind: tool.kind,
+      domain: tool.domain,
+      parameters: tool.agentParameters ?? {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      }
+    }))
   }
 }
 
