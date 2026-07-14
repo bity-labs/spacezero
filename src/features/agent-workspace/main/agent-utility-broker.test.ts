@@ -150,13 +150,59 @@ describe('AgentUtilityBroker', () => {
     await expect(listPromise).resolves.toEqual([createdSession])
   })
 
+  it('prompts, aborts, and relays streaming events by session id', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const events: unknown[] = []
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+    broker.onEvent((event) => events.push(event))
+
+    const promptPromise = broker.prompt({ sessionId: 'session-1', message: 'Hello' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.prompt',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', message: 'Hello' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'session-1', result: undefined })
+    await expect(promptPromise).resolves.toBeUndefined()
+
+    port.emit({
+      type: 'agent.event',
+      event: 'agent.streaming',
+      sessionId: 'session-1',
+      payload: {
+        type: 'message_update',
+        sessionId: 'session-1',
+        messageId: 'message-1',
+        delta: 'Hi'
+      }
+    })
+
+    const abortPromise = broker.abort({ sessionId: 'session-1' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.abort',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-2', ok: true, sessionId: 'session-1', result: undefined })
+    await expect(abortPromise).resolves.toBeUndefined()
+
+    expect(events).toEqual([{ type: 'message_update', sessionId: 'session-1', messageId: 'message-1', delta: 'Hi' }])
+  })
+
   it('routes session-tagged utility events without resolving pending requests', async () => {
     const port = new FakeAgentUtilityPort()
     const events: AgentUtilityFrame[] = []
-    new AgentUtilityBroker(port, {
+    const streamingEvents: unknown[] = []
+    const broker = new AgentUtilityBroker(port, {
       createRequestId: () => 'request-1',
       onEvent: (event) => events.push(event)
     })
+    broker.onEvent((event) => streamingEvents.push(event))
 
     const suspendedSession: AgentSessionState = {
       sessionId: 'session-1',
@@ -184,6 +230,106 @@ describe('AgentUtilityBroker', () => {
         payload: suspendedSession
       }
     ])
+    expect(streamingEvents).toEqual([])
+  })
+
+  it('routes projection events from the utility to the dedicated projection handler', () => {
+    const port = new FakeAgentUtilityPort()
+    const projectionEvents: AgentUtilityFrame[] = []
+    new AgentUtilityBroker(port, {
+      createRequestId: () => 'request-1',
+      onProjectionEvent: (event) => projectionEvents.push(event)
+    })
+
+    port.emit({
+      type: 'agent.sessionProjectionEvent',
+      event: {
+        type: 'snapshot',
+        sessionId: 'session-1',
+        seq: 1,
+        snapshot: { status: 'idle', messages: [] }
+      }
+    })
+
+    expect(projectionEvents).toEqual([
+      {
+        type: 'agent.sessionProjectionEvent',
+        event: {
+          type: 'snapshot',
+          sessionId: 'session-1',
+          seq: 1,
+          snapshot: { status: 'idle', messages: [] }
+        }
+      }
+    ])
+  })
+
+  it('routes tool confirmation answers to the utility as session-tagged commands', async () => {
+    const port = new FakeAgentUtilityPort()
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => 'request-1' })
+
+    const answerPromise = broker.resolveToolConfirmation({
+      sessionId: 'session-1',
+      callId: 'call-1',
+      approved: true
+    })
+
+    expect(port.postedFrames).toEqual([
+      {
+        type: 'agent.command',
+        requestId: 'request-1',
+        command: 'agent.resolveToolConfirmation',
+        sessionId: 'session-1',
+        payload: { sessionId: 'session-1', callId: 'call-1', approved: true }
+      }
+    ])
+
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-1',
+      ok: true,
+      sessionId: 'session-1',
+      result: undefined
+    })
+
+    await expect(answerPromise).resolves.toBeUndefined()
+  })
+
+  it('executes Workspace Tool proxy commands from the utility through main', async () => {
+    const port = new FakeAgentUtilityPort()
+    const executeWorkspaceTool = vi.fn(async () => ({ ok: true as const, data: { status: 'ready' } }))
+    new AgentUtilityBroker(port, { executeWorkspaceTool })
+
+    port.emit({
+      type: 'agent.command',
+      requestId: 'tool-request-1',
+      command: 'workspaceTool.execute',
+      sessionId: 'session-1',
+      payload: {
+        sessionId: 'session-1',
+        toolName: 'workspace.getStatus',
+        input: {},
+        safetyLevel: 'read',
+        callId: 'call-1'
+      }
+    })
+
+    await vi.waitFor(() => {
+      expect(port.postedFrames).toContainEqual({
+        type: 'agent.response',
+        requestId: 'tool-request-1',
+        ok: true,
+        sessionId: 'session-1',
+        result: { ok: true, data: { status: 'ready' } }
+      })
+    })
+    expect(executeWorkspaceTool).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      toolName: 'workspace.getStatus',
+      input: {},
+      safetyLevel: 'read',
+      callId: 'call-1'
+    })
   })
 
   it('rejects a pending command when the utility reports a failure', async () => {
@@ -226,6 +372,33 @@ describe('AgentUtilityBroker', () => {
     port.close()
 
     await expect(pingPromise).rejects.toThrow('agent.utilityPortClosed')
+  })
+
+  it('does not time out a long-running prompt while the utility turn is still active', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => 'request-1',
+        requestTimeoutMs: 10,
+        sessionLifecycleTimeoutMs: 50
+      })
+
+      const promptPromise = broker.prompt({ sessionId: 'session-1', message: 'Implement the issue' })
+      const rejectionSpy = vi.fn()
+      promptPromise.catch(rejectionSpy)
+
+      vi.advanceTimersByTime(60)
+      await Promise.resolve()
+
+      expect(rejectionSpy).not.toHaveBeenCalled()
+
+      port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'session-1', result: undefined })
+      await expect(promptPromise).resolves.toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('rejects pending commands when the utility does not answer before the timeout', async () => {

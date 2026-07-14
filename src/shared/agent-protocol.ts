@@ -1,3 +1,13 @@
+import type {
+  AgentSessionProjectionEvent,
+  AgentTranscriptMessage
+} from './agent-session-projection.model'
+import type {
+  ExecuteWorkspaceToolRequest,
+  ExecuteWorkspaceToolResponse,
+  WorkspaceToolAgentDescriptor
+} from './workspace-tool-protocol'
+
 export type AgentSessionId = string
 
 export type AgentPingRequest = {
@@ -15,14 +25,30 @@ export type CreateAgentSessionRequest = {
   projectId: string
   cwd: string
   transcriptPath?: string
+  workspaceTools?: WorkspaceToolAgentDescriptor[]
 }
 
 export type GetAgentSessionStateRequest = {
   sessionId: AgentSessionId
 }
 
+export type PromptAgentSessionRequest = {
+  sessionId: AgentSessionId
+  message: string
+}
+
+export type AbortAgentSessionRequest = {
+  sessionId: AgentSessionId
+}
+
 export type DeleteAgentSessionRequest = {
   sessionId: AgentSessionId
+}
+
+export type ResolveAgentToolConfirmationCommandRequest = {
+  sessionId: AgentSessionId
+  callId: string
+  approved: boolean
 }
 
 export type AgentSessionStatus = 'idle' | 'running'
@@ -36,6 +62,23 @@ export type AgentSessionState = {
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
+  transcriptSnapshot?: AgentTranscriptMessage[]
+}
+
+export type AgentStreamingEventType =
+  | 'agent_start'
+  | 'turn_start'
+  | 'message_start'
+  | 'message_update'
+  | 'message_end'
+  | 'turn_end'
+  | 'agent_end'
+
+export type AgentStreamingEvent = {
+  type: AgentStreamingEventType
+  sessionId: AgentSessionId
+  messageId?: string
+  delta?: string
 }
 
 export type AgentUtilityCommandName =
@@ -44,6 +87,10 @@ export type AgentUtilityCommandName =
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'agent.resolveToolConfirmation'
+  | 'agent.prompt'
+  | 'agent.abort'
+  | 'workspaceTool.execute'
 
 export type AgentUtilityCommand = {
   type: 'agent.command'
@@ -51,6 +98,11 @@ export type AgentUtilityCommand = {
   command: AgentUtilityCommandName
   sessionId: AgentSessionId
   payload?: unknown
+}
+
+export type ExecuteWorkspaceToolCommand = AgentUtilityCommand & {
+  command: 'workspaceTool.execute'
+  payload: ExecuteWorkspaceToolRequest
 }
 
 export type AgentUtilityEvent =
@@ -78,15 +130,28 @@ export type AgentUtilityEvent =
       sessionId: AgentSessionId
       payload: AgentSessionState
     }
+  | {
+      type: 'agent.event'
+      event: 'agent.streaming'
+      sessionId: AgentSessionId
+      payload: AgentStreamingEvent
+    }
 
 export type AgentUtilityEventName = AgentUtilityEvent['event']
+
+export type AgentUtilityResult =
+  | AgentPingResponse
+  | AgentSessionState
+  | AgentSessionState[]
+  | ExecuteWorkspaceToolResponse
+  | undefined
 
 export type AgentUtilitySuccessResponse = {
   type: 'agent.response'
   requestId: string
   ok: true
   sessionId: AgentSessionId
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
+  result: AgentUtilityResult
 }
 
 export type AgentUtilityFailureResponse = {
@@ -102,7 +167,16 @@ export type AgentUtilityFailureResponse = {
 
 export type AgentUtilityResponse = AgentUtilitySuccessResponse | AgentUtilityFailureResponse
 
-export type AgentUtilityFrame = AgentUtilityCommand | AgentUtilityEvent | AgentUtilityResponse
+export type AgentUtilityProjectionEvent = {
+  type: 'agent.sessionProjectionEvent'
+  event: AgentSessionProjectionEvent
+}
+
+export type AgentUtilityFrame =
+  | AgentUtilityCommand
+  | AgentUtilityEvent
+  | AgentUtilityProjectionEvent
+  | AgentUtilityResponse
 
 export type AgentUtilityConnectMessage = {
   type: 'spacezero.agent.connect'
@@ -168,10 +242,62 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
   }
 }
 
+export function createAgentResolveToolConfirmationCommand(
+  requestId: string,
+  request: ResolveAgentToolConfirmationCommandRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.resolveToolConfirmation',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentPromptCommand(
+  requestId: string,
+  request: PromptAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.prompt',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentAbortCommand(
+  requestId: string,
+  request: AbortAgentSessionRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.abort',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createExecuteWorkspaceToolCommand(
+  requestId: string,
+  request: ExecuteWorkspaceToolRequest
+): ExecuteWorkspaceToolCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'workspaceTool.execute',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
 export function createAgentSuccessResponse(
   requestId: string,
   sessionId: AgentSessionId,
-  result: AgentPingResponse | AgentSessionState | AgentSessionState[] | undefined
+  result: AgentUtilityResult
 ): AgentUtilitySuccessResponse {
   return {
     type: 'agent.response',

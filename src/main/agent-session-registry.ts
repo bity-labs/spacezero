@@ -1,11 +1,17 @@
 import { resolve } from 'node:path'
 
 import type {
+  AbortAgentSessionRequest,
   AgentSessionState,
+  AgentStreamingEvent,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest,
+  ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
+import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
+import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
 
 export type CreatedPiAgentSession = {
   sessionId: string
@@ -13,7 +19,11 @@ export type CreatedPiAgentSession = {
   isStreaming: boolean
   modelProvider: string
   modelId: string
+  prompt: (message: string) => Promise<void>
+  abort: () => Promise<void>
+  subscribe: (listener: (event: AgentStreamingEvent) => void) => () => void
   dispose: () => void
+  getTranscriptSnapshot: () => AgentTranscriptMessage[]
 }
 
 export type CreatePiAgentSession = (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
@@ -33,13 +43,16 @@ export type AgentSessionRegistryEvent =
 type RegisteredAgentSession = {
   projectId: string
   cwd: string
+  workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   piSession: CreatedPiAgentSession
+  unsubscribe: () => void
   lastAccessedAt: number
 }
 
 type DormantAgentSession = {
   projectId: string
   cwd: string
+  workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
@@ -51,6 +64,7 @@ type AgentSessionRegistryOptions = {
   maxLiveSessions?: number
   now?: () => number
   onEvent?: (event: AgentSessionRegistryEvent) => void
+  onStreamingEvent?: (event: AgentStreamingEvent) => void
 }
 
 const DEFAULT_MAX_LIVE_SESSIONS = 4
@@ -106,10 +120,13 @@ export class AgentSessionRegistry {
         }
 
         this.suspendCandidateIfNeeded()
+        const unsubscribe = piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event))
         this.sessions.set(sessionId, {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
+          workspaceTools: normalizedRequest.workspaceTools,
           piSession,
+          unsubscribe,
           lastAccessedAt: this.now()
         })
 
@@ -154,6 +171,25 @@ export class AgentSessionRegistry {
     })
   }
 
+  async prompt(request: PromptAgentSessionRequest): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const message = request.message.trim()
+    if (!message) throw new Error('agent.emptyPrompt')
+
+    const session = await this.getLiveSession(sessionId)
+    session.lastAccessedAt = this.now()
+    await session.piSession.prompt(message)
+  }
+
+  async abort(request: AbortAgentSessionRequest): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (!session) throw new Error('agent.sessionNotFound')
+
+    session.lastAccessedAt = this.now()
+    await session.piSession.abort()
+  }
+
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
     const sessionId = request.sessionId.trim()
     const session = this.sessions.get(sessionId)
@@ -165,6 +201,7 @@ export class AgentSessionRegistry {
       return
     }
 
+    session.unsubscribe()
     session.piSession.dispose()
     this.sessions.delete(sessionId)
     this.dormantSessions.delete(sessionId)
@@ -180,9 +217,24 @@ export class AgentSessionRegistry {
     ].sort((a, b) => a.sessionId.localeCompare(b.sessionId))
   }
 
+  async resolveToolConfirmation(
+    request: ResolveAgentToolConfirmationCommandRequest
+  ): Promise<void> {
+    const sessionId = request.sessionId.trim()
+    const session = this.sessions.get(sessionId)
+    if (session) {
+      session.lastAccessedAt = this.now()
+      throw new Error('agent.toolConfirmationResolverUnavailable')
+    }
+
+    if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
+    throw new Error('agent.toolConfirmationResolverUnavailable')
+  }
+
   dispose(): void {
     this.disposed = true
     for (const session of this.sessions.values()) {
+      session.unsubscribe()
       session.piSession.dispose()
     }
     this.sessions.clear()
@@ -201,8 +253,35 @@ export class AgentSessionRegistry {
       sessionId: request.sessionId.trim(),
       projectId: request.projectId.trim(),
       cwd: resolve(request.cwd),
-      transcriptPath: request.transcriptPath
+      transcriptPath: request.transcriptPath,
+      workspaceTools: request.workspaceTools
     }
+  }
+
+  private async getLiveSession(sessionId: string): Promise<RegisteredAgentSession> {
+    const session = this.sessions.get(sessionId)
+    if (session) return session
+
+    if (!this.dormantSessions.has(sessionId)) throw new Error('agent.sessionNotFound')
+
+    return this.enqueueLifecycle(async () => {
+      const liveSession = this.sessions.get(sessionId)
+      if (liveSession) return liveSession
+
+      const dormantSession = this.dormantSessions.get(sessionId)
+      if (!dormantSession) throw new Error('agent.sessionNotFound')
+
+      this.rehydratingSessionIds.add(sessionId)
+      try {
+        this.throwIfDisposed()
+        await this.rehydrateSession(sessionId, dormantSession)
+        const rehydratedSession = this.sessions.get(sessionId)
+        if (!rehydratedSession) throw new Error('agent.sessionNotFound')
+        return rehydratedSession
+      } finally {
+        this.rehydratingSessionIds.delete(sessionId)
+      }
+    })
   }
 
   private async rehydrateSession(
@@ -214,7 +293,8 @@ export class AgentSessionRegistry {
       sessionId,
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
-      transcriptPath: dormantSession.transcriptPath
+      transcriptPath: dormantSession.transcriptPath,
+      workspaceTools: dormantSession.workspaceTools
     })
 
     if (this.disposed) {
@@ -225,7 +305,9 @@ export class AgentSessionRegistry {
     const liveSession: RegisteredAgentSession = {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
+      workspaceTools: dormantSession.workspaceTools,
       piSession,
+      unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
     }
 
@@ -279,6 +361,7 @@ export class AgentSessionRegistry {
     const dormantSession: DormantAgentSession = {
       projectId: session.projectId,
       cwd: session.cwd,
+      workspaceTools: session.workspaceTools,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
@@ -286,13 +369,20 @@ export class AgentSessionRegistry {
     }
     const state = this.toDormantState(sessionId, dormantSession)
 
+    session.unsubscribe()
     session.piSession.dispose()
     this.sessions.delete(sessionId)
     this.dormantSessions.set(sessionId, dormantSession)
     this.onEvent?.({ event: 'agent.sessionSuspended', sessionId, state })
   }
 
+  private forwardStreamingEvent(sessionId: string, event: AgentStreamingEvent): void {
+    this.options.onStreamingEvent?.({ ...event, sessionId })
+  }
+
   private toLiveState(sessionId: string, session: RegisteredAgentSession): AgentSessionState {
+    const transcriptSnapshot = session.piSession.getTranscriptSnapshot()
+
     return {
       sessionId,
       projectId: session.projectId,
@@ -301,7 +391,8 @@ export class AgentSessionRegistry {
       live: true,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
-      modelId: session.piSession.modelId
+      modelId: session.piSession.modelId,
+      ...(transcriptSnapshot.length > 0 ? { transcriptSnapshot } : {})
     }
   }
 

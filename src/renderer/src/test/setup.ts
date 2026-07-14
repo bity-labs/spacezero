@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
+import { resetSessionWorkspaceStore } from '../../../features/sessions/renderer'
 import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
@@ -44,6 +45,7 @@ beforeEach(async () => {
   mediaListeners.clear()
   window.localStorage.clear()
   resetUiLayoutStore()
+  resetSessionWorkspaceStore()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 
@@ -117,7 +119,12 @@ beforeEach(async () => {
         modelId: 'faux-1'
       }),
       listSessions: async () => [],
+      prompt: async () => undefined,
+      abort: async () => undefined,
       onEvent: () => () => undefined,
+      onSessionProjectionEvent: () => () => undefined,
+      onToolExecution: () => () => undefined,
+      resolveToolConfirmation: async () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
           connected: [],

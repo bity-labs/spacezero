@@ -11,17 +11,23 @@ import log from 'electron-log/main'
 import { join } from 'node:path'
 
 import type {
+  AbortAgentSessionRequest,
   AgentPingRequest,
   AgentPingResponse,
   AgentSessionState,
+  AgentStreamingEvent,
   AgentUtilityFrame,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
-  GetAgentSessionStateRequest
+  GetAgentSessionStateRequest,
+  PromptAgentSessionRequest,
+  ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
+import { getWorkspaceToolExecutor } from './workspace-tool-control-plane'
 
 class MessagePortMainAgentUtilityPort implements AgentUtilityPort {
   constructor(private readonly port: MessagePortMain) {}
@@ -50,6 +56,7 @@ export class AgentUtilityProcessHost {
   private utility: UtilityProcess | undefined
   private mainPort: MessagePortMainAgentUtilityPort | undefined
   private broker: AgentUtilityBroker | undefined
+  private readonly eventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private stopping = false
 
   start(): void {
@@ -90,8 +97,35 @@ export class AgentUtilityProcessHost {
         for (const window of BrowserWindow.getAllWindows()) {
           window.webContents.send(IPC_CHANNELS.agent.event, event)
         }
+      },
+      onProjectionEvent: ({ event }) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
+        }
+      },
+      executeWorkspaceTool: async (request) => {
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: 'running',
+          input: summarizeForRenderer(request.input)
+        })
+
+        const result = await getWorkspaceToolExecutor().execute(request.toolName, request.input)
+        this.sendToolExecution({
+          sessionId: request.sessionId,
+          callId: request.callId,
+          toolName: request.toolName,
+          state: result.ok ? 'success' : 'error',
+          input: summarizeForRenderer(request.input),
+          output: summarizeForRenderer(result),
+          error: result.ok ? undefined : result.error.message
+        })
+        return result
       }
     })
+    for (const listener of this.eventListeners) this.broker.onStreamingEvent(listener)
   }
 
   ping(request: AgentPingRequest): Promise<AgentPingResponse> {
@@ -114,6 +148,37 @@ export class AgentUtilityProcessHost {
     return this.getBroker().listSessions()
   }
 
+  resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {
+    return this.getBroker().resolveToolConfirmation(request)
+  }
+
+  prompt(request: PromptAgentSessionRequest): Promise<void> {
+    return this.getBroker().prompt(request)
+  }
+
+  abort(request: AbortAgentSessionRequest): Promise<void> {
+    return this.getBroker().abort(request)
+  }
+
+  onStreamingEvent(listener: (event: AgentStreamingEvent) => void): () => void {
+    this.eventListeners.add(listener)
+    const unsubscribe = this.broker?.onStreamingEvent(listener)
+    return () => {
+      unsubscribe?.()
+      this.eventListeners.delete(listener)
+    }
+  }
+
+  onEvent(listener: (event: AgentStreamingEvent) => void): () => void {
+    return this.onStreamingEvent(listener)
+  }
+
+  private sendToolExecution(event: AgentToolExecutionEvent): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.agent.toolExecution, event)
+    }
+  }
+
   private getBroker(): AgentUtilityBroker {
     this.start()
 
@@ -133,6 +198,14 @@ export class AgentUtilityProcessHost {
     this.broker = undefined
     this.utility = undefined
   }
+}
+
+function summarizeForRenderer(value: unknown): unknown {
+  if (value === undefined || value === null) return value
+  if (typeof value !== 'object') return typeof value
+  if (Array.isArray(value)) return { type: 'array', itemCount: value.length }
+
+  return { type: 'object', keys: Object.keys(value as Record<string, unknown>).sort() }
 }
 
 let host: AgentUtilityProcessHost | undefined

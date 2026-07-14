@@ -1,4 +1,9 @@
+import type {
+  AgentSessionProjectionEvent,
+  ResolveAgentToolConfirmationRequest
+} from './agent-session-projection.model'
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
+import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
 import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
@@ -36,7 +41,12 @@ export const IPC_CHANNELS = {
     createSession: 'agent:createSession',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
+    prompt: 'agent:prompt',
+    abort: 'agent:abort',
     event: 'agent:event',
+    sessionProjectionEvent: 'agent:sessionProjectionEvent',
+    toolExecution: 'agent:toolExecution',
+    resolveToolConfirmation: 'agent:resolveToolConfirmation',
     getModelAuthSettings: 'agent:getModelAuthSettings',
     getAvailableModels: 'agent:getAvailableModels',
     addApiKey: 'agent:addApiKey',
@@ -89,7 +99,12 @@ export type SpaceZeroAPI = {
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
+    prompt: (request: { sessionId: string; message: string }) => Promise<void>
+    abort: (request: { sessionId: string }) => Promise<void>
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
+    onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
+    onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
+    resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
