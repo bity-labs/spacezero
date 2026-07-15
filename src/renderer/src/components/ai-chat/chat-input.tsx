@@ -71,6 +71,7 @@ export function ChatInput({
   className
 }: ChatInputProps) {
   const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
+  const [isModelSelectorOpen, setModelSelectorOpen] = useState(false)
   const fallbackModelId = models[0]?.id
   const activeModelId = selectedModelId ?? uncontrolledModelId ?? fallbackModelId
   const selectedModel = useMemo(
@@ -82,6 +83,7 @@ export function ChatInput({
 
   const handleModelChange = (modelId: string) => {
     setUncontrolledModelId(modelId)
+    setModelSelectorOpen(false)
     onModelChange?.(modelId)
   }
 
@@ -116,7 +118,7 @@ export function ChatInput({
           </PromptInputActionMenu>
           <div className="flex items-center gap-1">
             {models.length > 0 ? (
-              <ModelSelector>
+              <ModelSelector open={isModelSelectorOpen} onOpenChange={setModelSelectorOpen}>
                 <ModelSelectorTrigger
                   render={
                     <button

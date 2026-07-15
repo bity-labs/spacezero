@@ -1,11 +1,11 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../../projects/shared'
-import type { ProjectSession } from '../../shared'
+import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
-import { ProjectSessionHostSurface } from './session-host-surface'
+import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
 const project: Project = {
   id: 'project-1',
@@ -24,6 +24,15 @@ const session: ProjectSession = {
   updatedAt: new Date(0).toISOString()
 }
 
+const workspaceSession: WorkspaceSession = {
+  id: 'workspace-session-1',
+  kind: 'workspace',
+  title: 'Workspace Session',
+  status: 'idle',
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString()
+}
+
 describe('ProjectSessionHostSurface', () => {
   it('renders prompt failures in the session panel', async () => {
     const user = userEvent.setup()
@@ -31,19 +40,143 @@ describe('ProjectSessionHostSurface', () => {
       throw new Error('agent unavailable')
     }
 
-    render(
-      <ProjectSessionHostSurface
-        project={project}
-        session={session}
-        thinkingLevel="medium"
-        onThinkingChange={() => undefined}
-      />
-    )
+    render(<ProjectSessionHostSurface project={project} session={session} />)
 
     await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'hello')
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Agent prompt failed: agent unavailable')
+  })
+
+  it('uses configured model and thinking defaults when session state has no override', async () => {
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: undefined,
+      modelId: undefined,
+      thinkingLevel: undefined
+    })
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'openai',
+        providerLabel: 'OpenAI',
+        modelId: 'gpt-5',
+        modelLabel: 'GPT-5'
+      }
+    ]
+    window.spacezero.settings.getModelDefaults = async () => ({
+      defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+      defaultThinking: 'high'
+    })
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(await screen.findByRole('button', { name: /GPT-5/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
+  })
+
+  it('loads available models and updates the session model from the selector', async () => {
+    const user = userEvent.setup()
+    const setModel = vi.fn(async ({ sessionId, provider, modelId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: provider,
+      modelId,
+      thinkingLevel: 'medium' as const
+    }))
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    })
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4'
+      },
+      {
+        providerId: 'openai',
+        providerLabel: 'OpenAI',
+        modelId: 'gpt-5',
+        modelLabel: 'GPT-5'
+      }
+    ]
+    window.spacezero.agent.setModel = setModel
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: /Claude Sonnet 4/ }))
+    await user.click(await screen.findByText('GPT-5'))
+
+    await waitFor(() =>
+      expect(setModel).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        provider: 'openai',
+        modelId: 'gpt-5'
+      })
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Model Selector' })).not.toBeInTheDocument()
+    )
+  })
+
+  it('updates the session thinking level from the thinking selector', async () => {
+    const user = userEvent.setup()
+    const setThinkingLevel = vi.fn(async ({ sessionId, level }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: level
+    }))
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    })
+    window.spacezero.agent.setThinkingLevel = setThinkingLevel
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Thinking: Medium' }))
+
+    await waitFor(() =>
+      expect(setThinkingLevel).toHaveBeenCalledWith({ sessionId: 'session-1', level: 'high' })
+    )
+    expect(await screen.findByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
+  })
+
+  it('keeps the chat input visible for placeholder Workspace Sessions', async () => {
+    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Ask about Space Zero…')).toBeInTheDocument()
   })
 
   it('projects matching Workspace Tool execution events into the session transcript', async () => {
@@ -54,14 +187,7 @@ describe('ProjectSessionHostSurface', () => {
       return unsubscribe
     }
 
-    render(
-      <ProjectSessionHostSurface
-        project={project}
-        session={session}
-        thinkingLevel="medium"
-        onThinkingChange={() => undefined}
-      />
-    )
+    render(<ProjectSessionHostSurface project={project} session={session} />)
 
     await act(async () => {
       listener?.({
@@ -97,14 +223,7 @@ describe('ProjectSessionHostSurface', () => {
       return () => undefined
     }
 
-    render(
-      <ProjectSessionHostSurface
-        project={project}
-        session={session}
-        thinkingLevel="medium"
-        onThinkingChange={() => undefined}
-      />
-    )
+    render(<ProjectSessionHostSurface project={project} session={session} />)
 
     await act(async () => {
       listener?.({
