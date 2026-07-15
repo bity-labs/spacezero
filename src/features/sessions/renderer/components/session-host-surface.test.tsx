@@ -17,6 +17,7 @@ const project: Project = {
 
 const session: ProjectSession = {
   id: 'session-1',
+  kind: 'project',
   projectId: 'project-1',
   title: 'Session 1',
   status: 'idle',
@@ -172,11 +173,32 @@ describe('ProjectSessionHostSurface', () => {
     expect(await screen.findByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
   })
 
-  it('keeps the chat input visible for placeholder Workspace Sessions', async () => {
+  it('keeps the chat input visible for empty Workspace Sessions without fake placeholder messages', async () => {
     render(<WorkspaceSessionHostSurface session={workspaceSession} />)
 
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Ask about Space Zero…')).toBeInTheDocument()
+    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
+    expect(screen.queryByText(/Streaming projection placeholder/)).not.toBeInTheDocument()
+    expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
+  })
+
+  it('submits Workspace Session prompts through the agent prompt API', async () => {
+    const user = userEvent.setup()
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agent.prompt = prompt
+
+    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+
+    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'what can you see?')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith({
+        sessionId: 'workspace-session-1',
+        message: 'what can you see?'
+      })
+    )
   })
 
   it('projects matching Workspace Tool execution events into the session transcript', async () => {

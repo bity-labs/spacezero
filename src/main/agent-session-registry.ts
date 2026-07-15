@@ -45,7 +45,8 @@ export type AgentSessionRegistryEvent =
     }
 
 type RegisteredAgentSession = {
-  projectId: string
+  kind: 'project' | 'workspace'
+  projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   piSession: CreatedPiAgentSession
@@ -54,7 +55,8 @@ type RegisteredAgentSession = {
 }
 
 type DormantAgentSession = {
-  projectId: string
+  kind: 'project' | 'workspace'
+  projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   transcriptPath: string | undefined
@@ -127,6 +129,7 @@ export class AgentSessionRegistry {
         this.suspendCandidateIfNeeded()
         const unsubscribe = piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event))
         this.sessions.set(sessionId, {
+          kind: normalizedRequest.kind ?? 'project',
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
@@ -270,9 +273,15 @@ export class AgentSessionRegistry {
   }
 
   private normalizeCreateRequest(request: CreateAgentSessionRequest): CreateAgentSessionRequest {
+    const kind = request.kind ?? 'project'
+    const projectId = request.projectId?.trim() ?? null
+    if (kind === 'project' && !projectId) throw new Error('agent.projectSessionMissingProject')
+    if (kind === 'workspace' && projectId) throw new Error('agent.workspaceSessionHasProject')
+
     return {
       sessionId: request.sessionId.trim(),
-      projectId: request.projectId.trim(),
+      kind,
+      projectId,
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
@@ -314,6 +323,7 @@ export class AgentSessionRegistry {
     this.findSuspensionCandidate()
     const piSession = await this.options.createPiSession({
       sessionId,
+      kind: dormantSession.kind,
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
@@ -326,6 +336,7 @@ export class AgentSessionRegistry {
     }
 
     const liveSession: RegisteredAgentSession = {
+      kind: dormantSession.kind,
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
@@ -382,6 +393,7 @@ export class AgentSessionRegistry {
 
     const [sessionId, session] = candidateToSuspend
     const dormantSession: DormantAgentSession = {
+      kind: session.kind,
       projectId: session.projectId,
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
@@ -409,6 +421,7 @@ export class AgentSessionRegistry {
 
     return {
       sessionId,
+      kind: session.kind,
       projectId: session.projectId,
       cwd: session.cwd,
       status: session.piSession.isStreaming ? 'running' : 'idle',
@@ -424,6 +437,7 @@ export class AgentSessionRegistry {
   private toDormantState(sessionId: string, session: DormantAgentSession): AgentSessionState {
     return {
       sessionId,
+      kind: session.kind,
       projectId: session.projectId,
       cwd: session.cwd,
       status: 'idle',

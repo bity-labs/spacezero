@@ -299,19 +299,30 @@ describe('App', () => {
   })
 
   it('opens a global Workspace Session without selecting a project', async () => {
+    let createWorkspaceSessionCalls = 0
+    window.spacezero.agent.createWorkspaceSession = async () => {
+      createWorkspaceSessionCalls += 1
+      return {
+        id: 'workspace-session-real',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    }
+
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
 
-    expect(screen.getAllByText('Workspace Session').length).toBeGreaterThan(0)
-    expect(
-      screen.getByText(
-        'Workspace Session host for the global Space Zero agent. This surface does not require a project, cwd, or repository path.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.getByText('workspace.getStatus.preview')).toBeInTheDocument()
+    await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
+    expect(await screen.findByRole('tab', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
+    expect(screen.queryByText(/Workspace Session host for the global/)).not.toBeInTheDocument()
+    expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session'
+      'WorkspaceWorkspace Session 1'
     )
     expect(screen.queryByText('Project ID')).not.toBeInTheDocument()
     expect(screen.queryByText('Working directory')).not.toBeInTheDocument()

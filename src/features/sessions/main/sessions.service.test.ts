@@ -14,7 +14,14 @@ function createMemoryRepository({
 
   return {
     async listProjectSessions() {
-      return [...storedSessions].sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+      return [...storedSessions]
+        .filter((session) => session.projectId !== null)
+        .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+    },
+    async listWorkspaceSessions() {
+      return [...storedSessions]
+        .filter((session) => session.projectId === null)
+        .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
     },
     async create(session) {
       storedSessions.push(session)
@@ -22,6 +29,9 @@ function createMemoryRepository({
     },
     async countByProjectId(projectId) {
       return storedSessions.filter((session) => session.projectId === projectId).length
+    },
+    async countWorkspaceSessions() {
+      return storedSessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projects.has(projectId)
@@ -34,6 +44,30 @@ function createMemoryRepository({
 }
 
 describe('createSessionsService', () => {
+  it('creates workspace agent session metadata with a null project link', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository()
+    const service = createSessionsService({ repository, now: () => now })
+
+    const session = await service.createWorkspaceAgentSession({
+      id: 'workspace-session-1',
+      transcriptPath: '/agent/sessions/workspace-session.jsonl'
+    })
+
+    expect(session).toEqual({
+      id: 'workspace-session-1',
+      kind: 'workspace',
+      title: 'Workspace Session 1',
+      status: 'idle',
+      createdAt: now.toISOString(),
+      updatedAt: now.toISOString()
+    })
+    await expect(repository.listWorkspaceSessions()).resolves.toEqual([
+      expect.objectContaining({ projectId: null, transcriptPath: '/agent/sessions/workspace-session.jsonl' })
+    ])
+    await expect(service.listWorkspaceSessions()).resolves.toEqual([session])
+  })
+
   it('creates project agent session metadata with a transcript path link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository()

@@ -18,12 +18,14 @@ const api: SpaceZeroAPI = {
   },
   sessions: {
     listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
+    listWorkspaceSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listWorkspaceSessions),
     createProjectSession: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request)
   },
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
+    createWorkspaceSession: () => ipcRenderer.invoke(IPC_CHANNELS.agent.createWorkspaceSession),
     getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.getState, request),
     listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.agent.listSessions),
     prompt: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.prompt, request),

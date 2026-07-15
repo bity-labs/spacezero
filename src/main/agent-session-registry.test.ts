@@ -26,6 +26,7 @@ describe('AgentSessionRegistry', () => {
     const registry = new AgentSessionRegistry({
       createPiSession: async (request) => {
         expect(request).toEqual({
+          kind: 'project',
           projectId: 'project-1',
           sessionId: 'session-1',
           cwd: '/repo',
@@ -44,6 +45,7 @@ describe('AgentSessionRegistry', () => {
 
     expect(created).toEqual({
       sessionId: 'session-1',
+      kind: 'project',
       projectId: 'project-1',
       cwd: '/repo',
       status: 'idle',
@@ -297,6 +299,7 @@ describe('AgentSessionRegistry', () => {
     })
     expect(createRequests.at(-1)).toEqual({
       sessionId: 'session-1',
+      kind: 'project',
       projectId: 'project-1',
       cwd: '/repo-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
@@ -576,6 +579,7 @@ describe('AgentSessionRegistry', () => {
 
     expect(createRequests.at(-1)).toEqual({
       sessionId: 'session-1',
+      kind: 'project',
       projectId: 'project-1',
       cwd: '/repo-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl'

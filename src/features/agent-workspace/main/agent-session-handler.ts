@@ -1,11 +1,14 @@
+import { app } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import { nanoid } from 'nanoid'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
@@ -19,6 +22,10 @@ export type CreateAgentSessionHandlerDependencies = {
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
+}
+
+export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionHandlerDependencies & {
+  getWorkspaceSessionCwd?: () => string
 }
 
 export async function createProjectAgentSession(
@@ -41,6 +48,7 @@ export async function createProjectAgentSession(
   const modelDefaults = await readModelDefaults()
   const state = await utilityHost.createSession({
     sessionId,
+    kind: 'project',
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
@@ -60,4 +68,41 @@ export async function createProjectAgentSession(
   }
 
   return state
+}
+
+export async function createWorkspaceAgentSession({
+  repository,
+  utilityHost,
+  createSessionId = nanoid,
+  readModelDefaults = getModelDefaults,
+  getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+}: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
+  const sessionId = createSessionId()
+  const cwd = resolve(getWorkspaceSessionCwd())
+  await mkdir(cwd, { recursive: true })
+
+  const modelDefaults = await readModelDefaults()
+  const state = await utilityHost.createSession({
+    sessionId,
+    kind: 'workspace',
+    projectId: null,
+    cwd,
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    defaultModel: modelDefaults.defaultModel,
+    thinkingLevel: modelDefaults.defaultThinking
+  })
+
+  try {
+    return await createSessionsService({ repository }).createWorkspaceAgentSession({
+      id: sessionId,
+      transcriptPath: state.transcriptPath
+    })
+  } catch (error) {
+    await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+    throw error
+  }
+}
+
+function defaultWorkspaceSessionCwd(): string {
+  return join(app.getPath('userData'), 'workspace-sessions')
 }
