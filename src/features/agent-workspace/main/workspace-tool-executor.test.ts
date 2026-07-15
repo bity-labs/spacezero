@@ -58,7 +58,8 @@ function buildExecutor(
   const executor = new WorkspaceToolExecutor({
     registry,
     policy: init.policy ?? DEFAULT_WORKSPACE_TOOL_SAFETY_POLICY,
-    history
+    history,
+    requestConfirmation: init.requestConfirmation
   })
   return { executor, history, registry }
 }
@@ -193,6 +194,67 @@ describe('WorkspaceToolExecutor', () => {
         outcome: 'confirmation-required',
         safetyLevel: 'write'
       })
+    })
+
+    it('pauses a write tool until confirmation is approved, then executes the handler', async () => {
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true, data: { created: true } }))
+      let approve!: (approved: boolean) => void
+      const requestConfirmation = vi.fn(
+        () => new Promise<boolean>((resolve) => {
+          approve = resolve
+        })
+      )
+      const tools = [
+        tool({
+          name: 'projects.create',
+          safetyLevel: 'write',
+          inputSchema: z.object({ name: z.string() }),
+          confirmationSummary: (input: { name: string }) => `Create project ${input.name}`,
+          handler
+        })
+      ]
+      const { executor, history } = buildExecutor(tools, { requestConfirmation })
+
+      const resultPromise = executor.executeForAgent({
+        sessionId: 'session-1',
+        callId: 'call-1',
+        toolName: 'projects.create',
+        input: { name: 'spacezero' }
+      })
+      await Promise.resolve()
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(requestConfirmation).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        callId: 'call-1',
+        toolName: 'projects.create',
+        sanitizedSummary: 'Create project spacezero'
+      })
+
+      approve(true)
+      await expect(resultPromise).resolves.toEqual({ ok: true, data: { created: true } })
+      expect(handler).toHaveBeenCalledOnce()
+      expect(history.list().map((record) => record.outcome)).toEqual(['confirmation-required', 'success'])
+    })
+
+    it('returns an error tool result and records denial when confirmation is denied', async () => {
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true }))
+      const { executor, history } = buildExecutor(
+        [tool({ name: 'projects.create', safetyLevel: 'write', handler })],
+        { requestConfirmation: vi.fn(async () => false) }
+      )
+
+      const result = await executor.executeForAgent({
+        sessionId: 'session-1',
+        callId: 'call-1',
+        toolName: 'projects.create',
+        input: {}
+      })
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(result.ok).toBe(false)
+      expect(failureError(result).code).toBe('tool-denied')
+      expect(history.list().map((record) => record.outcome)).toEqual(['confirmation-required', 'denied'])
     })
 
     it('executes a read tool without confirmation regardless of policy', async () => {

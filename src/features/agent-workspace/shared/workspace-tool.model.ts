@@ -17,7 +17,7 @@ export type WorkspaceToolKind = 'app-state' | 'ui-control'
 export type WorkspaceToolDomain = string
 
 /** Outcome of a Workspace Tool execution, recorded in Agent Activity History. */
-export type AgentActivityOutcome = 'success' | 'error' | 'rejected' | 'confirmation-required'
+export type AgentActivityOutcome = 'success' | 'error' | 'rejected' | 'confirmation-required' | 'denied'
 
 /**
  * Tool metadata that is safe to share across processes and with the agent

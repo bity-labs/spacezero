@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
 import { createProjectAgentSession } from './agent-session-handler'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
@@ -56,5 +57,15 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.resolveToolConfirmation, (_event, input) => {
     const request = resolveToolConfirmationRequestSchema.parse(input)
     return getAgentUtilityProcessHost().resolveToolConfirmation(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.setModel, (_event, input) => {
+    const request = setAgentModelRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().setModel(request)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, (_event, input) => {
+    const request = setAgentThinkingLevelRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().setThinkingLevel(request)
   })
 }

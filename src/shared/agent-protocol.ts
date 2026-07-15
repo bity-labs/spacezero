@@ -2,6 +2,8 @@ import type {
   AgentSessionProjectionEvent,
   AgentTranscriptMessage
 } from './agent-session-projection.model'
+import type { AuthTestResult, ModelAuthSettings } from './model-auth'
+import type { AvailableModel, DefaultModelSetting, SetAgentModelRequest, SetAgentThinkingLevelRequest, ThinkingLevel } from './model-settings'
 import type {
   ExecuteWorkspaceToolRequest,
   ExecuteWorkspaceToolResponse,
@@ -26,6 +28,8 @@ export type CreateAgentSessionRequest = {
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
+  defaultModel?: DefaultModelSetting
+  thinkingLevel?: ThinkingLevel
 }
 
 export type GetAgentSessionStateRequest = {
@@ -45,6 +49,19 @@ export type DeleteAgentSessionRequest = {
   sessionId: AgentSessionId
 }
 
+export type AgentAddApiKeyRequest = {
+  providerId: string
+  apiKey: string
+}
+
+export type AgentProviderRequest = {
+  providerId: string
+}
+
+export type AgentOAuthCallbackRequest = {
+  url: string
+}
+
 export type ResolveAgentToolConfirmationCommandRequest = {
   sessionId: AgentSessionId
   callId: string
@@ -62,6 +79,7 @@ export type AgentSessionState = {
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
+  thinkingLevel?: ThinkingLevel
   transcriptSnapshot?: AgentTranscriptMessage[]
 }
 
@@ -87,6 +105,17 @@ export type AgentUtilityCommandName =
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
+  | 'agent.addApiKey'
+  | 'agent.removeApiKey'
+  | 'agent.getAuthStatus'
+  | 'agent.getAvailableModels'
+  | 'agent.setModel'
+  | 'agent.setThinkingLevel'
+  | 'agent.testAuth'
+  | 'agent.loginOAuth'
+  | 'agent.logoutOAuth'
+  | 'agent.handleOAuthCallback'
+  | 'agent.openOAuthUrl'
   | 'agent.resolveToolConfirmation'
   | 'agent.prompt'
   | 'agent.abort'
@@ -144,6 +173,10 @@ export type AgentUtilityResult =
   | AgentSessionState
   | AgentSessionState[]
   | ExecuteWorkspaceToolResponse
+  | ModelAuthSettings
+  | AvailableModel[]
+  | AuthTestResult
+  | { handled: boolean }
   | undefined
 
 export type AgentUtilitySuccessResponse = {
@@ -239,6 +272,128 @@ export function createAgentListSessionsCommand(requestId: string): AgentUtilityC
     requestId,
     command: 'agent.listSessions',
     sessionId: 'agent-session-list'
+  }
+}
+
+export function createAgentAddApiKeyCommand(
+  requestId: string,
+  request: AgentAddApiKeyRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.addApiKey',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentRemoveApiKeyCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.removeApiKey',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentGetAuthStatusCommand(requestId: string): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.getAuthStatus',
+    sessionId: 'agent-auth'
+  }
+}
+
+export function createAgentGetAvailableModelsCommand(requestId: string): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.getAvailableModels',
+    sessionId: 'agent-auth'
+  }
+}
+
+export function createAgentSetModelCommand(
+  requestId: string,
+  request: SetAgentModelRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.setModel',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentSetThinkingLevelCommand(
+  requestId: string,
+  request: SetAgentThinkingLevelRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.setThinkingLevel',
+    sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentTestAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.testAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentLoginOAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.loginOAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentLogoutOAuthCommand(
+  requestId: string,
+  request: AgentProviderRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.logoutOAuth',
+    sessionId: 'agent-auth',
+    payload: request
+  }
+}
+
+export function createAgentHandleOAuthCallbackCommand(
+  requestId: string,
+  request: AgentOAuthCallbackRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.handleOAuthCallback',
+    sessionId: 'agent-auth',
+    payload: request
   }
 }
 

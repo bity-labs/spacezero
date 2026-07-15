@@ -8,10 +8,18 @@ import type { AgentActivityHistory } from './agent-activity-history'
 import { evaluateSafetyPolicy } from './workspace-tool-safety-policy'
 import type { WorkspaceToolRegistry } from './workspace-tool-registry'
 
+export type WorkspaceToolConfirmationRequest = {
+  sessionId: string
+  callId: string
+  toolName: string
+  sanitizedSummary: string
+}
+
 export type WorkspaceToolExecutorInit = {
   registry: WorkspaceToolRegistry
   policy: WorkspaceToolSafetyPolicy
   history: AgentActivityHistory
+  requestConfirmation?: (request: WorkspaceToolConfirmationRequest) => Promise<boolean>
 }
 
 export type { WorkspaceToolResult }
@@ -33,14 +41,30 @@ export class WorkspaceToolExecutor {
   private readonly registry: WorkspaceToolRegistry
   private readonly policy: WorkspaceToolSafetyPolicy
   private readonly history: AgentActivityHistory
+  private requestConfirmation: ((request: WorkspaceToolConfirmationRequest) => Promise<boolean>) | undefined
 
   constructor(init: WorkspaceToolExecutorInit) {
     this.registry = init.registry
     this.policy = init.policy
     this.history = init.history
+    this.requestConfirmation = init.requestConfirmation
+  }
+
+  setConfirmationRequester(requestConfirmation: (request: WorkspaceToolConfirmationRequest) => Promise<boolean>): void {
+    this.requestConfirmation = requestConfirmation
   }
 
   async execute(toolName: string, input: unknown): Promise<WorkspaceToolResult> {
+    return this.executeForAgent({ sessionId: 'unknown', callId: 'unknown', toolName, input })
+  }
+
+  async executeForAgent(request: {
+    sessionId: string
+    callId: string
+    toolName: string
+    input: unknown
+  }): Promise<WorkspaceToolResult> {
+    const { sessionId, callId, toolName, input } = request
     const tool = this.registry.resolve(toolName)
 
     if (!tool) {
@@ -78,12 +102,35 @@ export class WorkspaceToolExecutor {
         kind: tool.kind,
         domain: tool.domain
       })
-      return {
-        ok: false,
-        error: {
-          code: 'confirmation-required',
-          message: `Workspace tool requires confirmation: ${toolName}`
+
+      if (!this.requestConfirmation) {
+        return {
+          ok: false,
+          error: {
+            code: 'confirmation-required',
+            message: `Workspace tool requires confirmation: ${toolName}`
+          }
         }
+      }
+
+      const approved = await this.requestConfirmation({
+        sessionId,
+        callId,
+        toolName,
+        sanitizedSummary: tool.confirmationSummary?.(parsed.data) ?? `Run Workspace Tool ${toolName}`
+      })
+
+      if (!approved) {
+        const error = { code: 'tool-denied', message: `Workspace tool denied by builder: ${toolName}` }
+        this.record({
+          toolName,
+          outcome: 'denied',
+          safetyLevel: tool.safetyLevel,
+          kind: tool.kind,
+          domain: tool.domain,
+          error
+        })
+        return { ok: false, error }
       }
     }
 

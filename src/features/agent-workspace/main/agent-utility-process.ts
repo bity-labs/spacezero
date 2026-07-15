@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  shell,
   MessageChannelMain,
   type MessageEvent,
   type MessagePortMain,
@@ -12,8 +13,11 @@ import { join } from 'node:path'
 
 import type {
   AbortAgentSessionRequest,
+  AgentAddApiKeyRequest,
+  AgentOAuthCallbackRequest,
   AgentPingRequest,
   AgentPingResponse,
+  AgentProviderRequest,
   AgentSessionState,
   AgentStreamingEvent,
   AgentUtilityFrame,
@@ -23,7 +27,13 @@ import type {
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
+import type {
+  AgentSessionProjectionEvent,
+  AgentToolConfirmationRequest
+} from '../../../shared/agent-session-projection.model'
 import { IPC_CHANNELS } from '../../../shared/ipc'
+import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
+import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
@@ -57,6 +67,7 @@ export class AgentUtilityProcessHost {
   private mainPort: MessagePortMainAgentUtilityPort | undefined
   private broker: AgentUtilityBroker | undefined
   private readonly eventListeners = new Set<(event: AgentStreamingEvent) => void>()
+  private readonly pendingConfirmations = new Map<string, (approved: boolean) => void>()
   private stopping = false
 
   start(): void {
@@ -92,6 +103,10 @@ export class AgentUtilityProcessHost {
 
     this.utility = utility
     this.mainPort = mainPort
+    getWorkspaceToolExecutor().setConfirmationRequester((request) =>
+      this.requestToolConfirmation({ ...request, summary: request.sanitizedSummary })
+    )
+
     this.broker = new AgentUtilityBroker(mainPort, {
       onEvent: (event) => {
         for (const window of BrowserWindow.getAllWindows()) {
@@ -103,6 +118,7 @@ export class AgentUtilityProcessHost {
           window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
         }
       },
+      openExternal: (url) => shell.openExternal(url),
       executeWorkspaceTool: async (request) => {
         this.sendToolExecution({
           sessionId: request.sessionId,
@@ -112,7 +128,7 @@ export class AgentUtilityProcessHost {
           input: summarizeForRenderer(request.input)
         })
 
-        const result = await getWorkspaceToolExecutor().execute(request.toolName, request.input)
+        const result = await getWorkspaceToolExecutor().executeForAgent(request)
         this.sendToolExecution({
           sessionId: request.sessionId,
           callId: request.callId,
@@ -148,7 +164,61 @@ export class AgentUtilityProcessHost {
     return this.getBroker().listSessions()
   }
 
-  resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {
+  addApiKey(request: AgentAddApiKeyRequest): Promise<void> {
+    return this.getBroker().addApiKey(request)
+  }
+
+  removeApiKey(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().removeApiKey(request)
+  }
+
+  getAuthStatus(): Promise<ModelAuthSettings> {
+    return this.getBroker().getAuthStatus()
+  }
+
+  getAvailableModels(): Promise<AvailableModel[]> {
+    return this.getBroker().getAvailableModels()
+  }
+
+  setModel(request: SetAgentModelRequest): Promise<AgentSessionState> {
+    return this.getBroker().setModel(request)
+  }
+
+  setThinkingLevel(request: SetAgentThinkingLevelRequest): Promise<AgentSessionState> {
+    return this.getBroker().setThinkingLevel(request)
+  }
+
+  testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
+    return this.getBroker().testAuth(request)
+  }
+
+  loginOAuth(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().loginOAuth(request)
+  }
+
+  logoutOAuth(request: AgentProviderRequest): Promise<void> {
+    return this.getBroker().logoutOAuth(request)
+  }
+
+  handleOAuthCallback(request: AgentOAuthCallbackRequest): Promise<{ handled: boolean }> {
+    return this.getBroker().handleOAuthCallback(request)
+  }
+
+  async resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {
+    const resolve = this.pendingConfirmations.get(request.callId)
+    if (resolve) {
+      this.pendingConfirmations.delete(request.callId)
+      resolve(request.approved)
+      this.sendProjectionEvent({
+        type: 'tool_confirmation_resolved',
+        sessionId: request.sessionId,
+        seq: Date.now(),
+        callId: request.callId,
+        approved: request.approved
+      })
+      return
+    }
+
     return this.getBroker().resolveToolConfirmation(request)
   }
 
@@ -179,6 +249,27 @@ export class AgentUtilityProcessHost {
     }
   }
 
+  private requestToolConfirmation(request: AgentToolConfirmationRequest): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.pendingConfirmations.set(request.callId, resolve)
+      this.sendProjectionEvent({
+        type: 'tool_confirmation_request',
+        sessionId: request.sessionId,
+        seq: Date.now(),
+        request
+      })
+      for (const window of BrowserWindow.getAllWindows()) {
+        window.webContents.send(IPC_CHANNELS.agent.toolConfirmationRequest, request)
+      }
+    })
+  }
+
+  private sendProjectionEvent(event: AgentSessionProjectionEvent): void {
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
+    }
+  }
+
   private getBroker(): AgentUtilityBroker {
     this.start()
 
@@ -191,6 +282,7 @@ export class AgentUtilityProcessHost {
 
   stop(): void {
     this.stopping = this.utility !== undefined
+    this.pendingConfirmations.clear()
     this.broker?.dispose(new Error('agent.utilityStopped'))
     this.mainPort?.close()
     this.utility?.kill()

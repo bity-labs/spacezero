@@ -9,6 +9,9 @@ function createFakeSession(overrides: Partial<CreatedPiAgentSession> = {}): Crea
     isStreaming: false,
     modelProvider: 'faux',
     modelId: 'faux-1',
+    thinkingLevel: 'medium',
+    setModel: async () => undefined,
+    setThinkingLevel: async () => undefined,
     prompt: async () => undefined,
     abort: async () => undefined,
     subscribe: () => () => undefined,
@@ -47,7 +50,8 @@ describe('AgentSessionRegistry', () => {
       live: true,
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     })
     await expect(registry.getState({ sessionId: 'session-1' })).resolves.toEqual(created)
     await expect(registry.listSessions()).resolves.toEqual([created])
@@ -483,6 +487,46 @@ describe('AgentSessionRegistry', () => {
     await expect(
       registry.resolveToolConfirmation({ sessionId: 'session-1', callId: 'call-1', approved: true })
     ).rejects.toThrow('agent.toolConfirmationResolverUnavailable')
+  })
+
+  it('switches model and thinking level on one live session without changing another', async () => {
+    type Selection = { provider: string; modelId: string; thinkingLevel: 'medium' | 'high' }
+    const registry = new AgentSessionRegistry({
+      createPiSession: async (request) => {
+        const selection: Selection = { provider: 'anthropic', modelId: 'claude-sonnet', thinkingLevel: 'medium' }
+        const session = createFakeSession({ sessionId: request.sessionId })
+        Object.defineProperties(session, {
+          modelProvider: { get: () => selection.provider },
+          modelId: { get: () => selection.modelId },
+          thinkingLevel: { get: () => selection.thinkingLevel }
+        })
+        session.setModel = async ({ provider, modelId }) => {
+          selection.provider = provider
+          selection.modelId = modelId
+        }
+        session.setThinkingLevel = async (level) => {
+          selection.thinkingLevel = level as 'medium' | 'high'
+        }
+        return session
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    await expect(
+      registry.setModel({ sessionId: 'session-1', provider: 'openai', modelId: 'gpt-5' })
+    ).resolves.toMatchObject({ sessionId: 'session-1', modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'medium' })
+    await expect(
+      registry.setThinkingLevel({ sessionId: 'session-1', level: 'high' })
+    ).resolves.toMatchObject({ sessionId: 'session-1', modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'high' })
+
+    await expect(registry.getState({ sessionId: 'session-2' })).resolves.toMatchObject({
+      sessionId: 'session-2',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium'
+    })
   })
 
   it('prompts and aborts an existing Pi session', async () => {

@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import { AgentSessionRegistry } from './agent-session-registry'
-import { createPiAgentSessionFactory } from './pi-agent-session-factory'
+import { createPiAgentRuntime, type PiAgentRuntime } from './pi-agent-session-factory'
 import type {
   AbortAgentSessionRequest,
   AgentStreamingEvent,
@@ -26,6 +26,7 @@ import {
 } from '../shared/agent-protocol'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type { AgentAssistantMessage, AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
+import type { SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../shared/workspace-tool-protocol'
 
 function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
@@ -39,9 +40,14 @@ function isConnectMessage(value: unknown): value is AgentUtilityConnectMessage {
 
 const agentDir = process.env.SPACEZERO_AGENT_DIR ?? join(process.cwd(), '.spacezero-agent')
 const WORKSPACE_TOOL_REQUEST_TIMEOUT_MS = 30_000
-const pendingWorkspaceToolRequests = new Map<
+const OAUTH_CALLBACK_TIMEOUT_MS = 5 * 60_000
+const pendingUtilityRequests = new Map<
   string,
-  { resolve: (result: WorkspaceToolResult) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
+  { resolve: (result: unknown) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
+>()
+const pendingOAuthCallbacks = new Map<
+  string,
+  { resolve: (url: string) => void; reject: (error: Error) => void; timeout: NodeJS.Timeout }
 >()
 let agentPort: MessagePortMain | undefined
 
@@ -56,13 +62,72 @@ function executeWorkspaceToolInMain(request: ExecuteWorkspaceToolRequest): Promi
   const requestId = randomUUID()
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
-      if (!pendingWorkspaceToolRequests.delete(requestId)) return
+      if (!pendingUtilityRequests.delete(requestId)) return
       reject(new Error('workspace-tool-request-timeout'))
     }, WORKSPACE_TOOL_REQUEST_TIMEOUT_MS)
 
-    pendingWorkspaceToolRequests.set(requestId, { resolve, reject, timeout })
+    pendingUtilityRequests.set(requestId, { resolve: (result) => resolve(result as WorkspaceToolResult), reject, timeout })
     agentPort!.postMessage(createExecuteWorkspaceToolCommand(requestId, request))
   })
+}
+
+function requestOpenOAuthUrl(url: string): Promise<void> {
+  if (!agentPort) return Promise.reject(new Error('agent.oauthPortUnavailable'))
+
+  const requestId = randomUUID()
+  return new Promise((resolve, reject) => {
+    pendingUtilityRequests.set(requestId, {
+      resolve: () => resolve(),
+      reject,
+      timeout: setTimeout(() => {
+        if (!pendingUtilityRequests.delete(requestId)) return
+        reject(new Error('agent.oauthOpenExternalTimedOut'))
+      }, WORKSPACE_TOOL_REQUEST_TIMEOUT_MS)
+    })
+    agentPort!.postMessage({
+      type: 'agent.command',
+      requestId,
+      command: 'agent.openOAuthUrl',
+      sessionId: 'agent-auth',
+      payload: { url }
+    })
+  })
+}
+
+function waitForOAuthCallback(providerId: string): Promise<string> {
+  const existing = pendingOAuthCallbacks.get(providerId)
+  if (existing) {
+    clearTimeout(existing.timeout)
+    existing.reject(new Error('agent.oauthCallbackReplaced'))
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      if (!pendingOAuthCallbacks.delete(providerId)) return
+      reject(new Error('agent.oauthCallbackTimedOut'))
+    }, OAUTH_CALLBACK_TIMEOUT_MS)
+
+    pendingOAuthCallbacks.set(providerId, { resolve, reject, timeout })
+  })
+}
+
+function handleOAuthCallbackUrl(url: string): boolean {
+  let providerId: string | undefined
+  try {
+    const parsedUrl = new URL(url)
+    if (parsedUrl.protocol !== 'spacezero:' || parsedUrl.hostname !== 'oauth') return false
+    providerId = parsedUrl.pathname.split('/').filter(Boolean)[0] ?? parsedUrl.searchParams.get('provider') ?? undefined
+  } catch {
+    return false
+  }
+
+  if (!providerId) return false
+  const pending = pendingOAuthCallbacks.get(providerId)
+  if (!pending) return false
+  pendingOAuthCallbacks.delete(providerId)
+  clearTimeout(pending.timeout)
+  pending.resolve(url)
+  return true
 }
 
 function createFailureResponse(
@@ -97,6 +162,7 @@ type EmitProjectionEvent = (event: AgentSessionProjectionEventWithoutSeq) => voi
 async function handleCommand(
   command: AgentUtilityCommand,
   sessionRegistry: AgentSessionRegistry,
+  piRuntime: PiAgentRuntime,
   emitProjectionEvent: EmitProjectionEvent
 ): Promise<AgentUtilityResponse> {
   try {
@@ -127,6 +193,64 @@ async function handleCommand(
     if (command.command === 'agent.listSessions') {
       const result = await sessionRegistry.listSessions()
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.addApiKey') {
+      const request = command.payload as { providerId: string; apiKey: string }
+      await piRuntime.addApiKey(request.providerId, request.apiKey)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.removeApiKey') {
+      const request = command.payload as { providerId: string }
+      await piRuntime.removeApiKey(request.providerId)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.getAuthStatus') {
+      const result = await piRuntime.getAuthStatus()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.getAvailableModels') {
+      const result = await piRuntime.getAvailableModels()
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.setModel') {
+      const result = await sessionRegistry.setModel(command.payload as SetAgentModelRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.setThinkingLevel') {
+      const result = await sessionRegistry.setThinkingLevel(command.payload as SetAgentThinkingLevelRequest)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.testAuth') {
+      const request = command.payload as { providerId: string }
+      const result = await piRuntime.testAuth(request.providerId)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.loginOAuth') {
+      const request = command.payload as { providerId: string }
+      await piRuntime.loginOAuth(request.providerId, {
+        openExternal: requestOpenOAuthUrl,
+        waitForCallback: waitForOAuthCallback
+      })
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.logoutOAuth') {
+      const request = command.payload as { providerId: string }
+      await piRuntime.logoutOAuth(request.providerId)
+      return createAgentSuccessResponse(command.requestId, command.sessionId, undefined)
+    }
+
+    if (command.command === 'agent.handleOAuthCallback') {
+      const request = command.payload as { url: string }
+      return createAgentSuccessResponse(command.requestId, command.sessionId, { handled: handleOAuthCallbackUrl(request.url) })
     }
 
     if (command.command === 'agent.resolveToolConfirmation') {
@@ -178,10 +302,10 @@ function getMaxLiveSessions(): number | undefined {
 }
 
 function handleResponse(response: AgentUtilityResponse): void {
-  const pending = pendingWorkspaceToolRequests.get(response.requestId)
+  const pending = pendingUtilityRequests.get(response.requestId)
   if (!pending) return
 
-  pendingWorkspaceToolRequests.delete(response.requestId)
+  pendingUtilityRequests.delete(response.requestId)
   clearTimeout(pending.timeout)
   if (response.ok) {
     pending.resolve(response.result as WorkspaceToolResult)
@@ -253,11 +377,13 @@ function attachAgentPort(port: MessagePortMain): void {
     }
   }
 
+  const piRuntime = createPiAgentRuntime({
+    agentDir,
+    executeWorkspaceTool: (request) => executeWorkspaceToolInMain(request)
+  })
+
   const sessionRegistry = new AgentSessionRegistry({
-    createPiSession: createPiAgentSessionFactory({
-      agentDir,
-      executeWorkspaceTool: (request) => executeWorkspaceToolInMain(request)
-    }),
+    createPiSession: piRuntime.createSession,
     maxLiveSessions: getMaxLiveSessions(),
     onEvent: (event) => {
       port.postMessage({
@@ -288,17 +414,22 @@ function attachAgentPort(port: MessagePortMain): void {
 
     if (frame.type !== 'agent.command') return
 
-    void handleCommand(frame, sessionRegistry, emitProjectionEvent).then((response) =>
+    void handleCommand(frame, sessionRegistry, piRuntime, emitProjectionEvent).then((response) =>
       port.postMessage(response)
     )
   })
   port.on('close', () => {
     agentPort = undefined
-    for (const pending of pendingWorkspaceToolRequests.values()) {
+    for (const pending of pendingUtilityRequests.values()) {
       clearTimeout(pending.timeout)
       pending.reject(new Error('workspace-tool-port-closed'))
     }
-    pendingWorkspaceToolRequests.clear()
+    pendingUtilityRequests.clear()
+    for (const pending of pendingOAuthCallbacks.values()) {
+      clearTimeout(pending.timeout)
+      pending.reject(new Error('agent.oauthPortClosed'))
+    }
+    pendingOAuthCallbacks.clear()
     sessionRegistry.dispose()
   })
   port.start()

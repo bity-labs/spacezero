@@ -7,6 +7,7 @@ import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
+import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
 export const createSessionRequestSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -17,11 +18,17 @@ export type CreateAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
+  readModelDefaults?: typeof getModelDefaults
 }
 
 export async function createProjectAgentSession(
   input: unknown,
-  { repository, utilityHost, createSessionId = nanoid }: CreateAgentSessionHandlerDependencies
+  {
+    repository,
+    utilityHost,
+    createSessionId = nanoid,
+    readModelDefaults = getModelDefaults
+  }: CreateAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = createSessionRequestSchema.parse(input)
   const project = await repository.findProjectById(request.projectId)
@@ -31,11 +38,14 @@ export async function createProjectAgentSession(
   if (resolve(request.cwd) !== projectPath) throw new Error('Session cwd must match the project path')
 
   const sessionId = createSessionId()
+  const modelDefaults = await readModelDefaults()
   const state = await utilityHost.createSession({
     sessionId,
     projectId: request.projectId,
     cwd: projectPath,
-    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    defaultModel: modelDefaults.defaultModel,
+    thinkingLevel: modelDefaults.defaultThinking
   })
 
   try {

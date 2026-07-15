@@ -14,6 +14,8 @@ import {
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type { AuthProviderOption, AuthProviderStatus, AuthTestResult, ModelAuthSettings } from '../shared/model-auth'
+import type { AvailableModel, ThinkingLevel } from '../shared/model-settings'
 import type {
   AgentAssistantContent,
   AgentToolResultContent,
@@ -36,10 +38,26 @@ export type PiAgentSessionFactoryOptions = {
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
 }
 
-export function createPiAgentSessionFactory({
+export type PiAgentRuntime = {
+  createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
+  addApiKey: (providerId: string, apiKey: string) => Promise<void>
+  removeApiKey: (providerId: string) => Promise<void>
+  getAuthStatus: () => Promise<ModelAuthSettings>
+  getAvailableModels: () => Promise<AvailableModel[]>
+  testAuth: (providerId: string) => Promise<AuthTestResult>
+  loginOAuth: (providerId: string, callbacks: OAuthRuntimeCallbacks) => Promise<void>
+  logoutOAuth: (providerId: string) => Promise<void>
+}
+
+type OAuthRuntimeCallbacks = {
+  openExternal: (url: string) => Promise<void>
+  waitForCallback: (providerId: string) => Promise<string>
+}
+
+export function createPiAgentRuntime({
   agentDir,
   executeWorkspaceTool
-}: PiAgentSessionFactoryOptions) {
+}: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
 
@@ -69,7 +87,7 @@ export function createPiAgentSessionFactory({
     }))
   })
 
-  return async function createPiSession(
+  async function createSession(
     request: CreateAgentSessionRequest
   ): Promise<CreatedPiAgentSession> {
     const resourceLoader = new DefaultResourceLoader({
@@ -94,7 +112,10 @@ export function createPiAgentSessionFactory({
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
-      model: modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+      model: request.defaultModel
+        ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
+        : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+      thinkingLevel: request.thinkingLevel,
       tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
       customTools,
       sessionManager,
@@ -103,7 +124,180 @@ export function createPiAgentSessionFactory({
       resourceLoader
     })
 
-    return adaptAgentSession(session)
+    return adaptAgentSession(session, modelRegistry)
+  }
+
+  return {
+    createSession,
+    addApiKey: async (providerId, apiKey) => {
+      assertKnownApiKeyProvider(modelRegistry, providerId)
+      const trimmedApiKey = apiKey.trim()
+      if (!trimmedApiKey) throw new Error('agent.emptyApiKey')
+
+      authStorage.set(providerId, { type: 'api_key', key: trimmedApiKey })
+      modelRegistry.refresh()
+    },
+    removeApiKey: async (providerId) => {
+      assertKnownApiKeyProvider(modelRegistry, providerId)
+      authStorage.remove(providerId)
+      authStorage.removeRuntimeApiKey(providerId)
+      modelRegistry.refresh()
+    },
+    getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry, authStorage),
+    getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
+    testAuth: async (providerId) => testProviderAuth(modelRegistry, providerId),
+    loginOAuth: async (providerId, callbacks) => {
+      assertKnownOAuthProvider(authStorage, providerId)
+      await authStorage.login(providerId, {
+        onAuth: ({ url }) => void callbacks.openExternal(url),
+        onDeviceCode: ({ verificationUri }) => void callbacks.openExternal(verificationUri),
+        onPrompt: async () => callbacks.waitForCallback(providerId),
+        onManualCodeInput: async () => callbacks.waitForCallback(providerId),
+        onSelect: async (prompt) => prompt.options[0]?.id,
+        onProgress: () => undefined
+      })
+      modelRegistry.refresh()
+    },
+    logoutOAuth: async (providerId) => {
+      assertKnownOAuthProvider(authStorage, providerId)
+      authStorage.logout(providerId)
+      modelRegistry.refresh()
+    }
+  }
+}
+
+export function createPiAgentSessionFactory(options: PiAgentSessionFactoryOptions) {
+  return createPiAgentRuntime(options).createSession
+}
+
+function findInitialModel(modelRegistry: ModelRegistry) {
+  return modelRegistry.getAvailable().find((model) => model.provider !== FAUX_PROVIDER_ID)
+}
+
+function findConfiguredModel(
+  modelRegistry: ModelRegistry,
+  providerId: string,
+  modelId: string
+): ReturnType<ModelRegistry['getAvailable']>[number] {
+  const model = modelRegistry
+    .getAvailable()
+    .find((availableModel) => availableModel.provider === providerId && availableModel.id === modelId)
+
+  if (!model) throw new Error('agent.modelAuthNotConfigured')
+  return model
+}
+
+function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStorage: AuthStorage): ModelAuthSettings {
+  const subscriptionProviders = getSubscriptionProviderOptions(authStorage)
+  const apiKeyProviders = getApiKeyProviderOptions(modelRegistry)
+
+  return {
+    subscriptions: {
+      connected: subscriptionProviders.flatMap((provider) => {
+        const status = authStorage.getAuthStatus(provider.providerId)
+        if (!status.configured) return []
+
+        return [{
+          providerId: provider.providerId,
+          label: provider.label,
+          configured: true,
+          source: status.source,
+          displayLabel: getAuthStatusDisplayLabel(status.source),
+          removable: status.source === 'stored'
+        } satisfies AuthProviderStatus]
+      }),
+      availableProviders: subscriptionProviders
+    },
+    apiKeys: {
+      configured: apiKeyProviders.flatMap((provider) => {
+        const status = modelRegistry.getProviderAuthStatus(provider.providerId)
+        if (!status.configured) return []
+
+        return [
+          {
+            providerId: provider.providerId,
+            label: provider.label,
+            configured: true,
+            source: status.source,
+            displayLabel: getAuthStatusDisplayLabel(status.source),
+            removable: status.source === 'stored'
+          } satisfies AuthProviderStatus
+        ]
+      }),
+      availableProviders: apiKeyProviders
+    }
+  }
+}
+
+function getSubscriptionProviderOptions(authStorage: AuthStorage): AuthProviderOption[] {
+  return authStorage.getOAuthProviders().map((provider) => ({
+    providerId: provider.id,
+    label: provider.name
+  }))
+}
+
+function getApiKeyProviderOptions(modelRegistry: ModelRegistry): AuthProviderOption[] {
+  const providerIds = new Set(
+    modelRegistry
+      .getAll()
+      .filter((model) => model.provider !== FAUX_PROVIDER_ID)
+      .map((model) => model.provider)
+  )
+
+  return [...providerIds]
+    .sort((left, right) =>
+      modelRegistry.getProviderDisplayName(left).localeCompare(modelRegistry.getProviderDisplayName(right))
+    )
+    .map((providerId) => ({
+      providerId,
+      label: modelRegistry.getProviderDisplayName(providerId)
+    }))
+}
+
+function getAvailableModelsFromRegistry(modelRegistry: ModelRegistry): AvailableModel[] {
+  return modelRegistry
+    .getAvailable()
+    .filter((model) => model.provider !== FAUX_PROVIDER_ID)
+    .map((model) => ({
+      providerId: model.provider,
+      providerLabel: modelRegistry.getProviderDisplayName(model.provider),
+      modelId: model.id,
+      modelLabel: model.name,
+      contextWindow: model.contextWindow,
+      supportsThinking: model.reasoning
+    }))
+}
+
+async function testProviderAuth(
+  modelRegistry: ModelRegistry,
+  providerId: string
+): Promise<AuthTestResult> {
+  assertKnownApiKeyProvider(modelRegistry, providerId)
+  const status = modelRegistry.getProviderAuthStatus(providerId)
+  if (!status.configured) return { ok: false, message: 'agent.authNotConfigured' }
+
+  const apiKey = await modelRegistry.getApiKeyForProvider(providerId)
+  return apiKey ? { ok: true } : { ok: false, message: 'agent.authUnavailable' }
+}
+
+function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
+  if (source === 'environment') return 'Configured from environment'
+  if (source === 'stored') return 'Configured in Space Zero'
+  if (source === 'runtime') return 'Configured for this run'
+  if (source === 'models_json_key' || source === 'models_json_command') return 'Configured from models.json'
+  if (source === 'fallback') return 'Configured from provider fallback'
+  return undefined
+}
+
+function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, providerId: string): void {
+  if (!getApiKeyProviderOptions(modelRegistry).some((provider) => provider.providerId === providerId)) {
+    throw new Error('agent.unknownApiKeyProvider')
+  }
+}
+
+function assertKnownOAuthProvider(authStorage: AuthStorage, providerId: string): void {
+  if (!authStorage.getOAuthProviders().some((provider) => provider.id === providerId)) {
+    throw new Error('agent.unknownOAuthProvider')
   }
 }
 
@@ -149,7 +343,7 @@ function createWorkspaceToolProxies({
   )
 }
 
-function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
+function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry): CreatedPiAgentSession {
   return {
     sessionId: session.sessionId,
     sessionFile: session.sessionFile,
@@ -162,6 +356,13 @@ function adaptAgentSession(session: AgentSession): CreatedPiAgentSession {
     get modelId() {
       return session.model?.id ?? FAUX_MODEL_ID
     },
+    get thinkingLevel() {
+      return session.thinkingLevel as ThinkingLevel | undefined
+    },
+    setModel: async ({ provider, modelId }) => {
+      await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
+    },
+    setThinkingLevel: (level) => session.setThinkingLevel(level),
     prompt: (message) => session.prompt(message),
     abort: () => session.abort(),
     subscribe: (listener) => session.subscribe((event) => {

@@ -75,7 +75,8 @@ describe('AgentUtilityBroker', () => {
       live: true,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     }
 
     const createPromise = broker.createSession({
@@ -212,7 +213,8 @@ describe('AgentUtilityBroker', () => {
       live: false,
       transcriptPath: '/agent/sessions/session-1.jsonl',
       modelProvider: 'faux',
-      modelId: 'faux-1'
+      modelId: 'faux-1',
+      thinkingLevel: 'medium'
     }
 
     port.emit({
@@ -262,6 +264,112 @@ describe('AgentUtilityBroker', () => {
         }
       }
     ])
+  })
+
+  it('brokers API-key auth commands without exposing credentials in status responses', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+
+    const addPromise = broker.addApiKey({ providerId: 'anthropic', apiKey: 'sk-secret' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.addApiKey',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'anthropic', apiKey: 'sk-secret' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(addPromise).resolves.toBeUndefined()
+
+    const statusPromise = broker.getAuthStatus()
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-2',
+      ok: true,
+      sessionId: 'agent-auth',
+      result: {
+        subscriptions: { connected: [], availableProviders: [] },
+        apiKeys: {
+          configured: [{ providerId: 'anthropic', label: 'Anthropic', configured: true, source: 'stored', removable: true }],
+          availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+        }
+      }
+    })
+    const status = await statusPromise
+    expect(status.apiKeys.configured[0]).toMatchObject({ providerId: 'anthropic', configured: true })
+    expect(JSON.stringify(status)).not.toContain('sk-secret')
+
+    const removePromise = broker.removeApiKey({ providerId: 'anthropic' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-3',
+      command: 'agent.removeApiKey',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'anthropic' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-3', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(removePromise).resolves.toBeUndefined()
+  })
+
+  it('routes model and thinking-level changes to the utility as session-tagged commands', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const broker = new AgentUtilityBroker(port, { createRequestId: () => `request-${++requestNumber}` })
+
+    const modelPromise = broker.setModel({ sessionId: 'session-1', provider: 'anthropic', modelId: 'claude-sonnet' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.setModel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', provider: 'anthropic', modelId: 'claude-sonnet' }
+    })
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-1',
+      ok: true,
+      sessionId: 'session-1',
+      result: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: '/repo',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        modelProvider: 'anthropic',
+        modelId: 'claude-sonnet',
+        thinkingLevel: 'medium'
+      }
+    })
+    await expect(modelPromise).resolves.toMatchObject({ modelProvider: 'anthropic', modelId: 'claude-sonnet' })
+
+    const thinkingPromise = broker.setThinkingLevel({ sessionId: 'session-1', level: 'high' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.setThinkingLevel',
+      sessionId: 'session-1',
+      payload: { sessionId: 'session-1', level: 'high' }
+    })
+    port.emit({
+      type: 'agent.response',
+      requestId: 'request-2',
+      ok: true,
+      sessionId: 'session-1',
+      result: {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: '/repo',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        modelProvider: 'anthropic',
+        modelId: 'claude-sonnet',
+        thinkingLevel: 'high'
+      }
+    })
+    await expect(thinkingPromise).resolves.toMatchObject({ thinkingLevel: 'high' })
   })
 
   it('routes tool confirmation answers to the utility as session-tagged commands', async () => {
@@ -419,6 +527,87 @@ describe('AgentUtilityBroker', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('rejects OAuth login when the utility does not finish before the lifecycle timeout', async () => {
+    vi.useFakeTimers()
+
+    try {
+      const port = new FakeAgentUtilityPort()
+      const broker = new AgentUtilityBroker(port, {
+        createRequestId: () => 'request-1',
+        requestTimeoutMs: 10,
+        oauthLoginTimeoutMs: 50
+      })
+
+      const loginPromise = broker.loginOAuth({ providerId: 'claude' })
+
+      vi.advanceTimersByTime(50)
+
+      await expect(loginPromise).rejects.toThrow('agent.utilityRequestTimedOut')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('brokers OAuth login, browser open requests, callbacks, and logout', async () => {
+    const port = new FakeAgentUtilityPort()
+    let requestNumber = 0
+    const openExternal = vi.fn(async () => undefined)
+    const broker = new AgentUtilityBroker(port, {
+      createRequestId: () => `request-${++requestNumber}`,
+      openExternal
+    })
+
+    const loginPromise = broker.loginOAuth({ providerId: 'claude' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-1',
+      command: 'agent.loginOAuth',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'claude' }
+    })
+
+    port.emit({
+      type: 'agent.command',
+      requestId: 'utility-request-1',
+      command: 'agent.openOAuthUrl',
+      sessionId: 'agent-auth',
+      payload: { url: 'https://provider.example/authorize' }
+    })
+    await expect(openExternal).toHaveBeenCalledWith('https://provider.example/authorize')
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.response',
+      requestId: 'utility-request-1',
+      ok: true,
+      sessionId: 'agent-auth',
+      result: undefined
+    })
+
+    const callbackPromise = broker.handleOAuthCallback({ url: 'spacezero://oauth/claude?code=abc' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-2',
+      command: 'agent.handleOAuthCallback',
+      sessionId: 'agent-auth',
+      payload: { url: 'spacezero://oauth/claude?code=abc' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-2', ok: true, sessionId: 'agent-auth', result: { handled: true } })
+    await expect(callbackPromise).resolves.toEqual({ handled: true })
+
+    port.emit({ type: 'agent.response', requestId: 'request-1', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(loginPromise).resolves.toBeUndefined()
+
+    const logoutPromise = broker.logoutOAuth({ providerId: 'claude' })
+    expect(port.postedFrames.at(-1)).toEqual({
+      type: 'agent.command',
+      requestId: 'request-3',
+      command: 'agent.logoutOAuth',
+      sessionId: 'agent-auth',
+      payload: { providerId: 'claude' }
+    })
+    port.emit({ type: 'agent.response', requestId: 'request-3', ok: true, sessionId: 'agent-auth', result: undefined })
+    await expect(logoutPromise).resolves.toBeUndefined()
   })
 
   it('uses a lifecycle timeout for session creation and requests cleanup after timeout', async () => {

@@ -1,25 +1,54 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { addApiKey, getAvailableModels, getModelAuthSettings, loginOAuth } from './model-auth-settings.service'
+import { addApiKey, getModelAuthSettings, loginOAuth, logoutOAuth, removeApiKey, testAuth } from './model-auth-settings.service'
+import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-})
+vi.mock('../../agent-workspace/main/agent-utility-process', () => ({
+  getAgentUtilityProcessHost: vi.fn()
+}))
 
 describe('model auth settings service', () => {
-  it('does not create fake runtime auth for API keys or OAuth subscriptions', async () => {
-    vi.stubEnv('ANTHROPIC_API_KEY', '')
-    vi.stubEnv('OPENAI_API_KEY', '')
-    vi.stubEnv('OPENROUTER_API_KEY', '')
-    vi.stubEnv('GOOGLE_API_KEY', '')
+  beforeEach(() => {
+    vi.mocked(getAgentUtilityProcessHost).mockReturnValue({
+      getAuthStatus: vi.fn(async () => ({
+        subscriptions: { connected: [], availableProviders: [] },
+        apiKeys: {
+          configured: [
+            {
+              providerId: 'anthropic',
+              label: 'Anthropic',
+              configured: true,
+              source: 'stored',
+              removable: true
+            }
+          ],
+          availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+        }
+      })),
+      addApiKey: vi.fn(async () => undefined),
+      removeApiKey: vi.fn(async () => undefined),
+      testAuth: vi.fn(async () => ({ ok: true })),
+      loginOAuth: vi.fn(async () => undefined),
+      logoutOAuth: vi.fn(async () => undefined)
+    } as unknown as ReturnType<typeof getAgentUtilityProcessHost>)
+  })
 
-    await expect(addApiKey('anthropic', 'sk-test')).rejects.toThrow('agent.apiKeyAuthNotImplemented')
-    await expect(loginOAuth('chatgpt')).rejects.toThrow('agent.oauthNotImplemented')
+  it('brokers auth commands to the agent utility without returning credentials', async () => {
+    const host = getAgentUtilityProcessHost()
 
-    await expect(getModelAuthSettings()).resolves.toMatchObject({
-      subscriptions: { connected: [] },
-      apiKeys: { configured: [] }
-    })
-    await expect(getAvailableModels()).resolves.toEqual([])
+    await addApiKey('anthropic', 'sk-secret')
+    await removeApiKey('anthropic')
+    await expect(testAuth('anthropic')).resolves.toEqual({ ok: true })
+    await loginOAuth('github-copilot')
+    await logoutOAuth('github-copilot')
+
+    const status = await getModelAuthSettings()
+
+    expect(host.addApiKey).toHaveBeenCalledWith({ providerId: 'anthropic', apiKey: 'sk-secret' })
+    expect(host.removeApiKey).toHaveBeenCalledWith({ providerId: 'anthropic' })
+    expect(host.testAuth).toHaveBeenCalledWith({ providerId: 'anthropic' })
+    expect(host.loginOAuth).toHaveBeenCalledWith({ providerId: 'github-copilot' })
+    expect(host.logoutOAuth).toHaveBeenCalledWith({ providerId: 'github-copilot' })
+    expect(JSON.stringify(status)).not.toContain('sk-secret')
   })
 })
