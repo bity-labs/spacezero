@@ -5,7 +5,8 @@ export const projects = sqliteTable('projects', {
   name: text('name').notNull(),
   path: text('path').notNull().unique(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
 })
 
 export const sessions = sqliteTable('sessions', {

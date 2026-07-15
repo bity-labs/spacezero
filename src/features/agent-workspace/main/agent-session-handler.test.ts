@@ -43,6 +43,21 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
       const index = sessions.findIndex((session) => session.id === sessionId)
       if (index >= 0) sessions.splice(index, 1)
     },
+    async listByProjectIdIncludingArchived(projectId) {
+      return sessions.filter((session) => session.projectId === projectId)
+    },
+    async updateMany(nextSessions) {
+      for (const session of nextSessions) {
+        const index = sessions.findIndex((item) => item.id === session.id)
+        if (index >= 0) sessions[index] = session
+      }
+      return nextSessions
+    },
+    async deleteByProjectId(projectId) {
+      for (let index = sessions.length - 1; index >= 0; index -= 1) {
+        if (sessions[index].projectId === projectId) sessions.splice(index, 1)
+      }
+    },
     ...overrides
   }
 }

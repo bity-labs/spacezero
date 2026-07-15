@@ -21,6 +21,8 @@ type ProjectSidebarListProps = {
   sessionsError?: string | null
   onSelectProject: (project: Project) => void
   onEditProject: (project: Project) => void
+  onArchiveProject?: (project: Project) => void
+  onDeleteProject?: (project: Project) => void
   onNewSession?: (project: Project) => void
   onSelectSession?: (session: ProjectSession) => void
   onArchiveSession?: (session: ProjectSession) => void
@@ -35,6 +37,8 @@ export function ProjectSidebarList({
   onAddProject,
   onSelectProject,
   onEditProject,
+  onArchiveProject,
+  onDeleteProject,
   sessionsByProjectId = new Map(),
   activeSessionId = null,
   sessionsStatus = 'ready',
@@ -96,7 +100,7 @@ export function ProjectSidebarList({
                 type="button"
                 isActive={isActive}
                 className={cn(
-                  'w-full justify-start gap-1 pl-7 pr-8 text-muted-foreground',
+                  'w-full justify-start gap-1 pl-7 pr-20 text-muted-foreground',
                   isActive ? 'text-foreground' : null
                 )}
                 onClick={() => {
@@ -106,15 +110,35 @@ export function ProjectSidebarList({
               >
                 <span className="min-w-0 truncate">{project.name}</span>
               </SidebarMenuButton>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="absolute right-1 top-1/2 z-10 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
-                aria-label={t('projects.edit.action', { name: project.name })}
-                onClick={() => onEditProject(project)}
-              >
-                <PencilSimple className="h-3 w-3" aria-hidden="true" />
-              </Button>
+              <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 gap-0.5 opacity-0 group-hover/project:opacity-100 focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label={t('projects.edit.action', { name: project.name })}
+                  onClick={() => onEditProject(project)}
+                >
+                  <PencilSimple className="h-3 w-3" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label="Archive project"
+                  onClick={() => onArchiveProject?.(project)}
+                >
+                  <Archive className="h-3 w-3" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Delete project"
+                  onClick={() => onDeleteProject?.(project)}
+                >
+                  <Trash className="h-3 w-3" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
 
             {isExpanded ? (

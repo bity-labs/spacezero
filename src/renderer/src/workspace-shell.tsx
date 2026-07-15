@@ -99,7 +99,9 @@ export function WorkspaceShell(): React.JSX.Element {
     selectProject,
     createEmptyProject,
     addProjectFromFolder,
-    updateProject
+    updateProject,
+    archiveProject,
+    deleteProject
   } = useProjects()
   const {
     workspaceSessions,
@@ -229,6 +231,23 @@ export function WorkspaceShell(): React.JSX.Element {
     if (!window.confirm('Delete this workspace session permanently? This cannot be undone.')) return
     await deleteWorkspaceSession(sessionId)
     if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleArchiveProject(project: Project): Promise<void> {
+    await archiveProject(project.id)
+    await refreshSessions()
+    if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
+      resetSessionWorkspaceLayout()
+    }
+  }
+
+  async function handleDeleteProject(project: Project): Promise<void> {
+    if (!window.confirm(`Delete ${project.name} and all of its sessions permanently? This cannot be undone.`)) return
+    await deleteProject(project.id)
+    await refreshSessions()
+    if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
+      resetSessionWorkspaceLayout()
+    }
   }
 
   const gridTemplateColumns = [
@@ -389,6 +408,8 @@ export function WorkspaceShell(): React.JSX.Element {
                       }
                     }}
                     onEditProject={setEditingProject}
+                    onArchiveProject={(project) => void handleArchiveProject(project)}
+                    onDeleteProject={(project) => void handleDeleteProject(project)}
                     sessionsByProjectId={sessionsByProjectId}
                     activeSessionId={activeProjectSession?.id ?? null}
                     sessionsStatus={sessionsStatus}

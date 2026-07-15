@@ -79,7 +79,9 @@ beforeEach(async () => {
         path: request.path,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(1).toISOString()
-      })
+      }),
+      archive: async () => undefined,
+      delete: async () => undefined
     },
     sessions: {
       listProjectSessions: async () => [],

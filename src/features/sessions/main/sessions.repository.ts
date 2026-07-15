@@ -82,6 +82,24 @@ export function createSessionsRepository(): SessionsRepository {
 
     async deleteById(sessionId) {
       await getDatabase().delete(schema.sessions).where(eq(schema.sessions.id, sessionId))
+    },
+
+    async listByProjectIdIncludingArchived(projectId) {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.projectId, projectId))) as StoredSession[]
+    },
+
+    async updateMany(sessions) {
+      for (const session of sessions) {
+        await getDatabase().update(schema.sessions).set(session).where(eq(schema.sessions.id, session.id))
+      }
+      return sessions
+    },
+
+    async deleteByProjectId(projectId) {
+      await getDatabase().delete(schema.sessions).where(eq(schema.sessions.projectId, projectId))
     }
   }
 }

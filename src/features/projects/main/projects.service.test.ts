@@ -7,7 +7,9 @@ function createMemoryRepository(initialProjects: StoredProject[] = []): Projects
 
   return {
     async list() {
-      return [...projects].sort((left, right) => left.name.localeCompare(right.name))
+      return [...projects]
+        .filter((project) => !project.archivedAt)
+        .sort((left, right) => left.name.localeCompare(right.name))
     },
     async create(project) {
       projects.push(project)
@@ -19,11 +21,51 @@ function createMemoryRepository(initialProjects: StoredProject[] = []): Projects
     },
     async findById(id) {
       return projects.find((project) => project.id === id)
+    },
+    async deleteById(id) {
+      projects = projects.filter((project) => project.id !== id)
     }
   }
 }
 
 describe('createProjectsService', () => {
+  it('archives projects so active lists no longer include them', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const archivedAt = new Date('2026-07-11T00:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository([
+        { id: 'project-1', name: 'Space Zero', path: '/tmp/spacezero', createdAt, updatedAt: createdAt }
+      ]),
+      now: () => archivedAt,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await service.archiveProject('project-1')
+
+    await expect(service.listProjects()).resolves.toEqual([])
+  })
+
+  it('deletes project metadata', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository([
+        { id: 'project-1', name: 'Space Zero', path: '/tmp/spacezero', createdAt, updatedAt: createdAt }
+      ]),
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(service.deleteProject('project-1')).resolves.toMatchObject({ id: 'project-1' })
+    await expect(service.listProjects()).resolves.toEqual([])
+  })
+
   it('creates an empty project with normalized metadata and generated path', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const service = createProjectsService({

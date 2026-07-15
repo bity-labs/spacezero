@@ -14,6 +14,8 @@ export function useProjects(): {
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
+  archiveProject: (projectId: string) => Promise<void>
+  deleteProject: (projectId: string) => Promise<void>
 } {
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
@@ -100,6 +102,27 @@ export function useProjects(): {
     [refreshProjects, rememberProject]
   )
 
+  const removeProjectFromState = useCallback((projectId: string) => {
+    setProjects((currentProjects) => currentProjects.filter((project) => project.id !== projectId))
+    setActiveProjectId((currentId) => (currentId === projectId ? null : currentId))
+  }, [])
+
+  const archiveProject = useCallback(
+    async (projectId: string) => {
+      await window.spacezero.projects.archive({ projectId })
+      removeProjectFromState(projectId)
+    },
+    [removeProjectFromState]
+  )
+
+  const deleteProject = useCallback(
+    async (projectId: string) => {
+      await window.spacezero.projects.delete({ projectId })
+      removeProjectFromState(projectId)
+    },
+    [removeProjectFromState]
+  )
+
   return {
     projects,
     activeProject: projects.find((project) => project.id === activeProjectId) ?? null,
@@ -109,6 +132,8 @@ export function useProjects(): {
     selectProject: (project) => setActiveProjectId(project.id),
     createEmptyProject,
     addProjectFromFolder,
-    updateProject
+    updateProject,
+    archiveProject,
+    deleteProject
   }
 }
