@@ -152,7 +152,6 @@ export function createPiAgentRuntime({
         onAuth: ({ url }) => void callbacks.openExternal(url),
         onDeviceCode: ({ verificationUri }) => void callbacks.openExternal(verificationUri),
         onPrompt: async () => callbacks.waitForCallback(providerId),
-        onManualCodeInput: async () => callbacks.waitForCallback(providerId),
         onSelect: async (prompt) => prompt.options[0]?.id,
         onProgress: () => undefined
       })
@@ -202,7 +201,7 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
           label: provider.label,
           configured: true,
           source: status.source,
-          displayLabel: getAuthStatusDisplayLabel(status.source),
+          displayLabel: getSubscriptionAuthStatusDisplayLabel(status.source),
           removable: status.source === 'stored'
         } satisfies AuthProviderStatus]
       }),
@@ -231,15 +230,18 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
 }
 
 function getSubscriptionProviderOptions(authStorage: AuthStorage): AuthProviderOption[] {
-  return authStorage.getOAuthProviders().map((provider) => {
-    const metadata = provider as { id: string; name: string; description?: string }
+  return authStorage
+    .getOAuthProviders()
+    .filter(isSupportedOAuthProvider)
+    .map((provider) => {
+      const metadata = provider as { id: string; name: string; description?: string }
 
-    return {
-      providerId: metadata.id,
-      label: metadata.name,
-      description: metadata.description
-    }
-  })
+      return {
+        providerId: metadata.id,
+        label: metadata.name,
+        description: metadata.description
+      }
+    })
 }
 
 function getApiKeyProviderOptions(modelRegistry: ModelRegistry, _authStorage: AuthStorage): AuthProviderOption[] {
@@ -287,6 +289,11 @@ async function testProviderAuth(
   return apiKey ? { ok: true } : { ok: false, message: 'agent.authUnavailable' }
 }
 
+function getSubscriptionAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
+  if (source === 'stored') return undefined
+  return getAuthStatusDisplayLabel(source)
+}
+
 function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
   if (source === 'environment') return 'Configured from environment'
   if (source === 'stored') return 'Stored API key'
@@ -305,9 +312,13 @@ function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, _authStorage: A
 }
 
 function assertKnownOAuthProvider(authStorage: AuthStorage, providerId: string): void {
-  if (!authStorage.getOAuthProviders().some((provider) => provider.id === providerId)) {
+  if (!authStorage.getOAuthProviders().some((provider) => provider.id === providerId && isSupportedOAuthProvider(provider))) {
     throw new Error('agent.unknownOAuthProvider')
   }
+}
+
+function isSupportedOAuthProvider(provider: { usesCallbackServer?: boolean }): boolean {
+  return provider.usesCallbackServer === true
 }
 
 function createWorkspaceToolProxies({

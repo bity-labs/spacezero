@@ -1079,7 +1079,11 @@ function ModelAuthCard({
       </div>
       <Card className="gap-0 py-0">
         {statusMessage ? (
-          <div className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground">
+          <div
+            role="status"
+            aria-live="polite"
+            className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground"
+          >
             {statusMessage}
           </div>
         ) : null}
