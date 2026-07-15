@@ -53,7 +53,12 @@ describe('createPiAgentRuntime auth', () => {
 
       const status = await runtime.getAuthStatus()
       expect(status.subscriptions.connected).toContainEqual(
-        expect.objectContaining({ providerId: 'anthropic', configured: true, removable: true })
+        expect.objectContaining({
+          providerId: 'anthropic',
+          configured: true,
+          removable: true,
+          displayLabel: undefined
+        })
       )
       expect(status.apiKeys.configured).not.toContainEqual(
         expect.objectContaining({ providerId: 'openai-codex' })
@@ -103,6 +108,13 @@ describe('createPiAgentRuntime auth', () => {
           label: 'ChatGPT Plus/Pro (Codex Subscription)'
         })
       )
+      expect(status.subscriptions.availableProviders).not.toContainEqual(
+        expect.objectContaining({ providerId: 'github-copilot' })
+      )
+      await expect(runtime.loginOAuth('github-copilot', {
+        openExternal: async () => undefined,
+        waitForCallback: async () => ''
+      })).rejects.toThrow('agent.unknownOAuthProvider')
       await expect(runtime.addApiKey('acme-ai', 'sk-acme-secret')).resolves.toBeUndefined()
       expect(JSON.stringify(await runtime.getAuthStatus())).not.toContain('sk-acme-secret')
     } finally {
