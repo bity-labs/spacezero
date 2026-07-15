@@ -346,6 +346,7 @@ function ModelsSettingsSection(): React.JSX.Element {
     null
   )
   const [apiKey, setApiKey] = useState('')
+  const [authTestResults, setAuthTestResults] = useState<Record<string, string>>({})
   const [defaultModelPickerOpen, setDefaultModelPickerOpen] = useState(false)
   const [availableModelsOpen, setAvailableModelsOpen] = useState(false)
 
@@ -485,6 +486,28 @@ function ModelsSettingsSection(): React.JSX.Element {
     }
   }
 
+  async function handleTestAuth(provider: AuthProviderStatus): Promise<void> {
+    setPendingProviderId(provider.providerId)
+    setError(null)
+
+    try {
+      const result = await window.spacezero.agent.testAuth({ providerId: provider.providerId })
+      setAuthTestResults((results) => ({
+        ...results,
+        [provider.providerId]: result.ok
+          ? t('settings.models.auth.testSuccess')
+          : result.message || t('settings.models.auth.testFailed')
+      }))
+    } catch {
+      setAuthTestResults((results) => ({
+        ...results,
+        [provider.providerId]: t('settings.models.auth.testFailed')
+      }))
+    } finally {
+      setPendingProviderId(null)
+    }
+  }
+
   async function handleUpdateDefaultModel(model: AvailableModel): Promise<void> {
     setError(null)
 
@@ -552,10 +575,10 @@ function ModelsSettingsSection(): React.JSX.Element {
           isLoading={isLoading}
           providers={configuredApiKeys}
           pendingProviderId={pendingProviderId}
-          addDisabled
-          disabledReason={t('settings.models.comingSoon')}
           onAdd={() => setApiKeyPickerOpen(true)}
           onRemove={handleRemoveApiKey}
+          onTestAuth={(provider) => void handleTestAuth(provider)}
+          testResults={authTestResults}
           removeLabel={t('settings.models.apiKeys.remove')}
         />
 
@@ -999,6 +1022,8 @@ type ModelAuthCardProps = {
   disabledReason?: string
   onAdd: () => void
   onRemove: (provider: AuthProviderStatus) => Promise<void>
+  onTestAuth?: (provider: AuthProviderStatus) => void
+  testResults?: Record<string, string>
 }
 
 function ModelAuthCard({
@@ -1015,7 +1040,9 @@ function ModelAuthCard({
   addDisabled = false,
   disabledReason,
   onAdd,
-  onRemove
+  onRemove,
+  onTestAuth,
+  testResults = {}
 }: ModelAuthCardProps): React.JSX.Element {
   const { t } = useTranslation()
 
@@ -1061,21 +1088,38 @@ function ModelAuthCard({
                 <p className="mt-1 text-xs leading-4 text-muted-foreground">
                   {provider.displayLabel ?? t('settings.models.auth.connected')}
                 </p>
+                {testResults[provider.providerId] ? (
+                  <p className="mt-1 text-xs leading-4 text-muted-foreground">
+                    {testResults[provider.providerId]}
+                  </p>
+                ) : null}
               </div>
-              {provider.removable ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={pendingProviderId === provider.providerId}
-                  onClick={() => void onRemove(provider)}
-                >
-                  <Trash className="h-4 w-4" aria-hidden="true" />
-                  {removeLabel}
-                </Button>
-              ) : (
-                <Badge variant="secondary">{t('settings.models.auth.notRemovable')}</Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {onTestAuth ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pendingProviderId === provider.providerId}
+                    onClick={() => onTestAuth(provider)}
+                  >
+                    {t('settings.models.auth.test')}
+                  </Button>
+                ) : null}
+                {provider.removable ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    disabled={pendingProviderId === provider.providerId}
+                    onClick={() => void onRemove(provider)}
+                  >
+                    <Trash className="h-4 w-4" aria-hidden="true" />
+                    {removeLabel}
+                  </Button>
+                ) : (
+                  <Badge variant="secondary">{t('settings.models.auth.notRemovable')}</Badge>
+                )}
+              </div>
             </div>
           ))
         )}

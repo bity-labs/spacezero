@@ -480,19 +480,68 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
   })
 
-  it('keeps model auth actions disabled until the real auth broker is implemented', async () => {
+  it('adds, tests, and removes an API key through the Models Settings broker', async () => {
+    let configured = false
+    const addedKeys: string[] = []
+    const removedProviders: string[] = []
+    const testedProviders: string[] = []
+    window.spacezero.agent.getModelAuthSettings = async () => ({
+      subscriptions: { connected: [], availableProviders: [] },
+      apiKeys: {
+        configured: configured
+          ? [
+              {
+                providerId: 'anthropic',
+                label: 'Anthropic',
+                configured: true,
+                source: 'stored',
+                displayLabel: 'Stored API key',
+                removable: true
+              }
+            ]
+          : [],
+        availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+      }
+    })
+    window.spacezero.agent.addApiKey = async ({ apiKey }) => {
+      addedKeys.push(apiKey)
+      configured = true
+    }
+    window.spacezero.agent.testAuth = async ({ providerId }) => {
+      testedProviders.push(providerId)
+      return { ok: true }
+    }
+    window.spacezero.agent.removeApiKey = async ({ providerId }) => {
+      removedProviders.push(providerId)
+      configured = false
+    }
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
     await act(async () => {
       await router.navigate({ to: '/settings', search: { section: 'models' } })
     })
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: 'Add subscription' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Add API key' })).toBeDisabled()
-    expect(screen.getAllByText('Coming soon')).toHaveLength(2)
-    expect(screen.getByText('No subscriptions connected.')).toBeInTheDocument()
-    expect(screen.getByText('No API keys configured.')).toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Add subscription' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('dialog', { name: 'Add API key' })).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add API key' }))
+    const picker = await screen.findByRole('dialog', { name: 'Add API key' })
+    fireEvent.click(within(picker).getByRole('button', { name: 'Anthropic' }))
+
+    const keyDialog = await screen.findByRole('dialog', { name: 'Enter API key' })
+    expect(within(keyDialog).getByRole('button', { name: 'Save' })).toBeDisabled()
+    fireEvent.change(within(keyDialog).getByLabelText('API key'), { target: { value: 'sk-secret' } })
+    fireEvent.click(within(keyDialog).getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Stored API key')).toBeInTheDocument()
+    expect(addedKeys).toEqual(['sk-secret'])
+    expect(screen.queryByDisplayValue('sk-secret')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }))
+    expect(await screen.findByText('Authentication works.')).toBeInTheDocument()
+    expect(testedProviders).toEqual(['anthropic'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    expect(await screen.findByText('No API keys configured.')).toBeInTheDocument()
+    expect(removedProviders).toEqual(['anthropic'])
   })
 
   it('shows disabled defaults and available-model states until authentication unlocks models', async () => {
@@ -503,12 +552,12 @@ describe('App', () => {
 
     expect(
       await screen.findByText(
-        'Configure credentials through environment variables to choose a default model. In-app auth setup is coming soon.'
+        'Configure credentials to choose a default model.'
       )
     ).toBeInTheDocument()
     expect(
       screen.getByText(
-        'Configure credentials through environment variables to browse available models. In-app auth setup is coming soon.'
+        'Configure credentials to browse available models.'
       )
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()

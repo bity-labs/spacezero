@@ -216,6 +216,9 @@
         "loadError": "Could not load model authentication settings.",
         "connected": "Connected",
         "notRemovable": "Not removable",
+        "test": "Test",
+        "testSuccess": "Authentication works.",
+        "testFailed": "Authentication test failed.",
         "searchProviders": "Search providers",
         "noProviders": "No providers found.",
         "source": {
@@ -240,11 +243,11 @@
       },
       "apiKeys": {
         "title": "API Keys",
-        "description": "API-key auth will be enabled when the Pi auth broker lands.",
+        "description": "Add and manage API keys for Pi model providers.",
         "add": "Add API key",
         "remove": "Remove",
         "emptyTitle": "No API keys configured.",
-        "emptyDescription": "API-key setup is coming soon and is disabled for now.",
+        "emptyDescription": "Add an API key to unlock models from API-key providers.",
         "pickerTitle": "Add API key",
         "pickerDescription": "Choose an API-key provider.",
         "dialogTitle": "Enter API key",
@@ -253,13 +256,13 @@
         "inputPlaceholder": "Paste API key",
         "saveError": "Could not save API key.",
         "removeError": "Could not remove API key.",
-        "removeConfirm": "Remove the temporary API key for {{provider}}?"
+        "removeConfirm": "Remove the stored API key for {{provider}}?"
       },
       "modelDisplay": "{{provider}} · {{model}}",
       "defaults": {
         "sectionTitle": "Defaults",
         "loading": "Loading model defaults…",
-        "empty": "Configure credentials through environment variables to choose a default model. In-app auth setup is coming soon.",
+        "empty": "Configure credentials to choose a default model.",
         "unavailable": "The saved default model is no longer available. Choose another model.",
         "defaultModel": "Default model",
         "defaultModelDescription": "Choose the workspace-global model new sessions start with.",
@@ -282,7 +285,7 @@
       "available": {
         "sectionTitle": "Available Models",
         "loading": "Loading available models…",
-        "empty": "Configure credentials through environment variables to browse available models. In-app auth setup is coming soon.",
+        "empty": "Configure credentials to browse available models.",
         "summary": "{{count}} models available from {{providerCount}} providers",
         "summaryDescription": "Only models unlocked by configured authentication are shown.",
         "providerCount": "{{count}} models",
