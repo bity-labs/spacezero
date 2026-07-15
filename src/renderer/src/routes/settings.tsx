@@ -460,6 +460,10 @@ function ModelsSettingsSection(): React.JSX.Element {
         providerId: selectedApiKeyProvider.providerId,
         apiKey: apiKey.trim()
       })
+      setAuthTestResults((results) => {
+        const { [selectedApiKeyProvider.providerId]: _removed, ...remainingResults } = results
+        return remainingResults
+      })
       closeApiKeyDialog()
       await refreshModelSettings()
     } catch {
@@ -478,6 +482,10 @@ function ModelsSettingsSection(): React.JSX.Element {
 
     try {
       await window.spacezero.agent.removeApiKey({ providerId: provider.providerId })
+      setAuthTestResults((results) => {
+        const { [provider.providerId]: _removed, ...remainingResults } = results
+        return remainingResults
+      })
       await refreshModelSettings()
     } catch {
       setError(t('settings.models.apiKeys.removeError'))
