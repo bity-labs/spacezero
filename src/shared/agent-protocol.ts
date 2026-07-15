@@ -22,9 +22,12 @@ export type AgentPingResponse = {
   utilityProcessId: number | null
 }
 
+export type AgentSessionKind = 'project' | 'workspace'
+
 export type CreateAgentSessionRequest = {
   sessionId: AgentSessionId
-  projectId: string
+  kind?: AgentSessionKind
+  projectId: string | null
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
@@ -72,7 +75,8 @@ export type AgentSessionStatus = 'idle' | 'running'
 
 export type AgentSessionState = {
   sessionId: AgentSessionId
-  projectId: string
+  kind?: AgentSessionKind
+  projectId: string | null
   cwd: string
   status: AgentSessionStatus
   live: boolean

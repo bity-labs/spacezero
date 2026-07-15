@@ -116,7 +116,10 @@ export function createPiAgentRuntime({
         ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
         : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
       thinkingLevel: request.thinkingLevel,
-      tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
+      tools: [
+        ...(request.kind === 'workspace' ? [] : PROJECT_TOOL_NAMES),
+        ...customTools.map((tool) => tool.name)
+      ],
       customTools,
       sessionManager,
       authStorage,

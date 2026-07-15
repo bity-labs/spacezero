@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 
-import type { CreateProjectSessionRequest, ProjectSession, SessionStatus } from '../shared'
+import type { CreateProjectSessionRequest, ProjectSession, SessionStatus, WorkspaceSession } from '../shared'
 
 export type StoredSession = {
   id: string
@@ -18,10 +18,17 @@ export type CreateProjectAgentSessionRequest = {
   transcriptPath?: string
 }
 
+export type CreateWorkspaceAgentSessionRequest = {
+  id: string
+  transcriptPath?: string
+}
+
 export type SessionsRepository = {
   listProjectSessions: () => Promise<StoredSession[]>
+  listWorkspaceSessions: () => Promise<StoredSession[]>
   create: (session: StoredSession) => Promise<StoredSession>
   countByProjectId: (projectId: string) => Promise<number>
+  countWorkspaceSessions: () => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
   findProjectById: (projectId: string) => Promise<{ id: string; path: string } | undefined>
 }
@@ -30,8 +37,10 @@ export type Clock = () => Date
 
 export type SessionsService = {
   listProjectSessions: () => Promise<ProjectSession[]>
+  listWorkspaceSessions: () => Promise<WorkspaceSession[]>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
+  createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
 }
 
 export function createSessionsService({
@@ -44,6 +53,10 @@ export function createSessionsService({
   return {
     async listProjectSessions() {
       return (await repository.listProjectSessions()).map(toProjectSession)
+    },
+
+    async listWorkspaceSessions() {
+      return (await repository.listWorkspaceSessions()).map(toWorkspaceSession)
     },
 
     async createProjectSession(request) {
@@ -85,6 +98,23 @@ export function createSessionsService({
           transcriptPath: request.transcriptPath
         })
       )
+    },
+
+    async createWorkspaceAgentSession(request) {
+      const timestamp = now()
+      const title = `Workspace Session ${(await repository.countWorkspaceSessions()) + 1}`
+
+      return toWorkspaceSession(
+        await repository.create({
+          id: request.id.trim(),
+          projectId: null,
+          title,
+          status: 'idle',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          transcriptPath: request.transcriptPath
+        })
+      )
     }
   }
 }
@@ -100,7 +130,21 @@ function toProjectSession(session: StoredSession): ProjectSession {
 
   return {
     id: session.id,
+    kind: 'project',
     projectId: session.projectId,
+    title: session.title,
+    status: session.status,
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString()
+  }
+}
+
+function toWorkspaceSession(session: StoredSession): WorkspaceSession {
+  if (session.projectId) throw new Error('Workspace session must not have a project')
+
+  return {
+    id: session.id,
+    kind: 'workspace',
     title: session.title,
     status: session.status,
     createdAt: session.createdAt.toISOString(),

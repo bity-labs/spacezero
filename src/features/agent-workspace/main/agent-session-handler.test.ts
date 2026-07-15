@@ -2,14 +2,17 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createProjectAgentSession } from './agent-session-handler'
+import { createProjectAgentSession, createWorkspaceAgentSession } from './agent-session-handler'
 
 function createRepository(overrides: Partial<SessionsRepository> = {}): SessionsRepository {
   const sessions: StoredSession[] = []
 
   return {
     async listProjectSessions() {
-      return sessions
+      return sessions.filter((session) => session.projectId !== null)
+    },
+    async listWorkspaceSessions() {
+      return sessions.filter((session) => session.projectId === null)
     },
     async create(session) {
       sessions.push(session)
@@ -17,6 +20,9 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
     },
     async countByProjectId(projectId) {
       return sessions.filter((session) => session.projectId === projectId).length
+    },
+    async countWorkspaceSessions() {
+      return sessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projectId === 'project-1'
@@ -32,6 +38,7 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
 function createState(overrides: Partial<AgentSessionState> = {}): AgentSessionState {
   return {
     sessionId: 'session-1',
+    kind: 'project',
     projectId: 'project-1',
     cwd: '/repo',
     status: 'idle',
@@ -65,6 +72,7 @@ describe('createProjectAgentSession', () => {
 
     expect(utilityHost.createSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
+      kind: 'project',
       projectId: 'project-1',
       cwd: '/repo',
       workspaceTools: expect.arrayContaining([
@@ -116,6 +124,7 @@ describe('createProjectAgentSession', () => {
 
     expect(utilityHost.createSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
+      kind: 'project',
       projectId: 'project-1',
       cwd: '/repo',
       workspaceTools: expect.arrayContaining([
@@ -125,5 +134,51 @@ describe('createProjectAgentSession', () => {
       thinkingLevel: 'high'
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+  })
+})
+
+describe('createWorkspaceAgentSession', () => {
+  it('creates a utility session with app-owned cwd and persists projectId null', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions'
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository()
+
+    await expect(
+      createWorkspaceAgentSession({
+        repository,
+        utilityHost,
+        createSessionId: () => 'workspace-session-1',
+        readModelDefaults,
+        getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions'
+      })
+    ).resolves.toMatchObject({
+      id: 'workspace-session-1',
+      kind: 'workspace',
+      title: 'Workspace Session 1',
+      status: 'idle'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith({
+      sessionId: 'workspace-session-1',
+      kind: 'workspace',
+      projectId: null,
+      cwd: '/tmp/spacezero-workspace-sessions',
+      workspaceTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+      ]),
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+      thinkingLevel: 'high'
+    })
+    await expect(repository.listWorkspaceSessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'workspace-session-1', projectId: null })
+    ])
   })
 })

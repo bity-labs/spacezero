@@ -21,7 +21,8 @@ import type {
 } from '../features/projects/shared/project.model'
 import type {
   CreateProjectSessionRequest,
-  ProjectSession
+  ProjectSession,
+  WorkspaceSession
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 
@@ -41,11 +42,13 @@ export const IPC_CHANNELS = {
   },
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
+    listWorkspaceSessions: 'sessions:listWorkspaceSessions',
     createProjectSession: 'sessions:createProjectSession'
   },
   agent: {
     ping: 'agent:ping',
     createSession: 'agent:createSession',
+    createWorkspaceSession: 'agent:createWorkspaceSession',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
     prompt: 'agent:prompt',
@@ -104,11 +107,13 @@ export type SpaceZeroAPI = {
   }
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
+    listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   }
   agent: {
     ping: () => Promise<AgentPingResponse>
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
+    createWorkspaceSession: () => Promise<WorkspaceSession>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     prompt: (request: { sessionId: string; message: string }) => Promise<void>

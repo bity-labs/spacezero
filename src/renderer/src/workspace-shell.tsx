@@ -58,19 +58,6 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
-function createWorkspaceSession(): WorkspaceSession {
-  const now = new Date().toISOString()
-
-  return {
-    id: `workspace-session-${Date.now()}`,
-    kind: 'workspace',
-    title: 'Workspace Session',
-    status: 'idle',
-    createdAt: now,
-    updatedAt: now
-  }
-}
-
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
   const isRightPanelOpen = useUiLayoutStore((state) => state.isRightSidebarOpen)
@@ -157,7 +144,7 @@ export function WorkspaceShell(): React.JSX.Element {
         title: t('workspace.sidebar.newAgent'),
         category: t('appCommands.categories.workspace'),
         keywords: ['agent', 'global', 'workspace session'],
-        handler: () => openWorkspaceSessionInWorkspace(createWorkspaceSession())
+        handler: () => void handleNewWorkspaceSession()
       }
     ],
     [
@@ -181,12 +168,18 @@ export function WorkspaceShell(): React.JSX.Element {
     openWorkspaceSessionInWorkspace(session)
   }
 
+  async function handleNewWorkspaceSession(): Promise<void> {
+    const session = await window.spacezero.agent.createWorkspaceSession()
+    openWorkspaceSession(session)
+  }
+
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
     const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
     const session: ProjectSession = {
       id: agentSession.sessionId,
-      projectId: agentSession.projectId,
+      kind: 'project',
+      projectId: agentSession.projectId ?? project.id,
       title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
       status: agentSession.status,
       createdAt: new Date().toISOString(),
@@ -296,7 +289,7 @@ export function WorkspaceShell(): React.JSX.Element {
                   icon={PaperPlaneTilt}
                   label={t('workspace.sidebar.newAgent')}
                   active={activeTab?.kind === 'workspace'}
-                  onClick={() => openWorkspaceSession(createWorkspaceSession())}
+                  onClick={() => void handleNewWorkspaceSession()}
                 />
                 <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
                 <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />

@@ -43,14 +43,18 @@ export function ProjectSessionHostSurface({
 export function WorkspaceSessionHostSurface({
   session
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
-  const messages = useMemo(() => createWorkspaceSessionPlaceholderMessages(session), [session])
+  const agentSession = useAgentSession(session.id)
 
   return (
     <SessionHostFrame
       sessionId={session.id}
-      status={session.status === 'running' ? 'running' : 'idle'}
-      messages={messages}
+      status={agentSession.status}
+      messages={agentSession.messages}
+      error={agentSession.lastError ?? null}
+      sessionState={agentSession.sessionState}
       placeholder="Ask about Space Zero…"
+      onSubmit={(text) => void agentSession.prompt(text)}
+      emptyState="Ask the workspace agent about Space Zero. Streamed replies appear here."
     />
   )
 }
@@ -167,38 +171,3 @@ function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): A
   }
 }
 
-function createWorkspaceSessionPlaceholderMessages(session: WorkspaceSession): AiChatMessage[] {
-  return [
-    {
-      id: `${session.id}-placeholder`,
-      role: 'assistant',
-      status: 'complete',
-      parts: [
-        {
-          type: 'text',
-          text: 'Workspace Session host for the global Space Zero agent. This surface does not require a project, cwd, or repository path.'
-        },
-        {
-          type: 'thinking',
-          text: 'Streaming projection placeholder for a workspace-wide agent turn.',
-          state: 'complete',
-          collapsed: true
-        },
-        {
-          type: 'tool-call',
-          callId: `${session.id}-tool`,
-          toolName: 'workspace.getStatus.preview',
-          state: 'success',
-          output: { scope: 'workspace' }
-        },
-        {
-          type: 'tool-confirmation',
-          callId: `${session.id}-confirmation`,
-          toolName: 'workspace.tool.confirmation.preview',
-          summary: 'Inline confirmation placeholder for future global Workspace Tool requests.',
-          state: 'pending'
-        }
-      ]
-    }
-  ]
-}

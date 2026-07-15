@@ -1,4 +1,4 @@
-import { asc, count, eq, isNotNull } from 'drizzle-orm'
+import { asc, count, eq, isNotNull, isNull } from 'drizzle-orm'
 
 import { getDatabase } from '../../../main/db'
 import * as schema from '../../../main/db/schema'
@@ -14,6 +14,14 @@ export function createSessionsRepository(): SessionsRepository {
         .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
     },
 
+    async listWorkspaceSessions() {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(isNull(schema.sessions.projectId))
+        .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
+    },
+
     async create(session) {
       await getDatabase().insert(schema.sessions).values(session)
       return session
@@ -24,6 +32,15 @@ export function createSessionsRepository(): SessionsRepository {
         .select({ value: count() })
         .from(schema.sessions)
         .where(eq(schema.sessions.projectId, projectId))
+
+      return value
+    },
+
+    async countWorkspaceSessions() {
+      const [{ value }] = await getDatabase()
+        .select({ value: count() })
+        .from(schema.sessions)
+        .where(isNull(schema.sessions.projectId))
 
       return value
     },
