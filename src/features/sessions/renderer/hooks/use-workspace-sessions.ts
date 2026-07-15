@@ -1,0 +1,70 @@
+import { useCallback, useEffect, useState } from 'react'
+
+import type { WorkspaceSession } from '../../shared'
+
+type WorkspaceSessionsStatus = 'loading' | 'ready' | 'error'
+
+export function useWorkspaceSessions(): {
+  workspaceSessions: WorkspaceSession[]
+  status: WorkspaceSessionsStatus
+  error: string | null
+  refreshWorkspaceSessions: () => Promise<void>
+  upsertWorkspaceSession: (session: WorkspaceSession) => void
+} {
+  const [workspaceSessions, setWorkspaceSessions] = useState<WorkspaceSession[]>([])
+  const [status, setStatus] = useState<WorkspaceSessionsStatus>('loading')
+  const [error, setError] = useState<string | null>(null)
+
+  const refreshWorkspaceSessions = useCallback(async () => {
+    setStatus('loading')
+    setError(null)
+    try {
+      const nextSessions = await window.spacezero.sessions.listWorkspaceSessions()
+      setWorkspaceSessions(nextSessions)
+      setStatus('ready')
+    } catch {
+      setError('Unable to load workspace sessions.')
+      setStatus('error')
+    }
+  }, [])
+
+  useEffect(() => {
+    let canceled = false
+
+    async function loadWorkspaceSessions(): Promise<void> {
+      try {
+        const nextSessions = await window.spacezero.sessions.listWorkspaceSessions()
+        if (canceled) return
+        setWorkspaceSessions(nextSessions)
+        setStatus('ready')
+      } catch {
+        if (canceled) return
+        setError('Unable to load workspace sessions.')
+        setStatus('error')
+      }
+    }
+
+    void loadWorkspaceSessions()
+
+    return () => {
+      canceled = true
+    }
+  }, [])
+
+  const upsertWorkspaceSession = useCallback((session: WorkspaceSession) => {
+    setError(null)
+    setStatus('ready')
+    setWorkspaceSessions((currentSessions) => {
+      const withoutDuplicate = currentSessions.filter((existing) => existing.id !== session.id)
+      return [...withoutDuplicate, session]
+    })
+  }, [])
+
+  return {
+    workspaceSessions,
+    status,
+    error,
+    refreshWorkspaceSessions,
+    upsertWorkspaceSession
+  }
+}

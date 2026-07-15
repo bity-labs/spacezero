@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import type { ProjectSession } from '../../features/sessions/shared'
+import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
 import { App } from './App'
@@ -298,6 +298,76 @@ describe('App', () => {
     expect(screen.getByRole('tabpanel', { name: 'Session 3' })).toBeInTheDocument()
   })
 
+  it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
+    const workspaceSessions: WorkspaceSession[] = [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    const projects = [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    const projectSessions: ProjectSession[] = [
+      {
+        id: 'project-session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Project Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.listWorkspaceSessions = async () => workspaceSessions
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.sessions.listProjectSessions = async () => projectSessions
+
+    render(<App />)
+
+    expect(await screen.findByText('Workspace Sessions')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Project Session 1/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Space Zero' }))
+
+    expect(await screen.findByRole('button', { name: /Project Session 1/ })).toBeInTheDocument()
+  })
+
+  it('opens a persisted workspace session from the sidebar', async () => {
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+
+    expect(await screen.findByRole('tab', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session 1'
+    )
+  })
+
   it('opens a global Workspace Session without selecting a project', async () => {
     let createWorkspaceSessionCalls = 0
     window.spacezero.agent.createWorkspaceSession = async () => {
@@ -318,6 +388,7 @@ describe('App', () => {
 
     await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
     expect(await screen.findByRole('tab', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
     expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
     expect(screen.queryByText(/Workspace Session host for the global/)).not.toBeInTheDocument()
     expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
