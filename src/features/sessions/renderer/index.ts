@@ -1,4 +1,6 @@
 export * from './hooks/use-project-sessions'
+export * from './hooks/use-workspace-sessions'
 export * from './components/session-host-surface'
+export * from './components/workspace-session-list'
 export * from './session-workspace-layout'
 export * from './session-workspace-store'

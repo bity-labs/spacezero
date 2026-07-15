@@ -48,6 +48,13 @@
       "error": "Could not load sessions.",
       "empty": "No sessions yet."
     },
+    "workspaceList": {
+      "sectionLabel": "Workspace Sessions",
+      "label": "Workspace session list",
+      "loading": "Loading workspace sessions…",
+      "error": "Could not load workspace sessions.",
+      "empty": "No workspace sessions yet."
+    },
     "workspace": {
       "layoutLabel": "Session workspace layout",
       "panelLabel": "Session panel",

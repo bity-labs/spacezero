@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -31,6 +31,8 @@ import {
   syncProjectSessionTabs,
   useProjectSessions,
   useSessionWorkspaceStore,
+  useWorkspaceSessions,
+  WorkspaceSessionList,
   type SessionWorkspaceLayout,
   type SessionWorkspacePanel,
   type SessionWorkspaceTab
@@ -80,6 +82,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const sessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.layout)
@@ -102,6 +105,12 @@ export function WorkspaceShell(): React.JSX.Element {
     updateProject
   } = useProjects()
   const {
+    workspaceSessions,
+    status: workspaceSessionsStatus,
+    error: workspaceSessionsError,
+    upsertWorkspaceSession
+  } = useWorkspaceSessions()
+  const {
     sessions,
     sessionsByProjectId,
     status: sessionsStatus,
@@ -122,6 +131,22 @@ export function WorkspaceShell(): React.JSX.Element {
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
+
+  const openProjectSession = useCallback(
+    (session: ProjectSession) => openProjectSessionInWorkspace(session),
+    [openProjectSessionInWorkspace]
+  )
+
+  const openWorkspaceSession = useCallback(
+    (session: WorkspaceSession) => openWorkspaceSessionInWorkspace(session),
+    [openWorkspaceSessionInWorkspace]
+  )
+
+  const handleNewWorkspaceSession = useCallback(async (): Promise<void> => {
+    const session = await window.spacezero.agent.createWorkspaceSession()
+    upsertWorkspaceSession(session)
+    openWorkspaceSession(session)
+  }, [openWorkspaceSession, upsertWorkspaceSession])
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -150,7 +175,7 @@ export function WorkspaceShell(): React.JSX.Element {
     [
       isLeftPanelOpen,
       isRightPanelOpen,
-      openWorkspaceSessionInWorkspace,
+      handleNewWorkspaceSession,
       t,
       toggleLeftPanel,
       toggleRightPanel
@@ -159,19 +184,6 @@ export function WorkspaceShell(): React.JSX.Element {
 
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
-
-  function openProjectSession(session: ProjectSession): void {
-    openProjectSessionInWorkspace(session)
-  }
-
-  function openWorkspaceSession(session: WorkspaceSession): void {
-    openWorkspaceSessionInWorkspace(session)
-  }
-
-  async function handleNewWorkspaceSession(): Promise<void> {
-    const session = await window.spacezero.agent.createWorkspaceSession()
-    openWorkspaceSession(session)
-  }
 
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
@@ -299,7 +311,28 @@ export function WorkspaceShell(): React.JSX.Element {
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
             <SidebarGroup
-              className="mt-8 min-h-0 flex-1 overflow-hidden"
+              className="mt-8 shrink-0"
+              aria-label={t('sessions.workspaceList.sectionLabel')}
+            >
+              <SidebarSectionHeader
+                label={t('sessions.workspaceList.sectionLabel')}
+                expandable
+                expanded={isWorkspaceSessionsExpanded}
+                onToggle={() => setWorkspaceSessionsExpanded((expanded) => !expanded)}
+              />
+              {isWorkspaceSessionsExpanded ? (
+                <WorkspaceSessionList
+                  workspaceSessions={workspaceSessions}
+                  activeSessionId={activeWorkspaceSession?.id ?? null}
+                  status={workspaceSessionsStatus}
+                  error={workspaceSessionsError}
+                  onSelectSession={openWorkspaceSession}
+                />
+              ) : null}
+            </SidebarGroup>
+
+            <SidebarGroup
+              className="min-h-0 flex-1 overflow-hidden"
               aria-label={t('projects.sidebar.label')}
             >
               <SidebarSectionHeader
