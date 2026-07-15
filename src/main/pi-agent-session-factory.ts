@@ -282,7 +282,7 @@ async function testProviderAuth(
 
 function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
   if (source === 'environment') return 'Configured from environment'
-  if (source === 'stored') return 'Configured in Space Zero'
+  if (source === 'stored') return 'Stored API key'
   if (source === 'runtime') return 'Configured for this run'
   if (source === 'models_json_key' || source === 'models_json_command') return 'Configured from models.json'
   if (source === 'fallback') return 'Configured from provider fallback'
