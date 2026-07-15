@@ -101,6 +101,7 @@ export type AgentStreamingEvent = {
   sessionId: AgentSessionId
   messageId?: string
   delta?: string
+  message?: AgentTranscriptMessage
 }
 
 export type AgentUtilityCommandName =

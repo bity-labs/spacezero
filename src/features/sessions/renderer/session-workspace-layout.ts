@@ -120,36 +120,11 @@ export function getFocusedSessionTab(layout: SessionWorkspaceLayout): SessionWor
 }
 
 function openTabInLayout(
-  layout: SessionWorkspaceLayout,
+  _layout: SessionWorkspaceLayout,
   tab: SessionWorkspaceTab
 ): SessionWorkspaceLayout {
-  const existingPanel = layout.panels.find((panel) =>
-    panel.tabs.some((candidate) => candidate.id === tab.id)
-  )
-  if (existingPanel) return focusSessionTabInLayout(layout, existingPanel.id, tab.id)
-
-  if (layout.panels.length === 0) {
-    const panel = createPanel(tab, 1)
-    return { panels: [panel], focusedPanelId: panel.id }
-  }
-
-  if (layout.panels.length === 1) {
-    const panel = createPanel(tab, 2)
-    return { panels: [...layout.panels, panel], focusedPanelId: panel.id }
-  }
-
-  const focusedPanel =
-    layout.panels.find((panel) => panel.id === layout.focusedPanelId) ??
-    layout.panels[layout.panels.length - 1]
-
-  return {
-    panels: layout.panels.map((panel) =>
-      panel.id === focusedPanel.id
-        ? { ...panel, tabs: [...panel.tabs, tab], activeTabId: tab.id }
-        : panel
-    ),
-    focusedPanelId: focusedPanel.id
-  }
+  const panel = createPanel(tab, 1)
+  return { panels: [panel], focusedPanelId: panel.id }
 }
 
 function createPanel(tab: SessionWorkspaceTab, index: number): SessionWorkspacePanel {

@@ -157,7 +157,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
     expect(await screen.findByText('Ask the agent to work on this project. Streamed replies appear here.')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
 
     rendered.unmount()
@@ -168,7 +169,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
   })
 
-  it('opens one focused AgentChat for the selected project session', async () => {
+  it('replaces the active project session when another project session is selected', async () => {
     const projects = [
       {
         id: 'project-1',
@@ -222,15 +223,15 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
-    expect(
-      screen.getAllByText('Ask the agent to work on this project. Streamed replies appear here.').length
-    ).toBeGreaterThan(0)
-    expect(screen.getAllByRole('tablist')).toHaveLength(2)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.getByRole('heading', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
   })
 
-  it('shows concurrent session panels with tab focus that preserves independent live states', async () => {
+  it('replaces the active session instead of opening side-by-side panels or tabs', async () => {
     const projects = [
       {
         id: 'project-1',
@@ -275,27 +276,15 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
     fireEvent.click(screen.getByRole('button', { name: /Session 3/ }))
 
-    expect(screen.getAllByRole('tablist')).toHaveLength(2)
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(2)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Session 3' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getAllByRole('status', { name: 'Running' }).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('status', { name: 'Idle' }).length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Session 2' }))
-
-    const sessionTwoTab = screen.getByRole('tab', { name: 'Session 2' })
-    const sessionTwoPanel = screen.getByRole('tabpanel', { name: 'Session 2' })
-    expect(sessionTwoTab).toHaveAttribute('aria-selected', 'true')
-    expect(sessionTwoTab).toHaveAttribute('aria-controls', sessionTwoPanel.id)
-    expect(sessionTwoPanel).toHaveAttribute('aria-labelledby', sessionTwoTab.id)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getAllByRole('status', { name: 'Running' }).length).toBeGreaterThan(0)
-
-    fireEvent.keyDown(sessionTwoTab, { key: 'ArrowRight' })
-
-    expect(screen.getByRole('tab', { name: 'Session 3' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tabpanel', { name: 'Session 3' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 3' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Session 3' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 3')
   })
 
   it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
@@ -361,7 +350,9 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
 
-    expect(await screen.findByRole('tab', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'WorkspaceWorkspace Session 1'
@@ -387,7 +378,9 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
 
     await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
-    expect(await screen.findByRole('tab', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
     expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
     expect(screen.queryByText(/Workspace Session host for the global/)).not.toBeInTheDocument()
