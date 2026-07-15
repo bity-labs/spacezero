@@ -105,7 +105,9 @@ export function WorkspaceShell(): React.JSX.Element {
     workspaceSessions,
     status: workspaceSessionsStatus,
     error: workspaceSessionsError,
-    upsertWorkspaceSession
+    upsertWorkspaceSession,
+    archiveWorkspaceSession,
+    deleteWorkspaceSession
   } = useWorkspaceSessions()
   const {
     sessions,
@@ -113,7 +115,9 @@ export function WorkspaceShell(): React.JSX.Element {
     status: sessionsStatus,
     error: sessionsError,
     refreshSessions,
-    upsertProjectSession
+    upsertProjectSession,
+    archiveSession,
+    deleteSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
     () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
@@ -203,6 +207,28 @@ export function WorkspaceShell(): React.JSX.Element {
     const sessionProject = projects.find((project) => project.id === session.projectId)
     if (sessionProject) selectProject(sessionProject)
     openProjectSession(session)
+  }
+
+  async function handleArchiveSession(sessionId: string): Promise<void> {
+    await archiveSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleDeleteSession(sessionId: string): Promise<void> {
+    if (!window.confirm('Delete this session permanently? This cannot be undone.')) return
+    await deleteSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleArchiveWorkspaceSession(sessionId: string): Promise<void> {
+    await archiveWorkspaceSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleDeleteWorkspaceSession(sessionId: string): Promise<void> {
+    if (!window.confirm('Delete this workspace session permanently? This cannot be undone.')) return
+    await deleteWorkspaceSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
   }
 
   const gridTemplateColumns = [
@@ -324,6 +350,8 @@ export function WorkspaceShell(): React.JSX.Element {
                   status={workspaceSessionsStatus}
                   error={workspaceSessionsError}
                   onSelectSession={openWorkspaceSession}
+                  onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
+                  onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
                 />
               ) : null}
             </SidebarGroup>
@@ -367,6 +395,8 @@ export function WorkspaceShell(): React.JSX.Element {
                     sessionsError={sessionsError}
                     onNewSession={(project) => void handleNewSession(project)}
                     onSelectSession={handleSelectSession}
+                    onArchiveSession={(session) => void handleArchiveSession(session.id)}
+                    onDeleteSession={(session) => void handleDeleteSession(session.id)}
                   />
                 </div>
               ) : null}
@@ -453,6 +483,11 @@ export function WorkspaceShell(): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | null {
+  if (!tab) return null
+  return tab.kind === 'project' ? tab.sessionId : tab.session.id
 }
 
 function SessionWorkspaceTabSurface({

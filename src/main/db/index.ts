@@ -28,7 +28,8 @@ function migrate(database: Database.Database): void {
       status TEXT NOT NULL DEFAULT 'idle',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      transcript_path TEXT
+      transcript_path TEXT,
+      archived_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -41,6 +42,9 @@ function migrate(database: Database.Database): void {
   const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
   if (!sessionColumns.some((column) => column.name === 'transcript_path')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN transcript_path TEXT`)
+  }
+  if (!sessionColumns.some((column) => column.name === 'archived_at')) {
+    database.exec(`ALTER TABLE sessions ADD COLUMN archived_at INTEGER`)
   }
 }
 

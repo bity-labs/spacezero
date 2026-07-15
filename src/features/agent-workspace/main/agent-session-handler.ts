@@ -28,6 +28,12 @@ export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionH
   getWorkspaceSessionCwd?: () => string
 }
 
+export type RestoreAgentSessionHandlerDependencies = {
+  repository: SessionsRepository
+  utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
+  getWorkspaceSessionCwd?: () => string
+}
+
 export async function createProjectAgentSession(
   input: unknown,
   {
@@ -70,6 +76,41 @@ export async function createProjectAgentSession(
   return state
 }
 
+export async function restoreAgentSessionState(
+  input: unknown,
+  {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+  }: RestoreAgentSessionHandlerDependencies
+): Promise<AgentSessionState> {
+  const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
+
+  try {
+    return await utilityHost.getState(request)
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'agent.sessionNotFound') throw error
+  }
+
+  const storedSession = await repository.findSessionById(request.sessionId)
+  if (!storedSession) throw new Error('agent.sessionNotFound')
+
+  const cwd = storedSession.projectId
+    ? resolveStoredProjectPath(await repository.findProjectById(storedSession.projectId))
+    : resolve(getWorkspaceSessionCwd())
+
+  if (!storedSession.projectId) await mkdir(cwd, { recursive: true })
+
+  return utilityHost.createSession({
+    sessionId: storedSession.id,
+    kind: storedSession.projectId ? 'project' : 'workspace',
+    projectId: storedSession.projectId,
+    cwd,
+    transcriptPath: storedSession.transcriptPath ?? undefined,
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+  })
+}
+
 export async function createWorkspaceAgentSession({
   repository,
   utilityHost,
@@ -101,6 +142,11 @@ export async function createWorkspaceAgentSession({
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
     throw error
   }
+}
+
+function resolveStoredProjectPath(project: { id: string; path: string } | undefined): string {
+  if (!project) throw new Error('Project not found')
+  return resolve(project.path)
 }
 
 function defaultWorkspaceSessionCwd(): string {

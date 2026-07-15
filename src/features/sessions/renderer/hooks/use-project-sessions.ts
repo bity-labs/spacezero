@@ -12,6 +12,8 @@ export function useProjectSessions(): {
   refreshSessions: () => Promise<void>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   upsertProjectSession: (session: ProjectSession) => void
+  archiveSession: (sessionId: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<void>
 } {
   const [sessions, setSessions] = useState<ProjectSession[]>([])
   const [status, setStatus] = useState<ProjectSessionsStatus>('loading')
@@ -69,6 +71,16 @@ export function useProjectSessions(): {
     })
   }, [])
 
+  const archiveSession = useCallback(async (sessionId: string) => {
+    await window.spacezero.sessions.archive({ sessionId })
+    setSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
+  }, [])
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    await window.spacezero.sessions.delete({ sessionId })
+    setSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
+  }, [])
+
   const sessionsByProjectId = useMemo(() => {
     const grouped = new Map<string, ProjectSession[]>()
     for (const session of sessions) {
@@ -77,5 +89,5 @@ export function useProjectSessions(): {
     return grouped
   }, [sessions])
 
-  return { sessions, sessionsByProjectId, status, error, refreshSessions, createProjectSession, upsertProjectSession }
+  return { sessions, sessionsByProjectId, status, error, refreshSessions, createProjectSession, upsertProjectSession, archiveSession, deleteSession }
 }

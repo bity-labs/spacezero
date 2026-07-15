@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createProjectAgentSession, createWorkspaceAgentSession } from './agent-session-handler'
+import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
 
 function createRepository(overrides: Partial<SessionsRepository> = {}): SessionsRepository {
   const sessions: StoredSession[] = []
@@ -30,6 +30,18 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
     async findProjectById(projectId) {
       if (projectId !== 'project-1') return undefined
       return { id: projectId, path: '/repo' }
+    },
+    async findSessionById(sessionId) {
+      return sessions.find((session) => session.id === sessionId)
+    },
+    async update(session) {
+      const index = sessions.findIndex((item) => item.id === session.id)
+      if (index >= 0) sessions[index] = session
+      return session
+    },
+    async deleteById(sessionId) {
+      const index = sessions.findIndex((session) => session.id === sessionId)
+      if (index >= 0) sessions.splice(index, 1)
     },
     ...overrides
   }
@@ -134,6 +146,67 @@ describe('createProjectAgentSession', () => {
       thinkingLevel: 'high'
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+  })
+})
+
+describe('restoreAgentSessionState', () => {
+  it('returns live utility state when the session is already registered', async () => {
+    const utilityHost = {
+      getState: vi.fn(async () => createState()),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        { repository: createRepository(), utilityHost }
+      )
+    ).resolves.toMatchObject({ sessionId: 'session-1' })
+
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
+  it('recreates a stored project session from its transcript after app relaunch', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost
+        }
+      )
+    ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/repo' })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      kind: 'project',
+      projectId: 'project-1',
+      cwd: '/repo',
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      workspaceTools: expect.arrayContaining([
+        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+      ])
+    })
   })
 })
 

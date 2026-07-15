@@ -10,6 +10,7 @@ export type StoredSession = {
   createdAt: Date
   updatedAt: Date
   transcriptPath?: string | null
+  archivedAt?: Date | null
 }
 
 export type CreateProjectAgentSessionRequest = {
@@ -31,6 +32,9 @@ export type SessionsRepository = {
   countWorkspaceSessions: () => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
   findProjectById: (projectId: string) => Promise<{ id: string; path: string } | undefined>
+  findSessionById: (sessionId: string) => Promise<StoredSession | undefined>
+  update: (session: StoredSession) => Promise<StoredSession>
+  deleteById: (sessionId: string) => Promise<void>
 }
 
 export type Clock = () => Date
@@ -41,6 +45,8 @@ export type SessionsService = {
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
   createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
+  archiveSession: (sessionId: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<StoredSession>
 }
 
 export function createSessionsService({
@@ -115,6 +121,19 @@ export function createSessionsService({
           transcriptPath: request.transcriptPath
         })
       )
+    },
+
+    async archiveSession(sessionId) {
+      const session = await repository.findSessionById(sessionId.trim())
+      if (!session) throw new Error('Session not found')
+      await repository.update({ ...session, archivedAt: now(), updatedAt: now() })
+    },
+
+    async deleteSession(sessionId) {
+      const session = await repository.findSessionById(sessionId.trim())
+      if (!session) throw new Error('Session not found')
+      await repository.deleteById(session.id)
+      return session
     }
   }
 }

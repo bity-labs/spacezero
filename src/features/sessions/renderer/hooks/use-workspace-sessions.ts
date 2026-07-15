@@ -10,6 +10,8 @@ export function useWorkspaceSessions(): {
   error: string | null
   refreshWorkspaceSessions: () => Promise<void>
   upsertWorkspaceSession: (session: WorkspaceSession) => void
+  archiveWorkspaceSession: (sessionId: string) => Promise<void>
+  deleteWorkspaceSession: (sessionId: string) => Promise<void>
 } {
   const [workspaceSessions, setWorkspaceSessions] = useState<WorkspaceSession[]>([])
   const [status, setStatus] = useState<WorkspaceSessionsStatus>('loading')
@@ -60,11 +62,23 @@ export function useWorkspaceSessions(): {
     })
   }, [])
 
+  const archiveWorkspaceSession = useCallback(async (sessionId: string) => {
+    await window.spacezero.sessions.archive({ sessionId })
+    setWorkspaceSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
+  }, [])
+
+  const deleteWorkspaceSession = useCallback(async (sessionId: string) => {
+    await window.spacezero.sessions.delete({ sessionId })
+    setWorkspaceSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
+  }, [])
+
   return {
     workspaceSessions,
     status,
     error,
     refreshWorkspaceSessions,
-    upsertWorkspaceSession
+    upsertWorkspaceSession,
+    archiveWorkspaceSession,
+    deleteWorkspaceSession
   }
 }

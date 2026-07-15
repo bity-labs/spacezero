@@ -1,4 +1,4 @@
-import { CaretDown, CaretRight, Plus, PencilSimple } from '@phosphor-icons/react'
+import { Archive, CaretDown, CaretRight, Plus, PencilSimple, Trash } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -23,6 +23,8 @@ type ProjectSidebarListProps = {
   onEditProject: (project: Project) => void
   onNewSession?: (project: Project) => void
   onSelectSession?: (session: ProjectSession) => void
+  onArchiveSession?: (session: ProjectSession) => void
+  onDeleteSession?: (session: ProjectSession) => void
 }
 
 export function ProjectSidebarList({
@@ -38,7 +40,9 @@ export function ProjectSidebarList({
   sessionsStatus = 'ready',
   sessionsError = null,
   onNewSession,
-  onSelectSession
+  onSelectSession,
+  onArchiveSession,
+  onDeleteSession
 }: ProjectSidebarListProps): React.JSX.Element {
   const { t } = useTranslation()
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
@@ -128,21 +132,46 @@ export function ProjectSidebarList({
                 ) : null}
                 {sessionsStatus === 'ready'
                   ? projectSessions.map((session) => (
-                      <button
-                        key={session.id}
-                        type="button"
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                          activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : null
-                        )}
-                        onClick={() => onSelectSession?.(session)}
-                      >
-                        <SessionStatusIndicator
-                          status={session.status === 'running' ? 'running' : 'idle'}
-                          label={t(`sessions.status.${session.status}`)}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                      </button>
+                      <div key={session.id} className="group/session relative">
+                        <button
+                          type="button"
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                            activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : null
+                          )}
+                          onClick={() => onSelectSession?.(session)}
+                        >
+                          <SessionStatusIndicator
+                            status={session.status === 'running' ? 'running' : 'idle'}
+                            label={t(`sessions.status.${session.status}`)}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                        </button>
+                        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 gap-0.5 opacity-0 group-hover/session:opacity-100 focus-within:opacity-100">
+                          <button
+                            type="button"
+                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            aria-label="Archive session"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onArchiveSession?.(session)
+                            }}
+                          >
+                            <Archive className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            aria-label="Delete session"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onDeleteSession?.(session)
+                            }}
+                          >
+                            <Trash className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
                     ))
                   : null}
                 <Button
