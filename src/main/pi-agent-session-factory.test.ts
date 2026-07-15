@@ -43,7 +43,10 @@ describe('createPiAgentRuntime auth', () => {
       mkdirSync(agentDir, { recursive: true })
       writeFileSync(
         join(agentDir, 'auth.json'),
-        JSON.stringify({ anthropic: { type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires: Date.now() + 60_000 } }),
+        JSON.stringify({
+          anthropic: { type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires: Date.now() + 60_000 },
+          'openai-codex': { type: 'oauth', access: 'openai-access-token', refresh: 'openai-refresh-token', expires: Date.now() + 60_000 }
+        }),
         { mode: 0o600 }
       )
       const runtime = createPiAgentRuntime({ agentDir })
@@ -51,6 +54,9 @@ describe('createPiAgentRuntime auth', () => {
       const status = await runtime.getAuthStatus()
       expect(status.subscriptions.connected).toContainEqual(
         expect.objectContaining({ providerId: 'anthropic', configured: true, removable: true })
+      )
+      expect(status.apiKeys.configured).not.toContainEqual(
+        expect.objectContaining({ providerId: 'openai-codex' })
       )
       expect(JSON.stringify(status)).not.toContain('access-token')
       expect(JSON.stringify(status)).not.toContain('refresh-token')
@@ -97,7 +103,6 @@ describe('createPiAgentRuntime auth', () => {
           label: 'ChatGPT Plus/Pro (Codex Subscription)'
         })
       )
-
       await expect(runtime.addApiKey('acme-ai', 'sk-acme-secret')).resolves.toBeUndefined()
       expect(JSON.stringify(await runtime.getAuthStatus())).not.toContain('sk-acme-secret')
     } finally {
