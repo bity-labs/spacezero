@@ -135,6 +135,56 @@ describe('agent session projection reducer', () => {
     ])
   })
 
+  it('projects live thinking updates as thinking parts while the assistant streams', () => {
+    const running = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
+      type: 'agent_start',
+      sessionId: 'session-1',
+      seq: 1
+    })
+    const started = reduceAgentSessionProjectionState(running, {
+      type: 'message_start',
+      sessionId: 'session-1',
+      seq: 2,
+      message: {
+        role: 'assistant',
+        content: [],
+        timestamp: 100
+      }
+    })
+
+    const state = reduceAgentSessionProjectionState(started, {
+      type: 'message_update',
+      sessionId: 'session-1',
+      seq: 3,
+      message: {
+        role: 'assistant',
+        timestamp: 100,
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the workspace.' },
+          { type: 'text', text: 'I will check that.' }
+        ]
+      }
+    })
+
+    expect(projectAgentSessionMessages(state)).toEqual([
+      {
+        id: 'agent-msg:0',
+        role: 'assistant',
+        createdAt: '1970-01-01T00:00:00.100Z',
+        status: 'streaming',
+        parts: [
+          {
+            type: 'thinking',
+            text: 'I should inspect the workspace.',
+            state: 'streaming',
+            collapsed: true
+          },
+          { type: 'text', text: 'I will check that.' }
+        ]
+      }
+    ])
+  })
+
   it('projects main-routed workspace tool confirmation requests inline with the matching tool call', () => {
     const state = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
       type: 'snapshot',

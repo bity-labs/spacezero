@@ -4,7 +4,49 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { createPiAgentRuntime, createPiAgentSessionFactory } from './pi-agent-session-factory'
+import {
+  createPiAgentRuntime,
+  createPiAgentSessionFactory,
+  toAgentStreamingEvent
+} from './pi-agent-session-factory'
+
+describe('toAgentStreamingEvent', () => {
+  it('preserves thinking parts from live message updates', () => {
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_update',
+      message: {
+        id: 'message-1',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the workspace.', redacted: false },
+          { type: 'text', text: 'I will check that.' }
+        ],
+        timestamp: 100
+      },
+      assistantMessageEvent: {
+        type: 'thinking_delta',
+        contentIndex: 0,
+        delta: 'workspace.'
+      }
+    })
+
+    expect(event).toEqual({
+      type: 'message_update',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the workspace.', redacted: false },
+          { type: 'text', text: 'I will check that.' }
+        ],
+        timestamp: 100,
+        stopReason: undefined,
+        errorMessage: undefined
+      }
+    })
+  })
+})
 
 describe('createPiAgentSessionFactory', () => {
   it('creates an idle faux Pi session with project tools and a transcript under the Space Zero agent dir', async () => {
