@@ -130,7 +130,7 @@ export function createPiAgentRuntime({
   return {
     createSession,
     addApiKey: async (providerId, apiKey) => {
-      assertKnownApiKeyProvider(modelRegistry, providerId)
+      assertKnownApiKeyProvider(modelRegistry, authStorage, providerId)
       const trimmedApiKey = apiKey.trim()
       if (!trimmedApiKey) throw new Error('agent.emptyApiKey')
 
@@ -138,14 +138,14 @@ export function createPiAgentRuntime({
       modelRegistry.refresh()
     },
     removeApiKey: async (providerId) => {
-      assertKnownApiKeyProvider(modelRegistry, providerId)
+      assertKnownApiKeyProvider(modelRegistry, authStorage, providerId)
       authStorage.remove(providerId)
       authStorage.removeRuntimeApiKey(providerId)
       modelRegistry.refresh()
     },
     getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry, authStorage),
     getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
-    testAuth: async (providerId) => testProviderAuth(modelRegistry, providerId),
+    testAuth: async (providerId) => testProviderAuth(modelRegistry, authStorage, providerId),
     loginOAuth: async (providerId, callbacks) => {
       assertKnownOAuthProvider(authStorage, providerId)
       await authStorage.login(providerId, {
@@ -189,7 +189,7 @@ function findConfiguredModel(
 
 function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStorage: AuthStorage): ModelAuthSettings {
   const subscriptionProviders = getSubscriptionProviderOptions(authStorage)
-  const apiKeyProviders = getApiKeyProviderOptions(modelRegistry)
+  const apiKeyProviders = getApiKeyProviderOptions(modelRegistry, authStorage)
 
   return {
     subscriptions: {
@@ -212,6 +212,7 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
       configured: apiKeyProviders.flatMap((provider) => {
         const status = modelRegistry.getProviderAuthStatus(provider.providerId)
         if (!status.configured) return []
+        if (status.source === 'stored' && authStorage.get(provider.providerId)?.type !== 'api_key') return []
 
         return [
           {
@@ -230,13 +231,18 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
 }
 
 function getSubscriptionProviderOptions(authStorage: AuthStorage): AuthProviderOption[] {
-  return authStorage.getOAuthProviders().map((provider) => ({
-    providerId: provider.id,
-    label: provider.name
-  }))
+  return authStorage.getOAuthProviders().map((provider) => {
+    const metadata = provider as { id: string; name: string; description?: string }
+
+    return {
+      providerId: metadata.id,
+      label: metadata.name,
+      description: metadata.description
+    }
+  })
 }
 
-function getApiKeyProviderOptions(modelRegistry: ModelRegistry): AuthProviderOption[] {
+function getApiKeyProviderOptions(modelRegistry: ModelRegistry, _authStorage: AuthStorage): AuthProviderOption[] {
   const providerIds = new Set(
     modelRegistry
       .getAll()
@@ -270,9 +276,10 @@ function getAvailableModelsFromRegistry(modelRegistry: ModelRegistry): Available
 
 async function testProviderAuth(
   modelRegistry: ModelRegistry,
+  authStorage: AuthStorage,
   providerId: string
 ): Promise<AuthTestResult> {
-  assertKnownApiKeyProvider(modelRegistry, providerId)
+  assertKnownApiKeyProvider(modelRegistry, authStorage, providerId)
   const status = modelRegistry.getProviderAuthStatus(providerId)
   if (!status.configured) return { ok: false, message: 'agent.authNotConfigured' }
 
@@ -289,10 +296,12 @@ function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string
   return undefined
 }
 
-function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, providerId: string): void {
-  if (!getApiKeyProviderOptions(modelRegistry).some((provider) => provider.providerId === providerId)) {
-    throw new Error('agent.unknownApiKeyProvider')
-  }
+function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, _authStorage: AuthStorage, providerId: string): void {
+  const isKnownApiKeyProvider = modelRegistry
+    .getAll()
+    .some((model) => model.provider === providerId && model.provider !== FAUX_PROVIDER_ID)
+
+  if (!isKnownApiKeyProvider) throw new Error('agent.unknownApiKeyProvider')
 }
 
 function assertKnownOAuthProvider(authStorage: AuthStorage, providerId: string): void {

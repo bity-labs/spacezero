@@ -340,6 +340,7 @@ function ModelsSettingsSection(): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [pendingProviderId, setPendingProviderId] = useState<string | null>(null)
+  const [subscriptionStatusMessage, setSubscriptionStatusMessage] = useState<string | null>(null)
   const [subscriptionPickerOpen, setSubscriptionPickerOpen] = useState(false)
   const [apiKeyPickerOpen, setApiKeyPickerOpen] = useState(false)
   const [selectedApiKeyProvider, setSelectedApiKeyProvider] = useState<AuthProviderOption | null>(
@@ -418,10 +419,13 @@ function ModelsSettingsSection(): React.JSX.Element {
     setError(null)
 
     try {
+      setSubscriptionStatusMessage(t('settings.models.subscriptions.waitingForBrowser'))
       await window.spacezero.agent.loginOAuth({ providerId: provider.providerId })
       setSubscriptionPickerOpen(false)
+      setSubscriptionStatusMessage(t('settings.models.subscriptions.loginSuccess'))
       await refreshModelSettings()
     } catch {
+      setSubscriptionStatusMessage(null)
       setError(t('settings.models.subscriptions.loginError'))
     } finally {
       setPendingProviderId(null)
@@ -440,9 +444,12 @@ function ModelsSettingsSection(): React.JSX.Element {
     setError(null)
 
     try {
+      setSubscriptionStatusMessage(t('settings.models.subscriptions.disconnecting'))
       await window.spacezero.agent.logoutOAuth({ providerId: provider.providerId })
+      setSubscriptionStatusMessage(t('settings.models.subscriptions.logoutSuccess'))
       await refreshModelSettings()
     } catch {
+      setSubscriptionStatusMessage(null)
       setError(t('settings.models.subscriptions.logoutError'))
     } finally {
       setPendingProviderId(null)
@@ -566,8 +573,7 @@ function ModelsSettingsSection(): React.JSX.Element {
           isLoading={isLoading}
           providers={connectedSubscriptions}
           pendingProviderId={pendingProviderId}
-          addDisabled
-          disabledReason={t('settings.models.comingSoon')}
+          statusMessage={subscriptionStatusMessage}
           onAdd={() => setSubscriptionPickerOpen(true)}
           onRemove={handleDisconnectSubscription}
           removeLabel={t('settings.models.subscriptions.disconnect')}
@@ -1026,6 +1032,7 @@ type ModelAuthCardProps = {
   providers: AuthProviderStatus[]
   pendingProviderId: string | null
   removeLabel: string
+  statusMessage?: string | null
   addDisabled?: boolean
   disabledReason?: string
   onAdd: () => void
@@ -1045,6 +1052,7 @@ function ModelAuthCard({
   providers,
   pendingProviderId,
   removeLabel,
+  statusMessage,
   addDisabled = false,
   disabledReason,
   onAdd,
@@ -1070,6 +1078,11 @@ function ModelAuthCard({
         </div>
       </div>
       <Card className="gap-0 py-0">
+        {statusMessage ? (
+          <div className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground">
+            {statusMessage}
+          </div>
+        ) : null}
         {isLoading ? (
           <div className="px-4 py-6 text-sm text-muted-foreground">
             {t('settings.models.auth.loading')}
