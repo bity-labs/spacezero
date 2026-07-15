@@ -480,6 +480,64 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
   })
 
+  it('connects and disconnects a subscription through the Models Settings broker', async () => {
+    let connected = false
+    const loginProviders: string[] = []
+    const logoutProviders: string[] = []
+    window.spacezero.agent.getModelAuthSettings = async () => ({
+      subscriptions: {
+        connected: connected
+          ? [
+              {
+                providerId: 'pi-oauth-provider',
+                label: 'Pi OAuth Provider',
+                configured: true,
+                source: 'stored',
+                displayLabel: 'Connected',
+                removable: true
+              }
+            ]
+          : [],
+        availableProviders: [
+          {
+            providerId: 'pi-oauth-provider',
+            label: 'Pi OAuth Provider',
+            description: 'Provided by Pi metadata'
+          }
+        ]
+      },
+      apiKeys: { configured: [], availableProviders: [] }
+    })
+    window.spacezero.agent.loginOAuth = async ({ providerId }) => {
+      loginProviders.push(providerId)
+      connected = true
+    }
+    window.spacezero.agent.logoutOAuth = async ({ providerId }) => {
+      logoutProviders.push(providerId)
+      connected = false
+    }
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'models' } })
+    })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add subscription' }))
+    const picker = await screen.findByRole('dialog', { name: 'Add subscription' })
+    expect(within(picker).getByText('Provided by Pi metadata')).toBeInTheDocument()
+    fireEvent.click(within(picker).getByRole('button', { name: /Pi OAuth Provider/ }))
+
+    expect(await screen.findByText('Subscription connected.')).toBeInTheDocument()
+    expect(screen.getByText('Pi OAuth Provider')).toBeInTheDocument()
+    expect(loginProviders).toEqual(['pi-oauth-provider'])
+
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+    expect(await screen.findByText('No subscriptions connected.')).toBeInTheDocument()
+    expect(logoutProviders).toEqual(['pi-oauth-provider'])
+  })
+
   it('adds, tests, and removes an API key through the Models Settings broker', async () => {
     let configured = false
     const addedKeys: string[] = []
