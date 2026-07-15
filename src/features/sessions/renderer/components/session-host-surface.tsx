@@ -3,39 +3,26 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import {
-  ChatInput,
   type AiChatMessage,
-  type AiChatThinkingLevel,
   type AiChatToolCallPart
 } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
 
-const hostModels = [
-  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'anthropic' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
-]
-
 type ProjectSessionHostSurfaceProps = {
   project: Project
   session: ProjectSession
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }
 
 type WorkspaceSessionHostSurfaceProps = {
   session: WorkspaceSession
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }
 
 export function ProjectSessionHostSurface({
   project,
-  session,
-  thinkingLevel,
-  onThinkingChange
+  session
 }: ProjectSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
@@ -45,8 +32,7 @@ export function ProjectSessionHostSurface({
       status={agentSession.status}
       messages={agentSession.messages}
       error={agentSession.lastError ?? null}
-      thinkingLevel={thinkingLevel}
-      onThinkingChange={onThinkingChange}
+      sessionState={agentSession.sessionState}
       placeholder={`Message ${project.name} / ${session.title}…`}
       onSubmit={(text) => void agentSession.prompt(text)}
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
@@ -55,9 +41,7 @@ export function ProjectSessionHostSurface({
 }
 
 export function WorkspaceSessionHostSurface({
-  session,
-  thinkingLevel,
-  onThinkingChange
+  session
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const messages = useMemo(() => createWorkspaceSessionPlaceholderMessages(session), [session])
 
@@ -66,8 +50,6 @@ export function WorkspaceSessionHostSurface({
       sessionId={session.id}
       status={session.status === 'running' ? 'running' : 'idle'}
       messages={messages}
-      thinkingLevel={thinkingLevel}
-      onThinkingChange={onThinkingChange}
       placeholder="Ask about Space Zero…"
     />
   )
@@ -78,8 +60,7 @@ type SessionHostFrameProps = {
   status: 'idle' | 'running'
   messages: AiChatMessage[]
   error?: string | null
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
+  sessionState?: AgentSessionState
   placeholder: string
   onSubmit?: (text: string) => void
   emptyState?: string
@@ -90,8 +71,7 @@ function SessionHostFrame({
   status,
   messages,
   error,
-  thinkingLevel,
-  onThinkingChange,
+  sessionState,
   placeholder,
   onSubmit,
   emptyState
@@ -109,19 +89,14 @@ function SessionHostFrame({
         </div>
       ) : null}
       <AgentChat
+        sessionId={sessionId}
         messages={projectedMessages}
+        sessionState={sessionState}
+        status={status}
         emptyState={emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined}
         contentClassName="px-4 py-4"
-        composer={
-          <ChatInput
-            models={hostModels}
-            thinkingLevel={thinkingLevel}
-            onThinkingChange={onThinkingChange}
-            onSubmit={({ text }) => onSubmit?.(text)}
-            placeholder={placeholder}
-            status={status === 'running' ? 'streaming' : error ? 'error' : 'ready'}
-          />
-        }
+        placeholder={placeholder}
+        onSubmit={onSubmit}
       />
     </div>
   )

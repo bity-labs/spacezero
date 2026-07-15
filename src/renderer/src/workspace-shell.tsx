@@ -36,7 +36,6 @@ import {
   type SessionWorkspaceTab
 } from '../../features/sessions/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { type AiChatThinkingLevel } from './components/ai-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
@@ -96,7 +95,6 @@ export function WorkspaceShell(): React.JSX.Element {
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
   const sessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.layout)
   const resetSessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.resetLayout)
   const openProjectSessionInWorkspace = useSessionWorkspaceStore(
@@ -388,8 +386,6 @@ export function WorkspaceShell(): React.JSX.Element {
               layout={syncedSessionWorkspaceLayout}
               projects={projects}
               sessions={sessions}
-              thinkingLevel={debugThinkingLevel}
-              onThinkingChange={setDebugThinkingLevel}
               onFocusTab={focusSessionWorkspaceTab}
             />
           ) : (
@@ -436,15 +432,11 @@ function SessionWorkspacePanels({
   layout,
   projects,
   sessions,
-  thinkingLevel,
-  onThinkingChange,
   onFocusTab
 }: {
   layout: SessionWorkspaceLayout
   projects: Project[]
   sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
   onFocusTab: (panelId: string, tabId: string) => void
 }): React.JSX.Element {
   return (
@@ -462,8 +454,6 @@ function SessionWorkspacePanels({
           focused={layout.focusedPanelId === panel.id}
           projects={projects}
           sessions={sessions}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
           onFocusTab={(tabId) => onFocusTab(panel.id, tabId)}
         />
       ))}
@@ -477,8 +467,6 @@ function SessionWorkspacePanelView({
   focused,
   projects,
   sessions,
-  thinkingLevel,
-  onThinkingChange,
   onFocusTab
 }: {
   panel: SessionWorkspacePanel
@@ -486,8 +474,6 @@ function SessionWorkspacePanelView({
   focused: boolean
   projects: Project[]
   sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
   onFocusTab: (tabId: string) => void
 }): React.JSX.Element {
   const activeTab = panel.tabs.find((tab) => tab.id === panel.activeTabId) ?? panel.tabs[0]
@@ -561,8 +547,6 @@ function SessionWorkspacePanelView({
           tab={activeTab}
           projects={projects}
           sessions={sessions}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
         />
       </div>
     </section>
@@ -581,14 +565,10 @@ function SessionWorkspaceTabSurface({
   tab,
   projects,
   sessions,
-  thinkingLevel,
-  onThinkingChange
 }: {
   tab: SessionWorkspaceTab
   projects: Project[]
   sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }): React.JSX.Element {
   const session =
     tab.kind === 'project' ? (sessions.find((item) => item.id === tab.sessionId) ?? null) : null
@@ -621,16 +601,12 @@ function SessionWorkspaceTabSurface({
         <WorkspaceSessionHostSurface
           key={tab.session.id}
           session={tab.session}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
         />
       ) : session && project ? (
         <ProjectSessionHostSurface
           key={session.id}
           project={project}
           session={session}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
         />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">

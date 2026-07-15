@@ -1,27 +1,60 @@
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
-import { ChatTranscript, type AiChatMessage } from '@renderer/components/ai-chat'
+import {
+  ChatInput,
+  ChatTranscript,
+  type AiChatMessage,
+  type AiChatThinkingLevel,
+  type ChatInputModel
+} from '@renderer/components/ai-chat'
 import { cn } from '@renderer/lib/utils'
+import type { AgentSessionState } from '@shared/agent-protocol'
+import type { AvailableModel, ModelDefaults } from '@shared/model-settings'
 
 export type AgentChatMessage = AiChatMessage
 
 export type AgentChatProps = {
+  sessionId: string
   messages: AgentChatMessage[]
+  sessionState?: AgentSessionState
+  status?: 'idle' | 'running'
+  placeholder?: string
   composer?: ReactNode
   emptyState?: ReactNode
   className?: string
   contentClassName?: string
+  onSubmit?: (text: string) => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
 
 export function AgentChat({
+  sessionId,
   messages,
+  sessionState,
+  status = 'idle',
+  placeholder,
   composer,
   emptyState,
   className,
   contentClassName,
+  onSubmit,
   onToolConfirmationResolve
 }: AgentChatProps) {
+  const modelControls = useAgentChatModelControls(sessionId, sessionState)
+  const defaultComposer = (
+    <ChatInput
+      models={modelControls.models}
+      selectedModelId={modelControls.selectedModelId}
+      thinkingLevel={modelControls.thinkingLevel}
+      onModelChange={modelControls.setModel}
+      onThinkingChange={modelControls.setThinkingLevel}
+      onSubmit={({ text }) => onSubmit?.(text)}
+      placeholder={placeholder}
+      status={status === 'running' ? 'streaming' : 'ready'}
+    />
+  )
+  const composerContent = composer === undefined ? defaultComposer : composer
+
   return (
     <section className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', className)}>
       <ChatTranscript
@@ -30,7 +63,123 @@ export function AgentChat({
         contentClassName={contentClassName}
         onToolConfirmationResolve={onToolConfirmationResolve}
       />
-      {composer ? <div className="border-t p-4">{composer}</div> : null}
+      {composerContent ? <div className="border-t p-4">{composerContent}</div> : null}
     </section>
   )
+}
+
+function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessionState) {
+  const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
+  const [modelDefaults, setModelDefaults] = useState<ModelDefaults | undefined>(undefined)
+  const [localSessionState, setLocalSessionState] = useState<AgentSessionState | undefined>(
+    sessionState
+  )
+  const [selectedModelOverride, setSelectedModelOverride] = useState<string | undefined>(undefined)
+  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<AiChatThinkingLevel | undefined>(
+    undefined
+  )
+
+  useEffect(() => {
+    setLocalSessionState(sessionState)
+    setSelectedModelOverride(undefined)
+    setThinkingLevelOverride(undefined)
+  }, [sessionId, sessionState])
+
+  useEffect(() => {
+    let cancelled = false
+
+    void Promise.all([
+      window.spacezero.agent.getAvailableModels(),
+      window.spacezero.settings.getModelDefaults()
+    ])
+      .then(([models, defaults]) => {
+        if (!cancelled) {
+          setAvailableModels(models)
+          setModelDefaults(defaults)
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to load agent model controls', error)
+        if (!cancelled) {
+          setAvailableModels([])
+          setModelDefaults(undefined)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const effectiveSessionState = localSessionState ?? sessionState
+  const models = useMemo(() => availableModels.map(toChatInputModel), [availableModels])
+  const sessionModelId =
+    effectiveSessionState?.modelProvider && effectiveSessionState.modelId
+      ? encodeModelId(effectiveSessionState.modelProvider, effectiveSessionState.modelId)
+      : undefined
+  const defaultModelId = modelDefaults?.defaultModel
+    ? encodeModelId(modelDefaults.defaultModel.providerId, modelDefaults.defaultModel.modelId)
+    : undefined
+  const selectedModelId = selectedModelOverride ?? sessionModelId ?? defaultModelId
+  const thinkingLevel = (thinkingLevelOverride ??
+    effectiveSessionState?.thinkingLevel ??
+    modelDefaults?.defaultThinking ??
+    'medium') as AiChatThinkingLevel
+
+  async function setModel(encodedModelId: string): Promise<void> {
+    const model = decodeModelId(encodedModelId)
+    if (!model) return
+
+    setSelectedModelOverride(encodedModelId)
+    const nextSessionState = await window.spacezero.agent.setModel({
+      sessionId,
+      provider: model.provider,
+      modelId: model.modelId
+    })
+    setLocalSessionState(nextSessionState)
+  }
+
+  async function setThinkingLevel(level: AiChatThinkingLevel): Promise<void> {
+    setThinkingLevelOverride(level)
+    const nextSessionState = await window.spacezero.agent.setThinkingLevel({ sessionId, level })
+    setLocalSessionState(nextSessionState)
+  }
+
+  return {
+    models,
+    selectedModelId,
+    thinkingLevel,
+    setModel: (modelId: string) => {
+      void setModel(modelId).catch((error: unknown) => {
+        console.error('Failed to update agent session model', error)
+      })
+    },
+    setThinkingLevel: (level: AiChatThinkingLevel) => {
+      void setThinkingLevel(level).catch((error: unknown) => {
+        console.error('Failed to update agent thinking level', error)
+      })
+    }
+  }
+}
+
+function toChatInputModel(model: AvailableModel): ChatInputModel {
+  return {
+    id: encodeModelId(model.providerId, model.modelId),
+    label: model.modelLabel,
+    provider: model.providerId
+  }
+}
+
+function encodeModelId(provider: string, modelId: string): string {
+  return `${provider}:${modelId}`
+}
+
+function decodeModelId(encodedModelId: string): { provider: string; modelId: string } | undefined {
+  const separatorIndex = encodedModelId.indexOf(':')
+  if (separatorIndex <= 0) return undefined
+
+  return {
+    provider: encodedModelId.slice(0, separatorIndex),
+    modelId: encodedModelId.slice(separatorIndex + 1)
+  }
 }
