@@ -43,7 +43,9 @@ export const IPC_CHANNELS = {
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
-    createProjectSession: 'sessions:createProjectSession'
+    createProjectSession: 'sessions:createProjectSession',
+    archive: 'sessions:archive',
+    delete: 'sessions:delete'
   },
   agent: {
     ping: 'agent:ping',
@@ -109,6 +111,8 @@ export type SpaceZeroAPI = {
     listProjectSessions: () => Promise<ProjectSession[]>
     listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+    archive: (request: { sessionId: string }) => Promise<void>
+    delete: (request: { sessionId: string }) => Promise<void>
   }
   agent: {
     ping: () => Promise<AgentPingResponse>

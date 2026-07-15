@@ -92,7 +92,9 @@ beforeEach(async () => {
         status: 'idle',
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
-      })
+      }),
+      archive: async () => undefined,
+      delete: async () => undefined
     },
     agent: {
       ping: async () => ({

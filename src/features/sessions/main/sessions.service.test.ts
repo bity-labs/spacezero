@@ -39,11 +39,74 @@ function createMemoryRepository({
     async findProjectById(projectId) {
       if (!projects.has(projectId)) return undefined
       return { id: projectId, path: `/tmp/${projectId}` }
+    },
+    async findSessionById(sessionId) {
+      return storedSessions.find((session) => session.id === sessionId)
+    },
+    async update(session) {
+      const index = storedSessions.findIndex((item) => item.id === session.id)
+      if (index >= 0) storedSessions[index] = session
+      return session
+    },
+    async deleteById(sessionId) {
+      const index = storedSessions.findIndex((session) => session.id === sessionId)
+      if (index >= 0) storedSessions.splice(index, 1)
     }
   }
 }
 
 describe('createSessionsService', () => {
+  it('archives sessions so active lists no longer include them', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const archiveTime = new Date('2026-07-11T00:00:00.000Z')
+    let currentTime = now
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'agent-session-1',
+          projectId: 'project-1',
+          title: 'Session 1',
+          status: 'idle',
+          createdAt: now,
+          updatedAt: now
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => currentTime })
+
+    currentTime = archiveTime
+    await service.archiveSession('agent-session-1')
+
+    await expect(repository.findSessionById('agent-session-1')).resolves.toMatchObject({
+      archivedAt: archiveTime,
+      updatedAt: archiveTime
+    })
+  })
+
+  it('deletes session metadata and returns the deleted session for transcript cleanup', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'agent-session-1',
+          projectId: 'project-1',
+          title: 'Session 1',
+          status: 'idle',
+          createdAt: now,
+          updatedAt: now,
+          transcriptPath: '/agent/sessions/session-1.jsonl'
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => now })
+
+    await expect(service.deleteSession('agent-session-1')).resolves.toMatchObject({
+      id: 'agent-session-1',
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    })
+    await expect(repository.findSessionById('agent-session-1')).resolves.toBeUndefined()
+  })
+
   it('creates workspace agent session metadata with a null project link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository()
