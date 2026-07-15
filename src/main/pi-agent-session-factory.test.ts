@@ -64,6 +64,47 @@ describe('createPiAgentRuntime auth', () => {
     }
   })
 
+  it('derives API-key and subscription provider options from Pi runtime metadata', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-provider-options-'))
+    const agentDir = join(tempDir, 'agent')
+
+    try {
+      mkdirSync(agentDir, { recursive: true })
+      writeFileSync(
+        join(agentDir, 'models.json'),
+        JSON.stringify({
+          providers: {
+            'acme-ai': {
+              name: 'Acme AI',
+              baseUrl: 'https://models.example.test/v1',
+              api: 'openai-responses',
+              apiKey: '$ACME_API_KEY',
+              models: [{ id: 'acme-1', name: 'Acme 1' }]
+            }
+          }
+        })
+      )
+
+      const runtime = createPiAgentRuntime({ agentDir })
+      const status = await runtime.getAuthStatus()
+
+      expect(status.apiKeys.availableProviders).toContainEqual(
+        expect.objectContaining({ providerId: 'acme-ai' })
+      )
+      expect(status.subscriptions.availableProviders).toContainEqual(
+        expect.objectContaining({
+          providerId: 'openai-codex',
+          label: 'ChatGPT Plus/Pro (Codex Subscription)'
+        })
+      )
+
+      await expect(runtime.addApiKey('acme-ai', 'sk-acme-secret')).resolves.toBeUndefined()
+      expect(JSON.stringify(await runtime.getAuthStatus())).not.toContain('sk-acme-secret')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('persists API-key auth under the Space Zero agent dir with 0600 permissions and returns sanitized status', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-auth-'))
     const agentDir = join(tempDir, 'agent')

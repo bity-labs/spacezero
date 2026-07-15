@@ -33,31 +33,6 @@ const FAUX_PROVIDER_ID = 'faux'
 const FAUX_MODEL_ID = 'faux-1'
 const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls']
 
-const API_KEY_PROVIDERS: readonly AuthProviderOption[] = [
-  { providerId: 'anthropic', label: 'Anthropic' },
-  { providerId: 'openai', label: 'OpenAI' },
-  { providerId: 'openrouter', label: 'OpenRouter' },
-  { providerId: 'google', label: 'Google AI' }
-]
-
-const SUBSCRIPTION_PROVIDERS: readonly AuthProviderOption[] = [
-  {
-    providerId: 'openai-codex',
-    label: 'ChatGPT Plus/Pro',
-    description: 'Connect a ChatGPT subscription through your browser.'
-  },
-  {
-    providerId: 'anthropic',
-    label: 'Claude Pro/Max',
-    description: 'Connect a Claude subscription through your browser.'
-  },
-  {
-    providerId: 'github-copilot',
-    label: 'GitHub Copilot',
-    description: 'Connect a GitHub Copilot subscription through your browser.'
-  }
-]
-
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
@@ -155,7 +130,7 @@ export function createPiAgentRuntime({
   return {
     createSession,
     addApiKey: async (providerId, apiKey) => {
-      assertKnownApiKeyProvider(providerId)
+      assertKnownApiKeyProvider(modelRegistry, providerId)
       const trimmedApiKey = apiKey.trim()
       if (!trimmedApiKey) throw new Error('agent.emptyApiKey')
 
@@ -163,7 +138,7 @@ export function createPiAgentRuntime({
       modelRegistry.refresh()
     },
     removeApiKey: async (providerId) => {
-      assertKnownApiKeyProvider(providerId)
+      assertKnownApiKeyProvider(modelRegistry, providerId)
       authStorage.remove(providerId)
       authStorage.removeRuntimeApiKey(providerId)
       modelRegistry.refresh()
@@ -213,9 +188,12 @@ function findConfiguredModel(
 }
 
 function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStorage: AuthStorage): ModelAuthSettings {
+  const subscriptionProviders = getSubscriptionProviderOptions(authStorage)
+  const apiKeyProviders = getApiKeyProviderOptions(modelRegistry)
+
   return {
     subscriptions: {
-      connected: SUBSCRIPTION_PROVIDERS.flatMap((provider) => {
+      connected: subscriptionProviders.flatMap((provider) => {
         const status = authStorage.getAuthStatus(provider.providerId)
         if (!status.configured) return []
 
@@ -228,10 +206,10 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
           removable: status.source === 'stored'
         } satisfies AuthProviderStatus]
       }),
-      availableProviders: [...SUBSCRIPTION_PROVIDERS]
+      availableProviders: subscriptionProviders
     },
     apiKeys: {
-      configured: API_KEY_PROVIDERS.flatMap((provider) => {
+      configured: apiKeyProviders.flatMap((provider) => {
         const status = modelRegistry.getProviderAuthStatus(provider.providerId)
         if (!status.configured) return []
 
@@ -246,9 +224,34 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
           } satisfies AuthProviderStatus
         ]
       }),
-      availableProviders: [...API_KEY_PROVIDERS]
+      availableProviders: apiKeyProviders
     }
   }
+}
+
+function getSubscriptionProviderOptions(authStorage: AuthStorage): AuthProviderOption[] {
+  return authStorage.getOAuthProviders().map((provider) => ({
+    providerId: provider.id,
+    label: provider.name
+  }))
+}
+
+function getApiKeyProviderOptions(modelRegistry: ModelRegistry): AuthProviderOption[] {
+  const providerIds = new Set(
+    modelRegistry
+      .getAll()
+      .filter((model) => model.provider !== FAUX_PROVIDER_ID)
+      .map((model) => model.provider)
+  )
+
+  return [...providerIds]
+    .sort((left, right) =>
+      modelRegistry.getProviderDisplayName(left).localeCompare(modelRegistry.getProviderDisplayName(right))
+    )
+    .map((providerId) => ({
+      providerId,
+      label: modelRegistry.getProviderDisplayName(providerId)
+    }))
 }
 
 function getAvailableModelsFromRegistry(modelRegistry: ModelRegistry): AvailableModel[] {
@@ -269,7 +272,7 @@ async function testProviderAuth(
   modelRegistry: ModelRegistry,
   providerId: string
 ): Promise<AuthTestResult> {
-  assertKnownApiKeyProvider(providerId)
+  assertKnownApiKeyProvider(modelRegistry, providerId)
   const status = modelRegistry.getProviderAuthStatus(providerId)
   if (!status.configured) return { ok: false, message: 'agent.authNotConfigured' }
 
@@ -286,8 +289,8 @@ function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string
   return undefined
 }
 
-function assertKnownApiKeyProvider(providerId: string): void {
-  if (!API_KEY_PROVIDERS.some((provider) => provider.providerId === providerId)) {
+function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, providerId: string): void {
+  if (!getApiKeyProviderOptions(modelRegistry).some((provider) => provider.providerId === providerId)) {
     throw new Error('agent.unknownApiKeyProvider')
   }
 }
