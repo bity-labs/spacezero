@@ -68,6 +68,7 @@ export type AgentToolConfirmationRequest = {
   sessionId: AgentSessionId
   callId: string
   toolName: string
+  sanitizedSummary?: string
   summary: string
 }
 

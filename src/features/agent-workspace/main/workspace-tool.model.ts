@@ -36,6 +36,7 @@ export type WorkspaceTool<S extends WorkspaceToolInputSchema = ZodTypeAny> =
   WorkspaceToolMetadata & {
     inputSchema: S
     agentParameters?: WorkspaceToolAgentDescriptor['parameters']
+    confirmationSummary?: (input: WorkspaceToolInput<S>) => string
     handler: WorkspaceToolHandler<WorkspaceToolInput<S>>
   }
 
@@ -52,6 +53,10 @@ export type WorkspaceTool<S extends WorkspaceToolInputSchema = ZodTypeAny> =
 export type AnyWorkspaceTool = WorkspaceToolMetadata & {
   inputSchema: WorkspaceToolInputSchema
   agentParameters?: WorkspaceToolAgentDescriptor['parameters']
+  // `any` is required here so a schema-typed confirmation summary is assignable
+  // to this erased registry entry regardless of its input schema.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  confirmationSummary?: (input: any) => string
   // `any` is required here so a schema-typed `WorkspaceTool<S>` is assignable
   // to this erased registry entry regardless of its input schema. The handler
   // is never called with unvalidated input: the executor parses input against

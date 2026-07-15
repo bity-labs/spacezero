@@ -2,8 +2,11 @@ import { randomUUID } from 'node:crypto'
 
 import type {
   AbortAgentSessionRequest,
+  AgentAddApiKeyRequest,
   AgentPingRequest,
   AgentPingResponse,
+  AgentOAuthCallbackRequest,
+  AgentProviderRequest,
   AgentSessionState,
   AgentStreamingEvent,
   AgentUtilityFrame,
@@ -17,18 +20,31 @@ import type {
 } from '../../../shared/agent-protocol'
 import {
   createAgentAbortCommand,
+  createAgentAddApiKeyCommand,
   createAgentCreateSessionCommand,
   createAgentDeleteSessionCommand,
+  createAgentGetAuthStatusCommand,
+  createAgentGetAvailableModelsCommand,
   createAgentGetStateCommand,
+  createAgentHandleOAuthCallbackCommand,
+  createAgentLoginOAuthCommand,
   createAgentListSessionsCommand,
   createAgentPingCommand,
+  createAgentRemoveApiKeyCommand,
+  createAgentLogoutOAuthCommand,
+  createAgentSetModelCommand,
+  createAgentSetThinkingLevelCommand,
+  createAgentTestAuthCommand,
   createAgentPromptCommand,
   createAgentResolveToolConfirmationCommand
 } from '../../../shared/agent-protocol'
+import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
+import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool-protocol'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000
+const DEFAULT_OAUTH_LOGIN_TIMEOUT_MS = 5 * 60_000
 
 export type AgentUtilityPort = {
   postMessage: (frame: AgentUtilityFrame) => void
@@ -46,9 +62,11 @@ type AgentUtilityBrokerOptions = {
   createRequestId?: () => string
   requestTimeoutMs?: number
   sessionLifecycleTimeoutMs?: number
+  oauthLoginTimeoutMs?: number
   onEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void
   onProjectionEvent?: (event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
+  openExternal?: (url: string) => Promise<void>
 }
 
 type SendOptions = {
@@ -61,11 +79,13 @@ export class AgentUtilityBroker {
   private readonly createRequestId: () => string
   private readonly requestTimeoutMs: number
   private readonly sessionLifecycleTimeoutMs: number
+  private readonly oauthLoginTimeoutMs: number
   private readonly forwardEvent: ((event: Extract<AgentUtilityFrame, { type: 'agent.event' }>) => void) | undefined
   private readonly onProjectionEvent:
     | ((event: Extract<AgentUtilityFrame, { type: 'agent.sessionProjectionEvent' }>) => void)
     | undefined
   private readonly executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<AgentUtilityResult>
+  private readonly openExternal?: (url: string) => Promise<void>
   private readonly streamingEventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private disposed = false
 
@@ -76,9 +96,11 @@ export class AgentUtilityBroker {
     this.createRequestId = options.createRequestId ?? randomUUID
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
     this.sessionLifecycleTimeoutMs = options.sessionLifecycleTimeoutMs ?? DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS
+    this.oauthLoginTimeoutMs = options.oauthLoginTimeoutMs ?? DEFAULT_OAUTH_LOGIN_TIMEOUT_MS
     this.forwardEvent = options.onEvent
     this.onProjectionEvent = options.onProjectionEvent
     this.executeWorkspaceTool = options.executeWorkspaceTool
+    this.openExternal = options.openExternal
     this.port.onMessage((frame) => this.handleFrame(frame))
     this.port.onClose(() => this.dispose(new Error('agent.utilityPortClosed')))
   }
@@ -108,6 +130,48 @@ export class AgentUtilityBroker {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.send(createAgentListSessionsCommand(this.createRequestId())) as Promise<AgentSessionState[]>
+  }
+
+  async addApiKey(request: AgentAddApiKeyRequest): Promise<void> {
+    await this.send(createAgentAddApiKeyCommand(this.createRequestId(), request))
+  }
+
+  async removeApiKey(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentRemoveApiKeyCommand(this.createRequestId(), request))
+  }
+
+  getAuthStatus(): Promise<ModelAuthSettings> {
+    return this.send(createAgentGetAuthStatusCommand(this.createRequestId())) as Promise<ModelAuthSettings>
+  }
+
+  getAvailableModels(): Promise<AvailableModel[]> {
+    return this.send(createAgentGetAvailableModelsCommand(this.createRequestId())) as Promise<AvailableModel[]>
+  }
+
+  setModel(request: SetAgentModelRequest): Promise<AgentSessionState> {
+    return this.send(createAgentSetModelCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
+  }
+
+  setThinkingLevel(request: SetAgentThinkingLevelRequest): Promise<AgentSessionState> {
+    return this.send(createAgentSetThinkingLevelCommand(this.createRequestId(), request)) as Promise<AgentSessionState>
+  }
+
+  testAuth(request: AgentProviderRequest): Promise<AuthTestResult> {
+    return this.send(createAgentTestAuthCommand(this.createRequestId(), request)) as Promise<AuthTestResult>
+  }
+
+  async loginOAuth(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentLoginOAuthCommand(this.createRequestId(), request), {
+      timeoutMs: this.oauthLoginTimeoutMs
+    })
+  }
+
+  async logoutOAuth(request: AgentProviderRequest): Promise<void> {
+    await this.send(createAgentLogoutOAuthCommand(this.createRequestId(), request))
+  }
+
+  handleOAuthCallback(request: AgentOAuthCallbackRequest): Promise<{ handled: boolean }> {
+    return this.send(createAgentHandleOAuthCallbackCommand(this.createRequestId(), request)) as Promise<{ handled: boolean }>
   }
 
   async resolveToolConfirmation(
@@ -179,6 +243,11 @@ export class AgentUtilityBroker {
       return
     }
 
+    if (frame.type === 'agent.command' && frame.command === 'agent.openOAuthUrl') {
+      void this.handleOpenOAuthUrlCommand(frame)
+      return
+    }
+
     if (frame.type === 'agent.event') {
       this.forwardEvent?.(frame)
       if (frame.event === 'agent.streaming') {
@@ -232,6 +301,24 @@ export class AgentUtilityBroker {
           code: 'workspace-tool-error',
           message: error instanceof Error ? error.message : String(error)
         }
+      })
+    }
+  }
+
+  private async handleOpenOAuthUrlCommand(frame: AgentUtilityFrame & { type: 'agent.command' }): Promise<void> {
+    const url = typeof (frame.payload as { url?: unknown } | undefined)?.url === 'string' ? (frame.payload as { url: string }).url : ''
+
+    try {
+      if (!this.openExternal) throw new Error('agent.oauthBrowserUnavailable')
+      await this.openExternal(url)
+      this.port.postMessage({ type: 'agent.response', requestId: frame.requestId, ok: true, sessionId: frame.sessionId, result: undefined })
+    } catch (error) {
+      this.port.postMessage({
+        type: 'agent.response',
+        requestId: frame.requestId,
+        ok: false,
+        sessionId: frame.sessionId,
+        error: { code: 'agent.oauthOpenExternalFailed', message: error instanceof Error ? error.message : String(error) }
       })
     }
   }

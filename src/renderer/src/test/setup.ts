@@ -124,6 +124,7 @@ beforeEach(async () => {
       onEvent: () => () => undefined,
       onSessionProjectionEvent: () => () => undefined,
       onToolExecution: () => () => undefined,
+      onToolConfirmationRequest: () => () => undefined,
       resolveToolConfirmation: async () => undefined,
       getModelAuthSettings: async () => ({
         subscriptions: {
@@ -141,9 +142,36 @@ beforeEach(async () => {
           ]
         }
       }),
+      getAuthStatus: async () => ({
+        subscriptions: { connected: [], availableProviders: [] },
+        apiKeys: { configured: [], availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }] }
+      }),
       getAvailableModels: async () => [],
+      setModel: async ({ sessionId }) => ({
+        sessionId,
+        projectId: 'project-test',
+        cwd: '/tmp/project-test',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/tmp/agent-session-test.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1',
+        thinkingLevel: 'medium'
+      }),
+      setThinkingLevel: async ({ sessionId, level }) => ({
+        sessionId,
+        projectId: 'project-test',
+        cwd: '/tmp/project-test',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/tmp/agent-session-test.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1',
+        thinkingLevel: level
+      }),
       addApiKey: async () => undefined,
       removeApiKey: async () => undefined,
+      testAuth: async () => ({ ok: true }),
       loginOAuth: async () => undefined,
       logoutOAuth: async () => undefined
     },

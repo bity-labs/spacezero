@@ -1,12 +1,19 @@
 import type {
   AgentSessionProjectionEvent,
+  AgentToolConfirmationRequest,
   ResolveAgentToolConfirmationRequest
 } from './agent-session-projection.model'
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
-import type { AddApiKeyRequest, ModelAuthSettings, ProviderRequest } from './model-auth'
-import type { AvailableModel, ModelDefaults, UpdateModelDefaultsRequest } from './model-settings'
+import type { AddApiKeyRequest, AuthTestResult, ModelAuthSettings, ProviderRequest } from './model-auth'
+import type {
+  AvailableModel,
+  ModelDefaults,
+  SetAgentModelRequest,
+  SetAgentThinkingLevelRequest,
+  UpdateModelDefaultsRequest
+} from './model-settings'
 import type {
   CreateEmptyProjectRequest,
   Project,
@@ -46,11 +53,16 @@ export const IPC_CHANNELS = {
     event: 'agent:event',
     sessionProjectionEvent: 'agent:sessionProjectionEvent',
     toolExecution: 'agent:toolExecution',
+    toolConfirmationRequest: 'agent:toolConfirmationRequest',
     resolveToolConfirmation: 'agent:resolveToolConfirmation',
     getModelAuthSettings: 'agent:getModelAuthSettings',
+    getAuthStatus: 'agent:getAuthStatus',
     getAvailableModels: 'agent:getAvailableModels',
+    setModel: 'agent:setModel',
+    setThinkingLevel: 'agent:setThinkingLevel',
     addApiKey: 'agent:addApiKey',
     removeApiKey: 'agent:removeApiKey',
+    testAuth: 'agent:testAuth',
     loginOAuth: 'agent:loginOAuth',
     logoutOAuth: 'agent:logoutOAuth'
   },
@@ -104,11 +116,16 @@ export type SpaceZeroAPI = {
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
     onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
     onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
+    onToolConfirmationRequest: (listener: (event: AgentToolConfirmationRequest) => void) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
+    getAuthStatus: () => Promise<ModelAuthSettings>
     getAvailableModels: () => Promise<AvailableModel[]>
+    setModel: (request: SetAgentModelRequest) => Promise<AgentSessionState>
+    setThinkingLevel: (request: SetAgentThinkingLevelRequest) => Promise<AgentSessionState>
     addApiKey: (request: AddApiKeyRequest) => Promise<void>
     removeApiKey: (request: ProviderRequest) => Promise<void>
+    testAuth: (request: ProviderRequest) => Promise<AuthTestResult>
     loginOAuth: (request: ProviderRequest) => Promise<void>
     logoutOAuth: (request: ProviderRequest) => Promise<void>
   }

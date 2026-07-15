@@ -11,6 +11,7 @@ import type {
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
 import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
+import type { ThinkingLevel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
 import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
 
 export type CreatedPiAgentSession = {
@@ -19,6 +20,9 @@ export type CreatedPiAgentSession = {
   isStreaming: boolean
   modelProvider: string
   modelId: string
+  thinkingLevel: ThinkingLevel | undefined
+  setModel: (request: { provider: string; modelId: string }) => Promise<void>
+  setThinkingLevel: (level: ThinkingLevel) => Promise<void> | void
   prompt: (message: string) => Promise<void>
   abort: () => Promise<void>
   subscribe: (listener: (event: AgentStreamingEvent) => void) => () => void
@@ -56,6 +60,7 @@ type DormantAgentSession = {
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
+  thinkingLevel: ThinkingLevel | undefined
   lastAccessedAt: number
 }
 
@@ -190,6 +195,22 @@ export class AgentSessionRegistry {
     await session.piSession.abort()
   }
 
+  async setModel(request: SetAgentModelRequest): Promise<AgentSessionState> {
+    const sessionId = request.sessionId.trim()
+    const session = await this.getLiveSession(sessionId)
+    session.lastAccessedAt = this.now()
+    await session.piSession.setModel({ provider: request.provider, modelId: request.modelId })
+    return this.toLiveState(sessionId, session)
+  }
+
+  async setThinkingLevel(request: SetAgentThinkingLevelRequest): Promise<AgentSessionState> {
+    const sessionId = request.sessionId.trim()
+    const session = await this.getLiveSession(sessionId)
+    session.lastAccessedAt = this.now()
+    await session.piSession.setThinkingLevel(request.level)
+    return this.toLiveState(sessionId, session)
+  }
+
   async deleteSession(request: DeleteAgentSessionRequest): Promise<void> {
     const sessionId = request.sessionId.trim()
     const session = this.sessions.get(sessionId)
@@ -254,7 +275,9 @@ export class AgentSessionRegistry {
       projectId: request.projectId.trim(),
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath,
-      workspaceTools: request.workspaceTools
+      workspaceTools: request.workspaceTools,
+      ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
+      ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
     }
   }
 
@@ -365,6 +388,7 @@ export class AgentSessionRegistry {
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
+      thinkingLevel: session.piSession.thinkingLevel,
       lastAccessedAt: session.lastAccessedAt
     }
     const state = this.toDormantState(sessionId, dormantSession)
@@ -392,6 +416,7 @@ export class AgentSessionRegistry {
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
+      thinkingLevel: session.piSession.thinkingLevel,
       ...(transcriptSnapshot.length > 0 ? { transcriptSnapshot } : {})
     }
   }
@@ -405,7 +430,8 @@ export class AgentSessionRegistry {
       live: false,
       transcriptPath: session.transcriptPath,
       modelProvider: session.modelProvider,
-      modelId: session.modelId
+      modelId: session.modelId,
+      thinkingLevel: session.thinkingLevel
     }
   }
 }

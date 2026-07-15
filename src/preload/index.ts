@@ -49,12 +49,23 @@ const api: SpaceZeroAPI = {
       ipcRenderer.on(IPC_CHANNELS.agent.toolExecution, handler)
       return () => ipcRenderer.off(IPC_CHANNELS.agent.toolExecution, handler)
     },
+    onToolConfirmationRequest: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.agent.toolConfirmationRequest, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.agent.toolConfirmationRequest, handler)
+    },
     resolveToolConfirmation: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agent.resolveToolConfirmation, request),
     getModelAuthSettings: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getModelAuthSettings),
+    getAuthStatus: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAuthStatus),
     getAvailableModels: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getAvailableModels),
+    setModel: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.setModel, request),
+    setThinkingLevel: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.setThinkingLevel, request),
     addApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.addApiKey, request),
     removeApiKey: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.removeApiKey, request),
+    testAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.testAuth, request),
     loginOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.loginOAuth, request),
     logoutOAuth: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.logoutOAuth, request)
   },
