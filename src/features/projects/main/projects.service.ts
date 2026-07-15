@@ -12,6 +12,7 @@ export type StoredProject = {
   path: string
   createdAt: Date
   updatedAt: Date
+  archivedAt?: Date | null
 }
 
 export type ProjectsRepository = {
@@ -19,6 +20,7 @@ export type ProjectsRepository = {
   create: (project: StoredProject) => Promise<StoredProject>
   update: (project: StoredProject) => Promise<StoredProject>
   findById: (id: string) => Promise<StoredProject | undefined>
+  deleteById: (id: string) => Promise<void>
 }
 
 export type ProjectPathAdapter = {
@@ -34,6 +36,8 @@ export type ProjectsService = {
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
+  archiveProject: (projectId: string) => Promise<void>
+  deleteProject: (projectId: string) => Promise<StoredProject>
 }
 
 export function createProjectsService({
@@ -94,6 +98,20 @@ export function createProjectsService({
           updatedAt: now()
         })
       )
+    },
+
+    async archiveProject(projectId) {
+      const existing = await repository.findById(projectId.trim())
+      if (!existing) throw new Error('Project not found')
+      const timestamp = now()
+      await repository.update({ ...existing, archivedAt: timestamp, updatedAt: timestamp })
+    },
+
+    async deleteProject(projectId) {
+      const existing = await repository.findById(projectId.trim())
+      if (!existing) throw new Error('Project not found')
+      await repository.deleteById(existing.id)
+      return existing
     }
   }
 }

@@ -38,7 +38,9 @@ export const IPC_CHANNELS = {
     list: 'projects:list',
     createEmpty: 'projects:createEmpty',
     addFromFolder: 'projects:addFromFolder',
-    update: 'projects:update'
+    update: 'projects:update',
+    archive: 'projects:archive',
+    delete: 'projects:delete'
   },
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
@@ -106,6 +108,8 @@ export type SpaceZeroAPI = {
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
     addFromFolder: () => Promise<Project | null>
     update: (request: UpdateProjectRequest) => Promise<Project>
+    archive: (request: { projectId: string }) => Promise<void>
+    delete: (request: { projectId: string }) => Promise<void>
   }
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>

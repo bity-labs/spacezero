@@ -35,6 +35,9 @@ export type SessionsRepository = {
   findSessionById: (sessionId: string) => Promise<StoredSession | undefined>
   update: (session: StoredSession) => Promise<StoredSession>
   deleteById: (sessionId: string) => Promise<void>
+  listByProjectIdIncludingArchived: (projectId: string) => Promise<StoredSession[]>
+  updateMany: (sessions: StoredSession[]) => Promise<StoredSession[]>
+  deleteByProjectId: (projectId: string) => Promise<void>
 }
 
 export type Clock = () => Date
@@ -47,6 +50,8 @@ export type SessionsService = {
   createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
   archiveSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<StoredSession>
+  archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
+  deleteProjectSessions: (projectId: string) => Promise<StoredSession[]>
 }
 
 export function createSessionsService({
@@ -134,6 +139,21 @@ export function createSessionsService({
       if (!session) throw new Error('Session not found')
       await repository.deleteById(session.id)
       return session
+    },
+
+    async archiveProjectSessions(projectId) {
+      const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
+      const timestamp = now()
+      await repository.updateMany(
+        sessions.map((session) => ({ ...session, archivedAt: session.archivedAt ?? timestamp, updatedAt: timestamp }))
+      )
+      return sessions
+    },
+
+    async deleteProjectSessions(projectId) {
+      const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
+      await repository.deleteByProjectId(projectId.trim())
+      return sessions
     }
   }
 }

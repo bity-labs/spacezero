@@ -18,7 +18,8 @@ function migrate(database: Database.Database): void {
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      archived_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
@@ -38,6 +39,11 @@ function migrate(database: Database.Database): void {
       updated_at INTEGER NOT NULL
     );
   `)
+
+  const projectColumns = database.prepare(`PRAGMA table_info(projects)`).all() as Array<{ name: string }>
+  if (!projectColumns.some((column) => column.name === 'archived_at')) {
+    database.exec(`ALTER TABLE projects ADD COLUMN archived_at INTEGER`)
+  }
 
   const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
   if (!sessionColumns.some((column) => column.name === 'transcript_path')) {

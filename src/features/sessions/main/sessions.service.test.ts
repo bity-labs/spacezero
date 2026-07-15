@@ -51,6 +51,21 @@ function createMemoryRepository({
     async deleteById(sessionId) {
       const index = storedSessions.findIndex((session) => session.id === sessionId)
       if (index >= 0) storedSessions.splice(index, 1)
+    },
+    async listByProjectIdIncludingArchived(projectId) {
+      return storedSessions.filter((session) => session.projectId === projectId)
+    },
+    async updateMany(sessions) {
+      for (const session of sessions) {
+        const index = storedSessions.findIndex((item) => item.id === session.id)
+        if (index >= 0) storedSessions[index] = session
+      }
+      return sessions
+    },
+    async deleteByProjectId(projectId) {
+      for (let index = storedSessions.length - 1; index >= 0; index -= 1) {
+        if (storedSessions[index].projectId === projectId) storedSessions.splice(index, 1)
+      }
     }
   }
 }
