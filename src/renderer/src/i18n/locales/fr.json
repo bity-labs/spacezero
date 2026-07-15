@@ -216,6 +216,9 @@
         "loadError": "Impossible de charger les paramètres d’authentification des modèles.",
         "connected": "Connecté",
         "notRemovable": "Non supprimable",
+        "test": "Tester",
+        "testSuccess": "L’authentification fonctionne.",
+        "testFailed": "Le test d’authentification a échoué.",
         "searchProviders": "Rechercher des fournisseurs",
         "noProviders": "Aucun fournisseur trouvé.",
         "source": {
@@ -240,11 +243,11 @@
       },
       "apiKeys": {
         "title": "Clés API",
-        "description": "L’authentification par clé API sera activée quand le broker d’authentification Pi sera prêt.",
+        "description": "Ajoutez et gérez les clés API des fournisseurs de modèles Pi.",
         "add": "Ajouter une clé API",
         "remove": "Supprimer",
         "emptyTitle": "Aucune clé API configurée.",
-        "emptyDescription": "La configuration des clés API arrive bientôt et est désactivée pour le moment.",
+        "emptyDescription": "Ajoutez une clé API pour débloquer les modèles des fournisseurs à clé API.",
         "pickerTitle": "Ajouter une clé API",
         "pickerDescription": "Choisissez un fournisseur à clé API.",
         "dialogTitle": "Saisir la clé API",
@@ -253,13 +256,13 @@
         "inputPlaceholder": "Coller la clé API",
         "saveError": "Impossible d’enregistrer la clé API.",
         "removeError": "Impossible de supprimer la clé API.",
-        "removeConfirm": "Supprimer la clé API temporaire pour {{provider}} ?"
+        "removeConfirm": "Supprimer la clé API stockée pour {{provider}} ?"
       },
       "modelDisplay": "{{provider}} · {{model}}",
       "defaults": {
         "sectionTitle": "Valeurs par défaut",
         "loading": "Chargement des valeurs par défaut des modèles…",
-        "empty": "Configurez les identifiants via les variables d’environnement pour choisir un modèle par défaut. La configuration dans l’app arrive bientôt.",
+        "empty": "Configurez des identifiants pour choisir un modèle par défaut.",
         "unavailable": "Le modèle par défaut enregistré n’est plus disponible. Choisissez un autre modèle.",
         "defaultModel": "Modèle par défaut",
         "defaultModelDescription": "Choisissez le modèle global de l’espace de travail utilisé par les nouvelles sessions.",
@@ -282,7 +285,7 @@
       "available": {
         "sectionTitle": "Modèles disponibles",
         "loading": "Chargement des modèles disponibles…",
-        "empty": "Configurez les identifiants via les variables d’environnement pour parcourir les modèles disponibles. La configuration dans l’app arrive bientôt.",
+        "empty": "Configurez des identifiants pour parcourir les modèles disponibles.",
         "summary": "{{count}} modèles disponibles depuis {{providerCount}} fournisseurs",
         "summaryDescription": "Seuls les modèles débloqués par l’authentification configurée sont affichés.",
         "providerCount": "{{count}} modèles",
