@@ -327,7 +327,8 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
-      workspaceTools: dormantSession.workspaceTools
+      workspaceTools: dormantSession.workspaceTools,
+      thinkingLevel: dormantSession.thinkingLevel
     })
 
     if (this.disposed) {

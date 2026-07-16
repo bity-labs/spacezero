@@ -74,6 +74,29 @@ describe('createPiAgentSessionFactory', () => {
       rmSync(tempDir, { recursive: true, force: true })
     }
   })
+
+  it('uses the requested default thinking level when creating a new session', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-thinking-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        thinkingLevel: 'high'
+      })
+
+      try {
+        expect(session.thinkingLevel).toBe('high')
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('createPiAgentRuntime auth', () => {
