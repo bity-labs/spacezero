@@ -30,9 +30,6 @@ function migrate(database: Database.Database): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       transcript_path TEXT,
-      model_provider TEXT,
-      model_id TEXT,
-      thinking_level TEXT,
       archived_at INTEGER
     );
 
@@ -51,15 +48,6 @@ function migrate(database: Database.Database): void {
   const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
   if (!sessionColumns.some((column) => column.name === 'transcript_path')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN transcript_path TEXT`)
-  }
-  if (!sessionColumns.some((column) => column.name === 'model_provider')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN model_provider TEXT`)
-  }
-  if (!sessionColumns.some((column) => column.name === 'model_id')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN model_id TEXT`)
-  }
-  if (!sessionColumns.some((column) => column.name === 'thinking_level')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN thinking_level TEXT`)
   }
   if (!sessionColumns.some((column) => column.name === 'archived_at')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN archived_at INTEGER`)
