@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 import { z } from 'zod'
 
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
+import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
 import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
@@ -68,13 +69,24 @@ export function registerAgentIpc(): void {
     return getAgentUtilityProcessHost().resolveToolConfirmation(request)
   })
 
-  ipcMain.handle(IPC_CHANNELS.agent.setModel, (_event, input) => {
+  ipcMain.handle(IPC_CHANNELS.agent.setModel, async (_event, input) => {
     const request = setAgentModelRequestSchema.parse(input)
-    return getAgentUtilityProcessHost().setModel(request)
+    const state = await getAgentUtilityProcessHost().setModel(request)
+    await createSessionsService({ repository: createSessionsRepository() }).updateAgentModel(
+      request.sessionId,
+      request.provider,
+      request.modelId
+    )
+    return state
   })
 
-  ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, (_event, input) => {
+  ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, async (_event, input) => {
     const request = setAgentThinkingLevelRequestSchema.parse(input)
-    return getAgentUtilityProcessHost().setThinkingLevel(request)
+    const state = await getAgentUtilityProcessHost().setThinkingLevel(request)
+    await createSessionsService({ repository: createSessionsRepository() }).updateAgentThinkingLevel(
+      request.sessionId,
+      request.level
+    )
+    return state
   })
 }

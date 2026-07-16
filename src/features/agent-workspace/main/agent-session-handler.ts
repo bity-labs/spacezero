@@ -68,7 +68,10 @@ export async function createProjectAgentSession(
     await createSessionsService({ repository }).createProjectAgentSession({
       id: sessionId,
       projectId: request.projectId,
-      transcriptPath: state.transcriptPath
+      transcriptPath: state.transcriptPath,
+      modelProvider: state.modelProvider,
+      modelId: state.modelId,
+      thinkingLevel: state.thinkingLevel
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
@@ -136,7 +139,16 @@ async function restoreAgentSessionStateOnce(
       projectId: storedSession.projectId,
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
-      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      ...(storedSession.modelProvider && storedSession.modelId
+        ? {
+            defaultModel: {
+              providerId: storedSession.modelProvider,
+              modelId: storedSession.modelId
+            }
+          }
+        : {}),
+      thinkingLevel: storedSession.thinkingLevel ?? undefined
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'agent.sessionAlreadyExists') {
@@ -171,7 +183,10 @@ export async function createWorkspaceAgentSession({
   try {
     return await createSessionsService({ repository }).createWorkspaceAgentSession({
       id: sessionId,
-      transcriptPath: state.transcriptPath
+      transcriptPath: state.transcriptPath,
+      modelProvider: state.modelProvider,
+      modelId: state.modelId,
+      thinkingLevel: state.thinkingLevel
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
