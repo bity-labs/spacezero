@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest'
 import {
   createPiAgentRuntime,
   createPiAgentSessionFactory,
-  toAgentStreamingEvent
+  toAgentStreamingEvent,
+  toPiToolName
 } from './pi-agent-session-factory'
 
 describe('toAgentStreamingEvent', () => {
@@ -49,6 +50,12 @@ describe('toAgentStreamingEvent', () => {
 })
 
 describe('createPiAgentSessionFactory', () => {
+  it('normalizes Workspace Tool names for providers with strict tool-name validation', () => {
+    expect(toPiToolName('workspace.getStatus')).toBe('workspace_getStatus_0')
+    expect(toPiToolName('workspace.update-project', 1)).toBe('workspace_update-project_1')
+    expect(toPiToolName('workspace tool', 2)).toBe('workspace_tool_2')
+  })
+
   it('creates an idle faux Pi session with project tools and a transcript under the Space Zero agent dir', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-'))
 
@@ -94,6 +101,38 @@ describe('createPiAgentSessionFactory', () => {
         session.dispose()
       }
     } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps Space Zero session model selection isolated from the terminal Pi config', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-isolation-'))
+    const terminalPiAgentDir = join(tempDir, 'terminal-pi-agent')
+    const previousPiAgentDir = process.env.PI_CODING_AGENT_DIR
+
+    try {
+      process.env.PI_CODING_AGENT_DIR = terminalPiAgentDir
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'spacezero-agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir
+      })
+
+      try {
+        await session.setModel({ provider: 'faux', modelId: 'faux-1' })
+      } finally {
+        session.dispose()
+      }
+
+      expect(existsSync(join(terminalPiAgentDir, 'settings.json'))).toBe(false)
+    } finally {
+      if (previousPiAgentDir === undefined) {
+        delete process.env.PI_CODING_AGENT_DIR
+      } else {
+        process.env.PI_CODING_AGENT_DIR = previousPiAgentDir
+      }
       rmSync(tempDir, { recursive: true, force: true })
     }
   })

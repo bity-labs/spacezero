@@ -8,6 +8,7 @@ import {
   defineTool,
   ModelRegistry,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type ToolDefinition
 } from '@earendil-works/pi-coding-agent'
@@ -90,9 +91,11 @@ export function createPiAgentRuntime({
   async function createSession(
     request: CreateAgentSessionRequest
   ): Promise<CreatedPiAgentSession> {
+    const settingsManager = SettingsManager.inMemory()
     const resourceLoader = new DefaultResourceLoader({
       cwd: request.cwd,
       agentDir,
+      settingsManager,
       noExtensions: true,
       noSkills: true,
       noPromptTemplates: true,
@@ -112,6 +115,7 @@ export function createPiAgentRuntime({
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
+      agentDir,
       model: request.defaultModel
         ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
         : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
@@ -124,6 +128,7 @@ export function createPiAgentRuntime({
       sessionManager,
       authStorage,
       modelRegistry,
+      settingsManager,
       resourceLoader
     })
 
@@ -333,9 +338,9 @@ function createWorkspaceToolProxies({
   descriptors: WorkspaceToolAgentDescriptor[]
   executeWorkspaceTool: PiAgentSessionFactoryOptions['executeWorkspaceTool']
 }): ToolDefinition[] {
-  return descriptors.map((descriptor) =>
+  return descriptors.map((descriptor, index) =>
     defineTool({
-      name: descriptor.name,
+      name: toPiToolName(descriptor.name, index),
       label: descriptor.name,
       description: descriptor.description,
       parameters: descriptor.parameters as ToolDefinition['parameters'],
@@ -364,6 +369,14 @@ function createWorkspaceToolProxies({
       }
     } as ToolDefinition)
   )
+}
+
+/** Pi providers accept only alphanumeric, underscore, and dash tool names. */
+export function toPiToolName(name: string, index = 0): string {
+  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_')
+  const withFallback = safeName || 'workspace_tool'
+  const suffix = `_${index}`
+  return `${withFallback.slice(0, 64 - suffix.length)}${suffix}`
 }
 
 function adaptAgentSession(
