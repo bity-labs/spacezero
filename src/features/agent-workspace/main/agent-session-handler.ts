@@ -10,6 +10,7 @@ import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
+import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
 export const createSessionRequestSchema = z.object({
@@ -32,6 +33,16 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   getWorkspaceSessionCwd?: () => string
+}
+
+export type SetAgentModelSelectionHandlerDependencies = {
+  repository: SessionsRepository
+  utilityHost: Pick<AgentUtilityProcessHost, 'setModel'>
+}
+
+export type SetAgentThinkingLevelHandlerDependencies = {
+  repository: SessionsRepository
+  utilityHost: Pick<AgentUtilityProcessHost, 'setThinkingLevel'>
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
@@ -68,7 +79,10 @@ export async function createProjectAgentSession(
     await createSessionsService({ repository }).createProjectAgentSession({
       id: sessionId,
       projectId: request.projectId,
-      transcriptPath: state.transcriptPath
+      transcriptPath: state.transcriptPath,
+      modelProvider: state.modelProvider,
+      modelId: state.modelId,
+      thinkingLevel: state.thinkingLevel
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
@@ -136,7 +150,11 @@ async function restoreAgentSessionStateOnce(
       projectId: storedSession.projectId,
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
-      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      ...(storedSession.modelProvider && storedSession.modelId
+        ? { defaultModel: { providerId: storedSession.modelProvider, modelId: storedSession.modelId } }
+        : {}),
+      ...(storedSession.thinkingLevel ? { thinkingLevel: storedSession.thinkingLevel } : {})
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'agent.sessionAlreadyExists') {
@@ -171,12 +189,45 @@ export async function createWorkspaceAgentSession({
   try {
     return await createSessionsService({ repository }).createWorkspaceAgentSession({
       id: sessionId,
-      transcriptPath: state.transcriptPath
+      transcriptPath: state.transcriptPath,
+      modelProvider: state.modelProvider,
+      modelId: state.modelId,
+      thinkingLevel: state.thinkingLevel
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
     throw error
   }
+}
+
+export async function setAgentModelSelection(
+  input: unknown,
+  { repository, utilityHost }: SetAgentModelSelectionHandlerDependencies
+): Promise<AgentSessionState> {
+  const request = setAgentModelRequestSchema.parse(input)
+  const state = await utilityHost.setModel(request)
+  await createSessionsService({ repository }).updateAgentSelection({
+    sessionId: request.sessionId,
+    modelProvider: state.modelProvider,
+    modelId: state.modelId,
+    thinkingLevel: state.thinkingLevel
+  })
+  return state
+}
+
+export async function setAgentThinkingLevel(
+  input: unknown,
+  { repository, utilityHost }: SetAgentThinkingLevelHandlerDependencies
+): Promise<AgentSessionState> {
+  const request = setAgentThinkingLevelRequestSchema.parse(input)
+  const state = await utilityHost.setThinkingLevel(request)
+  await createSessionsService({ repository }).updateAgentSelection({
+    sessionId: request.sessionId,
+    modelProvider: state.modelProvider,
+    modelId: state.modelId,
+    thinkingLevel: state.thinkingLevel
+  })
+  return state
 }
 
 function resolveStoredProjectPath(project: { id: string; path: string } | undefined): string {
