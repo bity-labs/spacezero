@@ -1,6 +1,5 @@
 import { nanoid } from 'nanoid'
 
-import type { ThinkingLevel } from '../../../shared/model-settings'
 import type { CreateProjectSessionRequest, ProjectSession, SessionStatus, WorkspaceSession } from '../shared'
 
 export type StoredSession = {
@@ -11,9 +10,6 @@ export type StoredSession = {
   createdAt: Date
   updatedAt: Date
   transcriptPath?: string | null
-  modelProvider?: string | null
-  modelId?: string | null
-  thinkingLevel?: ThinkingLevel | null
   archivedAt?: Date | null
 }
 
@@ -21,24 +17,11 @@ export type CreateProjectAgentSessionRequest = {
   id: string
   projectId: string
   transcriptPath?: string
-  modelProvider?: string
-  modelId?: string
-  thinkingLevel?: ThinkingLevel
 }
 
 export type CreateWorkspaceAgentSessionRequest = {
   id: string
   transcriptPath?: string
-  modelProvider?: string
-  modelId?: string
-  thinkingLevel?: ThinkingLevel
-}
-
-export type UpdateSessionAgentSelectionRequest = {
-  sessionId: string
-  modelProvider?: string
-  modelId?: string
-  thinkingLevel?: ThinkingLevel
 }
 
 export type SessionsRepository = {
@@ -67,7 +50,6 @@ export type SessionsService = {
   createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
   archiveSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<StoredSession>
-  updateAgentSelection: (request: UpdateSessionAgentSelectionRequest) => Promise<StoredSession>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
   deleteProjectSessions: (projectId: string) => Promise<StoredSession[]>
 }
@@ -124,10 +106,7 @@ export function createSessionsService({
           status: 'idle',
           createdAt: timestamp,
           updatedAt: timestamp,
-          transcriptPath: request.transcriptPath,
-          modelProvider: request.modelProvider,
-          modelId: request.modelId,
-          thinkingLevel: request.thinkingLevel
+          transcriptPath: request.transcriptPath
         })
       )
     },
@@ -144,10 +123,7 @@ export function createSessionsService({
           status: 'idle',
           createdAt: timestamp,
           updatedAt: timestamp,
-          transcriptPath: request.transcriptPath,
-          modelProvider: request.modelProvider,
-          modelId: request.modelId,
-          thinkingLevel: request.thinkingLevel
+          transcriptPath: request.transcriptPath
         })
       )
     },
@@ -163,18 +139,6 @@ export function createSessionsService({
       if (!session) throw new Error('Session not found')
       await repository.deleteById(session.id)
       return session
-    },
-
-    async updateAgentSelection(request) {
-      const session = await repository.findSessionById(request.sessionId.trim())
-      if (!session) throw new Error('Session not found')
-      return await repository.update({
-        ...session,
-        modelProvider: request.modelProvider ?? session.modelProvider,
-        modelId: request.modelId ?? session.modelId,
-        thinkingLevel: request.thinkingLevel ?? session.thinkingLevel,
-        updatedAt: now()
-      })
     },
 
     async archiveProjectSessions(projectId) {

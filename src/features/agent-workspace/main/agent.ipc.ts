@@ -3,13 +3,8 @@ import { z } from 'zod'
 
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { IPC_CHANNELS } from '../../../shared/ipc'
-import {
-  createProjectAgentSession,
-  createWorkspaceAgentSession,
-  restoreAgentSessionState,
-  setAgentModelSelection,
-  setAgentThinkingLevel
-} from './agent-session-handler'
+import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
+import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
@@ -74,16 +69,12 @@ export function registerAgentIpc(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.setModel, (_event, input) => {
-    return setAgentModelSelection(input, {
-      repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
-    })
+    const request = setAgentModelRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().setModel(request)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, (_event, input) => {
-    return setAgentThinkingLevel(input, {
-      repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
-    })
+    const request = setAgentThinkingLevelRequestSchema.parse(input)
+    return getAgentUtilityProcessHost().setThinkingLevel(request)
   })
 }

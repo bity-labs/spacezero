@@ -17,9 +17,6 @@ export const sessions = sqliteTable('sessions', {
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   transcriptPath: text('transcript_path'),
-  modelProvider: text('model_provider'),
-  modelId: text('model_id'),
-  thinkingLevel: text('thinking_level', { enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] }),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
 })
 
