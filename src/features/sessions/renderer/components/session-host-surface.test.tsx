@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
@@ -199,6 +200,134 @@ describe('ProjectSessionHostSurface', () => {
         message: 'what can you see?'
       })
     )
+  })
+
+  it('resolves inline Workspace Tool confirmations through the agent API', async () => {
+    const user = userEvent.setup()
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const resolveToolConfirmation = vi.fn(async () => undefined)
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.agent.resolveToolConfirmation = resolveToolConfirmation
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await act(async () => {
+      projectionListener?.({
+        type: 'snapshot',
+        sessionId: 'session-1',
+        seq: 1,
+        snapshot: {
+          status: 'running',
+          messages: [
+            {
+              role: 'assistant',
+              timestamp: 100,
+              content: [
+                {
+                  type: 'toolCall',
+                  id: 'call-1',
+                  name: 'workspace.updateProject',
+                  arguments: { name: 'Renamed' }
+                }
+              ],
+              stopReason: 'toolUse'
+            }
+          ],
+          toolConfirmationRequests: [
+            {
+              sessionId: 'session-1',
+              callId: 'call-1',
+              toolName: 'workspace.updateProject',
+              summary: 'Rename the project to Renamed.'
+            }
+          ]
+        }
+      })
+    })
+
+    await user.click(await screen.findByRole('button', { name: 'Approve' }))
+
+    expect(resolveToolConfirmation).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      callId: 'call-1',
+      approved: true
+    })
+  })
+
+  it('keeps the previous selected model visible when model update fails', async () => {
+    const user = userEvent.setup()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    })
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4'
+      },
+      {
+        providerId: 'openai',
+        providerLabel: 'OpenAI',
+        modelId: 'gpt-5',
+        modelLabel: 'GPT-5'
+      }
+    ]
+    window.spacezero.agent.setModel = async () => {
+      throw new Error('agent.modelAuthNotConfigured')
+    }
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: /Claude Sonnet 4/ }))
+    await user.click(await screen.findByText('GPT-5'))
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalled())
+    expect(await screen.findByRole('button', { name: /Claude Sonnet 4/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /GPT-5/ })).not.toBeInTheDocument()
+
+    consoleError.mockRestore()
+  })
+
+  it('keeps the previous thinking level visible when thinking update fails', async () => {
+    const user = userEvent.setup()
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    })
+    window.spacezero.agent.setThinkingLevel = async () => {
+      throw new Error('agent.thinkingUpdateFailed')
+    }
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Thinking: Medium' }))
+
+    await waitFor(() => expect(consoleError).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Thinking: High' })).not.toBeInTheDocument()
+
+    consoleError.mockRestore()
   })
 
   it('projects matching Workspace Tool execution events into the session transcript', async () => {

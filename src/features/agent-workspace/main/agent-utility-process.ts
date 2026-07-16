@@ -27,14 +27,15 @@ import type {
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
-import type {
-  AgentSessionProjectionEvent,
-  AgentToolConfirmationRequest
-} from '../../../shared/agent-session-projection.model'
+import type { AgentToolConfirmationRequest } from '../../../shared/agent-session-projection.model'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
 import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { AgentToolExecutionEvent } from '../../../shared/workspace-tool-protocol'
+import {
+  createAgentSessionProjectionSequencer,
+  type AgentSessionProjectionEventInput
+} from './agent-projection-sequencer'
 import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
 import { getWorkspaceToolExecutor } from './workspace-tool-control-plane'
@@ -68,6 +69,7 @@ export class AgentUtilityProcessHost {
   private broker: AgentUtilityBroker | undefined
   private readonly eventListeners = new Set<(event: AgentStreamingEvent) => void>()
   private readonly pendingConfirmations = new Map<string, (approved: boolean) => void>()
+  private readonly projectionSequencer = createAgentSessionProjectionSequencer()
   private stopping = false
 
   start(): void {
@@ -114,9 +116,7 @@ export class AgentUtilityProcessHost {
         }
       },
       onProjectionEvent: ({ event }) => {
-        for (const window of BrowserWindow.getAllWindows()) {
-          window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
-        }
+        this.sendProjectionEvent(event)
       },
       openExternal: (url) => shell.openExternal(url),
       executeWorkspaceTool: async (request) => {
@@ -212,7 +212,6 @@ export class AgentUtilityProcessHost {
       this.sendProjectionEvent({
         type: 'tool_confirmation_resolved',
         sessionId: request.sessionId,
-        seq: Date.now(),
         callId: request.callId,
         approved: request.approved
       })
@@ -255,7 +254,6 @@ export class AgentUtilityProcessHost {
       this.sendProjectionEvent({
         type: 'tool_confirmation_request',
         sessionId: request.sessionId,
-        seq: Date.now(),
         request
       })
       for (const window of BrowserWindow.getAllWindows()) {
@@ -264,9 +262,10 @@ export class AgentUtilityProcessHost {
     })
   }
 
-  private sendProjectionEvent(event: AgentSessionProjectionEvent): void {
+  private sendProjectionEvent(event: AgentSessionProjectionEventInput): void {
+    const sequencedEvent = this.projectionSequencer.next(event)
     for (const window of BrowserWindow.getAllWindows()) {
-      window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, event)
+      window.webContents.send(IPC_CHANNELS.agent.sessionProjectionEvent, sequencedEvent)
     }
   }
 

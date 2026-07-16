@@ -97,19 +97,13 @@ export function AgentChat({
 function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessionState) {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [modelDefaults, setModelDefaults] = useState<ModelDefaults | undefined>(undefined)
-  const [localSessionState, setLocalSessionState] = useState<AgentSessionState | undefined>(
-    sessionState
-  )
-  const [selectedModelOverride, setSelectedModelOverride] = useState<string | undefined>(undefined)
-  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<
-    AiChatThinkingLevel | undefined
+  const [localSessionState, setLocalSessionState] = useState<AgentSessionState | undefined>()
+  const [selectedModelOverride, setSelectedModelOverride] = useState<
+    { sessionId: string; value: string } | undefined
   >(undefined)
-
-  useEffect(() => {
-    setLocalSessionState(sessionState)
-    setSelectedModelOverride(undefined)
-    setThinkingLevelOverride(undefined)
-  }, [sessionId, sessionState])
+  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<
+    { sessionId: string; value: AiChatThinkingLevel } | undefined
+  >(undefined)
 
   useEffect(() => {
     let cancelled = false
@@ -137,7 +131,8 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     }
   }, [])
 
-  const effectiveSessionState = localSessionState ?? sessionState
+  const effectiveSessionState =
+    localSessionState?.sessionId === sessionId ? localSessionState : sessionState
   const models = useMemo(() => availableModels.map(toChatInputModel), [availableModels])
   const sessionModelId =
     effectiveSessionState?.modelProvider && effectiveSessionState.modelId
@@ -146,8 +141,13 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
   const defaultModelId = modelDefaults?.defaultModel
     ? encodeModelId(modelDefaults.defaultModel.providerId, modelDefaults.defaultModel.modelId)
     : undefined
-  const selectedModelId = selectedModelOverride ?? sessionModelId ?? defaultModelId
-  const thinkingLevel = (thinkingLevelOverride ??
+  const selectedModelId =
+    selectedModelOverride?.sessionId === sessionId
+      ? selectedModelOverride.value
+      : (sessionModelId ?? defaultModelId)
+  const thinkingLevel = ((thinkingLevelOverride?.sessionId === sessionId
+    ? thinkingLevelOverride.value
+    : undefined) ??
     effectiveSessionState?.thinkingLevel ??
     modelDefaults?.defaultThinking ??
     'medium') as AiChatThinkingLevel
@@ -156,19 +156,19 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     const model = decodeModelId(encodedModelId)
     if (!model) return
 
-    setSelectedModelOverride(encodedModelId)
     const nextSessionState = await window.spacezero.agent.setModel({
       sessionId,
       provider: model.provider,
       modelId: model.modelId
     })
     setLocalSessionState(nextSessionState)
+    setSelectedModelOverride({ sessionId, value: encodedModelId })
   }
 
   async function setThinkingLevel(level: AiChatThinkingLevel): Promise<void> {
-    setThinkingLevelOverride(level)
     const nextSessionState = await window.spacezero.agent.setThinkingLevel({ sessionId, level })
     setLocalSessionState(nextSessionState)
+    setThinkingLevelOverride({ sessionId, value: level })
   }
 
   return {

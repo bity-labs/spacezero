@@ -328,6 +328,14 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
+      ...(dormantSession.modelProvider && dormantSession.modelId
+        ? {
+            defaultModel: {
+              providerId: dormantSession.modelProvider,
+              modelId: dormantSession.modelId
+            }
+          }
+        : {}),
       thinkingLevel: dormantSession.thinkingLevel
     })
 

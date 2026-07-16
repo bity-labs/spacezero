@@ -304,6 +304,7 @@ describe('AgentSessionRegistry', () => {
       cwd: '/repo-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
       workspaceTools: undefined,
+      defaultModel: { providerId: 'faux', modelId: 'faux-1' },
       thinkingLevel: 'medium'
     })
     expect(events).toEqual([
@@ -348,7 +349,8 @@ describe('AgentSessionRegistry', () => {
     expect(createRequests.at(-1)).toMatchObject({
       sessionId: 'session-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
-      workspaceTools
+      workspaceTools,
+      defaultModel: { providerId: 'faux', modelId: 'faux-1' }
     })
   })
 
@@ -533,6 +535,43 @@ describe('AgentSessionRegistry', () => {
     })
   })
 
+  it('preserves the selected model when a suspended session is rehydrated', async () => {
+    const createRequests: unknown[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        const selection = {
+          provider: request.defaultModel?.providerId ?? 'anthropic',
+          modelId: request.defaultModel?.modelId ?? 'claude-sonnet-4'
+        }
+        const session = createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+        Object.defineProperties(session, {
+          modelProvider: { get: () => selection.provider },
+          modelId: { get: () => selection.modelId }
+        })
+        session.setModel = async ({ provider, modelId }) => {
+          selection.provider = provider
+          selection.modelId = modelId
+        }
+        return session
+      }
+    })
+
+    await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
+    await registry.setModel({ sessionId: 'session-1', provider: 'openai', modelId: 'gpt-5' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    await registry.getState({ sessionId: 'session-1' })
+
+    expect(createRequests.at(-1)).toMatchObject({
+      sessionId: 'session-1',
+      defaultModel: { providerId: 'openai', modelId: 'gpt-5' }
+    })
+  })
+
   it('prompts and aborts an existing Pi session', async () => {
     let prompted = ''
     let aborted = false
@@ -585,6 +624,7 @@ describe('AgentSessionRegistry', () => {
       cwd: '/repo-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
       workspaceTools: undefined,
+      defaultModel: { providerId: 'faux', modelId: 'faux-1' },
       thinkingLevel: 'medium'
     })
     expect(prompts).toEqual(['session-1:continue work'])

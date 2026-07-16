@@ -36,6 +36,9 @@ export function ProjectSessionHostSurface({
       placeholder={`Message ${project.name} / ${session.title}…`}
       onSubmit={(text) => void agentSession.prompt(text)}
       onAbort={() => void agentSession.abort()}
+      onToolConfirmationResolve={(callId, approved) =>
+        void agentSession.resolveToolConfirmation(callId, approved)
+      }
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
     />
   )
@@ -56,6 +59,9 @@ export function WorkspaceSessionHostSurface({
       placeholder="Ask about Space Zero…"
       onSubmit={(text) => void agentSession.prompt(text)}
       onAbort={() => void agentSession.abort()}
+      onToolConfirmationResolve={(callId, approved) =>
+        void agentSession.resolveToolConfirmation(callId, approved)
+      }
       emptyState="Ask the workspace agent about Space Zero. Streamed replies appear here."
     />
   )
@@ -70,6 +76,7 @@ type SessionHostFrameProps = {
   placeholder: string
   onSubmit?: (text: string) => void
   onAbort?: () => void
+  onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
 }
 
@@ -82,6 +89,7 @@ function SessionHostFrame({
   placeholder,
   onSubmit,
   onAbort,
+  onToolConfirmationResolve,
   emptyState
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
@@ -106,6 +114,7 @@ function SessionHostFrame({
         placeholder={placeholder}
         onSubmit={onSubmit}
         onAbort={onAbort}
+        onToolConfirmationResolve={onToolConfirmationResolve}
       />
     </div>
   )
