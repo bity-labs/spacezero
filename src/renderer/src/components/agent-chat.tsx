@@ -24,6 +24,7 @@ export type AgentChatProps = {
   className?: string
   contentClassName?: string
   onSubmit?: (text: string) => void
+  onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
 
@@ -38,8 +39,23 @@ export function AgentChat({
   className,
   contentClassName,
   onSubmit,
+  onAbort,
   onToolConfirmationResolve
 }: AgentChatProps) {
+  useEffect(() => {
+    if (status !== 'running' || !onAbort) return undefined
+
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key !== 'Escape' || event.repeat) return
+      event.preventDefault()
+      onAbort?.()
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onAbort, status])
+
+
   const modelControls = useAgentChatModelControls(sessionId, sessionState)
   const defaultComposer = (
     <ChatInput
@@ -49,6 +65,7 @@ export function AgentChat({
       onModelChange={modelControls.setModel}
       onThinkingChange={modelControls.setThinkingLevel}
       onSubmit={({ text }) => onSubmit?.(text)}
+      onAbort={onAbort}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
     />

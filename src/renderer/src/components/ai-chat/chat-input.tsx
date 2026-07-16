@@ -54,6 +54,7 @@ export type ChatInputProps = {
   onModelChange?: (modelId: string) => void
   onThinkingChange?: (level: AiChatThinkingLevel) => void
   onSubmit: (input: ChatInputSubmit) => void
+  onAbort?: () => void
   className?: string
 }
 
@@ -68,6 +69,7 @@ export function ChatInput({
   onModelChange,
   onThinkingChange,
   onSubmit,
+  onAbort,
   className
 }: ChatInputProps) {
   const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
@@ -163,7 +165,7 @@ export function ChatInput({
             ) : null}
           </div>
         </PromptInputTools>
-        <PromptInputSubmit disabled={isRunning} status={status} />
+        <PromptInputSubmit onStop={onAbort} status={status} />
       </PromptInputFooter>
     </PromptInput>
   )

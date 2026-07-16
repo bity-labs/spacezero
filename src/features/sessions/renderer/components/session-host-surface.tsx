@@ -35,6 +35,7 @@ export function ProjectSessionHostSurface({
       sessionState={agentSession.sessionState}
       placeholder={`Message ${project.name} / ${session.title}…`}
       onSubmit={(text) => void agentSession.prompt(text)}
+      onAbort={() => void agentSession.abort()}
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
     />
   )
@@ -54,6 +55,7 @@ export function WorkspaceSessionHostSurface({
       sessionState={agentSession.sessionState}
       placeholder="Ask about Space Zero…"
       onSubmit={(text) => void agentSession.prompt(text)}
+      onAbort={() => void agentSession.abort()}
       emptyState="Ask the workspace agent about Space Zero. Streamed replies appear here."
     />
   )
@@ -67,6 +69,7 @@ type SessionHostFrameProps = {
   sessionState?: AgentSessionState
   placeholder: string
   onSubmit?: (text: string) => void
+  onAbort?: () => void
   emptyState?: string
 }
 
@@ -78,6 +81,7 @@ function SessionHostFrame({
   sessionState,
   placeholder,
   onSubmit,
+  onAbort,
   emptyState
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
@@ -101,6 +105,7 @@ function SessionHostFrame({
         contentClassName="px-4 py-4"
         placeholder={placeholder}
         onSubmit={onSubmit}
+        onAbort={onAbort}
       />
     </div>
   )
