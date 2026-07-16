@@ -135,6 +135,36 @@ describe('agent session projection reducer', () => {
     ])
   })
 
+  it('renders assistant errors instead of leaving failed turns blank', () => {
+    const state = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
+      type: 'snapshot',
+      sessionId: 'session-1',
+      seq: 1,
+      snapshot: {
+        status: 'idle',
+        messages: [
+          {
+            role: 'assistant',
+            timestamp: 100,
+            content: [],
+            stopReason: 'error',
+            errorMessage: 'No API key configured for openai.'
+          }
+        ]
+      }
+    })
+
+    expect(projectAgentSessionMessages(state)).toEqual([
+      {
+        id: 'agent-msg:0',
+        role: 'assistant',
+        createdAt: '1970-01-01T00:00:00.100Z',
+        status: 'error',
+        parts: [{ type: 'text', text: 'No API key configured for openai.' }]
+      }
+    ])
+  })
+
   it('projects live thinking updates as thinking parts while the assistant streams', () => {
     const running = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
       type: 'agent_start',

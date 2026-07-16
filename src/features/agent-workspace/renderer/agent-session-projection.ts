@@ -260,6 +260,10 @@ function projectAssistantInto(
 ): void {
   group.lastAssistant = message
 
+  if (message.errorMessage) {
+    group.parts.push({ type: 'text', text: message.errorMessage })
+  }
+
   for (const part of message.content) {
     if (part.type === 'text') {
       group.parts.push({ type: 'text', text: part.text })

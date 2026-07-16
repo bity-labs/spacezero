@@ -81,11 +81,13 @@ export class AgentUtilityProcessHost {
     if (this.utility) return
 
     this.stopping = false
+    const agentDir = join(app.getPath('userData'), 'agent')
     const utility = utilityProcess.fork(join(__dirname, 'agent-utility.js'), [], {
       serviceName: 'spacezero-agent-utility',
       env: {
         ...process.env,
-        SPACEZERO_AGENT_DIR: join(app.getPath('userData'), 'agent')
+        SPACEZERO_AGENT_DIR: agentDir,
+        PI_CODING_AGENT_DIR: agentDir
       }
     })
     const { port1, port2 } = new MessageChannelMain()
