@@ -34,6 +34,8 @@ export type RestoreAgentSessionHandlerDependencies = {
   getWorkspaceSessionCwd?: () => string
 }
 
+const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
+
 export async function createProjectAgentSession(
   input: unknown,
   {
@@ -85,7 +87,33 @@ export async function restoreAgentSessionState(
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
+  const pendingRestore = pendingSessionRestores.get(request.sessionId)
+  if (pendingRestore) return pendingRestore
 
+  const restore = restoreAgentSessionStateOnce(request, {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd
+  })
+  pendingSessionRestores.set(request.sessionId, restore)
+
+  try {
+    return await restore
+  } finally {
+    if (pendingSessionRestores.get(request.sessionId) === restore) {
+      pendingSessionRestores.delete(request.sessionId)
+    }
+  }
+}
+
+async function restoreAgentSessionStateOnce(
+  request: { sessionId: string },
+  {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+  }: RestoreAgentSessionHandlerDependencies
+): Promise<AgentSessionState> {
   try {
     return await utilityHost.getState(request)
   } catch (error) {
@@ -101,14 +129,21 @@ export async function restoreAgentSessionState(
 
   if (!storedSession.projectId) await mkdir(cwd, { recursive: true })
 
-  return utilityHost.createSession({
-    sessionId: storedSession.id,
-    kind: storedSession.projectId ? 'project' : 'workspace',
-    projectId: storedSession.projectId,
-    cwd,
-    transcriptPath: storedSession.transcriptPath ?? undefined,
-    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
-  })
+  try {
+    return await utilityHost.createSession({
+      sessionId: storedSession.id,
+      kind: storedSession.projectId ? 'project' : 'workspace',
+      projectId: storedSession.projectId,
+      cwd,
+      transcriptPath: storedSession.transcriptPath ?? undefined,
+      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'agent.sessionAlreadyExists') {
+      return utilityHost.getState(request)
+    }
+    throw error
+  }
 }
 
 export async function createWorkspaceAgentSession({

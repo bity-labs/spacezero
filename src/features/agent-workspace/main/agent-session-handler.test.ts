@@ -181,6 +181,83 @@ describe('restoreAgentSessionState', () => {
     expect(utilityHost.createSession).not.toHaveBeenCalled()
   })
 
+  it('coalesces concurrent restores for the same stored session', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    let resolveCreate: ((state: AgentSessionState) => void) | undefined
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(
+        () =>
+          new Promise<AgentSessionState>((resolve) => {
+            resolveCreate = resolve
+          })
+      )
+    }
+    const dependencies = {
+      repository: createRepository({
+        async findSessionById() {
+          return storedSession
+        }
+      }),
+      utilityHost
+    }
+
+    const firstRestore = restoreAgentSessionState({ sessionId: 'session-1' }, dependencies)
+    await vi.waitFor(() => expect(utilityHost.createSession).toHaveBeenCalledTimes(1))
+    const secondRestore = restoreAgentSessionState({ sessionId: 'session-1' }, dependencies)
+
+    resolveCreate?.(createState())
+
+    await expect(Promise.all([firstRestore, secondRestore])).resolves.toEqual([createState(), createState()])
+    expect(utilityHost.createSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns live utility state when a concurrent restore already recreated the session', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    const restoredState = createState()
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        if (utilityHost.getState.mock.calls.length === 1) throw new Error('agent.sessionNotFound')
+        return restoredState
+      }),
+      createSession: vi.fn(async () => {
+        throw new Error('agent.sessionAlreadyExists')
+      })
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost
+        }
+      )
+    ).resolves.toBe(restoredState)
+  })
+
   it('recreates a stored project session from its transcript after app relaunch', async () => {
     const storedSession: StoredSession = {
       id: 'session-1',

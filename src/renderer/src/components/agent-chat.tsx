@@ -55,7 +55,6 @@ export function AgentChat({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onAbort, status])
 
-
   const modelControls = useAgentChatModelControls(sessionId, sessionState)
   const defaultComposer = (
     <ChatInput
@@ -68,13 +67,18 @@ export function AgentChat({
       onAbort={onAbort}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
-      className="rounded-2xl border border-border/70 bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
+      className="rounded-2xl bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
     />
   )
   const composerContent = composer === undefined ? defaultComposer : composer
 
   return (
-    <section className={cn('relative mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden', className)}>
+    <section
+      className={cn(
+        'relative mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden',
+        className
+      )}
+    >
       <ChatTranscript
         messages={messages}
         emptyState={emptyState}
@@ -97,9 +101,9 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     sessionState
   )
   const [selectedModelOverride, setSelectedModelOverride] = useState<string | undefined>(undefined)
-  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<AiChatThinkingLevel | undefined>(
-    undefined
-  )
+  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<
+    AiChatThinkingLevel | undefined
+  >(undefined)
 
   useEffect(() => {
     setLocalSessionState(sessionState)
