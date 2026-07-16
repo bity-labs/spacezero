@@ -1,4 +1,6 @@
 import { shell } from 'electron'
+
+import { createProjectsRepository } from '../../projects/main/projects.repository'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -8,6 +10,11 @@ import {
 } from './knowledge-base-files.service'
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
 import { createKnowledgeBaseService, type KnowledgeBaseService } from './knowledge-base.service'
+import {
+  createKnowledgeBaseProjectFolderHost,
+  createKnowledgeBaseProjectsService,
+  type KnowledgeBaseProjectsService
+} from './knowledge-base-projects.service'
 import {
   createKnowledgeBaseRecoveryService,
   type KnowledgeBaseRecoveryService
@@ -33,6 +40,7 @@ type KnowledgeBaseApplicationService = KnowledgeBaseService &
 let service: KnowledgeBaseApplicationService | undefined
 let syncCoordinator: KnowledgeBaseSyncCoordinator | undefined
 let syncScheduler: KnowledgeBaseSyncScheduler | undefined
+let projectsService: KnowledgeBaseProjectsService | undefined
 
 export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
   if (!service) {
@@ -61,6 +69,15 @@ export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
     }
   }
   return service
+}
+
+export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService {
+  projectsService ??= createKnowledgeBaseProjectsService({
+    configurationRepository: createKnowledgeBaseConfigurationRepository(),
+    projectsRepository: createProjectsRepository(),
+    host: createKnowledgeBaseProjectFolderHost()
+  })
+  return projectsService
 }
 
 export function getKnowledgeBaseSyncCoordinator(): KnowledgeBaseSyncCoordinator {

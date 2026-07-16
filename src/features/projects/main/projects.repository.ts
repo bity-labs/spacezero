@@ -22,7 +22,13 @@ export function createProjectsRepository(): ProjectsRepository {
     async update(project) {
       await getDatabase()
         .update(schema.projects)
-        .set({ name: project.name, path: project.path, updatedAt: project.updatedAt, archivedAt: project.archivedAt })
+        .set({
+          name: project.name,
+          path: project.path,
+          knowledgeBasePath: project.knowledgeBasePath,
+          updatedAt: project.updatedAt,
+          archivedAt: project.archivedAt
+        })
         .where(eq(schema.projects.id, project.id))
       return project
     },

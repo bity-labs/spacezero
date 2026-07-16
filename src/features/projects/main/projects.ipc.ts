@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { createEmptyProjectRequestSchema, updateProjectRequestSchema } from '../shared'
@@ -15,7 +16,9 @@ const projectIdRequestSchema = z.object({ projectId: z.string().trim().min(1) })
 
 const projectsService = createProjectsService({
   repository: createProjectsRepository(),
-  pathAdapter: createProjectPathAdapter()
+  pathAdapter: createProjectPathAdapter(),
+  linkKnowledgeBaseProject: (project) =>
+    getKnowledgeBaseProjectsService().linkProject(project)
 })
 
 const sessionsService = createSessionsService({

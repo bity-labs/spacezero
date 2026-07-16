@@ -2,6 +2,7 @@ export type Project = {
   id: string
   name: string
   path: string
+  knowledgeBasePath?: string
   createdAt: string
   updatedAt: string
 }
