@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   CalendarBlank,
   DotsSixVertical,
@@ -31,12 +31,11 @@ import {
   syncProjectSessionTabs,
   useProjectSessions,
   useSessionWorkspaceStore,
-  type SessionWorkspaceLayout,
-  type SessionWorkspacePanel,
+  useWorkspaceSessions,
+  WorkspaceSessionList,
   type SessionWorkspaceTab
 } from '../../features/sessions/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { type AiChatThinkingLevel } from './components/ai-chat'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
@@ -58,19 +57,6 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
   { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
-
-function createWorkspaceSession(): WorkspaceSession {
-  const now = new Date().toISOString()
-
-  return {
-    id: `workspace-session-${Date.now()}`,
-    kind: 'workspace',
-    title: 'Workspace Session',
-    status: 'idle',
-    createdAt: now,
-    updatedAt: now
-  }
-}
 
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
@@ -94,9 +80,9 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
-  const [debugThinkingLevel, setDebugThinkingLevel] = useState<AiChatThinkingLevel>('medium')
   const sessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.layout)
   const resetSessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.resetLayout)
   const openProjectSessionInWorkspace = useSessionWorkspaceStore(
@@ -105,7 +91,6 @@ export function WorkspaceShell(): React.JSX.Element {
   const openWorkspaceSessionInWorkspace = useSessionWorkspaceStore(
     (state) => state.openWorkspaceSession
   )
-  const focusSessionWorkspaceTab = useSessionWorkspaceStore((state) => state.focusTab)
   const {
     projects,
     activeProject,
@@ -114,15 +99,27 @@ export function WorkspaceShell(): React.JSX.Element {
     selectProject,
     createEmptyProject,
     addProjectFromFolder,
-    updateProject
+    updateProject,
+    archiveProject,
+    deleteProject
   } = useProjects()
+  const {
+    workspaceSessions,
+    status: workspaceSessionsStatus,
+    error: workspaceSessionsError,
+    upsertWorkspaceSession,
+    archiveWorkspaceSession,
+    deleteWorkspaceSession
+  } = useWorkspaceSessions()
   const {
     sessions,
     sessionsByProjectId,
     status: sessionsStatus,
     error: sessionsError,
     refreshSessions,
-    upsertProjectSession
+    upsertProjectSession,
+    archiveSession,
+    deleteSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
     () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
@@ -137,6 +134,22 @@ export function WorkspaceShell(): React.JSX.Element {
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
+
+  const openProjectSession = useCallback(
+    (session: ProjectSession) => openProjectSessionInWorkspace(session),
+    [openProjectSessionInWorkspace]
+  )
+
+  const openWorkspaceSession = useCallback(
+    (session: WorkspaceSession) => openWorkspaceSessionInWorkspace(session),
+    [openWorkspaceSessionInWorkspace]
+  )
+
+  const handleNewWorkspaceSession = useCallback(async (): Promise<void> => {
+    const session = await window.spacezero.agent.createWorkspaceSession()
+    upsertWorkspaceSession(session)
+    openWorkspaceSession(session)
+  }, [openWorkspaceSession, upsertWorkspaceSession])
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -159,13 +172,13 @@ export function WorkspaceShell(): React.JSX.Element {
         title: t('workspace.sidebar.newAgent'),
         category: t('appCommands.categories.workspace'),
         keywords: ['agent', 'global', 'workspace session'],
-        handler: () => openWorkspaceSessionInWorkspace(createWorkspaceSession())
+        handler: () => void handleNewWorkspaceSession()
       }
     ],
     [
       isLeftPanelOpen,
       isRightPanelOpen,
-      openWorkspaceSessionInWorkspace,
+      handleNewWorkspaceSession,
       t,
       toggleLeftPanel,
       toggleRightPanel
@@ -175,20 +188,13 @@ export function WorkspaceShell(): React.JSX.Element {
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
 
-  function openProjectSession(session: ProjectSession): void {
-    openProjectSessionInWorkspace(session)
-  }
-
-  function openWorkspaceSession(session: WorkspaceSession): void {
-    openWorkspaceSessionInWorkspace(session)
-  }
-
   async function handleNewSession(project: Project): Promise<void> {
     selectProject(project)
     const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
     const session: ProjectSession = {
       id: agentSession.sessionId,
-      projectId: agentSession.projectId,
+      kind: 'project',
+      projectId: agentSession.projectId ?? project.id,
       title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
       status: agentSession.status,
       createdAt: new Date().toISOString(),
@@ -203,6 +209,45 @@ export function WorkspaceShell(): React.JSX.Element {
     const sessionProject = projects.find((project) => project.id === session.projectId)
     if (sessionProject) selectProject(sessionProject)
     openProjectSession(session)
+  }
+
+  async function handleArchiveSession(sessionId: string): Promise<void> {
+    await archiveSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleDeleteSession(sessionId: string): Promise<void> {
+    if (!window.confirm('Delete this session permanently? This cannot be undone.')) return
+    await deleteSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleArchiveWorkspaceSession(sessionId: string): Promise<void> {
+    await archiveWorkspaceSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleDeleteWorkspaceSession(sessionId: string): Promise<void> {
+    if (!window.confirm('Delete this workspace session permanently? This cannot be undone.')) return
+    await deleteWorkspaceSession(sessionId)
+    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
+  }
+
+  async function handleArchiveProject(project: Project): Promise<void> {
+    await archiveProject(project.id)
+    await refreshSessions()
+    if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
+      resetSessionWorkspaceLayout()
+    }
+  }
+
+  async function handleDeleteProject(project: Project): Promise<void> {
+    if (!window.confirm(`Delete ${project.name} and all of its sessions permanently? This cannot be undone.`)) return
+    await deleteProject(project.id)
+    await refreshSessions()
+    if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
+      resetSessionWorkspaceLayout()
+    }
   }
 
   const gridTemplateColumns = [
@@ -298,7 +343,7 @@ export function WorkspaceShell(): React.JSX.Element {
                   icon={PaperPlaneTilt}
                   label={t('workspace.sidebar.newAgent')}
                   active={activeTab?.kind === 'workspace'}
-                  onClick={() => openWorkspaceSession(createWorkspaceSession())}
+                  onClick={() => void handleNewWorkspaceSession()}
                 />
                 <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
                 <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
@@ -308,7 +353,30 @@ export function WorkspaceShell(): React.JSX.Element {
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
             <SidebarGroup
-              className="mt-8 min-h-0 flex-1 overflow-hidden"
+              className="mt-8 shrink-0"
+              aria-label={t('sessions.workspaceList.sectionLabel')}
+            >
+              <SidebarSectionHeader
+                label={t('sessions.workspaceList.sectionLabel')}
+                expandable
+                expanded={isWorkspaceSessionsExpanded}
+                onToggle={() => setWorkspaceSessionsExpanded((expanded) => !expanded)}
+              />
+              {isWorkspaceSessionsExpanded ? (
+                <WorkspaceSessionList
+                  workspaceSessions={workspaceSessions}
+                  activeSessionId={activeWorkspaceSession?.id ?? null}
+                  status={workspaceSessionsStatus}
+                  error={workspaceSessionsError}
+                  onSelectSession={openWorkspaceSession}
+                  onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
+                  onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
+                />
+              ) : null}
+            </SidebarGroup>
+
+            <SidebarGroup
+              className="min-h-0 flex-1 overflow-hidden"
               aria-label={t('projects.sidebar.label')}
             >
               <SidebarSectionHeader
@@ -340,12 +408,16 @@ export function WorkspaceShell(): React.JSX.Element {
                       }
                     }}
                     onEditProject={setEditingProject}
+                    onArchiveProject={(project) => void handleArchiveProject(project)}
+                    onDeleteProject={(project) => void handleDeleteProject(project)}
                     sessionsByProjectId={sessionsByProjectId}
                     activeSessionId={activeProjectSession?.id ?? null}
                     sessionsStatus={sessionsStatus}
                     sessionsError={sessionsError}
                     onNewSession={(project) => void handleNewSession(project)}
                     onSelectSession={handleSelectSession}
+                    onArchiveSession={(session) => void handleArchiveSession(session.id)}
+                    onDeleteSession={(session) => void handleDeleteSession(session.id)}
                   />
                 </div>
               ) : null}
@@ -380,17 +452,14 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <section
           aria-label={t('workspace.mainLabel')}
-          className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
+          className="flex min-h-0 min-w-0 flex-col bg-background"
           role="main"
         >
-          {syncedSessionWorkspaceLayout.panels.length > 0 ? (
-            <SessionWorkspacePanels
-              layout={syncedSessionWorkspaceLayout}
+          {activeTab ? (
+            <SessionWorkspaceTabSurface
+              tab={activeTab}
               projects={projects}
               sessions={sessions}
-              thinkingLevel={debugThinkingLevel}
-              onThinkingChange={setDebugThinkingLevel}
-              onFocusTab={focusSessionWorkspaceTab}
             />
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
@@ -432,205 +501,35 @@ export function WorkspaceShell(): React.JSX.Element {
   )
 }
 
-function SessionWorkspacePanels({
-  layout,
-  projects,
-  sessions,
-  thinkingLevel,
-  onThinkingChange,
-  onFocusTab
-}: {
-  layout: SessionWorkspaceLayout
-  projects: Project[]
-  sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
-  onFocusTab: (panelId: string, tabId: string) => void
-}): React.JSX.Element {
-  return (
-    <div
-      className={cn(
-        'grid min-h-0 flex-1 gap-4',
-        layout.panels.length > 1 ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'
-      )}
-    >
-      {layout.panels.map((panel, index) => (
-        <SessionWorkspacePanelView
-          key={panel.id}
-          panel={panel}
-          panelIndex={index}
-          focused={layout.focusedPanelId === panel.id}
-          projects={projects}
-          sessions={sessions}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
-          onFocusTab={(tabId) => onFocusTab(panel.id, tabId)}
-        />
-      ))}
-    </div>
-  )
-}
-
-function SessionWorkspacePanelView({
-  panel,
-  panelIndex,
-  focused,
-  projects,
-  sessions,
-  thinkingLevel,
-  onThinkingChange,
-  onFocusTab
-}: {
-  panel: SessionWorkspacePanel
-  panelIndex: number
-  focused: boolean
-  projects: Project[]
-  sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
-  onFocusTab: (tabId: string) => void
-}): React.JSX.Element {
-  const activeTab = panel.tabs.find((tab) => tab.id === panel.activeTabId) ?? panel.tabs[0]
-  const tabPanelId = sessionPanelTabPanelId(panel.id)
-  const activeTabElementId = sessionPanelTabId(panel.id, activeTab.id)
-
-  function handleTabKeyDown(
-    tab: SessionWorkspaceTab,
-    event: KeyboardEvent<HTMLButtonElement>
-  ): void {
-    const currentIndex = panel.tabs.findIndex((candidate) => candidate.id === tab.id)
-    const lastIndex = panel.tabs.length - 1
-    const nextIndexByKey: Partial<Record<string, number>> = {
-      ArrowLeft: currentIndex === 0 ? lastIndex : currentIndex - 1,
-      ArrowRight: currentIndex === lastIndex ? 0 : currentIndex + 1,
-      Home: 0,
-      End: lastIndex
-    }
-    const nextIndex = nextIndexByKey[event.key]
-
-    if (nextIndex === undefined) return
-
-    event.preventDefault()
-    const nextTab = panel.tabs[nextIndex]
-    onFocusTab(nextTab.id)
-    document.getElementById(sessionPanelTabId(panel.id, nextTab.id))?.focus()
-  }
-
-  return (
-    <section
-      aria-label={`Session panel ${panelIndex + 1}`}
-      className={cn(
-        'flex min-h-0 flex-col overflow-hidden rounded-lg border bg-card',
-        focused ? 'ring-1 ring-ring' : null
-      )}
-    >
-      <div
-        className="flex shrink-0 items-center gap-1 border-b bg-muted/30 px-2 py-1"
-        role="tablist"
-      >
-        {panel.tabs.map((tab) => {
-          const selected = tab.id === activeTab.id
-          return (
-            <button
-              key={tab.id}
-              id={sessionPanelTabId(panel.id, tab.id)}
-              type="button"
-              aria-controls={tabPanelId}
-              aria-selected={selected}
-              className={cn(
-                'min-w-0 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-background hover:text-foreground',
-                selected ? 'bg-background text-foreground shadow-sm' : null
-              )}
-              role="tab"
-              tabIndex={selected ? 0 : -1}
-              onClick={() => onFocusTab(tab.id)}
-              onKeyDown={(event) => handleTabKeyDown(tab, event)}
-            >
-              <span className="truncate">{tab.title}</span>
-            </button>
-          )
-        })}
-      </div>
-      <div
-        id={tabPanelId}
-        aria-labelledby={activeTabElementId}
-        className="flex min-h-0 flex-1 flex-col"
-        role="tabpanel"
-      >
-        <SessionWorkspaceTabSurface
-          tab={activeTab}
-          projects={projects}
-          sessions={sessions}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
-        />
-      </div>
-    </section>
-  )
-}
-
-function sessionPanelTabId(panelId: string, tabId: string): string {
-  return `${panelId}-${tabId}-tab`
-}
-
-function sessionPanelTabPanelId(panelId: string): string {
-  return `${panelId}-tabpanel`
+function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | null {
+  if (!tab) return null
+  return tab.kind === 'project' ? tab.sessionId : tab.session.id
 }
 
 function SessionWorkspaceTabSurface({
   tab,
   projects,
   sessions,
-  thinkingLevel,
-  onThinkingChange
 }: {
   tab: SessionWorkspaceTab
   projects: Project[]
   sessions: ProjectSession[]
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }): React.JSX.Element {
   const session =
     tab.kind === 'project' ? (sessions.find((item) => item.id === tab.sessionId) ?? null) : null
   const project = session ? (projects.find((item) => item.id === session.projectId) ?? null) : null
-  const status = tab.kind === 'project' ? (session?.status ?? tab.status) : tab.session.status
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-4 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium">{tab.title}</h2>
-          <p className="text-xs text-muted-foreground">
-            {tab.kind === 'project' && project ? project.name : 'Workspace'} session
-          </p>
-        </div>
-        <div
-          aria-label={status === 'running' ? 'Running' : 'Idle'}
-          className={cn(
-            'rounded-full px-2 py-0.5 text-xs font-medium',
-            status === 'running'
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'bg-muted text-muted-foreground'
-          )}
-          role="status"
-        >
-          {status === 'running' ? 'Running' : 'Idle'}
-        </div>
-      </div>
       {tab.kind === 'workspace' ? (
         <WorkspaceSessionHostSurface
           key={tab.session.id}
           session={tab.session}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
         />
       ) : session && project ? (
         <ProjectSessionHostSurface
           key={session.id}
           project={project}
           session={session}
-          thinkingLevel={thinkingLevel}
-          onThinkingChange={onThinkingChange}
         />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">

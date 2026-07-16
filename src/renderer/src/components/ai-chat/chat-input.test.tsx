@@ -67,12 +67,16 @@ describe('ChatInput', () => {
     })
   })
 
-  it('disables input and submit while a turn is running', () => {
+  it('disables input and renders a stop button while a turn is running', () => {
     const handleSubmit = vi.fn()
-    render(<ChatInput status="streaming" onSubmit={handleSubmit} />)
+    const handleAbort = vi.fn()
+    render(<ChatInput status="streaming" onSubmit={handleSubmit} onAbort={handleAbort} />)
 
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop response' }))
+
+    expect(handleAbort).toHaveBeenCalledOnce()
+    expect(handleSubmit).not.toHaveBeenCalled()
   })
 
   it('renders thinking selection next to composer tools', () => {

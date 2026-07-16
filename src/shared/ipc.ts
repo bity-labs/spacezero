@@ -21,7 +21,8 @@ import type {
 } from '../features/projects/shared/project.model'
 import type {
   CreateProjectSessionRequest,
-  ProjectSession
+  ProjectSession,
+  WorkspaceSession
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 
@@ -37,15 +38,21 @@ export const IPC_CHANNELS = {
     list: 'projects:list',
     createEmpty: 'projects:createEmpty',
     addFromFolder: 'projects:addFromFolder',
-    update: 'projects:update'
+    update: 'projects:update',
+    archive: 'projects:archive',
+    delete: 'projects:delete'
   },
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
-    createProjectSession: 'sessions:createProjectSession'
+    listWorkspaceSessions: 'sessions:listWorkspaceSessions',
+    createProjectSession: 'sessions:createProjectSession',
+    archive: 'sessions:archive',
+    delete: 'sessions:delete'
   },
   agent: {
     ping: 'agent:ping',
     createSession: 'agent:createSession',
+    createWorkspaceSession: 'agent:createWorkspaceSession',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
     prompt: 'agent:prompt',
@@ -101,14 +108,20 @@ export type SpaceZeroAPI = {
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
     addFromFolder: () => Promise<Project | null>
     update: (request: UpdateProjectRequest) => Promise<Project>
+    archive: (request: { projectId: string }) => Promise<void>
+    delete: (request: { projectId: string }) => Promise<void>
   }
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
+    listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+    archive: (request: { sessionId: string }) => Promise<void>
+    delete: (request: { sessionId: string }) => Promise<void>
   }
   agent: {
     ping: () => Promise<AgentPingResponse>
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
+    createWorkspaceSession: () => Promise<WorkspaceSession>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     prompt: (request: { sessionId: string; message: string }) => Promise<void>

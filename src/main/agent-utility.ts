@@ -25,7 +25,11 @@ import {
   createExecuteWorkspaceToolCommand
 } from '../shared/agent-protocol'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
-import type { AgentAssistantMessage, AgentSessionProjectionEvent } from '../shared/agent-session-projection.model'
+import type {
+  AgentAssistantMessage,
+  AgentSessionProjectionEvent,
+  AgentTranscriptMessage
+} from '../shared/agent-session-projection.model'
 import type { SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../shared/workspace-tool-protocol'
 
@@ -291,6 +295,41 @@ async function handleCommand(
   }
 }
 
+function toAssistantProjectionMessage(
+  message: AgentTranscriptMessage | undefined
+): AgentAssistantMessage | undefined {
+  return message?.role === 'assistant' && 'content' in message && Array.isArray(message.content)
+    ? (message as AgentAssistantMessage)
+    : undefined
+}
+
+function createEmptyAssistantMessage(): AgentAssistantMessage {
+  return {
+    role: 'assistant',
+    content: [],
+    timestamp: Date.now()
+  }
+}
+
+function appendTextDelta(message: AgentAssistantMessage, delta: string): AgentAssistantMessage {
+  const existingTextIndex = message.content.findIndex((part) => part.type === 'text')
+  if (existingTextIndex === -1) {
+    return {
+      ...message,
+      content: [...message.content, { type: 'text', text: delta }]
+    }
+  }
+
+  return {
+    ...message,
+    content: message.content.map((part, index) =>
+      index === existingTextIndex && part.type === 'text'
+        ? { ...part, text: `${part.text}${delta}` }
+        : part
+    )
+  }
+}
+
 function getMaxLiveSessions(): number | undefined {
   const rawValue = process.env.SPACEZERO_AGENT_MAX_LIVE_SESSIONS
   if (!rawValue) return undefined
@@ -340,38 +379,29 @@ function attachAgentPort(port: MessagePortMain): void {
     }
 
     if (event.type === 'message_start') {
-      const message: AgentAssistantMessage = {
-        role: 'assistant',
-        content: [],
-        timestamp: Date.now()
-      }
+      const message = toAssistantProjectionMessage(event.message) ?? createEmptyAssistantMessage()
       assistantMessagesBySessionId.set(event.sessionId, message)
       emitProjectionEvent({ type: 'message_start', sessionId: event.sessionId, message })
       return
     }
 
     if (event.type === 'message_update') {
-      const existing = assistantMessagesBySessionId.get(event.sessionId) ?? {
-        role: 'assistant',
-        content: [],
-        timestamp: Date.now()
-      }
-      const currentText = existing.content.find((part) => part.type === 'text')?.text ?? ''
-      const message: AgentAssistantMessage = {
-        ...existing,
-        content: [{ type: 'text', text: `${currentText}${event.delta ?? ''}` }]
-      }
+      const message =
+        toAssistantProjectionMessage(event.message) ??
+        appendTextDelta(
+          assistantMessagesBySessionId.get(event.sessionId) ?? createEmptyAssistantMessage(),
+          event.delta ?? ''
+        )
       assistantMessagesBySessionId.set(event.sessionId, message)
       emitProjectionEvent({ type: 'message_update', sessionId: event.sessionId, message })
       return
     }
 
     if (event.type === 'message_end') {
-      const message = assistantMessagesBySessionId.get(event.sessionId) ?? {
-        role: 'assistant',
-        content: [],
-        timestamp: Date.now()
-      }
+      const message =
+        toAssistantProjectionMessage(event.message) ??
+        assistantMessagesBySessionId.get(event.sessionId) ??
+        createEmptyAssistantMessage()
       assistantMessagesBySessionId.delete(event.sessionId)
       emitProjectionEvent({ type: 'message_end', sessionId: event.sessionId, message })
     }

@@ -116,7 +116,10 @@ export function createPiAgentRuntime({
         ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
         : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
       thinkingLevel: request.thinkingLevel,
-      tools: [...PROJECT_TOOL_NAMES, ...customTools.map((tool) => tool.name)],
+      tools: [
+        ...(request.kind === 'workspace' ? [] : PROJECT_TOOL_NAMES),
+        ...customTools.map((tool) => tool.name)
+      ],
       customTools,
       sessionManager,
       authStorage,
@@ -124,7 +127,7 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session, modelRegistry)
+    return adaptAgentSession(session, modelRegistry, request.thinkingLevel)
   }
 
   return {
@@ -363,7 +366,13 @@ function createWorkspaceToolProxies({
   )
 }
 
-function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry): CreatedPiAgentSession {
+function adaptAgentSession(
+  session: AgentSession,
+  modelRegistry: ModelRegistry,
+  initialThinkingLevel?: ThinkingLevel
+): CreatedPiAgentSession {
+  let preferredThinkingLevel = initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
+
   return {
     sessionId: session.sessionId,
     sessionFile: session.sessionFile,
@@ -377,16 +386,20 @@ function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry):
       return session.model?.id ?? FAUX_MODEL_ID
     },
     get thinkingLevel() {
-      return session.thinkingLevel as ThinkingLevel | undefined
+      return preferredThinkingLevel
     },
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
+      if (preferredThinkingLevel) session.setThinkingLevel(preferredThinkingLevel)
     },
-    setThinkingLevel: (level) => session.setThinkingLevel(level),
+    setThinkingLevel: (level) => {
+      preferredThinkingLevel = level
+      session.setThinkingLevel(level)
+    },
     prompt: (message) => session.prompt(message),
     abort: () => session.abort(),
     subscribe: (listener) => session.subscribe((event) => {
-      const streamingEvent = toStreamingEvent(session.sessionId, event)
+      const streamingEvent = toAgentStreamingEvent(session.sessionId, event)
       if (streamingEvent) listener(streamingEvent)
     }),
     dispose: () => session.dispose(),
@@ -498,26 +511,36 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function toStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
+export function toAgentStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
   if (event.type === 'agent_start' || event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'agent_end') {
     return { type: event.type, sessionId }
   }
 
   if (event.type === 'message_start' || event.type === 'message_end') {
-    return { type: event.type, sessionId, messageId: getMessageId(event.message) }
+    return {
+      type: event.type,
+      sessionId,
+      messageId: getMessageId(event.message),
+      message: toTranscriptMessage(event.message)[0]
+    }
   }
 
   if (event.type === 'message_update') {
+    const message = toTranscriptMessage(event.message)[0]
     const assistantMessageEvent = event.assistantMessageEvent as { type?: string; delta?: unknown } | undefined
-    if (assistantMessageEvent?.type !== 'text_delta' || typeof assistantMessageEvent.delta !== 'string') {
-      return undefined
-    }
+    const delta =
+      assistantMessageEvent?.type === 'text_delta' && typeof assistantMessageEvent.delta === 'string'
+        ? assistantMessageEvent.delta
+        : undefined
+
+    if (!message && delta === undefined) return undefined
 
     return {
       type: 'message_update',
       sessionId,
       messageId: getMessageId(event.message),
-      delta: assistantMessageEvent.delta
+      ...(delta !== undefined ? { delta } : {}),
+      ...(message ? { message } : {})
     }
   }
 

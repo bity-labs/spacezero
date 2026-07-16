@@ -1,6 +1,6 @@
 import { nanoid } from 'nanoid'
 
-import type { CreateProjectSessionRequest, ProjectSession, SessionStatus } from '../shared'
+import type { CreateProjectSessionRequest, ProjectSession, SessionStatus, WorkspaceSession } from '../shared'
 
 export type StoredSession = {
   id: string
@@ -10,6 +10,7 @@ export type StoredSession = {
   createdAt: Date
   updatedAt: Date
   transcriptPath?: string | null
+  archivedAt?: Date | null
 }
 
 export type CreateProjectAgentSessionRequest = {
@@ -18,20 +19,39 @@ export type CreateProjectAgentSessionRequest = {
   transcriptPath?: string
 }
 
+export type CreateWorkspaceAgentSessionRequest = {
+  id: string
+  transcriptPath?: string
+}
+
 export type SessionsRepository = {
   listProjectSessions: () => Promise<StoredSession[]>
+  listWorkspaceSessions: () => Promise<StoredSession[]>
   create: (session: StoredSession) => Promise<StoredSession>
   countByProjectId: (projectId: string) => Promise<number>
+  countWorkspaceSessions: () => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
   findProjectById: (projectId: string) => Promise<{ id: string; path: string } | undefined>
+  findSessionById: (sessionId: string) => Promise<StoredSession | undefined>
+  update: (session: StoredSession) => Promise<StoredSession>
+  deleteById: (sessionId: string) => Promise<void>
+  listByProjectIdIncludingArchived: (projectId: string) => Promise<StoredSession[]>
+  updateMany: (sessions: StoredSession[]) => Promise<StoredSession[]>
+  deleteByProjectId: (projectId: string) => Promise<void>
 }
 
 export type Clock = () => Date
 
 export type SessionsService = {
   listProjectSessions: () => Promise<ProjectSession[]>
+  listWorkspaceSessions: () => Promise<WorkspaceSession[]>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
+  createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
+  archiveSession: (sessionId: string) => Promise<void>
+  deleteSession: (sessionId: string) => Promise<StoredSession>
+  archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
+  deleteProjectSessions: (projectId: string) => Promise<StoredSession[]>
 }
 
 export function createSessionsService({
@@ -44,6 +64,10 @@ export function createSessionsService({
   return {
     async listProjectSessions() {
       return (await repository.listProjectSessions()).map(toProjectSession)
+    },
+
+    async listWorkspaceSessions() {
+      return (await repository.listWorkspaceSessions()).map(toWorkspaceSession)
     },
 
     async createProjectSession(request) {
@@ -85,6 +109,51 @@ export function createSessionsService({
           transcriptPath: request.transcriptPath
         })
       )
+    },
+
+    async createWorkspaceAgentSession(request) {
+      const timestamp = now()
+      const title = `Workspace Session ${(await repository.countWorkspaceSessions()) + 1}`
+
+      return toWorkspaceSession(
+        await repository.create({
+          id: request.id.trim(),
+          projectId: null,
+          title,
+          status: 'idle',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          transcriptPath: request.transcriptPath
+        })
+      )
+    },
+
+    async archiveSession(sessionId) {
+      const session = await repository.findSessionById(sessionId.trim())
+      if (!session) throw new Error('Session not found')
+      await repository.update({ ...session, archivedAt: now(), updatedAt: now() })
+    },
+
+    async deleteSession(sessionId) {
+      const session = await repository.findSessionById(sessionId.trim())
+      if (!session) throw new Error('Session not found')
+      await repository.deleteById(session.id)
+      return session
+    },
+
+    async archiveProjectSessions(projectId) {
+      const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
+      const timestamp = now()
+      await repository.updateMany(
+        sessions.map((session) => ({ ...session, archivedAt: session.archivedAt ?? timestamp, updatedAt: timestamp }))
+      )
+      return sessions
+    },
+
+    async deleteProjectSessions(projectId) {
+      const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
+      await repository.deleteByProjectId(projectId.trim())
+      return sessions
     }
   }
 }
@@ -100,7 +169,21 @@ function toProjectSession(session: StoredSession): ProjectSession {
 
   return {
     id: session.id,
+    kind: 'project',
     projectId: session.projectId,
+    title: session.title,
+    status: session.status,
+    createdAt: session.createdAt.toISOString(),
+    updatedAt: session.updatedAt.toISOString()
+  }
+}
+
+function toWorkspaceSession(session: StoredSession): WorkspaceSession {
+  if (session.projectId) throw new Error('Workspace session must not have a project')
+
+  return {
+    id: session.id,
+    kind: 'workspace',
     title: session.title,
     status: session.status,
     createdAt: session.createdAt.toISOString(),

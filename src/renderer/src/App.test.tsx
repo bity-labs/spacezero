@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import type { ProjectSession } from '../../features/sessions/shared'
+import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
 import { App } from './App'
@@ -157,7 +157,8 @@ describe('App', () => {
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
     expect(await screen.findByText('Ask the agent to work on this project. Streamed replies appear here.')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
 
     rendered.unmount()
@@ -168,7 +169,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
   })
 
-  it('opens one focused AgentChat for the selected project session', async () => {
+  it('replaces the active project session when another project session is selected', async () => {
     const projects = [
       {
         id: 'project-1',
@@ -222,15 +223,15 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
-    expect(
-      screen.getAllByText('Ask the agent to work on this project. Streamed replies appear here.').length
-    ).toBeGreaterThan(0)
-    expect(screen.getAllByRole('tablist')).toHaveLength(2)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
   })
 
-  it('shows concurrent session panels with tab focus that preserves independent live states', async () => {
+  it('replaces the active session instead of opening side-by-side panels or tabs', async () => {
     const projects = [
       {
         id: 'project-1',
@@ -275,43 +276,120 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
     fireEvent.click(screen.getByRole('button', { name: /Session 3/ }))
 
-    expect(screen.getAllByRole('tablist')).toHaveLength(2)
-    expect(screen.getAllByRole('tabpanel')).toHaveLength(2)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Session 3' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getAllByRole('status', { name: 'Running' }).length).toBeGreaterThan(0)
-    expect(screen.getAllByRole('status', { name: 'Idle' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Session 3' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 3' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute('placeholder', 'Message Space Zero / Session 3…')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 3')
+  })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Session 2' }))
+  it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
+    const workspaceSessions: WorkspaceSession[] = [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    const projects = [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    const projectSessions: ProjectSession[] = [
+      {
+        id: 'project-session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Project Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.listWorkspaceSessions = async () => workspaceSessions
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.sessions.listProjectSessions = async () => projectSessions
 
-    const sessionTwoTab = screen.getByRole('tab', { name: 'Session 2' })
-    const sessionTwoPanel = screen.getByRole('tabpanel', { name: 'Session 2' })
-    expect(sessionTwoTab).toHaveAttribute('aria-selected', 'true')
-    expect(sessionTwoTab).toHaveAttribute('aria-controls', sessionTwoPanel.id)
-    expect(sessionTwoPanel).toHaveAttribute('aria-labelledby', sessionTwoTab.id)
-    expect(screen.getByRole('tab', { name: 'Session 1' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getAllByRole('status', { name: 'Running' }).length).toBeGreaterThan(0)
+    render(<App />)
 
-    fireEvent.keyDown(sessionTwoTab, { key: 'ArrowRight' })
+    expect(await screen.findByText('Workspace Sessions')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
+    expect(screen.getByText('Projects')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Project Session 1/ })).not.toBeInTheDocument()
 
-    expect(screen.getByRole('tab', { name: 'Session 3' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tabpanel', { name: 'Session 3' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Space Zero' }))
+
+    expect(await screen.findByRole('button', { name: /Project Session 1/ })).toBeInTheDocument()
+  })
+
+  it('opens a persisted workspace session from the sidebar', async () => {
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+
+    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
+    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session 1'
+    )
   })
 
   it('opens a global Workspace Session without selecting a project', async () => {
+    let createWorkspaceSessionCalls = 0
+    window.spacezero.agent.createWorkspaceSession = async () => {
+      createWorkspaceSessionCalls += 1
+      return {
+        id: 'workspace-session-real',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    }
+
     render(<App />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
 
-    expect(screen.getAllByText('Workspace Session').length).toBeGreaterThan(0)
-    expect(
-      screen.getByText(
-        'Workspace Session host for the global Space Zero agent. This surface does not require a project, cwd, or repository path.'
-      )
-    ).toBeInTheDocument()
-    expect(screen.getByText('workspace.getStatus.preview')).toBeInTheDocument()
+    await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
+    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
+    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
+    expect(screen.queryByText(/Workspace Session host for the global/)).not.toBeInTheDocument()
+    expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session'
+      'WorkspaceWorkspace Session 1'
     )
     expect(screen.queryByText('Project ID')).not.toBeInTheDocument()
     expect(screen.queryByText('Working directory')).not.toBeInTheDocument()

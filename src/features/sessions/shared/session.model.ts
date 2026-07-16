@@ -2,6 +2,7 @@ export type SessionStatus = 'idle' | 'running' | 'completed' | 'failed'
 
 export type ProjectSession = {
   id: string
+  kind?: 'project'
   projectId: string
   title: string
   status: SessionStatus

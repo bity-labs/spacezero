@@ -81,6 +81,7 @@ export const Reasoning = memo(
     })
 
     const hasEverStreamedRef = useRef(isStreaming)
+    const previousIsStreamingRef = useRef(isStreaming)
     const hasUserToggledRef = useRef(false)
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
     const startTimeRef = useRef<number | null>(null)
@@ -105,9 +106,13 @@ export const Reasoning = memo(
       }
     }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed])
 
-    // Auto-close when streaming ends (once only, and only if it ever streamed)
+    // Auto-close only on the streaming -> complete transition. If completed thinking
+    // was collapsed, a later user-opened card should stay open.
     useEffect(() => {
-      if (hasEverStreamedRef.current && !isStreaming && isOpen && !hasAutoClosed) {
+      const didJustFinishStreaming = previousIsStreamingRef.current && !isStreaming
+      previousIsStreamingRef.current = isStreaming
+
+      if (didJustFinishStreaming && isOpen && !hasAutoClosed) {
         const timer = setTimeout(() => {
           setIsOpen(false)
           setHasAutoClosed(true)
