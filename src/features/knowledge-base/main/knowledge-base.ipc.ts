@@ -3,7 +3,8 @@ import { ipcMain } from 'electron'
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   cloneKnowledgeBaseRequestSchema,
-  knowledgeBasePathRequestSchema
+  knowledgeBasePathRequestSchema,
+  searchKnowledgeBaseRequestSchema
 } from '../shared'
 import { getKnowledgeBaseService } from './index'
 
@@ -22,5 +23,8 @@ export function registerKnowledgeBaseIpc(): void {
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.openDocument, (_event, input: unknown) =>
     getKnowledgeBaseService().openDocument(knowledgeBasePathRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.search, (_event, input: unknown) =>
+    getKnowledgeBaseService().search(searchKnowledgeBaseRequestSchema.parse(input))
   )
 }

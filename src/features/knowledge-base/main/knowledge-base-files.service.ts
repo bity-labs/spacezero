@@ -4,6 +4,7 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep, win32 } fr
 
 import type {
   KnowledgeBaseDocument,
+  KnowledgeBaseSearchResult,
   KnowledgeBaseTreeItem
 } from '../shared/knowledge-base.model'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
@@ -33,6 +34,7 @@ const TEXT_EXTENSIONS = new Set([
 export type KnowledgeBaseFilesService = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
+  search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
 }
 
 export function createKnowledgeBaseFilesService({
@@ -76,6 +78,14 @@ export function createKnowledgeBaseFilesService({
       return contentKind === 'binary'
         ? { ...baseDocument, contentKind, content: undefined }
         : { ...baseDocument, contentKind, content: content.toString('utf8') }
+    },
+
+    async search(request) {
+      const query = request.query.trim()
+      if (!query) return []
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const canonicalRoot = await realpath(rootPath)
+      return searchDirectory(canonicalRoot, '', query.toLowerCase())
     }
   }
 }
@@ -156,6 +166,65 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
     if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1
     return left.name.localeCompare(right.name)
   })
+}
+
+async function searchDirectory(
+  rootPath: string,
+  relativeDirectory: string,
+  normalizedQuery: string
+): Promise<KnowledgeBaseSearchResult[]> {
+  const directoryPath = relativeDirectory
+    ? join(rootPath, ...relativeDirectory.split('/'))
+    : rootPath
+  const entries = await readdir(directoryPath, { withFileTypes: true })
+  const results: KnowledgeBaseSearchResult[] = []
+
+  for (const entry of entries) {
+    if (entry.name === '.git' || entry.isSymbolicLink()) continue
+    const relativePath = relativeDirectory
+      ? `${relativeDirectory}/${entry.name}`
+      : entry.name
+    const absolutePath = join(directoryPath, entry.name)
+
+    if (entry.isDirectory()) {
+      results.push(...(await searchDirectory(rootPath, relativePath, normalizedQuery)))
+      continue
+    }
+    if (!entry.isFile()) continue
+
+    const details = await lstat(absolutePath)
+    if (details.size > MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES) continue
+    const content = await readFile(absolutePath)
+    if (detectContentKind(relativePath, content) === 'binary') continue
+
+    const text = content.toString('utf8')
+    const contentIndex = text.toLowerCase().indexOf(normalizedQuery)
+    if (contentIndex >= 0) {
+      results.push({
+        name: entry.name,
+        relativePath,
+        matchType: 'content',
+        snippet: createSearchSnippet(text, contentIndex, normalizedQuery.length)
+      })
+    } else if (entry.name.toLowerCase().includes(normalizedQuery)) {
+      results.push({ name: entry.name, relativePath, matchType: 'filename' })
+    }
+  }
+
+  return results.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
+}
+
+function createSearchSnippet(text: string, matchIndex: number, queryLength: number): string {
+  const lineStart = text.lastIndexOf('\n', matchIndex - 1) + 1
+  const nextLineBreak = text.indexOf('\n', matchIndex + queryLength)
+  const lineEnd = nextLineBreak === -1 ? text.length : nextLineBreak
+  const line = text.slice(lineStart, lineEnd).trim()
+  if (line.length <= 180) return line
+
+  const indexInLine = matchIndex - lineStart
+  const start = Math.max(0, indexInLine - 70)
+  const end = Math.min(line.length, indexInLine + queryLength + 70)
+  return `${start > 0 ? '…' : ''}${line.slice(start, end)}${end < line.length ? '…' : ''}`
 }
 
 function detectContentKind(

@@ -1,11 +1,14 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
-import { createKnowledgeBaseFilesService } from './knowledge-base-files.service'
+import {
+  MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES,
+  createKnowledgeBaseFilesService
+} from './knowledge-base-files.service'
 
 const temporaryDirectories: string[] = []
 
@@ -21,6 +24,11 @@ async function createFixture(): Promise<{ rootPath: string; outsidePath: string 
   await writeFile(join(rootPath, 'docs', 'note.md'), '# Durable note\n')
   await writeFile(join(rootPath, 'settings.json'), '{"theme":"dark"}\n')
   await writeFile(join(rootPath, 'diagram.png'), Buffer.from([0, 1, 2, 3]))
+  await writeFile(join(rootPath, 'secret-keyword.png'), Buffer.from([0, 1, 2, 3]))
+  await writeFile(
+    join(rootPath, 'huge-keyword.txt'),
+    Buffer.alloc(MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES + 1, 'a')
+  )
   await writeFile(outsidePath, 'outside')
 
   return { rootPath, outsidePath }
@@ -55,6 +63,8 @@ describe('createKnowledgeBaseFilesService', () => {
     expect(tree.map((item) => item.relativePath)).toEqual([
       'docs',
       'diagram.png',
+      'huge-keyword.txt',
+      'secret-keyword.png',
       'settings.json'
     ])
     expect(tree.find((item) => item.relativePath === 'docs')?.children).toEqual([
@@ -93,6 +103,39 @@ describe('createKnowledgeBaseFilesService', () => {
       size: 4,
       content: undefined
     })
+  })
+
+  it('searches filenames and text content with useful snippets on demand', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(service.search({ query: 'settings' })).resolves.toEqual([
+      expect.objectContaining({
+        relativePath: 'settings.json',
+        matchType: 'filename'
+      })
+    ])
+    await expect(service.search({ query: 'durable' })).resolves.toEqual([
+      expect.objectContaining({
+        relativePath: 'docs/note.md',
+        matchType: 'content',
+        snippet: '# Durable note'
+      })
+    ])
+  })
+
+  it('skips Git internals, binary files, oversized files, and creates no search index', async () => {
+    const { rootPath } = await createFixture()
+    await writeFile(join(rootPath, '.git', 'keyword-note.txt'), 'keyword')
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const entriesBeforeSearch = await readdir(rootPath)
+
+    await expect(service.search({ query: 'keyword' })).resolves.toEqual([])
+    expect(await readdir(rootPath)).toEqual(entriesBeforeSearch)
   })
 
   it('rejects traversal, Git internals, absolute paths, and symlinks that can escape the root', async () => {

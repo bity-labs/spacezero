@@ -75,7 +75,8 @@ beforeEach(async () => {
         size: 0,
         modifiedAt: new Date(0).toISOString(),
         content: ''
-      })
+      }),
+      search: async () => []
     },
     projects: {
       list: async () => [],

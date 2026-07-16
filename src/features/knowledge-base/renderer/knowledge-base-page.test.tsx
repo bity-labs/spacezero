@@ -128,6 +128,41 @@ describe('KnowledgeBasePage', () => {
     expect(screen.getByText('1 KB')).toBeInTheDocument()
   })
 
+  it('searches filenames and content and opens a result', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => []
+    window.spacezero.knowledgeBase.search = vi.fn(async () => [
+      {
+        name: 'decision.md',
+        relativePath: 'architecture/decision.md',
+        matchType: 'content' as const,
+        snippet: 'The durable architecture decision uses typed IPC.'
+      }
+    ])
+    window.spacezero.knowledgeBase.openDocument = async ({ relativePath }) => ({
+      name: 'decision.md',
+      relativePath,
+      contentKind: 'markdown',
+      size: 49,
+      modifiedAt: new Date(0).toISOString(),
+      content: '# Architecture decision'
+    })
+
+    render(<KnowledgeBasePage />)
+    fireEvent.change(await screen.findByLabelText('Search Knowledge Base'), {
+      target: { value: 'durable' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    expect(await screen.findByText('architecture/decision.md')).toBeInTheDocument()
+    expect(screen.getByText(/durable architecture decision/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /architecture\/decision.md/ }))
+    expect(await screen.findByText('# Architecture decision')).toBeInTheDocument()
+  })
+
   it('surfaces folder collisions without pretending setup succeeded', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     window.spacezero.knowledgeBase.createNew = async () => {

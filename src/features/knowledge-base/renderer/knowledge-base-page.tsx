@@ -5,6 +5,7 @@ import {
   File,
   Folder,
   GitBranch,
+  MagnifyingGlass,
   Plus
 } from '@phosphor-icons/react'
 
@@ -14,6 +15,7 @@ import { Card } from '@renderer/components/ui/card'
 import { Input } from '@renderer/components/ui/input'
 import type {
   KnowledgeBaseDocument,
+  KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
   KnowledgeBaseTreeItem
 } from '../shared'
@@ -163,6 +165,9 @@ function ConfiguredKnowledgeBase({
   const [document, setDocument] = useState<KnowledgeBaseDocument | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<KnowledgeBaseSearchResult[] | null>(null)
+  const [searching, setSearching] = useState(false)
 
   useEffect(() => {
     let current = true
@@ -191,6 +196,23 @@ function ConfiguredKnowledgeBase({
     }
   }
 
+  async function search(): Promise<void> {
+    const query = searchQuery.trim()
+    if (!query) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    setError(null)
+    try {
+      setSearchResults(await window.spacezero.knowledgeBase.search({ query }))
+    } catch (searchError) {
+      setError(getErrorMessage(searchError, 'Unable to search the Knowledge Base.'))
+    } finally {
+      setSearching(false)
+    }
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-3 border-b px-6 py-4">
@@ -199,6 +221,24 @@ function ConfiguredKnowledgeBase({
           <h1 className="text-lg font-semibold">Knowledge Base</h1>
           <p className="truncate text-xs text-muted-foreground">{status.rootPath}</p>
         </div>
+        <form
+          className="ml-auto flex w-full max-w-sm items-center gap-2"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void search()
+          }}
+        >
+          <Input
+            value={searchQuery}
+            aria-label="Search Knowledge Base"
+            placeholder="Search files and content"
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+          <Button type="submit" variant="outline" disabled={!searchQuery.trim() || searching}>
+            <MagnifyingGlass className="size-4" aria-hidden="true" />
+            Search
+          </Button>
+        </form>
       </header>
 
       {error ? (
@@ -209,6 +249,39 @@ function ConfiguredKnowledgeBase({
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(180px,260px)_minmax(0,1fr)]">
         <aside className="min-h-0 overflow-auto border-r p-3">
+          {searchResults ? (
+            <section aria-label="Knowledge Base search results" className="mb-3 border-b pb-3">
+              <div className="mb-2 flex items-center justify-between px-2">
+                <h2 className="text-xs font-medium text-muted-foreground">Search results</h2>
+                <Button variant="ghost" size="xs" onClick={() => setSearchResults(null)}>
+                  Clear
+                </Button>
+              </div>
+              {searchResults.length === 0 ? (
+                <p className="px-2 py-2 text-xs text-muted-foreground">No matches found.</p>
+              ) : (
+                <div className="space-y-1">
+                  {searchResults.map((result) => (
+                    <button
+                      key={result.relativePath}
+                      type="button"
+                      className="w-full rounded-md px-2 py-2 text-left hover:bg-muted"
+                      onClick={() => void openDocument(result.relativePath)}
+                    >
+                      <span className="block truncate text-xs font-medium">
+                        {result.relativePath}
+                      </span>
+                      {result.snippet ? (
+                        <span className="mt-1 block line-clamp-2 text-xs text-muted-foreground">
+                          {result.snippet}
+                        </span>
+                      ) : null}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
           <div role="tree" aria-label="Knowledge Base files" className="space-y-0.5">
             {loading ? (
               <p className="px-2 py-3 text-xs text-muted-foreground">Loading files…</p>
