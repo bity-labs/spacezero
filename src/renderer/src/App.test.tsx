@@ -224,7 +224,7 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
-    expect(screen.getByRole('heading', { name: 'Session 2' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
@@ -281,9 +281,10 @@ describe('App', () => {
     expect(screen.queryByRole('tab', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Session 3' })).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Session 3' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session 3' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute('placeholder', 'Message Space Zero / Session 3…')
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 3')
   })
 
@@ -350,7 +351,8 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
 
-    expect(await screen.findByRole('heading', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
@@ -378,7 +380,8 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
 
     await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
-    expect(await screen.findByRole('heading', { name: 'Workspace Session 1' })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()

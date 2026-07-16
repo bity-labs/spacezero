@@ -452,20 +452,15 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <section
           aria-label={t('workspace.mainLabel')}
-          className="flex min-h-0 min-w-0 flex-col gap-4 bg-background p-4"
+          className="flex min-h-0 min-w-0 flex-col bg-background"
           role="main"
         >
           {activeTab ? (
-            <section
-              aria-label="Active session"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card"
-            >
-              <SessionWorkspaceTabSurface
-                tab={activeTab}
-                projects={projects}
-                sessions={sessions}
-              />
-            </section>
+            <SessionWorkspaceTabSurface
+              tab={activeTab}
+              projects={projects}
+              sessions={sessions}
+            />
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
               <div>
@@ -523,30 +518,8 @@ function SessionWorkspaceTabSurface({
   const session =
     tab.kind === 'project' ? (sessions.find((item) => item.id === tab.sessionId) ?? null) : null
   const project = session ? (projects.find((item) => item.id === session.projectId) ?? null) : null
-  const status = tab.kind === 'project' ? (session?.status ?? tab.status) : tab.session.status
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 items-center justify-between border-b px-4 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium">{tab.title}</h2>
-          <p className="text-xs text-muted-foreground">
-            {tab.kind === 'project' && project ? project.name : 'Workspace'} session
-          </p>
-        </div>
-        <div
-          aria-label={status === 'running' ? 'Running' : 'Idle'}
-          className={cn(
-            'rounded-full px-2 py-0.5 text-xs font-medium',
-            status === 'running'
-              ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-              : 'bg-muted text-muted-foreground'
-          )}
-          role="status"
-        >
-          {status === 'running' ? 'Running' : 'Idle'}
-        </div>
-      </div>
       {tab.kind === 'workspace' ? (
         <WorkspaceSessionHostSurface
           key={tab.session.id}

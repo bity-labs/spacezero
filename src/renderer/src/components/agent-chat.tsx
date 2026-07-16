@@ -68,19 +68,24 @@ export function AgentChat({
       onAbort={onAbort}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
+      className="rounded-2xl border border-border/70 bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
     />
   )
   const composerContent = composer === undefined ? defaultComposer : composer
 
   return (
-    <section className={cn('flex min-h-0 flex-1 flex-col overflow-hidden', className)}>
+    <section className={cn('relative mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden', className)}>
       <ChatTranscript
         messages={messages}
         emptyState={emptyState}
         contentClassName={contentClassName}
         onToolConfirmationResolve={onToolConfirmationResolve}
       />
-      {composerContent ? <div className="border-t p-4">{composerContent}</div> : null}
+      {composerContent ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/95 to-transparent px-6 pb-6 pt-16">
+          <div className="pointer-events-auto w-full">{composerContent}</div>
+        </div>
+      ) : null}
     </section>
   )
 }
