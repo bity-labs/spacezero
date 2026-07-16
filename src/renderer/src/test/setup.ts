@@ -66,6 +66,15 @@ beforeEach(async () => {
       cloneFromGit: async () => ({
         setupState: 'configured',
         rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getTree: async () => [],
+      openDocument: async ({ relativePath }) => ({
+        name: relativePath.split('/').at(-1) ?? relativePath,
+        relativePath,
+        contentKind: 'text',
+        size: 0,
+        modifiedAt: new Date(0).toISOString(),
+        content: ''
       })
     },
     projects: {

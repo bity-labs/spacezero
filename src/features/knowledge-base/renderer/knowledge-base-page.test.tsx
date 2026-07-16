@@ -64,6 +64,70 @@ describe('KnowledgeBasePage', () => {
     expect(screen.getByLabelText('Git repository URL')).toBeInTheDocument()
   })
 
+  it('browses folders and opens text and unsupported files', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'docs',
+        relativePath: 'docs',
+        kind: 'folder',
+        contentKind: 'folder',
+        children: [
+          {
+            name: 'note.md',
+            relativePath: 'docs/note.md',
+            kind: 'file',
+            contentKind: 'markdown',
+            size: 15,
+            modifiedAt: new Date(0).toISOString()
+          }
+        ]
+      },
+      {
+        name: 'diagram.png',
+        relativePath: 'diagram.png',
+        kind: 'file',
+        contentKind: 'binary',
+        size: 1024,
+        modifiedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.knowledgeBase.openDocument = async ({ relativePath }) =>
+      relativePath.endsWith('.md')
+        ? {
+            name: 'note.md',
+            relativePath,
+            contentKind: 'markdown',
+            size: 15,
+            modifiedAt: new Date(0).toISOString(),
+            content: '# Durable note'
+          }
+        : {
+            name: 'diagram.png',
+            relativePath,
+            contentKind: 'binary',
+            size: 1024,
+            modifiedAt: new Date(0).toISOString()
+          }
+
+    render(<KnowledgeBasePage />)
+
+    expect(await screen.findByRole('tree', { name: 'Knowledge Base files' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'docs' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'diagram.png' })).toBeInTheDocument()
+    expect(screen.queryByText('.git')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
+    expect(await screen.findByText('# Durable note')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'diagram.png' }))
+    expect(await screen.findByText('Preview unavailable')).toBeInTheDocument()
+    expect(screen.getByText('1 KB')).toBeInTheDocument()
+  })
+
   it('surfaces folder collisions without pretending setup succeeded', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     window.spacezero.knowledgeBase.createNew = async () => {

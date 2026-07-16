@@ -14,7 +14,10 @@ const api: SpaceZeroAPI = {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
     createNew: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createNew),
     cloneFromGit: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.cloneFromGit, request)
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.cloneFromGit, request),
+    getTree: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getTree),
+    openDocument: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openDocument, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
