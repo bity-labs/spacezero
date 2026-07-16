@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import type {
   KnowledgeBaseConfiguration,
@@ -24,6 +24,7 @@ export type KnowledgeBaseConfigurationRepository = {
 export type KnowledgeBaseHost = {
   pathExists: (path: string) => Promise<boolean>
   createDirectory: (path: string) => Promise<void>
+  ensureParentDirectory: (path: string) => Promise<void>
   removeDirectory: (path: string) => Promise<void>
   writeTextFile: (path: string, content: string) => Promise<void>
   runGit: (
@@ -35,6 +36,7 @@ export type KnowledgeBaseHost = {
 export type KnowledgeBaseService = {
   getStatus: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
+  cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>
 }
 
 export function createKnowledgeBaseService({
@@ -57,14 +59,7 @@ export function createKnowledgeBaseService({
     },
 
     async createNew() {
-      if (await configurationRepository.get()) {
-        throw new Error('Knowledge Base is already configured.')
-      }
-      if (await host.pathExists(rootPath)) {
-        throw new Error(
-          'Knowledge Base folder already exists. Move or remove it before setup.'
-        )
-      }
+      await assertCanConfigure(configurationRepository, host, rootPath)
 
       let created = false
       try {
@@ -83,6 +78,37 @@ export function createKnowledgeBaseService({
         if (created) await host.removeDirectory(rootPath).catch(() => undefined)
         throw error
       }
+    },
+
+    async cloneFromGit(request) {
+      await assertCanConfigure(configurationRepository, host, rootPath)
+      const gitUrl = request.gitUrl.trim()
+      if (!gitUrl) throw new Error('Git repository URL is required.')
+
+      await host.ensureParentDirectory(rootPath)
+      try {
+        await host.runGit(dirname(rootPath), ['clone', gitUrl, rootPath])
+        await configurationRepository.save({ rootPath, configuredAt: now().toISOString() })
+        return { setupState: 'configured', rootPath }
+      } catch (error) {
+        if (await host.pathExists(rootPath)) {
+          await host.removeDirectory(rootPath).catch(() => undefined)
+        }
+        throw error
+      }
     }
+  }
+}
+
+async function assertCanConfigure(
+  configurationRepository: KnowledgeBaseConfigurationRepository,
+  host: KnowledgeBaseHost,
+  rootPath: string
+): Promise<void> {
+  if (await configurationRepository.get()) {
+    throw new Error('Knowledge Base is already configured.')
+  }
+  if (await host.pathExists(rootPath)) {
+    throw new Error('Knowledge Base folder already exists. Move or remove it before setup.')
   }
 }

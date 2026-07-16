@@ -25,6 +25,7 @@ function createHost(overrides: Partial<KnowledgeBaseHost> = {}): KnowledgeBaseHo
   return {
     pathExists: vi.fn(async () => false),
     createDirectory: vi.fn(async () => undefined),
+    ensureParentDirectory: vi.fn(async () => undefined),
     removeDirectory: vi.fn(async () => undefined),
     writeTextFile: vi.fn(async () => undefined),
     runGit: vi.fn(async () => ({ stdout: '', stderr: '' })),
@@ -98,6 +99,73 @@ describe('createKnowledgeBaseService', () => {
     )
     expect(host.createDirectory).not.toHaveBeenCalled()
     expect(host.runGit).not.toHaveBeenCalled()
+    expect(configurationRepository.value).toBeUndefined()
+  })
+
+  it('clones an existing repository without modifying its contents and persists after success', async () => {
+    const configurationRepository = createConfigurationRepository()
+    const host = createHost()
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      now: () => new Date('2026-07-16T11:00:00.000Z')
+    })
+
+    await expect(service.cloneFromGit({ gitUrl: 'git@example.com:builder/notes.git' })).resolves.toEqual({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    expect(host.ensureParentDirectory).toHaveBeenCalledWith(
+      '/home/builder/SpaceZero/knowledge-base'
+    )
+    expect(host.runGit).toHaveBeenCalledWith('/home/builder/SpaceZero', [
+      'clone',
+      'git@example.com:builder/notes.git',
+      '/home/builder/SpaceZero/knowledge-base'
+    ])
+    expect(host.writeTextFile).not.toHaveBeenCalled()
+    expect(configurationRepository.value).toEqual({
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: '2026-07-16T11:00:00.000Z'
+    })
+  })
+
+  it('blocks clone when the destination exists', async () => {
+    const host = createHost({ pathExists: vi.fn(async () => true) })
+    const service = createKnowledgeBaseService({
+      configurationRepository: createConfigurationRepository(),
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(
+      service.cloneFromGit({ gitUrl: 'https://example.com/notes.git' })
+    ).rejects.toThrow('Knowledge Base folder already exists. Move or remove it before setup.')
+    expect(host.runGit).not.toHaveBeenCalled()
+  })
+
+  it('surfaces clone failures, removes the failed destination, and does not persist', async () => {
+    const configurationRepository = createConfigurationRepository()
+    let destinationExists = false
+    const host = createHost({
+      pathExists: vi.fn(async () => destinationExists),
+      runGit: vi.fn(async () => {
+        destinationExists = true
+        throw new Error('Permission denied (publickey)')
+      })
+    })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(
+      service.cloneFromGit({ gitUrl: 'git@example.com:builder/notes.git' })
+    ).rejects.toThrow('Permission denied (publickey)')
+    expect(host.removeDirectory).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
     expect(configurationRepository.value).toBeUndefined()
   })
 

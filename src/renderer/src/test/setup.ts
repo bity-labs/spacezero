@@ -62,6 +62,10 @@ beforeEach(async () => {
       createNew: async () => ({
         setupState: 'configured',
         rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      cloneFromGit: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
       })
     },
     projects: {
