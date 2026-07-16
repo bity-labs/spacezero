@@ -1,5 +1,7 @@
 import type {
   KnowledgeBaseDocument,
+  KnowledgeBaseDocumentCheck,
+  KnowledgeBaseSaveResult,
   KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
   KnowledgeBaseTreeItem
@@ -15,7 +17,9 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   createItem: 'knowledgeBase:createItem',
   renameItem: 'knowledgeBase:renameItem',
   moveItem: 'knowledgeBase:moveItem',
-  deleteItem: 'knowledgeBase:deleteItem'
+  deleteItem: 'knowledgeBase:deleteItem',
+  saveDocument: 'knowledgeBase:saveDocument',
+  checkDocument: 'knowledgeBase:checkDocument'
 } as const
 
 export type KnowledgeBaseAPI = {
@@ -32,4 +36,13 @@ export type KnowledgeBaseAPI = {
   renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
   moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
   deleteItem: (request: { relativePath: string }) => Promise<void>
+  saveDocument: (request: {
+    relativePath: string
+    content: string
+    expectedRevision: string
+  }) => Promise<KnowledgeBaseSaveResult>
+  checkDocument: (request: {
+    relativePath: string
+    revision: string
+  }) => Promise<KnowledgeBaseDocumentCheck>
 }

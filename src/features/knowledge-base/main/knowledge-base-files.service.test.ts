@@ -91,6 +91,72 @@ describe('createKnowledgeBaseFilesService', () => {
     })
   })
 
+  it('autosaves text with optimistic revision checks', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const opened = await service.openDocument({ relativePath: 'docs/note.md' })
+
+    const result = await service.saveDocument({
+      relativePath: 'docs/note.md',
+      content: '# Updated durable note\n',
+      expectedRevision: opened.revision
+    })
+
+    expect(result).toMatchObject({
+      status: 'saved',
+      document: { content: '# Updated durable note\n' }
+    })
+    expect(result.document.revision).not.toBe(opened.revision)
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Updated durable note\n'
+    )
+  })
+
+  it('does not overwrite external changes when an autosave revision is stale', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const opened = await service.openDocument({ relativePath: 'docs/note.md' })
+    await writeFile(join(rootPath, 'docs', 'note.md'), '# Changed externally\n')
+
+    const result = await service.saveDocument({
+      relativePath: 'docs/note.md',
+      content: '# Unsaved editor text\n',
+      expectedRevision: opened.revision
+    })
+
+    expect(result).toMatchObject({
+      status: 'conflict',
+      document: { content: '# Changed externally\n' }
+    })
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Changed externally\n'
+    )
+  })
+
+  it('detects when an open document changes externally', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const opened = await service.openDocument({ relativePath: 'settings.json' })
+
+    await expect(
+      service.checkDocument({ relativePath: 'settings.json', revision: opened.revision })
+    ).resolves.toEqual({ changed: false })
+
+    await writeFile(join(rootPath, 'settings.json'), '{"theme":"light"}\n')
+    await expect(
+      service.checkDocument({ relativePath: 'settings.json', revision: opened.revision })
+    ).resolves.toMatchObject({
+      changed: true,
+      document: { content: '{"theme":"light"}\n' }
+    })
+  })
+
   it('returns file details without text content for unsupported binary files', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({

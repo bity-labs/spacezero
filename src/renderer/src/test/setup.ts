@@ -74,13 +74,27 @@ beforeEach(async () => {
         contentKind: 'text',
         size: 0,
         modifiedAt: new Date(0).toISOString(),
+        revision: 'test-revision',
         content: ''
       }),
       search: async () => [],
       createItem: async () => undefined,
       renameItem: async () => undefined,
       moveItem: async () => undefined,
-      deleteItem: async () => undefined
+      deleteItem: async () => undefined,
+      saveDocument: async ({ relativePath, content }) => ({
+        status: 'saved',
+        document: {
+          name: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+          contentKind: 'text',
+          size: content.length,
+          modifiedAt: new Date(0).toISOString(),
+          revision: 'saved-test-revision',
+          content
+        }
+      }),
+      checkDocument: async () => ({ changed: false })
     },
     projects: {
       list: async () => [],
