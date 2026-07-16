@@ -292,6 +292,7 @@ export const PromptInputAttachments = ({ className, ...props }: PromptInputAttac
 
 export type PromptInputSubmitProps = ComponentProps<typeof InputGroupButton> & {
   status?: 'ready' | 'submitted' | 'streaming' | 'error'
+  onStop?: () => void
 }
 
 export const PromptInputSubmit = ({
@@ -299,6 +300,7 @@ export const PromptInputSubmit = ({
   variant = 'default',
   size = 'icon-sm',
   status = 'ready',
+  onStop,
   children,
   ...props
 }: PromptInputSubmitProps) => {
@@ -316,13 +318,14 @@ export const PromptInputSubmit = ({
 
   return (
     <InputGroupButton
-      aria-label="Send message"
-      className={cn(className)}
-      disabled={isRunning}
-      size={size}
-      type="submit"
-      variant={variant}
       {...props}
+      aria-label={isRunning ? 'Stop response' : 'Send message'}
+      className={cn(className)}
+      disabled={isRunning && !onStop}
+      onClick={isRunning ? onStop : props.onClick}
+      size={size}
+      type={isRunning ? 'button' : 'submit'}
+      variant={variant}
     >
       {children ?? icon}
     </InputGroupButton>
