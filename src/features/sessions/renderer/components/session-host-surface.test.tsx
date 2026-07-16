@@ -295,6 +295,9 @@ describe('ProjectSessionHostSurface', () => {
     await user.click(await screen.findByText('GPT-5'))
 
     await waitFor(() => expect(consoleError).toHaveBeenCalled())
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unable to change model: agent.modelAuthNotConfigured'
+    )
     expect(await screen.findByRole('button', { name: /Claude Sonnet 4/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /GPT-5/ })).not.toBeInTheDocument()
 
@@ -324,6 +327,9 @@ describe('ProjectSessionHostSurface', () => {
     await user.click(await screen.findByRole('button', { name: 'Thinking: Medium' }))
 
     await waitFor(() => expect(consoleError).toHaveBeenCalled())
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unable to change thinking level: agent.thinkingUpdateFailed'
+    )
     expect(screen.getByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Thinking: High' })).not.toBeInTheDocument()
 
