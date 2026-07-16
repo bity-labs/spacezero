@@ -76,7 +76,11 @@ beforeEach(async () => {
         modifiedAt: new Date(0).toISOString(),
         content: ''
       }),
-      search: async () => []
+      search: async () => [],
+      createItem: async () => undefined,
+      renameItem: async () => undefined,
+      moveItem: async () => undefined,
+      deleteItem: async () => undefined
     },
     projects: {
       list: async () => [],

@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer'
-import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
-import { basename, extname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path'
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import type {
   KnowledgeBaseDocument,
@@ -35,6 +35,10 @@ export type KnowledgeBaseFilesService = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
   search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
+  createItem: (request: { relativePath: string; kind: 'file' | 'folder' }) => Promise<void>
+  renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
+  moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
+  deleteItem: (request: { relativePath: string }) => Promise<void>
 }
 
 export function createKnowledgeBaseFilesService({
@@ -86,6 +90,44 @@ export function createKnowledgeBaseFilesService({
       const rootPath = await getConfiguredRoot(configurationRepository)
       const canonicalRoot = await realpath(rootPath)
       return searchDirectory(canonicalRoot, '', query.toLowerCase())
+    },
+
+    async createItem(request) {
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
+      await assertParentPathInsideRoot(rootPath, absolutePath)
+      if (await pathExists(absolutePath)) {
+        throw new Error('A Knowledge Base item already exists at this path.')
+      }
+
+      if (request.kind === 'folder') {
+        await mkdir(absolutePath)
+      } else {
+        await writeFile(absolutePath, '', { encoding: 'utf8', flag: 'wx' })
+      }
+    },
+
+    async renameItem(request) {
+      assertValidItemName(request.newName)
+      const relativePath = request.relativePath.trim()
+      const parentPath = posix.dirname(relativePath)
+      const destinationPath = parentPath === '.' ? request.newName.trim() : `${parentPath}/${request.newName.trim()}`
+      await moveKnowledgeBaseItem(configurationRepository, relativePath, destinationPath)
+    },
+
+    async moveItem(request) {
+      await moveKnowledgeBaseItem(
+        configurationRepository,
+        request.sourcePath,
+        request.destinationPath
+      )
+    },
+
+    async deleteItem(request) {
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
+      await lstat(absolutePath)
+      await rm(absolutePath, { recursive: true })
     }
   }
 }
@@ -166,6 +208,58 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
     if (left.kind !== right.kind) return left.kind === 'folder' ? -1 : 1
     return left.name.localeCompare(right.name)
   })
+}
+
+async function moveKnowledgeBaseItem(
+  configurationRepository: KnowledgeBaseConfigurationRepository,
+  sourcePath: string,
+  destinationPath: string
+): Promise<void> {
+  const rootPath = await getConfiguredRoot(configurationRepository)
+  const source = resolveKnowledgeBaseRelativePath(rootPath, sourcePath)
+  const destination = resolveKnowledgeBaseRelativePath(rootPath, destinationPath)
+  await lstat(source.absolutePath)
+  await assertExistingPathInsideRoot(rootPath, source.absolutePath)
+  await assertParentPathInsideRoot(rootPath, destination.absolutePath)
+  if (await pathExists(destination.absolutePath)) {
+    throw new Error('A Knowledge Base item already exists at the destination.')
+  }
+  await rename(source.absolutePath, destination.absolutePath)
+}
+
+function assertValidItemName(input: string): void {
+  const name = input.trim()
+  if (name.includes('/') || name.includes('\\')) {
+    throw new Error('Knowledge Base item names cannot contain path separators.')
+  }
+  if (!name || name === '.' || name === '..' || name.includes('\0')) {
+    throw new Error('Knowledge Base item name is invalid.')
+  }
+  if (name === '.git') throw new Error('Knowledge Base Git internals are protected.')
+}
+
+async function assertParentPathInsideRoot(rootPath: string, targetPath: string): Promise<void> {
+  const [canonicalRoot, canonicalParent] = await Promise.all([
+    realpath(rootPath),
+    realpath(dirname(targetPath))
+  ])
+  if (!isPathWithinRoot(canonicalRoot, canonicalParent)) {
+    throw new Error('Knowledge Base path is outside the configured root.')
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path)
+    return true
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return false
+    throw error
+  }
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error
 }
 
 async function searchDirectory(

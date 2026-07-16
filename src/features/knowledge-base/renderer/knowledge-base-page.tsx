@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   BookOpenText,
   CaretRight,
   File,
+  FilePlus,
   Folder,
+  FolderPlus,
   GitBranch,
   MagnifyingGlass,
-  Plus
+  PencilSimple,
+  Plus,
+  SignOut,
+  Trash
 } from '@phosphor-icons/react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
@@ -168,6 +173,11 @@ function ConfiguredKnowledgeBase({
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<KnowledgeBaseSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [selectedItem, setSelectedItem] = useState<KnowledgeBaseTreeItem | null>(null)
+
+  const refreshTree = useCallback(async (): Promise<void> => {
+    setTree(await window.spacezero.knowledgeBase.getTree())
+  }, [])
 
   useEffect(() => {
     let current = true
@@ -193,6 +203,80 @@ function ConfiguredKnowledgeBase({
       setDocument(await window.spacezero.knowledgeBase.openDocument({ relativePath }))
     } catch (openError) {
       setError(getErrorMessage(openError, 'Unable to open this file.'))
+    }
+  }
+
+  async function createItem(kind: 'file' | 'folder'): Promise<void> {
+    const relativePath = window.prompt(
+      kind === 'file' ? 'New file path' : 'New folder path'
+    )?.trim()
+    if (!relativePath) return
+
+    setError(null)
+    try {
+      await window.spacezero.knowledgeBase.createItem({ relativePath, kind })
+      await refreshTree()
+    } catch (mutationError) {
+      setError(getErrorMessage(mutationError, `Unable to create this ${kind}.`))
+    }
+  }
+
+  async function renameItem(): Promise<void> {
+    if (!selectedItem) return
+    const newName = window.prompt('New name', selectedItem.name)?.trim()
+    if (!newName || newName === selectedItem.name) return
+
+    setError(null)
+    try {
+      await window.spacezero.knowledgeBase.renameItem({
+        relativePath: selectedItem.relativePath,
+        newName
+      })
+      await refreshTree()
+    } catch (mutationError) {
+      setError(getErrorMessage(mutationError, 'Unable to rename this item.'))
+    }
+  }
+
+  async function moveItem(): Promise<void> {
+    if (!selectedItem) return
+    const destinationPath = window
+      .prompt('Move to relative path', selectedItem.relativePath)
+      ?.trim()
+    if (!destinationPath || destinationPath === selectedItem.relativePath) return
+
+    setError(null)
+    try {
+      await window.spacezero.knowledgeBase.moveItem({
+        sourcePath: selectedItem.relativePath,
+        destinationPath
+      })
+      await refreshTree()
+    } catch (mutationError) {
+      setError(getErrorMessage(mutationError, 'Unable to move this item.'))
+    }
+  }
+
+  async function deleteItem(): Promise<void> {
+    if (!selectedItem) return
+    if (
+      !window.confirm(
+        `Delete ${selectedItem.name} permanently? This cannot be undone.`
+      )
+    ) {
+      return
+    }
+
+    setError(null)
+    try {
+      await window.spacezero.knowledgeBase.deleteItem({
+        relativePath: selectedItem.relativePath
+      })
+      if (document?.relativePath === selectedItem.relativePath) setDocument(null)
+      setSelectedItem(null)
+      await refreshTree()
+    } catch (mutationError) {
+      setError(getErrorMessage(mutationError, 'Unable to delete this item.'))
     }
   }
 
@@ -249,6 +333,44 @@ function ConfiguredKnowledgeBase({
 
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(180px,260px)_minmax(0,1fr)]">
         <aside className="min-h-0 overflow-auto border-r p-3">
+          <div className="mb-3 flex flex-wrap items-center gap-1 border-b pb-3">
+            <Button variant="outline" size="xs" onClick={() => void createItem('file')}>
+              <FilePlus className="size-3.5" aria-hidden="true" />
+              New file
+            </Button>
+            <Button variant="outline" size="xs" onClick={() => void createItem('folder')}>
+              <FolderPlus className="size-3.5" aria-hidden="true" />
+              New folder
+            </Button>
+            {selectedItem ? (
+              <div className="ml-auto flex items-center gap-0.5">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Rename ${selectedItem.name}`}
+                  onClick={() => void renameItem()}
+                >
+                  <PencilSimple className="size-3.5" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Move ${selectedItem.name}`}
+                  onClick={() => void moveItem()}
+                >
+                  <SignOut className="size-3.5" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`Delete ${selectedItem.name}`}
+                  onClick={() => void deleteItem()}
+                >
+                  <Trash className="size-3.5" aria-hidden="true" />
+                </Button>
+              </div>
+            ) : null}
+          </div>
           {searchResults ? (
             <section aria-label="Knowledge Base search results" className="mb-3 border-b pb-3">
               <div className="mb-2 flex items-center justify-between px-2">
@@ -293,7 +415,11 @@ function ConfiguredKnowledgeBase({
                   key={item.relativePath}
                   item={item}
                   depth={0}
-                  onOpen={(path) => void openDocument(path)}
+                  selectedPath={selectedItem?.relativePath}
+                  onSelect={(item) => {
+                    setSelectedItem(item)
+                    if (item.kind === 'file') void openDocument(item.relativePath)
+                  }}
                 />
               ))
             )}
@@ -332,21 +458,22 @@ function ConfiguredKnowledgeBase({
 function KnowledgeBaseTreeNode({
   item,
   depth,
-  onOpen
+  selectedPath,
+  onSelect
 }: {
   item: KnowledgeBaseTreeItem
   depth: number
-  onOpen: (relativePath: string) => void
+  selectedPath?: string
+  onSelect: (item: KnowledgeBaseTreeItem) => void
 }): React.JSX.Element {
   return (
     <div role="treeitem" aria-expanded={item.kind === 'folder' ? true : undefined}>
       <button
         type="button"
-        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-muted"
+        className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-sm hover:bg-muted data-[selected=true]:bg-muted"
+        data-selected={selectedPath === item.relativePath}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
-        onClick={() => {
-          if (item.kind === 'file') onOpen(item.relativePath)
-        }}
+        onClick={() => onSelect(item)}
       >
         {item.kind === 'folder' ? (
           <>
@@ -368,7 +495,8 @@ function KnowledgeBaseTreeNode({
               key={child.relativePath}
               item={child}
               depth={depth + 1}
-              onOpen={onOpen}
+              selectedPath={selectedPath}
+              onSelect={onSelect}
             />
           ))}
         </div>

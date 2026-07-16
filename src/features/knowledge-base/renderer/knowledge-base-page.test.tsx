@@ -163,6 +163,76 @@ describe('KnowledgeBasePage', () => {
     expect(await screen.findByText('# Architecture decision')).toBeInTheDocument()
   })
 
+  it('creates, renames, moves, and permanently deletes Knowledge Base items', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const getTree = vi.fn(async () => [
+      {
+        name: 'note.md',
+        relativePath: 'note.md',
+        kind: 'file' as const,
+        contentKind: 'markdown' as const,
+        size: 10,
+        modifiedAt: new Date(0).toISOString()
+      }
+    ])
+    const createItem = vi.fn(async () => undefined)
+    const renameItem = vi.fn(async () => undefined)
+    const moveItem = vi.fn(async () => undefined)
+    const deleteItem = vi.fn(async () => undefined)
+    window.spacezero.knowledgeBase.getTree = getTree
+    window.spacezero.knowledgeBase.createItem = createItem
+    window.spacezero.knowledgeBase.renameItem = renameItem
+    window.spacezero.knowledgeBase.moveItem = moveItem
+    window.spacezero.knowledgeBase.deleteItem = deleteItem
+    const prompt = vi
+      .spyOn(window, 'prompt')
+      .mockReturnValueOnce('new-note.md')
+      .mockReturnValueOnce('new-folder')
+      .mockReturnValueOnce('renamed.md')
+      .mockReturnValueOnce('archive/renamed.md')
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    try {
+      render(<KnowledgeBasePage />)
+      await screen.findByRole('button', { name: 'note.md' })
+
+      fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+      await waitFor(() =>
+        expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-note.md', kind: 'file' })
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+      await waitFor(() =>
+        expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-folder', kind: 'folder' })
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Rename note.md' }))
+      await waitFor(() =>
+        expect(renameItem).toHaveBeenCalledWith({ relativePath: 'note.md', newName: 'renamed.md' })
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Move note.md' }))
+      await waitFor(() =>
+        expect(moveItem).toHaveBeenCalledWith({
+          sourcePath: 'note.md',
+          destinationPath: 'archive/renamed.md'
+        })
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Delete note.md' }))
+      await waitFor(() => expect(deleteItem).toHaveBeenCalledWith({ relativePath: 'note.md' }))
+
+      expect(confirm).toHaveBeenCalledWith(
+        'Delete note.md permanently? This cannot be undone.'
+      )
+      expect(getTree.mock.calls.length).toBeGreaterThanOrEqual(5)
+    } finally {
+      prompt.mockRestore()
+      confirm.mockRestore()
+    }
+  })
+
   it('surfaces folder collisions without pretending setup succeeded', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     window.spacezero.knowledgeBase.createNew = async () => {

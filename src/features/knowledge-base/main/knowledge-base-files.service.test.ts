@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -136,6 +136,67 @@ describe('createKnowledgeBaseFilesService', () => {
 
     await expect(service.search({ query: 'keyword' })).resolves.toEqual([])
     expect(await readdir(rootPath)).toEqual(entriesBeforeSearch)
+  })
+
+  it('creates files and folders under the configured root', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await service.createItem({ relativePath: 'notes', kind: 'folder' })
+    await service.createItem({ relativePath: 'notes/new-note.md', kind: 'file' })
+
+    await expect(readFile(join(rootPath, 'notes', 'new-note.md'), 'utf8')).resolves.toBe('')
+  })
+
+  it('renames and moves files and folders without overwriting existing items', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await service.renameItem({ relativePath: 'docs/note.md', newName: 'decision.md' })
+    await service.moveItem({
+      sourcePath: 'docs/decision.md',
+      destinationPath: 'decision.md'
+    })
+
+    await expect(readFile(join(rootPath, 'decision.md'), 'utf8')).resolves.toBe('# Durable note\n')
+    await expect(
+      service.moveItem({ sourcePath: 'decision.md', destinationPath: 'settings.json' })
+    ).rejects.toThrow('A Knowledge Base item already exists at the destination.')
+  })
+
+  it('permanently deletes files and folders', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await service.deleteItem({ relativePath: 'docs' })
+
+    await expect(access(join(rootPath, 'docs'))).rejects.toThrow()
+  })
+
+  it('protects Git internals and rejects traversal for every mutation', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(service.createItem({ relativePath: '.git/new', kind: 'file' })).rejects.toThrow(
+      'Knowledge Base Git internals are protected.'
+    )
+    await expect(
+      service.renameItem({ relativePath: 'docs/note.md', newName: '../outside.md' })
+    ).rejects.toThrow('Knowledge Base item names cannot contain path separators.')
+    await expect(
+      service.moveItem({ sourcePath: 'docs/note.md', destinationPath: '../outside.md' })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(service.deleteItem({ relativePath: '.git' })).rejects.toThrow(
+      'Knowledge Base Git internals are protected.'
+    )
   })
 
   it('rejects traversal, Git internals, absolute paths, and symlinks that can escape the root', async () => {
