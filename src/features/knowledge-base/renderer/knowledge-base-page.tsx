@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
+import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import { Input } from '@renderer/components/ui/input'
@@ -23,6 +24,7 @@ import type {
   KnowledgeBaseDocument,
   KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
+  KnowledgeBaseSyncStatus,
   KnowledgeBaseTreeItem
 } from '../shared'
 
@@ -175,6 +177,10 @@ function ConfiguredKnowledgeBase({
   const [searchResults, setSearchResults] = useState<KnowledgeBaseSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [selectedItem, setSelectedItem] = useState<KnowledgeBaseTreeItem | null>(null)
+  const [syncStatus, setSyncStatus] = useState<KnowledgeBaseSyncStatus | null>(null)
+  const [isAddRemoteOpen, setAddRemoteOpen] = useState(false)
+  const [remoteUrl, setRemoteUrl] = useState('')
+  const [syncing, setSyncing] = useState(false)
 
   const refreshTree = useCallback(async (): Promise<void> => {
     setTree(await window.spacezero.knowledgeBase.getTree())
@@ -198,12 +204,61 @@ function ConfiguredKnowledgeBase({
     }
   }, [])
 
+  useEffect(() => {
+    let current = true
+    window.spacezero.knowledgeBase
+      .getSyncStatus()
+      .then((nextStatus) => {
+        if (current) setSyncStatus(nextStatus)
+      })
+      .catch((syncError: unknown) => {
+        if (current) setError(getErrorMessage(syncError, 'Unable to load Knowledge Base sync status.'))
+      })
+    return () => {
+      current = false
+    }
+  }, [])
+
   async function openDocument(relativePath: string): Promise<void> {
     setError(null)
     try {
       setDocument(await window.spacezero.knowledgeBase.openDocument({ relativePath }))
     } catch (openError) {
       setError(getErrorMessage(openError, 'Unable to open this file.'))
+    }
+  }
+
+  async function addRemote(): Promise<void> {
+    const gitUrl = remoteUrl.trim()
+    if (!gitUrl) return
+    setSyncing(true)
+    setError(null)
+    try {
+      setSyncStatus(await window.spacezero.knowledgeBase.addRemote({ gitUrl }))
+      setAddRemoteOpen(false)
+      setRemoteUrl('')
+    } catch (remoteError) {
+      setError(getErrorMessage(remoteError, 'Unable to add the origin remote.'))
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  async function syncNow(): Promise<void> {
+    setSyncing(true)
+    setError(null)
+    try {
+      setSyncStatus(await window.spacezero.knowledgeBase.syncNow())
+      await refreshTree()
+    } catch (syncError) {
+      setError(getErrorMessage(syncError, 'Unable to sync the Knowledge Base.'))
+      try {
+        setSyncStatus(await window.spacezero.knowledgeBase.getSyncStatus())
+      } catch {
+        // Keep the actionable Git error already shown above.
+      }
+    } finally {
+      setSyncing(false)
     }
   }
 
@@ -325,6 +380,69 @@ function ConfiguredKnowledgeBase({
           </Button>
         </form>
       </header>
+
+      <div className="flex min-h-11 items-center gap-3 border-b px-6 py-2 text-xs">
+        {syncStatus ? (
+          <>
+            <Badge variant={syncStatus.syncState === 'idle' ? 'secondary' : 'outline'}>
+              {syncStatus.remoteState === 'local-only'
+                ? 'Local only'
+                : getSyncStateLabel(syncStatus.syncState)}
+            </Badge>
+            {syncStatus.lastSyncAt ? (
+              <span className="text-muted-foreground">
+                Last synced {new Date(syncStatus.lastSyncAt).toLocaleString()}
+              </span>
+            ) : null}
+            {syncStatus.remoteState === 'local-only' ? (
+              <Button
+                className="ml-auto"
+                variant="outline"
+                size="xs"
+                onClick={() => setAddRemoteOpen(true)}
+              >
+                Add remote
+              </Button>
+            ) : (
+              <Button
+                className="ml-auto"
+                variant="outline"
+                size="xs"
+                disabled={syncing}
+                onClick={() => void syncNow()}
+              >
+                {syncing ? 'Syncing…' : 'Sync now'}
+              </Button>
+            )}
+          </>
+        ) : (
+          <span className="text-muted-foreground">Loading sync status…</span>
+        )}
+      </div>
+
+      {isAddRemoteOpen ? (
+        <div className="flex items-end gap-3 border-b bg-muted/30 px-6 py-3">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="knowledge-base-origin-url" className="text-xs font-medium">
+              Origin Git URL
+            </label>
+            <Input
+              id="knowledge-base-origin-url"
+              value={remoteUrl}
+              className="mt-1"
+              autoFocus
+              placeholder="git@github.com:you/knowledge-base.git"
+              onChange={(event) => setRemoteUrl(event.target.value)}
+            />
+          </div>
+          <Button variant="outline" onClick={() => setAddRemoteOpen(false)}>
+            Cancel
+          </Button>
+          <Button disabled={!remoteUrl.trim() || syncing} onClick={() => void addRemote()}>
+            Save remote
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <Alert variant="destructive" className="m-4 mb-0">
@@ -500,6 +618,13 @@ function KnowledgeBaseTreeNode({
       ) : null}
     </div>
   )
+}
+
+function getSyncStateLabel(state: KnowledgeBaseSyncStatus['syncState']): string {
+  if (state === 'syncing') return 'Syncing'
+  if (state === 'conflict') return 'Sync conflict'
+  if (state === 'error') return 'Sync failed'
+  return 'Synced'
 }
 
 function formatFileSize(bytes: number): string {

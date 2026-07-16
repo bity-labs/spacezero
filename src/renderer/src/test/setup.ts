@@ -94,7 +94,19 @@ beforeEach(async () => {
           content
         }
       }),
-      checkDocument: async () => ({ changed: false })
+      checkDocument: async () => ({ changed: false }),
+      getSyncStatus: async () => ({ remoteState: 'local-only', syncState: 'idle' }),
+      addRemote: async ({ gitUrl }) => ({
+        remoteState: 'configured',
+        remoteUrl: gitUrl,
+        syncState: 'idle'
+      }),
+      syncNow: async () => ({
+        remoteState: 'configured',
+        remoteUrl: 'https://example.com/knowledge-base.git',
+        syncState: 'idle',
+        lastSyncAt: new Date(0).toISOString()
+      })
     },
     projects: {
       list: async () => [],
