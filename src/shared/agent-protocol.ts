@@ -31,6 +31,7 @@ export type CreateAgentSessionRequest = {
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
+  appendSystemPrompt?: string[]
   defaultModel?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
 }

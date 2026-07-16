@@ -60,6 +60,7 @@ export async function createProjectAgentSession(
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    appendSystemPrompt: [createProjectKnowledgeBaseInstructions(project.knowledgeBasePath)],
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })
@@ -126,11 +127,12 @@ async function restoreAgentSessionStateOnce(
   const storedSession = await repository.findSessionById(request.sessionId)
   if (!storedSession) throw new Error('agent.sessionNotFound')
 
-  const cwd = storedSession.projectId
-    ? resolveStoredProjectPath(await repository.findProjectById(storedSession.projectId))
-    : resolve(getWorkspaceSessionCwd())
+  const project = storedSession.projectId
+    ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
+    : undefined
+  const cwd = project ? resolve(project.path) : resolve(getWorkspaceSessionCwd())
 
-  if (!storedSession.projectId) await mkdir(cwd, { recursive: true })
+  if (!project) await mkdir(cwd, { recursive: true })
 
   try {
     return await utilityHost.createSession({
@@ -140,6 +142,13 @@ async function restoreAgentSessionStateOnce(
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
       workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      ...(project
+        ? {
+            appendSystemPrompt: [
+              createProjectKnowledgeBaseInstructions(project.knowledgeBasePath)
+            ]
+          }
+        : {}),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -194,9 +203,23 @@ export async function createWorkspaceAgentSession({
   }
 }
 
-function resolveStoredProjectPath(project: { id: string; path: string } | undefined): string {
+function resolveStoredProject(
+  project:
+    | { id: string; path: string; knowledgeBasePath?: string | null }
+    | undefined
+): { id: string; path: string; knowledgeBasePath?: string | null } {
   if (!project) throw new Error('Project not found')
-  return resolve(project.path)
+  return project
+}
+
+export function createProjectKnowledgeBaseInstructions(
+  knowledgeBasePath?: string | null
+): string {
+  if (!knowledgeBasePath) {
+    return `## Project Knowledge Base\n\nThe Project Knowledge Base is not configured. If the builder asks you to read or save durable project knowledge, clearly report that it is unavailable and direct them to set up the Knowledge Base in Space Zero. Do not pretend that knowledge was saved.`
+  }
+
+  return `## Project Knowledge Base\n\nThe durable Knowledge Base folder for this project is:\n\n${knowledgeBasePath}\n\nUse this folder when explicitly asked or when it is clearly useful for durable notes, decisions, debugging findings, handoff summaries, and user-requested project knowledge. Do not fill it with transient output or routine command logs. Read existing context before editing. When you add an important document, update the project README.md index with a useful link and description. The project source repository and this Knowledge Base folder are separate; keep source code in the project repository by default.`
 }
 
 function defaultWorkspaceSessionCwd(): string {
