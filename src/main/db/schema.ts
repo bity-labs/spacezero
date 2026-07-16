@@ -4,6 +4,7 @@ export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
   path: text('path').notNull().unique(),
+  knowledgeBasePath: text('knowledge_base_path'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' })

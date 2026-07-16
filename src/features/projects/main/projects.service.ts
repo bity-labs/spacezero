@@ -10,6 +10,7 @@ export type StoredProject = {
   id: string
   name: string
   path: string
+  knowledgeBasePath?: string | null
   createdAt: Date
   updatedAt: Date
   archivedAt?: Date | null
@@ -43,10 +44,12 @@ export type ProjectsService = {
 export function createProjectsService({
   repository,
   pathAdapter,
+  linkKnowledgeBaseProject = async (project) => project,
   now = () => new Date()
 }: {
   repository: ProjectsRepository
   pathAdapter: ProjectPathAdapter
+  linkKnowledgeBaseProject?: (project: StoredProject) => Promise<StoredProject>
   now?: Clock
 }): ProjectsService {
   return {
@@ -59,15 +62,14 @@ export function createProjectsService({
       const path = await pathAdapter.createEmptyProjectDirectory(name)
       const timestamp = now()
 
-      return toProject(
-        await repository.create({
-          id: nanoid(),
-          name,
-          path: pathAdapter.normalizeProjectPath(path),
-          createdAt: timestamp,
-          updatedAt: timestamp
-        })
-      )
+      const project = await repository.create({
+        id: nanoid(),
+        name,
+        path: pathAdapter.normalizeProjectPath(path),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      })
+      return toProject(await linkKnowledgeBaseProject(project))
     },
 
     async addProjectFromFolder() {
@@ -75,15 +77,14 @@ export function createProjectsService({
       if (folder.canceled) return null
 
       const timestamp = now()
-      return toProject(
-        await repository.create({
-          id: nanoid(),
-          name: normalizeName(folder.name),
-          path: pathAdapter.normalizeProjectPath(folder.path),
-          createdAt: timestamp,
-          updatedAt: timestamp
-        })
-      )
+      const project = await repository.create({
+        id: nanoid(),
+        name: normalizeName(folder.name),
+        path: pathAdapter.normalizeProjectPath(folder.path),
+        createdAt: timestamp,
+        updatedAt: timestamp
+      })
+      return toProject(await linkKnowledgeBaseProject(project))
     },
 
     async updateProject(request) {
@@ -127,6 +128,7 @@ function toProject(project: StoredProject): Project {
     id: project.id,
     name: project.name,
     path: project.path,
+    ...(project.knowledgeBasePath ? { knowledgeBasePath: project.knowledgeBasePath } : {}),
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString()
   }

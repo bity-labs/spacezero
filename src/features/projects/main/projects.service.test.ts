@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createProjectsService, type ProjectsRepository, type StoredProject } from './projects.service'
 
@@ -87,6 +87,55 @@ describe('createProjectsService', () => {
       updatedAt: now.toISOString()
     })
     expect(await service.listProjects()).toEqual([project])
+  })
+
+  it('links newly created projects to an optional Knowledge Base integration', async () => {
+    const linkedPath = '/knowledge/projects/agent-workspace'
+    const linkKnowledgeBaseProject = vi.fn(async (project: StoredProject) => ({
+      ...project,
+      knowledgeBasePath: linkedPath
+    }))
+    const service = createProjectsService({
+      repository: createMemoryRepository(),
+      linkKnowledgeBaseProject,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/agent-workspace',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(service.createEmptyProject({ name: 'Agent Workspace' })).resolves.toMatchObject({
+      knowledgeBasePath: linkedPath
+    })
+    expect(linkKnowledgeBaseProject).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'Agent Workspace' })
+    )
+  })
+
+  it('links imported project folders when the Knowledge Base is configured', async () => {
+    const linkKnowledgeBaseProject = vi.fn(async (project: StoredProject) => ({
+      ...project,
+      knowledgeBasePath: '/knowledge/projects/existing-folder'
+    }))
+    const service = createProjectsService({
+      repository: createMemoryRepository(),
+      linkKnowledgeBaseProject,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({
+          canceled: false,
+          path: '/tmp/existing-folder',
+          name: 'Existing Folder'
+        }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(service.addProjectFromFolder()).resolves.toMatchObject({
+      knowledgeBasePath: '/knowledge/projects/existing-folder'
+    })
+    expect(linkKnowledgeBaseProject).toHaveBeenCalledOnce()
   })
 
   it('returns null when folder selection is canceled', async () => {

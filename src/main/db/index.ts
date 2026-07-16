@@ -17,6 +17,7 @@ function migrate(database: Database.Database): void {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
+      knowledge_base_path TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -46,6 +47,9 @@ function migrate(database: Database.Database): void {
   const projectColumns = database.prepare(`PRAGMA table_info(projects)`).all() as Array<{ name: string }>
   if (!projectColumns.some((column) => column.name === 'archived_at')) {
     database.exec(`ALTER TABLE projects ADD COLUMN archived_at INTEGER`)
+  }
+  if (!projectColumns.some((column) => column.name === 'knowledge_base_path')) {
+    database.exec(`ALTER TABLE projects ADD COLUMN knowledge_base_path TEXT`)
   }
 
   const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
