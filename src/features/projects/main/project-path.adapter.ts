@@ -1,13 +1,18 @@
-import { app, dialog } from 'electron'
+import { dialog } from 'electron'
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 
+import { getSpaceZeroProjectsPath } from '../../settings/main'
 import type { ProjectPathAdapter } from './projects.service'
 
-export function createProjectPathAdapter(): ProjectPathAdapter {
+export function createProjectPathAdapter({
+  getProjectsPath = getSpaceZeroProjectsPath
+}: {
+  getProjectsPath?: () => Promise<string>
+} = {}): ProjectPathAdapter {
   return {
     async createEmptyProjectDirectory(name) {
-      const basePath = join(app.getPath('home'), 'ws', 'dev')
+      const basePath = await getProjectsPath()
       mkdirSync(basePath, { recursive: true })
 
       const baseSlug = slugify(name) || 'project'

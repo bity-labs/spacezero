@@ -32,6 +32,47 @@ describe('ChatInput', () => {
     expect(input).toHaveValue('hello')
   })
 
+  it('discovers skills from slash commands and submits the native Pi command', () => {
+    const handleSubmit = vi.fn()
+    render(
+      <ChatInput
+        skills={[
+          {
+            name: 'code-review',
+            description: 'Review code changes.',
+            scope: 'spacezero'
+          },
+          {
+            name: 'debug',
+            description: 'Investigate a failing behavior.',
+            scope: 'project'
+          }
+        ]}
+        onSubmit={handleSubmit}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/' } })
+
+    expect(screen.getByRole('option', { name: /\/skill:code-review/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(input).toHaveValue('/skill:debug')
+    expect(handleSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: '/skill:debug',
+      files: [],
+      modelId: undefined
+    })
+  })
+
   it('submits entered text with the submit button', () => {
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)

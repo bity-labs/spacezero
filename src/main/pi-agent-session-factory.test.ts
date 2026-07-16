@@ -82,6 +82,82 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('loads skill metadata from the configured skill paths', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skills-'))
+    const skillDir = join(tempDir, 'skills', 'code-review')
+
+    try {
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: code-review\ndescription: Review code changes for correctness and regressions.\n---\n\n# Code Review\n\nReview the change.\n`
+      )
+
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' }]
+      })
+
+      try {
+        expect(session.skills).toEqual([
+          {
+            name: 'code-review',
+            description: 'Review code changes for correctness and regressions.',
+            scope: 'spacezero'
+          }
+        ])
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('expands a native skill command before sending it to the model', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-command-'))
+    const skillDir = join(tempDir, 'skills', 'code-review')
+
+    try {
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: code-review\ndescription: Review code changes.\n---\n\n# Code Review\n\nReview the change.\n`
+      )
+
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' }]
+      })
+
+      try {
+        await session.prompt('/skill:code-review')
+
+        expect(session.getTranscriptSnapshot()[0]).toEqual(
+          expect.objectContaining({
+            role: 'user',
+            content: [
+              expect.objectContaining({
+                type: 'text',
+                text: expect.stringContaining('<skill name="code-review"')
+              })
+            ]
+          })
+        )
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('uses the requested default thinking level when creating a new session', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-thinking-'))
 

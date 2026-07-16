@@ -110,6 +110,32 @@ describe('createProjectAgentSession', () => {
     })
   })
 
+  it('passes resolved skill paths to the project session', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository: createRepository(),
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        resolveSkillPaths: async () => [
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
+        ]
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
+      })
+    )
+  })
+
   it('rejects a renderer-supplied cwd that does not match the stored project path', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),

@@ -210,6 +210,14 @@ beforeEach(async () => {
         preference,
         resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
       }),
+      getStorageSettings: async () => ({
+        spaceZeroHome: '/tmp/SpaceZero',
+        projectsPath: '/tmp/SpaceZero/projects'
+      }),
+      chooseSpaceZeroHome: async () => ({
+        spaceZeroHome: '/tmp/SpaceZero',
+        projectsPath: '/tmp/SpaceZero/projects'
+      }),
       getModelDefaults: async () => ({ defaultThinking: 'medium' }),
       updateModelDefaults: async (request) => ({
         defaultThinking: request.defaultThinking ?? 'medium',
