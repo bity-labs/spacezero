@@ -21,6 +21,7 @@ export type CreatedPiAgentSession = {
   modelProvider: string
   modelId: string
   thinkingLevel: ThinkingLevel | undefined
+  systemPrompt?: string
   setModel: (request: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: ThinkingLevel) => Promise<void> | void
   prompt: (message: string) => Promise<void>
@@ -49,6 +50,7 @@ type RegisteredAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  appendSystemPrompt: string[] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -59,6 +61,7 @@ type DormantAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  appendSystemPrompt: string[] | undefined
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
@@ -133,6 +136,7 @@ export class AgentSessionRegistry {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
+          appendSystemPrompt: normalizedRequest.appendSystemPrompt,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -285,6 +289,7 @@ export class AgentSessionRegistry {
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
+      appendSystemPrompt: request.appendSystemPrompt,
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
     }
@@ -328,6 +333,7 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
+      appendSystemPrompt: dormantSession.appendSystemPrompt,
       ...(dormantSession.modelProvider && dormantSession.modelId
         ? {
             defaultModel: {
@@ -349,6 +355,7 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
+      appendSystemPrompt: dormantSession.appendSystemPrompt,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -406,6 +413,7 @@ export class AgentSessionRegistry {
       projectId: session.projectId,
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
+      appendSystemPrompt: session.appendSystemPrompt,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,

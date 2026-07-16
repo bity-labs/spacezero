@@ -100,8 +100,11 @@ export function createPiAgentRuntime({
       noSkills: true,
       noPromptTemplates: true,
       noThemes: true,
-      noContextFiles: true
+      noContextFiles: true,
+      appendSystemPrompt: request.appendSystemPrompt
     })
+
+    await resourceLoader.reload()
 
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
@@ -400,6 +403,9 @@ function adaptAgentSession(
     },
     get thinkingLevel() {
       return preferredThinkingLevel
+    },
+    get systemPrompt() {
+      return session.systemPrompt
     },
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))

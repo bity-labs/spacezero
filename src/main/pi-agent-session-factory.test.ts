@@ -82,6 +82,31 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('appends project Knowledge Base guidance to the Pi system prompt', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-knowledge-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-knowledge',
+        kind: 'project',
+        projectId: 'project-1',
+        cwd: tempDir,
+        appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/space-zero']
+      })
+
+      try {
+        expect((session as typeof session & { systemPrompt?: string }).systemPrompt).toContain(
+          'Project Knowledge Base: /knowledge/projects/space-zero'
+        )
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('uses the requested default thinking level when creating a new session', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-thinking-'))
 

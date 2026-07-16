@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
+import {
+  createProjectAgentSession,
+  createProjectKnowledgeBaseInstructions,
+  createWorkspaceAgentSession,
+  restoreAgentSessionState
+} from './agent-session-handler'
 
 function createRepository(overrides: Partial<SessionsRepository> = {}): SessionsRepository {
   const sessions: StoredSession[] = []
@@ -105,9 +110,70 @@ describe('createProjectAgentSession', () => {
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
       ]),
+      appendSystemPrompt: [expect.stringContaining('not configured')],
       defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
       thinkingLevel: 'high'
     })
+  })
+
+  it('injects durable project Knowledge Base guidance and the linked folder path', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository({
+      async findProjectById(projectId) {
+        return {
+          id: projectId,
+          path: '/repo',
+          knowledgeBasePath: '/home/builder/SpaceZero/knowledge-base/projects/space-zero'
+        }
+      }
+    })
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      { repository, utilityHost, createSessionId: () => 'session-1', readModelDefaults }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendSystemPrompt: [
+          expect.stringContaining(
+            '/home/builder/SpaceZero/knowledge-base/projects/space-zero'
+          )
+        ]
+      })
+    )
+    const instructions = createProjectKnowledgeBaseInstructions(
+      '/home/builder/SpaceZero/knowledge-base/projects/space-zero'
+    )
+    expect(instructions).toContain('durable notes, decisions, debugging findings')
+    expect(instructions).toContain('Do not fill it with transient output')
+    expect(instructions).toContain('update the project README.md index')
+  })
+
+  it('tells project sessions to report missing Knowledge Base setup without inventing a save', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository: createRepository(),
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendSystemPrompt: [expect.stringContaining('not configured')]
+      })
+    )
   })
 
   it('rejects a renderer-supplied cwd that does not match the stored project path', async () => {
@@ -157,6 +223,7 @@ describe('createProjectAgentSession', () => {
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
       ]),
+      appendSystemPrompt: [expect.stringContaining('not configured')],
       defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
       thinkingLevel: 'high'
     })
@@ -298,6 +365,49 @@ describe('restoreAgentSessionState', () => {
     )
   })
 
+  it('restores a project session with its current Knowledge Base folder guidance', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          },
+          async findProjectById(projectId) {
+            return {
+              id: projectId,
+              path: '/repo',
+              knowledgeBasePath: '/knowledge/projects/space-zero'
+            }
+          }
+        }),
+        utilityHost
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendSystemPrompt: [expect.stringContaining('/knowledge/projects/space-zero')]
+      })
+    )
+  })
+
   it('recreates a stored project session from its transcript after app relaunch', async () => {
     const storedSession: StoredSession = {
       id: 'session-1',
@@ -337,7 +447,9 @@ describe('restoreAgentSessionState', () => {
       transcriptPath: '/agent/sessions/session-1.jsonl',
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ])
+      ]),
+      appendSystemPrompt: [expect.stringContaining('not configured')],
+      thinkingLevel: undefined
     })
   })
 })
