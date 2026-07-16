@@ -32,6 +32,7 @@
     "@electron-toolkit/preload": "latest",
     "@electron-toolkit/utils": "latest",
     "@fontsource-variable/geist": "^5.2.9",
+    "@mdxeditor/editor": "^4.0.4",
     "@phosphor-icons/react": "^2.1.10",
     "@radix-ui/react-use-controllable-state": "^1.2.3",
     "@shadcn/react": "^0.2.1",

@@ -18,7 +18,7 @@ import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import { Input } from '@renderer/components/ui/input'
-import { KnowledgeBaseSourceEditor } from './knowledge-base-source-editor'
+import { KnowledgeBaseDocumentEditor } from './knowledge-base-document-editor'
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseSearchResult,
@@ -440,7 +440,7 @@ function ConfiguredKnowledgeBase({
               <p className="mt-1 text-xs text-muted-foreground">{formatFileSize(document.size)}</p>
             </div>
           ) : (
-            <KnowledgeBaseSourceEditor
+            <KnowledgeBaseDocumentEditor
               key={`${document.relativePath}:${document.revision}`}
               document={document}
               onDocumentChange={setDocument}
