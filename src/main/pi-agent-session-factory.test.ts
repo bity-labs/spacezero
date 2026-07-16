@@ -12,6 +12,24 @@ import {
 } from './pi-agent-session-factory'
 
 describe('toAgentStreamingEvent', () => {
+  it('keeps internal Knowledge Base hints out of displayed user transcripts', () => {
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_start',
+      message: {
+        id: 'message-1',
+        role: 'user',
+        content:
+          'Read @kb/notes.md\n\n<spacezero-knowledge-base-path-hints>\ninternal path\n</spacezero-knowledge-base-path-hints>',
+        timestamp: 100
+      }
+    })
+
+    expect(event).toMatchObject({
+      type: 'message_start',
+      message: { role: 'user', content: 'Read @kb/notes.md' }
+    })
+  })
+
   it('preserves thinking parts from live message updates', () => {
     const event = toAgentStreamingEvent('session-1', {
       type: 'message_update',

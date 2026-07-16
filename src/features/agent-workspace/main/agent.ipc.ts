@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 
+import { getKnowledgeBaseMentionsService } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
@@ -54,9 +55,10 @@ export function registerAgentIpc(): void {
     return getAgentUtilityProcessHost().listSessions()
   })
 
-  ipcMain.handle(IPC_CHANNELS.agent.prompt, (_event, input) => {
+  ipcMain.handle(IPC_CHANNELS.agent.prompt, async (_event, input) => {
     const request = promptRequestSchema.parse(input)
-    return getAgentUtilityProcessHost().prompt(request)
+    const prompt = await getKnowledgeBaseMentionsService().addPromptHints(request.message)
+    return getAgentUtilityProcessHost().prompt({ ...request, ...prompt })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.abort, (_event, input) => {

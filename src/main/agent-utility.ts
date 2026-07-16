@@ -276,7 +276,7 @@ async function handleCommand(
         sessionId: request.sessionId,
         message: {
           role: 'user',
-          content: request.message,
+          content: request.displayMessage ?? request.message,
           timestamp: Date.now()
         }
       })

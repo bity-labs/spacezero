@@ -43,6 +43,7 @@ export type GetAgentSessionStateRequest = {
 export type PromptAgentSessionRequest = {
   sessionId: AgentSessionId
   message: string
+  displayMessage?: string
 }
 
 export type AbortAgentSessionRequest = {
