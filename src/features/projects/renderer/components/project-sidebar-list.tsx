@@ -1,4 +1,4 @@
-import { CaretDown, CaretRight, Plus, PencilSimple } from '@phosphor-icons/react'
+import { Archive, CaretDown, CaretRight, Plus, PencilSimple, Trash } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -21,8 +21,12 @@ type ProjectSidebarListProps = {
   sessionsError?: string | null
   onSelectProject: (project: Project) => void
   onEditProject: (project: Project) => void
+  onArchiveProject?: (project: Project) => void
+  onDeleteProject?: (project: Project) => void
   onNewSession?: (project: Project) => void
   onSelectSession?: (session: ProjectSession) => void
+  onArchiveSession?: (session: ProjectSession) => void
+  onDeleteSession?: (session: ProjectSession) => void
 }
 
 export function ProjectSidebarList({
@@ -33,12 +37,16 @@ export function ProjectSidebarList({
   onAddProject,
   onSelectProject,
   onEditProject,
+  onArchiveProject,
+  onDeleteProject,
   sessionsByProjectId = new Map(),
   activeSessionId = null,
   sessionsStatus = 'ready',
   sessionsError = null,
   onNewSession,
-  onSelectSession
+  onSelectSession,
+  onArchiveSession,
+  onDeleteSession
 }: ProjectSidebarListProps): React.JSX.Element {
   const { t } = useTranslation()
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(new Set())
@@ -92,7 +100,7 @@ export function ProjectSidebarList({
                 type="button"
                 isActive={isActive}
                 className={cn(
-                  'w-full justify-start gap-1 pl-7 pr-8 text-muted-foreground',
+                  'w-full justify-start gap-1 pl-7 pr-20 text-muted-foreground',
                   isActive ? 'text-foreground' : null
                 )}
                 onClick={() => {
@@ -102,15 +110,35 @@ export function ProjectSidebarList({
               >
                 <span className="min-w-0 truncate">{project.name}</span>
               </SidebarMenuButton>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                className="absolute right-1 top-1/2 z-10 -translate-y-1/2 text-muted-foreground opacity-0 group-hover/project:opacity-100 focus-visible:opacity-100"
-                aria-label={t('projects.edit.action', { name: project.name })}
-                onClick={() => onEditProject(project)}
-              >
-                <PencilSimple className="h-3 w-3" aria-hidden="true" />
-              </Button>
+              <div className="absolute right-1 top-1/2 z-10 flex -translate-y-1/2 gap-0.5 opacity-0 group-hover/project:opacity-100 focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label={t('projects.edit.action', { name: project.name })}
+                  onClick={() => onEditProject(project)}
+                >
+                  <PencilSimple className="h-3 w-3" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground"
+                  aria-label="Archive project"
+                  onClick={() => onArchiveProject?.(project)}
+                >
+                  <Archive className="h-3 w-3" aria-hidden="true" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Delete project"
+                  onClick={() => onDeleteProject?.(project)}
+                >
+                  <Trash className="h-3 w-3" aria-hidden="true" />
+                </Button>
+              </div>
             </div>
 
             {isExpanded ? (
@@ -128,21 +156,46 @@ export function ProjectSidebarList({
                 ) : null}
                 {sessionsStatus === 'ready'
                   ? projectSessions.map((session) => (
-                      <button
-                        key={session.id}
-                        type="button"
-                        className={cn(
-                          'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
-                          activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : null
-                        )}
-                        onClick={() => onSelectSession?.(session)}
-                      >
-                        <SessionStatusIndicator
-                          status={session.status === 'running' ? 'running' : 'idle'}
-                          label={t(`sessions.status.${session.status}`)}
-                        />
-                        <span className="min-w-0 flex-1 truncate">{session.title}</span>
-                      </button>
+                      <div key={session.id} className="group/session relative">
+                        <button
+                          type="button"
+                          className={cn(
+                            'flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-12 text-left text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                            activeSessionId === session.id ? 'bg-sidebar-accent text-sidebar-accent-foreground' : null
+                          )}
+                          onClick={() => onSelectSession?.(session)}
+                        >
+                          <SessionStatusIndicator
+                            status={session.status === 'running' ? 'running' : 'idle'}
+                            label={t(`sessions.status.${session.status}`)}
+                          />
+                          <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                        </button>
+                        <div className="absolute right-1 top-1/2 flex -translate-y-1/2 gap-0.5 opacity-0 group-hover/session:opacity-100 focus-within:opacity-100">
+                          <button
+                            type="button"
+                            className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            aria-label="Archive session"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onArchiveSession?.(session)
+                            }}
+                          >
+                            <Archive className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                            aria-label="Delete session"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onDeleteSession?.(session)
+                            }}
+                          >
+                            <Trash className="h-3 w-3" aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
                     ))
                   : null}
                 <Button

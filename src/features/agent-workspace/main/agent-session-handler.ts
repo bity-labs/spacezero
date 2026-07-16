@@ -1,11 +1,14 @@
+import { app } from 'electron'
+import { mkdir } from 'node:fs/promises'
 import { nanoid } from 'nanoid'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
@@ -20,6 +23,18 @@ export type CreateAgentSessionHandlerDependencies = {
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
 }
+
+export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionHandlerDependencies & {
+  getWorkspaceSessionCwd?: () => string
+}
+
+export type RestoreAgentSessionHandlerDependencies = {
+  repository: SessionsRepository
+  utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
+  getWorkspaceSessionCwd?: () => string
+}
+
+const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
 
 export async function createProjectAgentSession(
   input: unknown,
@@ -41,6 +56,7 @@ export async function createProjectAgentSession(
   const modelDefaults = await readModelDefaults()
   const state = await utilityHost.createSession({
     sessionId,
+    kind: 'project',
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
@@ -60,4 +76,114 @@ export async function createProjectAgentSession(
   }
 
   return state
+}
+
+export async function restoreAgentSessionState(
+  input: unknown,
+  {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+  }: RestoreAgentSessionHandlerDependencies
+): Promise<AgentSessionState> {
+  const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
+  const pendingRestore = pendingSessionRestores.get(request.sessionId)
+  if (pendingRestore) return pendingRestore
+
+  const restore = restoreAgentSessionStateOnce(request, {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd
+  })
+  pendingSessionRestores.set(request.sessionId, restore)
+
+  try {
+    return await restore
+  } finally {
+    if (pendingSessionRestores.get(request.sessionId) === restore) {
+      pendingSessionRestores.delete(request.sessionId)
+    }
+  }
+}
+
+async function restoreAgentSessionStateOnce(
+  request: { sessionId: string },
+  {
+    repository,
+    utilityHost,
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+  }: RestoreAgentSessionHandlerDependencies
+): Promise<AgentSessionState> {
+  try {
+    return await utilityHost.getState(request)
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'agent.sessionNotFound') throw error
+  }
+
+  const storedSession = await repository.findSessionById(request.sessionId)
+  if (!storedSession) throw new Error('agent.sessionNotFound')
+
+  const cwd = storedSession.projectId
+    ? resolveStoredProjectPath(await repository.findProjectById(storedSession.projectId))
+    : resolve(getWorkspaceSessionCwd())
+
+  if (!storedSession.projectId) await mkdir(cwd, { recursive: true })
+
+  try {
+    return await utilityHost.createSession({
+      sessionId: storedSession.id,
+      kind: storedSession.projectId ? 'project' : 'workspace',
+      projectId: storedSession.projectId,
+      cwd,
+      transcriptPath: storedSession.transcriptPath ?? undefined,
+      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors()
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'agent.sessionAlreadyExists') {
+      return utilityHost.getState(request)
+    }
+    throw error
+  }
+}
+
+export async function createWorkspaceAgentSession({
+  repository,
+  utilityHost,
+  createSessionId = nanoid,
+  readModelDefaults = getModelDefaults,
+  getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+}: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
+  const sessionId = createSessionId()
+  const cwd = resolve(getWorkspaceSessionCwd())
+  await mkdir(cwd, { recursive: true })
+
+  const modelDefaults = await readModelDefaults()
+  const state = await utilityHost.createSession({
+    sessionId,
+    kind: 'workspace',
+    projectId: null,
+    cwd,
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    defaultModel: modelDefaults.defaultModel,
+    thinkingLevel: modelDefaults.defaultThinking
+  })
+
+  try {
+    return await createSessionsService({ repository }).createWorkspaceAgentSession({
+      id: sessionId,
+      transcriptPath: state.transcriptPath
+    })
+  } catch (error) {
+    await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+    throw error
+  }
+}
+
+function resolveStoredProjectPath(project: { id: string; path: string } | undefined): string {
+  if (!project) throw new Error('Project not found')
+  return resolve(project.path)
+}
+
+function defaultWorkspaceSessionCwd(): string {
+  return join(app.getPath('userData'), 'workspace-sessions')
 }

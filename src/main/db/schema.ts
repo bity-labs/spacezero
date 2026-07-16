@@ -5,7 +5,8 @@ export const projects = sqliteTable('projects', {
   name: text('name').notNull(),
   path: text('path').notNull().unique(),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
 })
 
 export const sessions = sqliteTable('sessions', {
@@ -15,7 +16,8 @@ export const sessions = sqliteTable('sessions', {
   status: text('status', { enum: ['idle', 'running', 'completed', 'failed'] }).notNull().default('idle'),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
-  transcriptPath: text('transcript_path')
+  transcriptPath: text('transcript_path'),
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
 })
 
 export const appSettings = sqliteTable('app_settings', {

@@ -79,18 +79,24 @@ beforeEach(async () => {
         path: request.path,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(1).toISOString()
-      })
+      }),
+      archive: async () => undefined,
+      delete: async () => undefined
     },
     sessions: {
       listProjectSessions: async () => [],
+      listWorkspaceSessions: async () => [],
       createProjectSession: async ({ projectId, title }) => ({
         id: 'session-test',
+        kind: 'project',
         projectId,
         title: title ?? 'Session 1',
         status: 'idle',
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
-      })
+      }),
+      archive: async () => undefined,
+      delete: async () => undefined
     },
     agent: {
       ping: async () => ({
@@ -100,6 +106,7 @@ beforeEach(async () => {
       }),
       createSession: async ({ projectId, cwd }) => ({
         sessionId: 'agent-session-test',
+        kind: 'project',
         projectId,
         cwd,
         status: 'idle',
@@ -108,9 +115,18 @@ beforeEach(async () => {
         modelProvider: 'faux',
         modelId: 'faux-1'
       }),
+      createWorkspaceSession: async () => ({
+        id: 'workspace-session-test',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
       getState: async ({ sessionId }) => ({
         sessionId,
-        projectId: 'project-test',
+        kind: sessionId.startsWith('workspace') ? 'workspace' : 'project',
+        projectId: sessionId.startsWith('workspace') ? null : 'project-test',
         cwd: '/tmp/project-test',
         status: 'idle',
         live: true,

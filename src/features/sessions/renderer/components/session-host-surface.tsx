@@ -3,39 +3,26 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import {
-  ChatInput,
   type AiChatMessage,
-  type AiChatThinkingLevel,
   type AiChatToolCallPart
 } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
 
-const hostModels = [
-  { id: 'claude-sonnet-4', label: 'Claude Sonnet 4', provider: 'anthropic' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
-  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', provider: 'google' }
-]
-
 type ProjectSessionHostSurfaceProps = {
   project: Project
   session: ProjectSession
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }
 
 type WorkspaceSessionHostSurfaceProps = {
   session: WorkspaceSession
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
 }
 
 export function ProjectSessionHostSurface({
   project,
-  session,
-  thinkingLevel,
-  onThinkingChange
+  session
 }: ProjectSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
@@ -45,30 +32,37 @@ export function ProjectSessionHostSurface({
       status={agentSession.status}
       messages={agentSession.messages}
       error={agentSession.lastError ?? null}
-      thinkingLevel={thinkingLevel}
-      onThinkingChange={onThinkingChange}
+      sessionState={agentSession.sessionState}
       placeholder={`Message ${project.name} / ${session.title}…`}
       onSubmit={(text) => void agentSession.prompt(text)}
+      onAbort={() => void agentSession.abort()}
+      onToolConfirmationResolve={(callId, approved) =>
+        void agentSession.resolveToolConfirmation(callId, approved)
+      }
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
     />
   )
 }
 
 export function WorkspaceSessionHostSurface({
-  session,
-  thinkingLevel,
-  onThinkingChange
+  session
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
-  const messages = useMemo(() => createWorkspaceSessionPlaceholderMessages(session), [session])
+  const agentSession = useAgentSession(session.id)
 
   return (
     <SessionHostFrame
       sessionId={session.id}
-      status={session.status === 'running' ? 'running' : 'idle'}
-      messages={messages}
-      thinkingLevel={thinkingLevel}
-      onThinkingChange={onThinkingChange}
+      status={agentSession.status}
+      messages={agentSession.messages}
+      error={agentSession.lastError ?? null}
+      sessionState={agentSession.sessionState}
       placeholder="Ask about Space Zero…"
+      onSubmit={(text) => void agentSession.prompt(text)}
+      onAbort={() => void agentSession.abort()}
+      onToolConfirmationResolve={(callId, approved) =>
+        void agentSession.resolveToolConfirmation(callId, approved)
+      }
+      emptyState="Ask the workspace agent about Space Zero. Streamed replies appear here."
     />
   )
 }
@@ -78,10 +72,11 @@ type SessionHostFrameProps = {
   status: 'idle' | 'running'
   messages: AiChatMessage[]
   error?: string | null
-  thinkingLevel: AiChatThinkingLevel
-  onThinkingChange: (level: AiChatThinkingLevel) => void
+  sessionState?: AgentSessionState
   placeholder: string
   onSubmit?: (text: string) => void
+  onAbort?: () => void
+  onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
 }
 
@@ -90,16 +85,17 @@ function SessionHostFrame({
   status,
   messages,
   error,
-  thinkingLevel,
-  onThinkingChange,
+  sessionState,
   placeholder,
   onSubmit,
+  onAbort,
+  onToolConfirmationResolve,
   emptyState
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {error ? (
         <div
           className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
@@ -109,19 +105,16 @@ function SessionHostFrame({
         </div>
       ) : null}
       <AgentChat
+        sessionId={sessionId}
         messages={projectedMessages}
+        sessionState={sessionState}
+        status={status}
         emptyState={emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined}
-        contentClassName="px-4 py-4"
-        composer={
-          <ChatInput
-            models={hostModels}
-            thinkingLevel={thinkingLevel}
-            onThinkingChange={onThinkingChange}
-            onSubmit={({ text }) => onSubmit?.(text)}
-            placeholder={placeholder}
-            status={status === 'running' ? 'streaming' : error ? 'error' : 'ready'}
-          />
-        }
+        contentClassName="w-full px-6 pb-48 pt-12"
+        placeholder={placeholder}
+        onSubmit={onSubmit}
+        onAbort={onAbort}
+        onToolConfirmationResolve={onToolConfirmationResolve}
       />
     </div>
   )
@@ -192,38 +185,3 @@ function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): A
   }
 }
 
-function createWorkspaceSessionPlaceholderMessages(session: WorkspaceSession): AiChatMessage[] {
-  return [
-    {
-      id: `${session.id}-placeholder`,
-      role: 'assistant',
-      status: 'complete',
-      parts: [
-        {
-          type: 'text',
-          text: 'Workspace Session host for the global Space Zero agent. This surface does not require a project, cwd, or repository path.'
-        },
-        {
-          type: 'thinking',
-          text: 'Streaming projection placeholder for a workspace-wide agent turn.',
-          state: 'complete',
-          collapsed: true
-        },
-        {
-          type: 'tool-call',
-          callId: `${session.id}-tool`,
-          toolName: 'workspace.getStatus.preview',
-          state: 'success',
-          output: { scope: 'workspace' }
-        },
-        {
-          type: 'tool-confirmation',
-          callId: `${session.id}-confirmation`,
-          toolName: 'workspace.tool.confirmation.preview',
-          summary: 'Inline confirmation placeholder for future global Workspace Tool requests.',
-          state: 'pending'
-        }
-      ]
-    }
-  ]
-}

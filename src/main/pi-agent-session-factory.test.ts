@@ -4,7 +4,49 @@ import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { createPiAgentRuntime, createPiAgentSessionFactory } from './pi-agent-session-factory'
+import {
+  createPiAgentRuntime,
+  createPiAgentSessionFactory,
+  toAgentStreamingEvent
+} from './pi-agent-session-factory'
+
+describe('toAgentStreamingEvent', () => {
+  it('preserves thinking parts from live message updates', () => {
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_update',
+      message: {
+        id: 'message-1',
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the workspace.', redacted: false },
+          { type: 'text', text: 'I will check that.' }
+        ],
+        timestamp: 100
+      },
+      assistantMessageEvent: {
+        type: 'thinking_delta',
+        contentIndex: 0,
+        delta: 'workspace.'
+      }
+    })
+
+    expect(event).toEqual({
+      type: 'message_update',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      message: {
+        role: 'assistant',
+        content: [
+          { type: 'thinking', thinking: 'I should inspect the workspace.', redacted: false },
+          { type: 'text', text: 'I will check that.' }
+        ],
+        timestamp: 100,
+        stopReason: undefined,
+        errorMessage: undefined
+      }
+    })
+  })
+})
 
 describe('createPiAgentSessionFactory', () => {
   it('creates an idle faux Pi session with project tools and a transcript under the Space Zero agent dir', async () => {
@@ -25,6 +67,29 @@ describe('createPiAgentSessionFactory', () => {
         expect(session.modelId).toBe('faux-1')
         expect(session.thinkingLevel).toBe('off')
         expect(session.sessionFile).toContain(join(tempDir, 'agent', 'sessions'))
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('uses the requested default thinking level when creating a new session', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-thinking-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        thinkingLevel: 'high'
+      })
+
+      try {
+        expect(session.thinkingLevel).toBe('high')
       } finally {
         session.dispose()
       }

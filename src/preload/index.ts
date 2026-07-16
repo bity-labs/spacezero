@@ -14,16 +14,22 @@ const api: SpaceZeroAPI = {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
     createEmpty: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.createEmpty, request),
     addFromFolder: () => ipcRenderer.invoke(IPC_CHANNELS.projects.addFromFolder),
-    update: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.update, request)
+    update: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.update, request),
+    archive: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.archive, request),
+    delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.delete, request)
   },
   sessions: {
     listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
+    listWorkspaceSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listWorkspaceSessions),
     createProjectSession: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request)
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request),
+    archive: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.archive, request),
+    delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.delete, request)
   },
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
+    createWorkspaceSession: () => ipcRenderer.invoke(IPC_CHANNELS.agent.createWorkspaceSession),
     getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.getState, request),
     listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.agent.listSessions),
     prompt: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.prompt, request),

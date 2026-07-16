@@ -1,4 +1,4 @@
-import { asc, count, eq, isNotNull } from 'drizzle-orm'
+import { and, asc, count, eq, isNotNull, isNull } from 'drizzle-orm'
 
 import { getDatabase } from '../../../main/db'
 import * as schema from '../../../main/db/schema'
@@ -10,7 +10,15 @@ export function createSessionsRepository(): SessionsRepository {
       return (await getDatabase()
         .select()
         .from(schema.sessions)
-        .where(isNotNull(schema.sessions.projectId))
+        .where(and(isNotNull(schema.sessions.projectId), isNull(schema.sessions.archivedAt)))
+        .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
+    },
+
+    async listWorkspaceSessions() {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(and(isNull(schema.sessions.projectId), isNull(schema.sessions.archivedAt)))
         .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
     },
 
@@ -23,7 +31,16 @@ export function createSessionsRepository(): SessionsRepository {
       const [{ value }] = await getDatabase()
         .select({ value: count() })
         .from(schema.sessions)
-        .where(eq(schema.sessions.projectId, projectId))
+        .where(and(eq(schema.sessions.projectId, projectId), isNull(schema.sessions.archivedAt)))
+
+      return value
+    },
+
+    async countWorkspaceSessions() {
+      const [{ value }] = await getDatabase()
+        .select({ value: count() })
+        .from(schema.sessions)
+        .where(and(isNull(schema.sessions.projectId), isNull(schema.sessions.archivedAt)))
 
       return value
     },
@@ -46,6 +63,43 @@ export function createSessionsRepository(): SessionsRepository {
         .limit(1)
 
       return project
+    },
+
+    async findSessionById(sessionId) {
+      const [session] = await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.id, sessionId))
+        .limit(1)
+
+      return session as StoredSession | undefined
+    },
+
+    async update(session) {
+      await getDatabase().update(schema.sessions).set(session).where(eq(schema.sessions.id, session.id))
+      return session
+    },
+
+    async deleteById(sessionId) {
+      await getDatabase().delete(schema.sessions).where(eq(schema.sessions.id, sessionId))
+    },
+
+    async listByProjectIdIncludingArchived(projectId) {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(eq(schema.sessions.projectId, projectId))) as StoredSession[]
+    },
+
+    async updateMany(sessions) {
+      for (const session of sessions) {
+        await getDatabase().update(schema.sessions).set(session).where(eq(schema.sessions.id, session.id))
+      }
+      return sessions
+    },
+
+    async deleteByProjectId(projectId) {
+      await getDatabase().delete(schema.sessions).where(eq(schema.sessions.projectId, projectId))
     }
   }
 }

@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
-import { createProjectAgentSession } from './agent-session-handler'
+import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
@@ -35,9 +35,18 @@ export function registerAgentIpc(): void {
     })
   })
 
+  ipcMain.handle(IPC_CHANNELS.agent.createWorkspaceSession, () => {
+    return createWorkspaceAgentSession({
+      repository: createSessionsRepository(),
+      utilityHost: getAgentUtilityProcessHost()
+    })
+  })
+
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {
-    const request = sessionIdRequestSchema.parse(input)
-    return getAgentUtilityProcessHost().getState(request)
+    return restoreAgentSessionState(input, {
+      repository: createSessionsRepository(),
+      utilityHost: getAgentUtilityProcessHost()
+    })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.listSessions, () => {
