@@ -11,3 +11,18 @@ export const knowledgeBasePathRequestSchema = z.object({
 export const searchKnowledgeBaseRequestSchema = z.object({
   query: z.string().trim().min(1, 'Search query is required').max(200)
 })
+
+export const createKnowledgeBaseItemRequestSchema = z.object({
+  relativePath: z.string().trim().min(1, 'Knowledge Base path is required'),
+  kind: z.enum(['file', 'folder'])
+})
+
+export const renameKnowledgeBaseItemRequestSchema = z.object({
+  relativePath: z.string().trim().min(1, 'Knowledge Base path is required'),
+  newName: z.string().trim().min(1, 'Knowledge Base item name is required')
+})
+
+export const moveKnowledgeBaseItemRequestSchema = z.object({
+  sourcePath: z.string().trim().min(1, 'Source path is required'),
+  destinationPath: z.string().trim().min(1, 'Destination path is required')
+})
