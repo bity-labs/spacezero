@@ -24,6 +24,7 @@ import type {
   AgentUserContent
 } from '../shared/agent-session-projection.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
+import { stripKnowledgeBaseMentionContext } from '../features/knowledge-base/shared'
 import type {
   ExecuteWorkspaceToolRequest,
   WorkspaceToolAgentDescriptor
@@ -473,12 +474,14 @@ function toTranscriptMessage(message: unknown): AgentTranscriptMessage[] {
 }
 
 function toUserContent(content: unknown): string | AgentUserContent[] {
-  if (typeof content === 'string') return content
+  if (typeof content === 'string') return stripKnowledgeBaseMentionContext(content)
   if (!Array.isArray(content)) return []
 
   return content.flatMap((part): AgentUserContent[] => {
     if (!isRecord(part)) return []
-    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'text' && typeof part.text === 'string') {
+      return [{ type: 'text', text: stripKnowledgeBaseMentionContext(part.text) }]
+    }
     if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
       return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
     }

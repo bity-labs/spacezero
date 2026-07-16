@@ -111,6 +111,64 @@ describe('ChatInput', () => {
     expect(handleModelChange).toHaveBeenCalledWith('sonnet')
   })
 
+  it('autocompletes Knowledge Base file and folder mentions with relative paths', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'decisions',
+        relativePath: 'decisions',
+        kind: 'folder',
+        contentKind: 'folder',
+        children: [
+          {
+            name: 'architecture.md',
+            relativePath: 'decisions/architecture.md',
+            kind: 'file',
+            contentKind: 'markdown',
+            size: 10,
+            modifiedAt: new Date(0).toISOString()
+          }
+        ]
+      }
+    ]
+    const handleSubmit = vi.fn()
+    render(<ChatInput onSubmit={handleSubmit} />)
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+
+    fireEvent.change(input, { target: { value: 'Review @kb/decisions/' } })
+
+    expect(
+      await screen.findByRole('option', { name: '@kb/decisions/architecture.md' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '@kb/decisions/' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: '@kb/decisions/' }))
+    expect(input).toHaveValue('Review @kb/decisions/ ')
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'Review @kb/decisions/',
+      files: [],
+      modelId: undefined
+    })
+    expect(JSON.stringify(handleSubmit.mock.calls)).not.toContain('architecture.md')
+  })
+
+  it('prompts setup when @kb autocomplete is used before configuration', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
+    render(<ChatInput onSubmit={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'Read @kb/notes' }
+    })
+
+    expect(
+      await screen.findByText('Knowledge Base is not configured. Open Knowledge Base to set it up.')
+    ).toBeInTheDocument()
+  })
+
   it('falls back to the first available model when models arrive after mount', () => {
     const handleSubmit = vi.fn()
     const { rerender } = render(<ChatInput models={[]} onSubmit={handleSubmit} />)

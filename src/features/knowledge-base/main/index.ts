@@ -11,6 +11,10 @@ import {
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
 import { createKnowledgeBaseService, type KnowledgeBaseService } from './knowledge-base.service'
 import {
+  createKnowledgeBaseMentionsService,
+  type KnowledgeBaseMentionsService
+} from './knowledge-base-mentions.service'
+import {
   createKnowledgeBaseProjectFolderHost,
   createKnowledgeBaseProjectsService,
   type KnowledgeBaseProjectsService
@@ -41,6 +45,7 @@ let service: KnowledgeBaseApplicationService | undefined
 let syncCoordinator: KnowledgeBaseSyncCoordinator | undefined
 let syncScheduler: KnowledgeBaseSyncScheduler | undefined
 let projectsService: KnowledgeBaseProjectsService | undefined
+let mentionsService: KnowledgeBaseMentionsService | undefined
 
 export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
   if (!service) {
@@ -69,6 +74,13 @@ export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
     }
   }
   return service
+}
+
+export function getKnowledgeBaseMentionsService(): KnowledgeBaseMentionsService {
+  mentionsService ??= createKnowledgeBaseMentionsService({
+    configurationRepository: createKnowledgeBaseConfigurationRepository()
+  })
+  return mentionsService
 }
 
 export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService {
