@@ -303,7 +303,8 @@ describe('AgentSessionRegistry', () => {
       projectId: 'project-1',
       cwd: '/repo-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
-      workspaceTools: undefined
+      workspaceTools: undefined,
+      thinkingLevel: 'medium'
     })
     expect(events).toEqual([
       'agent.sessionSuspended:session-1',
@@ -582,7 +583,9 @@ describe('AgentSessionRegistry', () => {
       kind: 'project',
       projectId: 'project-1',
       cwd: '/repo-1',
-      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl'
+      transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
+      workspaceTools: undefined,
+      thinkingLevel: 'medium'
     })
     expect(prompts).toEqual(['session-1:continue work'])
     await expect(registry.listSessions()).resolves.toMatchObject([

@@ -127,7 +127,7 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session, modelRegistry)
+    return adaptAgentSession(session, modelRegistry, request.thinkingLevel)
   }
 
   return {
@@ -366,7 +366,13 @@ function createWorkspaceToolProxies({
   )
 }
 
-function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry): CreatedPiAgentSession {
+function adaptAgentSession(
+  session: AgentSession,
+  modelRegistry: ModelRegistry,
+  initialThinkingLevel?: ThinkingLevel
+): CreatedPiAgentSession {
+  let preferredThinkingLevel = initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
+
   return {
     sessionId: session.sessionId,
     sessionFile: session.sessionFile,
@@ -380,12 +386,16 @@ function adaptAgentSession(session: AgentSession, modelRegistry: ModelRegistry):
       return session.model?.id ?? FAUX_MODEL_ID
     },
     get thinkingLevel() {
-      return session.thinkingLevel as ThinkingLevel | undefined
+      return preferredThinkingLevel
     },
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
+      if (preferredThinkingLevel) session.setThinkingLevel(preferredThinkingLevel)
     },
-    setThinkingLevel: (level) => session.setThinkingLevel(level),
+    setThinkingLevel: (level) => {
+      preferredThinkingLevel = level
+      session.setThinkingLevel(level)
+    },
     prompt: (message) => session.prompt(message),
     abort: () => session.abort(),
     subscribe: (listener) => session.subscribe((event) => {
