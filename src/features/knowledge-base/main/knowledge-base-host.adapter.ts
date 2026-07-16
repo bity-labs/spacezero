@@ -20,6 +20,10 @@ export function createKnowledgeBaseHost(): KnowledgeBaseHost {
       await mkdir(path)
     },
 
+    async ensureParentDirectory(path) {
+      await mkdir(dirname(path), { recursive: true })
+    },
+
     async removeDirectory(path) {
       await rm(path, { recursive: true, force: true })
     },

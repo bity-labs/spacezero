@@ -4,12 +4,16 @@ import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
+import { Input } from '@renderer/components/ui/input'
 import type { KnowledgeBaseStatus } from '../shared'
 
 export function KnowledgeBasePage(): React.JSX.Element {
   const [status, setStatus] = useState<KnowledgeBaseStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isCreating, setCreating] = useState(false)
+  const [isCloneFormOpen, setCloneFormOpen] = useState(false)
+  const [isCloning, setCloning] = useState(false)
+  const [gitUrl, setGitUrl] = useState('')
 
   useEffect(() => {
     let current = true
@@ -35,6 +39,19 @@ export function KnowledgeBasePage(): React.JSX.Element {
       setError(getErrorMessage(setupError, 'Unable to create the Knowledge Base.'))
     } finally {
       setCreating(false)
+    }
+  }
+
+  async function cloneFromGit(): Promise<void> {
+    if (!gitUrl.trim()) return
+    setCloning(true)
+    setError(null)
+    try {
+      setStatus(await window.spacezero.knowledgeBase.cloneFromGit({ gitUrl: gitUrl.trim() }))
+    } catch (setupError) {
+      setError(getErrorMessage(setupError, 'Unable to clone the Knowledge Base.'))
+    } finally {
+      setCloning(false)
     }
   }
 
@@ -97,11 +114,42 @@ export function KnowledgeBasePage(): React.JSX.Element {
                 Bring an existing Git-backed Knowledge Base into Space Zero.
               </p>
             </div>
-            <Button variant="outline" disabled>
+            <Button variant="outline" onClick={() => setCloneFormOpen(true)}>
               Clone from Git repository
             </Button>
           </Card>
         </div>
+
+        {isCloneFormOpen ? (
+          <Card className="mt-4 gap-4 p-5">
+            <div>
+              <label htmlFor="knowledge-base-git-url" className="text-sm font-medium">
+                Git repository URL
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Space Zero uses your local Git credentials and SSH configuration.
+              </p>
+            </div>
+            <Input
+              id="knowledge-base-git-url"
+              value={gitUrl}
+              autoFocus
+              placeholder="https://github.com/you/knowledge-base.git"
+              onChange={(event) => setGitUrl(event.target.value)}
+            />
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCloneFormOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                disabled={!gitUrl.trim() || isCloning}
+                onClick={() => void cloneFromGit()}
+              >
+                {isCloning ? 'Cloning…' : 'Clone repository'}
+              </Button>
+            </div>
+          </Card>
+        ) : null}
       </div>
     </div>
   )
