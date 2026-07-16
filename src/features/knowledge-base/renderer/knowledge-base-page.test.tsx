@@ -133,6 +133,42 @@ describe('KnowledgeBasePage', () => {
     ).toBeInTheDocument()
   })
 
+  it('warns about sync conflicts and offers retry and recovery actions', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => []
+    window.spacezero.knowledgeBase.getSyncStatus = async () => ({
+      remoteState: 'configured',
+      remoteUrl: 'git@github.com:builder/notes.git',
+      syncState: 'conflict',
+      lastSyncError: 'CONFLICT in decision.md'
+    })
+    window.spacezero.knowledgeBase.syncNow = vi.fn(async () => ({
+      remoteState: 'configured' as const,
+      remoteUrl: 'git@github.com:builder/notes.git',
+      syncState: 'idle' as const
+    }))
+    const openFolder = vi.fn(async () => undefined)
+    const openRemote = vi.fn(async () => undefined)
+    window.spacezero.knowledgeBase.openFolder = openFolder
+    window.spacezero.knowledgeBase.openRemote = openRemote
+
+    render(<KnowledgeBasePage />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('CONFLICT in decision.md')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open folder' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open remote' }))
+
+    await waitFor(() =>
+      expect(window.spacezero.knowledgeBase.syncNow).toHaveBeenCalledTimes(1)
+    )
+    expect(openFolder).toHaveBeenCalledTimes(1)
+    expect(openRemote).toHaveBeenCalledTimes(1)
+  })
+
   it('browses folders and opens text and unsupported files', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',

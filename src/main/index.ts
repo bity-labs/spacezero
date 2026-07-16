@@ -4,6 +4,7 @@ import log from 'electron-log/main'
 import { join } from 'node:path'
 
 import { stopAgentUtilityProcessHost, getAgentUtilityProcessHost } from '../features/agent-workspace/main/agent-utility-process'
+import { getKnowledgeBaseSyncScheduler } from '../features/knowledge-base/main'
 import { closeDatabase, getDatabase } from './db'
 import { registerIpcHandlers } from './ipc'
 import { findSpaceZeroOAuthUrl, registerSpaceZeroProtocol, routeSpaceZeroOAuthUrl } from './protocol'
@@ -80,7 +81,12 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   getAgentUtilityProcessHost().start()
   getDatabase()
+  getKnowledgeBaseSyncScheduler().start()
   createWindow()
+
+  app.on('browser-window-focus', () => {
+    getKnowledgeBaseSyncScheduler().onAppFocus()
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -92,6 +98,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  getKnowledgeBaseSyncScheduler().stop()
   stopAgentUtilityProcessHost()
   closeDatabase()
 })

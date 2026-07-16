@@ -121,6 +121,34 @@ describe('createKnowledgeBaseSyncService', () => {
     await expect(service.addRemote({ gitUrl: 'bad url' })).rejects.toThrow('invalid remote URL')
   })
 
+  it('records conflicts without silently resolving or pushing them', async () => {
+    const syncStateRepository = createSyncStateRepository()
+    const host = createGitHost((args) => {
+      const command = args.join(' ')
+      if (command === 'remote') return { stdout: 'origin\n' }
+      if (command === 'remote get-url origin') return { stdout: 'https://example.com/notes.git\n' }
+      if (command === 'status --porcelain') return { stdout: '' }
+      if (command === 'branch --show-current') return { stdout: 'main\n' }
+      if (command === 'ls-remote --heads origin main') return { stdout: 'abc\trefs/heads/main\n' }
+      if (command === 'pull --rebase origin main') {
+        return new Error('CONFLICT (content): Merge conflict in note.md')
+      }
+      return {}
+    })
+    const service = createKnowledgeBaseSyncService({
+      configurationRepository: configuredRepository(),
+      syncStateRepository,
+      host
+    })
+
+    await expect(service.syncNow()).rejects.toThrow('Merge conflict in note.md')
+    expect(syncStateRepository.value).toMatchObject({
+      syncState: 'conflict',
+      lastSyncError: 'CONFLICT (content): Merge conflict in note.md'
+    })
+    expect(host.calls.some((args) => args[0] === 'push')).toBe(false)
+  })
+
   it('commits local changes with a local timestamp before pulling and pushing origin', async () => {
     const syncStateRepository = createSyncStateRepository()
     const host = createGitHost((args) => {
