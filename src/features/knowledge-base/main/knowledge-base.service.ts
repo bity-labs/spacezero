@@ -1,0 +1,88 @@
+import { join } from 'node:path'
+
+import type {
+  KnowledgeBaseConfiguration,
+  KnowledgeBaseStatus
+} from '../shared/knowledge-base.model'
+
+export const KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS = `# Knowledge Base Instructions
+
+This repository is the user's Knowledge Base.
+
+- Prefer Markdown for durable notes and documentation.
+- Keep the folder and file structure user-controlled.
+- Read existing context before adding or changing documents.
+- Make focused edits and preserve existing organization unless asked to reorganize.
+- Do not edit files under \`.git/\`.
+`
+
+export type KnowledgeBaseConfigurationRepository = {
+  get: () => Promise<KnowledgeBaseConfiguration | undefined>
+  save: (configuration: KnowledgeBaseConfiguration) => Promise<void>
+}
+
+export type KnowledgeBaseHost = {
+  pathExists: (path: string) => Promise<boolean>
+  createDirectory: (path: string) => Promise<void>
+  removeDirectory: (path: string) => Promise<void>
+  writeTextFile: (path: string, content: string) => Promise<void>
+  runGit: (
+    cwd: string,
+    args: readonly string[]
+  ) => Promise<{ stdout: string; stderr: string }>
+}
+
+export type KnowledgeBaseService = {
+  getStatus: () => Promise<KnowledgeBaseStatus>
+  createNew: () => Promise<KnowledgeBaseStatus>
+}
+
+export function createKnowledgeBaseService({
+  configurationRepository,
+  host,
+  rootPath,
+  now = () => new Date()
+}: {
+  configurationRepository: KnowledgeBaseConfigurationRepository
+  host: KnowledgeBaseHost
+  rootPath: string
+  now?: () => Date
+}): KnowledgeBaseService {
+  return {
+    async getStatus() {
+      const configuration = await configurationRepository.get()
+      return configuration
+        ? { setupState: 'configured', rootPath: configuration.rootPath }
+        : { setupState: 'unconfigured' }
+    },
+
+    async createNew() {
+      if (await configurationRepository.get()) {
+        throw new Error('Knowledge Base is already configured.')
+      }
+      if (await host.pathExists(rootPath)) {
+        throw new Error(
+          'Knowledge Base folder already exists. Move or remove it before setup.'
+        )
+      }
+
+      let created = false
+      try {
+        await host.createDirectory(rootPath)
+        created = true
+        await host.runGit(rootPath, ['init', '-b', 'main'])
+        await host.writeTextFile(
+          join(rootPath, 'AGENTS.md'),
+          KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS
+        )
+        await host.runGit(rootPath, ['add', 'AGENTS.md'])
+        await host.runGit(rootPath, ['commit', '-m', 'Initialize Knowledge Base'])
+        await configurationRepository.save({ rootPath, configuredAt: now().toISOString() })
+        return { setupState: 'configured', rootPath }
+      } catch (error) {
+        if (created) await host.removeDirectory(rootPath).catch(() => undefined)
+        throw error
+      }
+    }
+  }
+}

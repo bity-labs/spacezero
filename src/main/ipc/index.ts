@@ -1,4 +1,5 @@
 import { registerAgentIpc } from '../../features/agent-workspace/main/agent.ipc'
+import { registerKnowledgeBaseIpc } from '../../features/knowledge-base/main/knowledge-base.ipc'
 import { registerProjectsIpc } from '../../features/projects/main/projects.ipc'
 import { registerSessionsIpc } from '../../features/sessions/main/sessions.ipc'
 import { registerSettingsIpc } from '../../features/settings/main/settings.ipc'
@@ -13,6 +14,7 @@ export function registerIpcHandlers(): void {
   registerAppIpc()
   registerAgentIpc()
   registerDbIpc()
+  registerKnowledgeBaseIpc()
   registerProjectsIpc()
   registerSessionsIpc()
   registerSettingsIpc()

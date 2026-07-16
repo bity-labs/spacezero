@@ -10,6 +10,10 @@ const api: SpaceZeroAPI = {
   db: {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)
   },
+  knowledgeBase: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
+    createNew: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createNew)
+  },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
     createEmpty: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.createEmpty, request),

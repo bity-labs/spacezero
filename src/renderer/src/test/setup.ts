@@ -57,6 +57,13 @@ beforeEach(async () => {
     db: {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
     },
+    knowledgeBase: {
+      getStatus: async () => ({ setupState: 'unconfigured' }),
+      createNew: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      })
+    },
     projects: {
       list: async () => [],
       createEmpty: async ({ name }) => ({
