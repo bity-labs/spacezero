@@ -87,7 +87,7 @@ function SessionHostFrame({
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
       {error ? (
         <div
           className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
@@ -102,7 +102,7 @@ function SessionHostFrame({
         sessionState={sessionState}
         status={status}
         emptyState={emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined}
-        contentClassName="px-4 py-4"
+        contentClassName="w-full px-6 pb-48 pt-12"
         placeholder={placeholder}
         onSubmit={onSubmit}
         onAbort={onAbort}
