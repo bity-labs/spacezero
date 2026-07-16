@@ -2,6 +2,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { KnowledgeBasePage } from './knowledge-base-page'
 
+vi.mock('./knowledge-base-rich-editor', () => ({
+  KnowledgeBaseRichEditor: ({ markdown }: { markdown: string }) => (
+    <textarea aria-label="Rich Markdown editor" value={markdown} readOnly />
+  )
+}))
+
 describe('KnowledgeBasePage', () => {
   it('shows both setup choices while the Knowledge Base is unconfigured', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
@@ -123,7 +129,7 @@ describe('KnowledgeBasePage', () => {
     expect(screen.queryByText('.git')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    expect(await screen.findByRole('textbox', { name: 'Edit note.md' })).toHaveValue(
+    expect(await screen.findByRole('textbox', { name: 'Rich Markdown editor' })).toHaveValue(
       '# Durable note'
     )
 
@@ -165,7 +171,7 @@ describe('KnowledgeBasePage', () => {
     expect(await screen.findByText('architecture/decision.md')).toBeInTheDocument()
     expect(screen.getByText(/durable architecture decision/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /architecture\/decision.md/ }))
-    expect(await screen.findByRole('textbox', { name: 'Edit decision.md' })).toHaveValue(
+    expect(await screen.findByRole('textbox', { name: 'Rich Markdown editor' })).toHaveValue(
       '# Architecture decision'
     )
   })

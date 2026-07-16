@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
@@ -9,12 +9,21 @@ const EXTERNAL_CHANGE_POLL_MS = 2_000
 
 type SaveState = 'saved' | 'saving' | 'error' | 'external'
 
+export type KnowledgeBaseEditorRenderProps = {
+  value: string
+  onChange: (value: string) => void
+}
+
 export function KnowledgeBaseSourceEditor({
   document,
-  onDocumentChange
+  onDocumentChange,
+  headerActions,
+  renderEditor
 }: {
   document: KnowledgeBaseDocument
   onDocumentChange?: (document: KnowledgeBaseDocument) => void
+  headerActions?: ReactNode
+  renderEditor?: (props: KnowledgeBaseEditorRenderProps) => ReactNode
 }): React.JSX.Element {
   const [draft, setDraft] = useState(document.content ?? '')
   const [savedContent, setSavedContent] = useState(document.content ?? '')
@@ -100,9 +109,12 @@ export function KnowledgeBaseSourceEditor({
           <h2 className="truncate font-medium">{document.name}</h2>
           <p className="truncate text-xs text-muted-foreground">{document.relativePath}</p>
         </div>
-        <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
-          {getSaveStateLabel(saveState)}
-        </span>
+        <div className="flex items-center gap-2">
+          {headerActions}
+          <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
+            {getSaveStateLabel(saveState)}
+          </span>
+        </div>
       </div>
 
       {externalDocument ? (
@@ -121,16 +133,26 @@ export function KnowledgeBaseSourceEditor({
         </Alert>
       ) : null}
 
-      <textarea
-        className="min-h-0 flex-1 resize-none rounded-md border bg-background p-4 font-mono text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
-        aria-label={`Edit ${document.name}`}
-        value={draft}
-        spellCheck={document.contentKind === 'markdown'}
-        onChange={(event) => {
-          setDraft(event.target.value)
-          if (saveState === 'error' || saveState === 'external') setSaveState('saved')
-        }}
-      />
+      {renderEditor ? (
+        renderEditor({
+          value: draft,
+          onChange: (value) => {
+            setDraft(value)
+            if (saveState === 'error' || saveState === 'external') setSaveState('saved')
+          }
+        })
+      ) : (
+        <textarea
+          className="min-h-0 flex-1 resize-none rounded-md border bg-background p-4 font-mono text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
+          aria-label={`Edit ${document.name}`}
+          value={draft}
+          spellCheck={document.contentKind === 'markdown'}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            if (saveState === 'error' || saveState === 'external') setSaveState('saved')
+          }}
+        />
+      )}
     </div>
   )
 }
