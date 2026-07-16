@@ -258,6 +258,46 @@ describe('restoreAgentSessionState', () => {
     ).resolves.toBe(restoredState)
   })
 
+  it('restores persisted model and thinking selections after app relaunch', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'high'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          }
+        }),
+        utilityHost
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+        thinkingLevel: 'high'
+      })
+    )
+  })
+
   it('recreates a stored project session from its transcript after app relaunch', async () => {
     const storedSession: StoredSession = {
       id: 'session-1',

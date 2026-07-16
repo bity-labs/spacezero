@@ -122,6 +122,33 @@ describe('createSessionsService', () => {
     await expect(repository.findSessionById('agent-session-1')).resolves.toBeUndefined()
   })
 
+  it('persists agent model and thinking selections', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'agent-session-1',
+          projectId: 'project-1',
+          title: 'Session 1',
+          status: 'idle',
+          createdAt: now,
+          updatedAt: now
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => now })
+
+    await service.updateAgentModel('agent-session-1', 'openai', 'gpt-5')
+    await service.updateAgentThinkingLevel('agent-session-1', 'high')
+
+    await expect(repository.findSessionById('agent-session-1')).resolves.toMatchObject({
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'high',
+      updatedAt: now
+    })
+  })
+
   it('creates workspace agent session metadata with a null project link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository()
