@@ -49,6 +49,21 @@ describe('App', () => {
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
+  it('shows Knowledge Base before New Agent and opens its setup page', async () => {
+    render(<App />)
+
+    const navigation = await screen.findByRole('menu', { name: 'Workspace navigation' })
+    const navigationItems = within(navigation).getAllByRole('button')
+    expect(navigationItems[0]).toHaveTextContent('Knowledge Base')
+    expect(navigationItems[1]).toHaveTextContent('New Agent')
+
+    fireEvent.click(navigationItems[0])
+
+    expect(
+      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
+    ).toBeInTheDocument()
+  })
+
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
     render(<App />)
 

@@ -14,6 +14,10 @@ import type {
   SetAgentThinkingLevelRequest,
   UpdateModelDefaultsRequest
 } from './model-settings'
+import {
+  KNOWLEDGE_BASE_IPC_CHANNELS,
+  type KnowledgeBaseAPI
+} from '../features/knowledge-base/shared'
 import type {
   CreateEmptyProjectRequest,
   Project,
@@ -34,6 +38,7 @@ export const IPC_CHANNELS = {
   db: {
     health: 'db:health'
   },
+  knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
   projects: {
     list: 'projects:list',
     createEmpty: 'projects:createEmpty',
@@ -103,6 +108,7 @@ export type SpaceZeroAPI = {
   db: {
     health: () => Promise<DbHealth>
   }
+  knowledgeBase: KnowledgeBaseAPI
   projects: {
     list: () => Promise<Project[]>
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>

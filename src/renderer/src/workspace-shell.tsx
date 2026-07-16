@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
+  BookOpenText,
   CalendarBlank,
   DotsSixVertical,
   FolderPlus,
@@ -12,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
+import { KnowledgeBasePage } from '../../features/knowledge-base/renderer'
 import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
@@ -80,6 +82,9 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [activePrimaryView, setActivePrimaryView] = useState<'workspace' | 'knowledge-base'>(
+    'workspace'
+  )
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -136,16 +141,23 @@ export function WorkspaceShell(): React.JSX.Element {
     : null
 
   const openProjectSession = useCallback(
-    (session: ProjectSession) => openProjectSessionInWorkspace(session),
+    (session: ProjectSession) => {
+      setActivePrimaryView('workspace')
+      openProjectSessionInWorkspace(session)
+    },
     [openProjectSessionInWorkspace]
   )
 
   const openWorkspaceSession = useCallback(
-    (session: WorkspaceSession) => openWorkspaceSessionInWorkspace(session),
+    (session: WorkspaceSession) => {
+      setActivePrimaryView('workspace')
+      openWorkspaceSessionInWorkspace(session)
+    },
     [openWorkspaceSessionInWorkspace]
   )
 
   const handleNewWorkspaceSession = useCallback(async (): Promise<void> => {
+    setActivePrimaryView('workspace')
     const session = await window.spacezero.agent.createWorkspaceSession()
     upsertWorkspaceSession(session)
     openWorkspaceSession(session)
@@ -304,6 +316,7 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <div className="flex h-full w-full items-center justify-start px-3">
           <WorkspaceBreadcrumb
+            knowledgeBaseActive={activePrimaryView === 'knowledge-base'}
             project={activeSessionProject ?? activeProject}
             projectSession={activeProjectSession}
             workspaceSession={activeWorkspaceSession}
@@ -338,11 +351,21 @@ export function WorkspaceShell(): React.JSX.Element {
             className="pt-4"
             contentClassName="px-0 overflow-hidden"
             header={
-              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')}>
+              <SidebarMenu
+                className="px-0"
+                aria-label={t('workspace.navigation')}
+                role="menu"
+              >
+                <SidebarNavItem
+                  icon={BookOpenText}
+                  label="Knowledge Base"
+                  active={activePrimaryView === 'knowledge-base'}
+                  onClick={() => setActivePrimaryView('knowledge-base')}
+                />
                 <SidebarNavItem
                   icon={PaperPlaneTilt}
                   label={t('workspace.sidebar.newAgent')}
-                  active={activeTab?.kind === 'workspace'}
+                  active={activePrimaryView === 'workspace' && activeTab?.kind === 'workspace'}
                   onClick={() => void handleNewWorkspaceSession()}
                 />
                 <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
@@ -402,6 +425,7 @@ export function WorkspaceShell(): React.JSX.Element {
                     error={projectsError}
                     onAddProject={() => setAddProjectOpen(true)}
                     onSelectProject={(project) => {
+                      setActivePrimaryView('workspace')
                       selectProject(project)
                       if (activeProjectSession?.projectId !== project.id) {
                         resetSessionWorkspaceLayout()
@@ -455,7 +479,9 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col bg-background"
           role="main"
         >
-          {activeTab ? (
+          {activePrimaryView === 'knowledge-base' ? (
+            <KnowledgeBasePage />
+          ) : activeTab ? (
             <SessionWorkspaceTabSurface
               tab={activeTab}
               projects={projects}
@@ -541,10 +567,12 @@ function SessionWorkspaceTabSurface({
 }
 
 function WorkspaceBreadcrumb({
+  knowledgeBaseActive,
   project,
   projectSession,
   workspaceSession
 }: {
+  knowledgeBaseActive: boolean
   project: Project | null
   projectSession: ProjectSession | null
   workspaceSession: WorkspaceSession | null
@@ -553,7 +581,9 @@ function WorkspaceBreadcrumb({
     <Breadcrumb>
       <BreadcrumbList className="justify-start text-xs">
         <BreadcrumbItem>
-          <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
+          <BreadcrumbPage>
+            {knowledgeBaseActive ? 'Knowledge Base' : (project?.name ?? 'Workspace')}
+          </BreadcrumbPage>
         </BreadcrumbItem>
         {projectSession ? (
           <>
