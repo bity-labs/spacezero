@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
+import {
+  createProjectAgentSession,
+  createWorkspaceAgentSession,
+  restoreAgentSessionState,
+  setAgentModelSelection,
+  setAgentThinkingLevel
+} from './agent-session-handler'
 
 function createRepository(overrides: Partial<SessionsRepository> = {}): SessionsRepository {
   const sessions: StoredSession[] = []
@@ -298,6 +304,109 @@ describe('restoreAgentSessionState', () => {
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
       ])
+    })
+  })
+
+  it('restores the persisted session model and thinking selection after app relaunch', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'high'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState({ modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'high' }))
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          }
+        }),
+        utilityHost
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+        thinkingLevel: 'high'
+      })
+    )
+  })
+})
+
+describe('setAgentModelSelection', () => {
+  it('persists the selected model and current thinking level after the utility accepts it', async () => {
+    const repository = createRepository()
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium'
+    })
+    const utilityHost = {
+      setModel: vi.fn(async () => createState({ modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'high' }))
+    }
+
+    await expect(
+      setAgentModelSelection({ sessionId: 'session-1', provider: 'openai', modelId: 'gpt-5' }, { repository, utilityHost })
+    ).resolves.toMatchObject({ modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'high' })
+
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'high'
+    })
+  })
+})
+
+describe('setAgentThinkingLevel', () => {
+  it('persists the selected thinking level after the utility accepts it', async () => {
+    const repository = createRepository()
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium'
+    })
+    const utilityHost = {
+      setThinkingLevel: vi.fn(async () => createState({ thinkingLevel: 'high' }))
+    }
+
+    await expect(
+      setAgentThinkingLevel({ sessionId: 'session-1', level: 'high' }, { repository, utilityHost })
+    ).resolves.toMatchObject({ thinkingLevel: 'high' })
+
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      thinkingLevel: 'high'
     })
   })
 })
