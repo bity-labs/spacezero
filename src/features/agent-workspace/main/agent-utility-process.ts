@@ -286,9 +286,15 @@ export class AgentUtilityProcessHost {
   }
 
   private rejectPendingConfirmations(): void {
-    for (const pending of this.pendingConfirmations.values()) {
+    for (const [callId, pending] of this.pendingConfirmations.entries()) {
       clearTimeout(pending.timeout)
       pending.resolve(false)
+      this.sendProjectionEvent({
+        type: 'tool_confirmation_resolved',
+        sessionId: pending.sessionId,
+        callId,
+        approved: false
+      })
     }
     this.pendingConfirmations.clear()
   }
