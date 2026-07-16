@@ -19,6 +19,13 @@ export type KnowledgeBaseTreeItem = {
   children?: KnowledgeBaseTreeItem[]
 }
 
+export type KnowledgeBaseSearchResult = {
+  name: string
+  relativePath: string
+  matchType: 'filename' | 'content'
+  snippet?: string
+}
+
 export type KnowledgeBaseDocument = {
   name: string
   relativePath: string

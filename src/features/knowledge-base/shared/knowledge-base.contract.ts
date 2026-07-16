@@ -1,5 +1,6 @@
 import type {
   KnowledgeBaseDocument,
+  KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
   KnowledgeBaseTreeItem
 } from './knowledge-base.model'
@@ -9,7 +10,8 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   createNew: 'knowledgeBase:createNew',
   cloneFromGit: 'knowledgeBase:cloneFromGit',
   getTree: 'knowledgeBase:getTree',
-  openDocument: 'knowledgeBase:openDocument'
+  openDocument: 'knowledgeBase:openDocument',
+  search: 'knowledgeBase:search'
 } as const
 
 export type KnowledgeBaseAPI = {
@@ -18,4 +20,5 @@ export type KnowledgeBaseAPI = {
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
+  search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
 }
