@@ -8,21 +8,34 @@ import {
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
 import { createKnowledgeBaseService, type KnowledgeBaseService } from './knowledge-base.service'
 import { createKnowledgeBaseConfigurationRepository } from './knowledge-base-settings.repository'
+import { createKnowledgeBaseSyncStateRepository } from './knowledge-base-sync.repository'
+import {
+  createKnowledgeBaseSyncService,
+  type KnowledgeBaseSyncService
+} from './knowledge-base-sync.service'
 
-type KnowledgeBaseApplicationService = KnowledgeBaseService & KnowledgeBaseFilesService
+type KnowledgeBaseApplicationService = KnowledgeBaseService &
+  KnowledgeBaseFilesService &
+  KnowledgeBaseSyncService
 
 let service: KnowledgeBaseApplicationService | undefined
 
 export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
   if (!service) {
     const configurationRepository = createKnowledgeBaseConfigurationRepository()
+    const host = createKnowledgeBaseHost()
     service = {
       ...createKnowledgeBaseService({
         configurationRepository,
-        host: createKnowledgeBaseHost(),
+        host,
         rootPath: getDefaultKnowledgeBasePath()
       }),
-      ...createKnowledgeBaseFilesService({ configurationRepository })
+      ...createKnowledgeBaseFilesService({ configurationRepository }),
+      ...createKnowledgeBaseSyncService({
+        configurationRepository,
+        syncStateRepository: createKnowledgeBaseSyncStateRepository(),
+        host
+      })
     }
   }
   return service

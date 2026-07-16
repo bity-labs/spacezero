@@ -26,7 +26,10 @@ const api: SpaceZeroAPI = {
     saveDocument: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.saveDocument, request),
     checkDocument: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.checkDocument, request)
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.checkDocument, request),
+    getSyncStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getSyncStatus),
+    addRemote: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.addRemote, request),
+    syncNow: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.syncNow)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

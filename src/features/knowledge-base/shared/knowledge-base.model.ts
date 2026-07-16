@@ -7,6 +7,14 @@ export type KnowledgeBaseConfiguration = {
   configuredAt: string
 }
 
+export type KnowledgeBaseSyncStatus = {
+  remoteState: 'local-only' | 'configured'
+  remoteUrl?: string
+  syncState: 'idle' | 'syncing' | 'error' | 'conflict'
+  lastSyncAt?: string
+  lastSyncError?: string
+}
+
 export type KnowledgeBaseContentKind = 'folder' | 'markdown' | 'text' | 'binary'
 
 export type KnowledgeBaseTreeItem = {

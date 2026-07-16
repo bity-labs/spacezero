@@ -2,6 +2,7 @@ import { ipcMain } from 'electron'
 
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
+  addKnowledgeBaseRemoteRequestSchema,
   checkKnowledgeBaseDocumentRequestSchema,
   cloneKnowledgeBaseRequestSchema,
   createKnowledgeBaseItemRequestSchema,
@@ -49,5 +50,14 @@ export function registerKnowledgeBaseIpc(): void {
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.checkDocument, (_event, input: unknown) =>
     getKnowledgeBaseService().checkDocument(checkKnowledgeBaseDocumentRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getSyncStatus, () =>
+    getKnowledgeBaseService().getSyncStatus()
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.addRemote, (_event, input: unknown) =>
+    getKnowledgeBaseService().addRemote(addKnowledgeBaseRemoteRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.syncNow, () =>
+    getKnowledgeBaseService().syncNow()
   )
 }

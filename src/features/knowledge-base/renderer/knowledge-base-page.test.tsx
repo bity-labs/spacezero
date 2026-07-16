@@ -70,6 +70,69 @@ describe('KnowledgeBasePage', () => {
     expect(screen.getByLabelText('Git repository URL')).toBeInTheDocument()
   })
 
+  it('shows local-only status and configures an origin remote', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => []
+    window.spacezero.knowledgeBase.getSyncStatus = async () => ({
+      remoteState: 'local-only',
+      syncState: 'idle'
+    })
+    const addRemote = vi.fn(async () => ({
+      remoteState: 'configured' as const,
+      remoteUrl: 'git@example.com:builder/notes.git',
+      syncState: 'idle' as const
+    }))
+    window.spacezero.knowledgeBase.addRemote = addRemote
+
+    render(<KnowledgeBasePage />)
+
+    expect(await screen.findByText('Local only')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add remote' }))
+    fireEvent.change(screen.getByLabelText('Origin Git URL'), {
+      target: { value: 'git@example.com:builder/notes.git' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save remote' }))
+
+    await waitFor(() =>
+      expect(addRemote).toHaveBeenCalledWith({
+        gitUrl: 'git@example.com:builder/notes.git'
+      })
+    )
+    expect(await screen.findByRole('button', { name: 'Sync now' })).toBeInTheDocument()
+  })
+
+  it('manually syncs a remote Knowledge Base and shows its last sync time', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => []
+    window.spacezero.knowledgeBase.getSyncStatus = async () => ({
+      remoteState: 'configured',
+      remoteUrl: 'https://example.com/notes.git',
+      syncState: 'idle'
+    })
+    const lastSyncAt = '2026-07-16T14:05:00.000Z'
+    const syncNow = vi.fn(async () => ({
+      remoteState: 'configured' as const,
+      remoteUrl: 'https://example.com/notes.git',
+      syncState: 'idle' as const,
+      lastSyncAt
+    }))
+    window.spacezero.knowledgeBase.syncNow = syncNow
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Sync now' }))
+
+    await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1))
+    expect(
+      screen.getByText(`Last synced ${new Date(lastSyncAt).toLocaleString()}`)
+    ).toBeInTheDocument()
+  })
+
   it('browses folders and opens text and unsupported files', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',

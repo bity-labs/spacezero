@@ -37,3 +37,7 @@ export const checkKnowledgeBaseDocumentRequestSchema = z.object({
   relativePath: z.string().trim().min(1, 'Knowledge Base path is required'),
   revision: z.string().min(1, 'Document revision is required')
 })
+
+export const addKnowledgeBaseRemoteRequestSchema = z.object({
+  gitUrl: z.string().trim().min(1, 'Origin Git URL is required')
+})

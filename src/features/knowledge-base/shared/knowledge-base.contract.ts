@@ -4,6 +4,7 @@ import type {
   KnowledgeBaseSaveResult,
   KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
+  KnowledgeBaseSyncStatus,
   KnowledgeBaseTreeItem
 } from './knowledge-base.model'
 
@@ -19,7 +20,10 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   moveItem: 'knowledgeBase:moveItem',
   deleteItem: 'knowledgeBase:deleteItem',
   saveDocument: 'knowledgeBase:saveDocument',
-  checkDocument: 'knowledgeBase:checkDocument'
+  checkDocument: 'knowledgeBase:checkDocument',
+  getSyncStatus: 'knowledgeBase:getSyncStatus',
+  addRemote: 'knowledgeBase:addRemote',
+  syncNow: 'knowledgeBase:syncNow'
 } as const
 
 export type KnowledgeBaseAPI = {
@@ -45,4 +49,7 @@ export type KnowledgeBaseAPI = {
     relativePath: string
     revision: string
   }) => Promise<KnowledgeBaseDocumentCheck>
+  getSyncStatus: () => Promise<KnowledgeBaseSyncStatus>
+  addRemote: (request: { gitUrl: string }) => Promise<KnowledgeBaseSyncStatus>
+  syncNow: () => Promise<KnowledgeBaseSyncStatus>
 }
