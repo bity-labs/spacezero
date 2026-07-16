@@ -103,6 +103,7 @@ describe('KnowledgeBasePage', () => {
             contentKind: 'markdown',
             size: 15,
             modifiedAt: new Date(0).toISOString(),
+            revision: 'note-revision',
             content: '# Durable note'
           }
         : {
@@ -110,7 +111,8 @@ describe('KnowledgeBasePage', () => {
             relativePath,
             contentKind: 'binary',
             size: 1024,
-            modifiedAt: new Date(0).toISOString()
+            modifiedAt: new Date(0).toISOString(),
+            revision: 'diagram-revision'
           }
 
     render(<KnowledgeBasePage />)
@@ -121,7 +123,9 @@ describe('KnowledgeBasePage', () => {
     expect(screen.queryByText('.git')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    expect(await screen.findByText('# Durable note')).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Edit note.md' })).toHaveValue(
+      '# Durable note'
+    )
 
     fireEvent.click(screen.getByRole('button', { name: 'diagram.png' }))
     expect(await screen.findByText('Preview unavailable')).toBeInTheDocument()
@@ -148,6 +152,7 @@ describe('KnowledgeBasePage', () => {
       contentKind: 'markdown',
       size: 49,
       modifiedAt: new Date(0).toISOString(),
+      revision: 'decision-revision',
       content: '# Architecture decision'
     })
 
@@ -160,7 +165,9 @@ describe('KnowledgeBasePage', () => {
     expect(await screen.findByText('architecture/decision.md')).toBeInTheDocument()
     expect(screen.getByText(/durable architecture decision/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /architecture\/decision.md/ }))
-    expect(await screen.findByText('# Architecture decision')).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Edit decision.md' })).toHaveValue(
+      '# Architecture decision'
+    )
   })
 
   it('creates, renames, moves, and permanently deletes Knowledge Base items', async () => {

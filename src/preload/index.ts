@@ -22,7 +22,11 @@ const api: SpaceZeroAPI = {
     createItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createItem, request),
     renameItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.renameItem, request),
     moveItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.moveItem, request),
-    deleteItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.deleteItem, request)
+    deleteItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.deleteItem, request),
+    saveDocument: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.saveDocument, request),
+    checkDocument: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.checkDocument, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

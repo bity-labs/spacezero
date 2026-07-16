@@ -18,6 +18,7 @@ import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import { Input } from '@renderer/components/ui/input'
+import { KnowledgeBaseSourceEditor } from './knowledge-base-source-editor'
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseSearchResult,
@@ -439,15 +440,11 @@ function ConfiguredKnowledgeBase({
               <p className="mt-1 text-xs text-muted-foreground">{formatFileSize(document.size)}</p>
             </div>
           ) : (
-            <article>
-              <div className="mb-4 border-b pb-3">
-                <h2 className="font-medium">{document.name}</h2>
-                <p className="text-xs text-muted-foreground">{document.relativePath}</p>
-              </div>
-              <pre className="whitespace-pre-wrap break-words font-mono text-sm">
-                {document.content}
-              </pre>
-            </article>
+            <KnowledgeBaseSourceEditor
+              key={`${document.relativePath}:${document.revision}`}
+              document={document}
+              onDocumentChange={setDocument}
+            />
           )}
         </main>
       </div>

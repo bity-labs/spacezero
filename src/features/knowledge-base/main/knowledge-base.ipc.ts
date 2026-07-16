@@ -2,11 +2,13 @@ import { ipcMain } from 'electron'
 
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
+  checkKnowledgeBaseDocumentRequestSchema,
   cloneKnowledgeBaseRequestSchema,
   createKnowledgeBaseItemRequestSchema,
   knowledgeBasePathRequestSchema,
   moveKnowledgeBaseItemRequestSchema,
   renameKnowledgeBaseItemRequestSchema,
+  saveKnowledgeBaseDocumentRequestSchema,
   searchKnowledgeBaseRequestSchema
 } from '../shared'
 import { getKnowledgeBaseService } from './index'
@@ -41,5 +43,11 @@ export function registerKnowledgeBaseIpc(): void {
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.deleteItem, (_event, input: unknown) =>
     getKnowledgeBaseService().deleteItem(knowledgeBasePathRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.saveDocument, (_event, input: unknown) =>
+    getKnowledgeBaseService().saveDocument(saveKnowledgeBaseDocumentRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.checkDocument, (_event, input: unknown) =>
+    getKnowledgeBaseService().checkDocument(checkKnowledgeBaseDocumentRequestSchema.parse(input))
   )
 }

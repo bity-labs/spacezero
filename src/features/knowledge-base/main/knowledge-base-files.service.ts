@@ -1,9 +1,12 @@
 import { isUtf8 } from 'node:buffer'
+import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import type {
   KnowledgeBaseDocument,
+  KnowledgeBaseDocumentCheck,
+  KnowledgeBaseSaveResult,
   KnowledgeBaseSearchResult,
   KnowledgeBaseTreeItem
 } from '../shared/knowledge-base.model'
@@ -39,6 +42,15 @@ export type KnowledgeBaseFilesService = {
   renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
   moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
   deleteItem: (request: { relativePath: string }) => Promise<void>
+  saveDocument: (request: {
+    relativePath: string
+    content: string
+    expectedRevision: string
+  }) => Promise<KnowledgeBaseSaveResult>
+  checkDocument: (request: {
+    relativePath: string
+    revision: string
+  }) => Promise<KnowledgeBaseDocumentCheck>
 }
 
 export function createKnowledgeBaseFilesService({
@@ -55,33 +67,7 @@ export function createKnowledgeBaseFilesService({
 
     async openDocument(request) {
       const rootPath = await getConfiguredRoot(configurationRepository)
-      const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(
-        rootPath,
-        request.relativePath
-      )
-      const details = await lstat(absolutePath)
-      if (details.isSymbolicLink()) {
-        throw new Error('Symbolic links cannot be opened from the Knowledge Base.')
-      }
-      if (!details.isFile()) throw new Error('Knowledge Base path is not a file.')
-
-      await assertExistingPathInsideRoot(rootPath, absolutePath)
-      const baseDocument = {
-        name: basename(absolutePath),
-        relativePath,
-        size: details.size,
-        modifiedAt: details.mtime.toISOString()
-      }
-
-      if (details.size > MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES) {
-        return { ...baseDocument, contentKind: 'binary' as const, content: undefined }
-      }
-
-      const content = await readFile(absolutePath)
-      const contentKind = detectContentKind(relativePath, content)
-      return contentKind === 'binary'
-        ? { ...baseDocument, contentKind, content: undefined }
-        : { ...baseDocument, contentKind, content: content.toString('utf8') }
+      return openKnowledgeBaseDocument(rootPath, request.relativePath)
     },
 
     async search(request) {
@@ -128,6 +114,32 @@ export function createKnowledgeBaseFilesService({
       const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
       await lstat(absolutePath)
       await rm(absolutePath, { recursive: true })
+    },
+
+    async saveDocument(request) {
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const currentDocument = await openKnowledgeBaseDocument(rootPath, request.relativePath)
+      if (currentDocument.contentKind === 'binary') {
+        throw new Error('This Knowledge Base file is not text-editable.')
+      }
+      if (currentDocument.revision !== request.expectedRevision) {
+        return { status: 'conflict', document: currentDocument }
+      }
+
+      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
+      await writeFile(absolutePath, request.content, 'utf8')
+      return {
+        status: 'saved',
+        document: await openKnowledgeBaseDocument(rootPath, request.relativePath)
+      }
+    },
+
+    async checkDocument(request) {
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const document = await openKnowledgeBaseDocument(rootPath, request.relativePath)
+      return document.revision === request.revision
+        ? { changed: false }
+        : { changed: true, document }
     }
   }
 }
@@ -166,6 +178,49 @@ async function getConfiguredRoot(
   const configuration = await repository.get()
   if (!configuration) throw new Error('Knowledge Base is not configured.')
   return configuration.rootPath
+}
+
+async function openKnowledgeBaseDocument(
+  rootPath: string,
+  requestedPath: string
+): Promise<KnowledgeBaseDocument> {
+  const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(
+    rootPath,
+    requestedPath
+  )
+  const details = await lstat(absolutePath)
+  if (details.isSymbolicLink()) {
+    throw new Error('Symbolic links cannot be opened from the Knowledge Base.')
+  }
+  if (!details.isFile()) throw new Error('Knowledge Base path is not a file.')
+
+  await assertExistingPathInsideRoot(rootPath, absolutePath)
+  const baseDocument = {
+    name: basename(absolutePath),
+    relativePath,
+    size: details.size,
+    modifiedAt: details.mtime.toISOString()
+  }
+
+  if (details.size > MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES) {
+    return {
+      ...baseDocument,
+      contentKind: 'binary',
+      revision: hashRevision(`${details.size}:${details.mtimeMs}`),
+      content: undefined
+    }
+  }
+
+  const content = await readFile(absolutePath)
+  const contentKind = detectContentKind(relativePath, content)
+  const revision = hashRevision(content)
+  return contentKind === 'binary'
+    ? { ...baseDocument, contentKind, revision, content: undefined }
+    : { ...baseDocument, contentKind, revision, content: content.toString('utf8') }
+}
+
+function hashRevision(content: string | Buffer): string {
+  return createHash('sha256').update(content).digest('hex')
 }
 
 async function readTree(rootPath: string, relativeDirectory: string): Promise<KnowledgeBaseTreeItem[]> {

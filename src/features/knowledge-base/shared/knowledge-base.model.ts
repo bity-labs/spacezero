@@ -32,5 +32,14 @@ export type KnowledgeBaseDocument = {
   contentKind: Exclude<KnowledgeBaseContentKind, 'folder'>
   size: number
   modifiedAt: string
+  revision: string
   content?: string
 }
+
+export type KnowledgeBaseSaveResult =
+  | { status: 'saved'; document: KnowledgeBaseDocument }
+  | { status: 'conflict'; document: KnowledgeBaseDocument }
+
+export type KnowledgeBaseDocumentCheck =
+  | { changed: false }
+  | { changed: true; document: KnowledgeBaseDocument }
