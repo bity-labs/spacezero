@@ -9,6 +9,7 @@ import type {
   ExecuteWorkspaceToolResponse,
   WorkspaceToolAgentDescriptor
 } from './workspace-tool-protocol'
+import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
 
 export type AgentSessionId = string
 
@@ -31,6 +32,7 @@ export type CreateAgentSessionRequest = {
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
+  skillPaths?: AgentSkillPath[]
   defaultModel?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
 }
@@ -84,6 +86,7 @@ export type AgentSessionState = {
   modelProvider: string | undefined
   modelId: string | undefined
   thinkingLevel?: ThinkingLevel
+  skills?: AgentSkillDescriptor[]
   transcriptSnapshot?: AgentTranscriptMessage[]
 }
 

@@ -525,10 +525,28 @@ describe('App', () => {
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument()
+    expect(screen.getByText('/tmp/SpaceZero')).toBeInTheDocument()
+    expect(screen.getByText(/\/tmp\/SpaceZero\/projects/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
     expect(screen.queryByText('Space Zero Account')).not.toBeInTheDocument()
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('changes the Space Zero Home from General Settings', async () => {
+    window.spacezero.settings.chooseSpaceZeroHome = async () => ({
+      spaceZeroHome: '/tmp/AlternateSpaceZero',
+      projectsPath: '/tmp/AlternateSpaceZero/projects'
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
+
+    expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
+    expect(screen.getByText(/\/tmp\/AlternateSpaceZero\/projects/)).toBeInTheDocument()
   })
 
   it('deep-links to the Models Settings section and returns to General when the section is missing', async () => {

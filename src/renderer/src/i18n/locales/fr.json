@@ -140,6 +140,16 @@
     "navigationLabel": "Navigation des paramètres",
     "backToWorkspace": "Retour à l’espace de travail",
     "closeSettings": "Fermer les paramètres",
+    "storage": {
+      "sectionTitle": "Stockage",
+      "spaceZeroHome": "Dossier Space Zero",
+      "spaceZeroHomeDescription": "Choisissez où Space Zero conserve les projets, worktrees, connaissances et artefacts gérés.",
+      "projectsPath": "Les nouveaux projets et dépôts seront créés dans {{path}}.",
+      "loading": "Chargement de l’emplacement de stockage…",
+      "change": "Modifier",
+      "changing": "Modification…",
+      "error": "Impossible de mettre à jour l’emplacement de stockage de Space Zero."
+    },
     "language": {
       "sectionTitle": "Langue",
       "label": "Langue",

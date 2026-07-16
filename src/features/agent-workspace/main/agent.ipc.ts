@@ -6,6 +6,7 @@ import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
 import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
+import { resolveAgentSkillPaths } from './agent-skill-paths'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
@@ -32,21 +33,24 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.createSession, (_event, input) => {
     return createProjectAgentSession(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.createWorkspaceSession, () => {
     return createWorkspaceAgentSession({
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {
     return restoreAgentSessionState(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowLeft, Cube, GearSix, Key, Plus, Plugs, Trash } from '@phosphor-icons/react'
+import { ArrowLeft, Cube, FolderOpen, GearSix, Key, Plus, Plugs, Trash } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
@@ -8,6 +8,7 @@ import type { AuthProviderOption, AuthProviderStatus, ModelAuthSettings } from '
 import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
+import type { StorageSettings } from '@shared/storage-settings'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
@@ -253,6 +254,8 @@ function GeneralSettingsSection({
       <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.general')}</h2>
 
       <div className="space-y-8">
+        <StorageSettingsSection />
+
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -311,6 +314,82 @@ function GeneralSettingsSection({
         </SettingsSection>
       </div>
     </>
+  )
+}
+
+function StorageSettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const [storageSettings, setStorageSettings] = useState<StorageSettings | null>(null)
+  const [isChanging, setIsChanging] = useState(false)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let isCurrent = true
+
+    window.spacezero.settings
+      .getStorageSettings()
+      .then((settings) => {
+        if (!isCurrent) return
+        setStorageSettings(settings)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setError(true)
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [])
+
+  async function handleChooseSpaceZeroHome(): Promise<void> {
+    setIsChanging(true)
+    setError(false)
+
+    try {
+      const nextSettings = await window.spacezero.settings.chooseSpaceZeroHome()
+      if (nextSettings) setStorageSettings(nextSettings)
+    } catch {
+      setError(true)
+    } finally {
+      setIsChanging(false)
+    }
+  }
+
+  return (
+    <SettingsSection title={t('settings.storage.sectionTitle')}>
+      <SettingsRow
+        title={t('settings.storage.spaceZeroHome')}
+        description={t('settings.storage.spaceZeroHomeDescription')}
+      >
+        <div className="flex max-w-[360px] items-center gap-3">
+          <span
+            className="min-w-0 truncate text-xs text-muted-foreground"
+            title={storageSettings?.spaceZeroHome}
+          >
+            {storageSettings?.spaceZeroHome ?? t('settings.storage.loading')}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 gap-2"
+            disabled={!storageSettings || isChanging}
+            onClick={() => void handleChooseSpaceZeroHome()}
+          >
+            <FolderOpen className="h-4 w-4" aria-hidden="true" />
+            {isChanging ? t('settings.storage.changing') : t('settings.storage.change')}
+          </Button>
+        </div>
+      </SettingsRow>
+      {storageSettings ? (
+        <p className="px-4 pb-3 text-xs text-muted-foreground">
+          {t('settings.storage.projectsPath', { path: storageSettings.projectsPath })}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="px-4 pb-3 text-sm text-destructive">{t('settings.storage.error')}</p>
+      ) : null}
+    </SettingsSection>
   )
 }
 

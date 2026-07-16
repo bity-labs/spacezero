@@ -140,6 +140,16 @@
     "navigationLabel": "Settings navigation",
     "backToWorkspace": "Back to Workspace",
     "closeSettings": "Close settings",
+    "storage": {
+      "sectionTitle": "Storage",
+      "spaceZeroHome": "Space Zero Home",
+      "spaceZeroHomeDescription": "Choose where Space Zero keeps managed projects, worktrees, knowledge, and artifacts.",
+      "projectsPath": "New projects and repositories will be created in {{path}}.",
+      "loading": "Loading storage location…",
+      "change": "Change",
+      "changing": "Changing…",
+      "error": "Could not update the Space Zero storage location."
+    },
     "language": {
       "sectionTitle": "Language",
       "label": "Language",

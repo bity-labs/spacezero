@@ -9,7 +9,8 @@ import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { WorkspaceSession } from '../../sessions/shared'
-import type { AgentSessionState } from '../../../shared/agent-protocol'
+import type { AgentSessionKind, AgentSessionState } from '../../../shared/agent-protocol'
+import type { AgentSkillPath } from '../shared/agent-skill.model'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
 export const createSessionRequestSchema = z.object({
@@ -22,6 +23,7 @@ export type CreateAgentSessionHandlerDependencies = {
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
+  resolveSkillPaths?: (cwd: string, kind: AgentSessionKind) => Promise<AgentSkillPath[]>
 }
 
 export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionHandlerDependencies & {
@@ -32,6 +34,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   getWorkspaceSessionCwd?: () => string
+  resolveSkillPaths?: (cwd: string, kind: AgentSessionKind) => Promise<AgentSkillPath[]>
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
@@ -42,7 +45,8 @@ export async function createProjectAgentSession(
     repository,
     utilityHost,
     createSessionId = nanoid,
-    readModelDefaults = getModelDefaults
+    readModelDefaults = getModelDefaults,
+    resolveSkillPaths
   }: CreateAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = createSessionRequestSchema.parse(input)
@@ -54,12 +58,16 @@ export async function createProjectAgentSession(
 
   const sessionId = createSessionId()
   const modelDefaults = await readModelDefaults()
+  const skillPaths = resolveSkillPaths
+    ? await resolveSkillPaths(projectPath, 'project')
+    : undefined
   const state = await utilityHost.createSession({
     sessionId,
     kind: 'project',
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    ...(skillPaths ? { skillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })
@@ -86,7 +94,8 @@ export async function restoreAgentSessionState(
   {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    resolveSkillPaths
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
@@ -96,7 +105,8 @@ export async function restoreAgentSessionState(
   const restore = restoreAgentSessionStateOnce(request, {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd
+    getWorkspaceSessionCwd,
+    resolveSkillPaths
   })
   pendingSessionRestores.set(request.sessionId, restore)
 
@@ -114,7 +124,8 @@ async function restoreAgentSessionStateOnce(
   {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    resolveSkillPaths
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   try {
@@ -140,6 +151,14 @@ async function restoreAgentSessionStateOnce(
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
       workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      ...(resolveSkillPaths
+        ? {
+            skillPaths: await resolveSkillPaths(
+              cwd,
+              storedSession.projectId ? 'project' : 'workspace'
+            )
+          }
+        : {}),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -163,19 +182,24 @@ export async function createWorkspaceAgentSession({
   utilityHost,
   createSessionId = nanoid,
   readModelDefaults = getModelDefaults,
-  getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+  getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+  resolveSkillPaths
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
   const sessionId = createSessionId()
   const cwd = resolve(getWorkspaceSessionCwd())
   await mkdir(cwd, { recursive: true })
 
   const modelDefaults = await readModelDefaults()
+  const skillPaths = resolveSkillPaths
+    ? await resolveSkillPaths(cwd, 'workspace')
+    : undefined
   const state = await utilityHost.createSession({
     sessionId,
     kind: 'workspace',
     projectId: null,
     cwd,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    ...(skillPaths ? { skillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })

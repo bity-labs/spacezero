@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import {
   AuthStorage,
@@ -23,6 +23,7 @@ import type {
   AgentTranscriptMessage,
   AgentUserContent
 } from '../shared/agent-session-projection.model'
+import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type {
   ExecuteWorkspaceToolRequest,
@@ -98,10 +99,14 @@ export function createPiAgentRuntime({
       settingsManager,
       noExtensions: true,
       noSkills: true,
+      additionalSkillPaths: (request.skillPaths ?? [])
+        .map((entry) => entry.path)
+        .filter((path) => existsSync(path)),
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true
     })
+    await resourceLoader.reload()
 
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
@@ -132,7 +137,7 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session, modelRegistry, request.thinkingLevel)
+    return adaptAgentSession(session, modelRegistry, request.thinkingLevel, request.skillPaths)
   }
 
   return {
@@ -382,7 +387,8 @@ export function toPiToolName(name: string, index = 0): string {
 function adaptAgentSession(
   session: AgentSession,
   modelRegistry: ModelRegistry,
-  initialThinkingLevel?: ThinkingLevel
+  initialThinkingLevel?: ThinkingLevel,
+  skillPaths?: AgentSkillPath[]
 ): CreatedPiAgentSession {
   let preferredThinkingLevel = initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
 
@@ -401,6 +407,7 @@ function adaptAgentSession(
     get thinkingLevel() {
       return preferredThinkingLevel
     },
+    skills: toAgentSkillDescriptors(session.resourceLoader.getSkills().skills, skillPaths),
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
       if (preferredThinkingLevel) session.setThinkingLevel(preferredThinkingLevel)
@@ -418,6 +425,36 @@ function adaptAgentSession(
     dispose: () => session.dispose(),
     getTranscriptSnapshot: () => toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
+}
+
+function toAgentSkillDescriptors(
+  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skillPaths: AgentSkillPath[] | undefined
+): AgentSkillDescriptor[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    scope: resolveSkillScope(skill.filePath, skillPaths, skill.sourceInfo.scope)
+  }))
+}
+
+function resolveSkillScope(
+  filePath: string,
+  skillPaths: AgentSkillPath[] | undefined,
+  fallbackScope: string
+): AgentSkillDescriptor['scope'] {
+  const matchingPath = (skillPaths ?? [])
+    .filter((entry) => isPathWithin(filePath, entry.path))
+    .sort((left, right) => right.path.length - left.path.length)[0]
+
+  if (matchingPath) return matchingPath.scope
+  if (fallbackScope === 'project') return 'project'
+  return 'user'
+}
+
+function isPathWithin(filePath: string, rootPath: string): boolean {
+  const relativePath = relative(resolve(rootPath), resolve(filePath))
+  return relativePath === '' || (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath))
 }
 
 function toTranscriptSnapshot(
