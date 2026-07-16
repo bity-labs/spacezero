@@ -106,7 +106,9 @@ beforeEach(async () => {
         remoteUrl: 'https://example.com/knowledge-base.git',
         syncState: 'idle',
         lastSyncAt: new Date(0).toISOString()
-      })
+      }),
+      openFolder: async () => undefined,
+      openRemote: async () => undefined
     },
     projects: {
       list: async () => [],

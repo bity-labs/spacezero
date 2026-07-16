@@ -23,7 +23,9 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   checkDocument: 'knowledgeBase:checkDocument',
   getSyncStatus: 'knowledgeBase:getSyncStatus',
   addRemote: 'knowledgeBase:addRemote',
-  syncNow: 'knowledgeBase:syncNow'
+  syncNow: 'knowledgeBase:syncNow',
+  openFolder: 'knowledgeBase:openFolder',
+  openRemote: 'knowledgeBase:openRemote'
 } as const
 
 export type KnowledgeBaseAPI = {
@@ -52,4 +54,6 @@ export type KnowledgeBaseAPI = {
   getSyncStatus: () => Promise<KnowledgeBaseSyncStatus>
   addRemote: (request: { gitUrl: string }) => Promise<KnowledgeBaseSyncStatus>
   syncNow: () => Promise<KnowledgeBaseSyncStatus>
+  openFolder: () => Promise<void>
+  openRemote: () => Promise<void>
 }

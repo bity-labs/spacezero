@@ -12,7 +12,10 @@ import {
   saveKnowledgeBaseDocumentRequestSchema,
   searchKnowledgeBaseRequestSchema
 } from '../shared'
-import { getKnowledgeBaseService } from './index'
+import {
+  getKnowledgeBaseService,
+  getKnowledgeBaseSyncCoordinator
+} from './index'
 
 export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getStatus, () =>
@@ -58,6 +61,12 @@ export function registerKnowledgeBaseIpc(): void {
     getKnowledgeBaseService().addRemote(addKnowledgeBaseRemoteRequestSchema.parse(input))
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.syncNow, () =>
-    getKnowledgeBaseService().syncNow()
+    getKnowledgeBaseSyncCoordinator().sync()
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.openFolder, () =>
+    getKnowledgeBaseService().openFolder()
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.openRemote, () =>
+    getKnowledgeBaseService().openRemote()
   )
 }

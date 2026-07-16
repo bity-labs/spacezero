@@ -206,16 +206,24 @@ function ConfiguredKnowledgeBase({
 
   useEffect(() => {
     let current = true
-    window.spacezero.knowledgeBase
-      .getSyncStatus()
-      .then((nextStatus) => {
-        if (current) setSyncStatus(nextStatus)
-      })
-      .catch((syncError: unknown) => {
-        if (current) setError(getErrorMessage(syncError, 'Unable to load Knowledge Base sync status.'))
-      })
+    function loadSyncStatus(): void {
+      window.spacezero.knowledgeBase
+        .getSyncStatus()
+        .then((nextStatus) => {
+          if (current) setSyncStatus(nextStatus)
+        })
+        .catch((syncError: unknown) => {
+          if (current) {
+            setError(getErrorMessage(syncError, 'Unable to load Knowledge Base sync status.'))
+          }
+        })
+    }
+
+    loadSyncStatus()
+    const interval = window.setInterval(loadSyncStatus, 30_000)
     return () => {
       current = false
+      window.clearInterval(interval)
     }
   }, [])
 
@@ -259,6 +267,22 @@ function ConfiguredKnowledgeBase({
       }
     } finally {
       setSyncing(false)
+    }
+  }
+
+  async function openRecoveryFolder(): Promise<void> {
+    try {
+      await window.spacezero.knowledgeBase.openFolder()
+    } catch (recoveryError) {
+      setError(getErrorMessage(recoveryError, 'Unable to open the Knowledge Base folder.'))
+    }
+  }
+
+  async function openRecoveryRemote(): Promise<void> {
+    try {
+      await window.spacezero.knowledgeBase.openRemote()
+    } catch (recoveryError) {
+      setError(getErrorMessage(recoveryError, 'Unable to open the Knowledge Base remote.'))
     }
   }
 
@@ -442,6 +466,28 @@ function ConfiguredKnowledgeBase({
             Save remote
           </Button>
         </div>
+      ) : null}
+
+      {syncStatus &&
+      (syncStatus.syncState === 'error' || syncStatus.syncState === 'conflict') ? (
+        <Alert variant="destructive" className="m-4 mb-0">
+          <AlertDescription>
+            {syncStatus.lastSyncError ?? 'Knowledge Base sync needs attention.'}
+          </AlertDescription>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => void syncNow()}>
+              Retry sync
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void openRecoveryFolder()}>
+              Open folder
+            </Button>
+            {syncStatus.remoteState === 'configured' ? (
+              <Button variant="outline" size="sm" onClick={() => void openRecoveryRemote()}>
+                Open remote
+              </Button>
+            ) : null}
+          </div>
+        </Alert>
       ) : null}
 
       {error ? (
