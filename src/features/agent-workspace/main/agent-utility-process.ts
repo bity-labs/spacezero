@@ -40,6 +40,8 @@ import type { AgentUtilityPort } from './agent-utility-broker'
 import { AgentUtilityBroker } from './agent-utility-broker'
 import { getWorkspaceToolExecutor } from './workspace-tool-control-plane'
 
+const TOOL_CONFIRMATION_TIMEOUT_MS = 5 * 60_000
+
 class MessagePortMainAgentUtilityPort implements AgentUtilityPort {
   constructor(private readonly port: MessagePortMain) {}
 
@@ -68,7 +70,10 @@ export class AgentUtilityProcessHost {
   private mainPort: MessagePortMainAgentUtilityPort | undefined
   private broker: AgentUtilityBroker | undefined
   private readonly eventListeners = new Set<(event: AgentStreamingEvent) => void>()
-  private readonly pendingConfirmations = new Map<string, (approved: boolean) => void>()
+  private readonly pendingConfirmations = new Map<
+    string,
+    { sessionId: string; resolve: (approved: boolean) => void; timeout: NodeJS.Timeout }
+  >()
   private readonly projectionSequencer = createAgentSessionProjectionSequencer()
   private stopping = false
 
@@ -93,6 +98,7 @@ export class AgentUtilityProcessHost {
         log.warn(`Agent utility process exited with code ${code}`)
       }
 
+      this.rejectPendingConfirmations()
       this.broker?.dispose(new Error(`agent.utilityExited:${code ?? 'unknown'}`))
       this.mainPort?.close()
       this.utility = undefined
@@ -205,10 +211,11 @@ export class AgentUtilityProcessHost {
   }
 
   async resolveToolConfirmation(request: ResolveAgentToolConfirmationCommandRequest): Promise<void> {
-    const resolve = this.pendingConfirmations.get(request.callId)
-    if (resolve) {
+    const pending = this.pendingConfirmations.get(request.callId)
+    if (pending && pending.sessionId === request.sessionId) {
       this.pendingConfirmations.delete(request.callId)
-      resolve(request.approved)
+      clearTimeout(pending.timeout)
+      pending.resolve(request.approved)
       this.sendProjectionEvent({
         type: 'tool_confirmation_resolved',
         sessionId: request.sessionId,
@@ -250,7 +257,23 @@ export class AgentUtilityProcessHost {
 
   private requestToolConfirmation(request: AgentToolConfirmationRequest): Promise<boolean> {
     return new Promise((resolve) => {
-      this.pendingConfirmations.set(request.callId, resolve)
+      const timeout = setTimeout(() => {
+        const pending = this.pendingConfirmations.get(request.callId)
+        if (!pending) return
+        this.pendingConfirmations.delete(request.callId)
+        pending.resolve(false)
+        this.sendProjectionEvent({
+          type: 'tool_confirmation_resolved',
+          sessionId: request.sessionId,
+          callId: request.callId,
+          approved: false
+        })
+      }, TOOL_CONFIRMATION_TIMEOUT_MS)
+      this.pendingConfirmations.set(request.callId, {
+        sessionId: request.sessionId,
+        resolve,
+        timeout
+      })
       this.sendProjectionEvent({
         type: 'tool_confirmation_request',
         sessionId: request.sessionId,
@@ -260,6 +283,14 @@ export class AgentUtilityProcessHost {
         window.webContents.send(IPC_CHANNELS.agent.toolConfirmationRequest, request)
       }
     })
+  }
+
+  private rejectPendingConfirmations(): void {
+    for (const pending of this.pendingConfirmations.values()) {
+      clearTimeout(pending.timeout)
+      pending.resolve(false)
+    }
+    this.pendingConfirmations.clear()
   }
 
   private sendProjectionEvent(event: AgentSessionProjectionEventInput): void {
@@ -281,7 +312,7 @@ export class AgentUtilityProcessHost {
 
   stop(): void {
     this.stopping = this.utility !== undefined
-    this.pendingConfirmations.clear()
+    this.rejectPendingConfirmations()
     this.broker?.dispose(new Error('agent.utilityStopped'))
     this.mainPort?.close()
     this.utility?.kill()

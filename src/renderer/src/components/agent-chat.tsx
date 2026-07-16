@@ -79,6 +79,14 @@ export function AgentChat({
         className
       )}
     >
+      {modelControls.error ? (
+        <div
+          className="absolute inset-x-6 top-3 z-20 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+          role="alert"
+        >
+          {modelControls.error}
+        </div>
+      ) : null}
       <ChatTranscript
         messages={messages}
         emptyState={emptyState}
@@ -104,6 +112,7 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
   const [thinkingLevelOverride, setThinkingLevelOverride] = useState<
     { sessionId: string; value: AiChatThinkingLevel } | undefined
   >(undefined)
+  const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
     let cancelled = false
@@ -163,26 +172,33 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     })
     setLocalSessionState(nextSessionState)
     setSelectedModelOverride({ sessionId, value: encodedModelId })
+    setError(undefined)
   }
 
   async function setThinkingLevel(level: AiChatThinkingLevel): Promise<void> {
     const nextSessionState = await window.spacezero.agent.setThinkingLevel({ sessionId, level })
     setLocalSessionState(nextSessionState)
     setThinkingLevelOverride({ sessionId, value: level })
+    setError(undefined)
   }
 
   return {
     models,
     selectedModelId,
     thinkingLevel,
+    error,
     setModel: (modelId: string) => {
       void setModel(modelId).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
         console.error('Failed to update agent session model', error)
+        setError(`Unable to change model: ${message}`)
       })
     },
     setThinkingLevel: (level: AiChatThinkingLevel) => {
       void setThinkingLevel(level).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error)
         console.error('Failed to update agent thinking level', error)
+        setError(`Unable to change thinking level: ${message}`)
       })
     }
   }
