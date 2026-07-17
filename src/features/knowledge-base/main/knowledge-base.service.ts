@@ -10,6 +10,7 @@ export const KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS = `# Knowledge Base Instructions
 This repository is the user's Knowledge Base.
 
 - Prefer Markdown for durable notes and documentation.
+- Store image assets under \`assets/img/\` and reference them with relative Markdown paths.
 - Keep the folder and file structure user-controlled.
 - Read existing context before adding or changing documents.
 - Make focused edits and preserve existing organization unless asked to reorganize.

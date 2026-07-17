@@ -101,6 +101,24 @@ test('sets up and edits a searchable Knowledge Base through the public desktop U
     await window.getByRole('textbox', { name: 'File path' }).fill('notes.md')
     await window.getByRole('button', { name: 'Create file' }).click()
     await window.getByRole('button', { name: 'notes.md' }).click()
+
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64'
+    )
+    await window.getByLabel('Choose image').setInputFiles({
+      name: 'E2E Diagram.png',
+      mimeType: 'image/png',
+      buffer: image
+    })
+    await expect(window.getByRole('img', { name: 'E2E Diagram' })).toBeVisible()
+    await expect
+      .poll(() => readFile(join(knowledgeBasePath, 'assets', 'img', 'e2e-diagram.png')))
+      .toEqual(image)
+    await expect
+      .poll(() => readFile(join(knowledgeBasePath, 'notes.md'), 'utf8'))
+      .toContain('![E2E Diagram](assets/img/e2e-diagram.png)')
+
     const sourceMode = window.getByRole('button', { name: 'Source' })
     await sourceMode.click()
 

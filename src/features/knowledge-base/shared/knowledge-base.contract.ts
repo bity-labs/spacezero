@@ -1,6 +1,8 @@
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseDocumentCheck,
+  KnowledgeBaseImageImport,
+  KnowledgeBaseImagePreview,
   KnowledgeBaseSaveResult,
   KnowledgeBaseSearchResult,
   KnowledgeBaseStatus,
@@ -15,6 +17,8 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getTree: 'knowledgeBase:getTree',
   openDocument: 'knowledgeBase:openDocument',
   search: 'knowledgeBase:search',
+  importImage: 'knowledgeBase:importImage',
+  loadImage: 'knowledgeBase:loadImage',
   createItem: 'knowledgeBase:createItem',
   renameItem: 'knowledgeBase:renameItem',
   moveItem: 'knowledgeBase:moveItem',
@@ -35,6 +39,15 @@ export type KnowledgeBaseAPI = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
   search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
+  importImage: (request: {
+    documentRelativePath: string
+    fileName: string
+    bytes: Uint8Array
+  }) => Promise<KnowledgeBaseImageImport>
+  loadImage: (request: {
+    documentRelativePath: string
+    markdownPath: string
+  }) => Promise<KnowledgeBaseImagePreview>
   createItem: (request: {
     relativePath: string
     kind: 'file' | 'folder'

@@ -14,6 +14,14 @@ class TestResizeObserver implements ResizeObserver {
 globalThis.ResizeObserver = TestResizeObserver
 Element.prototype.scrollIntoView = vi.fn()
 
+const emptyDomRect = new DOMRect()
+const emptyDomRectList = [] as unknown as DOMRectList
+
+Object.defineProperties(Range.prototype, {
+  getBoundingClientRect: { value: () => emptyDomRect },
+  getClientRects: { value: () => emptyDomRectList }
+})
+
 let prefersDark = false
 const mediaListeners = new Set<() => void>()
 
@@ -78,6 +86,12 @@ beforeEach(async () => {
         content: ''
       }),
       search: async () => [],
+      importImage: async ({ fileName }) => ({
+        assetRelativePath: `assets/img/${fileName}`,
+        markdownPath: `../assets/img/${fileName}`,
+        altText: fileName.replace(/\.[^.]+$/, '')
+      }),
+      loadImage: async () => ({ dataUrl: 'data:image/png;base64,' }),
       createItem: async () => undefined,
       renameItem: async () => undefined,
       moveItem: async () => undefined,

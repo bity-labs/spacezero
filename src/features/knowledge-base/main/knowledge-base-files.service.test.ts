@@ -91,6 +91,207 @@ describe('createKnowledgeBaseFilesService', () => {
     })
   })
 
+  it('imports an image into assets/img and returns its document-relative Markdown path', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+
+    const result = await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName: 'Architecture Diagram.png',
+      bytes: image
+    })
+
+    expect(result).toEqual({
+      assetRelativePath: 'assets/img/architecture-diagram.png',
+      markdownPath: '../assets/img/architecture-diagram.png',
+      altText: 'Architecture Diagram'
+    })
+    await expect(
+      readFile(join(rootPath, 'assets', 'img', 'architecture-diagram.png'))
+    ).resolves.toEqual(Buffer.from(image))
+  })
+
+  it('returns Markdown-safe alt text derived from the original file name', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    await expect(
+      service.importImage({
+        documentRelativePath: 'docs/note.md',
+        fileName: 'Architecture [draft] {v2} <final>.png',
+        bytes: image
+      })
+    ).resolves.toMatchObject({
+      assetRelativePath: 'assets/img/architecture-draft-v2-final.png',
+      altText: 'Architecture draft v2 final'
+    })
+  })
+
+  it('loads an imported image as a renderer-safe preview URL', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
+    const imported = await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName: 'diagram.png',
+      bytes: image
+    })
+
+    await expect(
+      service.loadImage({
+        documentRelativePath: 'docs/note.md',
+        markdownPath: imported.markdownPath
+      })
+    ).resolves.toEqual({
+      dataUrl: `data:image/png;base64,${Buffer.from(image).toString('base64')}`
+    })
+  })
+
+  it('loads previews only from the vault assets/img directory', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(
+      service.loadImage({
+        documentRelativePath: 'docs/note.md',
+        markdownPath: '../diagram.png'
+      })
+    ).rejects.toThrow('Knowledge Base images must be stored under assets/img.')
+  })
+
+  it('imports common browser-safe image formats with canonical extensions', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const images = [
+      {
+        fileName: 'photo.jpeg',
+        bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+        expectedPath: 'assets/img/photo.jpg'
+      },
+      {
+        fileName: 'animation.gif',
+        bytes: new TextEncoder().encode('GIF89a'),
+        expectedPath: 'assets/img/animation.gif'
+      },
+      {
+        fileName: 'preview.webp',
+        bytes: new Uint8Array([
+          0x52, 0x49, 0x46, 0x46, 0x00, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50
+        ]),
+        expectedPath: 'assets/img/preview.webp'
+      }
+    ]
+
+    for (const image of images) {
+      await expect(
+        service.importImage({
+          documentRelativePath: 'docs/note.md',
+          fileName: image.fileName,
+          bytes: image.bytes
+        })
+      ).resolves.toMatchObject({ assetRelativePath: image.expectedPath })
+    }
+  })
+
+  it('rejects images larger than the upload limit before writing an asset', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array(10 * 1024 * 1024 + 1)
+    image.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    await expect(
+      service.importImage({
+        documentRelativePath: 'docs/note.md',
+        fileName: 'too-large.png',
+        bytes: image
+      })
+    ).rejects.toThrow('Knowledge Base image is too large.')
+    await expect(access(join(rootPath, 'assets'))).rejects.toThrow()
+  })
+
+  it('does not follow a symlinked assets directory outside the vault', async () => {
+    const { rootPath } = await createFixture()
+    const outsideAssets = join(rootPath, '..', 'outside-assets')
+    await mkdir(outsideAssets)
+    await symlink(outsideAssets, join(rootPath, 'assets'))
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    await expect(
+      service.importImage({
+        documentRelativePath: 'docs/note.md',
+        fileName: 'diagram.png',
+        bytes: image
+      })
+    ).rejects.toThrow('Knowledge Base asset directories cannot be symbolic links.')
+    await expect(access(join(outsideAssets, 'img'))).rejects.toThrow()
+  })
+
+  it('keeps collision-safe names within filesystem limits', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    const fileName = `${'a'.repeat(251)}.png`
+
+    await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName,
+      bytes: image
+    })
+    const second = await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName,
+      bytes: image
+    })
+
+    expect(second.assetRelativePath).toBe(`assets/img/${'a'.repeat(80)}-2.png`)
+  })
+
+  it('keeps existing assets by choosing a collision-safe image name', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+    const image = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+    await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName: 'diagram.png',
+      bytes: image
+    })
+    const second = await service.importImage({
+      documentRelativePath: 'docs/note.md',
+      fileName: 'diagram.png',
+      bytes: image
+    })
+
+    expect(second.assetRelativePath).toBe('assets/img/diagram-2.png')
+    await expect(readFile(join(rootPath, 'assets', 'img', 'diagram.png'))).resolves.toEqual(
+      Buffer.from(image)
+    )
+    await expect(readFile(join(rootPath, 'assets', 'img', 'diagram-2.png'))).resolves.toEqual(
+      Buffer.from(image)
+    )
+  })
+
   it('autosaves text with optimistic revision checks', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
