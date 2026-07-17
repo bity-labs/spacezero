@@ -9,10 +9,11 @@ import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 
 export function AccountSettings(): React.JSX.Element {
-  const { connection, isLoading, error: loadError, setConnection } = useGitHubConnection()
+  const { connection, isLoading, error: loadError, refresh, setConnection } = useGitHubConnection()
   const [authorization, setAuthorization] = useState<GitHubDeviceAuthorization | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  const [installationOpened, setInstallationOpened] = useState(false)
   const attemptRef = useRef(0)
 
   async function startAuthorization(): Promise<void> {
@@ -57,6 +58,22 @@ export function AccountSettings(): React.JSX.Element {
     setCopied(true)
   }
 
+  async function openInstallation(): Promise<void> {
+    setError(null)
+    try {
+      await window.spacezero.github.openInstallation()
+      setInstallationOpened(true)
+    } catch (caught) {
+      setError(toAuthorizationError(caught))
+    }
+  }
+
+  async function checkRepositoryAccess(): Promise<void> {
+    setError(null)
+    await refresh()
+    notifyGitHubConnectionChanged()
+  }
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading GitHub account…</p>
   }
@@ -80,11 +97,7 @@ export function AccountSettings(): React.JSX.Element {
             </Avatar>
             <div>
               <p className="font-medium">@{identity.login}</p>
-              <p className="text-sm text-muted-foreground">
-                {connection?.status === 'reconnect-required'
-                  ? 'Reconnect GitHub'
-                  : 'Repository access required'}
-              </p>
+              <p className="text-sm text-muted-foreground">{getConnectionLabel(connection)}</p>
             </div>
           </div>
           {connection?.status === 'reconnect-required' ? (
@@ -92,11 +105,46 @@ export function AccountSettings(): React.JSX.Element {
               <GithubLogo className="size-4" aria-hidden="true" />
               Reconnect GitHub
             </Button>
-          ) : (
+          ) : connection?.status === 'connected' ? (
             <p className="text-sm text-muted-foreground">
-              Your identity is authorized. Install the Space Zero GitHub App to choose repository
-              access.
+              {connection.repositories.length} accessible{' '}
+              {connection.repositories.length === 1 ? 'repository' : 'repositories'} across{' '}
+              {connection.installations.length}{' '}
+              {connection.installations.length === 1 ? 'installation' : 'installations'}.
             </p>
+          ) : connection?.status === 'pending-organization-approval' ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                An organization owner must approve the GitHub App request. You can continue using
+                local Projects while approval is pending.
+              </p>
+              <Button
+                variant="outline"
+                className="w-fit"
+                onClick={() => void checkRepositoryAccess()}
+              >
+                Check repository access
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Install the Space Zero GitHub App and choose selected or all repositories. Issue,
+                Pull Request, contents, and workflow write access is requested only for explicit
+                builder actions; checks and statuses remain read-only.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button className="w-fit gap-2" onClick={() => void openInstallation()}>
+                  <ArrowSquareOut className="size-4" aria-hidden="true" />
+                  Choose repository access
+                </Button>
+                {installationOpened ? (
+                  <Button variant="outline" onClick={() => void checkRepositoryAccess()}>
+                    Check repository access
+                  </Button>
+                ) : null}
+              </div>
+            </div>
           )}
         </Card>
       ) : authorization ? (
@@ -153,6 +201,17 @@ export function AccountSettings(): React.JSX.Element {
       )}
     </div>
   )
+}
+
+function getConnectionLabel(
+  connection: ReturnType<typeof useGitHubConnection>['connection']
+): string {
+  if (connection?.status === 'connected') return 'Connected'
+  if (connection?.status === 'pending-organization-approval') {
+    return 'Pending organization approval'
+  }
+  if (connection?.status === 'reconnect-required') return 'Reconnect GitHub'
+  return 'Repository access required'
 }
 
 function toAuthorizationError(error: unknown): string {

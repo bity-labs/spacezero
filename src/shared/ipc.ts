@@ -31,7 +31,8 @@ import type {
 import type {
   GitHubConnection,
   GitHubDeviceAuthorization,
-  GitHubFlowRequest
+  GitHubFlowRequest,
+  GitHubRepository
 } from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
@@ -60,7 +61,9 @@ export const IPC_CHANNELS = {
     waitForAuthorization: 'github:waitForAuthorization',
     cancelAuthorization: 'github:cancelAuthorization',
     openAuthorization: 'github:openAuthorization',
-    copyDeviceCode: 'github:copyDeviceCode'
+    copyDeviceCode: 'github:copyDeviceCode',
+    openInstallation: 'github:openInstallation',
+    listAuthorizedRepositories: 'github:listAuthorizedRepositories'
   },
   projects: {
     list: 'projects:list',
@@ -143,6 +146,8 @@ export type SpaceZeroAPI = {
     cancelAuthorization: (request: GitHubFlowRequest) => Promise<void>
     openAuthorization: (request: GitHubFlowRequest) => Promise<void>
     copyDeviceCode: (request: GitHubFlowRequest) => Promise<void>
+    openInstallation: () => Promise<void>
+    listAuthorizedRepositories: () => Promise<GitHubRepository[]>
   }
   projects: {
     list: () => Promise<Project[]>

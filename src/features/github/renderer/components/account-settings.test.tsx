@@ -56,6 +56,91 @@ describe('AccountSettings', () => {
     expect(screen.queryByText('access-secret')).not.toBeInTheDocument()
   })
 
+  it('finishes connection only after installation exposes an accessible repository', async () => {
+    const identity = {
+      id: '42',
+      login: 'octocat',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+      profileUrl: 'https://github.com/octocat'
+    }
+    let installed = false
+    let installationOpens = 0
+    window.spacezero.github.getConnection = async () =>
+      installed
+        ? {
+            status: 'connected',
+            identity,
+            installations: [
+              {
+                id: '100',
+                owner: { ...identity, type: 'user', avatarUrl: identity.avatarUrl },
+                repositorySelection: 'selected',
+                status: 'usable',
+                repositoryCount: 1
+              }
+            ],
+            repositories: [
+              {
+                id: '1000',
+                nodeId: 'R_1000',
+                installationId: '100',
+                owner: 'octocat',
+                name: 'hello-world',
+                fullName: 'octocat/hello-world',
+                isPrivate: false,
+                defaultBranch: 'main',
+                htmlUrl: 'https://github.com/octocat/hello-world',
+                cloneUrl: 'https://github.com/octocat/hello-world.git'
+              }
+            ]
+          }
+        : { status: 'repository-access-required', identity }
+    window.spacezero.github.openInstallation = async () => {
+      installationOpens += 1
+      installed = true
+    }
+
+    render(<AccountSettings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose repository access' }))
+    expect(installationOpens).toBe(1)
+    fireEvent.click(await screen.findByRole('button', { name: 'Check repository access' }))
+
+    expect(await screen.findByText('Connected')).toBeInTheDocument()
+    expect(screen.getByText('1 accessible repository across 1 installation.')).toBeInTheDocument()
+  })
+
+  it('shows pending organization approval without blocking local use', async () => {
+    window.spacezero.github.getConnection = async () => ({
+      status: 'pending-organization-approval',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [
+        {
+          id: '200',
+          owner: {
+            id: '84',
+            login: 'bity-labs',
+            type: 'organization',
+            avatarUrl: 'https://avatars.githubusercontent.com/u/84?v=4'
+          },
+          repositorySelection: 'selected',
+          status: 'pending-approval',
+          repositoryCount: 0
+        }
+      ]
+    })
+
+    render(<AccountSettings />)
+
+    expect(await screen.findByText('Pending organization approval')).toBeInTheDocument()
+    expect(screen.getByText(/continue using local Projects/i)).toBeInTheDocument()
+  })
+
   it('cancels authorization without showing a connected state', async () => {
     let rejectWait: ((error: Error) => void) | undefined
     window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })

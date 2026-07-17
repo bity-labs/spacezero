@@ -136,7 +136,9 @@ beforeEach(async () => {
       waitForAuthorization: async () => ({ status: 'disconnected' }),
       cancelAuthorization: async () => undefined,
       openAuthorization: async () => undefined,
-      copyDeviceCode: async () => undefined
+      copyDeviceCode: async () => undefined,
+      openInstallation: async () => undefined,
+      listAuthorizedRepositories: async () => []
     },
     projects: {
       list: async () => [],

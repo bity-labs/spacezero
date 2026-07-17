@@ -83,6 +83,8 @@ export type GitHubIntegrationErrorCode =
   | 'authorization-expired'
   | 'authorization-flow-not-found'
   | 'authorization-failed'
+  | 'authorization-required'
+  | 'reconnect-required'
   | 'credentials-unavailable'
   | 'network-error'
 
@@ -128,6 +130,27 @@ export function createGitHubAuthService({
     }
 
     return { status: 'repository-access-required', identity: credential.identity }
+  }
+
+  async function getAuthorizedCredential(): Promise<StoredGitHubCredential> {
+    const credential = await credentialStore.read()
+    if (!credential) throw new GitHubIntegrationError('authorization-required')
+    if (isAfter(now(), credential.refreshTokenExpiresAt)) {
+      throw new GitHubIntegrationError('reconnect-required')
+    }
+    if (!isAfter(now(), credential.accessTokenExpiresAt)) return credential
+
+    try {
+      const tokens = await adapter.refreshAccessToken(
+        requireClientId(clientId),
+        credential.refreshToken
+      )
+      const refreshed = { ...tokens, identity: credential.identity }
+      await credentialStore.write(refreshed)
+      return refreshed
+    } catch {
+      throw new GitHubIntegrationError('reconnect-required')
+    }
   }
 
   async function startAuthorization(): Promise<GitHubDeviceAuthorization> {
@@ -220,6 +243,7 @@ export function createGitHubAuthService({
 
   return {
     getConnection,
+    getAuthorizedCredential,
     startAuthorization,
     waitForAuthorization,
     cancelAuthorization,

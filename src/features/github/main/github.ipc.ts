@@ -2,10 +2,12 @@ import { ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { githubFlowRequestSchema } from '../shared'
-import { getGitHubAuthService } from './github-runtime'
+import { getGitHubAuthService, getGitHubConnectionService } from './github-runtime'
 
 export function registerGitHubIpc(): void {
-  ipcMain.handle(IPC_CHANNELS.github.getConnection, () => getGitHubAuthService().getConnection())
+  ipcMain.handle(IPC_CHANNELS.github.getConnection, () =>
+    getGitHubConnectionService().getConnection()
+  )
   ipcMain.handle(IPC_CHANNELS.github.startAuthorization, () =>
     getGitHubAuthService().startAuthorization()
   )
@@ -20,5 +22,11 @@ export function registerGitHubIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.github.copyDeviceCode, (_event, input: unknown) =>
     getGitHubAuthService().copyDeviceCode(githubFlowRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.openInstallation, () =>
+    getGitHubConnectionService().openInstallation()
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listAuthorizedRepositories, () =>
+    getGitHubConnectionService().listAuthorizedRepositories()
   )
 }
