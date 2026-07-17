@@ -1,6 +1,13 @@
 import { nanoid } from 'nanoid'
 
-import type { CreateProjectSessionRequest, ProjectSession, SessionStatus, WorkspaceSession } from '../shared'
+import type {
+  CreateProjectSessionRequest,
+  ProjectSession,
+  SessionGitHubSource,
+  SessionStatus,
+  SessionWorktree,
+  WorkspaceSession
+} from '../shared'
 import type { ThinkingLevel } from '../../../shared/model-settings'
 
 export type StoredSession = {
@@ -14,6 +21,17 @@ export type StoredSession = {
   modelProvider?: string | null
   modelId?: string | null
   thinkingLevel?: ThinkingLevel | null
+  worktreePath?: string | null
+  worktreeBranch?: string | null
+  worktreeBaseRevision?: string | null
+  sourceType?: SessionGitHubSource['type'] | null
+  sourceRepositoryId?: string | null
+  sourceRepositoryNodeId?: string | null
+  sourceRepositoryOwner?: string | null
+  sourceRepositoryName?: string | null
+  sourceNumber?: number | null
+  sourceUrl?: string | null
+  sourceTitle?: string | null
   archivedAt?: Date | null
 }
 
@@ -24,6 +42,9 @@ export type CreateProjectAgentSessionRequest = {
   modelProvider?: string
   modelId?: string
   thinkingLevel?: ThinkingLevel
+  title?: string
+  worktree: SessionWorktree
+  source?: SessionGitHubSource
 }
 
 export type CreateWorkspaceAgentSessionRequest = {
@@ -59,7 +80,9 @@ export type SessionsService = {
   listWorkspaceSessions: () => Promise<WorkspaceSession[]>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
-  createWorkspaceAgentSession: (request: CreateWorkspaceAgentSessionRequest) => Promise<WorkspaceSession>
+  createWorkspaceAgentSession: (
+    request: CreateWorkspaceAgentSessionRequest
+  ) => Promise<WorkspaceSession>
   archiveSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<StoredSession>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
@@ -110,7 +133,10 @@ export function createSessionsService({
       if (!(await repository.projectExists(projectId))) throw new Error('Project not found')
 
       const timestamp = now()
-      const title = `Session ${(await repository.countByProjectId(projectId)) + 1}`
+      const title = normalizeTitle(
+        request.title ?? `Session ${(await repository.countByProjectId(projectId)) + 1}`
+      )
+      const source = request.source
 
       return toProjectSession(
         await repository.create({
@@ -123,7 +149,18 @@ export function createSessionsService({
           transcriptPath: request.transcriptPath,
           modelProvider: request.modelProvider,
           modelId: request.modelId,
-          thinkingLevel: request.thinkingLevel
+          thinkingLevel: request.thinkingLevel,
+          worktreePath: request.worktree.path,
+          worktreeBranch: request.worktree.branch,
+          worktreeBaseRevision: request.worktree.baseRevision,
+          sourceType: source?.type,
+          sourceRepositoryId: source?.repositoryId,
+          sourceRepositoryNodeId: source?.repositoryNodeId,
+          sourceRepositoryOwner: source?.repositoryOwner,
+          sourceRepositoryName: source?.repositoryName,
+          sourceNumber: source?.number,
+          sourceUrl: source?.url,
+          sourceTitle: source?.title
         })
       )
     },
@@ -165,7 +202,11 @@ export function createSessionsService({
       const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
       const timestamp = now()
       await repository.updateMany(
-        sessions.map((session) => ({ ...session, archivedAt: session.archivedAt ?? timestamp, updatedAt: timestamp }))
+        sessions.map((session) => ({
+          ...session,
+          archivedAt: session.archivedAt ?? timestamp,
+          updatedAt: timestamp
+        }))
       )
       return sessions
     },
@@ -203,6 +244,8 @@ function normalizeTitle(title: string): string {
 
 function toProjectSession(session: StoredSession): ProjectSession {
   if (!session.projectId) throw new Error('Project session is missing a project')
+  const worktree = toSessionWorktree(session)
+  const source = toSessionSource(session)
 
   return {
     id: session.id,
@@ -210,8 +253,60 @@ function toProjectSession(session: StoredSession): ProjectSession {
     projectId: session.projectId,
     title: session.title,
     status: session.status,
+    ...(worktree ? { worktree } : {}),
+    ...(source ? { source } : {}),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString()
+  }
+}
+
+function toSessionWorktree(session: StoredSession): SessionWorktree | undefined {
+  const values = [session.worktreePath, session.worktreeBranch, session.worktreeBaseRevision]
+  if (values.every((value) => !value)) return undefined
+  if (!session.worktreePath || !session.worktreeBranch || !session.worktreeBaseRevision) {
+    throw new Error('session.worktreeMetadataIncomplete')
+  }
+  return {
+    path: session.worktreePath,
+    branch: session.worktreeBranch,
+    baseRevision: session.worktreeBaseRevision
+  }
+}
+
+function toSessionSource(session: StoredSession): SessionGitHubSource | undefined {
+  const values = [
+    session.sourceType,
+    session.sourceRepositoryId,
+    session.sourceRepositoryNodeId,
+    session.sourceRepositoryOwner,
+    session.sourceRepositoryName,
+    session.sourceNumber,
+    session.sourceUrl,
+    session.sourceTitle
+  ]
+  if (values.every((value) => value === null || value === undefined)) return undefined
+  if (
+    !session.sourceType ||
+    !session.sourceRepositoryId ||
+    !session.sourceRepositoryNodeId ||
+    !session.sourceRepositoryOwner ||
+    !session.sourceRepositoryName ||
+    typeof session.sourceNumber !== 'number' ||
+    !session.sourceUrl ||
+    !session.sourceTitle
+  ) {
+    throw new Error('session.sourceMetadataIncomplete')
+  }
+  return {
+    type: session.sourceType,
+    repositoryId: session.sourceRepositoryId,
+    repositoryNodeId: session.sourceRepositoryNodeId,
+    repositoryOwner: session.sourceRepositoryOwner,
+    repositoryName: session.sourceRepositoryName,
+    repositoryFullName: `${session.sourceRepositoryOwner}/${session.sourceRepositoryName}`,
+    number: session.sourceNumber,
+    url: session.sourceUrl,
+    title: session.sourceTitle
   }
 }
 

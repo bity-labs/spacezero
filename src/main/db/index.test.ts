@@ -51,5 +51,11 @@ describe('database migrations', () => {
       'ALTER TABLE projects ADD COLUMN github_linked_at INTEGER'
     )
     expect(statements.join('\n')).toContain('projects_github_repository_id_unique')
+    expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN worktree_path TEXT')
+    expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN source_type TEXT')
+    expect(statements.join('\n')).toContain(
+      'ALTER TABLE sessions ADD COLUMN source_repository_id TEXT'
+    )
+    expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN source_number INTEGER')
   })
 })

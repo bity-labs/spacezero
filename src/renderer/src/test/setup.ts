@@ -264,6 +264,31 @@ beforeEach(async () => {
         htmlUrl: `https://github.com/example/repository/pull/${request.number}#review-1`,
         author: null,
         submittedAt: new Date(0).toISOString()
+      }),
+      startIssueSession: async (request) => ({
+        id: 'issue-session-1',
+        kind: 'project',
+        projectId: request.projectId,
+        title: `Issue #${request.number}: Issue`,
+        status: 'idle',
+        worktree: {
+          path: `/tmp/SpaceZero/worktrees/${request.projectId}/issue-session-1`,
+          branch: `spacezero/issue-${request.number}-issue-session-1`,
+          baseRevision: 'abc123'
+        },
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'example',
+          repositoryName: 'repository',
+          repositoryFullName: 'example/repository',
+          number: request.number,
+          url: `https://github.com/example/repository/issues/${request.number}`,
+          title: 'Issue'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
       })
     },
     projects: {
@@ -426,11 +451,13 @@ beforeEach(async () => {
       }),
       getStorageSettings: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
-        projectsPath: '/tmp/SpaceZero/projects'
+        projectsPath: '/tmp/SpaceZero/projects',
+        worktreesPath: '/tmp/SpaceZero/worktrees'
       }),
       chooseSpaceZeroHome: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
-        projectsPath: '/tmp/SpaceZero/projects'
+        projectsPath: '/tmp/SpaceZero/projects',
+        worktreesPath: '/tmp/SpaceZero/worktrees'
       }),
       getModelDefaults: async () => ({ defaultThinking: 'medium' }),
       updateModelDefaults: async (request) => ({

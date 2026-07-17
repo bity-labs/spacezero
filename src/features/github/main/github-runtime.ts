@@ -19,6 +19,13 @@ import { createGitHubProjectsService } from './github-projects.service'
 import { createGitHubPullRequestsAdapter } from './github-pull-requests.adapter'
 import { createGitHubPullRequestsService } from './github-pull-requests.service'
 import { createGitHubRepositorySetupService } from './github-repository-setup.service'
+import { createGitHubSourceSessionsService } from './github-source-sessions.service'
+import { createManagedProjectAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
+import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
+import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
+import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 
 let authService: GitHubAuthService | undefined
 let connectionService: ReturnType<typeof createGitHubConnectionService> | undefined
@@ -26,6 +33,7 @@ let projectsService: ReturnType<typeof createGitHubProjectsService> | undefined
 let repositorySetupService: ReturnType<typeof createGitHubRepositorySetupService> | undefined
 let issuesService: ReturnType<typeof createGitHubIssuesService> | undefined
 let pullRequestsService: ReturnType<typeof createGitHubPullRequestsService> | undefined
+let sourceSessionsService: ReturnType<typeof createGitHubSourceSessionsService> | undefined
 
 export function getGitHubAuthService(): GitHubAuthService {
   if (authService) return authService
@@ -90,6 +98,25 @@ export function getGitHubPullRequestsService(): ReturnType<typeof createGitHubPu
     adapter: createGitHubPullRequestsAdapter()
   })
   return pullRequestsService
+}
+
+export function getGitHubSourceSessionsService(): ReturnType<
+  typeof createGitHubSourceSessionsService
+> {
+  if (sourceSessionsService) return sourceSessionsService
+  sourceSessionsService = createGitHubSourceSessionsService({
+    projects: getGitHubProjectsService(),
+    issues: getGitHubIssuesService(),
+    createSession: (request) =>
+      createManagedProjectAgentSession(request, {
+        repository: createSessionsRepository(),
+        utilityHost: getAgentUtilityProcessHost(),
+        worktrees: getManagedWorktreeService(),
+        readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+        resolveSkillPaths: resolveAgentSkillPaths
+      })
+  })
+  return sourceSessionsService
 }
 
 export function getGitHubRepositorySetupService(): ReturnType<

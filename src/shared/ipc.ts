@@ -119,7 +119,8 @@ export const IPC_CHANNELS = {
     listPullRequestCommitStatuses: 'github:listPullRequestCommitStatuses',
     listPullRequestReviews: 'github:listPullRequestReviews',
     createPullRequestComment: 'github:createPullRequestComment',
-    createPullRequestReview: 'github:createPullRequestReview'
+    createPullRequestReview: 'github:createPullRequestReview',
+    startIssueSession: 'github:startIssueSession'
   },
   projects: {
     list: 'projects:list',
@@ -249,6 +250,7 @@ export type SpaceZeroAPI = {
     createPullRequestReview: (
       request: GitHubPullRequestReviewCreateRequest
     ) => Promise<GitHubPullRequestReview>
+    startIssueSession: (request: GitHubIssueRequest) => Promise<ProjectSession>
   }
   projects: {
     list: () => Promise<Project[]>

@@ -28,9 +28,16 @@ export async function chooseSpaceZeroHome(): Promise<StorageSettings | null> {
   const spaceZeroHome = normalizeSpaceZeroHome(selectedPath)
   await mkdir(join(spaceZeroHome, 'projects'), { recursive: true })
   await mkdir(join(spaceZeroHome, 'skills'), { recursive: true })
+  await mkdir(join(spaceZeroHome, 'worktrees'), { recursive: true })
   await writeSpaceZeroHome(spaceZeroHome)
 
   return createStorageSettings(spaceZeroHome)
+}
+
+export async function getSpaceZeroWorktreesPath(): Promise<string> {
+  const settings = await getStorageSettings()
+  await mkdir(settings.worktreesPath, { recursive: true })
+  return settings.worktreesPath
 }
 
 export async function getSpaceZeroProjectsPath(): Promise<string> {
@@ -48,7 +55,8 @@ export function createStorageSettings(spaceZeroHome: string): StorageSettings {
   const normalizedHome = normalizeSpaceZeroHome(spaceZeroHome)
   return {
     spaceZeroHome: normalizedHome,
-    projectsPath: join(normalizedHome, 'projects')
+    projectsPath: join(normalizedHome, 'projects'),
+    worktreesPath: join(normalizedHome, 'worktrees')
   }
 }
 

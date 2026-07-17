@@ -6,10 +6,14 @@ import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
-import type { SessionsRepository } from '../../sessions/main/sessions.service'
+import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
-import type { WorkspaceSession } from '../../sessions/shared'
+import type { ProjectSession, SessionGitHubSource, WorkspaceSession } from '../../sessions/shared'
+import type {
+  ManagedWorktreeService,
+  ManagedWorktreeStartPoint
+} from '../../sessions/main/managed-worktree.service'
 import type { AgentSessionKind, AgentSessionState } from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
 import { getDisabledGlobalSkillPaths } from './agent-skill-settings.service'
@@ -36,6 +40,7 @@ type StoredProject = {
 export type CreateAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
+  worktrees: Pick<ManagedWorktreeService, 'create' | 'remove'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
   getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
@@ -44,13 +49,17 @@ export type CreateAgentSessionHandlerDependencies = {
   resolveSkillPaths?: ResolveSkillPaths
 }
 
-export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionHandlerDependencies & {
+export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
+  CreateAgentSessionHandlerDependencies,
+  'worktrees'
+> & {
   getWorkspaceSessionCwd?: () => string
 }
 
 export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
+  worktrees?: Pick<ManagedWorktreeService, 'validate'>
   getWorkspaceSessionCwd?: () => string
   getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
@@ -62,12 +71,36 @@ const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
 const noDisabledGlobalSkillPaths: typeof getDisabledGlobalSkillPaths = async () => []
 // Project-local resources fail closed until a main-owned persisted trust decision is integrated.
 const denyProjectTrustWithoutPersistedDecision: ReadProjectTrust = async () => false
+const unavailableStoredWorktrees = { validate: async () => false }
+
+export type CreateManagedProjectAgentSessionRequest = {
+  projectId: string
+  title?: string
+  source?: SessionGitHubSource
+  systemPromptContext?: string
+  startPoint?: ManagedWorktreeStartPoint
+}
 
 export async function createProjectAgentSession(
   input: unknown,
+  dependencies: CreateAgentSessionHandlerDependencies
+): Promise<AgentSessionState> {
+  const request = createSessionRequestSchema.parse(input)
+  const project = await dependencies.repository.findProjectById(request.projectId)
+  if (!project) throw new Error('Project not found')
+  if (resolve(request.cwd) !== resolve(project.path)) {
+    throw new Error('Session cwd must match the project path')
+  }
+
+  return (await createManagedProjectAgentSession(request, dependencies)).state
+}
+
+export async function createManagedProjectAgentSession(
+  request: CreateManagedProjectAgentSessionRequest,
   {
     repository,
     utilityHost,
+    worktrees,
     createSessionId = nanoid,
     readModelDefaults = getModelDefaults,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
@@ -75,56 +108,66 @@ export async function createProjectAgentSession(
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
     resolveSkillPaths
   }: CreateAgentSessionHandlerDependencies
-): Promise<AgentSessionState> {
-  const request = createSessionRequestSchema.parse(input)
-  const project = await repository.findProjectById(request.projectId)
+): Promise<{ state: AgentSessionState; session: ProjectSession }> {
+  const projectId = request.projectId.trim()
+  const project = await repository.findProjectById(projectId)
   if (!project) throw new Error('Project not found')
-
   const projectPath = resolve(project.path)
-  if (resolve(request.cwd) !== projectPath) throw new Error('Session cwd must match the project path')
-
   const sessionId = createSessionId()
-  const modelDefaults = await readModelDefaults()
-  const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
-    project.knowledgeBasePath,
-    getKnowledgeBaseStatus
-  )
-  const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = await readProjectTrust(request.projectId, projectPath)
-  const skillPaths = await resolveSessionSkillPaths(
-    resolveSkillPaths,
+  const worktree = await worktrees.create({
     projectPath,
-    'project',
-    projectTrusted
-  )
-  const state = await utilityHost.createSession({
+    projectId,
     sessionId,
-    kind: 'project',
-    projectId: request.projectId,
-    cwd: projectPath,
-    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
-    appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
-    ...(skillPaths ? { skillPaths } : {}),
-    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
-    defaultModel: modelDefaults.defaultModel,
-    thinkingLevel: modelDefaults.defaultThinking
+    source: request.source,
+    startPoint: request.startPoint
   })
+  let state: AgentSessionState | undefined
 
   try {
-    await createSessionsService({ repository }).createProjectAgentSession({
+    const modelDefaults = await readModelDefaults()
+    const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
+      project.knowledgeBasePath,
+      getKnowledgeBaseStatus
+    )
+    const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
+    const projectTrusted = await readProjectTrust(projectId, projectPath)
+    const skillPaths = await resolveSessionSkillPaths(
+      resolveSkillPaths,
+      worktree.path,
+      'project',
+      projectTrusted
+    )
+    state = await utilityHost.createSession({
+      sessionId,
+      kind: 'project',
+      projectId,
+      cwd: worktree.path,
+      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
+      ...(skillPaths ? { skillPaths } : {}),
+      ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+      ...(request.systemPromptContext ? { systemPromptContext: request.systemPromptContext } : {}),
+      defaultModel: modelDefaults.defaultModel,
+      thinkingLevel: modelDefaults.defaultThinking
+    })
+
+    const session = await createSessionsService({ repository }).createProjectAgentSession({
       id: sessionId,
-      projectId: request.projectId,
+      projectId,
+      title: request.title,
+      worktree,
+      source: request.source,
       transcriptPath: state.transcriptPath,
       modelProvider: state.modelProvider,
       modelId: state.modelId,
       thinkingLevel: state.thinkingLevel
     })
+    return { state, session }
   } catch (error) {
-    await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+    if (state) await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+    await worktrees.remove(projectPath, worktree).catch(() => undefined)
     throw error
   }
-
-  return state
 }
 
 export async function restoreAgentSessionState(
@@ -132,6 +175,7 @@ export async function restoreAgentSessionState(
   {
     repository,
     utilityHost,
+    worktrees = unavailableStoredWorktrees,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
@@ -146,6 +190,7 @@ export async function restoreAgentSessionState(
   const restore = restoreAgentSessionStateOnce(request, {
     repository,
     utilityHost,
+    worktrees,
     getWorkspaceSessionCwd,
     getKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths,
@@ -168,6 +213,7 @@ async function restoreAgentSessionStateOnce(
   {
     repository,
     utilityHost,
+    worktrees = unavailableStoredWorktrees,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
@@ -187,23 +233,21 @@ async function restoreAgentSessionStateOnce(
   const project = storedSession.projectId
     ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
     : undefined
-  const cwd = project ? resolve(project.path) : resolve(getWorkspaceSessionCwd())
+  const cwd = project
+    ? await resolveStoredProjectSessionCwd(storedSession, project, worktrees)
+    : resolve(getWorkspaceSessionCwd())
   const knowledgeBasePath = project
-    ? await getAvailableProjectKnowledgeBasePath(
-        project.knowledgeBasePath,
-        getKnowledgeBaseStatus
-      )
+    ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = storedSession.projectId
-    ? await readProjectTrust(storedSession.projectId, cwd)
-    : false
+  const projectTrusted = project ? await readProjectTrust(project.id, resolve(project.path)) : false
   const skillPaths = await resolveSessionSkillPaths(
     resolveSkillPaths,
     cwd,
     storedSession.projectId ? 'project' : 'workspace',
     projectTrusted
   )
+  const sourceContext = createStoredSourceContext(storedSession)
 
   if (!project) await mkdir(cwd, { recursive: true })
 
@@ -217,13 +261,12 @@ async function restoreAgentSessionStateOnce(
       workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
       ...(project
         ? {
-            appendSystemPrompt: [
-              createProjectKnowledgeBaseInstructions(knowledgeBasePath)
-            ]
+            appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)]
           }
         : {}),
       ...(skillPaths ? { skillPaths } : {}),
       ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+      ...(sourceContext ? { systemPromptContext: sourceContext } : {}),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -332,14 +375,51 @@ async function getUnconfiguredKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus
   return { setupState: 'unconfigured' }
 }
 
-export function createProjectKnowledgeBaseInstructions(
-  knowledgeBasePath?: string | null
-): string {
+export function createProjectKnowledgeBaseInstructions(knowledgeBasePath?: string | null): string {
   if (!knowledgeBasePath) {
     return `## Project Knowledge Base\n\nThe Project Knowledge Base is not configured. If the builder asks you to read or save durable project knowledge, clearly report that it is unavailable and direct them to set up the Knowledge Base in Space Zero. Do not pretend that knowledge was saved.`
   }
 
   return `## Project Knowledge Base\n\nThe durable Knowledge Base folder for this project is:\n\n${knowledgeBasePath}\n\nUse this folder when explicitly asked or when it is clearly useful for durable notes, decisions, debugging findings, handoff summaries, and user-requested project knowledge. Do not fill it with transient output or routine command logs. Read existing context before editing. When you add an important document, update the project README.md index with a useful link and description. The project source repository and this Knowledge Base folder are separate; keep source code in the project repository by default.`
+}
+
+async function resolveStoredProjectSessionCwd(
+  session: StoredSession,
+  project: { id: string; path: string } | undefined,
+  worktrees: Pick<ManagedWorktreeService, 'validate'>
+): Promise<string> {
+  if (!project) throw new Error('Project not found')
+  if (!session.worktreePath) return resolve(project.path)
+  if (!session.worktreeBranch || !session.worktreeBaseRevision) {
+    throw new Error('session.worktreeMetadataIncomplete')
+  }
+  const path = resolve(session.worktreePath)
+  if (!(await worktrees.validate(path))) throw new Error('session.worktreeMissing')
+  return path
+}
+
+function createStoredSourceContext(session: StoredSession): string | undefined {
+  if (!session.sourceType) return undefined
+  if (
+    !session.sourceRepositoryOwner ||
+    !session.sourceRepositoryName ||
+    typeof session.sourceNumber !== 'number' ||
+    !session.sourceUrl ||
+    !session.sourceTitle
+  ) {
+    throw new Error('session.sourceMetadataIncomplete')
+  }
+  const label = session.sourceType === 'issue' ? 'Issue' : 'Pull Request'
+  return [
+    '## Space Zero GitHub source',
+    `Type: ${label}`,
+    `Repository: ${session.sourceRepositoryOwner}/${session.sourceRepositoryName}`,
+    `Number: #${session.sourceNumber}`,
+    `Title: ${session.sourceTitle}`,
+    `URL: ${session.sourceUrl}`,
+    '',
+    'Treat this source as context. Do not comment, close, approve, merge, assign, or otherwise mutate GitHub unless the builder explicitly asks.'
+  ].join('\n')
 }
 
 function defaultWorkspaceSessionCwd(): string {

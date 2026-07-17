@@ -25,7 +25,8 @@ import {
   getGitHubIssuesService,
   getGitHubProjectsService,
   getGitHubPullRequestsService,
-  getGitHubRepositorySetupService
+  getGitHubRepositorySetupService,
+  getGitHubSourceSessionsService
 } from './github-runtime'
 
 export function registerGitHubIpc(): void {
@@ -131,5 +132,8 @@ export function registerGitHubIpc(): void {
     getGitHubPullRequestsService().createReview(
       githubPullRequestReviewCreateRequestSchema.parse(input)
     )
+  )
+  ipcMain.handle(IPC_CHANNELS.github.startIssueSession, (_event, input: unknown) =>
+    getGitHubSourceSessionsService().startIssueSession(githubIssueRequestSchema.parse(input))
   )
 }

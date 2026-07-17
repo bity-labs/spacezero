@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Badge } from '../../../../renderer/src/components/ui/badge'
 import { Button } from '../../../../renderer/src/components/ui/button'
 import type { Project } from '../../../projects/shared'
+import type { ProjectSession } from '../../../sessions/shared'
 import type { GitHubIssue, GitHubIssueComment } from '../../shared'
 import { githubMutationErrorMessage, githubReadErrorMessage } from '../github-error-messages'
 import {
@@ -15,10 +16,12 @@ import {
 
 export function IssuesView({
   project,
-  initialIssueNumber = null
+  initialIssueNumber = null,
+  onSessionCreated
 }: {
   project: Project
   initialIssueNumber?: number | null
+  onSessionCreated?: (session: ProjectSession) => void
 }): React.JSX.Element {
   const [page, setPage] = useState(1)
   const [selectedIssue, setSelectedIssue] = useState<number | null>(initialIssueNumber)
@@ -29,6 +32,7 @@ export function IssuesView({
         projectId={project.id}
         number={selectedIssue}
         onBack={() => setSelectedIssue(null)}
+        onSessionCreated={onSessionCreated}
       />
     )
   }
@@ -135,16 +139,20 @@ function IssueList({
 function IssueDetail({
   projectId,
   number,
-  onBack
+  onBack,
+  onSessionCreated
 }: {
   projectId: string
   number: number
   onBack: () => void
+  onSessionCreated?: (session: ProjectSession) => void
 }): React.JSX.Element {
   const [commentsPage, setCommentsPage] = useState(1)
   const [commentBody, setCommentBody] = useState('')
   const [commentValidationError, setCommentValidationError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [isStartingSession, setIsStartingSession] = useState(false)
+  const [startSessionError, setStartSessionError] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const issueQuery = useProjectIssue(projectId, number)
   const commentsQuery = useProjectIssueComments(projectId, number, commentsPage)
@@ -215,6 +223,24 @@ function IssueDetail({
           <IssueContent issue={issueQuery.data} />
           <div className="flex flex-wrap items-center gap-3">
             <Button
+              disabled={isStartingSession}
+              onClick={() => {
+                setIsStartingSession(true)
+                setStartSessionError(null)
+                void window.spacezero.github
+                  .startIssueSession({ projectId, number })
+                  .then((session) => onSessionCreated?.(session))
+                  .catch(() => {
+                    setStartSessionError(
+                      'Could not create an isolated Session for this Issue. The Project was not changed.'
+                    )
+                  })
+                  .finally(() => setIsStartingSession(false))
+              }}
+            >
+              {isStartingSession ? 'Starting Session…' : 'Start Session from Issue'}
+            </Button>
+            <Button
               variant="outline"
               disabled={stateMutation.isPending}
               onClick={() => {
@@ -237,6 +263,11 @@ function IssueDetail({
             {stateMutation.isError ? (
               <p className="text-sm text-destructive" role="alert">
                 {githubMutationErrorMessage(stateMutation.error)}
+              </p>
+            ) : null}
+            {startSessionError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {startSessionError}
               </p>
             ) : null}
           </div>
