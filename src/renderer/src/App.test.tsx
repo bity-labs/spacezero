@@ -527,7 +527,11 @@ describe('App', () => {
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument()
     expect(screen.getByText('/tmp/SpaceZero')).toBeInTheDocument()
-    expect(screen.getByText(/\/tmp\/SpaceZero\/projects/)).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'New projects and repositories will be created in /tmp/SpaceZero/projects.'
+      )
+    ).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
     expect(screen.queryByText('Space Zero Account')).not.toBeInTheDocument()
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
@@ -547,7 +551,6 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
 
     expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
-    expect(screen.getByText(/\/tmp\/AlternateSpaceZero\/projects/)).toBeInTheDocument()
   })
 
   it('deep-links to the Models Settings section and returns to General when the section is missing', async () => {
@@ -603,8 +606,23 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'Skills' })).toBeInTheDocument()
-    expect(screen.getByText('/skill:code-review')).toBeInTheDocument()
-    expect(screen.getByText(/Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/)).toBeInTheDocument()
+    const skillsSectionHeading = screen.getByRole('heading', { name: 'Global Agent Skills' })
+    const skillsSectionDescription = screen.getByText(
+      'Choose which global skills Space Zero makes available to new and reloaded agent sessions.'
+    )
+    expect(skillsSectionDescription.parentElement).toBe(skillsSectionHeading.parentElement)
+    const skillName = screen.getByText('code-review')
+    expect(skillName).toBeInTheDocument()
+    expect(screen.queryByText('/skill:code-review')).not.toBeInTheDocument()
+    const skillPath = screen.getByText(
+      /Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/
+    )
+    expect(skillPath).toHaveClass('mt-2')
+
+    const skillsCard = skillName.closest('[data-slot="card"]')
+    const applyNote = screen.getByText('Changes apply to new or reloaded agent sessions.')
+    expect(skillsCard).not.toContainElement(applyNote)
+    expect(applyNote).toHaveClass('text-orange-600', 'dark:text-orange-400')
 
     fireEvent.click(screen.getByRole('switch', { name: 'Disable code-review' }))
 

@@ -388,11 +388,6 @@ function StorageSettingsSection(): React.JSX.Element {
           </Button>
         </div>
       </SettingsRow>
-      {storageSettings ? (
-        <p className="px-4 pb-3 text-xs text-muted-foreground">
-          {t('settings.storage.projectsPath', { path: storageSettings.projectsPath })}
-        </p>
-      ) : null}
       {error ? (
         <p className="px-4 pb-3 text-sm text-destructive">{t('settings.storage.error')}</p>
       ) : null}
@@ -446,10 +441,15 @@ function SkillsSettingsSection(): React.JSX.Element {
     <>
       <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.skills')}</h2>
       <div className="space-y-8">
-        <SettingsSection title={t('settings.skills.sectionTitle')}>
-          <p className="px-4 pb-3 pt-4 text-sm text-muted-foreground">
-            {t('settings.skills.description')}
-          </p>
+        <SettingsSection
+          title={t('settings.skills.sectionTitle')}
+          description={t('settings.skills.description')}
+          footer={
+            <p className="text-xs text-orange-600 dark:text-orange-400">
+              {t('settings.skills.applyNote')}
+            </p>
+          }
+        >
           {skills === null ? (
             <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.loading')}</p>
           ) : skills.length === 0 ? (
@@ -462,13 +462,13 @@ function SkillsSettingsSection(): React.JSX.Element {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium">/skill:{skill.name}</p>
+                    <p className="truncate text-sm font-medium">{skill.name}</p>
                     <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
                       {skill.scope}
                     </Badge>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
-                  <p className="mt-1 truncate text-[11px] text-muted-foreground" title={skill.path}>
+                  <p className="mt-2 truncate text-[11px] text-muted-foreground" title={skill.path}>
                     {t('settings.skills.path', { path: skill.path })}
                   </p>
                 </div>
@@ -486,9 +486,6 @@ function SkillsSettingsSection(): React.JSX.Element {
               </div>
             ))
           )}
-          <p className="px-4 pb-4 text-xs text-muted-foreground">
-            {t('settings.skills.applyNote')}
-          </p>
           {error ? (
             <p className="px-4 pb-4 text-sm text-destructive">{t('settings.skills.error')}</p>
           ) : null}

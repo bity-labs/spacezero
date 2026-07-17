@@ -144,7 +144,6 @@
       "sectionTitle": "Stockage",
       "spaceZeroHome": "Dossier Space Zero",
       "spaceZeroHomeDescription": "Choisissez où Space Zero conserve les projets, worktrees, connaissances et artefacts gérés.",
-      "projectsPath": "Les nouveaux projets et dépôts seront créés dans {{path}}.",
       "loading": "Chargement de l’emplacement de stockage…",
       "change": "Modifier",
       "changing": "Modification…",
