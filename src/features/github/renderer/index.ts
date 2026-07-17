@@ -1,2 +1,4 @@
 export * from './components/account-settings'
+export * from './github-query-client'
 export * from './hooks/use-github-connection'
+export * from './hooks/use-project-repository'

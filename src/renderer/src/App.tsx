@@ -2,6 +2,7 @@ import { RouterProvider } from '@tanstack/react-router'
 
 import { AppCommandProvider } from '../../features/app-commands/renderer/app-command-context'
 import { CommandPaletteControllerProvider } from '../../features/command-palette/renderer/command-palette-controller'
+import { GitHubQueryProvider } from '../../features/github/renderer'
 import { KeyboardShortcutsProvider } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { AppCommandRegistration } from './app-command-registration'
 import { ColorModeProvider } from './color-mode-provider'
@@ -10,15 +11,17 @@ import './i18n'
 
 export function App(): React.JSX.Element {
   return (
-    <ColorModeProvider>
-      <AppCommandProvider>
-        <CommandPaletteControllerProvider>
-          <KeyboardShortcutsProvider>
-            <AppCommandRegistration />
-            <RouterProvider router={router} />
-          </KeyboardShortcutsProvider>
-        </CommandPaletteControllerProvider>
-      </AppCommandProvider>
-    </ColorModeProvider>
+    <GitHubQueryProvider>
+      <ColorModeProvider>
+        <AppCommandProvider>
+          <CommandPaletteControllerProvider>
+            <KeyboardShortcutsProvider>
+              <AppCommandRegistration />
+              <RouterProvider router={router} />
+            </KeyboardShortcutsProvider>
+          </CommandPaletteControllerProvider>
+        </AppCommandProvider>
+      </ColorModeProvider>
+    </GitHubQueryProvider>
   )
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { GithubLogo, LinkSimple, Plus } from '@phosphor-icons/react'
+import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@phosphor-icons/react'
 
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
-import { useGitHubConnection } from '../../../github/renderer'
+import { useGitHubConnection, useProjectRepository } from '../../../github/renderer'
 import type { Project } from '../../shared'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -204,17 +204,7 @@ function GitHubProjectState({
   }
 
   if (project.githubRepository) {
-    return (
-      <Card className="gap-3 p-6">
-        <div className="flex items-center gap-2">
-          <GithubLogo className="size-5" aria-hidden="true" />
-          <h2 className="font-medium">{project.githubRepository.fullName}</h2>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Linked to this local Project. Git remotes and the Project path were not changed.
-        </p>
-      </Card>
-    )
+    return <LinkedRepositoryStatus project={project} />
   }
 
   return (
@@ -271,6 +261,76 @@ function GitHubProjectState({
       {linkError ? <p className="text-sm text-destructive">{linkError}</p> : null}
     </Card>
   )
+}
+
+function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.Element {
+  const repository = useProjectRepository(project.id)
+
+  if (repository.isLoading) {
+    return <Card className="p-6 text-sm text-muted-foreground">Loading repository status…</Card>
+  }
+
+  if (repository.isError || !repository.data) {
+    return (
+      <Card className="gap-4 p-6">
+        <div>
+          <h2 className="font-medium">Repository status unavailable</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {getRepositoryErrorMessage(repository.error)}
+          </p>
+        </div>
+        <Button variant="outline" className="w-fit gap-2" onClick={() => void repository.refetch()}>
+          <ArrowClockwise className="size-4" aria-hidden="true" />
+          Retry
+        </Button>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="gap-4 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <GithubLogo className="size-5" aria-hidden="true" />
+          <div>
+            <h2 className="font-medium">{repository.data.fullName}</h2>
+            <p className="text-xs text-muted-foreground">
+              {repository.data.isPrivate ? 'Private' : 'Public'} · Default branch{' '}
+              {repository.data.defaultBranch}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            render={<a href={repository.data.htmlUrl} target="_blank" rel="noreferrer" />}
+            variant="outline"
+            className="gap-2"
+          >
+            <ArrowSquareOut className="size-4" aria-hidden="true" />
+            Open on GitHub
+          </Button>
+          <Button variant="ghost" className="gap-2" onClick={() => void repository.refetch()}>
+            <ArrowClockwise className="size-4" aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
+      </div>
+      <p className="text-sm text-muted-foreground">
+        Live from GitHub. Space Zero does not store repository API responses in its local database.
+      </p>
+    </Card>
+  )
+}
+
+function getRepositoryErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : ''
+  if (message.includes('repositoryAccessRevoked')) {
+    return 'Repository access changed or was revoked. Update GitHub App access and try again.'
+  }
+  if (message.includes('reconnect-required')) {
+    return 'Your GitHub authorization expired or was revoked. Reconnect GitHub and try again.'
+  }
+  return 'Check your network or GitHub rate limit, then retry.'
 }
 
 function ProjectSectionPlaceholder({

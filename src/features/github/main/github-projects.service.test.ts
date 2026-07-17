@@ -132,6 +132,26 @@ describe('GitHub Projects service', () => {
     ).resolves.toMatchObject({ githubRepository: { repositoryId: '1000' } })
   })
 
+  it('fetches live metadata by stable ID and fails closed after a grant is revoked', async () => {
+    let authorized = true
+    const service = createGitHubProjectsService({
+      projects: createProjectsBoundary(),
+      repositories: {
+        listAuthorizedRepositories: async () => (authorized ? repositories : [])
+      },
+      git: { listRemotes: async () => [] }
+    })
+    await service.linkProject({ projectId: 'project-1', repositoryId: '1000' })
+
+    await expect(service.getLinkedRepository({ projectId: 'project-1' })).resolves.toEqual(
+      repositories[0]
+    )
+    authorized = false
+    await expect(service.getLinkedRepository({ projectId: 'project-1' })).rejects.toThrow(
+      'github.repositoryAccessRevoked'
+    )
+  })
+
   it('rejects a stale or unauthorized repository selection', async () => {
     const service = createGitHubProjectsService({
       projects: createProjectsBoundary(),

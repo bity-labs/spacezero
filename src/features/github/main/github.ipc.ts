@@ -47,4 +47,7 @@ export function registerGitHubIpc(): void {
   ipcMain.handle(IPC_CHANNELS.github.linkProjectRepository, (_event, input: unknown) =>
     getGitHubProjectsService().linkProject(linkGitHubProjectRequestSchema.parse(input))
   )
+  ipcMain.handle(IPC_CHANNELS.github.getProjectRepository, (_event, input: unknown) =>
+    getGitHubProjectsService().getLinkedRepository(githubProjectRequestSchema.parse(input))
+  )
 }
