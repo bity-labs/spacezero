@@ -117,6 +117,7 @@ export function WorkspaceShell(): React.JSX.Element {
     status: projectsStatus,
     error: projectsError,
     warning: projectsWarning,
+    refreshProjects,
     selectProject,
     upsertProject,
     createEmptyProject,
@@ -259,6 +260,16 @@ export function WorkspaceShell(): React.JSX.Element {
 
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
+
+  async function handleGitHubProjectReady(projectId: string): Promise<void> {
+    const nextProjects = await refreshProjects()
+    const project = nextProjects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new Error('Cloned Project was not registered')
+    runInWorkspaceView(() => {
+      upsertProject(project)
+      resetSessionWorkspaceLayout()
+    })
+  }
 
   function handleNewSession(project: Project): void {
     runInWorkspaceView(async () => {
@@ -521,6 +532,7 @@ export function WorkspaceShell(): React.JSX.Element {
               onOpenChange={setAddProjectOpen}
               onCreateEmptyProject={createEmptyProject}
               onAddFromFolder={addProjectFromFolder}
+              onGitHubProjectReady={handleGitHubProjectReady}
             />
             <EditProjectDialog
               key={editingProject?.id ?? 'no-project'}

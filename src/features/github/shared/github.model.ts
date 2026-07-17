@@ -60,6 +60,35 @@ export type GitHubConnection =
     }
   | { status: 'reconnect-required'; identity: GitHubIdentity }
 
+export type GitHubRepositorySetupOption = {
+  repository: GitHubRepository
+  existingProject?: ProjectReference
+}
+
+export type ProjectReference = {
+  id: string
+  name: string
+}
+
+export type StartGitHubCloneRequest = {
+  repositoryId: string
+}
+
+export type StartGitHubCloneResult =
+  { status: 'already-added'; projectId: string } | { status: 'started'; operationId: string }
+
+export type GitHubCloneProgress = {
+  operationId: string
+  status: 'starting' | 'cloning' | 'complete' | 'failed' | 'cancelled'
+  message: string
+  percent?: number
+  projectId?: string
+}
+
+export type CancelGitHubCloneRequest = {
+  operationId: string
+}
+
 export type GitHubProjectLinkOptions = {
   repositories: GitHubRepository[]
   suggestedRepositoryIds: string[]

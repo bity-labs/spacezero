@@ -100,9 +100,8 @@
         "choose": "Choisir un dossier"
       },
       "git": {
-        "title": "URL du dépôt Git",
-        "description": "Cloner ou lier l'URL d'un dépôt distant.",
-        "comingSoon": "Bientôt disponible"
+        "title": "Dépôt GitHub",
+        "description": "Cloner un dépôt autorisé via GitHub."
       }
     },
     "edit": {

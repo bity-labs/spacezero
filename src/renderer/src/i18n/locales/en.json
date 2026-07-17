@@ -100,9 +100,8 @@
         "choose": "Choose folder"
       },
       "git": {
-        "title": "Git Repository URL",
-        "description": "Clone or link a remote repository URL.",
-        "comingSoon": "Coming soon"
+        "title": "GitHub Repository",
+        "description": "Clone one repository authorized through GitHub."
       }
     },
     "edit": {

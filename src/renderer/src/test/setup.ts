@@ -155,7 +155,11 @@ beforeEach(async () => {
       }),
       getProjectRepository: async () => {
         throw new Error('github.projectNotLinked')
-      }
+      },
+      listRepositorySetupOptions: async () => [],
+      startClone: async () => ({ status: 'started', operationId: 'clone-test' }),
+      cancelClone: async () => undefined,
+      onCloneProgress: () => () => undefined
     },
     projects: {
       list: async () => [],
