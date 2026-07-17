@@ -4,7 +4,7 @@ import {
   createGitHubConnectionService,
   type GitHubInstallationsAdapter
 } from './github-connection.service'
-import type { StoredGitHubCredential } from './github-auth.service'
+import { GitHubIntegrationError, type StoredGitHubCredential } from './github-auth.service'
 
 const credential: StoredGitHubCredential = {
   accessToken: 'access-secret',
@@ -151,6 +151,24 @@ describe('GitHub connection service', () => {
     })
   })
 
+  it('transitions revoked authorization to reconnect required', async () => {
+    const adapter = createAdapter()
+    adapter.listInstallations = async () => {
+      throw new GitHubIntegrationError('reconnect-required')
+    }
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter,
+      appSlug: 'space-zero',
+      openExternal: async () => undefined
+    })
+
+    await expect(service.getConnection()).resolves.toEqual({
+      status: 'reconnect-required',
+      identity: credential.identity
+    })
+  })
+
   it('revalidates changed grants every time repositories are queried', async () => {
     const adapter = createAdapter()
     let revoked = false
@@ -166,6 +184,22 @@ describe('GitHub connection service', () => {
     await expect(service.listAuthorizedRepositories()).resolves.toHaveLength(2)
     revoked = true
     await expect(service.listAuthorizedRepositories()).resolves.toEqual([])
+  })
+
+  it('opens GitHub management separately from adding repository access', async () => {
+    const opened: string[] = []
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter: createAdapter(),
+      appSlug: 'space-zero-dev',
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+
+    await service.openManageAccess()
+
+    expect(opened).toEqual(['https://github.com/settings/installations'])
   })
 
   it('opens only the configured GitHub App installation URL', async () => {

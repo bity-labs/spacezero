@@ -153,6 +153,15 @@ export function createGitHubAuthService({
     }
   }
 
+  async function disconnect(): Promise<void> {
+    for (const flow of flows.values()) {
+      flow.cancelled = true
+      flow.abortController.abort()
+    }
+    flows.clear()
+    await credentialStore.clear()
+  }
+
   async function startAuthorization(): Promise<GitHubDeviceAuthorization> {
     const configuredClientId = requireClientId(clientId)
     const grant = await safelyRequest(() => adapter.requestDeviceCode(configuredClientId))
@@ -244,6 +253,7 @@ export function createGitHubAuthService({
   return {
     getConnection,
     getAuthorizedCredential,
+    disconnect,
     startAuthorization,
     waitForAuthorization,
     cancelAuthorization,

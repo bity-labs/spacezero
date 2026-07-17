@@ -26,6 +26,10 @@ export function registerGitHubIpc(): void {
   ipcMain.handle(IPC_CHANNELS.github.openInstallation, () =>
     getGitHubConnectionService().openInstallation()
   )
+  ipcMain.handle(IPC_CHANNELS.github.openManageAccess, () =>
+    getGitHubConnectionService().openManageAccess()
+  )
+  ipcMain.handle(IPC_CHANNELS.github.disconnect, () => getGitHubAuthService().disconnect())
   ipcMain.handle(IPC_CHANNELS.github.listAuthorizedRepositories, () =>
     getGitHubConnectionService().listAuthorizedRepositories()
   )

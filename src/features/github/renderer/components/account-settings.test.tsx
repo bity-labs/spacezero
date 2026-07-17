@@ -137,8 +137,77 @@ describe('AccountSettings', () => {
 
     render(<AccountSettings />)
 
-    expect(await screen.findByText('Pending organization approval')).toBeInTheDocument()
+    expect(await screen.findAllByText('Pending organization approval')).toHaveLength(2)
     expect(screen.getByText(/continue using local Projects/i)).toBeInTheDocument()
+  })
+
+  it('groups installations and manages or disconnects the local connection', async () => {
+    let connected = true
+    const openedActions: string[] = []
+    window.spacezero.github.getConnection = async () =>
+      connected
+        ? {
+            status: 'connected',
+            identity: {
+              id: '42',
+              login: 'octocat',
+              avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+              profileUrl: 'https://github.com/octocat'
+            },
+            installations: [
+              {
+                id: '100',
+                owner: {
+                  id: '42',
+                  login: 'octocat',
+                  type: 'user',
+                  avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4'
+                },
+                repositorySelection: 'selected',
+                status: 'usable',
+                repositoryCount: 1
+              },
+              {
+                id: '200',
+                owner: {
+                  id: '84',
+                  login: 'bity-labs',
+                  type: 'organization',
+                  avatarUrl: 'https://avatars.githubusercontent.com/u/84?v=4'
+                },
+                repositorySelection: 'all',
+                status: 'usable',
+                repositoryCount: 3
+              }
+            ],
+            repositories: []
+          }
+        : { status: 'disconnected' }
+    window.spacezero.github.openInstallation = async () => {
+      openedActions.push('install')
+    }
+    window.spacezero.github.openManageAccess = async () => {
+      openedActions.push('manage')
+    }
+    window.spacezero.github.disconnect = async () => {
+      connected = false
+    }
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<AccountSettings />)
+
+    expect(
+      await screen.findByRole('region', { name: 'Personal GitHub installations' })
+    ).toHaveTextContent('octocatSelected repositories1 repository')
+    expect(
+      screen.getByRole('region', { name: 'Organizations GitHub installations' })
+    ).toHaveTextContent('bity-labsAll repositories3 repositories')
+    fireEvent.click(screen.getByRole('button', { name: 'Add or change repository access' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Manage/Revoke access on GitHub' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+    await waitFor(() => expect(openedActions).toEqual(['install', 'manage']))
+    expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
   })
 
   it('cancels authorization without showing a connected state', async () => {

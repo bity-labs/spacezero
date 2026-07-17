@@ -69,6 +69,25 @@ describe('App', () => {
     expect(screen.queryByText('Desktop foundation')).not.toBeInTheDocument()
   })
 
+  it('shows the connected GitHub identity in the sidebar account area', async () => {
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: []
+    })
+
+    render(<App />)
+
+    expect(await screen.findByText('@octocat')).toBeInTheDocument()
+    expect(screen.queryByText('Guest')).not.toBeInTheDocument()
+  })
+
   it('toggles the side columns from the top bar corner buttons', async () => {
     render(<App />)
 

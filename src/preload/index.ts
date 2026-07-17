@@ -44,6 +44,8 @@ const api: SpaceZeroAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.github.openAuthorization, request),
     copyDeviceCode: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.copyDeviceCode, request),
     openInstallation: () => ipcRenderer.invoke(IPC_CHANNELS.github.openInstallation),
+    openManageAccess: () => ipcRenderer.invoke(IPC_CHANNELS.github.openManageAccess),
+    disconnect: () => ipcRenderer.invoke(IPC_CHANNELS.github.disconnect),
     listAuthorizedRepositories: () =>
       ipcRenderer.invoke(IPC_CHANNELS.github.listAuthorizedRepositories)
   },
