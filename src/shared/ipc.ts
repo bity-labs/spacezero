@@ -29,13 +29,18 @@ import type {
   UpdateProjectRequest
 } from '../features/projects/shared/project.model'
 import type {
+  CancelGitHubCloneRequest,
+  GitHubCloneProgress,
   GitHubConnection,
   GitHubDeviceAuthorization,
   GitHubFlowRequest,
   GitHubProjectLinkOptions,
   GitHubProjectRequest,
   GitHubRepository,
-  LinkGitHubProjectRequest
+  GitHubRepositorySetupOption,
+  LinkGitHubProjectRequest,
+  StartGitHubCloneRequest,
+  StartGitHubCloneResult
 } from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
@@ -71,7 +76,11 @@ export const IPC_CHANNELS = {
     listAuthorizedRepositories: 'github:listAuthorizedRepositories',
     getProjectLinkOptions: 'github:getProjectLinkOptions',
     linkProjectRepository: 'github:linkProjectRepository',
-    getProjectRepository: 'github:getProjectRepository'
+    getProjectRepository: 'github:getProjectRepository',
+    listRepositorySetupOptions: 'github:listRepositorySetupOptions',
+    startClone: 'github:startClone',
+    cancelClone: 'github:cancelClone',
+    cloneProgress: 'github:cloneProgress'
   },
   projects: {
     list: 'projects:list',
@@ -161,6 +170,10 @@ export type SpaceZeroAPI = {
     getProjectLinkOptions: (request: GitHubProjectRequest) => Promise<GitHubProjectLinkOptions>
     linkProjectRepository: (request: LinkGitHubProjectRequest) => Promise<Project>
     getProjectRepository: (request: GitHubProjectRequest) => Promise<GitHubRepository>
+    listRepositorySetupOptions: () => Promise<GitHubRepositorySetupOption[]>
+    startClone: (request: StartGitHubCloneRequest) => Promise<StartGitHubCloneResult>
+    cancelClone: (request: CancelGitHubCloneRequest) => Promise<void>
+    onCloneProgress: (listener: (event: GitHubCloneProgress) => void) => () => void
   }
   projects: {
     list: () => Promise<Project[]>

@@ -249,6 +249,38 @@ describe('createProjectsService', () => {
     })
   })
 
+  it('registers a cloned GitHub repository only after receiving its final path', async () => {
+    const now = new Date('2026-07-18T01:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository(),
+      now: () => now,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(
+      service.registerGitHubProject({
+        name: 'spacezero',
+        path: '/home/tiby/SpaceZero/projects/bity-labs/spacezero',
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        htmlUrl: 'https://github.com/bity-labs/spacezero'
+      })
+    ).resolves.toMatchObject({
+      name: 'spacezero',
+      path: '/home/tiby/SpaceZero/projects/bity-labs/spacezero',
+      githubRepository: {
+        repositoryId: '1000',
+        fullName: 'bity-labs/spacezero'
+      },
+      createdAt: now.toISOString()
+    })
+  })
+
   it('returns null when folder selection is canceled', async () => {
     const service = createProjectsService({
       repository: createMemoryRepository(),

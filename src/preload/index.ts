@@ -53,7 +53,18 @@ const api: SpaceZeroAPI = {
     linkProjectRepository: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.github.linkProjectRepository, request),
     getProjectRepository: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.github.getProjectRepository, request)
+      ipcRenderer.invoke(IPC_CHANNELS.github.getProjectRepository, request),
+    listRepositorySetupOptions: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listRepositorySetupOptions),
+    startClone: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.startClone, request),
+    cancelClone: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.cancelClone, request),
+    onCloneProgress: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.github.cloneProgress, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.github.cloneProgress, handler)
+    }
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

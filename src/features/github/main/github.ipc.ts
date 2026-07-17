@@ -2,14 +2,17 @@ import { ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
+  cancelGitHubCloneRequestSchema,
   githubFlowRequestSchema,
   githubProjectRequestSchema,
-  linkGitHubProjectRequestSchema
+  linkGitHubProjectRequestSchema,
+  startGitHubCloneRequestSchema
 } from '../shared'
 import {
   getGitHubAuthService,
   getGitHubConnectionService,
-  getGitHubProjectsService
+  getGitHubProjectsService,
+  getGitHubRepositorySetupService
 } from './github-runtime'
 
 export function registerGitHubIpc(): void {
@@ -49,5 +52,21 @@ export function registerGitHubIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.github.getProjectRepository, (_event, input: unknown) =>
     getGitHubProjectsService().getLinkedRepository(githubProjectRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listRepositorySetupOptions, () =>
+    getGitHubRepositorySetupService().listSetupOptions()
+  )
+  ipcMain.handle(IPC_CHANNELS.github.startClone, (event, input: unknown) =>
+    getGitHubRepositorySetupService().startClone(
+      startGitHubCloneRequestSchema.parse(input),
+      (progress) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send(IPC_CHANNELS.github.cloneProgress, progress)
+        }
+      }
+    )
+  )
+  ipcMain.handle(IPC_CHANNELS.github.cancelClone, (_event, input: unknown) =>
+    getGitHubRepositorySetupService().cancelClone(cancelGitHubCloneRequestSchema.parse(input))
   )
 }

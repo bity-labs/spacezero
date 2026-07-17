@@ -221,9 +221,95 @@ describe('App', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText('Empty Project')).toBeInTheDocument()
     expect(screen.getByText('Open Folder')).toBeInTheDocument()
-    expect(screen.getByText('Git Repository URL')).toBeInTheDocument()
-    expect(screen.getByText('Coming soon')).toBeInTheDocument()
+    expect(screen.getByText('GitHub Repository')).toBeInTheDocument()
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+    expect(
+      await screen.findByText('No authorized GitHub repositories are available.')
+    ).toBeInTheDocument()
+  })
+
+  it('opens a cloned GitHub Project Home without starting a Session', async () => {
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    let projects: Array<{
+      id: string
+      name: string
+      path: string
+      githubRepository?: {
+        repositoryId: string
+        nodeId: string
+        owner: string
+        name: string
+        fullName: string
+        htmlUrl: string
+        linkedAt: string
+      }
+      createdAt: string
+      updatedAt: string
+    }> = []
+    let progressListener: Parameters<typeof window.spacezero.github.onCloneProgress>[0] | undefined
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
+    window.spacezero.github.onCloneProgress = (listener) => {
+      progressListener = listener
+      return () => undefined
+    }
+    window.spacezero.github.startClone = async () => ({
+      status: 'started',
+      operationId: 'clone-1'
+    })
+    window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
+
+    render(<App />)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add project' }))[0])
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    await screen.findByText('Preparing managed clone…')
+
+    projects = [
+      {
+        id: 'project-1',
+        name: 'spacezero',
+        path: '/tmp/SpaceZero/projects/bity-labs/spacezero',
+        githubRepository: {
+          repositoryId: '1000',
+          nodeId: 'R_1000',
+          owner: 'bity-labs',
+          name: 'spacezero',
+          fullName: 'bity-labs/spacezero',
+          htmlUrl: 'https://github.com/bity-labs/spacezero',
+          linkedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    act(() =>
+      progressListener?.({
+        operationId: 'clone-1',
+        status: 'complete',
+        message: 'Repository cloned and Project added.',
+        projectId: 'project-1'
+      })
+    )
+
+    expect(await screen.findByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'spacezero' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Conversation' })).not.toBeInTheDocument()
   })
 
   it('creates an empty project and selects it in the workspace', async () => {

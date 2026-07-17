@@ -10,7 +10,7 @@ export function useProjects(): {
   status: ProjectStatus
   error: string | null
   warning: string | null
-  refreshProjects: () => Promise<void>
+  refreshProjects: () => Promise<Project[]>
   selectProject: (project: Project) => void
   upsertProject: (project: Project) => void
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
@@ -35,9 +35,11 @@ export function useProjects(): {
         currentId && nextProjects.some((project) => project.id === currentId) ? currentId : null
       )
       setStatus('ready')
+      return nextProjects
     } catch {
       setError('Unable to load projects.')
       setStatus('error')
+      throw new Error('Unable to load projects.')
     }
   }, [])
 

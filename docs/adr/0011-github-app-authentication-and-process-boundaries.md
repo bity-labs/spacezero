@@ -21,6 +21,7 @@ Space Zero uses one GitHub.com identity at a time through a GitHub App and GitHu
 - Main stores the access and refresh token together in an encrypted file under Electron's OS application-data directory. Encryption uses Electron `safeStorage`; Space Zero fails closed when protected encryption is unavailable or Linux selects the `basic_text` backend.
 - Preload exposes only narrow typed operations. Renderer projections contain a device user code, verification URL, expiry, sanitized GitHub identity, installation/repository metadata, and explicit connection states. They never contain tokens or raw provider responses.
 - Pi's utility process and project tools do not receive the Space Zero GitHub credential.
+- Main-owned managed HTTPS clones use a temporary `GIT_ASKPASS` helper with the token scoped to the clone child process. Git credential helpers are disabled for that command. The token is never placed in command arguments, the clone URL, Git config, logs, progress events, or the resulting remote, and temporary helper/partial-clone files are removed.
 - Authentication and repository authorization are separate. An authorized identity is shown as **Repository access required** until a current installation query finds at least one usable repository.
 - Repository access is revalidated against GitHub before privileged reads or writes. Unknown, expired, revoked, suspended, SSO-restricted, or malformed states deny access.
 - Device-flow errors crossing IPC are stable Space Zero error codes rather than raw GitHub payloads.

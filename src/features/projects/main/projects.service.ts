@@ -48,6 +48,11 @@ export type OptionalProjectLinkResult = {
 
 export type LinkGitHubRepositoryInput = Omit<GitHubRepositoryAssociation, 'fullName' | 'linkedAt'>
 
+export type RegisterGitHubProjectInput = LinkGitHubRepositoryInput & {
+  name: string
+  path: string
+}
+
 export type ProjectsService = {
   listProjects: () => Promise<Project[]>
   getProject: (projectId: string) => Promise<Project>
@@ -55,6 +60,7 @@ export type ProjectsService = {
     projectId: string,
     association: LinkGitHubRepositoryInput
   ) => Promise<Project>
+  registerGitHubProject: (input: RegisterGitHubProjectInput) => Promise<Project>
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
@@ -112,6 +118,25 @@ export function createProjectsService({
           githubUrl: association.htmlUrl,
           githubLinkedAt: linkedAt,
           updatedAt: linkedAt
+        })
+      )
+    },
+
+    async registerGitHubProject(input) {
+      const timestamp = now()
+      return toProject(
+        await repository.create({
+          id: nanoid(),
+          name: normalizeName(input.name),
+          path: pathAdapter.normalizeProjectPath(input.path),
+          githubRepositoryId: input.repositoryId,
+          githubRepositoryNodeId: input.nodeId,
+          githubOwner: input.owner,
+          githubName: input.name,
+          githubUrl: input.htmlUrl,
+          githubLinkedAt: timestamp,
+          createdAt: timestamp,
+          updatedAt: timestamp
         })
       )
     },
