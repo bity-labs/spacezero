@@ -104,6 +104,139 @@ describe('GitHub source Sessions service', () => {
     )
   })
 
+  it('creates a Pull Request-linked Session at the fetched PR ref with available review context', async () => {
+    const createSession = vi.fn(async (request) => ({
+      session: {
+        id: 'session-pr-1',
+        kind: 'project' as const,
+        projectId: request.projectId,
+        title: request.title ?? 'Session',
+        status: 'idle' as const,
+        source: request.source,
+        worktree: {
+          path: '/SpaceZero/worktrees/project-1/session-pr-1',
+          branch: 'spacezero/pull-request-79-session-pr-1',
+          baseRevision: 'def456'
+        },
+        createdAt: '2026-07-18T03:00:00.000Z',
+        updatedAt: '2026-07-18T03:00:00.000Z'
+      }
+    }))
+    const emptyPage = { items: [], page: 1, hasNextPage: false }
+    const service = createGitHubSourceSessionsService({
+      projects: { getLinkedRepository: async () => repository },
+      issues: {
+        getIssue: async () => issue,
+        listIssueComments: async () => emptyPage
+      },
+      pullRequests: {
+        getPullRequest: async () => ({
+          number: 79,
+          title: 'Managed storage foundation',
+          body: 'Review the managed storage changes.',
+          state: 'open',
+          isDraft: false,
+          htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          baseBranch: 'main',
+          headBranch: 'feat/storage',
+          commitCount: 4,
+          conversationCommentCount: 1,
+          createdAt: '2026-07-18T00:00:00.000Z',
+          updatedAt: '2026-07-18T01:00:00.000Z'
+        }),
+        listConversationComments: async () => ({
+          items: [
+            {
+              id: 'comment-1',
+              body: 'Please update the docs.',
+              htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#comment-1',
+              author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+              createdAt: '2026-07-18T02:00:00.000Z',
+              updatedAt: '2026-07-18T02:00:00.000Z'
+            }
+          ],
+          page: 1,
+          hasNextPage: false
+        }),
+        listFiles: async () => ({
+          items: [
+            {
+              sha: 'abc',
+              filename: 'src/index.ts',
+              previousFilename: null,
+              status: 'modified',
+              additions: 2,
+              deletions: 1,
+              changes: 3,
+              patch: { status: 'available', text: '@@', truncated: false }
+            }
+          ],
+          page: 1,
+          hasNextPage: false
+        }),
+        listCheckRuns: async () => ({
+          items: [
+            {
+              id: 'check-1',
+              name: 'test',
+              status: 'completed',
+              conclusion: 'success',
+              detailsUrl: null,
+              appName: 'GitHub Actions',
+              startedAt: null,
+              completedAt: null
+            }
+          ],
+          page: 1,
+          hasNextPage: false
+        }),
+        listCommitStatuses: async () => emptyPage,
+        listReviews: async () => ({
+          items: [
+            {
+              id: 'review-1',
+              state: 'changes_requested',
+              body: 'Add a rollback test.',
+              htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#review-1',
+              author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+              submittedAt: '2026-07-18T02:00:00.000Z'
+            }
+          ],
+          page: 1,
+          hasNextPage: false
+        })
+      },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) },
+      createSession
+    })
+
+    const session = await service.startPullRequestSession({ projectId: 'project-1', number: 79 })
+
+    expect(session).toMatchObject({
+      source: { type: 'pull-request', repositoryId: '1000', number: 79 },
+      worktree: { baseRevision: 'def456' }
+    })
+    expect(JSON.stringify(session)).not.toContain('access-secret')
+    expect(createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: expect.objectContaining({ type: 'pull-request', number: 79 }),
+        startPoint: {
+          kind: 'github-ref',
+          remoteUrl: 'https://github.com/bity-labs/spacezero.git',
+          ref: 'refs/pull/79/head',
+          accessToken: 'access-secret'
+        },
+        systemPromptContext: expect.stringContaining('Add a rollback test.')
+      })
+    )
+    expect(createSession.mock.calls[0]?.[0].systemPromptContext).toContain('src/index.ts')
+    expect(createSession.mock.calls[0]?.[0].systemPromptContext).toContain('Check test: success')
+    expect(createSession.mock.calls[0]?.[0].systemPromptContext).toContain(
+      'Do not comment, approve, request changes, merge, close'
+    )
+  })
+
   it('does not create a Session when current Issue access cannot be verified', async () => {
     const createSession = vi.fn()
     const service = createGitHubSourceSessionsService({

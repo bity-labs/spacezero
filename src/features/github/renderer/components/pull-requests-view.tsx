@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Badge } from '../../../../renderer/src/components/ui/badge'
 import { Button } from '../../../../renderer/src/components/ui/button'
 import type { Project } from '../../../projects/shared'
+import type { ProjectSession } from '../../../sessions/shared'
 import type { GitHubIssueComment, GitHubPullRequest } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
 import { PullRequestActions } from './pull-request-actions'
@@ -17,10 +18,12 @@ import {
 
 export function PullRequestsView({
   project,
-  initialPullRequestNumber = null
+  initialPullRequestNumber = null,
+  onSessionCreated
 }: {
   project: Project
   initialPullRequestNumber?: number | null
+  onSessionCreated?: (session: ProjectSession) => void
 }): React.JSX.Element {
   const [page, setPage] = useState(1)
   const [selectedPullRequest, setSelectedPullRequest] = useState<number | null>(
@@ -33,6 +36,7 @@ export function PullRequestsView({
         projectId={project.id}
         number={selectedPullRequest}
         onBack={() => setSelectedPullRequest(null)}
+        onSessionCreated={onSessionCreated}
       />
     )
   }
@@ -134,13 +138,17 @@ function PullRequestList({
 function PullRequestDetail({
   projectId,
   number,
-  onBack
+  onBack,
+  onSessionCreated
 }: {
   projectId: string
   number: number
   onBack: () => void
+  onSessionCreated?: (session: ProjectSession) => void
 }): React.JSX.Element {
   const [commentsPage, setCommentsPage] = useState(1)
+  const [isStartingSession, setIsStartingSession] = useState(false)
+  const [startSessionError, setStartSessionError] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const pullRequestQuery = useProjectPullRequest(projectId, number)
   const commentsQuery = useProjectPullRequestComments(projectId, number, commentsPage)
@@ -184,6 +192,34 @@ function PullRequestDetail({
         />
       ) : null}
       {pullRequestQuery.data ? <PullRequestContent pullRequest={pullRequestQuery.data} /> : null}
+
+      {pullRequestQuery.data ? (
+        <div className="space-y-2">
+          <Button
+            disabled={isStartingSession}
+            onClick={() => {
+              setIsStartingSession(true)
+              setStartSessionError(null)
+              void window.spacezero.github
+                .startPullRequestSession({ projectId, number })
+                .then((session) => onSessionCreated?.(session))
+                .catch(() => {
+                  setStartSessionError(
+                    'Could not create an isolated Session for this Pull Request. The base Project was not changed.'
+                  )
+                })
+                .finally(() => setIsStartingSession(false))
+            }}
+          >
+            {isStartingSession ? 'Starting Session…' : 'Start Session from Pull Request'}
+          </Button>
+          {startSessionError ? (
+            <p className="text-sm text-destructive" role="alert">
+              {startSessionError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {pullRequestQuery.data ? <PullRequestActions projectId={projectId} number={number} /> : null}
 

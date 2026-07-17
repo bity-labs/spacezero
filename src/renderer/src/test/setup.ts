@@ -289,6 +289,31 @@ beforeEach(async () => {
         },
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
+      }),
+      startPullRequestSession: async (request) => ({
+        id: 'pull-request-session-1',
+        kind: 'project',
+        projectId: request.projectId,
+        title: `Pull Request #${request.number}: Pull Request`,
+        status: 'idle',
+        worktree: {
+          path: `/tmp/SpaceZero/worktrees/${request.projectId}/pull-request-session-1`,
+          branch: `spacezero/pull-request-${request.number}-pull-request-session-1`,
+          baseRevision: 'def456'
+        },
+        source: {
+          type: 'pull-request',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'example',
+          repositoryName: 'repository',
+          repositoryFullName: 'example/repository',
+          number: request.number,
+          url: `https://github.com/example/repository/pull/${request.number}`,
+          title: 'Pull Request'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
       })
     },
     projects: {
