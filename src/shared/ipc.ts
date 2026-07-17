@@ -17,7 +17,7 @@ import type {
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
-} from '../features/knowledge-base/shared'
+} from '../features/knowledge-base/shared/knowledge-base.contract'
 import type {
   CreateEmptyProjectRequest,
   Project,
