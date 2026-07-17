@@ -561,6 +561,106 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
   })
 
+  it('shows a persisted Issue source in the Session breadcrumb and reopens in-app detail', async () => {
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    window.spacezero.projects.list = async () => [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        githubRepository: {
+          repositoryId: '1000',
+          nodeId: 'R_1000',
+          owner: 'bity-labs',
+          name: 'spacezero',
+          fullName: 'bity-labs/spacezero',
+          htmlUrl: repository.htmlUrl,
+          linkedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.listProjectSessions = async () => [
+      {
+        id: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Issue #83: GitHub integration',
+        status: 'idle',
+        worktree: {
+          path: '/SpaceZero/worktrees/project-1/session-1',
+          branch: 'spacezero/issue-83-session-1',
+          baseRevision: 'abc123'
+        },
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 83,
+          url: 'https://github.com/bity-labs/spacezero/issues/83',
+          title: 'GitHub integration'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.example/42',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    window.spacezero.github.getIssue = async () => ({
+      number: 83,
+      title: 'GitHub integration',
+      body: 'Restored Issue detail',
+      state: 'open',
+      htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      labels: [],
+      assignees: [],
+      commentCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    })
+    window.spacezero.github.listIssueComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Issue #83: GitHub integration/ }))
+    expect(await screen.findByRole('button', { name: 'Issue #83' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Issue #83' }))
+
+    expect(await screen.findByText('Restored Issue detail')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start Session from Issue' })).toBeInTheDocument()
+  })
+
   it('replaces the active project session when another project session is selected', async () => {
     const projects = [
       {
@@ -946,7 +1046,8 @@ describe('App', () => {
   it('changes the Space Zero Home from General Settings', async () => {
     window.spacezero.settings.chooseSpaceZeroHome = async () => ({
       spaceZeroHome: '/tmp/AlternateSpaceZero',
-      projectsPath: '/tmp/AlternateSpaceZero/projects'
+      projectsPath: '/tmp/AlternateSpaceZero/projects',
+      worktreesPath: '/tmp/AlternateSpaceZero/worktrees'
     })
 
     render(<App />)

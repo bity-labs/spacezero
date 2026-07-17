@@ -31,6 +31,17 @@ export const sessions = sqliteTable('sessions', {
   thinkingLevel: text('thinking_level', {
     enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
   }),
+  worktreePath: text('worktree_path'),
+  worktreeBranch: text('worktree_branch'),
+  worktreeBaseRevision: text('worktree_base_revision'),
+  sourceType: text('source_type', { enum: ['issue', 'pull-request'] }),
+  sourceRepositoryId: text('source_repository_id'),
+  sourceRepositoryNodeId: text('source_repository_node_id'),
+  sourceRepositoryOwner: text('source_repository_owner'),
+  sourceRepositoryName: text('source_repository_name'),
+  sourceNumber: integer('source_number'),
+  sourceUrl: text('source_url'),
+  sourceTitle: text('source_title'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
 })
 

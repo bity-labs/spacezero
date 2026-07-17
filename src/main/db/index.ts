@@ -40,6 +40,17 @@ export function migrateDatabase(database: Database.Database): void {
       model_provider TEXT,
       model_id TEXT,
       thinking_level TEXT,
+      worktree_path TEXT,
+      worktree_branch TEXT,
+      worktree_base_revision TEXT,
+      source_type TEXT,
+      source_repository_id TEXT,
+      source_repository_node_id TEXT,
+      source_repository_owner TEXT,
+      source_repository_name TEXT,
+      source_number INTEGER,
+      source_url TEXT,
+      source_title TEXT,
       archived_at INTEGER
     );
 
@@ -88,8 +99,24 @@ export function migrateDatabase(database: Database.Database): void {
   if (!sessionColumns.some((column) => column.name === 'thinking_level')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN thinking_level TEXT`)
   }
-  if (!sessionColumns.some((column) => column.name === 'archived_at')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN archived_at INTEGER`)
+  const sessionMigrations = [
+    ['worktree_path', 'TEXT'],
+    ['worktree_branch', 'TEXT'],
+    ['worktree_base_revision', 'TEXT'],
+    ['source_type', 'TEXT'],
+    ['source_repository_id', 'TEXT'],
+    ['source_repository_node_id', 'TEXT'],
+    ['source_repository_owner', 'TEXT'],
+    ['source_repository_name', 'TEXT'],
+    ['source_number', 'INTEGER'],
+    ['source_url', 'TEXT'],
+    ['source_title', 'TEXT'],
+    ['archived_at', 'INTEGER']
+  ] as const
+  for (const [column, type] of sessionMigrations) {
+    if (!sessionColumns.some((existing) => existing.name === column)) {
+      database.exec(`ALTER TABLE sessions ADD COLUMN ${column} ${type}`)
+    }
   }
 }
 

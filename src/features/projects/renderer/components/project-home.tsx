@@ -9,6 +9,7 @@ import {
   useGitHubConnection,
   useProjectRepository
 } from '../../../github/renderer'
+import type { ProjectSession } from '../../../sessions/shared'
 import type { Project } from '../../shared'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -16,19 +17,38 @@ import { cn } from '@renderer/lib/utils'
 
 type ProjectHomeView = 'overview' | 'issues' | 'pull-requests'
 
+export type ProjectHomeGitHubTarget = {
+  type: 'issue' | 'pull-request'
+  number: number
+}
+
 export function ProjectHome({
   project,
   onProjectLinked,
-  onNewSession
+  onNewSession,
+  onSessionCreated,
+  initialGitHubTarget
 }: {
   project: Project
   onProjectLinked: (project: Project) => void
   onNewSession: () => void
+  onSessionCreated?: (session: ProjectSession) => void
+  initialGitHubTarget?: ProjectHomeGitHubTarget | null
 }): React.JSX.Element {
   const [displayProject, setDisplayProject] = useState(project)
-  const [view, setView] = useState<ProjectHomeView>('overview')
-  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null)
-  const [selectedPullRequestNumber, setSelectedPullRequestNumber] = useState<number | null>(null)
+  const [view, setView] = useState<ProjectHomeView>(
+    initialGitHubTarget?.type === 'issue'
+      ? 'issues'
+      : initialGitHubTarget?.type === 'pull-request'
+        ? 'pull-requests'
+        : 'overview'
+  )
+  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(
+    initialGitHubTarget?.type === 'issue' ? initialGitHubTarget.number : null
+  )
+  const [selectedPullRequestNumber, setSelectedPullRequestNumber] = useState<number | null>(
+    initialGitHubTarget?.type === 'pull-request' ? initialGitHubTarget.number : null
+  )
   const { connection, isLoading: connectionLoading } = useGitHubConnection()
   const [linkOptions, setLinkOptions] = useState<GitHubProjectLinkOptions | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
@@ -174,6 +194,7 @@ export function ProjectHome({
               key={selectedIssueNumber ?? 'issue-list'}
               project={displayProject}
               initialIssueNumber={selectedIssueNumber}
+              onSessionCreated={onSessionCreated}
             />
           </GitHubWorkflowGate>
         ) : (

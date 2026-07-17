@@ -6,7 +6,8 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
 import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
-import { createSessionsService } from '../../sessions/main/sessions.service'
+import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
+import { createSessionsService, type StoredSession } from '../../sessions/main/sessions.service'
 import { createEmptyProjectRequestSchema, updateProjectRequestSchema } from '../shared'
 import { createProjectPathAdapter } from './project-path.adapter'
 import { createProjectsRepository } from './projects.repository'
@@ -20,9 +21,8 @@ const projectsService = createProjectsService({
   linkKnowledgeBaseProject: (project) => getKnowledgeBaseProjectsService().linkProject(project)
 })
 
-const sessionsService = createSessionsService({
-  repository: createSessionsRepository()
-})
+const sessionsRepository = createSessionsRepository()
+const sessionsService = createSessionsService({ repository: sessionsRepository })
 
 export function registerProjectsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.projects.list, () => projectsService.listProjects())
@@ -42,20 +42,44 @@ export function registerProjectsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
     const sessions = await sessionsService.deleteProjectSessions(projectId)
-    await projectsService.deleteProject(projectId)
     await stopUtilitySessions(sessions.map((session) => session.id))
+    await removeManagedWorktrees(projectId, sessions)
+    await projectsService.deleteProject(projectId)
     await Promise.all(
       sessions.map((session) =>
-        session.transcriptPath ? rm(session.transcriptPath, { force: true }).catch(() => undefined) : undefined
+        session.transcriptPath
+          ? rm(session.transcriptPath, { force: true }).catch(() => undefined)
+          : undefined
       )
     )
   })
 }
 
+async function removeManagedWorktrees(projectId: string, sessions: StoredSession[]): Promise<void> {
+  const project = await sessionsRepository.findProjectById(projectId)
+  if (!project) return
+  await Promise.all(
+    sessions.map((session) => {
+      if (!session.worktreePath || !session.worktreeBranch || !session.worktreeBaseRevision) {
+        return undefined
+      }
+      return getManagedWorktreeService()
+        .remove(project.path, {
+          path: session.worktreePath,
+          branch: session.worktreeBranch,
+          baseRevision: session.worktreeBaseRevision
+        })
+        .catch(() => undefined)
+    })
+  )
+}
+
 async function stopUtilitySessions(sessionIds: string[]): Promise<void> {
   await Promise.all(
     sessionIds.map((sessionId) =>
-      getAgentUtilityProcessHost().deleteSession({ sessionId }).catch(() => undefined)
+      getAgentUtilityProcessHost()
+        .deleteSession({ sessionId })
+        .catch(() => undefined)
     )
   )
 }
