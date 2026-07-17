@@ -58,6 +58,11 @@ describe('ChatInput', () => {
     expect(screen.getByRole('option', { name: /\/skill:code-review/ })).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
 
+    fireEvent.change(input, { target: { value: '/skill:' } })
+
+    expect(screen.getByRole('option', { name: /\/skill:code-review/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
+
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     fireEvent.keyDown(input, { key: 'Enter' })
 
@@ -71,6 +76,139 @@ describe('ChatInput', () => {
       files: [],
       modelId: undefined
     })
+  })
+
+  it('shows every available skill for an empty command', () => {
+    const skills = Array.from({ length: 9 }, (_, index) => ({
+      name: `skill-${index + 1}`,
+      description: `Skill ${index + 1}.`,
+      scope: 'user' as const
+    }))
+    render(<ChatInput skills={skills} onSubmit={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: '/' }
+    })
+
+    expect(screen.getAllByRole('option')).toHaveLength(skills.length)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: '/skill:' }
+    })
+
+    expect(screen.getAllByRole('option')).toHaveLength(skills.length)
+  })
+
+  it('keeps the skill list open and filters shorthand slash queries', async () => {
+    render(
+      <ChatInput
+        skills={[
+          { name: 'format', description: 'Format source files.', scope: 'spacezero' },
+          { name: 'debug', description: 'Investigate behavior.', scope: 'project' }
+        ]}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    await userEvent.type(input, '/f')
+
+    expect(input).toHaveValue('/f')
+    expect(screen.getByRole('option', { name: /\/skill:format/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /\/skill:debug/ })).not.toBeInTheDocument()
+  })
+
+  it('filters skill suggestions on every keystroke, including case-insensitive names', async () => {
+    render(
+      <ChatInput
+        skills={[
+          { name: 'CodeReview', description: 'Review code changes.', scope: 'spacezero' },
+          { name: 'Debug', description: 'Investigate a failing behavior.', scope: 'project' }
+        ]}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    await userEvent.type(input, '/skill:')
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+
+    await userEvent.type(input, 'cod')
+
+    expect(input).toHaveValue('/skill:cod')
+    expect(screen.getByRole('option', { name: /\/skill:CodeReview/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /\/skill:Debug/ })).not.toBeInTheDocument()
+  })
+
+  it('matches skill descriptions and hides unrelated or unmatched queries', () => {
+    render(
+      <ChatInput
+        skills={[
+          { name: 'code-review', description: 'Review code changes.', scope: 'spacezero' },
+          { name: 'debug', description: 'Investigate a failing behavior.', scope: 'project' }
+        ]}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/skill:investigate' } })
+    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /\/skill:code-review/ })).not.toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: '/skill:not-a-skill' } })
+    expect(screen.queryByRole('listbox', { name: 'Available skills' })).not.toBeInTheDocument()
+
+    fireEvent.change(input, { target: { value: 'unrelated prompt' } })
+    expect(screen.queryByRole('listbox', { name: 'Available skills' })).not.toBeInTheDocument()
+  })
+
+  it('selects the filtered skill and submits the native Pi command', () => {
+    const handleSubmit = vi.fn()
+    render(
+      <ChatInput
+        skills={[
+          { name: 'code-review', description: 'Review code changes.', scope: 'spacezero' },
+          { name: 'debug', description: 'Investigate a failing behavior.', scope: 'project' }
+        ]}
+        onSubmit={handleSubmit}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/skill:deb' } })
+    fireEvent.keyDown(input, { key: 'Tab' })
+
+    expect(input).toHaveValue('/skill:debug')
+    expect(handleSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: '/skill:debug',
+      files: [],
+      modelId: undefined
+    })
+  })
+
+  it('updates filtering when the input event changes the command', () => {
+    render(
+      <ChatInput
+        skills={[
+          { name: 'alpha', description: 'First skill.', scope: 'user' },
+          { name: 'beta', description: 'Second skill.', scope: 'user' }
+        ]}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.input(input, { target: { value: '/' } })
+    expect(screen.getAllByRole('option')).toHaveLength(2)
+
+    fireEvent.input(input, { target: { value: '/skill:bet' } })
+    expect(screen.getByRole('option', { name: /\/skill:beta/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /\/skill:alpha/ })).not.toBeInTheDocument()
   })
 
   it('submits entered text with the submit button', () => {
