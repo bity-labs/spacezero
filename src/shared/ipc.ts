@@ -48,12 +48,14 @@ import type {
   GitHubProjectLinkOptions,
   GitHubProjectRequest,
   GitHubPullRequest,
+  GitHubPullRequestCommentCreateRequest,
   GitHubPullRequestCommentsRequest,
   GitHubPullRequestFile,
   GitHubPullRequestListRequest,
   GitHubPullRequestPageRequest,
   GitHubPullRequestRequest,
   GitHubPullRequestReview,
+  GitHubPullRequestReviewCreateRequest,
   GitHubPullRequestSummary,
   GitHubRepository,
   GitHubRepositorySetupOption,
@@ -115,7 +117,9 @@ export const IPC_CHANNELS = {
     listPullRequestFiles: 'github:listPullRequestFiles',
     listPullRequestCheckRuns: 'github:listPullRequestCheckRuns',
     listPullRequestCommitStatuses: 'github:listPullRequestCommitStatuses',
-    listPullRequestReviews: 'github:listPullRequestReviews'
+    listPullRequestReviews: 'github:listPullRequestReviews',
+    createPullRequestComment: 'github:createPullRequestComment',
+    createPullRequestReview: 'github:createPullRequestReview'
   },
   projects: {
     list: 'projects:list',
@@ -239,6 +243,12 @@ export type SpaceZeroAPI = {
     listPullRequestReviews: (
       request: GitHubPullRequestPageRequest
     ) => Promise<GitHubPage<GitHubPullRequestReview>>
+    createPullRequestComment: (
+      request: GitHubPullRequestCommentCreateRequest
+    ) => Promise<GitHubIssueComment>
+    createPullRequestReview: (
+      request: GitHubPullRequestReviewCreateRequest
+    ) => Promise<GitHubPullRequestReview>
   }
   projects: {
     list: () => Promise<Project[]>

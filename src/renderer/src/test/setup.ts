@@ -248,6 +248,22 @@ beforeEach(async () => {
         items: [],
         page: request.page,
         hasNextPage: false
+      }),
+      createPullRequestComment: async (request) => ({
+        id: 'comment-1',
+        body: request.body,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}#comment-1`,
+        author: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      createPullRequestReview: async (request) => ({
+        id: 'review-1',
+        state: request.event === 'APPROVE' ? 'approved' : 'changes_requested',
+        body: request.body ?? null,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}#review-1`,
+        author: null,
+        submittedAt: new Date(0).toISOString()
       })
     },
     projects: {

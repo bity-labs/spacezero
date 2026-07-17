@@ -59,6 +59,25 @@ export const githubPullRequestPageRequestSchema = githubPullRequestRequestSchema
   perPage: z.number().int().min(1).max(100).optional()
 })
 
+export const githubPullRequestCommentCreateRequestSchema = githubPullRequestRequestSchema.extend({
+  body: z.string().trim().min(1).max(65_536)
+})
+
+export const githubPullRequestReviewCreateRequestSchema = githubPullRequestRequestSchema
+  .extend({
+    event: z.enum(['APPROVE', 'REQUEST_CHANGES']),
+    body: z.string().trim().max(65_536).optional()
+  })
+  .superRefine((request, context) => {
+    if (request.event === 'REQUEST_CHANGES' && !request.body) {
+      context.addIssue({
+        code: 'custom',
+        path: ['body'],
+        message: 'A review body is required when requesting changes.'
+      })
+    }
+  })
+
 export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
 
 export const cancelGitHubCloneRequestSchema = z.object({

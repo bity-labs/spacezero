@@ -208,6 +208,15 @@ export type GitHubPullRequestReview = {
   submittedAt: string | null
 }
 
+export type GitHubPullRequestCommentCreateRequest = GitHubPullRequestRequest & {
+  body: string
+}
+
+export type GitHubPullRequestReviewCreateRequest = GitHubPullRequestRequest & {
+  event: 'APPROVE' | 'REQUEST_CHANGES'
+  body?: string
+}
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference

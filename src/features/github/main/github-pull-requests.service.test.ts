@@ -141,6 +141,26 @@ function createAdapter(): GitHubPullRequestsAdapter {
         page: 1,
         hasNextPage: false
       }
+    },
+    async createConversationComment(request) {
+      return {
+        id: 'comment-2',
+        body: request.body,
+        htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#issuecomment-501',
+        author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+        createdAt: '2026-07-18T04:00:00.000Z',
+        updatedAt: '2026-07-18T04:00:00.000Z'
+      }
+    },
+    async createReview(request) {
+      return {
+        id: 'review-2',
+        state: request.event === 'APPROVE' ? 'approved' : 'changes_requested',
+        body: request.body ?? null,
+        htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#review-2',
+        author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+        submittedAt: '2026-07-18T04:00:00.000Z'
+      }
     }
   }
 }
@@ -215,6 +235,79 @@ describe('GitHub Pull Requests service', () => {
         perPage: 30
       })
     ])
+  })
+
+  it('creates a conversation comment and submits GitHub-valid reviews', async () => {
+    const adapter = createAdapter()
+    const commentRequests: unknown[] = []
+    const reviewRequests: unknown[] = []
+    const createComment = adapter.createConversationComment
+    const createReview = adapter.createReview
+    adapter.createConversationComment = async (request) => {
+      commentRequests.push(request)
+      return createComment(request)
+    }
+    adapter.createReview = async (request) => {
+      reviewRequests.push(request)
+      return createReview(request)
+    }
+    const service = createGitHubPullRequestsService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.createConversationComment({
+        projectId: 'project-1',
+        number: 79,
+        body: '  Conversation note  '
+      })
+    ).resolves.toMatchObject({ body: 'Conversation note' })
+    await expect(
+      service.createReview({
+        projectId: 'project-1',
+        number: 79,
+        event: 'REQUEST_CHANGES',
+        body: '  Please add a test.  '
+      })
+    ).resolves.toMatchObject({ state: 'changes_requested', body: 'Please add a test.' })
+    expect(commentRequests).toEqual([
+      expect.objectContaining({ accessToken: 'access-secret', body: 'Conversation note' })
+    ])
+    expect(reviewRequests).toEqual([
+      expect.objectContaining({
+        accessToken: 'access-secret',
+        event: 'REQUEST_CHANGES',
+        body: 'Please add a test.'
+      })
+    ])
+  })
+
+  it('rejects empty comments and invalid review input before resolving credentials', async () => {
+    let credentialReads = 0
+    const service = createGitHubPullRequestsService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: {
+        getAuthorizedCredential: async () => {
+          credentialReads += 1
+          return { accessToken: 'access-secret' } as never
+        }
+      },
+      adapter: createAdapter()
+    })
+
+    await expect(
+      service.createConversationComment({ projectId: 'project-1', number: 79, body: '  ' })
+    ).rejects.toThrow('github.invalidComment')
+    await expect(
+      service.createReview({
+        projectId: 'project-1',
+        number: 79,
+        event: 'REQUEST_CHANGES'
+      })
+    ).rejects.toThrow('github.invalidReview')
+    expect(credentialReads).toBe(0)
   })
 
   it('returns core Pull Request detail and paginated conversation comments', async () => {
