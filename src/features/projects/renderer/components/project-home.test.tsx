@@ -260,6 +260,131 @@ describe('ProjectHome', () => {
     expect(requestedPages).toContain(2)
   })
 
+  it('validates comments and shows confirmed Issue mutations without optimistic success', async () => {
+    const linkedProject: Project = {
+      ...project,
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: '2026-07-18T01:00:00.000Z'
+      }
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    let issueState: 'open' | 'closed' = 'open'
+    let listReads = 0
+    let commentMutationCalls = 0
+    let completeComment: (() => void) | undefined
+    let rejectStateMutation = false
+    const comments: string[] = []
+    const issue = () => ({
+      number: 83,
+      title: 'GitHub integration',
+      body: 'Issue body',
+      state: issueState,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      labels: [],
+      assignees: [],
+      commentCount: comments.length,
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    })
+    window.spacezero.github.listIssues = async ({ page }) => {
+      listReads += 1
+      return { items: [issue()], page, hasNextPage: false }
+    }
+    window.spacezero.github.getIssue = async () => issue()
+    window.spacezero.github.listIssueComments = async ({ page }) => ({
+      items: comments.map((body, index) => ({
+        id: String(index + 1),
+        body,
+        htmlUrl: `https://github.com/bity-labs/spacezero/issues/83#comment-${index + 1}`,
+        author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+        createdAt: '2026-07-18T02:00:00.000Z',
+        updatedAt: '2026-07-18T02:00:00.000Z'
+      })),
+      page,
+      hasNextPage: false
+    })
+    window.spacezero.github.createIssueComment = async (request) => {
+      commentMutationCalls += 1
+      return new Promise((resolve) => {
+        completeComment = () => {
+          comments.push(request.body)
+          resolve({
+            id: '1',
+            body: request.body,
+            htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83#comment-1',
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            createdAt: '2026-07-18T02:00:00.000Z',
+            updatedAt: '2026-07-18T02:00:00.000Z'
+          })
+        }
+      })
+    }
+    window.spacezero.github.updateIssueState = async (request) => {
+      if (rejectStateMutation) throw new Error('github.permissionDenied')
+      issueState = request.state
+      return issue()
+    }
+
+    renderProjectHome(
+      <ProjectHome
+        project={linkedProject}
+        onProjectLinked={() => undefined}
+        onNewSession={() => undefined}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Issues' }))
+    fireEvent.click(await screen.findByRole('button', { name: /GitHub integration/ }))
+    await screen.findByRole('button', { name: 'Close Issue' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment' }))
+    expect(screen.getByText('Enter a comment before submitting.')).toBeInTheDocument()
+    expect(commentMutationCalls).toBe(0)
+
+    fireEvent.change(screen.getByLabelText('Add a comment'), {
+      target: { value: 'A new comment' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comment' }))
+    expect(screen.getByRole('button', { name: 'Adding comment…' })).toBeDisabled()
+    expect(screen.queryByText('Comment added.')).not.toBeInTheDocument()
+    await waitFor(() => expect(completeComment).toBeDefined())
+    completeComment?.()
+    expect(await screen.findByText('Comment added.')).toBeInTheDocument()
+    expect(await screen.findByText('A new comment')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close Issue' }))
+    expect(await screen.findByText('Issue closed.')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Reopen Issue' })).toBeInTheDocument()
+
+    rejectStateMutation = true
+    fireEvent.click(screen.getByRole('button', { name: 'Reopen Issue' }))
+    expect(
+      await screen.findByText('GitHub denied this change. Check your repository permissions.')
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reopen Issue' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Issues' }))
+    await waitFor(() => expect(listReads).toBeGreaterThan(1))
+  })
+
   it('shows revoked repository access as stale rather than false success', async () => {
     const linkedProject: Project = {
       ...project,

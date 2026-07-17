@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowClockwise } from '@phosphor-icons/react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { Badge } from '../../../../renderer/src/components/ui/badge'
@@ -61,7 +62,7 @@ function IssueList({
       {query.isPending ? <LoadingState label="Loading Issues…" /> : null}
       {query.isError ? (
         <ErrorState
-          message="Could not load Issues. Check repository access and try again."
+          message={githubReadErrorMessage(query.error, 'Issues')}
           onRetry={query.refetch}
         />
       ) : null}
@@ -134,8 +135,49 @@ function IssueDetail({
   onBack: () => void
 }): React.JSX.Element {
   const [commentsPage, setCommentsPage] = useState(1)
+  const [commentBody, setCommentBody] = useState('')
+  const [commentValidationError, setCommentValidationError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   const issueQuery = useProjectIssue(projectId, number)
   const commentsQuery = useProjectIssueComments(projectId, number, commentsPage)
+  const commentMutation = useMutation({
+    mutationFn: (body: string) =>
+      window.spacezero.github.createIssueComment({ projectId, number, body }),
+    onSuccess: async () => {
+      setCommentBody('')
+      setSuccessMessage('Comment added.')
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ['github', 'issue-comments', projectId, number]
+        }),
+        queryClient.invalidateQueries({ queryKey: ['github', 'issue', projectId, number] }),
+        queryClient.invalidateQueries({ queryKey: ['github', 'issues', projectId] })
+      ])
+    }
+  })
+  const stateMutation = useMutation({
+    mutationFn: (state: GitHubIssue['state']) =>
+      window.spacezero.github.updateIssueState({ projectId, number, state }),
+    onSuccess: async (issue) => {
+      setSuccessMessage(issue.state === 'closed' ? 'Issue closed.' : 'Issue reopened.')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['github', 'issue', projectId, number] }),
+        queryClient.invalidateQueries({ queryKey: ['github', 'issues', projectId] })
+      ])
+    }
+  })
+  const submitComment = (): void => {
+    const body = commentBody.trim()
+    setSuccessMessage(null)
+    commentMutation.reset()
+    if (!body) {
+      setCommentValidationError('Enter a comment before submitting.')
+      return
+    }
+    setCommentValidationError(null)
+    commentMutation.mutate(body)
+  }
   const refresh = (): void => {
     void issueQuery.refetch()
     void commentsQuery.refetch()
@@ -156,17 +198,87 @@ function IssueDetail({
 
       {issueQuery.isPending ? <LoadingState label="Loading Issue…" /> : null}
       {issueQuery.isError ? (
-        <ErrorState message="Could not load this Issue. Try again." onRetry={issueQuery.refetch} />
+        <ErrorState
+          message={githubReadErrorMessage(issueQuery.error, 'Issue')}
+          onRetry={issueQuery.refetch}
+        />
       ) : null}
-      {issueQuery.data ? <IssueContent issue={issueQuery.data} /> : null}
+      {issueQuery.data ? (
+        <>
+          <IssueContent issue={issueQuery.data} />
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              disabled={stateMutation.isPending}
+              onClick={() => {
+                setSuccessMessage(null)
+                stateMutation.reset()
+                stateMutation.mutate(issueQuery.data.state === 'open' ? 'closed' : 'open')
+              }}
+            >
+              {stateMutation.isPending
+                ? 'Updating Issue…'
+                : issueQuery.data.state === 'open'
+                  ? 'Close Issue'
+                  : 'Reopen Issue'}
+            </Button>
+            {successMessage ? (
+              <p className="text-sm text-muted-foreground" role="status">
+                {successMessage}
+              </p>
+            ) : null}
+            {stateMutation.isError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {githubMutationErrorMessage(stateMutation.error)}
+              </p>
+            ) : null}
+          </div>
+        </>
+      ) : null}
 
       {issueQuery.data ? (
         <section className="space-y-3" aria-label="Issue comments">
           <h3 className="font-semibold">Comments</h3>
+          <form
+            className="space-y-2 rounded-lg border p-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              submitComment()
+            }}
+          >
+            <label className="text-sm font-medium" htmlFor={`issue-${number}-comment`}>
+              Add a comment
+            </label>
+            <textarea
+              id={`issue-${number}-comment`}
+              className="min-h-24 w-full resize-y rounded-md border bg-background p-3 text-sm"
+              value={commentBody}
+              maxLength={65_536}
+              disabled={commentMutation.isPending}
+              onChange={(event) => {
+                setCommentBody(event.target.value)
+                setCommentValidationError(null)
+                setSuccessMessage(null)
+              }}
+            />
+            {commentValidationError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {commentValidationError}
+              </p>
+            ) : null}
+            {commentMutation.isError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {githubMutationErrorMessage(commentMutation.error)}
+              </p>
+            ) : null}
+            <Button type="submit" disabled={commentMutation.isPending}>
+              {commentMutation.isPending ? 'Adding comment…' : 'Add comment'}
+            </Button>
+          </form>
           {commentsQuery.isPending ? <LoadingState label="Loading comments…" /> : null}
           {commentsQuery.isError ? (
             <ErrorState
-              message="Could not load comments. Try again."
+              message={githubReadErrorMessage(commentsQuery.error, 'comments')}
               onRetry={commentsQuery.refetch}
             />
           ) : null}
@@ -286,6 +398,48 @@ function ErrorState({
       </Button>
     </div>
   )
+}
+
+function githubReadErrorMessage(error: unknown, subject: string): string {
+  const message = String(error)
+  if (message.includes('github.rateLimited')) {
+    return `GitHub's rate limit was reached while loading ${subject}. Try again later.`
+  }
+  if (message.includes('github.repositoryAccessRevoked')) {
+    return `Repository access was revoked. Restore GitHub App access before loading ${subject}.`
+  }
+  if (message.includes('github.reconnect-required')) {
+    return `GitHub authorization is stale. Reconnect before loading ${subject}.`
+  }
+  if (message.includes('github.notFound') || message.includes('github.issueNotFound')) {
+    return `The requested ${subject} could not be found.`
+  }
+  if (message.includes('github.permissionDenied')) {
+    return `GitHub denied access to ${subject}. Check repository permissions.`
+  }
+  return `Could not load ${subject} because of a network or GitHub error. Try again.`
+}
+
+function githubMutationErrorMessage(error: unknown): string {
+  const message = String(error)
+  if (message.includes('github.rateLimited'))
+    return "GitHub's rate limit was reached. Try again later."
+  if (message.includes('github.permissionDenied')) {
+    return 'GitHub denied this change. Check your repository permissions.'
+  }
+  if (message.includes('github.validationFailed')) {
+    return 'GitHub rejected this change as invalid.'
+  }
+  if (message.includes('github.conflict')) {
+    return 'The Issue changed on GitHub. Refresh it before trying again.'
+  }
+  if (
+    message.includes('github.reconnect-required') ||
+    message.includes('github.repositoryAccessRevoked')
+  ) {
+    return 'GitHub authorization is stale or revoked. Reconnect and try again.'
+  }
+  return 'GitHub did not confirm the change. Check your network and try again.'
 }
 
 function formatDate(value: string): string {

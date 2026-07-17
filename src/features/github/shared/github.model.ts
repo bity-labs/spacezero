@@ -115,6 +115,14 @@ export type GitHubIssueCommentsRequest = GitHubIssueRequest & {
   perPage?: number
 }
 
+export type GitHubIssueCommentCreateRequest = GitHubIssueRequest & {
+  body: string
+}
+
+export type GitHubIssueStateUpdateRequest = GitHubIssueRequest & {
+  state: 'open' | 'closed'
+}
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference

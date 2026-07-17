@@ -37,9 +37,11 @@ import type {
   GitHubFlowRequest,
   GitHubIssue,
   GitHubIssueComment,
+  GitHubIssueCommentCreateRequest,
   GitHubIssueCommentsRequest,
   GitHubIssueListRequest,
   GitHubIssueRequest,
+  GitHubIssueStateUpdateRequest,
   GitHubPage,
   GitHubProjectLinkOptions,
   GitHubProjectRequest,
@@ -94,7 +96,9 @@ export const IPC_CHANNELS = {
     cloneProgress: 'github:cloneProgress',
     listIssues: 'github:listIssues',
     getIssue: 'github:getIssue',
-    listIssueComments: 'github:listIssueComments'
+    listIssueComments: 'github:listIssueComments',
+    createIssueComment: 'github:createIssueComment',
+    updateIssueState: 'github:updateIssueState'
   },
   projects: {
     list: 'projects:list',
@@ -197,6 +201,8 @@ export type SpaceZeroAPI = {
     listIssueComments: (
       request: GitHubIssueCommentsRequest
     ) => Promise<GitHubPage<GitHubIssueComment>>
+    createIssueComment: (request: GitHubIssueCommentCreateRequest) => Promise<GitHubIssueComment>
+    updateIssueState: (request: GitHubIssueStateUpdateRequest) => Promise<GitHubIssue>
   }
   projects: {
     list: () => Promise<Project[]>

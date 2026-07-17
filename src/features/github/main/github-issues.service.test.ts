@@ -85,6 +85,19 @@ function createAdapter(): GitHubIssuesAdapter {
         page: 1,
         hasNextPage: false
       }
+    },
+    async createIssueComment(request) {
+      return {
+        id: '501',
+        body: request.body,
+        htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83#issuecomment-501',
+        author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+        createdAt: '2026-07-18T03:00:00.000Z',
+        updatedAt: '2026-07-18T03:00:00.000Z'
+      }
+    },
+    async updateIssueState(request) {
+      return { ...(await createAdapter().getIssue(request)), state: request.state }
     }
   }
 }
@@ -142,6 +155,59 @@ describe('GitHub Issues service', () => {
       page: 1,
       hasNextPage: false
     })
+  })
+
+  it('comments and changes Issue state only after the adapter confirms each mutation', async () => {
+    const adapter = createAdapter()
+    const commentRequests: unknown[] = []
+    const stateRequests: unknown[] = []
+    const createComment = adapter.createIssueComment
+    const updateState = adapter.updateIssueState
+    adapter.createIssueComment = async (request) => {
+      commentRequests.push(request)
+      return createComment(request)
+    }
+    adapter.updateIssueState = async (request) => {
+      stateRequests.push(request)
+      return updateState(request)
+    }
+    const service = createGitHubIssuesService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.createIssueComment({ projectId: 'project-1', number: 83, body: '  A comment  ' })
+    ).resolves.toMatchObject({ body: 'A comment' })
+    await expect(
+      service.updateIssueState({ projectId: 'project-1', number: 83, state: 'closed' })
+    ).resolves.toMatchObject({ state: 'closed' })
+    expect(commentRequests).toEqual([
+      expect.objectContaining({ accessToken: 'access-secret', number: 83, body: 'A comment' })
+    ])
+    expect(stateRequests).toEqual([
+      expect.objectContaining({ accessToken: 'access-secret', number: 83, state: 'closed' })
+    ])
+  })
+
+  it('rejects an empty comment before resolving credentials or calling GitHub', async () => {
+    let credentialReads = 0
+    const service = createGitHubIssuesService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: {
+        getAuthorizedCredential: async () => {
+          credentialReads += 1
+          return { accessToken: 'access-secret' } as never
+        }
+      },
+      adapter: createAdapter()
+    })
+
+    await expect(
+      service.createIssueComment({ projectId: 'project-1', number: 83, body: '   ' })
+    ).rejects.toThrow('github.invalidComment')
+    expect(credentialReads).toBe(0)
   })
 
   it('rejects a Pull Request number opened through the Issue detail API', async () => {

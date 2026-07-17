@@ -4,9 +4,11 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   cancelGitHubCloneRequestSchema,
   githubFlowRequestSchema,
+  githubIssueCommentCreateRequestSchema,
   githubIssueCommentsRequestSchema,
   githubIssueListRequestSchema,
   githubIssueRequestSchema,
+  githubIssueStateUpdateRequestSchema,
   githubProjectRequestSchema,
   linkGitHubProjectRequestSchema,
   startGitHubCloneRequestSchema
@@ -81,5 +83,11 @@ export function registerGitHubIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.github.listIssueComments, (_event, input: unknown) =>
     getGitHubIssuesService().listIssueComments(githubIssueCommentsRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.createIssueComment, (_event, input: unknown) =>
+    getGitHubIssuesService().createIssueComment(githubIssueCommentCreateRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.updateIssueState, (_event, input: unknown) =>
+    getGitHubIssuesService().updateIssueState(githubIssueStateUpdateRequestSchema.parse(input))
   )
 }
