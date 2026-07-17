@@ -162,6 +162,104 @@ describe('ProjectHome', () => {
     focusManager.setFocused(undefined)
   })
 
+  it('lists paginated Issues and opens Issue detail with comments', async () => {
+    const linkedProject: Project = {
+      ...project,
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: '2026-07-18T01:00:00.000Z'
+      }
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    const requestedPages: number[] = []
+    window.spacezero.github.listIssues = async ({ page }) => {
+      requestedPages.push(page)
+      return {
+        page,
+        hasNextPage: page === 1,
+        items: [
+          {
+            number: page === 1 ? 83 : 84,
+            title: page === 1 ? 'GitHub integration' : 'Follow-up Issue',
+            body: 'Issue body',
+            state: 'open',
+            htmlUrl: `https://github.com/bity-labs/spacezero/issues/${page === 1 ? 83 : 84}`,
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            labels: [{ id: '1', name: 'enhancement', color: '0e8a16' }],
+            assignees: [],
+            commentCount: 1,
+            createdAt: '2026-07-18T00:00:00.000Z',
+            updatedAt: '2026-07-18T01:00:00.000Z'
+          }
+        ]
+      }
+    }
+    window.spacezero.github.getIssue = async ({ number }) => ({
+      number,
+      title: 'GitHub integration',
+      body: 'Detailed Issue body',
+      state: 'open',
+      htmlUrl: `https://github.com/bity-labs/spacezero/issues/${number}`,
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      labels: [{ id: '1', name: 'enhancement', color: '0e8a16' }],
+      assignees: [{ id: '84', login: 'maintainer', avatarUrl: 'https://avatars.example/84' }],
+      commentCount: 1,
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    })
+    window.spacezero.github.listIssueComments = async ({ page }) => ({
+      page,
+      hasNextPage: false,
+      items: [
+        {
+          id: '500',
+          body: 'Looks good',
+          htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83#issuecomment-500',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          createdAt: '2026-07-18T02:00:00.000Z',
+          updatedAt: '2026-07-18T02:00:00.000Z'
+        }
+      ]
+    })
+
+    renderProjectHome(
+      <ProjectHome
+        project={linkedProject}
+        onProjectLinked={() => undefined}
+        onNewSession={() => undefined}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Issues' }))
+    fireEvent.click(await screen.findByRole('button', { name: /GitHub integration/ }))
+    expect(await screen.findByText('Detailed Issue body')).toBeInTheDocument()
+    expect(screen.getByText(/Assignees: maintainer/)).toBeInTheDocument()
+    expect(await screen.findByText('Looks good')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Issues' }))
+    const nextPage = await screen.findByRole('button', { name: 'Next' })
+    await waitFor(() => expect(nextPage).toBeEnabled())
+    fireEvent.click(nextPage)
+    expect(await screen.findByText('Follow-up Issue')).toBeInTheDocument()
+    expect(requestedPages).toContain(2)
+  })
+
   it('shows revoked repository access as stale rather than false success', async () => {
     const linkedProject: Project = {
       ...project,

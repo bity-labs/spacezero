@@ -13,6 +13,8 @@ import { loadGitHubAppConfig } from './github-config'
 import { createProtectedGitHubCredentialStore } from './github-credential-store'
 import { createGitHubRemoteAdapter } from './github-git.adapter'
 import { createGitHubInstallationsAdapter } from './github-installations.adapter'
+import { createGitHubIssuesAdapter } from './github-issues.adapter'
+import { createGitHubIssuesService } from './github-issues.service'
 import { createGitHubProjectsService } from './github-projects.service'
 import { createGitHubRepositorySetupService } from './github-repository-setup.service'
 
@@ -20,6 +22,7 @@ let authService: GitHubAuthService | undefined
 let connectionService: ReturnType<typeof createGitHubConnectionService> | undefined
 let projectsService: ReturnType<typeof createGitHubProjectsService> | undefined
 let repositorySetupService: ReturnType<typeof createGitHubRepositorySetupService> | undefined
+let issuesService: ReturnType<typeof createGitHubIssuesService> | undefined
 
 export function getGitHubAuthService(): GitHubAuthService {
   if (authService) return authService
@@ -64,6 +67,16 @@ export function getGitHubProjectsService(): ReturnType<typeof createGitHubProjec
     git: createGitHubRemoteAdapter()
   })
   return projectsService
+}
+
+export function getGitHubIssuesService(): ReturnType<typeof createGitHubIssuesService> {
+  if (issuesService) return issuesService
+  issuesService = createGitHubIssuesService({
+    projects: getGitHubProjectsService(),
+    auth: getGitHubAuthService(),
+    adapter: createGitHubIssuesAdapter()
+  })
+  return issuesService
 }
 
 export function getGitHubRepositorySetupService(): ReturnType<

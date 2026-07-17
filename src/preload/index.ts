@@ -68,7 +68,11 @@ const api: SpaceZeroAPI = {
       }
       ipcRenderer.on(IPC_CHANNELS.github.cloneProgress, handler)
       return () => ipcRenderer.off(IPC_CHANNELS.github.cloneProgress, handler)
-    }
+    },
+    listIssues: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.listIssues, request),
+    getIssue: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.getIssue, request),
+    listIssueComments: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listIssueComments, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

@@ -4,6 +4,9 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   cancelGitHubCloneRequestSchema,
   githubFlowRequestSchema,
+  githubIssueCommentsRequestSchema,
+  githubIssueListRequestSchema,
+  githubIssueRequestSchema,
   githubProjectRequestSchema,
   linkGitHubProjectRequestSchema,
   startGitHubCloneRequestSchema
@@ -11,6 +14,7 @@ import {
 import {
   getGitHubAuthService,
   getGitHubConnectionService,
+  getGitHubIssuesService,
   getGitHubProjectsService,
   getGitHubRepositorySetupService
 } from './github-runtime'
@@ -68,5 +72,14 @@ export function registerGitHubIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.github.cancelClone, (_event, input: unknown) =>
     getGitHubRepositorySetupService().cancelClone(cancelGitHubCloneRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listIssues, (_event, input: unknown) =>
+    getGitHubIssuesService().listIssues(githubIssueListRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.getIssue, (_event, input: unknown) =>
+    getGitHubIssuesService().getIssue(githubIssueRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listIssueComments, (_event, input: unknown) =>
+    getGitHubIssuesService().listIssueComments(githubIssueCommentsRequestSchema.parse(input))
   )
 }

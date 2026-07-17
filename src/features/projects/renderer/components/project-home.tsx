@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@phosphor-icons/react'
 
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
-import { useGitHubConnection, useProjectRepository } from '../../../github/renderer'
+import { IssuesView, useGitHubConnection, useProjectRepository } from '../../../github/renderer'
 import type { Project } from '../../shared'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -121,9 +121,11 @@ export function ProjectHome({
             onSelectRepository={setSelectedRepositoryId}
             onLinkRepository={() => void linkRepository()}
           />
+        ) : view === 'issues' ? (
+          <IssuesView project={displayProject} />
         ) : (
           <ProjectSectionPlaceholder
-            title={view === 'issues' ? 'Issues' : 'Pull Requests'}
+            title="Pull Requests"
             project={displayProject}
             connected={connection?.status === 'connected'}
           />

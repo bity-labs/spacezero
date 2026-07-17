@@ -15,6 +15,23 @@ export const linkGitHubProjectRequestSchema = githubProjectRequestSchema.extend(
   confirmAmbiguous: z.boolean().optional()
 })
 
+const githubNumberSchema = z.number().int().positive().max(2_147_483_647)
+const githubPageSchema = z.number().int().positive().max(10_000)
+
+export const githubIssueListRequestSchema = githubProjectRequestSchema.extend({
+  page: githubPageSchema,
+  perPage: z.number().int().min(1).max(100).optional()
+})
+
+export const githubIssueRequestSchema = githubProjectRequestSchema.extend({
+  number: githubNumberSchema
+})
+
+export const githubIssueCommentsRequestSchema = githubIssueRequestSchema.extend({
+  page: githubPageSchema,
+  perPage: z.number().int().min(1).max(100).optional()
+})
+
 export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
 
 export const cancelGitHubCloneRequestSchema = z.object({
