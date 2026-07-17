@@ -39,6 +39,7 @@ import type { CreatedPiAgentSession } from './agent-session-registry'
 
 const FAUX_PROVIDER_ID = 'faux'
 const FAUX_MODEL_ID = 'faux-1'
+const PI_SKILL_BLOCK_PREFIX = '<skill name="'
 const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls']
 
 export type PiAgentSessionFactoryOptions = {
@@ -570,7 +571,7 @@ function toUserContent(content: unknown): string | AgentUserContent[] {
 
 function toDisplayUserText(text: string): string {
   const expandedSkill = parseSkillBlock(text)
-  if (!expandedSkill) return text
+  if (!expandedSkill) return text.startsWith(PI_SKILL_BLOCK_PREFIX) ? '/skill' : text
 
   const safeUserMessage = expandedSkill.userMessage?.includes('</skill>')
     ? undefined
