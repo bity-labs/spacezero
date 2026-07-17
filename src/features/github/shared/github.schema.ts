@@ -32,6 +32,14 @@ export const githubIssueCommentsRequestSchema = githubIssueRequestSchema.extend(
   perPage: z.number().int().min(1).max(100).optional()
 })
 
+export const githubIssueCommentCreateRequestSchema = githubIssueRequestSchema.extend({
+  body: z.string().trim().min(1).max(65_536)
+})
+
+export const githubIssueStateUpdateRequestSchema = githubIssueRequestSchema.extend({
+  state: z.enum(['open', 'closed'])
+})
+
 export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
 
 export const cancelGitHubCloneRequestSchema = z.object({

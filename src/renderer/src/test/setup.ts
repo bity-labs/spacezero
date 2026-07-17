@@ -182,6 +182,27 @@ beforeEach(async () => {
         items: [],
         page: request.page,
         hasNextPage: false
+      }),
+      createIssueComment: async (request) => ({
+        id: 'comment-1',
+        body: request.body,
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}#comment-1`,
+        author: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      updateIssueState: async (request) => ({
+        number: request.number,
+        title: 'Issue',
+        body: null,
+        state: request.state,
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}`,
+        author: null,
+        labels: [],
+        assignees: [],
+        commentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
       })
     },
     projects: {

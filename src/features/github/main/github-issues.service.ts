@@ -1,9 +1,11 @@
 import type {
   GitHubIssue,
   GitHubIssueComment,
+  GitHubIssueCommentCreateRequest,
   GitHubIssueCommentsRequest,
   GitHubIssueListRequest,
   GitHubIssueRequest,
+  GitHubIssueStateUpdateRequest,
   GitHubPage,
   GitHubRepository
 } from '../shared'
@@ -33,6 +35,20 @@ export type GitHubIssuesAdapter = {
     page: number
     perPage: number
   }) => Promise<GitHubPage<GitHubIssueComment>>
+  createIssueComment: (request: {
+    accessToken: string
+    owner: string
+    repository: string
+    number: number
+    body: string
+  }) => Promise<GitHubIssueComment>
+  updateIssueState: (request: {
+    accessToken: string
+    owner: string
+    repository: string
+    number: number
+    state: 'open' | 'closed'
+  }) => Promise<GitHubIssueApiItem>
 }
 
 export function createGitHubIssuesService({
@@ -98,7 +114,35 @@ export function createGitHubIssuesService({
     })
   }
 
-  return { listIssues, getIssue, listIssueComments }
+  async function createIssueComment(
+    request: GitHubIssueCommentCreateRequest
+  ): Promise<GitHubIssueComment> {
+    const body = request.body.trim()
+    if (!body || body.length > 65_536) throw new Error('github.invalidComment')
+    const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    return adapter.createIssueComment({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number,
+      body
+    })
+  }
+
+  async function updateIssueState(request: GitHubIssueStateUpdateRequest): Promise<GitHubIssue> {
+    const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    const issue = await adapter.updateIssueState({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number,
+      state: request.state
+    })
+    if (issue.isPullRequest) throw new Error('github.issueNotFound')
+    return toIssue(issue)
+  }
+
+  return { listIssues, getIssue, listIssueComments, createIssueComment, updateIssueState }
 }
 
 function toIssue(issue: GitHubIssueApiItem): GitHubIssue {
