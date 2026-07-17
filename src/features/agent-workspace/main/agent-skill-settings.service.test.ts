@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   applyGlobalSkillSettings,
+  createGlobalSkillPreferenceMutator,
   parseDisabledGlobalSkillPaths,
   updateDisabledGlobalSkillPaths
 } from './agent-skill-settings.service'
@@ -50,5 +51,29 @@ describe('global agent skill settings', () => {
         true
       )
     ).toEqual(['/skills/debug/SKILL.md'])
+  })
+
+  it('serializes concurrent preference writes without dropping either toggle', async () => {
+    let disabledPaths: string[] = []
+    const mutatePreference = createGlobalSkillPreferenceMutator({
+      readDisabledPaths: async () => {
+        await Promise.resolve()
+        return [...disabledPaths]
+      },
+      writeDisabledPaths: async (nextPaths) => {
+        await Promise.resolve()
+        disabledPaths = [...nextPaths]
+      }
+    })
+
+    await Promise.all([
+      mutatePreference('/skills/code-review/SKILL.md', false),
+      mutatePreference('/skills/debug/SKILL.md', false)
+    ])
+
+    expect(disabledPaths).toEqual([
+      '/skills/code-review/SKILL.md',
+      '/skills/debug/SKILL.md'
+    ])
   })
 })

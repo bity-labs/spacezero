@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
@@ -630,6 +631,66 @@ describe('App', () => {
     expect(toggleRequests).toEqual([
       { path: '/Users/tiby/.agents/skills/code-review/SKILL.md', enabled: false }
     ])
+  })
+
+  it('blocks overlapping global Agent Skill toggles while an update is pending', async () => {
+    const globalSkills: AgentGlobalSkill[] = [
+      {
+        name: 'code-review',
+        description: 'Review code changes.',
+        scope: 'user',
+        path: '/skills/code-review/SKILL.md',
+        enabled: true
+      },
+      {
+        name: 'debug',
+        description: 'Debug behavior.',
+        scope: 'spacezero',
+        path: '/skills/debug/SKILL.md',
+        enabled: true
+      }
+    ]
+    let resolveToggle: ((skills: AgentGlobalSkill[]) => void) | undefined
+    window.spacezero.agent.getGlobalSkills = async () => globalSkills
+    window.spacezero.agent.setGlobalSkillEnabled = vi.fn(
+      () =>
+        new Promise<AgentGlobalSkill[]>((resolve) => {
+          resolveToggle = resolve
+        })
+    )
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'skills' } })
+    })
+    render(<App />)
+
+    const reviewSwitch = await screen.findByRole('switch', { name: 'Disable code-review' })
+    const debugSwitch = screen.getByRole('switch', { name: 'Disable debug' })
+    fireEvent.click(reviewSwitch)
+
+    await waitFor(() => {
+      expect(reviewSwitch).toHaveAttribute('aria-disabled', 'true')
+      expect(debugSwitch).toHaveAttribute('aria-disabled', 'true')
+    })
+    fireEvent.click(debugSwitch)
+    expect(window.spacezero.agent.setGlobalSkillEnabled).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveToggle?.([
+        { ...globalSkills[0], enabled: false },
+        globalSkills[1]
+      ])
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByRole('switch', { name: 'Enable code-review' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
+    expect(screen.getByRole('switch', { name: 'Disable debug' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
   })
 
   it('connects and disconnects a subscription through the Models Settings broker', async () => {
