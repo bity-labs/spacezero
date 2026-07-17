@@ -30,6 +30,8 @@ Zustand stores may use the `persist` middleware with `localStorage` for UI layou
 
 Do not use Zustand as the source of truth for product/domain state owned by main process services, SQLite, utility processes, or external systems. Renderer stores may hold UI projections or selections that reference main-owned entities by ID, but the authoritative data must still come through typed preload/IPC APIs.
 
+External server state such as current GitHub repository, Issue, and Pull Request responses uses a runtime-only TanStack Query cache. That cache deduplicates requests and represents loading/error/freshness; it is neither a Zustand UI store nor authoritative persistence. It is not persisted to localStorage or SQLite and is discarded when the app closes.
+
 ## Rationale
 
 Zustand provides a small React-friendly store with minimal ceremony and built-in persistence middleware. It is a good fit for the renderer remembering how the builder arranged the interface.
@@ -48,6 +50,7 @@ The project should avoid scattered direct `localStorage` calls. Persisted render
 - Renderer UI state can be shared across routes without prop drilling.
 - UI layout preferences can survive app restarts without creating DB schema or IPC settings APIs.
 - Engineers must keep Zustand stores out of main/preload/shared code.
+- TanStack Query may cache external server responses only for the running renderer and must refetch through typed IPC; persistent/offline server-state caching requires a separate decision.
 - Product settings visible in Settings still belong behind main-owned settings APIs, not Zustand.
 
 ## Alternatives Considered

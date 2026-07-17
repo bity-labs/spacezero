@@ -152,7 +152,10 @@ beforeEach(async () => {
         path: '/tmp/linked-project',
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(1).toISOString()
-      })
+      }),
+      getProjectRepository: async () => {
+        throw new Error('github.projectNotLinked')
+      }
     },
     projects: {
       list: async () => [],

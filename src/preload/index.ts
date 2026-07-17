@@ -51,7 +51,9 @@ const api: SpaceZeroAPI = {
     getProjectLinkOptions: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.github.getProjectLinkOptions, request),
     linkProjectRepository: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.github.linkProjectRepository, request)
+      ipcRenderer.invoke(IPC_CHANNELS.github.linkProjectRepository, request),
+    getProjectRepository: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.getProjectRepository, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

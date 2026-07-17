@@ -70,7 +70,8 @@ export const IPC_CHANNELS = {
     disconnect: 'github:disconnect',
     listAuthorizedRepositories: 'github:listAuthorizedRepositories',
     getProjectLinkOptions: 'github:getProjectLinkOptions',
-    linkProjectRepository: 'github:linkProjectRepository'
+    linkProjectRepository: 'github:linkProjectRepository',
+    getProjectRepository: 'github:getProjectRepository'
   },
   projects: {
     list: 'projects:list',
@@ -159,6 +160,7 @@ export type SpaceZeroAPI = {
     listAuthorizedRepositories: () => Promise<GitHubRepository[]>
     getProjectLinkOptions: (request: GitHubProjectRequest) => Promise<GitHubProjectLinkOptions>
     linkProjectRepository: (request: LinkGitHubProjectRequest) => Promise<Project>
+    getProjectRepository: (request: GitHubProjectRequest) => Promise<GitHubRepository>
   }
   projects: {
     list: () => Promise<Project[]>

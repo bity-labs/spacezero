@@ -44,6 +44,17 @@ export function createGitHubProjectsService({
     }
   }
 
+  async function getLinkedRepository(request: GitHubProjectRequest): Promise<GitHubRepository> {
+    const project = await projects.getProject(request.projectId.trim())
+    if (!project.githubRepository) throw new Error('github.projectNotLinked')
+
+    const repository = (await repositories.listAuthorizedRepositories()).find(
+      (candidate) => candidate.id === project.githubRepository?.repositoryId
+    )
+    if (!repository) throw new Error('github.repositoryAccessRevoked')
+    return repository
+  }
+
   async function linkProject(request: LinkGitHubProjectRequest) {
     const options = await getLinkOptions({ projectId: request.projectId })
     const repository = options.repositories.find(
@@ -63,5 +74,5 @@ export function createGitHubProjectsService({
     })
   }
 
-  return { getLinkOptions, linkProject }
+  return { getLinkOptions, getLinkedRepository, linkProject }
 }
