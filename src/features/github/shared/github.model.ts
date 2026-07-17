@@ -156,6 +156,58 @@ export type GitHubPullRequestCommentsRequest = GitHubPullRequestRequest & {
   perPage?: number
 }
 
+export type GitHubPullRequestPageRequest = GitHubPullRequestRequest & {
+  page: number
+  perPage?: number
+}
+
+export type GitHubPullRequestPatch =
+  | { status: 'available'; text: string; truncated: boolean }
+  | { status: 'binary' }
+  | { status: 'omitted' }
+  | { status: 'unavailable' }
+
+export type GitHubPullRequestFile = {
+  sha: string
+  filename: string
+  previousFilename: string | null
+  status:
+    'added' | 'modified' | 'removed' | 'renamed' | 'copied' | 'changed' | 'unchanged' | 'unknown'
+  additions: number
+  deletions: number
+  changes: number
+  patch: GitHubPullRequestPatch
+}
+
+export type GitHubCheckRun = {
+  id: string
+  name: string
+  status: 'queued' | 'in_progress' | 'completed' | 'unknown'
+  conclusion: string | null
+  detailsUrl: string | null
+  appName: string | null
+  startedAt: string | null
+  completedAt: string | null
+}
+
+export type GitHubCommitStatus = {
+  id: string
+  context: string
+  state: 'error' | 'failure' | 'pending' | 'success' | 'unknown'
+  description: string | null
+  targetUrl: string | null
+  updatedAt: string
+}
+
+export type GitHubPullRequestReview = {
+  id: string
+  state: 'approved' | 'changes_requested' | 'commented' | 'dismissed' | 'pending' | 'unknown'
+  body: string | null
+  htmlUrl: string
+  author: GitHubUser | null
+  submittedAt: string | null
+}
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference

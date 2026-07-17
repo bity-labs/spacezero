@@ -12,6 +12,7 @@ import {
   githubProjectRequestSchema,
   githubPullRequestCommentsRequestSchema,
   githubPullRequestListRequestSchema,
+  githubPullRequestPageRequestSchema,
   githubPullRequestRequestSchema,
   linkGitHubProjectRequestSchema,
   startGitHubCloneRequestSchema
@@ -104,5 +105,19 @@ export function registerGitHubIpc(): void {
     getGitHubPullRequestsService().listConversationComments(
       githubPullRequestCommentsRequestSchema.parse(input)
     )
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequestFiles, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listFiles(githubPullRequestPageRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequestCheckRuns, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listCheckRuns(githubPullRequestPageRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequestCommitStatuses, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listCommitStatuses(
+      githubPullRequestPageRequestSchema.parse(input)
+    )
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequestReviews, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listReviews(githubPullRequestPageRequestSchema.parse(input))
   )
 }

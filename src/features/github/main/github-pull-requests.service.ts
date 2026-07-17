@@ -1,10 +1,15 @@
 import type {
+  GitHubCheckRun,
+  GitHubCommitStatus,
   GitHubIssueComment,
   GitHubPage,
   GitHubPullRequest,
   GitHubPullRequestCommentsRequest,
+  GitHubPullRequestFile,
   GitHubPullRequestListRequest,
+  GitHubPullRequestPageRequest,
   GitHubPullRequestRequest,
+  GitHubPullRequestReview,
   GitHubPullRequestSummary,
   GitHubRepository
 } from '../shared'
@@ -24,14 +29,30 @@ export type GitHubPullRequestsAdapter = {
     repository: string
     number: number
   }) => Promise<GitHubPullRequest>
-  listConversationComments: (request: {
-    accessToken: string
-    owner: string
-    repository: string
-    number: number
-    page: number
-    perPage: number
-  }) => Promise<GitHubPage<GitHubIssueComment>>
+  listConversationComments: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubIssueComment>>
+  listFiles: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubPullRequestFile>>
+  listCheckRuns: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubCheckRun>>
+  listCommitStatuses: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubCommitStatus>>
+  listReviews: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubPullRequestReview>>
+}
+
+type GitHubPullRequestAdapterPageRequest = {
+  accessToken: string
+  owner: string
+  repository: string
+  number: number
+  page: number
+  perPage: number
 }
 
 export function createGitHubPullRequestsService({
@@ -93,5 +114,53 @@ export function createGitHubPullRequestsService({
     })
   }
 
-  return { listPullRequests, getPullRequest, listConversationComments }
+  async function listFiles(
+    request: GitHubPullRequestPageRequest
+  ): Promise<GitHubPage<GitHubPullRequestFile>> {
+    return listDetailPage(request, 30, adapter.listFiles)
+  }
+
+  async function listCheckRuns(
+    request: GitHubPullRequestPageRequest
+  ): Promise<GitHubPage<GitHubCheckRun>> {
+    return listDetailPage(request, 50, adapter.listCheckRuns)
+  }
+
+  async function listCommitStatuses(
+    request: GitHubPullRequestPageRequest
+  ): Promise<GitHubPage<GitHubCommitStatus>> {
+    return listDetailPage(request, 50, adapter.listCommitStatuses)
+  }
+
+  async function listReviews(
+    request: GitHubPullRequestPageRequest
+  ): Promise<GitHubPage<GitHubPullRequestReview>> {
+    return listDetailPage(request, 50, adapter.listReviews)
+  }
+
+  async function listDetailPage<T>(
+    request: GitHubPullRequestPageRequest,
+    defaultPerPage: number,
+    load: (request: GitHubPullRequestAdapterPageRequest) => Promise<GitHubPage<T>>
+  ): Promise<GitHubPage<T>> {
+    const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    return load({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number,
+      page: request.page,
+      perPage: request.perPage ?? defaultPerPage
+    })
+  }
+
+  return {
+    listPullRequests,
+    getPullRequest,
+    listConversationComments,
+    listFiles,
+    listCheckRuns,
+    listCommitStatuses,
+    listReviews
+  }
 }
