@@ -24,6 +24,7 @@ export type KnowledgeBaseEditorRenderProps = {
 
 export type KnowledgeBaseSourceEditorHandle = {
   flushPendingSave: () => Promise<boolean>
+  hasPendingSave: () => boolean
 }
 
 type KnowledgeBaseSourceEditorProps = {
@@ -124,7 +125,19 @@ export const KnowledgeBaseSourceEditor = forwardRef<
     return true
   }, [saveCurrentDraft])
 
-  useImperativeHandle(ref, () => ({ flushPendingSave }), [flushPendingSave])
+  const hasPendingSave = useCallback(
+    () =>
+      draftRef.current !== savedContentRef.current ||
+      activeSaveRef.current !== null ||
+      externalDocumentRef.current !== null,
+    []
+  )
+
+  useImperativeHandle(
+    ref,
+    () => ({ flushPendingSave, hasPendingSave }),
+    [flushPendingSave, hasPendingSave]
+  )
 
   useEffect(() => {
     if (draft === savedContent || externalDocument) return undefined

@@ -12,6 +12,7 @@ import type {
 
 export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getStatus: 'knowledgeBase:getStatus',
+  reset: 'knowledgeBase:reset',
   createNew: 'knowledgeBase:createNew',
   cloneFromGit: 'knowledgeBase:cloneFromGit',
   getTree: 'knowledgeBase:getTree',
@@ -34,6 +35,7 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
 
 export type KnowledgeBaseAPI = {
   getStatus: () => Promise<KnowledgeBaseStatus>
+  reset: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>
   getTree: () => Promise<KnowledgeBaseTreeItem[]>

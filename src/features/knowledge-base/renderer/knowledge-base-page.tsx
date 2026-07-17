@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState
+} from 'react'
 import {
   BookOpenText,
   CaretRight,
@@ -39,13 +46,33 @@ import type {
   KnowledgeBaseTreeItem
 } from '../shared'
 
-export function KnowledgeBasePage(): React.JSX.Element {
+export type KnowledgeBasePageHandle = {
+  flushPendingSave: () => Promise<boolean>
+  hasPendingSave: () => boolean
+}
+
+export const KnowledgeBasePage = forwardRef<KnowledgeBasePageHandle>(function KnowledgeBasePage(
+  _props,
+  ref
+): React.JSX.Element {
   const [status, setStatus] = useState<KnowledgeBaseStatus | null>(null)
+  const configuredKnowledgeBaseRef = useRef<KnowledgeBasePageHandle>(null)
   const [error, setError] = useState<string | null>(null)
   const [isCreating, setCreating] = useState(false)
   const [isCloneFormOpen, setCloneFormOpen] = useState(false)
   const [isCloning, setCloning] = useState(false)
+  const [isRecovering, setRecovering] = useState(false)
   const [gitUrl, setGitUrl] = useState('')
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushPendingSave: () =>
+        configuredKnowledgeBaseRef.current?.flushPendingSave() ?? Promise.resolve(true),
+      hasPendingSave: () => configuredKnowledgeBaseRef.current?.hasPendingSave() ?? false
+    }),
+    []
+  )
 
   useEffect(() => {
     let current = true
@@ -61,6 +88,30 @@ export function KnowledgeBasePage(): React.JSX.Element {
       current = false
     }
   }, [])
+
+  async function reconnect(): Promise<void> {
+    setRecovering(true)
+    setError(null)
+    try {
+      setStatus(await window.spacezero.knowledgeBase.getStatus())
+    } catch (reconnectError) {
+      setError(getErrorMessage(reconnectError, 'Unable to reconnect the Knowledge Base.'))
+    } finally {
+      setRecovering(false)
+    }
+  }
+
+  async function resetConfiguration(): Promise<void> {
+    setRecovering(true)
+    setError(null)
+    try {
+      setStatus(await window.spacezero.knowledgeBase.reset())
+    } catch (resetError) {
+      setError(getErrorMessage(resetError, 'Unable to reset Knowledge Base configuration.'))
+    } finally {
+      setRecovering(false)
+    }
+  }
 
   async function createNew(): Promise<void> {
     setCreating(true)
@@ -92,7 +143,45 @@ export function KnowledgeBasePage(): React.JSX.Element {
   }
 
   if (status?.setupState === 'configured') {
-    return <ConfiguredKnowledgeBase status={status} />
+    return <ConfiguredKnowledgeBase ref={configuredKnowledgeBaseRef} status={status} />
+  }
+
+  if (status?.setupState === 'unavailable') {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-8">
+        <Card className="w-full max-w-xl gap-5 p-6">
+          <div>
+            <BookOpenText className="size-7 text-muted-foreground" aria-hidden="true" />
+            <h1 className="mt-4 text-xl font-semibold">Knowledge Base unavailable</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {getUnavailableKnowledgeBaseMessage(status.reason)}
+            </p>
+            <p className="mt-2 break-all text-xs text-muted-foreground">{status.rootPath}</p>
+          </div>
+          {error ? (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            Restore the repository at this path and reconnect, or reset the app configuration.
+            Resetting does not delete files.
+          </p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant="outline"
+              disabled={isRecovering}
+              onClick={() => void resetConfiguration()}
+            >
+              Reset configuration
+            </Button>
+            <Button disabled={isRecovering} onClick={() => void reconnect()}>
+              {isRecovering ? 'Checking…' : 'Reconnect'}
+            </Button>
+          </div>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -173,13 +262,12 @@ export function KnowledgeBasePage(): React.JSX.Element {
       </div>
     </div>
   )
-}
+})
 
-function ConfiguredKnowledgeBase({
-  status
-}: {
-  status: Extract<KnowledgeBaseStatus, { setupState: 'configured' }>
-}): React.JSX.Element {
+const ConfiguredKnowledgeBase = forwardRef<
+  KnowledgeBasePageHandle,
+  { status: Extract<KnowledgeBaseStatus, { setupState: 'configured' }> }
+>(function ConfiguredKnowledgeBase({ status }, ref): React.JSX.Element {
   const [tree, setTree] = useState<KnowledgeBaseTreeItem[]>([])
   const [document, setDocument] = useState<KnowledgeBaseDocument | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -276,6 +364,14 @@ function ConfiguredKnowledgeBase({
     return saved
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      flushPendingSave: flushOpenDocument,
+      hasPendingSave: () => documentEditorRef.current?.hasPendingSave() ?? false
+    })
+  )
+
   async function openDocument(relativePath: string): Promise<boolean> {
     if (document?.relativePath === relativePath) return true
     setError(null)
@@ -315,6 +411,7 @@ function ConfiguredKnowledgeBase({
     setSyncing(true)
     setError(null)
     try {
+      if (!(await flushOpenDocument())) return
       setSyncStatus(await window.spacezero.knowledgeBase.syncNow())
       await refreshTree()
     } catch (syncError) {
@@ -691,7 +788,7 @@ function ConfiguredKnowledgeBase({
       />
     </div>
   )
-}
+})
 
 type KnowledgeBaseItemAction =
   | { kind: 'create'; itemKind: 'file' | 'folder'; value: string }
@@ -860,6 +957,16 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function getUnavailableKnowledgeBaseMessage(
+  reason: Extract<KnowledgeBaseStatus, { setupState: 'unavailable' }>['reason']
+): string {
+  if (reason === 'missing') return 'The configured Knowledge Base repository could not be found.'
+  if (reason === 'inaccessible') {
+    return 'The configured Knowledge Base repository cannot be accessed.'
+  }
+  return 'The configured Knowledge Base path is no longer a Git repository.'
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {

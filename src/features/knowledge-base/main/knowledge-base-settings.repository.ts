@@ -32,6 +32,12 @@ export function createKnowledgeBaseConfigurationRepository(): KnowledgeBaseConfi
           target: schema.appSettings.key,
           set: { value: JSON.stringify(configuration), updatedAt: new Date() }
         })
+    },
+
+    async clear() {
+      await getDatabase()
+        .delete(schema.appSettings)
+        .where(eq(schema.appSettings.key, CONFIGURATION_KEY))
     }
   }
 }

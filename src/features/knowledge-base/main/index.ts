@@ -9,6 +9,7 @@ import {
   type KnowledgeBaseFilesService
 } from './knowledge-base-files.service'
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
+import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import { createKnowledgeBaseService, type KnowledgeBaseService } from './knowledge-base.service'
 import {
   createKnowledgeBaseMentionsService,
@@ -41,6 +42,8 @@ type KnowledgeBaseApplicationService = KnowledgeBaseService &
   KnowledgeBaseSyncService &
   KnowledgeBaseRecoveryService
 
+const operationCoordinator = createKnowledgeBaseOperationCoordinator()
+
 let service: KnowledgeBaseApplicationService | undefined
 let syncCoordinator: KnowledgeBaseSyncCoordinator | undefined
 let syncScheduler: KnowledgeBaseSyncScheduler | undefined
@@ -57,7 +60,10 @@ export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
         host,
         rootPath: getDefaultKnowledgeBasePath()
       }),
-      ...createKnowledgeBaseFilesService({ configurationRepository }),
+      ...createKnowledgeBaseFilesService({
+        configurationRepository,
+        operations: operationCoordinator
+      }),
       ...createKnowledgeBaseSyncService({
         configurationRepository,
         syncStateRepository: createKnowledgeBaseSyncStateRepository(),
@@ -85,7 +91,7 @@ export function getKnowledgeBaseMentionsService(): KnowledgeBaseMentionsService 
 
 export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService {
   projectsService ??= createKnowledgeBaseProjectsService({
-    configurationRepository: createKnowledgeBaseConfigurationRepository(),
+    getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus(),
     projectsRepository: createProjectsRepository(),
     host: createKnowledgeBaseProjectFolderHost()
   })
@@ -93,7 +99,10 @@ export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService 
 }
 
 export function getKnowledgeBaseSyncCoordinator(): KnowledgeBaseSyncCoordinator {
-  syncCoordinator ??= createKnowledgeBaseSyncCoordinator(getKnowledgeBaseService())
+  syncCoordinator ??= createKnowledgeBaseSyncCoordinator(
+    getKnowledgeBaseService(),
+    operationCoordinator
+  )
   return syncCoordinator
 }
 

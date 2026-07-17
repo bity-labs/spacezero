@@ -1,8 +1,9 @@
+import { createHash } from 'node:crypto'
 import { lstat, mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { StoredProject } from '../../projects/main/projects.service'
-import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
+import type { KnowledgeBaseStatus } from '../shared'
 
 export type KnowledgeBaseProjectsRepository = {
   list: () => Promise<StoredProject[]>
@@ -28,27 +29,31 @@ export type KnowledgeBaseExistingProjectsLinkResult = {
 export type KnowledgeBaseProjectsService = {
   linkExistingProjects: () => Promise<KnowledgeBaseExistingProjectsLinkResult>
   linkProject: (project: StoredProject) => Promise<KnowledgeBaseProjectLinkResult>
+  clearProjectLinks: () => Promise<void>
 }
 
 export function createKnowledgeBaseProjectsService({
-  configurationRepository,
+  getKnowledgeBaseStatus,
   projectsRepository,
   host,
   now = () => new Date()
 }: {
-  configurationRepository: KnowledgeBaseConfigurationRepository
+  getKnowledgeBaseStatus: () => Promise<KnowledgeBaseStatus>
   projectsRepository: KnowledgeBaseProjectsRepository
   host: KnowledgeBaseProjectFolderHost
   now?: () => Date
 }): KnowledgeBaseProjectsService {
   async function linkProject(project: StoredProject): Promise<StoredProject> {
-    const configuration = await configurationRepository.get()
-    if (!configuration) return project
+    const status = await getKnowledgeBaseStatus()
+    if (status.setupState === 'unconfigured') return project
+    if (status.setupState === 'unavailable') {
+      throw new Error(`Knowledge Base is unavailable at ${status.rootPath}.`)
+    }
 
-    const projectFolder = join(
-      configuration.rootPath,
-      'projects',
-      slugifyProjectName(project.name)
+    const projectFolder = chooseProjectFolder(
+      status.rootPath,
+      project,
+      await projectsRepository.list()
     )
     const pathKind = await host.getPathKind(projectFolder)
     if (pathKind === 'file') {
@@ -107,7 +112,18 @@ export function createKnowledgeBaseProjectsService({
         warning: warnings.length > 0 ? warnings.join(' ') : undefined
       }
     },
-    linkProject: safelyLinkProject
+    linkProject: safelyLinkProject,
+    async clearProjectLinks() {
+      const projects = await projectsRepository.list()
+      for (const project of projects) {
+        if (!project.knowledgeBasePath) continue
+        await projectsRepository.update({
+          ...project,
+          knowledgeBasePath: null,
+          updatedAt: now()
+        })
+      }
+    }
   }
 }
 
@@ -117,6 +133,53 @@ function createProjectLinkWarning(project: StoredProject, error: unknown): strin
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : 'Unknown linking error.'
+}
+
+function chooseProjectFolder(
+  rootPath: string,
+  project: StoredProject,
+  projects: StoredProject[]
+): string {
+  const projectsRoot = join(rootPath, 'projects')
+  if (
+    project.knowledgeBasePath &&
+    isPathWithinRoot(projectsRoot, project.knowledgeBasePath) &&
+    isProjectFolderAvailable(project.knowledgeBasePath, project.id, projects)
+  ) {
+    return project.knowledgeBasePath
+  }
+
+  const baseSlug = slugifyProjectName(project.name)
+  const baseFolder = join(projectsRoot, baseSlug)
+  if (isProjectFolderAvailable(baseFolder, project.id, projects)) return baseFolder
+
+  const idSuffix = createHash('sha256').update(project.id).digest('hex')
+  for (const suffixLength of [8, 12, 16, idSuffix.length]) {
+    const candidate = join(projectsRoot, `${baseSlug}-${idSuffix.slice(0, suffixLength)}`)
+    if (isProjectFolderAvailable(candidate, project.id, projects)) return candidate
+  }
+
+  throw new Error(`Could not allocate a unique Knowledge Base folder for "${project.name}".`)
+}
+
+function isProjectFolderAvailable(
+  candidate: string,
+  projectId: string,
+  projects: StoredProject[]
+): boolean {
+  const owner = projects.find(
+    (project) =>
+      project.knowledgeBasePath && resolve(project.knowledgeBasePath) === resolve(candidate)
+  )
+  return !owner || owner.id === projectId
+}
+
+function isPathWithinRoot(rootPath: string, targetPath: string): boolean {
+  const pathFromRoot = relative(resolve(rootPath), resolve(targetPath))
+  return (
+    pathFromRoot === '' ||
+    (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== '..' && !isAbsolute(pathFromRoot))
+  )
 }
 
 export function createKnowledgeBaseProjectFolderHost(): KnowledgeBaseProjectFolderHost {
@@ -131,7 +194,12 @@ export function createKnowledgeBaseProjectFolderHost(): KnowledgeBaseProjectFold
       }
     },
     async createDirectory(path) {
-      await mkdir(path, { recursive: true })
+      try {
+        await mkdir(dirname(path))
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== 'EEXIST') throw error
+      }
+      await mkdir(path)
     },
     async writeTextFile(path, content) {
       await writeFile(path, content, { encoding: 'utf8', flag: 'wx' })

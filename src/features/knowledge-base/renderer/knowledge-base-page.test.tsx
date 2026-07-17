@@ -23,6 +23,52 @@ describe('KnowledgeBasePage', () => {
     expect(screen.getByRole('button', { name: 'Clone from Git repository' })).toBeInTheDocument()
   })
 
+  it('reconnects a persisted Knowledge Base after its Git repository is restored', async () => {
+    const getStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        setupState: 'unavailable' as const,
+        rootPath: '/home/builder/SpaceZero/knowledge-base',
+        reason: 'missing' as const
+      })
+      .mockResolvedValueOnce({
+        setupState: 'configured' as const,
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      })
+    window.spacezero.knowledgeBase.getStatus = getStatus
+    window.spacezero.knowledgeBase.getTree = async () => []
+
+    render(<KnowledgeBasePage />)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Knowledge Base unavailable' })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reconnect' }))
+
+    expect(await screen.findByText('Local only')).toBeInTheDocument()
+    expect(getStatus).toHaveBeenCalledTimes(2)
+  })
+
+  it('resets unavailable configuration without deleting user content', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'unavailable',
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      reason: 'not-git-repository'
+    })
+    const reset = vi.fn(async () => ({ setupState: 'unconfigured' as const }))
+    window.spacezero.knowledgeBase.reset = reset
+
+    render(<KnowledgeBasePage />)
+
+    expect(await screen.findByText(/no longer a Git repository/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset configuration' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
+    ).toBeInTheDocument()
+    expect(reset).toHaveBeenCalledTimes(1)
+  })
+
   it('creates a new Knowledge Base and shows its configured path', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     window.spacezero.knowledgeBase.createNew = async () => ({
@@ -152,6 +198,80 @@ describe('KnowledgeBasePage', () => {
     expect(
       screen.getByText(`Last synced ${new Date(lastSyncAt).toLocaleString()}`)
     ).toBeInTheDocument()
+  })
+
+  it('flushes and awaits a dirty document before manual sync', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'note.md',
+        relativePath: 'note.md',
+        kind: 'file',
+        contentKind: 'markdown',
+        size: 6,
+        modifiedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.knowledgeBase.openDocument = async () => ({
+      name: 'note.md',
+      relativePath: 'note.md',
+      contentKind: 'markdown',
+      size: 6,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'note-revision',
+      content: '# Note'
+    })
+    window.spacezero.knowledgeBase.getSyncStatus = async () => ({
+      remoteState: 'configured',
+      remoteUrl: 'https://example.com/notes.git',
+      syncState: 'idle'
+    })
+    let resolveSave: ((result: KnowledgeBaseSaveResult) => void) | undefined
+    const saveDocument = vi.fn(
+      () =>
+        new Promise<KnowledgeBaseSaveResult>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    const syncNow = vi.fn(async () => ({
+      remoteState: 'configured' as const,
+      remoteUrl: 'https://example.com/notes.git',
+      syncState: 'idle' as const,
+      lastSyncAt: new Date(1).toISOString()
+    }))
+    window.spacezero.knowledgeBase.saveDocument = saveDocument
+    window.spacezero.knowledgeBase.syncNow = syncNow
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Source' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit note.md' }), {
+      target: { value: '# Include this edit' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sync now' }))
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(syncNow).not.toHaveBeenCalled()
+
+    await act(async () =>
+      resolveSave?.({
+        status: 'saved',
+        document: {
+          name: 'note.md',
+          relativePath: 'note.md',
+          contentKind: 'markdown',
+          size: 19,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'saved-revision',
+          content: '# Include this edit'
+        }
+      })
+    )
+
+    await waitFor(() => expect(syncNow).toHaveBeenCalledTimes(1))
   })
 
   it('refreshes the visible tree when a background sync completes', async () => {

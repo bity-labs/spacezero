@@ -147,6 +147,27 @@ describe('KnowledgeBaseDocumentEditor', () => {
     expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
   })
 
+  it.each([
+    ['inline math', 'Euler says $e^{i\\pi}+1=0$.'],
+    ['block math', '$$\\int_0^1 x^2 dx$$'],
+    ['a named entity', 'Copyright &copy; 2026.'],
+    ['a numeric entity', 'Copyright &#169; 2026.']
+  ])('keeps %s byte-for-byte in source mode', (_description, markdown) => {
+    render(
+      <KnowledgeBaseDocumentEditor
+        document={{
+          ...markdownDocument,
+          name: 'note.md',
+          relativePath: 'docs/note.md',
+          content: markdown
+        }}
+      />
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue(markdown)
+    expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
+  })
+
   it('keeps rich mode available for MDX examples inside code fences', () => {
     const markdown = '# Example\n\n```mdx\n<Callout>Example only</Callout>\n```'
 

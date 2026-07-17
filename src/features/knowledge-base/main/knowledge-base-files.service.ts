@@ -13,6 +13,7 @@ import type {
   KnowledgeBaseSearchResult,
   KnowledgeBaseTreeItem
 } from '../shared/knowledge-base.model'
+import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
 
 export const MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES = 2 * 1024 * 1024
@@ -67,11 +68,13 @@ export type KnowledgeBaseFilesService = {
 }
 
 export function createKnowledgeBaseFilesService({
-  configurationRepository
+  configurationRepository,
+  operations = { runExclusive: (operation) => operation() }
 }: {
   configurationRepository: KnowledgeBaseConfigurationRepository
+  operations?: KnowledgeBaseOperationCoordinator
 }): KnowledgeBaseFilesService {
-  return {
+  const service: KnowledgeBaseFilesService = {
     async getTree() {
       const rootPath = await getConfiguredRoot(configurationRepository)
       const canonicalRoot = await realpath(rootPath)
@@ -223,6 +226,16 @@ export function createKnowledgeBaseFilesService({
         ? { changed: false }
         : { changed: true, document }
     }
+  }
+
+  return {
+    ...service,
+    importImage: (request) => operations.runExclusive(() => service.importImage(request)),
+    createItem: (request) => operations.runExclusive(() => service.createItem(request)),
+    renameItem: (request) => operations.runExclusive(() => service.renameItem(request)),
+    moveItem: (request) => operations.runExclusive(() => service.moveItem(request)),
+    deleteItem: (request) => operations.runExclusive(() => service.deleteItem(request)),
+    saveDocument: (request) => operations.runExclusive(() => service.saveDocument(request))
   }
 }
 

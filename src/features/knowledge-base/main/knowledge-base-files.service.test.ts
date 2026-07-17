@@ -4,6 +4,7 @@ import { join } from 'node:path'
 
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
 import {
   MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES,
@@ -39,7 +40,8 @@ function configuredRepository(rootPath: string): KnowledgeBaseConfigurationRepos
     async get() {
       return { rootPath, configuredAt: new Date(0).toISOString() }
     },
-    async save() {}
+    async save() {},
+    async clear() {}
   }
 }
 
@@ -312,6 +314,41 @@ describe('createKnowledgeBaseFilesService', () => {
     expect(result.document.revision).not.toBe(opened.revision)
     await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
       '# Updated durable note\n'
+    )
+  })
+
+  it('queues document writes behind an in-flight Knowledge Base operation', async () => {
+    const { rootPath } = await createFixture()
+    const operations = createKnowledgeBaseOperationCoordinator()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath),
+      operations
+    })
+    const opened = await service.openDocument({ relativePath: 'docs/note.md' })
+    let finishOperation: (() => void) | undefined
+    const inFlightOperation = operations.runExclusive(
+      () =>
+        new Promise<void>((resolve) => {
+          finishOperation = resolve
+        })
+    )
+
+    const save = service.saveDocument({
+      relativePath: 'docs/note.md',
+      content: '# Serialized update\n',
+      expectedRevision: opened.revision
+    })
+    await Promise.resolve()
+
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Durable note\n'
+    )
+
+    finishOperation?.()
+    await inFlightOperation
+    await expect(save).resolves.toMatchObject({ status: 'saved' })
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Serialized update\n'
     )
   })
 
