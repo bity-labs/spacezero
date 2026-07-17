@@ -22,6 +22,7 @@ export type CreatedPiAgentSession = {
   modelProvider: string
   modelId: string
   thinkingLevel: ThinkingLevel | undefined
+  systemPrompt?: string
   skills?: AgentSkillDescriptor[]
   setModel: (request: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: ThinkingLevel) => Promise<void> | void
@@ -51,6 +52,7 @@ type RegisteredAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  appendSystemPrompt: string[] | undefined
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
   piSession: CreatedPiAgentSession
@@ -63,6 +65,7 @@ type DormantAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  appendSystemPrompt: string[] | undefined
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
   transcriptPath: string | undefined
@@ -140,6 +143,7 @@ export class AgentSessionRegistry {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
+          appendSystemPrompt: normalizedRequest.appendSystemPrompt,
           skillPaths: normalizedRequest.skillPaths,
           disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
           piSession,
@@ -294,6 +298,7 @@ export class AgentSessionRegistry {
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
+      appendSystemPrompt: request.appendSystemPrompt,
       ...(request.skillPaths ? { skillPaths: request.skillPaths } : {}),
       ...(request.disabledGlobalSkillPaths
         ? { disabledGlobalSkillPaths: request.disabledGlobalSkillPaths.map((path) => resolve(path)) }
@@ -341,6 +346,7 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
+      appendSystemPrompt: dormantSession.appendSystemPrompt,
       ...(dormantSession.skillPaths ? { skillPaths: dormantSession.skillPaths } : {}),
       ...(dormantSession.disabledGlobalSkillPaths
         ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
@@ -366,6 +372,7 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
+      appendSystemPrompt: dormantSession.appendSystemPrompt,
       skillPaths: dormantSession.skillPaths,
       disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
       piSession,
@@ -425,6 +432,7 @@ export class AgentSessionRegistry {
       projectId: session.projectId,
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
+      appendSystemPrompt: session.appendSystemPrompt,
       skillPaths: session.skillPaths,
       disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
       transcriptPath: session.piSession.sessionFile,

@@ -342,7 +342,8 @@ describe('AgentSessionRegistry', () => {
       projectId: 'project-1',
       sessionId: 'session-1',
       cwd: '/repo-1',
-      workspaceTools
+      workspaceTools,
+      appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/project-1']
     })
     await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
     await registry.getState({ sessionId: 'session-1' })
@@ -351,6 +352,7 @@ describe('AgentSessionRegistry', () => {
       sessionId: 'session-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
       workspaceTools,
+      appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/project-1'],
       defaultModel: { providerId: 'faux', modelId: 'faux-1' }
     })
   })

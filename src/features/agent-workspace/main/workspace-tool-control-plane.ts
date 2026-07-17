@@ -1,10 +1,14 @@
+import { createKnowledgeBaseTools } from '../../knowledge-base/main/knowledge-base.tools'
 import { createWorkspaceTools } from '../../workspace/main/workspace.tools'
 import { InMemoryAgentActivityHistory } from './agent-activity-history'
 import { WorkspaceToolExecutor } from './workspace-tool-executor'
 import { composeWorkspaceToolRegistry } from './workspace-tool-registry'
 import { DEFAULT_WORKSPACE_TOOL_SAFETY_POLICY } from './workspace-tool-safety-policy'
 
-const registry = composeWorkspaceToolRegistry(createWorkspaceTools())
+const registry = composeWorkspaceToolRegistry(
+  createWorkspaceTools(),
+  createKnowledgeBaseTools()
+)
 const history = new InMemoryAgentActivityHistory()
 const executor = new WorkspaceToolExecutor({
   registry,

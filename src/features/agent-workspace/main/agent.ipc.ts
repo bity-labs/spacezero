@@ -1,6 +1,11 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 
+import {
+  getKnowledgeBaseMentionsService,
+  getKnowledgeBaseRootProvider,
+  getKnowledgeBaseService
+} from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
@@ -29,6 +34,16 @@ const resolveToolConfirmationRequestSchema = z.object({
   approved: z.boolean()
 })
 
+async function getVerifiedKnowledgeBaseStatus() {
+  const status = await getKnowledgeBaseService().getStatus()
+  if (status.setupState !== 'configured') return status
+
+  return {
+    ...status,
+    rootPath: await getKnowledgeBaseRootProvider().getVerifiedRoot()
+  }
+}
+
 export function registerAgentIpc(): void {
   const globalSkillSettings = createGlobalAgentSkillSettingsService({
     listSkills: (skillPaths) => getAgentUtilityProcessHost().listSkills({ skillPaths })
@@ -42,6 +57,7 @@ export function registerAgentIpc(): void {
     return createProjectAgentSession(input, {
       repository: createSessionsRepository(),
       utilityHost: getAgentUtilityProcessHost(),
+      getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths
     })
@@ -70,6 +86,7 @@ export function registerAgentIpc(): void {
     return restoreAgentSessionState(input, {
       repository: createSessionsRepository(),
       utilityHost: getAgentUtilityProcessHost(),
+      getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths
     })
@@ -79,9 +96,10 @@ export function registerAgentIpc(): void {
     return getAgentUtilityProcessHost().listSessions()
   })
 
-  ipcMain.handle(IPC_CHANNELS.agent.prompt, (_event, input) => {
+  ipcMain.handle(IPC_CHANNELS.agent.prompt, async (_event, input) => {
     const request = promptRequestSchema.parse(input)
-    return getAgentUtilityProcessHost().prompt(request)
+    const prompt = await getKnowledgeBaseMentionsService().addPromptHints(request.message)
+    return getAgentUtilityProcessHost().prompt({ ...request, ...prompt })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.abort, (_event, input) => {

@@ -1,11 +1,55 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
+import type { KnowledgeBaseSaveResult } from '../../features/knowledge-base/shared'
 import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
 import { App } from './App'
 import { router } from './router'
+
+function configureEditableKnowledgeBase(
+  saveDocument: (request: {
+    relativePath: string
+    content: string
+    expectedRevision: string
+  }) => Promise<KnowledgeBaseSaveResult>
+): void {
+  window.spacezero.knowledgeBase.getStatus = async () => ({
+    setupState: 'configured',
+    rootPath: '/home/builder/SpaceZero/knowledge-base'
+  })
+  window.spacezero.knowledgeBase.getTree = async () => [
+    {
+      name: 'note.md',
+      relativePath: 'note.md',
+      kind: 'file',
+      contentKind: 'markdown',
+      size: 6,
+      modifiedAt: new Date(0).toISOString()
+    }
+  ]
+  window.spacezero.knowledgeBase.openDocument = async () => ({
+    name: 'note.md',
+    relativePath: 'note.md',
+    contentKind: 'markdown',
+    size: 6,
+    modifiedAt: new Date(0).toISOString(),
+    revision: 'note-revision',
+    content: '# Note'
+  })
+  window.spacezero.knowledgeBase.saveDocument = saveDocument
+}
+
+async function openDirtyKnowledgeBaseDocument(): Promise<HTMLInputElement> {
+  const navigation = await screen.findByRole('menu', { name: 'Workspace navigation' })
+  fireEvent.click(within(navigation).getByRole('button', { name: 'Knowledge Base' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'note.md' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Source' }))
+  const editor = screen.getByRole('textbox', { name: 'Edit note.md' }) as HTMLInputElement
+  fireEvent.change(editor, { target: { value: '# Unsaved note' } })
+  return editor
+}
 
 describe('App', () => {
   beforeEach(async () => {
@@ -48,6 +92,104 @@ describe('App', () => {
         .map((button) => button.getAttribute('aria-label'))
     ).toEqual(['Hide left panel', 'Open command palette', 'Hide right panel'])
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
+  })
+
+  it('shows Knowledge Base before New Agent and opens its setup page', async () => {
+    render(<App />)
+
+    const navigation = await screen.findByRole('menu', { name: 'Workspace navigation' })
+    const navigationItems = within(navigation).getAllByRole('button')
+    expect(navigationItems[0]).toHaveTextContent('Knowledge Base')
+    expect(navigationItems[1]).toHaveTextContent('New Agent')
+
+    fireEvent.click(navigationItems[0])
+
+    expect(
+      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
+    ).toBeInTheDocument()
+  })
+
+  it('blocks top-level navigation when a pending Knowledge Base save fails', async () => {
+    const saveDocument = vi.fn(async (): Promise<KnowledgeBaseSaveResult> => {
+      throw new Error('disk full')
+    })
+    const createWorkspaceSession = vi.fn(window.spacezero.agent.createWorkspaceSession)
+    window.spacezero.agent.createWorkspaceSession = createWorkspaceSession
+    configureEditableKnowledgeBase(saveDocument)
+
+    render(<App />)
+    const editor = await openDirtyKnowledgeBaseDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'New Agent' }))
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(createWorkspaceSession).not.toHaveBeenCalled()
+    expect(editor).toHaveValue('# Unsaved note')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Knowledge Base'
+    )
+  })
+
+  it('blocks top-level navigation when a pending Knowledge Base save conflicts', async () => {
+    const saveDocument = vi.fn(async (): Promise<KnowledgeBaseSaveResult> => ({
+      status: 'conflict',
+      document: {
+        name: 'note.md',
+        relativePath: 'note.md',
+        contentKind: 'markdown',
+        size: 15,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'external-revision',
+        content: '# External note'
+      }
+    }))
+    const createWorkspaceSession = vi.fn(window.spacezero.agent.createWorkspaceSession)
+    window.spacezero.agent.createWorkspaceSession = createWorkspaceSession
+    configureEditableKnowledgeBase(saveDocument)
+
+    render(<App />)
+    const editor = await openDirtyKnowledgeBaseDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'New Agent' }))
+
+    expect(await screen.findByText(/changed outside Space Zero/i)).toBeInTheDocument()
+    expect(createWorkspaceSession).not.toHaveBeenCalled()
+    expect(editor).toHaveValue('# Unsaved note')
+  })
+
+  it('blocks router navigation when a pending Knowledge Base save fails', async () => {
+    const saveDocument = vi.fn(async (): Promise<KnowledgeBaseSaveResult> => {
+      throw new Error('disk full')
+    })
+    configureEditableKnowledgeBase(saveDocument)
+
+    render(<App />)
+    const editor = await openDirtyKnowledgeBaseDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(editor).toHaveValue('# Unsaved note')
+    expect(screen.queryByRole('heading', { name: 'Settings' })).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Knowledge Base'
+    )
+  })
+
+  it('cancels window close while a dirty Knowledge Base document cannot be saved', async () => {
+    const saveDocument = vi.fn(async (): Promise<KnowledgeBaseSaveResult> => {
+      throw new Error('disk full')
+    })
+    configureEditableKnowledgeBase(saveDocument)
+
+    render(<App />)
+    await openDirtyKnowledgeBaseDocument()
+    const event = new Event('beforeunload', { cancelable: true })
+
+    window.dispatchEvent(event)
+
+    expect(event.defaultPrevented).toBe(true)
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue(
+      '# Unsaved note'
+    )
   })
 
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
@@ -101,6 +243,44 @@ describe('App', () => {
       'Agent Workspace'
     )
     expect(screen.queryByText('/tmp/agent-workspace')).not.toBeInTheDocument()
+  })
+
+  it('shows a separate warning when a project succeeds without Knowledge Base linking', async () => {
+    const projects: Array<{
+      id: string
+      name: string
+      path: string
+      createdAt: string
+      updatedAt: string
+    }> = []
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.projects.createEmpty = async ({ name }) => {
+      const project = {
+        id: 'project-1',
+        name,
+        path: '/tmp/agent-workspace',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+      projects.push(project)
+      return {
+        ...project,
+        setupWarning:
+          'Project was added, but its Knowledge Base folder could not be linked.'
+      }
+    }
+
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add project' }))[0])
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'Agent Workspace' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+
+    expect(await screen.findByRole('button', { name: 'Agent Workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Project was added, but its Knowledge Base folder could not be linked.'
+    )
   })
 
   it('shows persisted project sessions, creates a new session, and restores metadata after reload', async () => {

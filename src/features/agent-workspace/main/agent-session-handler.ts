@@ -1,13 +1,14 @@
 import { app } from 'electron'
 import { mkdir } from 'node:fs/promises'
 import { nanoid } from 'nanoid'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
 import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionKind, AgentSessionState } from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
@@ -26,11 +27,18 @@ type ResolveSkillPaths = (
   projectTrusted?: boolean
 ) => Promise<AgentSkillPath[]>
 
+type StoredProject = {
+  id: string
+  path: string
+  knowledgeBasePath?: string | null
+}
+
 export type CreateAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
+  getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
@@ -44,6 +52,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   getWorkspaceSessionCwd?: () => string
+  getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
@@ -61,6 +70,7 @@ export async function createProjectAgentSession(
     utilityHost,
     createSessionId = nanoid,
     readModelDefaults = getModelDefaults,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
     resolveSkillPaths
@@ -75,6 +85,10 @@ export async function createProjectAgentSession(
 
   const sessionId = createSessionId()
   const modelDefaults = await readModelDefaults()
+  const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
+    project.knowledgeBasePath,
+    getKnowledgeBaseStatus
+  )
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const projectTrusted = await readProjectTrust(request.projectId, projectPath)
   const skillPaths = await resolveSessionSkillPaths(
@@ -89,6 +103,7 @@ export async function createProjectAgentSession(
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
     ...(skillPaths ? { skillPaths } : {}),
     ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
@@ -118,6 +133,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
     resolveSkillPaths
@@ -131,6 +147,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     getWorkspaceSessionCwd,
+    getKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths,
     readProjectTrust,
     resolveSkillPaths
@@ -152,6 +169,7 @@ async function restoreAgentSessionStateOnce(
     repository,
     utilityHost,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
     resolveSkillPaths
@@ -166,10 +184,17 @@ async function restoreAgentSessionStateOnce(
   const storedSession = await repository.findSessionById(request.sessionId)
   if (!storedSession) throw new Error('agent.sessionNotFound')
 
+  const project = storedSession.projectId
+    ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
+    : undefined
+  const cwd = project ? resolve(project.path) : resolve(getWorkspaceSessionCwd())
+  const knowledgeBasePath = project
+    ? await getAvailableProjectKnowledgeBasePath(
+        project.knowledgeBasePath,
+        getKnowledgeBaseStatus
+      )
+    : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const cwd = storedSession.projectId
-    ? resolveStoredProjectPath(await repository.findProjectById(storedSession.projectId))
-    : resolve(getWorkspaceSessionCwd())
   const projectTrusted = storedSession.projectId
     ? await readProjectTrust(storedSession.projectId, cwd)
     : false
@@ -180,7 +205,7 @@ async function restoreAgentSessionStateOnce(
     projectTrusted
   )
 
-  if (!storedSession.projectId) await mkdir(cwd, { recursive: true })
+  if (!project) await mkdir(cwd, { recursive: true })
 
   try {
     return await utilityHost.createSession({
@@ -190,6 +215,13 @@ async function restoreAgentSessionStateOnce(
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
       workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      ...(project
+        ? {
+            appendSystemPrompt: [
+              createProjectKnowledgeBaseInstructions(knowledgeBasePath)
+            ]
+          }
+        : {}),
       ...(skillPaths ? { skillPaths } : {}),
       ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
       ...(storedSession.modelProvider && storedSession.modelId
@@ -266,9 +298,48 @@ async function resolveSessionSkillPaths(
     : skillPaths.filter((skillPath) => skillPath.scope !== 'project')
 }
 
-function resolveStoredProjectPath(project: { id: string; path: string } | undefined): string {
+function resolveStoredProject(project: StoredProject | undefined): StoredProject {
   if (!project) throw new Error('Project not found')
-  return resolve(project.path)
+  return project
+}
+
+async function getAvailableProjectKnowledgeBasePath(
+  knowledgeBasePath: string | null | undefined,
+  getKnowledgeBaseStatus: () => Promise<KnowledgeBaseStatus>
+): Promise<string | null> {
+  if (!knowledgeBasePath) return null
+
+  try {
+    const status = await getKnowledgeBaseStatus()
+    if (status.setupState !== 'configured') return null
+
+    const pathFromRoot = relative(resolve(status.rootPath), resolve(knowledgeBasePath))
+    if (
+      pathFromRoot === '' ||
+      pathFromRoot === '..' ||
+      pathFromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(pathFromRoot)
+    ) {
+      return null
+    }
+    return knowledgeBasePath
+  } catch {
+    return null
+  }
+}
+
+async function getUnconfiguredKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
+  return { setupState: 'unconfigured' }
+}
+
+export function createProjectKnowledgeBaseInstructions(
+  knowledgeBasePath?: string | null
+): string {
+  if (!knowledgeBasePath) {
+    return `## Project Knowledge Base\n\nThe Project Knowledge Base is not configured. If the builder asks you to read or save durable project knowledge, clearly report that it is unavailable and direct them to set up the Knowledge Base in Space Zero. Do not pretend that knowledge was saved.`
+  }
+
+  return `## Project Knowledge Base\n\nThe durable Knowledge Base folder for this project is:\n\n${knowledgeBasePath}\n\nUse this folder when explicitly asked or when it is clearly useful for durable notes, decisions, debugging findings, handoff summaries, and user-requested project knowledge. Do not fill it with transient output or routine command logs. Read existing context before editing. When you add an important document, update the project README.md index with a useful link and description. The project source repository and this Knowledge Base folder are separate; keep source code in the project repository by default.`
 }
 
 function defaultWorkspaceSessionCwd(): string {
