@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
@@ -519,16 +520,38 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('Agents')).not.toBeInTheDocument()
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument()
+    expect(screen.getByText('/tmp/SpaceZero')).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'New projects and repositories will be created in /tmp/SpaceZero/projects.'
+      )
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Change' })).toBeInTheDocument()
     expect(screen.queryByText('Space Zero Account')).not.toBeInTheDocument()
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('changes the Space Zero Home from General Settings', async () => {
+    window.spacezero.settings.chooseSpaceZeroHome = async () => ({
+      spaceZeroHome: '/tmp/AlternateSpaceZero',
+      projectsPath: '/tmp/AlternateSpaceZero/projects'
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
+
+    expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
   })
 
   it('deep-links to the Models Settings section and returns to General when the section is missing', async () => {
@@ -556,6 +579,118 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
+  })
+
+  it('lists and toggles global Agent Skills from Skills Settings', async () => {
+    let globalSkills = [
+      {
+        name: 'code-review',
+        description: 'Review code changes.',
+        scope: 'user' as const,
+        path: '/Users/tiby/.agents/skills/code-review/SKILL.md',
+        enabled: true
+      }
+    ]
+    const toggleRequests: Array<{ path: string; enabled: boolean }> = []
+    window.spacezero.agent.getGlobalSkills = async () => globalSkills
+    window.spacezero.agent.setGlobalSkillEnabled = async (request) => {
+      toggleRequests.push(request)
+      globalSkills = globalSkills.map((skill) =>
+        skill.path === request.path ? { ...skill, enabled: request.enabled } : skill
+      )
+      return globalSkills
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'skills' } })
+    })
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Skills' })).toBeInTheDocument()
+    const skillsSectionHeading = screen.getByRole('heading', { name: 'Global Agent Skills' })
+    const skillsSectionDescription = screen.getByText(
+      'Choose which global skills Space Zero makes available to new and reloaded agent sessions.'
+    )
+    expect(skillsSectionDescription.parentElement).toBe(skillsSectionHeading.parentElement)
+    const skillName = screen.getByText('code-review')
+    expect(skillName).toBeInTheDocument()
+    expect(screen.queryByText('/skill:code-review')).not.toBeInTheDocument()
+    const skillPath = screen.getByText(
+      /Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/
+    )
+    expect(skillPath).toHaveClass('mt-2')
+
+    const skillsCard = skillName.closest('[data-slot="card"]')
+    const applyNote = screen.getByText('Changes apply to new or reloaded agent sessions.')
+    expect(skillsCard).not.toContainElement(applyNote)
+    expect(applyNote).toHaveClass('text-orange-600', 'dark:text-orange-400')
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Disable code-review' }))
+
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument())
+    expect(toggleRequests).toEqual([
+      { path: '/Users/tiby/.agents/skills/code-review/SKILL.md', enabled: false }
+    ])
+  })
+
+  it('blocks overlapping global Agent Skill toggles while an update is pending', async () => {
+    const globalSkills: AgentGlobalSkill[] = [
+      {
+        name: 'code-review',
+        description: 'Review code changes.',
+        scope: 'user',
+        path: '/skills/code-review/SKILL.md',
+        enabled: true
+      },
+      {
+        name: 'debug',
+        description: 'Debug behavior.',
+        scope: 'spacezero',
+        path: '/skills/debug/SKILL.md',
+        enabled: true
+      }
+    ]
+    let resolveToggle: ((skills: AgentGlobalSkill[]) => void) | undefined
+    window.spacezero.agent.getGlobalSkills = async () => globalSkills
+    window.spacezero.agent.setGlobalSkillEnabled = vi.fn(
+      () =>
+        new Promise<AgentGlobalSkill[]>((resolve) => {
+          resolveToggle = resolve
+        })
+    )
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'skills' } })
+    })
+    render(<App />)
+
+    const reviewSwitch = await screen.findByRole('switch', { name: 'Disable code-review' })
+    const debugSwitch = screen.getByRole('switch', { name: 'Disable debug' })
+    fireEvent.click(reviewSwitch)
+
+    await waitFor(() => {
+      expect(reviewSwitch).toHaveAttribute('aria-disabled', 'true')
+      expect(debugSwitch).toHaveAttribute('aria-disabled', 'true')
+    })
+    fireEvent.click(debugSwitch)
+    expect(window.spacezero.agent.setGlobalSkillEnabled).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveToggle?.([
+        { ...globalSkills[0], enabled: false },
+        globalSkills[1]
+      ])
+      await Promise.resolve()
+    })
+
+    expect(await screen.findByRole('switch', { name: 'Enable code-review' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
+    expect(screen.getByRole('switch', { name: 'Disable debug' })).not.toHaveAttribute(
+      'aria-disabled',
+      'true'
+    )
   })
 
   it('connects and disconnects a subscription through the Models Settings broker', async () => {

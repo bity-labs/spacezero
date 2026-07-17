@@ -123,6 +123,8 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      getGlobalSkills: async () => [],
+      setGlobalSkillEnabled: async () => [],
       getState: async ({ sessionId }) => ({
         sessionId,
         kind: sessionId.startsWith('workspace') ? 'workspace' : 'project',
@@ -209,6 +211,14 @@ beforeEach(async () => {
       updateThemePreference: async (preference) => ({
         preference,
         resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
+      }),
+      getStorageSettings: async () => ({
+        spaceZeroHome: '/tmp/SpaceZero',
+        projectsPath: '/tmp/SpaceZero/projects'
+      }),
+      chooseSpaceZeroHome: async () => ({
+        spaceZeroHome: '/tmp/SpaceZero',
+        projectsPath: '/tmp/SpaceZero/projects'
       }),
       getModelDefaults: async () => ({ defaultThinking: 'medium' }),
       updateModelDefaults: async (request) => ({

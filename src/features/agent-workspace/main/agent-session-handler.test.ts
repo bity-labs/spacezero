@@ -110,6 +110,69 @@ describe('createProjectAgentSession', () => {
     })
   })
 
+  it('passes project skill paths to a trusted project session', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const readProjectTrust = vi.fn(async () => true)
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository: createRepository(),
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        readProjectTrust,
+        readDisabledGlobalSkillPaths: async () => ['/Users/tiby/.agents/skills/review/SKILL.md'],
+        resolveSkillPaths: async () => [
+          { path: '/repo/.agents/skills', scope: 'project' as const },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
+        ]
+      }
+    )
+
+    expect(readProjectTrust).toHaveBeenCalledWith('project-1', '/repo')
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillPaths: [
+          { path: '/repo/.agents/skills', scope: 'project' },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }
+        ],
+        disabledGlobalSkillPaths: ['/Users/tiby/.agents/skills/review/SKILL.md']
+      })
+    )
+  })
+
+  it('denies project skill paths without an explicit trust decision', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository: createRepository(),
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        readProjectTrust: async () => false,
+        resolveSkillPaths: async () => [
+          { path: '/repo/.agents/skills', scope: 'project' as const },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
+        ]
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
+      })
+    )
+  })
+
   it('rejects a renderer-supplied cwd that does not match the stored project path', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),
@@ -294,6 +357,47 @@ describe('restoreAgentSessionState', () => {
       expect.objectContaining({
         defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
         thinkingLevel: 'high'
+      })
+    )
+  })
+
+  it('rechecks project trust before restoring project skill paths', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          }
+        }),
+        utilityHost,
+        readProjectTrust: async () => false,
+        resolveSkillPaths: async () => [
+          { path: '/repo/.agents/skills', scope: 'project' as const },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
+        ]
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
       })
     )
   })
