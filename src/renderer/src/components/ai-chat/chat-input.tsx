@@ -274,18 +274,18 @@ function getSkillSuggestions(value: string, skills: ChatInputSkill[]): ChatInput
   if (query === null) return []
 
   const normalizedQuery = query.toLowerCase()
-  return skills
-    .filter((skill) =>
-      `${skill.name} ${skill.description}`.toLowerCase().includes(normalizedQuery)
-    )
-    .slice(0, 8)
+  return skills.filter((skill) =>
+    `${skill.name} ${skill.description}`.toLowerCase().includes(normalizedQuery)
+  )
 }
 
 function getSkillCommandQuery(value: string): string | null {
   if (!value.startsWith('/') || /\s/.test(value)) return null
 
-  const command = value.slice(1).toLowerCase()
-  if (command === '' || command === 'skill') return ''
-  if (command.startsWith('skill:')) return command.slice('skill:'.length)
-  return null
+  const command = value.slice(1)
+  const normalizedCommand = command.toLowerCase()
+  if (normalizedCommand === '' || normalizedCommand === 'skill') return ''
+  if (normalizedCommand.startsWith('skill:')) return command.slice('skill:'.length)
+
+  return command
 }
