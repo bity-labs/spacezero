@@ -45,6 +45,11 @@ import type {
   GitHubPage,
   GitHubProjectLinkOptions,
   GitHubProjectRequest,
+  GitHubPullRequest,
+  GitHubPullRequestCommentsRequest,
+  GitHubPullRequestListRequest,
+  GitHubPullRequestRequest,
+  GitHubPullRequestSummary,
   GitHubRepository,
   GitHubRepositorySetupOption,
   LinkGitHubProjectRequest,
@@ -98,7 +103,10 @@ export const IPC_CHANNELS = {
     getIssue: 'github:getIssue',
     listIssueComments: 'github:listIssueComments',
     createIssueComment: 'github:createIssueComment',
-    updateIssueState: 'github:updateIssueState'
+    updateIssueState: 'github:updateIssueState',
+    listPullRequests: 'github:listPullRequests',
+    getPullRequest: 'github:getPullRequest',
+    listPullRequestComments: 'github:listPullRequestComments'
   },
   projects: {
     list: 'projects:list',
@@ -203,6 +211,13 @@ export type SpaceZeroAPI = {
     ) => Promise<GitHubPage<GitHubIssueComment>>
     createIssueComment: (request: GitHubIssueCommentCreateRequest) => Promise<GitHubIssueComment>
     updateIssueState: (request: GitHubIssueStateUpdateRequest) => Promise<GitHubIssue>
+    listPullRequests: (
+      request: GitHubPullRequestListRequest
+    ) => Promise<GitHubPage<GitHubPullRequestSummary>>
+    getPullRequest: (request: GitHubPullRequestRequest) => Promise<GitHubPullRequest>
+    listPullRequestComments: (
+      request: GitHubPullRequestCommentsRequest
+    ) => Promise<GitHubPage<GitHubIssueComment>>
   }
   projects: {
     list: () => Promise<Project[]>

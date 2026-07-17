@@ -16,6 +16,8 @@ import { createGitHubInstallationsAdapter } from './github-installations.adapter
 import { createGitHubIssuesAdapter } from './github-issues.adapter'
 import { createGitHubIssuesService } from './github-issues.service'
 import { createGitHubProjectsService } from './github-projects.service'
+import { createGitHubPullRequestsAdapter } from './github-pull-requests.adapter'
+import { createGitHubPullRequestsService } from './github-pull-requests.service'
 import { createGitHubRepositorySetupService } from './github-repository-setup.service'
 
 let authService: GitHubAuthService | undefined
@@ -23,6 +25,7 @@ let connectionService: ReturnType<typeof createGitHubConnectionService> | undefi
 let projectsService: ReturnType<typeof createGitHubProjectsService> | undefined
 let repositorySetupService: ReturnType<typeof createGitHubRepositorySetupService> | undefined
 let issuesService: ReturnType<typeof createGitHubIssuesService> | undefined
+let pullRequestsService: ReturnType<typeof createGitHubPullRequestsService> | undefined
 
 export function getGitHubAuthService(): GitHubAuthService {
   if (authService) return authService
@@ -77,6 +80,16 @@ export function getGitHubIssuesService(): ReturnType<typeof createGitHubIssuesSe
     adapter: createGitHubIssuesAdapter()
   })
   return issuesService
+}
+
+export function getGitHubPullRequestsService(): ReturnType<typeof createGitHubPullRequestsService> {
+  if (pullRequestsService) return pullRequestsService
+  pullRequestsService = createGitHubPullRequestsService({
+    projects: getGitHubProjectsService(),
+    auth: getGitHubAuthService(),
+    adapter: createGitHubPullRequestsAdapter()
+  })
+  return pullRequestsService
 }
 
 export function getGitHubRepositorySetupService(): ReturnType<

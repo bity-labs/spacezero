@@ -10,6 +10,9 @@ import {
   githubIssueRequestSchema,
   githubIssueStateUpdateRequestSchema,
   githubProjectRequestSchema,
+  githubPullRequestCommentsRequestSchema,
+  githubPullRequestListRequestSchema,
+  githubPullRequestRequestSchema,
   linkGitHubProjectRequestSchema,
   startGitHubCloneRequestSchema
 } from '../shared'
@@ -18,6 +21,7 @@ import {
   getGitHubConnectionService,
   getGitHubIssuesService,
   getGitHubProjectsService,
+  getGitHubPullRequestsService,
   getGitHubRepositorySetupService
 } from './github-runtime'
 
@@ -89,5 +93,16 @@ export function registerGitHubIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.github.updateIssueState, (_event, input: unknown) =>
     getGitHubIssuesService().updateIssueState(githubIssueStateUpdateRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequests, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listPullRequests(githubPullRequestListRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.getPullRequest, (_event, input: unknown) =>
+    getGitHubPullRequestsService().getPullRequest(githubPullRequestRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.listPullRequestComments, (_event, input: unknown) =>
+    getGitHubPullRequestsService().listConversationComments(
+      githubPullRequestCommentsRequestSchema.parse(input)
+    )
   )
 }
