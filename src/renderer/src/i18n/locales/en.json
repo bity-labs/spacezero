@@ -144,7 +144,6 @@
       "sectionTitle": "Storage",
       "spaceZeroHome": "Space Zero Home",
       "spaceZeroHomeDescription": "Choose where Space Zero keeps managed projects, worktrees, knowledge, and artifacts.",
-      "projectsPath": "New projects and repositories will be created in {{path}}.",
       "loading": "Loading storage location…",
       "change": "Change",
       "changing": "Changing…",
