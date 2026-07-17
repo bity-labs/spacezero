@@ -4,6 +4,7 @@ import {
   createAgentGetStateCommand,
   createAgentAbortCommand,
   createAgentListSessionsCommand,
+  createAgentListSkillsCommand,
   createAgentPingCommand,
   createAgentPromptCommand,
   createAgentPingResponse,
@@ -83,6 +84,17 @@ describe('agent utility framing protocol', () => {
       requestId: 'request-4',
       command: 'agent.listSessions',
       sessionId: 'agent-session-list'
+    })
+    expect(
+      createAgentListSkillsCommand('request-4a', {
+        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
+      })
+    ).toEqual({
+      type: 'agent.command',
+      requestId: 'request-4a',
+      command: 'agent.listSkills',
+      sessionId: 'agent-skills',
+      payload: { skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }] }
     })
     expect(createAgentPromptCommand('request-5', { sessionId: 'session-1', message: 'Hello' })).toEqual({
       type: 'agent.command',

@@ -16,6 +16,7 @@ import type {
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest,
+  ListAgentSkillsRequest,
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
@@ -181,6 +182,12 @@ async function handleCommand(
         sessionId: result.sessionId,
         snapshot: { status: result.status, messages: [] }
       })
+      return createAgentSuccessResponse(command.requestId, command.sessionId, result)
+    }
+
+    if (command.command === 'agent.listSkills') {
+      const request = command.payload as ListAgentSkillsRequest
+      const result = await piRuntime.listSkills(request.skillPaths)
       return createAgentSuccessResponse(command.requestId, command.sessionId, result)
     }
 

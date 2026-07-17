@@ -93,7 +93,7 @@ Pi owns LLM provider credentials and the model catalog inside the utility proces
 
 Pi's `SessionManager` / `SettingsManager` / `DefaultResourceLoader` are used only inside the utility process for the agent's own conversation transcript and runtime config. They are not the source of truth for Space Zero's project/session model. Space Zero's SQLite (per ADR 0003) owns the higher-level project ↔ session ↔ branch metadata and the link to the Pi transcript path. Pi's session storage is the source of truth only for the agent transcript.
 
-Pi's auto-discovery of extensions, skills, prompt templates, and themes from `~/.pi` and `.pi` is not used for v0 composition. Space Zero registers Workspace Tools and any Pi extensions programmatically via the SDK so the app controls exactly what the agent can do. Skill and prompt-template loading may be re-enabled later if the Agent Workspace wants `/skill:` style commands.
+Pi's broad auto-discovery of extensions, prompt templates, and themes from `~/.pi` and `.pi` is not used for v0 composition. Agent Skills are the exception: Space Zero explicitly composes approved native and standard skill directories and uses Pi's native `/skill:name` expansion. Space Zero registers Workspace Tools and any Pi extensions programmatically via the SDK so the app controls exactly what the agent can do. See `docs/adr/0010-use-agent-skills-from-space-zero-and-standard-scopes.md`.
 
 ## Rationale
 
@@ -118,7 +118,7 @@ Agent-initiated in-session confirmation matches the user's mental model: the age
 - The utility process owns a `Map<sessionId, AgentSession>` and a resource cap for concurrent live sessions.
 - Workspace Tool definitions live in main; the utility receives only descriptors and proxy stubs. New Workspace Tools must be added to the main-owned registry.
 - Pi's built-in project tools run unintercepted in the utility in v0. Optional gating via Pi extension hooks is a later enhancement.
-- Pi's `~/.pi` / `.pi` auto-discovery is disabled for v0. Tool and extension composition is programmatic via the SDK.
+- Pi's broad `~/.pi` / `.pi` auto-discovery for extensions/prompts/themes is disabled in v0. Skill directories are explicitly composed by Space Zero as described in ADR 0010. Tool and extension composition is programmatic via the SDK.
 - LLM credentials and the model catalog are owned by Pi in the utility (`auth.json` / `models.json` under the Space Zero agent dir), not mirrored in SQLite. New sessions default to the workspace-global default model + thinking level; sessions override per-session. Per-project defaults are a v1 enhancement. OAuth is supported from day one via OS browser + `spacezero://` deep link routed through main. User-defined custom providers are deferred to a tracked enhancement issue.
 - Pi session/settings/resource internals are not the source of truth for Space Zero projects/sessions. Space Zero SQLite links to Pi transcript paths instead.
 - Agent Activity History is recorded in main for Workspace Tool calls only; project-tool activity is Pi's own concern unless a future hook is added.
@@ -133,7 +133,7 @@ Agent-initiated in-session confirmation matches the user's mental model: the age
 - **Replace Pi's built-in `bash`/`edit`/`write` with Workspace Tools.** Rejected because those tools operate the builder's repository (the project layer), which is legitimate coding-agent work. The "no backdoors" rule applies to Space Zero app internals, not to the user's project files. Project tools and Workspace Tools are two distinct domains in one `AgentSession`.
 - **A single shared Pi `AgentSession` for the whole app.** Rejected because it would collapse all projects/tasks into one transcript and contradict first-class sessions.
 - **One live session at a time in v0.** Rejected because parallel background agent work is core to the product thesis, not a later optimization. Pi's independent `AgentSession` design supports this naturally.
-- **Pi's `~/.pi` / `.pi` auto-discovery for extensions/skills/prompts/themes in v0.** Rejected for v0 to keep the agent's capability surface fully controlled by Space Zero. Programmatic composition via the SDK is safer and clearer for v0; discovery may return later.
+- **Broad Pi resource auto-discovery for extensions/prompts/themes in v0.** Rejected for v0 to keep the agent's capability surface fully controlled by Space Zero. Agent Skills use an explicit, standards-compatible path composition described in ADR 0010.
 - **`@earendil-works/pi-tui`.** Out of scope; Space Zero is a desktop GUI.
 - **`@earendil-works/pi-orchestrator`.** Out of scope; explicitly experimental and unstable.
 

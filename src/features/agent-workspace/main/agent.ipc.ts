@@ -6,6 +6,11 @@ import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
 import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
+import {
+  createGlobalAgentSkillSettingsService,
+  getDisabledGlobalSkillPaths
+} from './agent-skill-settings.service'
+import { resolveAgentSkillPaths } from './agent-skill-paths'
 import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
@@ -25,6 +30,10 @@ const resolveToolConfirmationRequestSchema = z.object({
 })
 
 export function registerAgentIpc(): void {
+  const globalSkillSettings = createGlobalAgentSkillSettingsService({
+    listSkills: (skillPaths) => getAgentUtilityProcessHost().listSkills({ skillPaths })
+  })
+
   ipcMain.handle(IPC_CHANNELS.agent.ping, () => {
     return getAgentUtilityProcessHost().ping({ sessionId: PING_SESSION_ID })
   })
@@ -32,21 +41,37 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.createSession, (_event, input) => {
     return createProjectAgentSession(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.createWorkspaceSession, () => {
     return createWorkspaceAgentSession({
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+      resolveSkillPaths: resolveAgentSkillPaths
     })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.getGlobalSkills, () => globalSkillSettings.listGlobalSkills())
+
+  ipcMain.handle(IPC_CHANNELS.agent.setGlobalSkillEnabled, (_event, input) => {
+    const request = z.object({
+      path: z.string().trim().min(1).max(4096),
+      enabled: z.boolean()
+    }).parse(input)
+    return globalSkillSettings.setGlobalSkillEnabled(request.path, request.enabled)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {
     return restoreAgentSessionState(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 

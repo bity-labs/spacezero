@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync } from 'node:fs'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import {
   AuthStorage,
@@ -7,9 +7,11 @@ import {
   DefaultResourceLoader,
   defineTool,
   ModelRegistry,
+  parseSkillBlock,
   SessionManager,
   SettingsManager,
   type AgentSession,
+  type ResourceDiagnostic,
   type ToolDefinition
 } from '@earendil-works/pi-coding-agent'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
@@ -23,6 +25,11 @@ import type {
   AgentTranscriptMessage,
   AgentUserContent
 } from '../shared/agent-session-projection.model'
+import type {
+  AgentSkillDescriptor,
+  AgentSkillDiscovery,
+  AgentSkillPath
+} from '../features/agent-workspace/shared/agent-skill.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type {
   ExecuteWorkspaceToolRequest,
@@ -32,11 +39,13 @@ import type { CreatedPiAgentSession } from './agent-session-registry'
 
 const FAUX_PROVIDER_ID = 'faux'
 const FAUX_MODEL_ID = 'faux-1'
+const PI_SKILL_BLOCK_PREFIX = '<skill name="'
 const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls']
 
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
+  onSkillDiagnostics?: (diagnostics: ResourceDiagnostic[]) => void
 }
 
 export type PiAgentRuntime = {
@@ -45,6 +54,7 @@ export type PiAgentRuntime = {
   removeApiKey: (providerId: string) => Promise<void>
   getAuthStatus: () => Promise<ModelAuthSettings>
   getAvailableModels: () => Promise<AvailableModel[]>
+  listSkills: (skillPaths: AgentSkillPath[]) => Promise<AgentSkillDiscovery[]>
   testAuth: (providerId: string) => Promise<AuthTestResult>
   loginOAuth: (providerId: string, callbacks: OAuthRuntimeCallbacks) => Promise<void>
   logoutOAuth: (providerId: string) => Promise<void>
@@ -57,7 +67,8 @@ type OAuthRuntimeCallbacks = {
 
 export function createPiAgentRuntime({
   agentDir,
-  executeWorkspaceTool
+  executeWorkspaceTool,
+  onSkillDiagnostics = logAgentSkillDiagnostics
 }: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
@@ -92,16 +103,28 @@ export function createPiAgentRuntime({
     request: CreateAgentSessionRequest
   ): Promise<CreatedPiAgentSession> {
     const settingsManager = SettingsManager.inMemory()
+    const disabledGlobalSkillPaths = new Set(
+      (request.disabledGlobalSkillPaths ?? []).map((path) => resolve(path))
+    )
     const resourceLoader = new DefaultResourceLoader({
       cwd: request.cwd,
       agentDir,
       settingsManager,
       noExtensions: true,
       noSkills: true,
+      additionalSkillPaths: (request.skillPaths ?? [])
+        .map((entry) => entry.path)
+        .filter((path) => existsSync(path)),
+      skillsOverride: ({ skills, diagnostics }) => ({
+        skills: skills.filter((skill) => !disabledGlobalSkillPaths.has(resolve(skill.filePath))),
+        diagnostics
+      }),
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true
     })
+    await resourceLoader.reload()
+    reportSkillDiagnostics(resourceLoader.getSkills().diagnostics, onSkillDiagnostics)
 
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
@@ -132,7 +155,7 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session, modelRegistry, request.thinkingLevel)
+    return adaptAgentSession(session, modelRegistry, request.thinkingLevel, request.skillPaths)
   }
 
   return {
@@ -153,6 +176,26 @@ export function createPiAgentRuntime({
     },
     getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry, authStorage),
     getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
+    listSkills: async (skillPaths) => {
+      const settingsManager = SettingsManager.inMemory()
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: process.cwd(),
+        agentDir,
+        settingsManager,
+        noExtensions: true,
+        noSkills: true,
+        additionalSkillPaths: skillPaths
+          .map((entry) => entry.path)
+          .filter((path) => existsSync(path)),
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true
+      })
+      await resourceLoader.reload()
+      const skillResources = resourceLoader.getSkills()
+      reportSkillDiagnostics(skillResources.diagnostics, onSkillDiagnostics)
+      return toAgentSkillDiscoveries(skillResources.skills, skillPaths)
+    },
     testAuth: async (providerId) => testProviderAuth(modelRegistry, authStorage, providerId),
     loginOAuth: async (providerId, callbacks) => {
       assertKnownOAuthProvider(authStorage, providerId)
@@ -382,7 +425,8 @@ export function toPiToolName(name: string, index = 0): string {
 function adaptAgentSession(
   session: AgentSession,
   modelRegistry: ModelRegistry,
-  initialThinkingLevel?: ThinkingLevel
+  initialThinkingLevel?: ThinkingLevel,
+  skillPaths?: AgentSkillPath[]
 ): CreatedPiAgentSession {
   let preferredThinkingLevel = initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
 
@@ -401,6 +445,7 @@ function adaptAgentSession(
     get thinkingLevel() {
       return preferredThinkingLevel
     },
+    skills: toAgentSkillDescriptors(session.resourceLoader.getSkills().skills, skillPaths),
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
       if (preferredThinkingLevel) session.setThinkingLevel(preferredThinkingLevel)
@@ -418,6 +463,48 @@ function adaptAgentSession(
     dispose: () => session.dispose(),
     getTranscriptSnapshot: () => toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
+}
+
+function toAgentSkillDescriptors(
+  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skillPaths: AgentSkillPath[] | undefined
+): AgentSkillDescriptor[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    scope: resolveSkillScope(skill.filePath, skillPaths, skill.sourceInfo.scope)
+  }))
+}
+
+function toAgentSkillDiscoveries(
+  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skillPaths: AgentSkillPath[]
+): AgentSkillDiscovery[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    scope: resolveSkillScope(skill.filePath, skillPaths, skill.sourceInfo.scope),
+    path: resolve(skill.filePath)
+  }))
+}
+
+function resolveSkillScope(
+  filePath: string,
+  skillPaths: AgentSkillPath[] | undefined,
+  fallbackScope: string
+): AgentSkillDescriptor['scope'] {
+  const matchingPath = (skillPaths ?? [])
+    .filter((entry) => isPathWithin(filePath, entry.path))
+    .sort((left, right) => right.path.length - left.path.length)[0]
+
+  if (matchingPath) return matchingPath.scope
+  if (fallbackScope === 'project') return 'project'
+  return 'user'
+}
+
+function isPathWithin(filePath: string, rootPath: string): boolean {
+  const relativePath = relative(resolve(rootPath), resolve(filePath))
+  return relativePath === '' || (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath))
 }
 
 function toTranscriptSnapshot(
@@ -467,12 +554,14 @@ function toTranscriptMessage(message: unknown): AgentTranscriptMessage[] {
 }
 
 function toUserContent(content: unknown): string | AgentUserContent[] {
-  if (typeof content === 'string') return content
+  if (typeof content === 'string') return toDisplayUserText(content)
   if (!Array.isArray(content)) return []
 
   return content.flatMap((part): AgentUserContent[] => {
     if (!isRecord(part)) return []
-    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'text' && typeof part.text === 'string') {
+      return [{ type: 'text', text: toDisplayUserText(part.text) }]
+    }
     if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
       return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
     }
@@ -480,10 +569,30 @@ function toUserContent(content: unknown): string | AgentUserContent[] {
   })
 }
 
+function toDisplayUserText(text: string): string {
+  const expandedSkill = parseSkillBlock(text)
+  if (!expandedSkill) return text.startsWith(PI_SKILL_BLOCK_PREFIX) ? '/skill' : text
+
+  const safeUserMessage = expandedSkill.userMessage?.includes('</skill>')
+    ? undefined
+    : expandedSkill.userMessage
+  return `/skill:${expandedSkill.name}${safeUserMessage ? ` ${safeUserMessage}` : ''}`
+}
+
 function toToolResultContent(content: unknown): AgentToolResultContent[] {
-  const userContent = toUserContent(content)
-  if (typeof userContent === 'string') return [{ type: 'text', text: userContent }]
-  return userContent
+  if (typeof content === 'string') return [{ type: 'text', text: content }]
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentToolResultContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') {
+      return [{ type: 'text', text: part.text }]
+    }
+    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+      return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
+    }
+    return []
+  })
 }
 
 function toAssistantContent(content: unknown): AgentAssistantContent[] {
@@ -518,6 +627,19 @@ function toAssistantStopReason(value: unknown): 'stop' | 'length' | 'toolUse' | 
 function getTimestamp(message: Record<string, unknown>): number {
   if (typeof message.timestamp === 'number') return message.timestamp
   return Date.now()
+}
+
+function reportSkillDiagnostics(
+  diagnostics: ResourceDiagnostic[],
+  onSkillDiagnostics: (diagnostics: ResourceDiagnostic[]) => void
+): void {
+  if (diagnostics.length > 0) onSkillDiagnostics(diagnostics)
+}
+
+function logAgentSkillDiagnostics(diagnostics: ResourceDiagnostic[]): void {
+  for (const diagnostic of diagnostics) {
+    console.warn('[agent-skills] resource diagnostic', diagnostic)
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

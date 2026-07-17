@@ -15,6 +15,7 @@ import type {
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest,
+  ListAgentSkillsRequest,
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
@@ -29,6 +30,7 @@ import {
   createAgentHandleOAuthCallbackCommand,
   createAgentLoginOAuthCommand,
   createAgentListSessionsCommand,
+  createAgentListSkillsCommand,
   createAgentPingCommand,
   createAgentRemoveApiKeyCommand,
   createAgentLogoutOAuthCommand,
@@ -41,6 +43,7 @@ import {
 import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
 import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
 import type { ExecuteWorkspaceToolRequest } from '../../../shared/workspace-tool-protocol'
+import type { AgentSkillDiscovery } from '../shared/agent-skill.model'
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_SESSION_LIFECYCLE_TIMEOUT_MS = 60_000
@@ -130,6 +133,10 @@ export class AgentUtilityBroker {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.send(createAgentListSessionsCommand(this.createRequestId())) as Promise<AgentSessionState[]>
+  }
+
+  listSkills(request: ListAgentSkillsRequest): Promise<AgentSkillDiscovery[]> {
+    return this.send(createAgentListSkillsCommand(this.createRequestId(), request)) as Promise<AgentSkillDiscovery[]>
   }
 
   async addApiKey(request: AgentAddApiKeyRequest): Promise<void> {

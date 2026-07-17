@@ -13,6 +13,7 @@ import type {
 import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
 import type { ThinkingLevel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
 import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
+import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
 
 export type CreatedPiAgentSession = {
   sessionId: string
@@ -21,6 +22,7 @@ export type CreatedPiAgentSession = {
   modelProvider: string
   modelId: string
   thinkingLevel: ThinkingLevel | undefined
+  skills?: AgentSkillDescriptor[]
   setModel: (request: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: ThinkingLevel) => Promise<void> | void
   prompt: (message: string) => Promise<void>
@@ -49,6 +51,8 @@ type RegisteredAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  skillPaths: AgentSkillPath[] | undefined
+  disabledGlobalSkillPaths: string[] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -59,10 +63,13 @@ type DormantAgentSession = {
   projectId: string | null
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
+  skillPaths: AgentSkillPath[] | undefined
+  disabledGlobalSkillPaths: string[] | undefined
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
   thinkingLevel: ThinkingLevel | undefined
+  skills?: AgentSkillDescriptor[]
   lastAccessedAt: number
 }
 
@@ -133,6 +140,8 @@ export class AgentSessionRegistry {
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
+          skillPaths: normalizedRequest.skillPaths,
+          disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -285,6 +294,10 @@ export class AgentSessionRegistry {
       cwd: resolve(request.cwd),
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
+      ...(request.skillPaths ? { skillPaths: request.skillPaths } : {}),
+      ...(request.disabledGlobalSkillPaths
+        ? { disabledGlobalSkillPaths: request.disabledGlobalSkillPaths.map((path) => resolve(path)) }
+        : {}),
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
     }
@@ -328,6 +341,10 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
+      ...(dormantSession.skillPaths ? { skillPaths: dormantSession.skillPaths } : {}),
+      ...(dormantSession.disabledGlobalSkillPaths
+        ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
+        : {}),
       ...(dormantSession.modelProvider && dormantSession.modelId
         ? {
             defaultModel: {
@@ -349,6 +366,8 @@ export class AgentSessionRegistry {
       projectId: dormantSession.projectId,
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
+      skillPaths: dormantSession.skillPaths,
+      disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -406,10 +425,13 @@ export class AgentSessionRegistry {
       projectId: session.projectId,
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
+      skillPaths: session.skillPaths,
+      disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
       thinkingLevel: session.piSession.thinkingLevel,
+      skills: session.piSession.skills,
       lastAccessedAt: session.lastAccessedAt
     }
     const state = this.toDormantState(sessionId, dormantSession)
@@ -439,6 +461,7 @@ export class AgentSessionRegistry {
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
       thinkingLevel: session.piSession.thinkingLevel,
+      ...(session.piSession.skills ? { skills: session.piSession.skills } : {}),
       ...(transcriptSnapshot.length > 0 ? { transcriptSnapshot } : {})
     }
   }
@@ -454,7 +477,8 @@ export class AgentSessionRegistry {
       transcriptPath: session.transcriptPath,
       modelProvider: session.modelProvider,
       modelId: session.modelId,
-      thinkingLevel: session.thinkingLevel
+      thinkingLevel: session.thinkingLevel,
+      ...(session.skills ? { skills: session.skills } : {})
     }
   }
 }
