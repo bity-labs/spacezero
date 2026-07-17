@@ -9,7 +9,11 @@ import type {
   ExecuteWorkspaceToolResponse,
   WorkspaceToolAgentDescriptor
 } from './workspace-tool-protocol'
-import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
+import type {
+  AgentSkillDescriptor,
+  AgentSkillDiscovery,
+  AgentSkillPath
+} from '../features/agent-workspace/shared/agent-skill.model'
 
 export type AgentSessionId = string
 
@@ -33,12 +37,17 @@ export type CreateAgentSessionRequest = {
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
   skillPaths?: AgentSkillPath[]
+  disabledGlobalSkillPaths?: string[]
   defaultModel?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
 }
 
 export type GetAgentSessionStateRequest = {
   sessionId: AgentSessionId
+}
+
+export type ListAgentSkillsRequest = {
+  skillPaths: AgentSkillPath[]
 }
 
 export type PromptAgentSessionRequest = {
@@ -110,6 +119,7 @@ export type AgentStreamingEvent = {
 export type AgentUtilityCommandName =
   | 'agent.ping'
   | 'agent.createSession'
+  | 'agent.listSkills'
   | 'agent.deleteSession'
   | 'agent.getState'
   | 'agent.listSessions'
@@ -180,6 +190,7 @@ export type AgentUtilityResult =
   | AgentPingResponse
   | AgentSessionState
   | AgentSessionState[]
+  | AgentSkillDiscovery[]
   | ExecuteWorkspaceToolResponse
   | ModelAuthSettings
   | AvailableModel[]
@@ -244,6 +255,19 @@ export function createAgentCreateSessionCommand(
     requestId,
     command: 'agent.createSession',
     sessionId: request.sessionId,
+    payload: request
+  }
+}
+
+export function createAgentListSkillsCommand(
+  requestId: string,
+  request: ListAgentSkillsRequest
+): AgentUtilityCommand {
+  return {
+    type: 'agent.command',
+    requestId,
+    command: 'agent.listSkills',
+    sessionId: 'agent-skills',
     payload: request
   }
 }

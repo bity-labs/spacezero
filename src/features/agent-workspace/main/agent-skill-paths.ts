@@ -17,6 +17,16 @@ export async function resolveAgentSkillPaths(
   })
 }
 
+export async function resolveGlobalAgentSkillPaths(): Promise<AgentSkillPath[]> {
+  const { spaceZeroHome } = await getStorageSettings()
+  return createAgentSkillPaths({
+    cwd: spaceZeroHome,
+    homePath: app.getPath('home'),
+    spaceZeroHome,
+    includeProjectPaths: false
+  })
+}
+
 export function createAgentSkillPaths({
   cwd,
   homePath,

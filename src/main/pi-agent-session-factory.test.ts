@@ -117,6 +117,74 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('lists discovered skills with their source paths for global settings', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-list-'))
+    const skillDir = join(tempDir, 'skills', 'code-review')
+    const skillPath = join(skillDir, 'SKILL.md')
+
+    try {
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        skillPath,
+        `---\nname: code-review\ndescription: Review code changes.\n---\n\n# Code Review\n`
+      )
+
+      const runtime = createPiAgentRuntime({ agentDir: join(tempDir, 'agent') })
+
+      await expect(
+        runtime.listSkills([{ path: join(tempDir, 'skills'), scope: 'spacezero' }])
+      ).resolves.toEqual([
+        {
+          name: 'code-review',
+          description: 'Review code changes.',
+          scope: 'spacezero',
+          path: skillPath
+        }
+      ])
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('does not load disabled global skills into the Pi session', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-disabled-skill-'))
+    const skillsRoot = join(tempDir, 'skills')
+    const disabledSkillPath = join(skillsRoot, 'code-review', 'SKILL.md')
+    const enabledSkillPath = join(skillsRoot, 'debug', 'SKILL.md')
+
+    try {
+      mkdirSync(join(skillsRoot, 'code-review'), { recursive: true })
+      mkdirSync(join(skillsRoot, 'debug'), { recursive: true })
+      writeFileSync(
+        disabledSkillPath,
+        `---\nname: code-review\ndescription: Review code changes.\n---\n\n# Code Review\n`
+      )
+      writeFileSync(
+        enabledSkillPath,
+        `---\nname: debug\ndescription: Investigate behavior.\n---\n\n# Debug\n`
+      )
+
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        skillPaths: [{ path: skillsRoot, scope: 'spacezero' }],
+        disabledGlobalSkillPaths: [disabledSkillPath]
+      })
+
+      try {
+        expect(session.skills).toEqual([
+          { name: 'debug', description: 'Investigate behavior.', scope: 'spacezero' }
+        ])
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('expands a native skill command before sending it to the model', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-command-'))
     const skillDir = join(tempDir, 'skills', 'code-review')

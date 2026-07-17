@@ -519,6 +519,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('Agents')).not.toBeInTheDocument()
@@ -574,6 +575,43 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
+  })
+
+  it('lists and toggles global Agent Skills from Skills Settings', async () => {
+    let globalSkills = [
+      {
+        name: 'code-review',
+        description: 'Review code changes.',
+        scope: 'user' as const,
+        path: '/Users/tiby/.agents/skills/code-review/SKILL.md',
+        enabled: true
+      }
+    ]
+    const toggleRequests: Array<{ path: string; enabled: boolean }> = []
+    window.spacezero.agent.getGlobalSkills = async () => globalSkills
+    window.spacezero.agent.setGlobalSkillEnabled = async (request) => {
+      toggleRequests.push(request)
+      globalSkills = globalSkills.map((skill) =>
+        skill.path === request.path ? { ...skill, enabled: request.enabled } : skill
+      )
+      return globalSkills
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'skills' } })
+    })
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByText('/skill:code-review')).toBeInTheDocument()
+    expect(screen.getByText(/Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Disable code-review' }))
+
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument())
+    expect(toggleRequests).toEqual([
+      { path: '/Users/tiby/.agents/skills/code-review/SKILL.md', enabled: false }
+    ])
   })
 
   it('connects and disconnects a subscription through the Models Settings broker', async () => {

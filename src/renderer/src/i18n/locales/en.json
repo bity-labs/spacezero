@@ -150,6 +150,17 @@
       "changing": "Changing…",
       "error": "Could not update the Space Zero storage location."
     },
+    "skills": {
+      "sectionTitle": "Global Agent Skills",
+      "description": "Choose which global skills Space Zero makes available to new and reloaded agent sessions.",
+      "loading": "Loading global skills…",
+      "empty": "No global skills found.",
+      "path": "Path: {{path}}",
+      "enable": "Enable {{name}}",
+      "disable": "Disable {{name}}",
+      "applyNote": "Changes apply to new or reloaded agent sessions.",
+      "error": "Could not update global skill availability."
+    },
     "language": {
       "sectionTitle": "Language",
       "label": "Language",
@@ -179,6 +190,7 @@
       "appearance": "Appearance",
       "agents": "Agents",
       "models": "Models",
+      "skills": "Skills",
       "cloudAgents": "Cloud Agents"
     },
     "account": {

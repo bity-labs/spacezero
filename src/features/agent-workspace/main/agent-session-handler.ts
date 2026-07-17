@@ -11,6 +11,7 @@ import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionKind, AgentSessionState } from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
+import { getDisabledGlobalSkillPaths } from './agent-skill-settings.service'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 
 export const createSessionRequestSchema = z.object({
@@ -23,6 +24,7 @@ export type CreateAgentSessionHandlerDependencies = {
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
+  readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   resolveSkillPaths?: (cwd: string, kind: AgentSessionKind) => Promise<AgentSkillPath[]>
 }
 
@@ -34,10 +36,12 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   getWorkspaceSessionCwd?: () => string
+  readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   resolveSkillPaths?: (cwd: string, kind: AgentSessionKind) => Promise<AgentSkillPath[]>
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
+const noDisabledGlobalSkillPaths: typeof getDisabledGlobalSkillPaths = async () => []
 
 export async function createProjectAgentSession(
   input: unknown,
@@ -46,6 +50,7 @@ export async function createProjectAgentSession(
     utilityHost,
     createSessionId = nanoid,
     readModelDefaults = getModelDefaults,
+    readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     resolveSkillPaths
   }: CreateAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
@@ -58,6 +63,7 @@ export async function createProjectAgentSession(
 
   const sessionId = createSessionId()
   const modelDefaults = await readModelDefaults()
+  const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const skillPaths = resolveSkillPaths
     ? await resolveSkillPaths(projectPath, 'project')
     : undefined
@@ -68,6 +74,7 @@ export async function createProjectAgentSession(
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
     ...(skillPaths ? { skillPaths } : {}),
+    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })
@@ -95,6 +102,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     resolveSkillPaths
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
@@ -106,6 +114,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     getWorkspaceSessionCwd,
+    readDisabledGlobalSkillPaths,
     resolveSkillPaths
   })
   pendingSessionRestores.set(request.sessionId, restore)
@@ -125,6 +134,7 @@ async function restoreAgentSessionStateOnce(
     repository,
     utilityHost,
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     resolveSkillPaths
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
@@ -137,6 +147,7 @@ async function restoreAgentSessionStateOnce(
   const storedSession = await repository.findSessionById(request.sessionId)
   if (!storedSession) throw new Error('agent.sessionNotFound')
 
+  const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const cwd = storedSession.projectId
     ? resolveStoredProjectPath(await repository.findProjectById(storedSession.projectId))
     : resolve(getWorkspaceSessionCwd())
@@ -159,6 +170,7 @@ async function restoreAgentSessionStateOnce(
             )
           }
         : {}),
+      ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -183,6 +195,7 @@ export async function createWorkspaceAgentSession({
   createSessionId = nanoid,
   readModelDefaults = getModelDefaults,
   getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+  readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
   resolveSkillPaths
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
   const sessionId = createSessionId()
@@ -190,6 +203,7 @@ export async function createWorkspaceAgentSession({
   await mkdir(cwd, { recursive: true })
 
   const modelDefaults = await readModelDefaults()
+  const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const skillPaths = resolveSkillPaths
     ? await resolveSkillPaths(cwd, 'workspace')
     : undefined
@@ -200,6 +214,7 @@ export async function createWorkspaceAgentSession({
     cwd,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
     ...(skillPaths ? { skillPaths } : {}),
+    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })
