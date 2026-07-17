@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   appendKnowledgeBaseMentionContext,
+  encodeKnowledgeBaseMentionPath,
   parseKnowledgeBaseMentions,
   stripKnowledgeBaseMentionContext
 } from './knowledge-base-mentions'
@@ -24,6 +25,28 @@ describe('parseKnowledgeBaseMentions', () => {
         kind: 'folder'
       }
     ])
+  })
+
+  it('decodes unambiguous mentions for file and folder paths containing spaces', () => {
+    expect(
+      parseKnowledgeBaseMentions(
+        'Read @kb/Design%20Notes/README.md and @kb/Project%20Notes/'
+      )
+    ).toEqual([
+      {
+        raw: '@kb/Design%20Notes/README.md',
+        relativePath: 'Design Notes/README.md',
+        kind: 'file'
+      },
+      {
+        raw: '@kb/Project%20Notes/',
+        relativePath: 'Project Notes',
+        kind: 'folder'
+      }
+    ])
+    expect(encodeKnowledgeBaseMentionPath('Design Notes/README.md')).toBe(
+      'Design%20Notes/README.md'
+    )
   })
 
   it('deduplicates mentions and ignores incomplete paths', () => {

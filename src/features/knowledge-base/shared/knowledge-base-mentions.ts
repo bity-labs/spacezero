@@ -12,6 +12,13 @@ export type ResolvedKnowledgeBaseMention = {
   absolutePath: string
 }
 
+export function encodeKnowledgeBaseMentionPath(relativePath: string): string {
+  return relativePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')
+}
+
 export function parseKnowledgeBaseMentions(message: string): KnowledgeBaseMention[] {
   const mentions: KnowledgeBaseMention[] = []
   const seen = new Set<string>()
@@ -20,7 +27,9 @@ export function parseKnowledgeBaseMentions(message: string): KnowledgeBaseMentio
   for (const match of message.matchAll(pattern)) {
     const raw = match[1]
     if (!raw) continue
-    const mentionedPath = raw.slice('@kb/'.length)
+    const encodedPath = raw.slice('@kb/'.length)
+    const mentionedPath = decodeMentionPath(encodedPath)
+    if (mentionedPath === undefined) continue
     const kind = mentionedPath.endsWith('/') ? 'folder' : 'file'
     const relativePath = kind === 'folder' ? mentionedPath.slice(0, -1) : mentionedPath
     if (!relativePath || seen.has(raw)) continue
@@ -29,6 +38,14 @@ export function parseKnowledgeBaseMentions(message: string): KnowledgeBaseMentio
   }
 
   return mentions
+}
+
+function decodeMentionPath(encodedPath: string): string | undefined {
+  try {
+    return decodeURIComponent(encodedPath)
+  } catch {
+    return undefined
+  }
 }
 
 export function getActiveKnowledgeBaseMentionQuery(

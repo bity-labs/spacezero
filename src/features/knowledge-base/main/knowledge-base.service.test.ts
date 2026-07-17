@@ -150,6 +150,30 @@ describe('createKnowledgeBaseService', () => {
     expect(host.runGit).not.toHaveBeenCalled()
   })
 
+  it('redacts credentials from clone failures returned across IPC', async () => {
+    const configurationRepository = createConfigurationRepository()
+    const credentialUrl = 'https://builder:secret-token@example.com/notes.git'
+    let destinationExists = false
+    const host = createHost({
+      pathExists: vi.fn(async () => destinationExists),
+      runGit: vi.fn(async () => {
+        destinationExists = true
+        throw new Error(`fatal: unable to access '${credentialUrl}': authentication failed`)
+      })
+    })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.cloneFromGit({ gitUrl: credentialUrl })).rejects.toThrow(
+      "fatal: unable to access 'https://[redacted]@example.com/notes.git': authentication failed"
+    )
+    expect(host.removeDirectory).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
+    expect(configurationRepository.value).toBeUndefined()
+  })
+
   it('surfaces clone failures, removes the failed destination, and does not persist', async () => {
     const configurationRepository = createConfigurationRepository()
     let destinationExists = false

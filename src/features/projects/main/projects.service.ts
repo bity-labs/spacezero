@@ -32,6 +32,11 @@ export type ProjectPathAdapter = {
 
 export type Clock = () => Date
 
+export type OptionalProjectLinkResult = {
+  project: StoredProject
+  warning?: string
+}
+
 export type ProjectsService = {
   listProjects: () => Promise<Project[]>
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
@@ -44,17 +49,31 @@ export type ProjectsService = {
 export function createProjectsService({
   repository,
   pathAdapter,
-  linkKnowledgeBaseProject = async (project) => project,
+  linkKnowledgeBaseProject = async (project) => ({ project }),
   now = () => new Date()
 }: {
   repository: ProjectsRepository
   pathAdapter: ProjectPathAdapter
-  linkKnowledgeBaseProject?: (project: StoredProject) => Promise<StoredProject>
+  linkKnowledgeBaseProject?: (project: StoredProject) => Promise<OptionalProjectLinkResult>
   now?: Clock
 }): ProjectsService {
+  async function linkOptionalKnowledgeBase(project: StoredProject): Promise<Project> {
+    try {
+      const result = await linkKnowledgeBaseProject(project)
+      return toProject(result.project, result.warning)
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : 'Unknown linking error.'
+      return toProject(
+        project,
+        `Project was added, but its Knowledge Base folder could not be linked. ${message}`
+      )
+    }
+  }
+
   return {
     async listProjects() {
-      return (await repository.list()).map(toProject)
+      return (await repository.list()).map((project) => toProject(project))
     },
 
     async createEmptyProject(request) {
@@ -69,7 +88,7 @@ export function createProjectsService({
         createdAt: timestamp,
         updatedAt: timestamp
       })
-      return toProject(await linkKnowledgeBaseProject(project))
+      return linkOptionalKnowledgeBase(project)
     },
 
     async addProjectFromFolder() {
@@ -84,7 +103,7 @@ export function createProjectsService({
         createdAt: timestamp,
         updatedAt: timestamp
       })
-      return toProject(await linkKnowledgeBaseProject(project))
+      return linkOptionalKnowledgeBase(project)
     },
 
     async updateProject(request) {
@@ -123,12 +142,13 @@ function normalizeName(name: string): string {
   return normalized
 }
 
-function toProject(project: StoredProject): Project {
+function toProject(project: StoredProject, setupWarning?: string): Project {
   return {
     id: project.id,
     name: project.name,
     path: project.path,
     ...(project.knowledgeBasePath ? { knowledgeBasePath: project.knowledgeBasePath } : {}),
+    ...(setupWarning ? { setupWarning } : {}),
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString()
   }

@@ -42,6 +42,7 @@ import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
+import { Alert, AlertDescription } from './components/ui/alert'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -101,6 +102,7 @@ export function WorkspaceShell(): React.JSX.Element {
     activeProject,
     status: projectsStatus,
     error: projectsError,
+    warning: projectsWarning,
     selectProject,
     createEmptyProject,
     addProjectFromFolder,
@@ -479,6 +481,11 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col bg-background"
           role="main"
         >
+          {projectsWarning ? (
+            <Alert className="m-4 mb-0 w-auto">
+              <AlertDescription>{projectsWarning}</AlertDescription>
+            </Alert>
+          ) : null}
           {activePrimaryView === 'knowledge-base' ? (
             <KnowledgeBasePage />
           ) : activeTab ? (

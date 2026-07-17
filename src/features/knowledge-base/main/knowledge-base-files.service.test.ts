@@ -155,7 +155,7 @@ describe('createKnowledgeBaseFilesService', () => {
     })
   })
 
-  it('loads previews only from the vault assets/img directory', async () => {
+  it('loads previews only from the Knowledge Base assets/img directory', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
       configurationRepository: configuredRepository(rootPath)
@@ -223,7 +223,7 @@ describe('createKnowledgeBaseFilesService', () => {
     await expect(access(join(rootPath, 'assets'))).rejects.toThrow()
   })
 
-  it('does not follow a symlinked assets directory outside the vault', async () => {
+  it('does not follow a symlinked assets directory outside the Knowledge Base', async () => {
     const { rootPath } = await createFixture()
     const outsideAssets = join(rootPath, '..', 'outside-assets')
     await mkdir(outsideAssets)
@@ -463,6 +463,96 @@ describe('createKnowledgeBaseFilesService', () => {
     ).rejects.toThrow('Knowledge Base path is outside the configured root.')
     await expect(service.deleteItem({ relativePath: '.git' })).rejects.toThrow(
       'Knowledge Base Git internals are protected.'
+    )
+  })
+
+  it('rejects read and mutation operations through a parent symlink outside the Knowledge Base', async () => {
+    const { rootPath } = await createFixture()
+    const outsideDirectory = join(rootPath, '..', 'outside-directory')
+    const outsideFile = join(outsideDirectory, 'victim.md')
+    await mkdir(outsideDirectory)
+    await writeFile(outsideFile, '# Keep me\n')
+    await symlink(outsideDirectory, join(rootPath, 'outside-directory-link'))
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(
+      service.openDocument({ relativePath: 'outside-directory-link/victim.md' })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.saveDocument({
+        relativePath: 'outside-directory-link/victim.md',
+        content: '# Deleted\n',
+        expectedRevision: 'untrusted-revision'
+      })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.createItem({ relativePath: 'outside-directory-link/new.md', kind: 'file' })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.moveItem({
+        sourcePath: 'docs/note.md',
+        destinationPath: 'outside-directory-link/moved.md'
+      })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.moveItem({
+        sourcePath: 'outside-directory-link/victim.md',
+        destinationPath: 'stolen.md'
+      })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.deleteItem({ relativePath: 'outside-directory-link/victim.md' })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+
+    await expect(readFile(outsideFile, 'utf8')).resolves.toBe('# Keep me\n')
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Durable note\n'
+    )
+  })
+
+  it('rejects canonical aliases and parent symlinks into protected Git internals', async () => {
+    const { rootPath } = await createFixture()
+    await symlink(join(rootPath, '.git'), join(rootPath, 'git-link'))
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(service.openDocument({ relativePath: '.GIT/config' })).rejects.toThrow(
+      'Knowledge Base Git internals are protected.'
+    )
+    await expect(
+      service.createItem({ relativePath: '.GIT/new', kind: 'file' })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(
+      service.openDocument({ relativePath: 'git-link/config' })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(
+      service.saveDocument({
+        relativePath: 'git-link/config',
+        content: 'overwritten',
+        expectedRevision: 'untrusted-revision'
+      })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(
+      service.moveItem({ sourcePath: 'git-link/config', destinationPath: 'stolen-config' })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(
+      service.moveItem({
+        sourcePath: 'docs/note.md',
+        destinationPath: 'git-link/note.md'
+      })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(service.deleteItem({ relativePath: 'git-link/config' })).rejects.toThrow(
+      'Knowledge Base Git internals are protected.'
+    )
+
+    await expect(readFile(join(rootPath, '.git', 'config'), 'utf8')).resolves.toBe(
+      'secret git metadata'
+    )
+    await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
+      '# Durable note\n'
     )
   })
 

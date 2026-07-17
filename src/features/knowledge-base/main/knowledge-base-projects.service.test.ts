@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredProject } from '../../projects/main/projects.service'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
@@ -82,7 +82,9 @@ describe('createKnowledgeBaseProjectsService', () => {
       host: createKnowledgeBaseProjectFolderHost()
     })
 
-    await service.linkExistingProjects()
+    await expect(service.linkExistingProjects()).resolves.toMatchObject({
+      warning: undefined
+    })
 
     expect(projectsRepository.projects.map((project) => project.knowledgeBasePath)).toEqual([
       join(rootPath, 'projects', 'space-zero'),
@@ -104,7 +106,10 @@ describe('createKnowledgeBaseProjectsService', () => {
     })
 
     await expect(service.linkProject(project)).resolves.toMatchObject({
-      knowledgeBasePath: join(rootPath, 'projects', 'agent-workspace')
+      project: {
+        knowledgeBasePath: join(rootPath, 'projects', 'agent-workspace')
+      },
+      warning: undefined
     })
   })
 
@@ -138,8 +143,54 @@ describe('createKnowledgeBaseProjectsService', () => {
       host: createKnowledgeBaseProjectFolderHost()
     })
 
-    await expect(service.linkProject(project)).resolves.toBe(project)
+    await expect(service.linkProject(project)).resolves.toEqual({
+      project,
+      warning: undefined
+    })
     expect(projectsRepository.projects[0]?.knowledgeBasePath).toBeUndefined()
+  })
+
+  it('returns a non-blocking warning when a project folder cannot be linked', async () => {
+    const rootPath = await createRoot()
+    const project = createProject('project-1', 'Space Zero')
+    const projectsRepository = createProjectsRepository([project])
+    const host = createKnowledgeBaseProjectFolderHost()
+    host.createDirectory = vi.fn(async () => {
+      throw new Error('Permission denied')
+    })
+    const service = createKnowledgeBaseProjectsService({
+      configurationRepository: createConfigurationRepository(rootPath),
+      projectsRepository,
+      host
+    })
+
+    await expect(service.linkProject(project)).resolves.toEqual({
+      project,
+      warning:
+        'Could not link the Knowledge Base folder for "Space Zero". Permission denied'
+    })
+    expect(projectsRepository.projects[0]?.knowledgeBasePath).toBeUndefined()
+  })
+
+  it('keeps setup successful and reports backfill failures separately', async () => {
+    const rootPath = await createRoot()
+    const project = createProject('project-1', 'Space Zero')
+    const projectsRepository = createProjectsRepository([project])
+    const host = createKnowledgeBaseProjectFolderHost()
+    host.getPathKind = vi.fn(async () => {
+      throw new Error('Knowledge Base is read-only')
+    })
+    const service = createKnowledgeBaseProjectsService({
+      configurationRepository: createConfigurationRepository(rootPath),
+      projectsRepository,
+      host
+    })
+
+    await expect(service.linkExistingProjects()).resolves.toEqual({
+      projects: [project],
+      warning:
+        'Could not link the Knowledge Base folder for "Space Zero". Knowledge Base is read-only'
+    })
   })
 })
 

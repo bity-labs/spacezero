@@ -117,6 +117,44 @@ describe('App', () => {
     expect(screen.queryByText('/tmp/agent-workspace')).not.toBeInTheDocument()
   })
 
+  it('shows a separate warning when a project succeeds without Knowledge Base linking', async () => {
+    const projects: Array<{
+      id: string
+      name: string
+      path: string
+      createdAt: string
+      updatedAt: string
+    }> = []
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.projects.createEmpty = async ({ name }) => {
+      const project = {
+        id: 'project-1',
+        name,
+        path: '/tmp/agent-workspace',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+      projects.push(project)
+      return {
+        ...project,
+        setupWarning:
+          'Project was added, but its Knowledge Base folder could not be linked.'
+      }
+    }
+
+    render(<App />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add project' }))[0])
+    fireEvent.change(await screen.findByLabelText('Project name'), {
+      target: { value: 'Agent Workspace' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+
+    expect(await screen.findByRole('button', { name: 'Agent Workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Project was added, but its Knowledge Base folder could not be linked.'
+    )
+  })
+
   it('shows persisted project sessions, creates a new session, and restores metadata after reload', async () => {
     const projects = [
       {

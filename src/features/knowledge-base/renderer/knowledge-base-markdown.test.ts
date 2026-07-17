@@ -1,5 +1,6 @@
 import {
   getRichMarkdownLimitation,
+  RICH_MARKDOWN_FOOTNOTE_LIMITATION,
   RICH_MARKDOWN_LIMITATION,
   splitMarkdownDocument
 } from './knowledge-base-markdown'
@@ -24,6 +25,20 @@ describe('Knowledge Base Markdown safety', () => {
     ['ordinary Markdown braces', 'Use {workspace} as a placeholder.', false]
   ])('allows rich mode for %s', (_description, markdown, isMdx) => {
     expect(getRichMarkdownLimitation(markdown, { isMdx })).toBeNull()
+  })
+
+  it('requires source mode for footnotes that the rich editor cannot preserve', () => {
+    const markdown = 'A durable note[^decision].\n\n[^decision]: The supporting context.'
+
+    expect(getRichMarkdownLimitation(markdown)).toBe(
+      RICH_MARKDOWN_FOOTNOTE_LIMITATION
+    )
+  })
+
+  it('ignores footnote examples inside code blocks', () => {
+    expect(
+      getRichMarkdownLimitation('```md\nA note[^1].\n\n[^1]: Example only.\n```')
+    ).toBeNull()
   })
 
   it.each([

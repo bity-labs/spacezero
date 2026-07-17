@@ -156,6 +156,47 @@ describe('ChatInput', () => {
     expect(JSON.stringify(handleSubmit.mock.calls)).not.toContain('architecture.md')
   })
 
+  it('encodes spaces when autocompleting Knowledge Base mentions', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'Design Notes',
+        relativePath: 'Design Notes',
+        kind: 'folder',
+        contentKind: 'folder',
+        children: [
+          {
+            name: 'README.md',
+            relativePath: 'Design Notes/README.md',
+            kind: 'file',
+            contentKind: 'markdown',
+            size: 10,
+            modifiedAt: new Date(0).toISOString()
+          }
+        ]
+      }
+    ]
+    const handleSubmit = vi.fn()
+    render(<ChatInput onSubmit={handleSubmit} />)
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+
+    fireEvent.change(input, { target: { value: 'Review @kb/Design' } })
+    fireEvent.click(
+      await screen.findByRole('option', { name: '@kb/Design Notes/README.md' })
+    )
+
+    expect(input).toHaveValue('Review @kb/Design%20Notes/README.md ')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'Review @kb/Design%20Notes/README.md',
+      files: [],
+      modelId: undefined
+    })
+  })
+
   it('prompts setup when @kb autocomplete is used before configuration', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     render(<ChatInput onSubmit={vi.fn()} />)

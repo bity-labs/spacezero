@@ -79,8 +79,8 @@ The primary user is a software builder who uses AI agents while building applica
 - The v0 agent strategy is Pi-first; do not add multi-harness abstractions without a new decision.
 - Electron is the v0 desktop shell because embedded browser/devtools capability and desktop process control matter more than a tiny binary.
 - GitHub should be integrated deeply, not treated as a link-out-only experience.
-- Project source repositories live outside the vault under `~/ws/dev/`; the vault tracks metadata and decisions only.
-- Knowledge Base image uploads use the fixed vault-relative `assets/img/` directory and relative Markdown links; there is no attachment-location setting.
+- Project source repositories remain separate from the Knowledge Base; the Knowledge Base stores durable project knowledge rather than source code by default.
+- Knowledge Base image uploads use the fixed Knowledge Base-relative `assets/img/` directory and relative Markdown links; there is no attachment-location setting.
 - New sessions should start from a workspace-global default model and default thinking level defined in Space Zero Settings. A session may override both independently. Per-project default model/thinking is a v1 enhancement with project settings, not v0.
 - LLM provider credentials and the model catalog are owned by Pi in the utility, not mirrored in SQLite. Renderer Settings/Model UI brokers to the utility through main over `window.spacezero`. OAuth providers are supported from day one via the OS browser plus a `spacezero://` deep link handled by main.
 - Meaningful user actions should be implemented as application capabilities that can be reached by the renderer UI and, when appropriate, exposed as Workspace Tools for agents.

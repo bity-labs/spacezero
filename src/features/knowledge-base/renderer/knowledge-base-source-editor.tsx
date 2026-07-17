@@ -1,4 +1,12 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type ReactNode
+} from 'react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
@@ -14,94 +22,213 @@ export type KnowledgeBaseEditorRenderProps = {
   onChange: (value: string) => void
 }
 
-export function KnowledgeBaseSourceEditor({
-  document,
-  onDocumentChange,
-  renderHeaderActions,
-  renderEditorNotice,
-  renderEditor
-}: {
+export type KnowledgeBaseSourceEditorHandle = {
+  flushPendingSave: () => Promise<boolean>
+}
+
+type KnowledgeBaseSourceEditorProps = {
   document: KnowledgeBaseDocument
   onDocumentChange?: (document: KnowledgeBaseDocument) => void
   renderHeaderActions?: (value: string) => ReactNode
   renderEditorNotice?: (value: string) => ReactNode
   renderEditor?: (props: KnowledgeBaseEditorRenderProps) => ReactNode
-}): React.JSX.Element {
-  const [draft, setDraft] = useState(document.content ?? '')
-  const [savedContent, setSavedContent] = useState(document.content ?? '')
-  const [revision, setRevision] = useState(document.revision)
+}
+
+export const KnowledgeBaseSourceEditor = forwardRef<
+  KnowledgeBaseSourceEditorHandle,
+  KnowledgeBaseSourceEditorProps
+>(function KnowledgeBaseSourceEditor(
+  {
+    document,
+    onDocumentChange,
+    renderHeaderActions,
+    renderEditorNotice,
+    renderEditor
+  },
+  ref
+): React.JSX.Element {
+  const initialContent = document.content ?? ''
+  const [draft, setDraft] = useState(initialContent)
+  const [savedContent, setSavedContent] = useState(initialContent)
+  const [, setRevision] = useState(document.revision)
   const [saveState, setSaveState] = useState<SaveState>('saved')
   const [externalDocument, setExternalDocument] = useState<KnowledgeBaseDocument | null>(null)
+  const documentRef = useRef(document)
+  const draftRef = useRef(initialContent)
+  const savedContentRef = useRef(initialContent)
+  const revisionRef = useRef(document.revision)
+  const saveStateRef = useRef<SaveState>('saved')
+  const externalDocumentRef = useRef<KnowledgeBaseDocument | null>(null)
+  const onDocumentChangeRef = useRef(onDocumentChange)
+  const activeSaveRef = useRef<Promise<boolean> | null>(null)
+  const autosaveTimeoutRef = useRef<number | null>(null)
+  const mountedRef = useRef(true)
+
+  documentRef.current = document
+  onDocumentChangeRef.current = onDocumentChange
+
+  const updateSaveState = useCallback((state: SaveState): void => {
+    saveStateRef.current = state
+    if (mountedRef.current) setSaveState(state)
+  }, [])
+
+  const saveCurrentDraft = useCallback(async (): Promise<boolean> => {
+    if (externalDocumentRef.current) return false
+    if (activeSaveRef.current) return activeSaveRef.current
+    if (draftRef.current === savedContentRef.current) return true
+
+    const content = draftRef.current
+    const relativePath = documentRef.current.relativePath
+    const expectedRevision = revisionRef.current
+    updateSaveState('saving')
+
+    const savePromise = window.spacezero.knowledgeBase
+      .saveDocument({ relativePath, content, expectedRevision })
+      .then((result) => {
+        if (result.status === 'conflict') {
+          externalDocumentRef.current = result.document
+          if (mountedRef.current) setExternalDocument(result.document)
+          updateSaveState('external')
+          return false
+        }
+
+        const persistedContent = result.document.content ?? content
+        revisionRef.current = result.document.revision
+        savedContentRef.current = persistedContent
+        if (mountedRef.current) {
+          setRevision(result.document.revision)
+          setSavedContent(persistedContent)
+        }
+        updateSaveState('saved')
+        onDocumentChangeRef.current?.(result.document)
+        return true
+      })
+      .catch(() => {
+        updateSaveState('error')
+        return false
+      })
+      .finally(() => {
+        if (activeSaveRef.current === savePromise) activeSaveRef.current = null
+      })
+
+    activeSaveRef.current = savePromise
+    return savePromise
+  }, [updateSaveState])
+
+  const flushPendingSave = useCallback(async (): Promise<boolean> => {
+    while (draftRef.current !== savedContentRef.current) {
+      if (externalDocumentRef.current) return false
+      const saved = await saveCurrentDraft()
+      if (!saved) return false
+    }
+    return true
+  }, [saveCurrentDraft])
+
+  useImperativeHandle(ref, () => ({ flushPendingSave }), [flushPendingSave])
 
   useEffect(() => {
     if (draft === savedContent || externalDocument) return undefined
 
     const timeout = window.setTimeout(() => {
-      setSaveState('saving')
-      void window.spacezero.knowledgeBase
-        .saveDocument({
-          relativePath: document.relativePath,
-          content: draft,
-          expectedRevision: revision
-        })
-        .then((result) => {
-          if (result.status === 'conflict') {
-            setExternalDocument(result.document)
-            setSaveState('external')
-            return
-          }
-
-          setRevision(result.document.revision)
-          setSavedContent(result.document.content ?? draft)
-          setSaveState('saved')
-          onDocumentChange?.(result.document)
-        })
-        .catch(() => setSaveState('error'))
+      autosaveTimeoutRef.current = null
+      void flushPendingSave()
     }, AUTOSAVE_DELAY_MS)
+    autosaveTimeoutRef.current = timeout
 
-    return () => window.clearTimeout(timeout)
-  }, [document.relativePath, draft, externalDocument, onDocumentChange, revision, savedContent])
+    return () => {
+      window.clearTimeout(timeout)
+      if (autosaveTimeoutRef.current === timeout) autosaveTimeoutRef.current = null
+    }
+  }, [draft, externalDocument, flushPendingSave, savedContent])
 
   useEffect(() => {
+    let current = true
     const interval = window.setInterval(() => {
+      const currentDocument = documentRef.current
+      const currentRevision = revisionRef.current
       void window.spacezero.knowledgeBase
-        .checkDocument({ relativePath: document.relativePath, revision })
+        .checkDocument({
+          relativePath: currentDocument.relativePath,
+          revision: currentRevision
+        })
         .then((result) => {
-          if (!result.changed) return
-          if (draft !== savedContent || saveState === 'saving') {
+          if (!current || !result.changed) return
+          if (
+            draftRef.current !== savedContentRef.current ||
+            activeSaveRef.current ||
+            saveStateRef.current === 'saving'
+          ) {
+            externalDocumentRef.current = result.document
             setExternalDocument(result.document)
-            setSaveState('external')
+            updateSaveState('external')
             return
           }
 
-          setDraft(result.document.content ?? '')
-          setSavedContent(result.document.content ?? '')
+          const nextContent = result.document.content ?? ''
+          draftRef.current = nextContent
+          savedContentRef.current = nextContent
+          revisionRef.current = result.document.revision
+          setDraft(nextContent)
+          setSavedContent(nextContent)
           setRevision(result.document.revision)
-          setSaveState('external')
-          onDocumentChange?.(result.document)
+          updateSaveState('external')
+          onDocumentChangeRef.current?.(result.document)
         })
         .catch(() => undefined)
     }, EXTERNAL_CHANGE_POLL_MS)
 
-    return () => window.clearInterval(interval)
-  }, [document.relativePath, draft, onDocumentChange, revision, saveState, savedContent])
+    return () => {
+      current = false
+      window.clearInterval(interval)
+    }
+  }, [document.relativePath, updateSaveState])
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      if (autosaveTimeoutRef.current !== null) {
+        window.clearTimeout(autosaveTimeoutRef.current)
+        autosaveTimeoutRef.current = null
+      }
+      void flushPendingSave()
+    }
+  }, [flushPendingSave])
 
   function reloadExternalDocument(): void {
-    if (!externalDocument) return
-    setDraft(externalDocument.content ?? '')
-    setSavedContent(externalDocument.content ?? '')
-    setRevision(externalDocument.revision)
+    const currentExternalDocument = externalDocumentRef.current
+    if (!currentExternalDocument) return
+    const content = currentExternalDocument.content ?? ''
+    draftRef.current = content
+    savedContentRef.current = content
+    revisionRef.current = currentExternalDocument.revision
+    externalDocumentRef.current = null
+    setDraft(content)
+    setSavedContent(content)
+    setRevision(currentExternalDocument.revision)
     setExternalDocument(null)
-    setSaveState('external')
-    onDocumentChange?.(externalDocument)
+    updateSaveState('external')
+    onDocumentChangeRef.current?.(currentExternalDocument)
   }
 
   function keepUnsavedEdits(): void {
-    if (!externalDocument) return
-    setRevision(externalDocument.revision)
-    setSavedContent(externalDocument.content ?? '')
+    const currentExternalDocument = externalDocumentRef.current
+    if (!currentExternalDocument) return
+    revisionRef.current = currentExternalDocument.revision
+    savedContentRef.current = currentExternalDocument.content ?? ''
+    externalDocumentRef.current = null
+    setRevision(currentExternalDocument.revision)
+    setSavedContent(currentExternalDocument.content ?? '')
     setExternalDocument(null)
-    setSaveState('saved')
+    updateSaveState('saved')
+  }
+
+  function updateDraft(value: string): void {
+    draftRef.current = value
+    setDraft(value)
+    if (saveStateRef.current === 'error' || saveStateRef.current === 'external') {
+      updateSaveState('saved')
+    }
   }
 
   return (
@@ -138,28 +265,19 @@ export function KnowledgeBaseSourceEditor({
       {renderEditorNotice?.(draft)}
 
       {renderEditor ? (
-        renderEditor({
-          value: draft,
-          onChange: (value) => {
-            setDraft(value)
-            if (saveState === 'error' || saveState === 'external') setSaveState('saved')
-          }
-        })
+        renderEditor({ value: draft, onChange: updateDraft })
       ) : (
         <textarea
           className="min-h-0 flex-1 resize-none rounded-md border bg-background p-4 font-mono text-sm leading-6 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30"
           aria-label={`Edit ${document.name}`}
           value={draft}
           spellCheck={document.contentKind === 'markdown'}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            if (saveState === 'error' || saveState === 'external') setSaveState('saved')
-          }}
+          onChange={(event) => updateDraft(event.target.value)}
         />
       )}
     </div>
   )
-}
+})
 
 function getSaveStateLabel(state: SaveState): string {
   if (state === 'saving') return 'Saving…'

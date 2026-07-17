@@ -40,6 +40,20 @@ describe('createKnowledgeBaseMentionsService', () => {
     expect(result.message).toContain('Do not automatically read every file in a mentioned folder')
   })
 
+  it('resolves encoded path mentions containing spaces', async () => {
+    const service = createKnowledgeBaseMentionsService({
+      configurationRepository: configurationRepository(
+        '/home/builder/SpaceZero/knowledge-base'
+      )
+    })
+
+    const result = await service.addPromptHints('Read @kb/Design%20Notes/README.md')
+
+    expect(result.message).toContain(
+      '@kb/Design%20Notes/README.md -> /home/builder/SpaceZero/knowledge-base/Design Notes/README.md'
+    )
+  })
+
   it('leaves prompts without mentions untouched', async () => {
     const service = createKnowledgeBaseMentionsService({
       configurationRepository: configurationRepository()

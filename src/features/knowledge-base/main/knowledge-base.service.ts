@@ -4,6 +4,7 @@ import type {
   KnowledgeBaseConfiguration,
   KnowledgeBaseStatus
 } from '../shared/knowledge-base.model'
+import { toRedactedGitError } from './knowledge-base-git-security'
 
 export const KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS = `# Knowledge Base Instructions
 
@@ -95,7 +96,7 @@ export function createKnowledgeBaseService({
         if (await host.pathExists(rootPath)) {
           await host.removeDirectory(rootPath).catch(() => undefined)
         }
-        throw error
+        throw toRedactedGitError(error)
       }
     }
   }

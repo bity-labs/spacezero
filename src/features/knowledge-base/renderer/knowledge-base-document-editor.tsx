@@ -1,19 +1,29 @@
-import { useEffect, useState } from 'react'
+import { forwardRef, useEffect, useState } from 'react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import type { KnowledgeBaseDocument } from '../shared'
 import { getRichMarkdownLimitation } from './knowledge-base-markdown'
 import { KnowledgeBaseRichEditor } from './knowledge-base-rich-editor'
-import { KnowledgeBaseSourceEditor } from './knowledge-base-source-editor'
+import {
+  KnowledgeBaseSourceEditor,
+  type KnowledgeBaseSourceEditorHandle
+} from './knowledge-base-source-editor'
 
-export function KnowledgeBaseDocumentEditor({
-  document,
-  onDocumentChange
-}: {
+export type KnowledgeBaseDocumentEditorHandle = KnowledgeBaseSourceEditorHandle
+
+type KnowledgeBaseDocumentEditorProps = {
   document: KnowledgeBaseDocument
   onDocumentChange?: (document: KnowledgeBaseDocument) => void
-}): React.JSX.Element {
+}
+
+export const KnowledgeBaseDocumentEditor = forwardRef<
+  KnowledgeBaseDocumentEditorHandle,
+  KnowledgeBaseDocumentEditorProps
+>(function KnowledgeBaseDocumentEditor(
+  { document, onDocumentChange },
+  ref
+): React.JSX.Element {
   const supportsRichMode = document.contentKind === 'markdown'
   const markdownOptions = { isMdx: document.name.toLowerCase().endsWith('.mdx') }
   const richModeLimitation = supportsRichMode
@@ -25,6 +35,7 @@ export function KnowledgeBaseDocumentEditor({
 
   return (
     <KnowledgeBaseSourceEditor
+      ref={ref}
       document={document}
       onDocumentChange={onDocumentChange}
       renderHeaderActions={
@@ -92,7 +103,7 @@ export function KnowledgeBaseDocumentEditor({
       }
     />
   )
-}
+})
 
 function RichModeGuard({
   limitation,

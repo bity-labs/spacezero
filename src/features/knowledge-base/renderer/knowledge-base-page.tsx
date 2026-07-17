@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   BookOpenText,
   CaretRight,
@@ -27,7 +27,10 @@ import {
   DialogTitle
 } from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
-import { KnowledgeBaseDocumentEditor } from './knowledge-base-document-editor'
+import {
+  KnowledgeBaseDocumentEditor,
+  type KnowledgeBaseDocumentEditorHandle
+} from './knowledge-base-document-editor'
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseSearchResult,
@@ -191,18 +194,21 @@ function ConfiguredKnowledgeBase({
   const [syncing, setSyncing] = useState(false)
   const [itemAction, setItemAction] = useState<KnowledgeBaseItemAction | null>(null)
   const [mutatingItem, setMutatingItem] = useState(false)
+  const documentEditorRef = useRef<KnowledgeBaseDocumentEditorHandle>(null)
+  const treeRequestIdRef = useRef(0)
+  const hasObservedSyncStatusRef = useRef(false)
+  const lastObservedSyncAtRef = useRef<string | undefined>(undefined)
 
   const refreshTree = useCallback(async (): Promise<void> => {
-    setTree(await window.spacezero.knowledgeBase.getTree())
+    const requestId = treeRequestIdRef.current + 1
+    treeRequestIdRef.current = requestId
+    const items = await window.spacezero.knowledgeBase.getTree()
+    if (treeRequestIdRef.current === requestId) setTree(items)
   }, [])
 
   useEffect(() => {
     let current = true
-    window.spacezero.knowledgeBase
-      .getTree()
-      .then((items) => {
-        if (current) setTree(items)
-      })
+    refreshTree()
       .catch((treeError: unknown) => {
         if (current) setError(getErrorMessage(treeError, 'Unable to load Knowledge Base files.'))
       })
@@ -211,16 +217,41 @@ function ConfiguredKnowledgeBase({
       })
     return () => {
       current = false
+      treeRequestIdRef.current += 1
     }
-  }, [])
+  }, [refreshTree])
 
   useEffect(() => {
     let current = true
     function loadSyncStatus(): void {
       window.spacezero.knowledgeBase
         .getSyncStatus()
-        .then((nextStatus) => {
-          if (current) setSyncStatus(nextStatus)
+        .then(async (nextStatus) => {
+          if (!current) return
+          const shouldRefreshTree =
+            nextStatus.syncState === 'idle' &&
+            Boolean(nextStatus.lastSyncAt) &&
+            (!hasObservedSyncStatusRef.current ||
+              nextStatus.lastSyncAt !== lastObservedSyncAtRef.current)
+
+          hasObservedSyncStatusRef.current = true
+          lastObservedSyncAtRef.current = nextStatus.lastSyncAt
+          setSyncStatus(nextStatus)
+
+          if (shouldRefreshTree) {
+            try {
+              await refreshTree()
+            } catch (treeError) {
+              if (current) {
+                setError(
+                  getErrorMessage(
+                    treeError,
+                    'Knowledge Base synced, but its file tree could not be refreshed.'
+                  )
+                )
+              }
+            }
+          }
         })
         .catch((syncError: unknown) => {
           if (current) {
@@ -235,15 +266,33 @@ function ConfiguredKnowledgeBase({
       current = false
       window.clearInterval(interval)
     }
-  }, [])
+  }, [refreshTree])
 
-  async function openDocument(relativePath: string): Promise<void> {
+  async function flushOpenDocument(): Promise<boolean> {
+    const saved = (await documentEditorRef.current?.flushPendingSave()) ?? true
+    if (!saved) {
+      setError('Save or resolve the open document before continuing.')
+    }
+    return saved
+  }
+
+  async function openDocument(relativePath: string): Promise<boolean> {
+    if (document?.relativePath === relativePath) return true
     setError(null)
+    if (!(await flushOpenDocument())) return false
+
     try {
       setDocument(await window.spacezero.knowledgeBase.openDocument({ relativePath }))
+      return true
     } catch (openError) {
       setError(getErrorMessage(openError, 'Unable to open this file.'))
+      return false
     }
+  }
+
+  async function selectTreeItem(item: KnowledgeBaseTreeItem): Promise<void> {
+    if (item.kind === 'file' && !(await openDocument(item.relativePath))) return
+    setSelectedItem(item)
   }
 
   async function addRemote(): Promise<void> {
@@ -321,6 +370,8 @@ function ConfiguredKnowledgeBase({
     setMutatingItem(true)
     setError(null)
     try {
+      if (itemAction.kind !== 'create' && !(await flushOpenDocument())) return
+
       if (itemAction.kind === 'create') {
         await window.spacezero.knowledgeBase.createItem({
           relativePath: value!,
@@ -459,6 +510,12 @@ function ConfiguredKnowledgeBase({
         )}
       </div>
 
+      {status.setupWarning ? (
+        <Alert className="m-4 mb-0">
+          <AlertDescription>{status.setupWarning}</AlertDescription>
+        </Alert>
+      ) : null}
+
       {isAddRemoteOpen ? (
         <div className="flex items-end gap-3 border-b bg-muted/30 px-6 py-3">
           <div className="min-w-0 flex-1">
@@ -596,10 +653,7 @@ function ConfiguredKnowledgeBase({
                   item={item}
                   depth={0}
                   selectedPath={selectedItem?.relativePath}
-                  onSelect={(item) => {
-                    setSelectedItem(item)
-                    if (item.kind === 'file') void openDocument(item.relativePath)
-                  }}
+                  onSelect={(item) => void selectTreeItem(item)}
                 />
               ))
             )}
@@ -620,6 +674,7 @@ function ConfiguredKnowledgeBase({
             </div>
           ) : (
             <KnowledgeBaseDocumentEditor
+              ref={documentEditorRef}
               key={document.relativePath}
               document={document}
               onDocumentChange={setDocument}
