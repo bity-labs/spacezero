@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
 import {
   createKnowledgeBaseSyncService,
@@ -35,11 +42,13 @@ function createSyncStateRepository(): KnowledgeBaseSyncStateRepository & {
 }
 
 function createGitHost(
-  handler: (args: readonly string[]) => { stdout?: string; stderr?: string } | Error
+  handler: (args: readonly string[]) => { stdout?: string; stderr?: string } | Error,
+  pathExists: (path: string) => Promise<boolean> = async () => false
 ): KnowledgeBaseGitHost & { calls: readonly string[][] } {
   const calls: string[][] = []
   return {
     calls,
+    pathExists,
     async runGit(_cwd, args) {
       calls.push([...args])
       const result = handler(args)
@@ -121,12 +130,76 @@ describe('createKnowledgeBaseSyncService', () => {
     await expect(service.addRemote({ gitUrl: 'bad url' })).rejects.toThrow('invalid remote URL')
   })
 
+  it('does not stage files when retrying an interrupted conflict', async () => {
+    const syncStateRepository = createSyncStateRepository()
+    const host = createGitHost(
+      (args) => {
+        const command = args.join(' ')
+        if (command === 'remote') return { stdout: 'origin\n' }
+        if (command === 'remote get-url origin') {
+          return { stdout: 'https://example.com/notes.git\n' }
+        }
+        if (command.startsWith('rev-parse --git-path ')) {
+          return { stdout: `.git/${args.at(-1)}\n` }
+        }
+        throw new Error(`Unexpected Git command: ${command}`)
+      },
+      async (path) => path.endsWith('rebase-merge')
+    )
+    const service = createKnowledgeBaseSyncService({
+      configurationRepository: configuredRepository(),
+      syncStateRepository,
+      host
+    })
+
+    await expect(service.syncNow()).rejects.toThrow(
+      'Resolve or abort the interrupted Git operation before retrying.'
+    )
+    expect(host.calls.some((args) => args[0] === 'add')).toBe(false)
+    expect(host.calls.some((args) => args[0] === 'commit')).toBe(false)
+    expect(syncStateRepository.value).toMatchObject({ syncState: 'conflict' })
+  })
+
+  it('redacts credentials from remote status and persisted Git errors', async () => {
+    const syncStateRepository = createSyncStateRepository()
+    const credentialUrl = 'https://builder:secret-token@example.com/notes.git'
+    const host = createGitHost((args) => {
+      const command = args.join(' ')
+      if (command === 'remote') return { stdout: 'origin\n' }
+      if (command === 'remote get-url origin') return { stdout: `${credentialUrl}\n` }
+      if (command.startsWith('rev-parse --git-path ')) return { stdout: `.git/${args.at(-1)}\n` }
+      if (command === 'diff --name-only --diff-filter=U') return { stdout: '' }
+      if (command === 'branch --show-current') return { stdout: 'main\n' }
+      if (command === 'status --porcelain') return { stdout: '' }
+      if (command === 'ls-remote --heads origin main') {
+        return new Error(`fatal: unable to access '${credentialUrl}': authentication failed`)
+      }
+      throw new Error(`Unexpected Git command: ${command}`)
+    })
+    const service = createKnowledgeBaseSyncService({
+      configurationRepository: configuredRepository(),
+      syncStateRepository,
+      host
+    })
+
+    await expect(service.getSyncStatus()).resolves.toMatchObject({
+      remoteUrl: 'https://example.com/notes.git'
+    })
+    await expect(service.syncNow()).rejects.toThrow(
+      "fatal: unable to access 'https://[redacted]@example.com/notes.git': authentication failed"
+    )
+    expect(JSON.stringify(syncStateRepository.value)).not.toContain('secret-token')
+    expect(syncStateRepository.value?.lastSyncError).toContain('[redacted]')
+  })
+
   it('records conflicts without silently resolving or pushing them', async () => {
     const syncStateRepository = createSyncStateRepository()
     const host = createGitHost((args) => {
       const command = args.join(' ')
       if (command === 'remote') return { stdout: 'origin\n' }
       if (command === 'remote get-url origin') return { stdout: 'https://example.com/notes.git\n' }
+      if (command.startsWith('rev-parse --git-path ')) return { stdout: `.git/${args.at(-1)}\n` }
+      if (command === 'diff --name-only --diff-filter=U') return { stdout: '' }
       if (command === 'status --porcelain') return { stdout: '' }
       if (command === 'branch --show-current') return { stdout: 'main\n' }
       if (command === 'ls-remote --heads origin main') return { stdout: 'abc\trefs/heads/main\n' }
@@ -155,6 +228,8 @@ describe('createKnowledgeBaseSyncService', () => {
       const command = args.join(' ')
       if (command === 'remote') return { stdout: 'origin\n' }
       if (command === 'remote get-url origin') return { stdout: 'https://example.com/notes.git\n' }
+      if (command.startsWith('rev-parse --git-path ')) return { stdout: `.git/${args.at(-1)}\n` }
+      if (command === 'diff --name-only --diff-filter=U') return { stdout: '' }
       if (command === 'status --porcelain') return { stdout: ' M note.md\n' }
       if (command === 'branch --show-current') return { stdout: 'main\n' }
       if (command === 'ls-remote --heads origin main') return { stdout: 'abc\trefs/heads/main\n' }
@@ -183,6 +258,88 @@ describe('createKnowledgeBaseSyncService', () => {
     })
   })
 })
+
+describe('real Git conflict recovery', () => {
+  const temporaryDirectories: string[] = []
+  const run = promisify(execFile)
+
+  afterEach(async () => {
+    await Promise.all(
+      temporaryDirectories.splice(0).map((directory) =>
+        rm(directory, { recursive: true, force: true })
+      )
+    )
+  })
+
+  it('leaves unresolved files and the interrupted rebase untouched on Retry', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'spacezero-kb-sync-'))
+    temporaryDirectories.push(fixture)
+    const originPath = join(fixture, 'origin.git')
+    const seedPath = join(fixture, 'seed')
+    const rootPath = join(fixture, 'knowledge-base')
+    const otherPath = join(fixture, 'other')
+
+    await git(fixture, ['init', '--bare', originPath])
+    await git(fixture, ['init', '-b', 'main', seedPath])
+    await configureGitUser(seedPath)
+    await writeFile(join(seedPath, 'note.md'), 'original\n')
+    await git(seedPath, ['add', 'note.md'])
+    await git(seedPath, ['commit', '-m', 'Initial note'])
+    await git(seedPath, ['remote', 'add', 'origin', originPath])
+    await git(seedPath, ['push', '-u', 'origin', 'main'])
+    await git(originPath, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+    await git(fixture, ['clone', originPath, rootPath])
+    await git(fixture, ['clone', originPath, otherPath])
+    await configureGitUser(rootPath)
+    await configureGitUser(otherPath)
+
+    await writeFile(join(otherPath, 'note.md'), 'remote change\n')
+    await git(otherPath, ['add', 'note.md'])
+    await git(otherPath, ['commit', '-m', 'Remote change'])
+    await git(otherPath, ['push'])
+    await writeFile(join(rootPath, 'note.md'), 'local change\n')
+
+    const syncStateRepository = createSyncStateRepository()
+    const service = createKnowledgeBaseSyncService({
+      configurationRepository: configuredRepositoryAt(rootPath),
+      syncStateRepository,
+      host: createKnowledgeBaseHost()
+    })
+
+    await expect(service.syncNow()).rejects.toThrow(/conflict|could not apply/i)
+    const conflictedHead = (await git(rootPath, ['rev-parse', 'HEAD'])).stdout.trim()
+    expect(await readFile(join(rootPath, 'note.md'), 'utf8')).toContain('<<<<<<<')
+
+    await expect(service.syncNow()).rejects.toThrow(
+      'Resolve or abort the interrupted Git operation before retrying.'
+    )
+
+    expect((await git(rootPath, ['rev-parse', 'HEAD'])).stdout.trim()).toBe(conflictedHead)
+    expect((await git(rootPath, ['diff', '--name-only', '--diff-filter=U'])).stdout.trim()).toBe(
+      'note.md'
+    )
+    expect(await readFile(join(rootPath, 'note.md'), 'utf8')).toContain('<<<<<<<')
+    expect(syncStateRepository.value).toMatchObject({ syncState: 'conflict' })
+  }, 20_000)
+
+  async function git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+    return run('git', args, { cwd, encoding: 'utf8' })
+  }
+
+  async function configureGitUser(cwd: string): Promise<void> {
+    await git(cwd, ['config', 'user.name', 'Space Zero Test'])
+    await git(cwd, ['config', 'user.email', 'spacezero@example.com'])
+  }
+})
+
+function configuredRepositoryAt(rootPath: string): KnowledgeBaseConfigurationRepository {
+  return {
+    async get() {
+      return { rootPath, configuredAt: new Date(0).toISOString() }
+    },
+    async save() {}
+  }
+}
 
 describe('formatKnowledgeBaseCommitMessage', () => {
   it('uses local date and time with zero padding', () => {

@@ -2,7 +2,7 @@ export const MAX_KNOWLEDGE_BASE_IMAGE_BYTES = 10 * 1024 * 1024
 
 export type KnowledgeBaseStatus =
   | { setupState: 'unconfigured' }
-  | { setupState: 'configured'; rootPath: string }
+  | { setupState: 'configured'; rootPath: string; setupWarning?: string }
 
 export type KnowledgeBaseConfiguration = {
   rootPath: string

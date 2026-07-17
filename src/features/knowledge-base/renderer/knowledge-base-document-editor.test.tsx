@@ -126,6 +126,27 @@ describe('KnowledgeBaseDocumentEditor', () => {
     expect(screen.getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('opens footnotes in source mode instead of allowing a lossy rich edit', () => {
+    const markdown = 'A note[^1].\n\n[^1]: Footnote body.'
+
+    render(
+      <KnowledgeBaseDocumentEditor
+        document={{
+          ...markdownDocument,
+          name: 'note.md',
+          relativePath: 'docs/note.md',
+          content: markdown
+        }}
+      />
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue(markdown)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'This document contains footnotes that rich mode cannot preserve.'
+    )
+    expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
+  })
+
   it('keeps rich mode available for MDX examples inside code fences', () => {
     const markdown = '# Example\n\n```mdx\n<Callout>Example only</Callout>\n```'
 

@@ -6,9 +6,12 @@ const RAW_HTML_OR_MDX_PATTERN =
 const MDX_ESM_PATTERN =
   /^(?:import\s+(?:[\w*{]|['"])|export\s+(?:default|const|let|var|(?:async\s+)?function|class|type|interface|enum|namespace|\{|\*))/m
 const MDX_EXPRESSION_PATTERN = /\{[\s\S]*?\}/
+const FOOTNOTE_PATTERN = /(?:^|[^\\])\[\^[^\]\r\n]+\]/m
 
 export const RICH_MARKDOWN_LIMITATION =
   'This document contains MDX or raw HTML that rich mode cannot preserve.'
+export const RICH_MARKDOWN_FOOTNOTE_LIMITATION =
+  'This document contains footnotes that rich mode cannot preserve. Use source mode to edit it safely.'
 
 export function splitMarkdownDocument(markdown: string): {
   frontmatter: string
@@ -36,6 +39,7 @@ export function getRichMarkdownLimitation(
   if (RAW_HTML_OR_MDX_PATTERN.test(prose) || containsUnsupportedMdx) {
     return RICH_MARKDOWN_LIMITATION
   }
+  if (FOOTNOTE_PATTERN.test(prose)) return RICH_MARKDOWN_FOOTNOTE_LIMITATION
 
   return null
 }

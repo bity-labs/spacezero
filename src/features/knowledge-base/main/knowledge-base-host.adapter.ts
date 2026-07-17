@@ -10,8 +10,11 @@ export function createKnowledgeBaseHost(): KnowledgeBaseHost {
       try {
         await access(path)
         return true
-      } catch {
-        return false
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+          return false
+        }
+        throw error
       }
     },
 

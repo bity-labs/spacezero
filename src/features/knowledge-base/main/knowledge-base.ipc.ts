@@ -26,15 +26,15 @@ export function registerKnowledgeBaseIpc(): void {
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.createNew, async () => {
     const status = await getKnowledgeBaseService().createNew()
-    await getKnowledgeBaseProjectsService().linkExistingProjects()
-    return status
+    const links = await getKnowledgeBaseProjectsService().linkExistingProjects()
+    return links.warning ? { ...status, setupWarning: links.warning } : status
   })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.cloneFromGit, async (_event, input: unknown) => {
     const status = await getKnowledgeBaseService().cloneFromGit(
       cloneKnowledgeBaseRequestSchema.parse(input)
     )
-    await getKnowledgeBaseProjectsService().linkExistingProjects()
-    return status
+    const links = await getKnowledgeBaseProjectsService().linkExistingProjects()
+    return links.warning ? { ...status, setupWarning: links.warning } : status
   })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getTree, () =>
     getKnowledgeBaseService().getTree()

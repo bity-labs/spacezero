@@ -15,9 +15,19 @@ export type KnowledgeBaseProjectFolderHost = {
   writeTextFile: (path: string, content: string) => Promise<void>
 }
 
+export type KnowledgeBaseProjectLinkResult = {
+  project: StoredProject
+  warning?: string
+}
+
+export type KnowledgeBaseExistingProjectsLinkResult = {
+  projects: StoredProject[]
+  warning?: string
+}
+
 export type KnowledgeBaseProjectsService = {
-  linkExistingProjects: () => Promise<StoredProject[]>
-  linkProject: (project: StoredProject) => Promise<StoredProject>
+  linkExistingProjects: () => Promise<KnowledgeBaseExistingProjectsLinkResult>
+  linkProject: (project: StoredProject) => Promise<KnowledgeBaseProjectLinkResult>
 }
 
 export function createKnowledgeBaseProjectsService({
@@ -60,16 +70,53 @@ export function createKnowledgeBaseProjectsService({
     })
   }
 
+  async function safelyLinkProject(
+    project: StoredProject
+  ): Promise<KnowledgeBaseProjectLinkResult> {
+    try {
+      return { project: await linkProject(project), warning: undefined }
+    } catch (error) {
+      return {
+        project,
+        warning: createProjectLinkWarning(project, error)
+      }
+    }
+  }
+
   return {
     async linkExistingProjects() {
-      const linkedProjects: StoredProject[] = []
-      for (const project of await projectsRepository.list()) {
-        linkedProjects.push(await linkProject(project))
+      let projects: StoredProject[]
+      try {
+        projects = await projectsRepository.list()
+      } catch (error) {
+        return {
+          projects: [],
+          warning: `Knowledge Base was configured, but existing projects could not be linked. ${getErrorMessage(error)}`
+        }
       }
-      return linkedProjects
+
+      const linkedProjects: StoredProject[] = []
+      const warnings: string[] = []
+      for (const project of projects) {
+        const result = await safelyLinkProject(project)
+        linkedProjects.push(result.project)
+        if (result.warning) warnings.push(result.warning)
+      }
+      return {
+        projects: linkedProjects,
+        warning: warnings.length > 0 ? warnings.join(' ') : undefined
+      }
     },
-    linkProject
+    linkProject: safelyLinkProject
   }
+}
+
+function createProjectLinkWarning(project: StoredProject, error: unknown): string {
+  return `Could not link the Knowledge Base folder for "${project.name}". ${getErrorMessage(error)}`
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : 'Unknown linking error.'
 }
 
 export function createKnowledgeBaseProjectFolderHost(): KnowledgeBaseProjectFolderHost {

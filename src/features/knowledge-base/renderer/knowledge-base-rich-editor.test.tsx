@@ -94,7 +94,7 @@ describe('KnowledgeBaseRichEditor', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('loads vault images through the safe desktop API without changing Markdown', async () => {
+  it('loads Knowledge Base images through the safe desktop API without changing Markdown', async () => {
     const onChange = vi.fn()
     const loadImage = vi.fn(async () => ({
       dataUrl: 'data:image/png;base64,iVBORw=='
@@ -120,7 +120,7 @@ describe('KnowledgeBaseRichEditor', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('does not reload unchanged vault images after unrelated edits', async () => {
+  it('does not reload unchanged Knowledge Base images after unrelated edits', async () => {
     const user = userEvent.setup()
     const loadImage = vi.fn(async () => ({
       dataUrl: 'data:image/png;base64,iVBORw=='
@@ -139,7 +139,7 @@ describe('KnowledgeBaseRichEditor', () => {
     expect(loadImage).toHaveBeenCalledTimes(1)
   })
 
-  it('uploads an image into the vault and inserts its relative Markdown path', async () => {
+  it('uploads an image into the Knowledge Base and inserts its relative Markdown path', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     const importImage = vi.fn(async () => ({
@@ -268,6 +268,33 @@ describe('KnowledgeBaseRichEditor', () => {
     await user.keyboard('Durable note')
 
     expect(onChange).toHaveBeenLastCalledWith('Durable note')
+  })
+
+  it('preserves representative supported Markdown semantics after a rich edit', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const markdown = [
+      '# Decision',
+      '',
+      '> Durable context',
+      '',
+      '- [x] Reviewed',
+      '',
+      '| Key | Value |',
+      '| --- | --- |',
+      '| Source | [Notes](https://example.com/notes) |'
+    ].join('\n')
+    render(<KnowledgeBaseRichEditor markdown={markdown} onChange={onChange} />)
+    await screen.findByRole('textbox', { name: 'Rich Markdown editor' })
+
+    await user.click(screen.getByRole('button', { name: 'Horizontal rule' }))
+
+    const serialized = onChange.mock.lastCall?.[0] as string
+    expect(serialized).toContain('# Decision')
+    expect(serialized).toContain('> Durable context')
+    expect(serialized).toContain('- [x] Reviewed')
+    expect(serialized).toContain('| Key')
+    expect(serialized).toContain('[Notes](https://example.com/notes)')
   })
 
   it('applies upstream Markdown without reporting it as a local edit', async () => {

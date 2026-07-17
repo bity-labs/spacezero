@@ -193,6 +193,7 @@ export function createKnowledgeBaseFilesService({
       const rootPath = await getConfiguredRoot(configurationRepository)
       const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
       await lstat(absolutePath)
+      await assertExistingPathInsideRoot(rootPath, absolutePath)
       await rm(absolutePath, { recursive: true })
     },
 
@@ -207,6 +208,7 @@ export function createKnowledgeBaseFilesService({
       }
 
       const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
+      await assertExistingPathInsideRoot(rootPath, absolutePath)
       await writeFile(absolutePath, request.content, 'utf8')
       return {
         status: 'saved',
@@ -235,7 +237,9 @@ export function resolveKnowledgeBaseRelativePath(
   }
 
   const segments = trimmedPath.split('/')
-  if (segments.includes('.git')) throw new Error('Knowledge Base Git internals are protected.')
+  if (segments.some((segment) => segment.toLowerCase() === '.git')) {
+    throw new Error('Knowledge Base Git internals are protected.')
+  }
   if (segments.some((segment) => segment === '..')) {
     throw new Error('Knowledge Base path is outside the configured root.')
   }
@@ -302,9 +306,7 @@ async function ensureAssetImageDirectory(rootPath: string): Promise<string> {
     }
 
     directoryPath = await realpath(candidatePath)
-    if (!isPathWithinRoot(canonicalRoot, directoryPath)) {
-      throw new Error('Knowledge Base path is outside the configured root.')
-    }
+    await assertCanonicalPathAllowed(canonicalRoot, directoryPath)
   }
 
   return directoryPath
@@ -423,7 +425,7 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
   const items: KnowledgeBaseTreeItem[] = []
 
   for (const entry of entries) {
-    if (entry.name === '.git') continue
+    if (entry.name.toLowerCase() === '.git' || entry.isSymbolicLink()) continue
     const relativePath = relativeDirectory
       ? `${relativeDirectory}/${entry.name}`
       : entry.name
@@ -482,7 +484,9 @@ function assertValidItemName(input: string): void {
   if (!name || name === '.' || name === '..' || name.includes('\0')) {
     throw new Error('Knowledge Base item name is invalid.')
   }
-  if (name === '.git') throw new Error('Knowledge Base Git internals are protected.')
+  if (name.toLowerCase() === '.git') {
+    throw new Error('Knowledge Base Git internals are protected.')
+  }
 }
 
 async function assertParentPathInsideRoot(rootPath: string, targetPath: string): Promise<void> {
@@ -490,9 +494,7 @@ async function assertParentPathInsideRoot(rootPath: string, targetPath: string):
     realpath(rootPath),
     realpath(dirname(targetPath))
   ])
-  if (!isPathWithinRoot(canonicalRoot, canonicalParent)) {
-    throw new Error('Knowledge Base path is outside the configured root.')
-  }
+  await assertCanonicalPathAllowed(canonicalRoot, canonicalParent)
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -521,7 +523,7 @@ async function searchDirectory(
   const results: KnowledgeBaseSearchResult[] = []
 
   for (const entry of entries) {
-    if (entry.name === '.git' || entry.isSymbolicLink()) continue
+    if (entry.name.toLowerCase() === '.git' || entry.isSymbolicLink()) continue
     const relativePath = relativeDirectory
       ? `${relativeDirectory}/${entry.name}`
       : entry.name
@@ -586,9 +588,33 @@ function getContentKindFromExtension(relativePath: string): 'markdown' | 'text' 
 }
 
 async function assertExistingPathInsideRoot(rootPath: string, targetPath: string): Promise<void> {
-  const [canonicalRoot, canonicalTarget] = await Promise.all([realpath(rootPath), realpath(targetPath)])
+  const [canonicalRoot, canonicalTarget] = await Promise.all([
+    realpath(rootPath),
+    realpath(targetPath)
+  ])
+  await assertCanonicalPathAllowed(canonicalRoot, canonicalTarget)
+}
+
+async function assertCanonicalPathAllowed(
+  canonicalRoot: string,
+  canonicalTarget: string
+): Promise<void> {
   if (!isPathWithinRoot(canonicalRoot, canonicalTarget)) {
     throw new Error('Knowledge Base path is outside the configured root.')
+  }
+
+  const canonicalGitPath = await getCanonicalGitPath(canonicalRoot)
+  if (canonicalGitPath && isPathWithinRoot(canonicalGitPath, canonicalTarget)) {
+    throw new Error('Knowledge Base Git internals are protected.')
+  }
+}
+
+async function getCanonicalGitPath(canonicalRoot: string): Promise<string | undefined> {
+  try {
+    return await realpath(join(canonicalRoot, '.git'))
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return undefined
+    throw error
   }
 }
 

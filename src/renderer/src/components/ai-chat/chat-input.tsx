@@ -14,6 +14,7 @@ import {
   ModelSelectorTrigger
 } from '@renderer/components/ui/model-selector'
 import {
+  encodeKnowledgeBaseMentionPath,
   getActiveKnowledgeBaseMentionQuery,
   type KnowledgeBaseTreeItem
 } from '../../../../features/knowledge-base/shared'
@@ -97,7 +98,9 @@ export function ChatInput({
     () =>
       activeKnowledgeBaseMention
         ? flattenKnowledgeBaseTree(knowledgeBaseItems).filter((path) =>
-            path.toLowerCase().startsWith(activeKnowledgeBaseMention.query.toLowerCase())
+            encodeKnowledgeBaseMentionPath(path)
+              .toLowerCase()
+              .startsWith(activeKnowledgeBaseMention.query.toLowerCase())
           )
         : [],
     [activeKnowledgeBaseMention, knowledgeBaseItems]
@@ -144,7 +147,10 @@ export function ChatInput({
 
   function selectKnowledgeBaseMention(path: string): void {
     if (!activeKnowledgeBaseMention) return
-    setPromptText(`${promptText.slice(0, activeKnowledgeBaseMention.start)}@kb/${path} `)
+    const encodedPath = encodeKnowledgeBaseMentionPath(path)
+    setPromptText(
+      `${promptText.slice(0, activeKnowledgeBaseMention.start)}@kb/${encodedPath} `
+    )
   }
 
   return (

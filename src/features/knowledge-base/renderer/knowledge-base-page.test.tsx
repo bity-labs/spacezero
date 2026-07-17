@@ -1,4 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+import type { KnowledgeBaseSaveResult } from '../shared'
 
 import { KnowledgeBasePage } from './knowledge-base-page'
 
@@ -9,6 +11,8 @@ vi.mock('./knowledge-base-rich-editor', () => ({
 }))
 
 describe('KnowledgeBasePage', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('shows both setup choices while the Knowledge Base is unconfigured', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
 
@@ -30,6 +34,23 @@ describe('KnowledgeBasePage', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Create new' }))
 
     expect(await screen.findByText('/home/builder/SpaceZero/knowledge-base')).toBeInTheDocument()
+  })
+
+  it('shows a separate warning when setup succeeds but project backfill does not', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
+    window.spacezero.knowledgeBase.createNew = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      setupWarning: 'Knowledge Base was configured, but existing projects could not be linked.'
+    })
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Create new' }))
+
+    expect(await screen.findByText('/home/builder/SpaceZero/knowledge-base')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Knowledge Base was configured, but existing projects could not be linked.'
+    )
   })
 
   it('clones an existing repository from a user-provided Git URL', async () => {
@@ -131,6 +152,61 @@ describe('KnowledgeBasePage', () => {
     expect(
       screen.getByText(`Last synced ${new Date(lastSyncAt).toLocaleString()}`)
     ).toBeInTheDocument()
+  })
+
+  it('refreshes the visible tree when a background sync completes', async () => {
+    vi.useFakeTimers()
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const getTree = vi
+      .fn()
+      .mockResolvedValueOnce([
+        {
+          name: 'existing.md',
+          relativePath: 'existing.md',
+          kind: 'file' as const,
+          contentKind: 'markdown' as const,
+          size: 10,
+          modifiedAt: new Date(0).toISOString()
+        }
+      ])
+      .mockResolvedValue([
+        {
+          name: 'pulled.md',
+          relativePath: 'pulled.md',
+          kind: 'file' as const,
+          contentKind: 'markdown' as const,
+          size: 10,
+          modifiedAt: new Date(1).toISOString()
+        }
+      ])
+    let statusCall = 0
+    window.spacezero.knowledgeBase.getTree = getTree
+    window.spacezero.knowledgeBase.getSyncStatus = async () => {
+      statusCall += 1
+      return {
+        remoteState: 'configured',
+        remoteUrl: 'https://example.com/notes.git',
+        syncState: 'idle',
+        ...(statusCall > 1 ? { lastSyncAt: '2026-07-16T14:06:00.000Z' } : {})
+      }
+    }
+
+    render(<KnowledgeBasePage />)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: 'existing.md' })).toBeInTheDocument()
+
+    await act(async () => vi.advanceTimersByTimeAsync(30_000))
+
+    expect(getTree).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: 'pulled.md' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'existing.md' })).not.toBeInTheDocument()
   })
 
   it('warns about sync conflicts and offers retry and recovery actions', async () => {
@@ -237,6 +313,150 @@ describe('KnowledgeBasePage', () => {
     expect(screen.getByText('1 KB')).toBeInTheDocument()
   })
 
+  it('flushes and awaits unsaved edits before opening another file', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'first.md',
+        relativePath: 'first.md',
+        kind: 'file',
+        contentKind: 'markdown',
+        size: 5,
+        modifiedAt: new Date(0).toISOString()
+      },
+      {
+        name: 'second.md',
+        relativePath: 'second.md',
+        kind: 'file',
+        contentKind: 'markdown',
+        size: 6,
+        modifiedAt: new Date(0).toISOString()
+      }
+    ]
+    const openDocument = vi.fn(async ({ relativePath }: { relativePath: string }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'markdown' as const,
+      size: relativePath.length,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: relativePath === 'first.md' ? '# First' : '# Second'
+    }))
+    let resolveSave: ((result: KnowledgeBaseSaveResult) => void) | undefined
+    const saveDocument = vi.fn(
+      () =>
+        new Promise<KnowledgeBaseSaveResult>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+    window.spacezero.knowledgeBase.openDocument = openDocument
+    window.spacezero.knowledgeBase.saveDocument = saveDocument
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'first.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Source' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit first.md' }), {
+      target: { value: '# Unsaved first' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'second.md' }))
+
+    await waitFor(() =>
+      expect(saveDocument).toHaveBeenCalledWith({
+        relativePath: 'first.md',
+        content: '# Unsaved first',
+        expectedRevision: 'first.md-revision'
+      })
+    )
+    expect(openDocument).toHaveBeenCalledTimes(1)
+
+    await act(async () =>
+      resolveSave?.({
+        status: 'saved',
+        document: {
+          name: 'first.md',
+          relativePath: 'first.md',
+          contentKind: 'markdown',
+          size: 15,
+          modifiedAt: new Date(0).toISOString(),
+          revision: 'first.md-saved-revision',
+          content: '# Unsaved first'
+        }
+      })
+    )
+
+    expect(await screen.findByRole('textbox', { name: 'Rich Markdown editor' })).toHaveValue(
+      '# Second'
+    )
+    expect(openDocument).toHaveBeenCalledTimes(2)
+  })
+
+  it('awaits an open document save before deleting its file', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getTree = async () => [
+      {
+        name: 'note.md',
+        relativePath: 'note.md',
+        kind: 'file',
+        contentKind: 'markdown',
+        size: 6,
+        modifiedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.knowledgeBase.openDocument = async () => ({
+      name: 'note.md',
+      relativePath: 'note.md',
+      contentKind: 'markdown',
+      size: 6,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'note-revision',
+      content: '# Note'
+    })
+    let resolveSave: ((result: KnowledgeBaseSaveResult) => void) | undefined
+    window.spacezero.knowledgeBase.saveDocument = () =>
+      new Promise<KnowledgeBaseSaveResult>((resolve) => {
+        resolveSave = resolve
+      })
+    const deleteItem = vi.fn(async () => undefined)
+    window.spacezero.knowledgeBase.deleteItem = deleteItem
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Source' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit note.md' }), {
+      target: { value: '# Keep before delete' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete permanently' }))
+
+    await waitFor(() => expect(resolveSave).toBeDefined())
+    expect(deleteItem).not.toHaveBeenCalled()
+
+    await act(async () =>
+      resolveSave?.({
+        status: 'saved',
+        document: {
+          name: 'note.md',
+          relativePath: 'note.md',
+          contentKind: 'markdown',
+          size: 20,
+          modifiedAt: new Date(0).toISOString(),
+          revision: 'saved-revision',
+          content: '# Keep before delete'
+        }
+      })
+    )
+
+    await waitFor(() =>
+      expect(deleteItem).toHaveBeenCalledWith({ relativePath: 'note.md' })
+    )
+  })
+
   it('searches filenames and content and opens a result', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
@@ -322,7 +542,7 @@ describe('KnowledgeBasePage', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Rename note.md' }))
     fireEvent.change(screen.getByLabelText('New name'), {
       target: { value: 'renamed.md' }
     })
@@ -332,7 +552,7 @@ describe('KnowledgeBasePage', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Move note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Move note.md' }))
     fireEvent.change(screen.getByLabelText('Destination path'), {
       target: { value: 'archive/renamed.md' }
     })
@@ -345,7 +565,7 @@ describe('KnowledgeBasePage', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Delete note.md' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete note.md' }))
     expect(screen.getByText(/deleted permanently/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
     await waitFor(() => expect(deleteItem).toHaveBeenCalledWith({ relativePath: 'note.md' }))
