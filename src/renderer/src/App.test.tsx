@@ -59,6 +59,108 @@ describe('App', () => {
     document.documentElement.style.colorScheme = ''
   })
 
+  it('skips first-run GitHub onboarding once and persists completion', async () => {
+    let completed = false
+    window.spacezero.onboarding.getStatus = async () => ({ completed })
+    window.spacezero.onboarding.complete = async () => {
+      completed = true
+      return { completed: true }
+    }
+
+    const firstLaunch = render(<App />)
+
+    expect(await screen.findByRole('main', { name: 'Space Zero onboarding' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+
+    firstLaunch.unmount()
+    render(<App />)
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.queryByRole('main', { name: 'Space Zero onboarding' })).not.toBeInTheDocument()
+  })
+
+  it('composes GitHub connection and one Project setup without starting a Session', async () => {
+    let completed = false
+    let createSessionCalls = 0
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    const project = {
+      id: 'project-1',
+      name: 'spacezero',
+      path: '/tmp/SpaceZero/projects/bity-labs/spacezero',
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: new Date(0).toISOString()
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    window.spacezero.onboarding.getStatus = async () => ({ completed })
+    window.spacezero.onboarding.complete = async () => {
+      completed = true
+      return { completed: true }
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository, existingProject: { id: 'project-1', name: 'spacezero' } }
+    ]
+    window.spacezero.github.startClone = async () => ({
+      status: 'already-added',
+      projectId: 'project-1'
+    })
+    window.spacezero.projects.list = async () => [project]
+    window.spacezero.agent.createSession = async (request) => {
+      createSessionCalls += 1
+      return {
+        sessionId: 'unexpected',
+        kind: 'project',
+        projectId: request.projectId,
+        cwd: request.cwd,
+        status: 'idle',
+        live: true,
+        transcriptPath: undefined,
+        modelProvider: 'faux',
+        modelId: 'faux-1'
+      }
+    }
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up a Project' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Project' }))
+
+    expect(await screen.findByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'spacezero' })).toBeInTheDocument()
+    expect(createSessionCalls).toBe(0)
+  })
+
   it('renders the workspace route at /', async () => {
     render(<App />)
 

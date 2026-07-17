@@ -33,6 +33,10 @@ const api: SpaceZeroAPI = {
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openFolder),
     openRemote: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openRemote)
   },
+  onboarding: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.getStatus),
+    complete: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.complete)
+  },
   github: {
     getConnection: () => ipcRenderer.invoke(IPC_CHANNELS.github.getConnection),
     startAuthorization: () => ipcRenderer.invoke(IPC_CHANNELS.github.startAuthorization),

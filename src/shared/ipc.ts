@@ -23,6 +23,7 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
 } from '../features/knowledge-base/shared/knowledge-base.contract'
+import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
   CreateEmptyProjectRequest,
   Project,
@@ -63,6 +64,10 @@ export const IPC_CHANNELS = {
     health: 'db:health'
   },
   knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
+  onboarding: {
+    getStatus: 'onboarding:getStatus',
+    complete: 'onboarding:complete'
+  },
   github: {
     getConnection: 'github:getConnection',
     startAuthorization: 'github:startAuthorization',
@@ -156,6 +161,10 @@ export type SpaceZeroAPI = {
     health: () => Promise<DbHealth>
   }
   knowledgeBase: KnowledgeBaseAPI
+  onboarding: {
+    getStatus: () => Promise<OnboardingStatus>
+    complete: () => Promise<OnboardingStatus>
+  }
   github: {
     getConnection: () => Promise<GitHubConnection>
     startAuthorization: () => Promise<GitHubDeviceAuthorization>

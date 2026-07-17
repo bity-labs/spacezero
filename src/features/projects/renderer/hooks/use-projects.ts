@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { CreateEmptyProjectRequest, Project, UpdateProjectRequest } from '../../shared'
+import { consumeProjectOpenRequest } from '../project-open-request'
 
 type ProjectStatus = 'loading' | 'ready' | 'error'
 
@@ -51,6 +52,13 @@ export function useProjects(): {
         const nextProjects = await window.spacezero.projects.list()
         if (canceled) return
         setProjects(nextProjects)
+        const requestedProjectId = consumeProjectOpenRequest()
+        if (
+          requestedProjectId &&
+          nextProjects.some((project) => project.id === requestedProjectId)
+        ) {
+          setActiveProjectId(requestedProjectId)
+        }
         setStatus('ready')
       } catch {
         if (canceled) return
