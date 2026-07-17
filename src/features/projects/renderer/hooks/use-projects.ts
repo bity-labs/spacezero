@@ -9,6 +9,7 @@ export function useProjects(): {
   activeProject: Project | null
   status: ProjectStatus
   error: string | null
+  warning: string | null
   refreshProjects: () => Promise<void>
   selectProject: (project: Project) => void
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
@@ -21,6 +22,7 @@ export function useProjects(): {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [status, setStatus] = useState<ProjectStatus>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
 
   const refreshProjects = useCallback(async () => {
     setStatus('loading')
@@ -72,7 +74,9 @@ export function useProjects(): {
 
   const createEmptyProject = useCallback(
     async (request: CreateEmptyProjectRequest) => {
+      setWarning(null)
       const project = await window.spacezero.projects.createEmpty(request)
+      setWarning(project.setupWarning ?? null)
       rememberProject(project)
       await refreshProjects()
       setActiveProjectId(project.id)
@@ -82,8 +86,10 @@ export function useProjects(): {
   )
 
   const addProjectFromFolder = useCallback(async () => {
+    setWarning(null)
     const project = await window.spacezero.projects.addFromFolder()
     if (project) {
+      setWarning(project.setupWarning ?? null)
       rememberProject(project)
       await refreshProjects()
       setActiveProjectId(project.id)
@@ -128,6 +134,7 @@ export function useProjects(): {
     activeProject: projects.find((project) => project.id === activeProjectId) ?? null,
     status,
     error,
+    warning,
     refreshProjects,
     selectProject: (project) => setActiveProjectId(project.id),
     createEmptyProject,

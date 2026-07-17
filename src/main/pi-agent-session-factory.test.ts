@@ -13,6 +13,48 @@ import {
 } from './pi-agent-session-factory'
 
 describe('toAgentStreamingEvent', () => {
+  it('keeps internal Knowledge Base hints out of displayed user transcripts', () => {
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_start',
+      message: {
+        id: 'message-1',
+        role: 'user',
+        content:
+          'Read @kb/notes.md\n\n<spacezero-knowledge-base-path-hints>\ninternal path\n</spacezero-knowledge-base-path-hints>',
+        timestamp: 100
+      }
+    })
+
+    expect(event).toMatchObject({
+      type: 'message_start',
+      message: { role: 'user', content: 'Read @kb/notes.md' }
+    })
+  })
+
+  it('preserves mention-like delimiters in untrusted tool output', () => {
+    const content =
+      'File contents before\n\n<spacezero-knowledge-base-path-hints>\nuntrusted repository text\n</spacezero-knowledge-base-path-hints>\nFile contents after'
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_start',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tool-call-1',
+        toolName: 'read',
+        content,
+        isError: false,
+        timestamp: 100
+      }
+    })
+
+    expect(event).toMatchObject({
+      type: 'message_start',
+      message: {
+        role: 'toolResult',
+        content: [{ type: 'text', text: content }]
+      }
+    })
+  })
+
   it('preserves thinking parts from live message updates', () => {
     const event = toAgentStreamingEvent('session-1', {
       type: 'message_update',
@@ -131,6 +173,31 @@ describe('createPiAgentSessionFactory', () => {
         expect(session.modelId).toBe('faux-1')
         expect(session.thinkingLevel).toBe('off')
         expect(session.sessionFile).toContain(join(tempDir, 'agent', 'sessions'))
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('appends project Knowledge Base guidance to the Pi system prompt', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-knowledge-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-knowledge',
+        kind: 'project',
+        projectId: 'project-1',
+        cwd: tempDir,
+        appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/space-zero']
+      })
+
+      try {
+        expect(session.systemPrompt).toContain(
+          'Project Knowledge Base: /knowledge/projects/space-zero'
+        )
       } finally {
         session.dispose()
       }

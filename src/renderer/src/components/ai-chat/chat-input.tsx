@@ -1,7 +1,12 @@
 import { CaretDownIcon } from '@phosphor-icons/react'
-import { useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
+import {
+  encodeKnowledgeBaseMentionPath,
+  getActiveKnowledgeBaseMentionQuery,
+  type KnowledgeBaseTreeItem
+} from '../../../../features/knowledge-base/shared'
 import {
   ModelSelector,
   ModelSelectorContent,
@@ -83,6 +88,10 @@ export function ChatInput({
   const [inputValue, setInputValue] = useState('')
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
   const [isSkillMenuDismissed, setSkillMenuDismissed] = useState(false)
+  const [knowledgeBaseItems, setKnowledgeBaseItems] = useState<KnowledgeBaseTreeItem[]>([])
+  const [knowledgeBaseMentionState, setKnowledgeBaseMentionState] = useState<
+    'loading' | 'ready' | 'unconfigured' | 'error'
+  >('loading')
   const fallbackModelId = models[0]?.id
   const activeModelId = selectedModelId ?? uncontrolledModelId ?? fallbackModelId
   const selectedModel = useMemo(
@@ -94,8 +103,45 @@ export function ChatInput({
     [inputValue, isSkillMenuDismissed, skills]
   )
   const selectedSkill = skillSuggestions[Math.min(activeSkillIndex, skillSuggestions.length - 1)]
+  const activeKnowledgeBaseMention = getActiveKnowledgeBaseMentionQuery(inputValue)
+  const isKnowledgeBaseMentionActive = activeKnowledgeBaseMention !== undefined
+  const knowledgeBaseMentionOptions = useMemo(
+    () =>
+      activeKnowledgeBaseMention
+        ? flattenKnowledgeBaseTree(knowledgeBaseItems).filter((path) =>
+            encodeKnowledgeBaseMentionPath(path)
+              .toLowerCase()
+              .startsWith(activeKnowledgeBaseMention.query.toLowerCase())
+          )
+        : [],
+    [activeKnowledgeBaseMention, knowledgeBaseItems]
+  )
 
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
+
+  useEffect(() => {
+    if (!isKnowledgeBaseMentionActive) return
+    let current = true
+    void window.spacezero.knowledgeBase
+      .getStatus()
+      .then(async (knowledgeBaseStatus) => {
+        if (!current) return
+        if (knowledgeBaseStatus.setupState !== 'configured') {
+          setKnowledgeBaseMentionState('unconfigured')
+          return
+        }
+        const tree = await window.spacezero.knowledgeBase.getTree()
+        if (!current) return
+        setKnowledgeBaseItems(tree)
+        setKnowledgeBaseMentionState('ready')
+      })
+      .catch(() => {
+        if (current) setKnowledgeBaseMentionState('error')
+      })
+    return () => {
+      current = false
+    }
+  }, [isKnowledgeBaseMentionActive])
 
   const handleModelChange = (modelId: string) => {
     setUncontrolledModelId(modelId)
@@ -153,6 +199,14 @@ export function ChatInput({
     setSkillMenuDismissed(true)
   }
 
+  function selectKnowledgeBaseMention(path: string): void {
+    if (!activeKnowledgeBaseMention) return
+    const encodedPath = encodeKnowledgeBaseMentionPath(path)
+    setInputValue(
+      `${inputValue.slice(0, activeKnowledgeBaseMention.start)}@kb/${encodedPath} `
+    )
+  }
+
   return (
     <div className="relative w-full">
       <PromptInput
@@ -163,9 +217,17 @@ export function ChatInput({
         <PromptInputAttachments />
         <PromptInputTextarea
           aria-label="Agent prompt"
-          aria-autocomplete={skillSuggestions.length > 0 ? 'list' : undefined}
-          aria-controls={skillSuggestions.length > 0 ? 'agent-skill-suggestions' : undefined}
-          aria-expanded={skillSuggestions.length > 0}
+          aria-autocomplete={
+            skillSuggestions.length > 0 || activeKnowledgeBaseMention ? 'list' : undefined
+          }
+          aria-controls={
+            activeKnowledgeBaseMention
+              ? 'knowledge-base-path-suggestions'
+              : skillSuggestions.length > 0
+                ? 'agent-skill-suggestions'
+                : undefined
+          }
+          aria-expanded={skillSuggestions.length > 0 || Boolean(activeKnowledgeBaseMention)}
           autoFocus={autoFocus}
           disabled={isRunning}
           onChange={(event) => {
@@ -177,6 +239,43 @@ export function ChatInput({
           placeholder={placeholder}
           value={inputValue}
         />
+        {activeKnowledgeBaseMention ? (
+          <div
+            id="knowledge-base-path-suggestions"
+            className="mx-2 max-h-40 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
+            role="listbox"
+            aria-label="Knowledge Base paths"
+          >
+            {knowledgeBaseMentionState === 'loading' ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Loading Knowledge Base paths…
+              </p>
+            ) : knowledgeBaseMentionState === 'unconfigured' ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                Knowledge Base is not configured. Open Knowledge Base to set it up.
+              </p>
+            ) : knowledgeBaseMentionState === 'error' ? (
+              <p className="px-2 py-1.5 text-xs text-destructive">
+                Unable to load Knowledge Base paths.
+              </p>
+            ) : knowledgeBaseMentionOptions.length === 0 ? (
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">No matching paths.</p>
+            ) : (
+              knowledgeBaseMentionOptions.slice(0, 20).map((path) => (
+                <button
+                  key={path}
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
+                  onClick={() => selectKnowledgeBaseMention(path)}
+                >
+                  @kb/{path}
+                </button>
+              ))
+            )}
+          </div>
+        ) : null}
         <PromptInputFooter>
           <PromptInputTools>
             <PromptInputActionMenu>
@@ -267,6 +366,13 @@ export function ChatInput({
       ) : null}
     </div>
   )
+}
+
+function flattenKnowledgeBaseTree(items: KnowledgeBaseTreeItem[]): string[] {
+  return items.flatMap((item) => [
+    item.kind === 'folder' ? `${item.relativePath}/` : item.relativePath,
+    ...(item.children ? flattenKnowledgeBaseTree(item.children) : [])
+  ])
 }
 
 function getSkillSuggestions(value: string, skills: ChatInputSkill[]): ChatInputSkill[] {

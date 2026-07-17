@@ -36,6 +36,7 @@ export type CreateAgentSessionRequest = {
   cwd: string
   transcriptPath?: string
   workspaceTools?: WorkspaceToolAgentDescriptor[]
+  appendSystemPrompt?: string[]
   skillPaths?: AgentSkillPath[]
   disabledGlobalSkillPaths?: string[]
   defaultModel?: DefaultModelSetting
@@ -53,6 +54,7 @@ export type ListAgentSkillsRequest = {
 export type PromptAgentSessionRequest = {
   sessionId: AgentSessionId
   message: string
+  displayMessage?: string
 }
 
 export type AbortAgentSessionRequest = {

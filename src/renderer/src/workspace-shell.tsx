@@ -1,5 +1,14 @@
-import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent
+} from 'react'
+import {
+  BookOpenText,
   CalendarBlank,
   DotsSixVertical,
   FolderPlus,
@@ -9,9 +18,14 @@ import {
   Sidebar,
   SquaresFour
 } from '@phosphor-icons/react'
+import { useBlocker } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
+import {
+  KnowledgeBasePage,
+  type KnowledgeBasePageHandle
+} from '../../features/knowledge-base/renderer'
 import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
@@ -40,6 +54,7 @@ import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
 import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
 import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
+import { Alert, AlertDescription } from './components/ui/alert'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -80,6 +95,10 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
+  const [activePrimaryView, setActivePrimaryView] = useState<'workspace' | 'knowledge-base'>(
+    'workspace'
+  )
+  const knowledgeBasePageRef = useRef<KnowledgeBasePageHandle>(null)
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -96,6 +115,7 @@ export function WorkspaceShell(): React.JSX.Element {
     activeProject,
     status: projectsStatus,
     error: projectsError,
+    warning: projectsWarning,
     selectProject,
     createEmptyProject,
     addProjectFromFolder,
@@ -135,21 +155,74 @@ export function WorkspaceShell(): React.JSX.Element {
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
 
-  const openProjectSession = useCallback(
-    (session: ProjectSession) => openProjectSessionInWorkspace(session),
-    [openProjectSessionInWorkspace]
+  const runInWorkspaceView = useCallback(
+    (action: () => void | Promise<void>): void => {
+      const activate = (): void => {
+        setActivePrimaryView('workspace')
+        void action()
+      }
+
+      if (activePrimaryView !== 'knowledge-base') {
+        activate()
+        return
+      }
+
+      void knowledgeBasePageRef.current?.flushPendingSave().then((saved) => {
+        if (saved) activate()
+      })
+    },
+    [activePrimaryView]
   )
+
+  const shouldBlockRouteNavigation = useCallback(async (): Promise<boolean> => {
+    if (
+      activePrimaryView !== 'knowledge-base' ||
+      !knowledgeBasePageRef.current?.hasPendingSave()
+    ) {
+      return false
+    }
+    return !(await knowledgeBasePageRef.current.flushPendingSave())
+  }, [activePrimaryView])
+
+  useBlocker({
+    shouldBlockFn: shouldBlockRouteNavigation,
+    enableBeforeUnload: false
+  })
+
+  useEffect(() => {
+    function handleBeforeUnload(event: BeforeUnloadEvent): void {
+      if (
+        activePrimaryView !== 'knowledge-base' ||
+        !knowledgeBasePageRef.current?.hasPendingSave()
+      ) {
+        return
+      }
+
+      event.preventDefault()
+      event.returnValue = ''
+      void knowledgeBasePageRef.current.flushPendingSave().then((saved) => {
+        if (saved) window.close()
+      })
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [activePrimaryView])
 
   const openWorkspaceSession = useCallback(
-    (session: WorkspaceSession) => openWorkspaceSessionInWorkspace(session),
-    [openWorkspaceSessionInWorkspace]
+    (session: WorkspaceSession): void => {
+      runInWorkspaceView(() => openWorkspaceSessionInWorkspace(session))
+    },
+    [openWorkspaceSessionInWorkspace, runInWorkspaceView]
   )
 
-  const handleNewWorkspaceSession = useCallback(async (): Promise<void> => {
-    const session = await window.spacezero.agent.createWorkspaceSession()
-    upsertWorkspaceSession(session)
-    openWorkspaceSession(session)
-  }, [openWorkspaceSession, upsertWorkspaceSession])
+  const handleNewWorkspaceSession = useCallback((): void => {
+    runInWorkspaceView(async () => {
+      const session = await window.spacezero.agent.createWorkspaceSession()
+      upsertWorkspaceSession(session)
+      openWorkspaceSessionInWorkspace(session)
+    })
+  }, [openWorkspaceSessionInWorkspace, runInWorkspaceView, upsertWorkspaceSession])
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -188,27 +261,31 @@ export function WorkspaceShell(): React.JSX.Element {
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
 
-  async function handleNewSession(project: Project): Promise<void> {
-    selectProject(project)
-    const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
-    const session: ProjectSession = {
-      id: agentSession.sessionId,
-      kind: 'project',
-      projectId: agentSession.projectId ?? project.id,
-      title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
-      status: agentSession.status,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-    upsertProjectSession(session)
-    openProjectSession(session)
-    await refreshSessions()
+  function handleNewSession(project: Project): void {
+    runInWorkspaceView(async () => {
+      selectProject(project)
+      const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
+      const session: ProjectSession = {
+        id: agentSession.sessionId,
+        kind: 'project',
+        projectId: agentSession.projectId ?? project.id,
+        title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
+        status: agentSession.status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+      upsertProjectSession(session)
+      openProjectSessionInWorkspace(session)
+      await refreshSessions()
+    })
   }
 
   function handleSelectSession(session: ProjectSession): void {
-    const sessionProject = projects.find((project) => project.id === session.projectId)
-    if (sessionProject) selectProject(sessionProject)
-    openProjectSession(session)
+    runInWorkspaceView(() => {
+      const sessionProject = projects.find((project) => project.id === session.projectId)
+      if (sessionProject) selectProject(sessionProject)
+      openProjectSessionInWorkspace(session)
+    })
   }
 
   async function handleArchiveSession(sessionId: string): Promise<void> {
@@ -304,6 +381,7 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <div className="flex h-full w-full items-center justify-start px-3">
           <WorkspaceBreadcrumb
+            knowledgeBaseActive={activePrimaryView === 'knowledge-base'}
             project={activeSessionProject ?? activeProject}
             projectSession={activeProjectSession}
             workspaceSession={activeWorkspaceSession}
@@ -338,11 +416,21 @@ export function WorkspaceShell(): React.JSX.Element {
             className="pt-4"
             contentClassName="px-0 overflow-hidden"
             header={
-              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')}>
+              <SidebarMenu
+                className="px-0"
+                aria-label={t('workspace.navigation')}
+                role="menu"
+              >
+                <SidebarNavItem
+                  icon={BookOpenText}
+                  label="Knowledge Base"
+                  active={activePrimaryView === 'knowledge-base'}
+                  onClick={() => setActivePrimaryView('knowledge-base')}
+                />
                 <SidebarNavItem
                   icon={PaperPlaneTilt}
                   label={t('workspace.sidebar.newAgent')}
-                  active={activeTab?.kind === 'workspace'}
+                  active={activePrimaryView === 'workspace' && activeTab?.kind === 'workspace'}
                   onClick={() => void handleNewWorkspaceSession()}
                 />
                 <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
@@ -402,10 +490,12 @@ export function WorkspaceShell(): React.JSX.Element {
                     error={projectsError}
                     onAddProject={() => setAddProjectOpen(true)}
                     onSelectProject={(project) => {
-                      selectProject(project)
-                      if (activeProjectSession?.projectId !== project.id) {
-                        resetSessionWorkspaceLayout()
-                      }
+                      runInWorkspaceView(() => {
+                        selectProject(project)
+                        if (activeProjectSession?.projectId !== project.id) {
+                          resetSessionWorkspaceLayout()
+                        }
+                      })
                     }}
                     onEditProject={setEditingProject}
                     onArchiveProject={(project) => void handleArchiveProject(project)}
@@ -455,7 +545,14 @@ export function WorkspaceShell(): React.JSX.Element {
           className="flex min-h-0 min-w-0 flex-col bg-background"
           role="main"
         >
-          {activeTab ? (
+          {projectsWarning ? (
+            <Alert className="m-4 mb-0 w-auto">
+              <AlertDescription>{projectsWarning}</AlertDescription>
+            </Alert>
+          ) : null}
+          {activePrimaryView === 'knowledge-base' ? (
+            <KnowledgeBasePage ref={knowledgeBasePageRef} />
+          ) : activeTab ? (
             <SessionWorkspaceTabSurface
               tab={activeTab}
               projects={projects}
@@ -541,10 +638,12 @@ function SessionWorkspaceTabSurface({
 }
 
 function WorkspaceBreadcrumb({
+  knowledgeBaseActive,
   project,
   projectSession,
   workspaceSession
 }: {
+  knowledgeBaseActive: boolean
   project: Project | null
   projectSession: ProjectSession | null
   workspaceSession: WorkspaceSession | null
@@ -553,7 +652,9 @@ function WorkspaceBreadcrumb({
     <Breadcrumb>
       <BreadcrumbList className="justify-start text-xs">
         <BreadcrumbItem>
-          <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
+          <BreadcrumbPage>
+            {knowledgeBaseActive ? 'Knowledge Base' : (project?.name ?? 'Workspace')}
+          </BreadcrumbPage>
         </BreadcrumbItem>
         {projectSession ? (
           <>

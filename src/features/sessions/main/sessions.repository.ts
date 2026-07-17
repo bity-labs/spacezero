@@ -57,7 +57,11 @@ export function createSessionsRepository(): SessionsRepository {
 
     async findProjectById(projectId) {
       const [project] = await getDatabase()
-        .select({ id: schema.projects.id, path: schema.projects.path })
+        .select({
+          id: schema.projects.id,
+          path: schema.projects.path,
+          knowledgeBasePath: schema.projects.knowledgeBasePath
+        })
         .from(schema.projects)
         .where(eq(schema.projects.id, projectId))
         .limit(1)

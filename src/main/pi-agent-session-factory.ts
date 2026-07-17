@@ -31,6 +31,7 @@ import type {
   AgentSkillPath
 } from '../features/agent-workspace/shared/agent-skill.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
+import { stripKnowledgeBaseMentionContext } from '../features/knowledge-base/shared'
 import type {
   ExecuteWorkspaceToolRequest,
   WorkspaceToolAgentDescriptor
@@ -121,7 +122,8 @@ export function createPiAgentRuntime({
       }),
       noPromptTemplates: true,
       noThemes: true,
-      noContextFiles: true
+      noContextFiles: true,
+      appendSystemPrompt: request.appendSystemPrompt
     })
     await resourceLoader.reload()
     reportSkillDiagnostics(resourceLoader.getSkills().diagnostics, onSkillDiagnostics)
@@ -445,6 +447,9 @@ function adaptAgentSession(
     get thinkingLevel() {
       return preferredThinkingLevel
     },
+    get systemPrompt() {
+      return session.systemPrompt
+    },
     skills: toAgentSkillDescriptors(session.resourceLoader.getSkills().skills, skillPaths),
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
@@ -570,8 +575,11 @@ function toUserContent(content: unknown): string | AgentUserContent[] {
 }
 
 function toDisplayUserText(text: string): string {
-  const expandedSkill = parseSkillBlock(text)
-  if (!expandedSkill) return text.startsWith(PI_SKILL_BLOCK_PREFIX) ? '/skill' : text
+  const displayText = stripKnowledgeBaseMentionContext(text)
+  const expandedSkill = parseSkillBlock(displayText)
+  if (!expandedSkill) {
+    return displayText.startsWith(PI_SKILL_BLOCK_PREFIX) ? '/skill' : displayText
+  }
 
   const safeUserMessage = expandedSkill.userMessage?.includes('</skill>')
     ? undefined
