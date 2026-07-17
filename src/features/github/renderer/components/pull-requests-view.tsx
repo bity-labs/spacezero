@@ -15,9 +15,17 @@ import {
   useProjectPullRequests
 } from '../hooks/use-project-pull-requests'
 
-export function PullRequestsView({ project }: { project: Project }): React.JSX.Element {
+export function PullRequestsView({
+  project,
+  initialPullRequestNumber = null
+}: {
+  project: Project
+  initialPullRequestNumber?: number | null
+}): React.JSX.Element {
   const [page, setPage] = useState(1)
-  const [selectedPullRequest, setSelectedPullRequest] = useState<number | null>(null)
+  const [selectedPullRequest, setSelectedPullRequest] = useState<number | null>(
+    initialPullRequestNumber
+  )
 
   if (selectedPullRequest !== null) {
     return (

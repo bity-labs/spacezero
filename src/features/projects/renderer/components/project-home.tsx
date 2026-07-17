@@ -4,6 +4,7 @@ import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@p
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
 import {
   IssuesView,
+  ProjectGitHubOverview,
   PullRequestsView,
   useGitHubConnection,
   useProjectRepository
@@ -26,6 +27,8 @@ export function ProjectHome({
 }): React.JSX.Element {
   const [displayProject, setDisplayProject] = useState(project)
   const [view, setView] = useState<ProjectHomeView>('overview')
+  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null)
+  const [selectedPullRequestNumber, setSelectedPullRequestNumber] = useState<number | null>(null)
   const { connection, isLoading: connectionLoading } = useGitHubConnection()
   const [linkOptions, setLinkOptions] = useState<GitHubProjectLinkOptions | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
@@ -99,12 +102,21 @@ export function ProjectHome({
           <ProjectHomeTab active={view === 'overview'} onClick={() => setView('overview')}>
             Overview
           </ProjectHomeTab>
-          <ProjectHomeTab active={view === 'issues'} onClick={() => setView('issues')}>
+          <ProjectHomeTab
+            active={view === 'issues'}
+            onClick={() => {
+              setSelectedIssueNumber(null)
+              setView('issues')
+            }}
+          >
             Issues
           </ProjectHomeTab>
           <ProjectHomeTab
             active={view === 'pull-requests'}
-            onClick={() => setView('pull-requests')}
+            onClick={() => {
+              setSelectedPullRequestNumber(null)
+              setView('pull-requests')
+            }}
           >
             Pull Requests
           </ProjectHomeTab>
@@ -113,19 +125,44 @@ export function ProjectHome({
 
       <div className="mx-auto w-full max-w-5xl space-y-5 p-8">
         {view === 'overview' ? (
-          <GitHubProjectState
-            project={displayProject}
-            connection={connection}
-            connectionLoading={connectionLoading}
-            linkOptions={linkOptions}
-            selectedRepositoryId={selectedRepositoryId}
-            linkError={linkError}
-            isLoadingOptions={isLoadingOptions}
-            isSavingLink={isSavingLink}
-            onLoadLinkOptions={() => void loadLinkOptions()}
-            onSelectRepository={setSelectedRepositoryId}
-            onLinkRepository={() => void linkRepository()}
-          />
+          <>
+            <GitHubProjectState
+              project={displayProject}
+              connection={connection}
+              connectionLoading={connectionLoading}
+              linkOptions={linkOptions}
+              selectedRepositoryId={selectedRepositoryId}
+              linkError={linkError}
+              isLoadingOptions={isLoadingOptions}
+              isSavingLink={isSavingLink}
+              onLoadLinkOptions={() => void loadLinkOptions()}
+              onSelectRepository={setSelectedRepositoryId}
+              onLinkRepository={() => void linkRepository()}
+            />
+            {!connectionLoading &&
+            connection?.status === 'connected' &&
+            displayProject.githubRepository ? (
+              <ProjectGitHubOverview
+                project={displayProject}
+                onOpenIssue={(number) => {
+                  setSelectedIssueNumber(number)
+                  setView('issues')
+                }}
+                onViewIssues={() => {
+                  setSelectedIssueNumber(null)
+                  setView('issues')
+                }}
+                onOpenPullRequest={(number) => {
+                  setSelectedPullRequestNumber(number)
+                  setView('pull-requests')
+                }}
+                onViewPullRequests={() => {
+                  setSelectedPullRequestNumber(null)
+                  setView('pull-requests')
+                }}
+              />
+            ) : null}
+          </>
         ) : view === 'issues' ? (
           <GitHubWorkflowGate
             project={displayProject}
@@ -133,7 +170,11 @@ export function ProjectHome({
             connected={connection?.status === 'connected'}
             onShowOverview={() => setView('overview')}
           >
-            <IssuesView project={displayProject} />
+            <IssuesView
+              key={selectedIssueNumber ?? 'issue-list'}
+              project={displayProject}
+              initialIssueNumber={selectedIssueNumber}
+            />
           </GitHubWorkflowGate>
         ) : (
           <GitHubWorkflowGate
@@ -142,7 +183,11 @@ export function ProjectHome({
             connected={connection?.status === 'connected'}
             onShowOverview={() => setView('overview')}
           >
-            <PullRequestsView project={displayProject} />
+            <PullRequestsView
+              key={selectedPullRequestNumber ?? 'pull-request-list'}
+              project={displayProject}
+              initialPullRequestNumber={selectedPullRequestNumber}
+            />
           </GitHubWorkflowGate>
         )}
       </div>
