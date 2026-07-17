@@ -4,12 +4,14 @@ import type {
   GitHubIssueComment,
   GitHubPage,
   GitHubPullRequest,
+  GitHubPullRequestCommentCreateRequest,
   GitHubPullRequestCommentsRequest,
   GitHubPullRequestFile,
   GitHubPullRequestListRequest,
   GitHubPullRequestPageRequest,
   GitHubPullRequestRequest,
   GitHubPullRequestReview,
+  GitHubPullRequestReviewCreateRequest,
   GitHubPullRequestSummary,
   GitHubRepository
 } from '../shared'
@@ -44,6 +46,21 @@ export type GitHubPullRequestsAdapter = {
   listReviews: (
     request: GitHubPullRequestAdapterPageRequest
   ) => Promise<GitHubPage<GitHubPullRequestReview>>
+  createConversationComment: (request: {
+    accessToken: string
+    owner: string
+    repository: string
+    number: number
+    body: string
+  }) => Promise<GitHubIssueComment>
+  createReview: (request: {
+    accessToken: string
+    owner: string
+    repository: string
+    number: number
+    event: 'APPROVE' | 'REQUEST_CHANGES'
+    body?: string
+  }) => Promise<GitHubPullRequestReview>
 }
 
 type GitHubPullRequestAdapterPageRequest = {
@@ -154,6 +171,41 @@ export function createGitHubPullRequestsService({
     })
   }
 
+  async function createConversationComment(
+    request: GitHubPullRequestCommentCreateRequest
+  ): Promise<GitHubIssueComment> {
+    const body = request.body.trim()
+    if (!body || body.length > 65_536) throw new Error('github.invalidComment')
+    const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    return adapter.createConversationComment({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number,
+      body
+    })
+  }
+
+  async function createReview(
+    request: GitHubPullRequestReviewCreateRequest
+  ): Promise<GitHubPullRequestReview> {
+    const body = request.body?.trim()
+    if (request.event !== 'APPROVE' && request.event !== 'REQUEST_CHANGES') {
+      throw new Error('github.invalidReview')
+    }
+    if (request.event === 'REQUEST_CHANGES' && !body) throw new Error('github.invalidReview')
+    if (body && body.length > 65_536) throw new Error('github.invalidReview')
+    const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    return adapter.createReview({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number,
+      event: request.event,
+      ...(body ? { body } : {})
+    })
+  }
+
   return {
     listPullRequests,
     getPullRequest,
@@ -161,6 +213,8 @@ export function createGitHubPullRequestsService({
     listFiles,
     listCheckRuns,
     listCommitStatuses,
-    listReviews
+    listReviews,
+    createConversationComment,
+    createReview
   }
 }

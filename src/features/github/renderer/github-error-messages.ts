@@ -25,8 +25,8 @@ export function githubMutationErrorMessage(error: unknown): string {
   if (message.includes('github.permissionDenied')) {
     return 'GitHub denied this change. Check your repository permissions.'
   }
-  if (message.includes('github.validationFailed')) {
-    return 'GitHub rejected this change as invalid.'
+  if (message.includes('github.ruleOrValidationFailed')) {
+    return 'GitHub rejected this change because it violates a repository rule or GitHub validation.'
   }
   if (message.includes('github.conflict')) {
     return 'The GitHub item changed. Refresh it before trying again.'

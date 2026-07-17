@@ -7,7 +7,7 @@ export function toGitHubApiError(error: unknown): Error {
   if (status === 403 && getRateLimitRemaining(error) === '0') return new Error('github.rateLimited')
   if (status === 403) return new Error('github.permissionDenied')
   if (status === 409) return new Error('github.conflict')
-  if (status === 422) return new Error('github.validationFailed')
+  if (status === 422) return new Error('github.ruleOrValidationFailed')
   return new GitHubIntegrationError('network-error')
 }
 

@@ -238,6 +238,43 @@ export function createGitHubPullRequestsAdapter(): GitHubPullRequestsAdapter {
       } catch (error) {
         throw toGitHubApiError(error)
       }
+    },
+
+    async createConversationComment({ accessToken, owner, repository, number, body }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request(
+          'POST /repos/{owner}/{repo}/issues/{issue_number}/comments',
+          {
+            owner,
+            repo: repository,
+            issue_number: number,
+            body
+          }
+        )
+        return toComment(response.data as ApiComment)
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
+    },
+
+    async createReview({ accessToken, owner, repository, number, event, body }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request(
+          'POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews',
+          {
+            owner,
+            repo: repository,
+            pull_number: number,
+            event,
+            ...(body ? { body } : {})
+          }
+        )
+        return toReview(response.data as ApiReview)
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
     }
   }
 }

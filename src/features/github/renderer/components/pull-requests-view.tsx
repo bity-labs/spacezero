@@ -7,6 +7,7 @@ import { Button } from '../../../../renderer/src/components/ui/button'
 import type { Project } from '../../../projects/shared'
 import type { GitHubIssueComment, GitHubPullRequest } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
+import { PullRequestActions } from './pull-request-actions'
 import { PullRequestReviewSections } from './pull-request-review-sections'
 import {
   useProjectPullRequest,
@@ -175,6 +176,8 @@ function PullRequestDetail({
         />
       ) : null}
       {pullRequestQuery.data ? <PullRequestContent pullRequest={pullRequestQuery.data} /> : null}
+
+      {pullRequestQuery.data ? <PullRequestActions projectId={projectId} number={number} /> : null}
 
       {pullRequestQuery.data ? (
         <PullRequestReviewSections projectId={projectId} number={number} />
