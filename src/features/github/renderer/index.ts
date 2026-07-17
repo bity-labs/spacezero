@@ -1,6 +1,7 @@
 export * from './components/account-settings'
 export * from './components/issues-view'
 export * from './components/pull-requests-view'
+export * from './components/project-github-overview'
 export * from './components/repository-setup'
 export * from './github-query-client'
 export * from './hooks/use-github-connection'

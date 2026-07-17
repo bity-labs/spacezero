@@ -13,9 +13,15 @@ import {
   useProjectIssues
 } from '../hooks/use-project-issues'
 
-export function IssuesView({ project }: { project: Project }): React.JSX.Element {
+export function IssuesView({
+  project,
+  initialIssueNumber = null
+}: {
+  project: Project
+  initialIssueNumber?: number | null
+}): React.JSX.Element {
   const [page, setPage] = useState(1)
-  const [selectedIssue, setSelectedIssue] = useState<number | null>(null)
+  const [selectedIssue, setSelectedIssue] = useState<number | null>(initialIssueNumber)
 
   if (selectedIssue !== null) {
     return (

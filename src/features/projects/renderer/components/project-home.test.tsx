@@ -486,6 +486,117 @@ describe('ProjectHome', () => {
     expect(requestedPages).toContain(2)
   })
 
+  it('summarizes linked GitHub work and navigates summaries to in-app detail', async () => {
+    const linkedProject: Project = {
+      ...project,
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: '2026-07-18T01:00:00.000Z'
+      }
+    }
+    const issue = {
+      number: 83,
+      title: 'GitHub integration overview',
+      body: 'Overview Issue body',
+      state: 'open' as const,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      labels: [],
+      assignees: [],
+      commentCount: 0,
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    }
+    const pullRequest = {
+      number: 79,
+      title: 'Storage integration overview',
+      state: 'open' as const,
+      isDraft: false,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      baseBranch: 'main',
+      headBranch: 'feat/storage',
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    window.spacezero.github.listIssues = async ({ page }) => ({
+      items: [issue],
+      page,
+      hasNextPage: false
+    })
+    window.spacezero.github.getIssue = async () => issue
+    window.spacezero.github.listIssueComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+    window.spacezero.github.listPullRequests = async ({ page }) => ({
+      items: [pullRequest],
+      page,
+      hasNextPage: false
+    })
+    window.spacezero.github.getPullRequest = async () => ({
+      ...pullRequest,
+      body: 'Overview Pull Request body',
+      commitCount: 3,
+      conversationCommentCount: 0
+    })
+    window.spacezero.github.listPullRequestComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+    const onNewSession = vi.fn()
+
+    renderProjectHome(
+      <ProjectHome
+        project={linkedProject}
+        onProjectLinked={() => undefined}
+        onNewSession={onNewSession}
+      />
+    )
+
+    expect(
+      await screen.findByRole('region', { name: 'GitHub workflow summary' })
+    ).toBeInTheDocument()
+    expect(await screen.findByText('GitHub integration overview')).toBeInTheDocument()
+    expect(await screen.findByText('Storage integration overview')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
+      'href',
+      repository.htmlUrl
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'New session' }))
+    expect(onNewSession).toHaveBeenCalledOnce()
+
+    fireEvent.click(screen.getByRole('button', { name: /GitHub integration overview/ }))
+    expect(await screen.findByText('Overview Issue body')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Storage integration overview/ }))
+    expect(await screen.findByText('Overview Pull Request body')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'View all Issues' }))
+    expect(await screen.findByRole('region', { name: 'GitHub Issues' })).toBeInTheDocument()
+  })
+
   it('shows revoked repository access as stale rather than false success', async () => {
     const linkedProject: Project = {
       ...project,
