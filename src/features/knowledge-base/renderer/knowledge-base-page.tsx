@@ -18,6 +18,14 @@ import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Badge } from '@renderer/components/ui/badge'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
 import { KnowledgeBaseDocumentEditor } from './knowledge-base-document-editor'
 import type {
@@ -181,6 +189,8 @@ function ConfiguredKnowledgeBase({
   const [isAddRemoteOpen, setAddRemoteOpen] = useState(false)
   const [remoteUrl, setRemoteUrl] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [itemAction, setItemAction] = useState<KnowledgeBaseItemAction | null>(null)
+  const [mutatingItem, setMutatingItem] = useState(false)
 
   const refreshTree = useCallback(async (): Promise<void> => {
     setTree(await window.spacezero.knowledgeBase.getTree())
@@ -286,78 +296,83 @@ function ConfiguredKnowledgeBase({
     }
   }
 
-  async function createItem(kind: 'file' | 'folder'): Promise<void> {
-    const relativePath = window.prompt(
-      kind === 'file' ? 'New file path' : 'New folder path'
-    )?.trim()
-    if (!relativePath) return
-
-    setError(null)
-    try {
-      await window.spacezero.knowledgeBase.createItem({ relativePath, kind })
-      await refreshTree()
-    } catch (mutationError) {
-      setError(getErrorMessage(mutationError, `Unable to create this ${kind}.`))
-    }
+  function startCreateItem(kind: 'file' | 'folder'): void {
+    setItemAction({ kind: 'create', itemKind: kind, value: '' })
   }
 
-  async function renameItem(): Promise<void> {
+  function startSelectedItemAction(kind: 'rename' | 'move' | 'delete'): void {
     if (!selectedItem) return
-    const newName = window.prompt('New name', selectedItem.name)?.trim()
-    if (!newName || newName === selectedItem.name) return
-
-    setError(null)
-    try {
-      await window.spacezero.knowledgeBase.renameItem({
-        relativePath: selectedItem.relativePath,
-        newName
-      })
-      await refreshTree()
-    } catch (mutationError) {
-      setError(getErrorMessage(mutationError, 'Unable to rename this item.'))
-    }
-  }
-
-  async function moveItem(): Promise<void> {
-    if (!selectedItem) return
-    const destinationPath = window
-      .prompt('Move to relative path', selectedItem.relativePath)
-      ?.trim()
-    if (!destinationPath || destinationPath === selectedItem.relativePath) return
-
-    setError(null)
-    try {
-      await window.spacezero.knowledgeBase.moveItem({
-        sourcePath: selectedItem.relativePath,
-        destinationPath
-      })
-      await refreshTree()
-    } catch (mutationError) {
-      setError(getErrorMessage(mutationError, 'Unable to move this item.'))
-    }
-  }
-
-  async function deleteItem(): Promise<void> {
-    if (!selectedItem) return
-    if (
-      !window.confirm(
-        `Delete ${selectedItem.name} permanently? This cannot be undone.`
-      )
-    ) {
+    if (kind === 'delete') {
+      setItemAction({ kind, item: selectedItem })
       return
     }
+    setItemAction({
+      kind,
+      item: selectedItem,
+      value: kind === 'rename' ? selectedItem.name : selectedItem.relativePath
+    })
+  }
 
+  async function submitItemAction(): Promise<void> {
+    if (!itemAction) return
+    const value = itemAction.kind === 'delete' ? undefined : itemAction.value.trim()
+    if (itemAction.kind !== 'delete' && !value) return
+
+    setMutatingItem(true)
     setError(null)
     try {
-      await window.spacezero.knowledgeBase.deleteItem({
-        relativePath: selectedItem.relativePath
-      })
-      if (document?.relativePath === selectedItem.relativePath) setDocument(null)
-      setSelectedItem(null)
+      if (itemAction.kind === 'create') {
+        await window.spacezero.knowledgeBase.createItem({
+          relativePath: value!,
+          kind: itemAction.itemKind
+        })
+      } else if (itemAction.kind === 'rename') {
+        if (value === itemAction.item.name) {
+          setItemAction(null)
+          return
+        }
+        await window.spacezero.knowledgeBase.renameItem({
+          relativePath: itemAction.item.relativePath,
+          newName: value!
+        })
+        clearAffectedSelection(itemAction.item.relativePath)
+      } else if (itemAction.kind === 'move') {
+        if (value === itemAction.item.relativePath) {
+          setItemAction(null)
+          return
+        }
+        await window.spacezero.knowledgeBase.moveItem({
+          sourcePath: itemAction.item.relativePath,
+          destinationPath: value!
+        })
+        clearAffectedSelection(itemAction.item.relativePath)
+      } else {
+        await window.spacezero.knowledgeBase.deleteItem({
+          relativePath: itemAction.item.relativePath
+        })
+        clearAffectedSelection(itemAction.item.relativePath)
+      }
+      setItemAction(null)
       await refreshTree()
     } catch (mutationError) {
-      setError(getErrorMessage(mutationError, 'Unable to delete this item.'))
+      const actionLabel =
+        itemAction.kind === 'create'
+          ? `create this ${itemAction.itemKind}`
+          : `${itemAction.kind} this item`
+      setError(getErrorMessage(mutationError, `Unable to ${actionLabel}.`))
+    } finally {
+      setMutatingItem(false)
     }
+  }
+
+  function clearAffectedSelection(relativePath: string): void {
+    if (
+      document?.relativePath === relativePath ||
+      document?.relativePath.startsWith(`${relativePath}/`)
+    ) {
+      setDocument(null)
+    }
+    setSelectedItem(null)
   }
 
   async function search(): Promise<void> {
@@ -499,11 +514,11 @@ function ConfiguredKnowledgeBase({
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(180px,260px)_minmax(0,1fr)]">
         <aside className="min-h-0 overflow-auto border-r p-3">
           <div className="mb-3 flex flex-wrap items-center gap-1 border-b pb-3">
-            <Button variant="outline" size="xs" onClick={() => void createItem('file')}>
+            <Button variant="outline" size="xs" onClick={() => startCreateItem('file')}>
               <FilePlus className="size-3.5" aria-hidden="true" />
               New file
             </Button>
-            <Button variant="outline" size="xs" onClick={() => void createItem('folder')}>
+            <Button variant="outline" size="xs" onClick={() => startCreateItem('folder')}>
               <FolderPlus className="size-3.5" aria-hidden="true" />
               New folder
             </Button>
@@ -513,7 +528,7 @@ function ConfiguredKnowledgeBase({
                   variant="ghost"
                   size="icon-xs"
                   aria-label={`Rename ${selectedItem.name}`}
-                  onClick={() => void renameItem()}
+                  onClick={() => startSelectedItemAction('rename')}
                 >
                   <PencilSimple className="size-3.5" aria-hidden="true" />
                 </Button>
@@ -521,7 +536,7 @@ function ConfiguredKnowledgeBase({
                   variant="ghost"
                   size="icon-xs"
                   aria-label={`Move ${selectedItem.name}`}
-                  onClick={() => void moveItem()}
+                  onClick={() => startSelectedItemAction('move')}
                 >
                   <SignOut className="size-3.5" aria-hidden="true" />
                 </Button>
@@ -529,7 +544,7 @@ function ConfiguredKnowledgeBase({
                   variant="ghost"
                   size="icon-xs"
                   aria-label={`Delete ${selectedItem.name}`}
-                  onClick={() => void deleteItem()}
+                  onClick={() => startSelectedItemAction('delete')}
                 >
                   <Trash className="size-3.5" aria-hidden="true" />
                 </Button>
@@ -605,14 +620,127 @@ function ConfiguredKnowledgeBase({
             </div>
           ) : (
             <KnowledgeBaseDocumentEditor
-              key={`${document.relativePath}:${document.revision}`}
+              key={document.relativePath}
               document={document}
               onDocumentChange={setDocument}
             />
           )}
         </main>
       </div>
+
+      <KnowledgeBaseItemActionDialog
+        action={itemAction}
+        busy={mutatingItem}
+        onActionChange={setItemAction}
+        onSubmit={() => void submitItemAction()}
+      />
     </div>
+  )
+}
+
+type KnowledgeBaseItemAction =
+  | { kind: 'create'; itemKind: 'file' | 'folder'; value: string }
+  | { kind: 'rename' | 'move'; item: KnowledgeBaseTreeItem; value: string }
+  | { kind: 'delete'; item: KnowledgeBaseTreeItem }
+
+function KnowledgeBaseItemActionDialog({
+  action,
+  busy,
+  onActionChange,
+  onSubmit
+}: {
+  action: KnowledgeBaseItemAction | null
+  busy: boolean
+  onActionChange: (action: KnowledgeBaseItemAction | null) => void
+  onSubmit: () => void
+}): React.JSX.Element | null {
+  if (!action) return null
+
+  const title =
+    action.kind === 'create'
+      ? `Create ${action.itemKind}`
+      : action.kind === 'delete'
+        ? `Delete ${action.item.name}?`
+        : action.kind === 'rename'
+          ? `Rename ${action.item.name}`
+          : `Move ${action.item.name}`
+  const submitLabel =
+    action.kind === 'create'
+      ? `Create ${action.itemKind}`
+      : action.kind === 'delete'
+        ? 'Delete permanently'
+        : action.kind === 'rename'
+          ? 'Rename'
+          : 'Move'
+  const inputLabel =
+    action.kind === 'create'
+      ? `${action.itemKind === 'file' ? 'File' : 'Folder'} path`
+      : action.kind === 'rename'
+        ? 'New name'
+        : 'Destination path'
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !busy) onActionChange(null)
+      }}
+    >
+      <DialogContent showCloseButton={!busy}>
+        <form
+          className="grid gap-6"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>
+              {action.kind === 'delete'
+                ? 'This item and its contents will be deleted permanently. This cannot be undone.'
+                : action.kind === 'move'
+                  ? 'Enter the full destination path relative to the Knowledge Base root.'
+                  : 'Paths are relative to the Knowledge Base root.'}
+            </DialogDescription>
+          </DialogHeader>
+          {action.kind !== 'delete' ? (
+            <div>
+              <label htmlFor="knowledge-base-item-action-value" className="text-sm font-medium">
+                {inputLabel}
+              </label>
+              <Input
+                id="knowledge-base-item-action-value"
+                className="mt-2"
+                autoFocus
+                disabled={busy}
+                value={action.value}
+                onChange={(event) =>
+                  onActionChange({ ...action, value: event.target.value })
+                }
+              />
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onActionChange(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant={action.kind === 'delete' ? 'destructive' : 'default'}
+              disabled={busy || (action.kind !== 'delete' && !action.value.trim())}
+            >
+              {busy ? 'Working…' : submitLabel}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 

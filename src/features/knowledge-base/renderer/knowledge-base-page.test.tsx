@@ -299,50 +299,58 @@ describe('KnowledgeBasePage', () => {
     window.spacezero.knowledgeBase.renameItem = renameItem
     window.spacezero.knowledgeBase.moveItem = moveItem
     window.spacezero.knowledgeBase.deleteItem = deleteItem
-    const prompt = vi
-      .spyOn(window, 'prompt')
-      .mockReturnValueOnce('new-note.md')
-      .mockReturnValueOnce('new-folder')
-      .mockReturnValueOnce('renamed.md')
-      .mockReturnValueOnce('archive/renamed.md')
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    try {
-      render(<KnowledgeBasePage />)
-      await screen.findByRole('button', { name: 'note.md' })
+    render(<KnowledgeBasePage />)
+    await screen.findByRole('button', { name: 'note.md' })
 
-      fireEvent.click(screen.getByRole('button', { name: 'New file' }))
-      await waitFor(() =>
-        expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-note.md', kind: 'file' })
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
-      await waitFor(() =>
-        expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-folder', kind: 'folder' })
-      )
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+    fireEvent.change(screen.getByLabelText('File path'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create file' }))
+    await waitFor(() =>
+      expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-note.md', kind: 'file' })
+    )
 
-      fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Rename note.md' }))
-      await waitFor(() =>
-        expect(renameItem).toHaveBeenCalledWith({ relativePath: 'note.md', newName: 'renamed.md' })
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'Move note.md' }))
-      await waitFor(() =>
-        expect(moveItem).toHaveBeenCalledWith({
-          sourcePath: 'note.md',
-          destinationPath: 'archive/renamed.md'
-        })
-      )
-      fireEvent.click(screen.getByRole('button', { name: 'Delete note.md' }))
-      await waitFor(() => expect(deleteItem).toHaveBeenCalledWith({ relativePath: 'note.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    fireEvent.change(screen.getByLabelText('Folder path'), {
+      target: { value: 'new-folder' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Create folder' }))
+    await waitFor(() =>
+      expect(createItem).toHaveBeenCalledWith({ relativePath: 'new-folder', kind: 'folder' })
+    )
 
-      expect(confirm).toHaveBeenCalledWith(
-        'Delete note.md permanently? This cannot be undone.'
-      )
-      expect(getTree.mock.calls.length).toBeGreaterThanOrEqual(5)
-    } finally {
-      prompt.mockRestore()
-      confirm.mockRestore()
-    }
+    fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename note.md' }))
+    fireEvent.change(screen.getByLabelText('New name'), {
+      target: { value: 'renamed.md' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    await waitFor(() =>
+      expect(renameItem).toHaveBeenCalledWith({ relativePath: 'note.md', newName: 'renamed.md' })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Move note.md' }))
+    fireEvent.change(screen.getByLabelText('Destination path'), {
+      target: { value: 'archive/renamed.md' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Move' }))
+    await waitFor(() =>
+      expect(moveItem).toHaveBeenCalledWith({
+        sourcePath: 'note.md',
+        destinationPath: 'archive/renamed.md'
+      })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'note.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Delete note.md' }))
+    expect(screen.getByText(/deleted permanently/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete permanently' }))
+    await waitFor(() => expect(deleteItem).toHaveBeenCalledWith({ relativePath: 'note.md' }))
+
+    expect(getTree.mock.calls.length).toBeGreaterThanOrEqual(5)
   })
 
   it('surfaces folder collisions without pretending setup succeeded', async () => {
