@@ -1,4 +1,4 @@
-import { expect, test, _electron as electron } from '@playwright/test'
+import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -6,15 +6,31 @@ import { join } from 'node:path'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron') as string
+const userDataDirectories: string[] = []
 
-test('launches the Electron app shell with sandboxed preload IPC available', async () => {
-  const electronApp = await electron.launch({
+async function launchApp(userDataPath?: string): Promise<ElectronApplication> {
+  const dataPath = userDataPath ?? (await mkdtemp(join(tmpdir(), 'spacezero-e2e-')))
+  if (!userDataPath) userDataDirectories.push(dataPath)
+  return electron.launch({
     executablePath: electronPath,
-    args: [join(process.cwd(), 'out/main/index.js')]
+    args: [`--user-data-dir=${dataPath}`, join(process.cwd(), 'out/main/index.js')]
   })
+}
 
-  const window = await electronApp.firstWindow()
+test.afterEach(async () => {
+  await Promise.all(
+    userDataDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true }))
+  )
+})
 
+test('skips first-run onboarding and launches the sandboxed Electron app shell', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'spacezero-e2e-'))
+  userDataDirectories.push(userDataPath)
+  const electronApp = await launchApp(userDataPath)
+  let window = await electronApp.firstWindow()
+
+  await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toBeVisible()
+  await window.getByRole('button', { name: 'Skip' }).click()
   await expect(window.getByRole('main', { name: 'Main workspace' })).toBeVisible()
 
   const sandbox = await electronApp.evaluate(({ BrowserWindow }) => {
@@ -65,6 +81,100 @@ test('launches the Electron app shell with sandboxed preload IPC available', asy
   expect(bridgeResult.agentPing.utilityProcessId).toEqual(expect.any(Number))
 
   await electronApp.close()
+
+  const laterLaunch = await launchApp(userDataPath)
+  window = await laterLaunch.firstWindow()
+  await expect(window.getByRole('main', { name: 'Main workspace' })).toBeVisible()
+  await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toHaveCount(0)
+  await laterLaunch.close()
+})
+
+test('composes simulated GitHub connection and one Project setup without network access', async () => {
+  const electronApp = await launchApp()
+  const window = await electronApp.firstWindow()
+
+  await electronApp.evaluate(({ ipcMain, BrowserWindow }) => {
+    let completed = false
+    const identity = {
+      id: '42',
+      login: 'octocat',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+      profileUrl: 'https://github.com/octocat'
+    }
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    const project = {
+      id: 'project-1',
+      name: 'spacezero',
+      path: '/tmp/SpaceZero/projects/bity-labs/spacezero',
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: new Date(0).toISOString()
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+
+    for (const channel of [
+      'onboarding:getStatus',
+      'onboarding:complete',
+      'github:getConnection',
+      'github:listRepositorySetupOptions',
+      'github:startClone',
+      'github:getProjectRepository',
+      'projects:list'
+    ]) {
+      ipcMain.removeHandler(channel)
+    }
+    ipcMain.handle('onboarding:getStatus', () => ({ completed }))
+    ipcMain.handle('onboarding:complete', () => {
+      completed = true
+      return { completed: true }
+    })
+    ipcMain.handle('github:getConnection', () => ({
+      status: 'connected',
+      identity,
+      installations: [],
+      repositories: [repository]
+    }))
+    ipcMain.handle('github:listRepositorySetupOptions', () => [
+      { repository, existingProject: { id: project.id, name: project.name } }
+    ])
+    ipcMain.handle('github:startClone', () => ({
+      status: 'already-added',
+      projectId: project.id
+    }))
+    ipcMain.handle('github:getProjectRepository', () => repository)
+    ipcMain.handle('projects:list', () => [project])
+
+    BrowserWindow.getAllWindows()[0]?.webContents.reload()
+  })
+
+  await window.getByRole('button', { name: 'Connect GitHub' }).click()
+  await window.getByRole('button', { name: 'Set up a Project' }).click()
+  await window.getByRole('radio', { name: /bity-labs\/spacezero/ }).click()
+  await window.getByRole('button', { name: 'Open Project' }).click()
+
+  await expect(window.getByText('Project Home')).toBeVisible()
+  await expect(window.getByRole('heading', { name: 'spacezero', exact: true })).toBeVisible()
+  await expect(window.getByRole('region', { name: 'Conversation' })).toHaveCount(0)
+
+  await electronApp.close()
 })
 
 test('sets up and edits a searchable Knowledge Base through the public desktop UI', async () => {
@@ -88,10 +198,10 @@ test('sets up and edits a searchable Knowledge Base through the public desktop U
 
   try {
     const window = await electronApp.firstWindow()
+    await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toBeVisible()
+    await window.getByRole('button', { name: 'Skip' }).click()
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
-    await expect(
-      window.getByRole('heading', { name: 'Set up your Knowledge Base' })
-    ).toBeVisible()
+    await expect(window.getByRole('heading', { name: 'Set up your Knowledge Base' })).toBeVisible()
 
     await window.getByRole('button', { name: 'Create new' }).click()
     await expect(window.getByText(knowledgeBasePath)).toBeVisible()

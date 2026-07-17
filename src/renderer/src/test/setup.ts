@@ -125,6 +125,10 @@ beforeEach(async () => {
       openFolder: async () => undefined,
       openRemote: async () => undefined
     },
+    onboarding: {
+      getStatus: async () => ({ completed: true }),
+      complete: async () => ({ completed: true })
+    },
     github: {
       getConnection: async () => ({ status: 'disconnected' }),
       startAuthorization: async () => ({
