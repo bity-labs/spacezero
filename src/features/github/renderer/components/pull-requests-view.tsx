@@ -1,4 +1,5 @@
 import { ArrowClockwise, ArrowLeft } from '@phosphor-icons/react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { Badge } from '../../../../renderer/src/components/ui/badge'
@@ -6,6 +7,7 @@ import { Button } from '../../../../renderer/src/components/ui/button'
 import type { Project } from '../../../projects/shared'
 import type { GitHubIssueComment, GitHubPullRequest } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
+import { PullRequestReviewSections } from './pull-request-review-sections'
 import {
   useProjectPullRequest,
   useProjectPullRequestComments,
@@ -130,11 +132,26 @@ function PullRequestDetail({
   onBack: () => void
 }): React.JSX.Element {
   const [commentsPage, setCommentsPage] = useState(1)
+  const queryClient = useQueryClient()
   const pullRequestQuery = useProjectPullRequest(projectId, number)
   const commentsQuery = useProjectPullRequestComments(projectId, number, commentsPage)
   const refresh = (): void => {
-    void pullRequestQuery.refetch()
-    void commentsQuery.refetch()
+    void Promise.all([
+      pullRequestQuery.refetch(),
+      commentsQuery.refetch(),
+      queryClient.refetchQueries({
+        queryKey: ['github', 'pull-request-files', projectId, number]
+      }),
+      queryClient.refetchQueries({
+        queryKey: ['github', 'pull-request-check-runs', projectId, number]
+      }),
+      queryClient.refetchQueries({
+        queryKey: ['github', 'pull-request-commit-statuses', projectId, number]
+      }),
+      queryClient.refetchQueries({
+        queryKey: ['github', 'pull-request-reviews', projectId, number]
+      })
+    ])
   }
 
   return (
@@ -158,6 +175,10 @@ function PullRequestDetail({
         />
       ) : null}
       {pullRequestQuery.data ? <PullRequestContent pullRequest={pullRequestQuery.data} /> : null}
+
+      {pullRequestQuery.data ? (
+        <PullRequestReviewSections projectId={projectId} number={number} />
+      ) : null}
 
       {pullRequestQuery.data ? (
         <section className="space-y-3" aria-label="Pull Request conversation">

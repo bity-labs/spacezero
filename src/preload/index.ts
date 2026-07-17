@@ -81,7 +81,15 @@ const api: SpaceZeroAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequests, request),
     getPullRequest: (request) => ipcRenderer.invoke(IPC_CHANNELS.github.getPullRequest, request),
     listPullRequestComments: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestComments, request)
+      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestComments, request),
+    listPullRequestFiles: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestFiles, request),
+    listPullRequestCheckRuns: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestCheckRuns, request),
+    listPullRequestCommitStatuses: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestCommitStatuses, request),
+    listPullRequestReviews: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.listPullRequestReviews, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

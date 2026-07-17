@@ -54,6 +54,11 @@ export const githubPullRequestCommentsRequestSchema = githubPullRequestRequestSc
   perPage: z.number().int().min(1).max(100).optional()
 })
 
+export const githubPullRequestPageRequestSchema = githubPullRequestRequestSchema.extend({
+  page: githubPageSchema,
+  perPage: z.number().int().min(1).max(100).optional()
+})
+
 export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
 
 export const cancelGitHubCloneRequestSchema = z.object({

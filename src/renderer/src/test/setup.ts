@@ -228,6 +228,26 @@ beforeEach(async () => {
         items: [],
         page: request.page,
         hasNextPage: false
+      }),
+      listPullRequestFiles: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestCheckRuns: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestCommitStatuses: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestReviews: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
       })
     },
     projects: {

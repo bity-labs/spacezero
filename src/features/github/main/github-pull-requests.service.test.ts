@@ -73,6 +73,74 @@ function createAdapter(): GitHubPullRequestsAdapter {
         page: 1,
         hasNextPage: false
       }
+    },
+    async listFiles() {
+      return {
+        items: [
+          {
+            sha: 'abc',
+            filename: 'src/index.ts',
+            previousFilename: null,
+            status: 'modified',
+            additions: 2,
+            deletions: 1,
+            changes: 3,
+            patch: { status: 'available', text: '@@ -1 +1 @@', truncated: false }
+          }
+        ],
+        page: 1,
+        hasNextPage: true
+      }
+    },
+    async listCheckRuns() {
+      return {
+        items: [
+          {
+            id: 'check-1',
+            name: 'test',
+            status: 'completed',
+            conclusion: 'success',
+            detailsUrl: 'https://github.com/checks/1',
+            appName: 'GitHub Actions',
+            startedAt: '2026-07-18T02:00:00.000Z',
+            completedAt: '2026-07-18T02:05:00.000Z'
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      }
+    },
+    async listCommitStatuses() {
+      return {
+        items: [
+          {
+            id: 'status-1',
+            context: 'deploy',
+            state: 'pending',
+            description: 'Deployment queued',
+            targetUrl: null,
+            updatedAt: '2026-07-18T02:00:00.000Z'
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      }
+    },
+    async listReviews() {
+      return {
+        items: [
+          {
+            id: 'review-1',
+            state: 'approved',
+            body: 'Looks good',
+            htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#review-1',
+            author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+            submittedAt: '2026-07-18T03:00:00.000Z'
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      }
     }
   }
 }
@@ -109,6 +177,44 @@ describe('GitHub Pull Requests service', () => {
       hasNextPage: true
     })
     expect(JSON.stringify(page)).not.toContain('access-secret')
+  })
+
+  it('loads independently paginated files, checks, statuses, and reviews', async () => {
+    const adapter = createAdapter()
+    const requests: unknown[] = []
+    const listFiles = adapter.listFiles
+    adapter.listFiles = async (request) => {
+      requests.push(request)
+      return listFiles(request)
+    }
+    const service = createGitHubPullRequestsService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.listFiles({ projectId: 'project-1', number: 79, page: 2 })
+    ).resolves.toMatchObject({ items: [{ filename: 'src/index.ts' }], hasNextPage: true })
+    await expect(
+      service.listCheckRuns({ projectId: 'project-1', number: 79, page: 1 })
+    ).resolves.toMatchObject({ items: [{ name: 'test', conclusion: 'success' }] })
+    await expect(
+      service.listCommitStatuses({ projectId: 'project-1', number: 79, page: 1 })
+    ).resolves.toMatchObject({ items: [{ context: 'deploy', state: 'pending' }] })
+    await expect(
+      service.listReviews({ projectId: 'project-1', number: 79, page: 1 })
+    ).resolves.toMatchObject({ items: [{ state: 'approved' }] })
+    expect(requests).toEqual([
+      expect.objectContaining({
+        accessToken: 'access-secret',
+        owner: 'bity-labs',
+        repository: 'spacezero',
+        number: 79,
+        page: 2,
+        perPage: 30
+      })
+    ])
   })
 
   it('returns core Pull Request detail and paginated conversation comments', async () => {

@@ -18,6 +18,47 @@ export function useProjectPullRequest(projectId: string, number: number) {
   })
 }
 
+export function useProjectPullRequestFiles(projectId: string, number: number, page: number) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-files', projectId, number, page],
+    queryFn: () => window.spacezero.github.listPullRequestFiles({ projectId, number, page }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
+export function useProjectPullRequestCheckRuns(projectId: string, number: number, page: number) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-check-runs', projectId, number, page],
+    queryFn: () => window.spacezero.github.listPullRequestCheckRuns({ projectId, number, page }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
+export function useProjectPullRequestCommitStatuses(
+  projectId: string,
+  number: number,
+  page: number
+) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-commit-statuses', projectId, number, page],
+    queryFn: () =>
+      window.spacezero.github.listPullRequestCommitStatuses({ projectId, number, page }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
+export function useProjectPullRequestReviews(projectId: string, number: number, page: number) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-reviews', projectId, number, page],
+    queryFn: () => window.spacezero.github.listPullRequestReviews({ projectId, number, page }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
 export function useProjectPullRequestComments(projectId: string, number: number, page: number) {
   return useQuery({
     queryKey: ['github', 'pull-request-comments', projectId, number, page],

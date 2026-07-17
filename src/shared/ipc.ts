@@ -31,7 +31,9 @@ import type {
 } from '../features/projects/shared/project.model'
 import type {
   CancelGitHubCloneRequest,
+  GitHubCheckRun,
   GitHubCloneProgress,
+  GitHubCommitStatus,
   GitHubConnection,
   GitHubDeviceAuthorization,
   GitHubFlowRequest,
@@ -47,8 +49,11 @@ import type {
   GitHubProjectRequest,
   GitHubPullRequest,
   GitHubPullRequestCommentsRequest,
+  GitHubPullRequestFile,
   GitHubPullRequestListRequest,
+  GitHubPullRequestPageRequest,
   GitHubPullRequestRequest,
+  GitHubPullRequestReview,
   GitHubPullRequestSummary,
   GitHubRepository,
   GitHubRepositorySetupOption,
@@ -106,7 +111,11 @@ export const IPC_CHANNELS = {
     updateIssueState: 'github:updateIssueState',
     listPullRequests: 'github:listPullRequests',
     getPullRequest: 'github:getPullRequest',
-    listPullRequestComments: 'github:listPullRequestComments'
+    listPullRequestComments: 'github:listPullRequestComments',
+    listPullRequestFiles: 'github:listPullRequestFiles',
+    listPullRequestCheckRuns: 'github:listPullRequestCheckRuns',
+    listPullRequestCommitStatuses: 'github:listPullRequestCommitStatuses',
+    listPullRequestReviews: 'github:listPullRequestReviews'
   },
   projects: {
     list: 'projects:list',
@@ -218,6 +227,18 @@ export type SpaceZeroAPI = {
     listPullRequestComments: (
       request: GitHubPullRequestCommentsRequest
     ) => Promise<GitHubPage<GitHubIssueComment>>
+    listPullRequestFiles: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestFile>>
+    listPullRequestCheckRuns: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubCheckRun>>
+    listPullRequestCommitStatuses: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubCommitStatus>>
+    listPullRequestReviews: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestReview>>
   }
   projects: {
     list: () => Promise<Project[]>
