@@ -1,7 +1,10 @@
 import { ipcMain } from 'electron'
 import { z } from 'zod'
 
-import { getKnowledgeBaseMentionsService } from '../../knowledge-base/main'
+import {
+  getKnowledgeBaseMentionsService,
+  getKnowledgeBaseService
+} from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { IPC_CHANNELS } from '../../../shared/ipc'
@@ -33,7 +36,8 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.createSession, (_event, input) => {
     return createProjectAgentSession(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus()
     })
   })
 
@@ -47,7 +51,8 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.getState, (_event, input) => {
     return restoreAgentSessionState(input, {
       repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost()
+      utilityHost: getAgentUtilityProcessHost(),
+      getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus()
     })
   })
 

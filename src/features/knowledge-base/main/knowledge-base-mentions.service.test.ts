@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
-import { createKnowledgeBaseMentionsService } from './knowledge-base-mentions.service'
+import {
+  createKnowledgeBaseMentionsService as createKnowledgeBaseMentionsServiceImplementation
+} from './knowledge-base-mentions.service'
 
 function configurationRepository(
   rootPath?: string
@@ -15,6 +17,26 @@ function configurationRepository(
     async save() {},
     async clear() {}
   }
+}
+
+function createKnowledgeBaseMentionsService({
+  configurationRepository
+}: {
+  configurationRepository: KnowledgeBaseConfigurationRepository
+}) {
+  return createKnowledgeBaseMentionsServiceImplementation({
+    rootProvider: {
+      async getVerifiedRoot() {
+        const configuration = await configurationRepository.get()
+        if (!configuration) {
+          throw new Error(
+            'Knowledge Base is not configured. Open Knowledge Base to set it up.'
+          )
+        }
+        return configuration.rootPath
+      }
+    }
+  })
 }
 
 describe('createKnowledgeBaseMentionsService', () => {
@@ -72,6 +94,20 @@ describe('createKnowledgeBaseMentionsService', () => {
 
     await expect(service.addPromptHints('Read @kb/notes.md')).rejects.toThrow(
       'Knowledge Base is not configured. Open Knowledge Base to set it up.'
+    )
+  })
+
+  it('fails closed when the configured Knowledge Base is unavailable', async () => {
+    const service = createKnowledgeBaseMentionsServiceImplementation({
+      rootProvider: {
+        async getVerifiedRoot() {
+          throw new Error('Knowledge Base is unavailable at /knowledge.')
+        }
+      }
+    })
+
+    await expect(service.addPromptHints('Read @kb/notes.md')).rejects.toThrow(
+      'Knowledge Base is unavailable'
     )
   })
 

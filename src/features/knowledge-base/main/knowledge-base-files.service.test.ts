@@ -5,10 +5,11 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
+import { createKnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
 import {
   MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES,
-  createKnowledgeBaseFilesService
+  createKnowledgeBaseFilesService as createKnowledgeBaseFilesServiceImplementation
 } from './knowledge-base-files.service'
 
 const temporaryDirectories: string[] = []
@@ -43,6 +44,25 @@ function configuredRepository(rootPath: string): KnowledgeBaseConfigurationRepos
     async save() {},
     async clear() {}
   }
+}
+
+function createKnowledgeBaseFilesService({
+  configurationRepository,
+  operations
+}: {
+  configurationRepository: KnowledgeBaseConfigurationRepository
+  operations?: Parameters<typeof createKnowledgeBaseFilesServiceImplementation>[0]['operations']
+}) {
+  return createKnowledgeBaseFilesServiceImplementation({
+    rootProvider: {
+      async getVerifiedRoot() {
+        const configuration = await configurationRepository.get()
+        if (!configuration) throw new Error('Knowledge Base is not configured.')
+        return configuration.rootPath
+      }
+    },
+    operations
+  })
 }
 
 afterEach(async () => {
@@ -590,6 +610,27 @@ describe('createKnowledgeBaseFilesService', () => {
     )
     await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
       '# Durable note\n'
+    )
+  })
+
+  it('fails closed when the configured Knowledge Base root is replaced by a symlink', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'spacezero-kb-replaced-root-'))
+    temporaryDirectories.push(fixture)
+    const rootPath = join(fixture, 'knowledge-base')
+    const outsidePath = join(fixture, 'outside')
+    await mkdir(outsidePath)
+    await writeFile(join(outsidePath, 'secret.txt'), 'outside secret')
+    await symlink(outsidePath, rootPath)
+    const rootProvider = createKnowledgeBaseRootProvider({
+      getStatus: async () => ({ setupState: 'configured', rootPath })
+    })
+    const service = createKnowledgeBaseFilesServiceImplementation({ rootProvider })
+
+    await expect(
+      service.openDocument({ relativePath: 'secret.txt' })
+    ).rejects.toThrow('Knowledge Base is unavailable')
+    await expect(readFile(join(outsidePath, 'secret.txt'), 'utf8')).resolves.toBe(
+      'outside secret'
     )
   })
 

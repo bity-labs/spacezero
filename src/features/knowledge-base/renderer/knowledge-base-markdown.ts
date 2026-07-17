@@ -9,7 +9,10 @@ const MDX_EXPRESSION_PATTERN = /\{[\s\S]*?\}/
 const FOOTNOTE_PATTERN = /(?:^|[^\\])\[\^[^\]\r\n]+\]/m
 const HTML_ENTITY_PATTERN = /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+);/i
 const INLINE_OR_BLOCK_MATH_PATTERN = /(?:^|[^\\])(?:\$\$[\s\S]+?\$\$|\$(?!\$)[^\r\n$]+?\$)/m
-const LOSSY_BACKSLASH_PATTERN = /\\[a-z0-9]/i
+const LOSSY_BACKSLASH_PATTERN = /\\/
+const GITHUB_ALERT_PATTERN = /^ {0,3}>\s*\[!(?:NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$/im
+const REFERENCE_DEFINITION_PATTERN = /^ {0,3}\[[^\]\r\n]+\]:[\t ]+\S+/m
+const WIKI_LINK_PATTERN = /\[\[[^\]\r\n]+\]\]/
 
 export const RICH_MARKDOWN_LIMITATION =
   'This document contains MDX or raw HTML that rich mode cannot preserve.'
@@ -48,7 +51,10 @@ export function getRichMarkdownLimitation(
   if (
     INLINE_OR_BLOCK_MATH_PATTERN.test(prose) ||
     HTML_ENTITY_PATTERN.test(prose) ||
-    LOSSY_BACKSLASH_PATTERN.test(prose)
+    LOSSY_BACKSLASH_PATTERN.test(prose) ||
+    GITHUB_ALERT_PATTERN.test(prose) ||
+    REFERENCE_DEFINITION_PATTERN.test(prose) ||
+    WIKI_LINK_PATTERN.test(prose)
   ) {
     return RICH_MARKDOWN_SYNTAX_LIMITATION
   }

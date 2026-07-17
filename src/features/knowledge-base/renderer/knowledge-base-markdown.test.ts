@@ -48,7 +48,13 @@ describe('Knowledge Base Markdown safety', () => {
     ['named HTML entities', 'Copyright &copy; 2026.'],
     ['numeric HTML entities', 'Copyright &#169; 2026.'],
     ['hexadecimal HTML entities', 'Copyright &#xA9; 2026.'],
-    ['literal backslash commands', 'Use C:\\temp or \\command outside code.']
+    ['literal backslash commands', 'Use C:\\temp or \\command outside code.'],
+    ['escaped heading punctuation', '\\# not a heading'],
+    ['escaped emphasis punctuation', '\\*literal stars\\*'],
+    ['escaped currency', 'The budget is \\$5.'],
+    ['GitHub alerts', '> [!NOTE]\n> Durable context.'],
+    ['reference links', '[Notes][durable]\n\n[durable]: https://example.com/notes'],
+    ['wiki links', 'See [[Project Notes]].']
   ])('requires source mode for lossy %s syntax', (_description, markdown) => {
     expect(getRichMarkdownLimitation(markdown)).toBe(
       RICH_MARKDOWN_SYNTAX_LIMITATION
@@ -57,8 +63,7 @@ describe('Knowledge Base Markdown safety', () => {
 
   it.each([
     ['fenced code', '```tex\nEuler says $e^{i\\pi}+1=0$ &copy;\n```'],
-    ['inline code', 'Use `$e^{i\\pi}$` and `&copy;` literally.'],
-    ['escaped currency', 'The budget is \\$5.']
+    ['inline code', 'Use `$e^{i\\pi}$` and `&copy;` literally.']
   ])('does not block rich mode for safe %s examples', (_description, markdown) => {
     expect(getRichMarkdownLimitation(markdown)).toBeNull()
   })

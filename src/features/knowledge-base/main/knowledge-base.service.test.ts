@@ -27,6 +27,7 @@ function createConfigurationRepository(): KnowledgeBaseConfigurationRepository &
 function createHost(overrides: Partial<KnowledgeBaseHost> = {}): KnowledgeBaseHost {
   return {
     pathExists: vi.fn(async () => false),
+    resolveDirectory: vi.fn(async (path: string) => path),
     createDirectory: vi.fn(async () => undefined),
     ensureParentDirectory: vi.fn(async () => undefined),
     removeDirectory: vi.fn(async () => undefined),
@@ -127,6 +128,36 @@ describe('createKnowledgeBaseService', () => {
     ])
   })
 
+  it('accepts a configured repository through canonical parent-path aliases', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/var/folders/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const host = createHost({
+      pathExists: vi.fn(async () => true),
+      resolveDirectory: vi.fn(async () => '/private/var/folders/knowledge-base'),
+      runGit: vi.fn(async () => ({
+        stdout: '/private/var/folders/knowledge-base\n',
+        stderr: ''
+      }))
+    })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/var/folders/knowledge-base'
+    })
+
+    await expect(service.getStatus()).resolves.toEqual({
+      setupState: 'configured',
+      rootPath: '/var/folders/knowledge-base'
+    })
+    expect(host.runGit).toHaveBeenCalledWith(
+      '/private/var/folders/knowledge-base',
+      ['rev-parse', '--show-toplevel']
+    )
+  })
+
   it('does not treat a plain folder inside another repository as the Knowledge Base repository', async () => {
     const configurationRepository = createConfigurationRepository()
     configurationRepository.value = {
@@ -158,23 +189,28 @@ describe('createKnowledgeBaseService', () => {
       rootPath: '/home/builder/SpaceZero/knowledge-base',
       configuredAt: new Date(0).toISOString()
     }
+    const clearSyncState = vi.fn(async () => undefined)
     const service = createKnowledgeBaseService({
       configurationRepository,
       host: createHost(),
-      rootPath: '/home/builder/SpaceZero/knowledge-base'
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      clearSyncState
     })
 
     await expect(service.reset()).resolves.toEqual({ setupState: 'unconfigured' })
+    expect(clearSyncState).toHaveBeenCalledTimes(1)
     expect(configurationRepository.value).toBeUndefined()
   })
 
   it('creates, initializes, commits, and persists the default Knowledge Base', async () => {
     const configurationRepository = createConfigurationRepository()
     const host = createHost()
+    const clearSyncState = vi.fn(async () => undefined)
     const service = createKnowledgeBaseService({
       configurationRepository,
       host,
       rootPath: '/home/builder/SpaceZero/knowledge-base',
+      clearSyncState,
       now: () => new Date('2026-07-16T10:00:00.000Z')
     })
 
@@ -183,6 +219,7 @@ describe('createKnowledgeBaseService', () => {
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
 
+    expect(clearSyncState).toHaveBeenCalledTimes(1)
     expect(host.createDirectory).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
     expect(host.writeTextFile).toHaveBeenCalledWith(
       '/home/builder/SpaceZero/knowledge-base/AGENTS.md',

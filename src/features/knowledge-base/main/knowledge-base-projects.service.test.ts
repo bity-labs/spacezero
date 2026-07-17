@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,7 +8,7 @@ import type { StoredProject } from '../../projects/main/projects.service'
 import type { KnowledgeBaseStatus } from '../shared'
 import {
   createKnowledgeBaseProjectFolderHost,
-  createKnowledgeBaseProjectsService,
+  createKnowledgeBaseProjectsService as createKnowledgeBaseProjectsServiceImplementation,
   createProjectKnowledgeReadme,
   slugifyProjectName
 } from './knowledge-base-projects.service'
@@ -57,6 +57,30 @@ function createKnowledgeBaseStatusReader(
       : { setupState: 'unconfigured' }
 }
 
+function createKnowledgeBaseProjectsService({
+  getKnowledgeBaseStatus,
+  ...options
+}: Omit<
+  Parameters<typeof createKnowledgeBaseProjectsServiceImplementation>[0],
+  'rootProvider'
+> & {
+  getKnowledgeBaseStatus: () => Promise<KnowledgeBaseStatus>
+}) {
+  return createKnowledgeBaseProjectsServiceImplementation({
+    ...options,
+    rootProvider: {
+      getStatus: getKnowledgeBaseStatus,
+      async getVerifiedRoot() {
+        const status = await getKnowledgeBaseStatus()
+        if (status.setupState !== 'configured') {
+          throw new Error('Knowledge Base is unavailable.')
+        }
+        return status.rootPath
+      }
+    }
+  })
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) =>
@@ -97,7 +121,7 @@ describe('createKnowledgeBaseProjectsService', () => {
     const project = createProject('project-1', 'Space Zero')
     const projectsRepository = createProjectsRepository([project])
     const host = createKnowledgeBaseProjectFolderHost()
-    const createDirectory = vi.spyOn(host, 'createDirectory')
+    const ensureProjectDirectory = vi.spyOn(host, 'ensureProjectDirectory')
     const service = createKnowledgeBaseProjectsService({
       getKnowledgeBaseStatus: async () => ({
         setupState: 'unavailable',
@@ -112,7 +136,7 @@ describe('createKnowledgeBaseProjectsService', () => {
       project,
       warning: expect.stringContaining('Knowledge Base is unavailable')
     })
-    expect(createDirectory).not.toHaveBeenCalled()
+    expect(ensureProjectDirectory).not.toHaveBeenCalled()
     await expect(readFile(join(rootPath, 'projects', 'space-zero', 'README.md'))).rejects.toThrow()
   })
 
@@ -131,6 +155,27 @@ describe('createKnowledgeBaseProjectsService', () => {
       warning: expect.any(String)
     })
     await expect(readFile(join(rootPath, 'projects', 'space-zero', 'README.md'))).rejects.toThrow()
+  })
+
+  it('does not follow a symlinked projects directory outside the Knowledge Base', async () => {
+    const rootPath = await createRoot()
+    const outsidePath = await mkdtemp(join(tmpdir(), 'spacezero-kb-outside-projects-'))
+    temporaryDirectories.push(outsidePath)
+    await symlink(outsidePath, join(rootPath, 'projects'))
+    const project = createProject('project-1', 'Space Zero')
+    const projectsRepository = createProjectsRepository([project])
+    const service = createKnowledgeBaseProjectsService({
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
+      projectsRepository,
+      host: createKnowledgeBaseProjectFolderHost()
+    })
+
+    await expect(service.linkProject(project)).resolves.toMatchObject({
+      project,
+      warning: expect.stringContaining('outside the configured root')
+    })
+    await expect(readFile(join(outsidePath, 'space-zero', 'README.md'))).rejects.toThrow()
+    expect(projectsRepository.projects[0]?.knowledgeBasePath).toBeUndefined()
   })
 
   it('assigns stable distinct folders to projects with duplicate names', async () => {
@@ -239,7 +284,7 @@ describe('createKnowledgeBaseProjectsService', () => {
     const project = createProject('project-1', 'Space Zero')
     const projectsRepository = createProjectsRepository([project])
     const host = createKnowledgeBaseProjectFolderHost()
-    host.createDirectory = vi.fn(async () => {
+    host.ensureProjectDirectory = vi.fn(async () => {
       throw new Error('Permission denied')
     })
     const service = createKnowledgeBaseProjectsService({
@@ -261,7 +306,7 @@ describe('createKnowledgeBaseProjectsService', () => {
     const project = createProject('project-1', 'Space Zero')
     const projectsRepository = createProjectsRepository([project])
     const host = createKnowledgeBaseProjectFolderHost()
-    host.getPathKind = vi.fn(async () => {
+    host.ensureProjectDirectory = vi.fn(async () => {
       throw new Error('Knowledge Base is read-only')
     })
     const service = createKnowledgeBaseProjectsService({

@@ -6,7 +6,7 @@ import {
   sanitizeGitRemoteUrl,
   toRedactedGitError
 } from './knowledge-base-git-security'
-import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
+import type { KnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 
 export type StoredKnowledgeBaseSyncState = {
   syncState: 'idle' | 'syncing' | 'error' | 'conflict'
@@ -17,6 +17,7 @@ export type StoredKnowledgeBaseSyncState = {
 export type KnowledgeBaseSyncStateRepository = {
   get: () => Promise<StoredKnowledgeBaseSyncState | undefined>
   save: (state: StoredKnowledgeBaseSyncState) => Promise<void>
+  clear: () => Promise<void>
 }
 
 export type KnowledgeBaseGitHost = {
@@ -34,19 +35,19 @@ export type KnowledgeBaseSyncService = {
 }
 
 export function createKnowledgeBaseSyncService({
-  configurationRepository,
+  rootProvider,
   syncStateRepository,
   host,
   now = () => new Date()
 }: {
-  configurationRepository: KnowledgeBaseConfigurationRepository
+  rootProvider: Pick<KnowledgeBaseRootProvider, 'getVerifiedRoot'>
   syncStateRepository: KnowledgeBaseSyncStateRepository
   host: KnowledgeBaseGitHost
   now?: () => Date
 }): KnowledgeBaseSyncService {
   return {
     async getSyncStatus() {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
 
       try {
         const remote = await getOrigin(host, rootPath)
@@ -67,7 +68,7 @@ export function createKnowledgeBaseSyncService({
     },
 
     async addRemote(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const gitUrl = request.gitUrl.trim()
       if (!gitUrl) throw new Error('Origin Git URL is required.')
 
@@ -93,7 +94,7 @@ export function createKnowledgeBaseSyncService({
     },
 
     async syncNow() {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       let remoteUrl: string | undefined
       try {
         remoteUrl = await getOrigin(host, rootPath)
@@ -170,14 +171,6 @@ async function getOrigin(
   if (!remotes.includes('origin')) return undefined
   const url = (await host.runGit(rootPath, ['remote', 'get-url', 'origin'])).stdout.trim()
   return url || undefined
-}
-
-async function getConfiguredRoot(
-  repository: KnowledgeBaseConfigurationRepository
-): Promise<string> {
-  const configuration = await repository.get()
-  if (!configuration) throw new Error('Knowledge Base is not configured.')
-  return configuration.rootPath
 }
 
 const GIT_OPERATION_MARKERS = [

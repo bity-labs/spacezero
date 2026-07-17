@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, rm, writeFile } from 'node:fs/promises'
+import { access, lstat, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
 import type { KnowledgeBaseHost } from './knowledge-base.service'
@@ -16,6 +16,14 @@ export function createKnowledgeBaseHost(): KnowledgeBaseHost {
         }
         throw error
       }
+    },
+
+    async resolveDirectory(path) {
+      const details = await lstat(path)
+      if (!details.isDirectory() || details.isSymbolicLink()) {
+        throw new Error('Knowledge Base root must be a real directory.')
+      }
+      return realpath(path)
     },
 
     async createDirectory(path) {

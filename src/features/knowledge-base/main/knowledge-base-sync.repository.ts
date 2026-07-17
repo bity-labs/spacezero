@@ -30,6 +30,12 @@ export function createKnowledgeBaseSyncStateRepository(): KnowledgeBaseSyncState
           target: schema.appSettings.key,
           set: { value, updatedAt }
         })
+    },
+
+    async clear() {
+      await getDatabase()
+        .delete(schema.appSettings)
+        .where(eq(schema.appSettings.key, SYNC_STATE_KEY))
     }
   }
 }

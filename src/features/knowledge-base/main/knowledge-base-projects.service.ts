@@ -1,9 +1,11 @@
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, realpath, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 import type { StoredProject } from '../../projects/main/projects.service'
-import type { KnowledgeBaseStatus } from '../shared'
+import { assertKnowledgeBaseCanonicalPathAllowed } from './knowledge-base-files.service'
+import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
+import type { KnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 
 export type KnowledgeBaseProjectsRepository = {
   list: () => Promise<StoredProject[]>
@@ -11,9 +13,8 @@ export type KnowledgeBaseProjectsRepository = {
 }
 
 export type KnowledgeBaseProjectFolderHost = {
-  getPathKind: (path: string) => Promise<'missing' | 'file' | 'folder'>
-  createDirectory: (path: string) => Promise<void>
-  writeTextFile: (path: string, content: string) => Promise<void>
+  ensureProjectDirectory: (rootPath: string, path: string) => Promise<boolean>
+  writeTextFile: (rootPath: string, path: string, content: string) => Promise<void>
 }
 
 export type KnowledgeBaseProjectLinkResult = {
@@ -33,35 +34,35 @@ export type KnowledgeBaseProjectsService = {
 }
 
 export function createKnowledgeBaseProjectsService({
-  getKnowledgeBaseStatus,
+  rootProvider,
   projectsRepository,
   host,
+  operations = { runExclusive: (operation) => operation() },
   now = () => new Date()
 }: {
-  getKnowledgeBaseStatus: () => Promise<KnowledgeBaseStatus>
+  rootProvider: Pick<KnowledgeBaseRootProvider, 'getStatus' | 'getVerifiedRoot'>
   projectsRepository: KnowledgeBaseProjectsRepository
   host: KnowledgeBaseProjectFolderHost
+  operations?: KnowledgeBaseOperationCoordinator
   now?: () => Date
 }): KnowledgeBaseProjectsService {
   async function linkProject(project: StoredProject): Promise<StoredProject> {
-    const status = await getKnowledgeBaseStatus()
+    const status = await rootProvider.getStatus()
     if (status.setupState === 'unconfigured') return project
     if (status.setupState === 'unavailable') {
       throw new Error(`Knowledge Base is unavailable at ${status.rootPath}.`)
     }
 
+    const rootPath = await rootProvider.getVerifiedRoot()
     const projectFolder = chooseProjectFolder(
-      status.rootPath,
+      rootPath,
       project,
       await projectsRepository.list()
     )
-    const pathKind = await host.getPathKind(projectFolder)
-    if (pathKind === 'file') {
-      throw new Error(`Project Knowledge Base path is not a folder: ${projectFolder}`)
-    }
-    if (pathKind === 'missing') {
-      await host.createDirectory(projectFolder)
+    const created = await host.ensureProjectDirectory(rootPath, projectFolder)
+    if (created) {
       await host.writeTextFile(
+        rootPath,
         join(projectFolder, 'README.md'),
         createProjectKnowledgeReadme(project.name)
       )
@@ -79,7 +80,10 @@ export function createKnowledgeBaseProjectsService({
     project: StoredProject
   ): Promise<KnowledgeBaseProjectLinkResult> {
     try {
-      return { project: await linkProject(project), warning: undefined }
+      return {
+        project: await operations.runExclusive(() => linkProject(project)),
+        warning: undefined
+      }
     } catch (error) {
       return {
         project,
@@ -184,26 +188,55 @@ function isPathWithinRoot(rootPath: string, targetPath: string): boolean {
 
 export function createKnowledgeBaseProjectFolderHost(): KnowledgeBaseProjectFolderHost {
   return {
-    async getPathKind(path) {
+    async ensureProjectDirectory(rootPath, path) {
+      assertLexicalPathWithinRoot(rootPath, path)
+      await ensureSafeDirectory(rootPath, dirname(path))
+
       try {
-        const details = await lstat(path)
-        return details.isDirectory() ? 'folder' : 'file'
-      } catch (error) {
-        if (isNodeError(error) && error.code === 'ENOENT') return 'missing'
-        throw error
-      }
-    },
-    async createDirectory(path) {
-      try {
-        await mkdir(dirname(path))
+        await mkdir(path)
+        return true
       } catch (error) {
         if (!isNodeError(error) || error.code !== 'EEXIST') throw error
+        await assertSafeDirectory(rootPath, path)
+        return false
       }
-      await mkdir(path)
     },
-    async writeTextFile(path, content) {
+    async writeTextFile(rootPath, path, content) {
+      assertLexicalPathWithinRoot(rootPath, path)
+      await assertSafeDirectory(rootPath, dirname(path))
       await writeFile(path, content, { encoding: 'utf8', flag: 'wx' })
     }
+  }
+}
+
+async function ensureSafeDirectory(rootPath: string, path: string): Promise<void> {
+  assertLexicalPathWithinRoot(rootPath, path)
+  try {
+    await mkdir(path)
+  } catch (error) {
+    if (!isNodeError(error) || error.code !== 'EEXIST') throw error
+  }
+  await assertSafeDirectory(rootPath, path)
+}
+
+async function assertSafeDirectory(rootPath: string, path: string): Promise<void> {
+  const details = await lstat(path)
+  const [canonicalRoot, canonicalPath] = await Promise.all([
+    realpath(rootPath),
+    realpath(path)
+  ])
+  await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, canonicalPath)
+  if (details.isSymbolicLink()) {
+    throw new Error('Project Knowledge Base directories cannot be symbolic links.')
+  }
+  if (!details.isDirectory()) {
+    throw new Error(`Project Knowledge Base path is not a folder: ${path}`)
+  }
+}
+
+function assertLexicalPathWithinRoot(rootPath: string, path: string): void {
+  if (!isPathWithinRoot(rootPath, path) || resolve(rootPath) === resolve(path)) {
+    throw new Error('Project Knowledge Base path is outside the configured root.')
   }
 }
 
