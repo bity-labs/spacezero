@@ -79,6 +79,31 @@ describe('toAgentStreamingEvent', () => {
       }
     })
   })
+
+  it('fails closed for an unparseable skill-shaped user message', () => {
+    const expandedSkill =
+      '<skill name="review"private" location="/private/SKILL.md">\nPRIVATE BODY\n</skill>'
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_end',
+      message: {
+        id: 'message-1',
+        role: 'user',
+        content: [{ type: 'text', text: expandedSkill }],
+        timestamp: 100
+      }
+    })
+
+    expect(event).toEqual({
+      type: 'message_end',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: '/skill' }],
+        timestamp: 100
+      }
+    })
+  })
 })
 
 describe('createPiAgentSessionFactory', () => {
@@ -357,6 +382,70 @@ describe('createPiAgentSessionFactory', () => {
         expect(JSON.stringify(snapshot)).not.toContain(privateInstructions)
       } finally {
         session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps malformed but loadable skill expansions private before and after restore', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-malformed-skill-'))
+    const skillDir = join(tempDir, 'skills', 'review')
+    const skillPath = join(skillDir, 'SKILL.md')
+    const privateInstructions = 'PRIVATE MALFORMED SKILL BODY'
+
+    try {
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        skillPath,
+        `---\nname: 'review"private'\ndescription: Malformed but loadable skill.\n---\n\n${privateInstructions}\n`
+      )
+
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        onSkillDiagnostics: () => undefined
+      })
+      const sessionRequest = {
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' as const }]
+      }
+      const session = await createPiSession(sessionRequest)
+      let transcriptPath: string | undefined
+
+      try {
+        await session.prompt('/skill:review"private')
+
+        const snapshot = session.getTranscriptSnapshot()
+        expect(snapshot[0]).toEqual(
+          expect.objectContaining({
+            role: 'user',
+            content: [{ type: 'text', text: '/skill' }]
+          })
+        )
+        expect(JSON.stringify(snapshot)).not.toContain(skillPath)
+        expect(JSON.stringify(snapshot)).not.toContain(privateInstructions)
+        transcriptPath = session.sessionFile
+      } finally {
+        session.dispose()
+      }
+
+      if (!transcriptPath) throw new Error('Expected Pi to persist the transcript')
+      const restoredSession = await createPiSession({ ...sessionRequest, transcriptPath })
+
+      try {
+        const restoredSnapshot = restoredSession.getTranscriptSnapshot()
+        expect(restoredSnapshot[0]).toEqual(
+          expect.objectContaining({
+            role: 'user',
+            content: [{ type: 'text', text: '/skill' }]
+          })
+        )
+        expect(JSON.stringify(restoredSnapshot)).not.toContain(skillPath)
+        expect(JSON.stringify(restoredSnapshot)).not.toContain(privateInstructions)
+      } finally {
+        restoredSession.dispose()
       }
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
