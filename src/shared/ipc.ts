@@ -29,6 +29,11 @@ import type {
   WorkspaceSession
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
+import type { StorageSettings } from './storage-settings'
+import type {
+  AgentGlobalSkill,
+  SetGlobalAgentSkillEnabledRequest
+} from '../features/agent-workspace/shared/agent-skill.model'
 
 export const IPC_CHANNELS = {
   app: {
@@ -58,6 +63,8 @@ export const IPC_CHANNELS = {
     ping: 'agent:ping',
     createSession: 'agent:createSession',
     createWorkspaceSession: 'agent:createWorkspaceSession',
+    getGlobalSkills: 'agent:getGlobalSkills',
+    setGlobalSkillEnabled: 'agent:setGlobalSkillEnabled',
     getState: 'agent:getState',
     listSessions: 'agent:listSessions',
     prompt: 'agent:prompt',
@@ -83,6 +90,8 @@ export const IPC_CHANNELS = {
     updateLanguagePreference: 'settings:updateLanguagePreference',
     getThemeSettings: 'settings:getThemeSettings',
     updateThemePreference: 'settings:updateThemePreference',
+    getStorageSettings: 'settings:getStorageSettings',
+    chooseSpaceZeroHome: 'settings:chooseSpaceZeroHome',
     getModelDefaults: 'settings:getModelDefaults',
     updateModelDefaults: 'settings:updateModelDefaults'
   }
@@ -128,6 +137,8 @@ export type SpaceZeroAPI = {
     ping: () => Promise<AgentPingResponse>
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     createWorkspaceSession: () => Promise<WorkspaceSession>
+    getGlobalSkills: () => Promise<AgentGlobalSkill[]>
+    setGlobalSkillEnabled: (request: SetGlobalAgentSkillEnabledRequest) => Promise<AgentGlobalSkill[]>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     prompt: (request: { sessionId: string; message: string }) => Promise<void>
@@ -153,6 +164,8 @@ export type SpaceZeroAPI = {
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
     getThemeSettings: () => Promise<ThemeSettings>
     updateThemePreference: (preference: ThemePreference) => Promise<ThemeSettings>
+    getStorageSettings: () => Promise<StorageSettings>
+    chooseSpaceZeroHome: () => Promise<StorageSettings | null>
     getModelDefaults: () => Promise<ModelDefaults>
     updateModelDefaults: (request: UpdateModelDefaultsRequest) => Promise<ModelDefaults>
   }

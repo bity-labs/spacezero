@@ -1,8 +1,9 @@
 import { shell } from 'electron'
-
-import { createProjectsRepository } from '../../projects/main/projects.repository'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+
+import { createProjectsRepository } from '../../projects/main/projects.repository'
+import { getStorageSettings } from '../../settings/main/storage-settings.service'
 
 import {
   createKnowledgeBaseFilesService,
@@ -63,7 +64,7 @@ export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
     const knowledgeBaseService = createKnowledgeBaseService({
       configurationRepository,
       host,
-      rootPath: getDefaultKnowledgeBasePath(),
+      rootPath: getKnowledgeBaseSetupPath,
       clearSyncState: () => syncStateRepository.clear(),
       onConfigurationChange: () => rootProvider?.invalidate()
     })
@@ -130,6 +131,13 @@ export function getKnowledgeBaseSyncScheduler(): KnowledgeBaseSyncScheduler {
     sync: () => getKnowledgeBaseSyncCoordinator().sync()
   })
   return syncScheduler
+}
+
+export async function getKnowledgeBaseSetupPath(): Promise<string> {
+  if (process.env.SPACEZERO_KNOWLEDGE_BASE_PATH) return getDefaultKnowledgeBasePath()
+
+  const { spaceZeroHome } = await getStorageSettings()
+  return resolve(spaceZeroHome, 'knowledge-base')
 }
 
 export function getDefaultKnowledgeBasePath(): string {

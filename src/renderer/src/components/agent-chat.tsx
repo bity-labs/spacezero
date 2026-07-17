@@ -59,6 +59,7 @@ export function AgentChat({
   const defaultComposer = (
     <ChatInput
       models={modelControls.models}
+      skills={sessionState?.skills}
       selectedModelId={modelControls.selectedModelId}
       thinkingLevel={modelControls.thinkingLevel}
       onModelChange={modelControls.setModel}

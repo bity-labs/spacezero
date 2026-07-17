@@ -54,7 +54,7 @@ export function createKnowledgeBaseService({
 }: {
   configurationRepository: KnowledgeBaseConfigurationRepository
   host: KnowledgeBaseHost
-  rootPath: string
+  rootPath: string | (() => Promise<string>)
   clearSyncState?: () => Promise<void>
   onConfigurationChange?: () => void
   now?: () => Date
@@ -105,25 +105,29 @@ export function createKnowledgeBaseService({
     },
 
     async createNew() {
-      await assertCanConfigure(configurationRepository, host, rootPath)
+      const setupRootPath = await resolveSetupRootPath(rootPath)
+      await assertCanConfigure(configurationRepository, host, setupRootPath)
       await clearSyncState()
 
       let created = false
       try {
-        await host.createDirectory(rootPath)
+        await host.createDirectory(setupRootPath)
         created = true
-        await host.runGit(rootPath, ['init', '-b', 'main'])
+        await host.runGit(setupRootPath, ['init', '-b', 'main'])
         await host.writeTextFile(
-          join(rootPath, 'AGENTS.md'),
+          join(setupRootPath, 'AGENTS.md'),
           KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS
         )
-        await host.runGit(rootPath, ['add', 'AGENTS.md'])
-        await host.runGit(rootPath, ['commit', '-m', 'Initialize Knowledge Base'])
-        await configurationRepository.save({ rootPath, configuredAt: now().toISOString() })
+        await host.runGit(setupRootPath, ['add', 'AGENTS.md'])
+        await host.runGit(setupRootPath, ['commit', '-m', 'Initialize Knowledge Base'])
+        await configurationRepository.save({
+          rootPath: setupRootPath,
+          configuredAt: now().toISOString()
+        })
         onConfigurationChange()
-        return { setupState: 'configured', rootPath }
+        return { setupState: 'configured', rootPath: setupRootPath }
       } catch (error) {
-        if (created) await host.removeDirectory(rootPath).catch(() => undefined)
+        if (created) await host.removeDirectory(setupRootPath).catch(() => undefined)
         throw error
       }
     },
@@ -136,25 +140,35 @@ export function createKnowledgeBaseService({
     },
 
     async cloneFromGit(request) {
-      await assertCanConfigure(configurationRepository, host, rootPath)
+      const setupRootPath = await resolveSetupRootPath(rootPath)
+      await assertCanConfigure(configurationRepository, host, setupRootPath)
       const gitUrl = request.gitUrl.trim()
       if (!gitUrl) throw new Error('Git repository URL is required.')
       await clearSyncState()
 
-      await host.ensureParentDirectory(rootPath)
+      await host.ensureParentDirectory(setupRootPath)
       try {
-        await host.runGit(dirname(rootPath), ['clone', gitUrl, rootPath])
-        await configurationRepository.save({ rootPath, configuredAt: now().toISOString() })
+        await host.runGit(dirname(setupRootPath), ['clone', gitUrl, setupRootPath])
+        await configurationRepository.save({
+          rootPath: setupRootPath,
+          configuredAt: now().toISOString()
+        })
         onConfigurationChange()
-        return { setupState: 'configured', rootPath }
+        return { setupState: 'configured', rootPath: setupRootPath }
       } catch (error) {
-        if (await host.pathExists(rootPath)) {
-          await host.removeDirectory(rootPath).catch(() => undefined)
+        if (await host.pathExists(setupRootPath)) {
+          await host.removeDirectory(setupRootPath).catch(() => undefined)
         }
         throw toRedactedGitError(error)
       }
     }
   }
+}
+
+async function resolveSetupRootPath(
+  rootPath: string | (() => Promise<string>)
+): Promise<string> {
+  return resolve(typeof rootPath === 'string' ? rootPath : await rootPath())
 }
 
 async function assertCanConfigure(

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { AgentSessionRegistry, type CreatedPiAgentSession } from './agent-session-registry'
+import type { CreateAgentSessionRequest } from '../shared/agent-protocol'
 
 function createFakeSession(overrides: Partial<CreatedPiAgentSession> = {}): CreatedPiAgentSession {
   return {
@@ -571,6 +572,34 @@ describe('AgentSessionRegistry', () => {
     expect(createRequests.at(-1)).toMatchObject({
       sessionId: 'session-1',
       defaultModel: { providerId: 'openai', modelId: 'gpt-5' }
+    })
+  })
+
+  it('preserves disabled global skills when a suspended session is rehydrated', async () => {
+    const createRequests: CreateAgentSessionRequest[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`
+        })
+      }
+    })
+
+    await registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo-1',
+      disabledGlobalSkillPaths: ['/Users/tiby/.agents/skills/review/SKILL.md']
+    })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    await registry.getState({ sessionId: 'session-1' })
+
+    expect(createRequests.at(-1)).toMatchObject({
+      sessionId: 'session-1',
+      disabledGlobalSkillPaths: ['/Users/tiby/.agents/skills/review/SKILL.md']
     })
   })
 

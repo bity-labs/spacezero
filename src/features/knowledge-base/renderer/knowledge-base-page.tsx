@@ -207,7 +207,7 @@ export const KnowledgeBasePage = forwardRef<KnowledgeBasePageHandle>(function Kn
             <div className="flex-1">
               <h2 className="font-medium">Create new</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create ~/SpaceZero/knowledge-base and initialize it on main.
+                Create knowledge-base under your configured Space Zero Home and initialize it on main.
               </p>
             </div>
             <Button disabled={isCreating} onClick={() => void createNew()}>
