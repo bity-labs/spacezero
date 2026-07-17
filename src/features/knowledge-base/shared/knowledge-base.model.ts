@@ -2,6 +2,11 @@ export const MAX_KNOWLEDGE_BASE_IMAGE_BYTES = 10 * 1024 * 1024
 
 export type KnowledgeBaseStatus =
   | { setupState: 'unconfigured' }
+  | {
+      setupState: 'unavailable'
+      rootPath: string
+      reason: 'missing' | 'not-git-repository' | 'inaccessible'
+    }
   | { setupState: 'configured'; rootPath: string; setupWarning?: string }
 
 export type KnowledgeBaseConfiguration = {

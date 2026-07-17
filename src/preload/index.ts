@@ -12,6 +12,7 @@ const api: SpaceZeroAPI = {
   },
   knowledgeBase: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
+    reset: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.reset),
     createNew: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createNew),
     cloneFromGit: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.cloneFromGit, request),

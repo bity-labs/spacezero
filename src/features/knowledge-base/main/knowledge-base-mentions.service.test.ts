@@ -12,7 +12,8 @@ function configurationRepository(
         ? { rootPath, configuredAt: new Date(0).toISOString() }
         : undefined
     },
-    async save() {}
+    async save() {},
+    async clear() {}
   }
 }
 

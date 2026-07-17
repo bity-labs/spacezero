@@ -17,6 +17,9 @@ function createConfigurationRepository(): KnowledgeBaseConfigurationRepository &
     },
     async save(configuration) {
       this.value = configuration
+    },
+    async clear() {
+      this.value = undefined
     }
   }
 }
@@ -47,6 +50,122 @@ describe('createKnowledgeBaseService', () => {
     })
 
     await expect(service.getStatus()).resolves.toEqual({ setupState: 'unconfigured' })
+  })
+
+  it('reports a persisted Knowledge Base as unavailable when its repository is missing', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const host = createHost({ pathExists: vi.fn(async () => false) })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.getStatus()).resolves.toEqual({
+      setupState: 'unavailable',
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      reason: 'missing'
+    })
+    expect(host.runGit).not.toHaveBeenCalled()
+  })
+
+  it('reports a persisted folder as unavailable when it is no longer a Git repository', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const host = createHost({
+      pathExists: vi.fn(async () => true),
+      runGit: vi.fn(async () => {
+        throw new Error('not a git repository')
+      })
+    })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.getStatus()).resolves.toEqual({
+      setupState: 'unavailable',
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      reason: 'not-git-repository'
+    })
+  })
+
+  it('reconnects when the persisted Knowledge Base repository is restored', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const host = createHost({
+      pathExists: vi.fn(async () => true),
+      runGit: vi.fn(async () => ({
+        stdout: '/home/builder/SpaceZero/knowledge-base\n',
+        stderr: ''
+      }))
+    })
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.getStatus()).resolves.toEqual({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    expect(host.runGit).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base', [
+      'rev-parse',
+      '--show-toplevel'
+    ])
+  })
+
+  it('does not treat a plain folder inside another repository as the Knowledge Base repository', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host: createHost({
+        pathExists: vi.fn(async () => true),
+        runGit: vi.fn(async () => ({
+          stdout: '/home/builder/SpaceZero\n',
+          stderr: ''
+        }))
+      }),
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.getStatus()).resolves.toEqual({
+      setupState: 'unavailable',
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      reason: 'not-git-repository'
+    })
+  })
+
+  it('resets unavailable configuration so setup can run again', async () => {
+    const configurationRepository = createConfigurationRepository()
+    configurationRepository.value = {
+      rootPath: '/home/builder/SpaceZero/knowledge-base',
+      configuredAt: new Date(0).toISOString()
+    }
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host: createHost(),
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    await expect(service.reset()).resolves.toEqual({ setupState: 'unconfigured' })
+    expect(configurationRepository.value).toBeUndefined()
   })
 
   it('creates, initializes, commits, and persists the default Knowledge Base', async () => {
@@ -168,7 +287,7 @@ describe('createKnowledgeBaseService', () => {
     })
 
     await expect(service.cloneFromGit({ gitUrl: credentialUrl })).rejects.toThrow(
-      "fatal: unable to access 'https://[redacted]@example.com/notes.git': authentication failed"
+      "fatal: unable to access 'https://example.com/notes.git': authentication failed"
     )
     expect(host.removeDirectory).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
     expect(configurationRepository.value).toBeUndefined()

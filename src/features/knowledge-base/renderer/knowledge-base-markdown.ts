@@ -7,11 +7,16 @@ const MDX_ESM_PATTERN =
   /^(?:import\s+(?:[\w*{]|['"])|export\s+(?:default|const|let|var|(?:async\s+)?function|class|type|interface|enum|namespace|\{|\*))/m
 const MDX_EXPRESSION_PATTERN = /\{[\s\S]*?\}/
 const FOOTNOTE_PATTERN = /(?:^|[^\\])\[\^[^\]\r\n]+\]/m
+const HTML_ENTITY_PATTERN = /&(?:#[0-9]+|#x[0-9a-f]+|[a-z][a-z0-9]+);/i
+const INLINE_OR_BLOCK_MATH_PATTERN = /(?:^|[^\\])(?:\$\$[\s\S]+?\$\$|\$(?!\$)[^\r\n$]+?\$)/m
+const LOSSY_BACKSLASH_PATTERN = /\\[a-z0-9]/i
 
 export const RICH_MARKDOWN_LIMITATION =
   'This document contains MDX or raw HTML that rich mode cannot preserve.'
 export const RICH_MARKDOWN_FOOTNOTE_LIMITATION =
   'This document contains footnotes that rich mode cannot preserve. Use source mode to edit it safely.'
+export const RICH_MARKDOWN_SYNTAX_LIMITATION =
+  'This document contains Markdown syntax that rich mode cannot preserve. Use source mode to edit it safely.'
 
 export function splitMarkdownDocument(markdown: string): {
   frontmatter: string
@@ -40,6 +45,13 @@ export function getRichMarkdownLimitation(
     return RICH_MARKDOWN_LIMITATION
   }
   if (FOOTNOTE_PATTERN.test(prose)) return RICH_MARKDOWN_FOOTNOTE_LIMITATION
+  if (
+    INLINE_OR_BLOCK_MATH_PATTERN.test(prose) ||
+    HTML_ENTITY_PATTERN.test(prose) ||
+    LOSSY_BACKSLASH_PATTERN.test(prose)
+  ) {
+    return RICH_MARKDOWN_SYNTAX_LIMITATION
+  }
 
   return null
 }

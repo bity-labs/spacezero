@@ -1,4 +1,4 @@
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
 import type {
   KnowledgeBaseConfiguration,
@@ -21,6 +21,7 @@ This repository is the user's Knowledge Base.
 export type KnowledgeBaseConfigurationRepository = {
   get: () => Promise<KnowledgeBaseConfiguration | undefined>
   save: (configuration: KnowledgeBaseConfiguration) => Promise<void>
+  clear: () => Promise<void>
 }
 
 export type KnowledgeBaseHost = {
@@ -39,6 +40,7 @@ export type KnowledgeBaseService = {
   getStatus: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>
+  reset: () => Promise<KnowledgeBaseStatus>
 }
 
 export function createKnowledgeBaseService({
@@ -55,9 +57,42 @@ export function createKnowledgeBaseService({
   return {
     async getStatus() {
       const configuration = await configurationRepository.get()
-      return configuration
-        ? { setupState: 'configured', rootPath: configuration.rootPath }
-        : { setupState: 'unconfigured' }
+      if (!configuration) return { setupState: 'unconfigured' }
+
+      try {
+        if (!(await host.pathExists(configuration.rootPath))) {
+          return {
+            setupState: 'unavailable',
+            rootPath: configuration.rootPath,
+            reason: 'missing'
+          }
+        }
+      } catch {
+        return {
+          setupState: 'unavailable',
+          rootPath: configuration.rootPath,
+          reason: 'inaccessible'
+        }
+      }
+
+      try {
+        const repositoryCheck = await host.runGit(configuration.rootPath, [
+          'rev-parse',
+          '--show-toplevel'
+        ])
+        const repositoryRoot = repositoryCheck.stdout.trim()
+        if (repositoryRoot && resolve(repositoryRoot) === resolve(configuration.rootPath)) {
+          return { setupState: 'configured', rootPath: configuration.rootPath }
+        }
+      } catch {
+        // A persisted path is usable only while it remains a Git repository.
+      }
+
+      return {
+        setupState: 'unavailable',
+        rootPath: configuration.rootPath,
+        reason: 'not-git-repository'
+      }
     },
 
     async createNew() {
@@ -80,6 +115,11 @@ export function createKnowledgeBaseService({
         if (created) await host.removeDirectory(rootPath).catch(() => undefined)
         throw error
       }
+    },
+
+    async reset() {
+      await configurationRepository.clear()
+      return { setupState: 'unconfigured' }
     },
 
     async cloneFromGit(request) {

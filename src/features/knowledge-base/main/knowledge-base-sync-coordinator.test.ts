@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { KnowledgeBaseSyncStatus } from '../shared'
+import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import {
   createKnowledgeBaseSyncCoordinator,
   createKnowledgeBaseSyncScheduler
@@ -27,6 +28,31 @@ describe('createKnowledgeBaseSyncCoordinator', () => {
 
     await expect(coordinator.sync()).resolves.toEqual(localOnlyStatus)
     expect(service.syncNow).not.toHaveBeenCalled()
+  })
+
+  it('waits for an in-flight file mutation before starting Git sync', async () => {
+    const service = {
+      getSyncStatus: vi.fn(async () => remoteStatus),
+      syncNow: vi.fn(async () => remoteStatus)
+    }
+    const operations = createKnowledgeBaseOperationCoordinator()
+    const coordinator = createKnowledgeBaseSyncCoordinator(service, operations)
+    let finishSave: (() => void) | undefined
+    const save = operations.runExclusive(
+      () =>
+        new Promise<void>((resolve) => {
+          finishSave = resolve
+        })
+    )
+
+    const sync = coordinator.sync()
+    await Promise.resolve()
+    expect(service.getSyncStatus).not.toHaveBeenCalled()
+
+    finishSave?.()
+    await save
+    await expect(sync).resolves.toEqual(remoteStatus)
+    expect(service.syncNow).toHaveBeenCalledTimes(1)
   })
 
   it('coalesces overlapping sync requests into one run', async () => {

@@ -1,4 +1,5 @@
 import type { KnowledgeBaseSyncStatus } from '../shared'
+import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import type { KnowledgeBaseSyncService } from './knowledge-base-sync.service'
 
 const BACKGROUND_SYNC_INTERVAL_MS = 15 * 60 * 1_000
@@ -8,7 +9,10 @@ export type KnowledgeBaseSyncCoordinator = {
 }
 
 export function createKnowledgeBaseSyncCoordinator(
-  service: Pick<KnowledgeBaseSyncService, 'getSyncStatus' | 'syncNow'>
+  service: Pick<KnowledgeBaseSyncService, 'getSyncStatus' | 'syncNow'>,
+  operations: KnowledgeBaseOperationCoordinator = {
+    runExclusive: (operation) => operation()
+  }
 ): KnowledgeBaseSyncCoordinator {
   let activeSync: Promise<KnowledgeBaseSyncStatus> | undefined
 
@@ -16,10 +20,10 @@ export function createKnowledgeBaseSyncCoordinator(
     sync() {
       if (activeSync) return activeSync
 
-      const run = (async () => {
+      const run = operations.runExclusive(async () => {
         const status = await service.getSyncStatus()
         return status.remoteState === 'local-only' ? status : service.syncNow()
-      })()
+      })
       activeSync = run
 
       void run.finally(() => {

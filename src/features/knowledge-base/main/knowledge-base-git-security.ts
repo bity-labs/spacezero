@@ -1,5 +1,5 @@
-const CREDENTIAL_URL_PATTERN = /([a-z][a-z\d+.-]*:\/\/)[^\s/?#]*@/gi
-const SENSITIVE_QUERY_VALUE_PATTERN = /([?&](?:access_token|api_key|key|password|token)=)[^&#\s]*/gi
+const URL_IN_TEXT_PATTERN = /[a-z][a-z\d+.-]*:\/\/[^\s'"<>]+/gi
+const FALLBACK_CREDENTIAL_PATTERN = /([a-z][a-z\d+.-]*:\/\/)[^\s/?#]*@/gi
 
 export function sanitizeGitRemoteUrl(remoteUrl: string): string {
   const trimmedUrl = remoteUrl.trim()
@@ -8,17 +8,18 @@ export function sanitizeGitRemoteUrl(remoteUrl: string): string {
     const url = new URL(trimmedUrl)
     url.username = ''
     url.password = ''
-    redactSensitiveQueryValues(url)
+    url.search = ''
+    url.hash = ''
     return url.toString()
   } catch {
-    return redactGitSecrets(trimmedUrl)
+    return sanitizeNonStandardGitRemote(trimmedUrl)
   }
 }
 
 export function redactGitSecrets(message: string): string {
   return message
-    .replace(CREDENTIAL_URL_PATTERN, '$1[redacted]@')
-    .replace(SENSITIVE_QUERY_VALUE_PATTERN, '$1[redacted]')
+    .replace(URL_IN_TEXT_PATTERN, (url) => sanitizeGitRemoteUrl(url))
+    .replace(FALLBACK_CREDENTIAL_PATTERN, '$1')
 }
 
 export function toRedactedGitError(error: unknown): Error {
@@ -26,10 +27,12 @@ export function toRedactedGitError(error: unknown): Error {
   return new Error(redactGitSecrets(message))
 }
 
-function redactSensitiveQueryValues(url: URL): void {
-  for (const key of [...url.searchParams.keys()]) {
-    if (/^(?:access_token|api_key|key|password|token)$/i.test(key)) {
-      url.searchParams.set(key, '[redacted]')
-    }
-  }
+function sanitizeNonStandardGitRemote(remoteUrl: string): string {
+  const withoutQueryOrFragment = remoteUrl.split(/[?#]/, 1)[0] ?? ''
+  const scpStyle = /^(?:[^@\s/:]+@)?([^:\s/]+):(.+)$/.exec(
+    withoutQueryOrFragment
+  )
+  if (scpStyle) return `${scpStyle[1]}:${scpStyle[2]}`
+
+  return withoutQueryOrFragment.replace(FALLBACK_CREDENTIAL_PATTERN, '$1')
 }

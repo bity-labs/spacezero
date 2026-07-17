@@ -2,6 +2,7 @@ import {
   getRichMarkdownLimitation,
   RICH_MARKDOWN_FOOTNOTE_LIMITATION,
   RICH_MARKDOWN_LIMITATION,
+  RICH_MARKDOWN_SYNTAX_LIMITATION,
   splitMarkdownDocument
 } from './knowledge-base-markdown'
 
@@ -39,6 +40,27 @@ describe('Knowledge Base Markdown safety', () => {
     expect(
       getRichMarkdownLimitation('```md\nA note[^1].\n\n[^1]: Example only.\n```')
     ).toBeNull()
+  })
+
+  it.each([
+    ['inline math', 'Euler says $e^{i\\pi}+1=0$.'],
+    ['block math', '$$\\int_0^1 x^2 dx$$'],
+    ['named HTML entities', 'Copyright &copy; 2026.'],
+    ['numeric HTML entities', 'Copyright &#169; 2026.'],
+    ['hexadecimal HTML entities', 'Copyright &#xA9; 2026.'],
+    ['literal backslash commands', 'Use C:\\temp or \\command outside code.']
+  ])('requires source mode for lossy %s syntax', (_description, markdown) => {
+    expect(getRichMarkdownLimitation(markdown)).toBe(
+      RICH_MARKDOWN_SYNTAX_LIMITATION
+    )
+  })
+
+  it.each([
+    ['fenced code', '```tex\nEuler says $e^{i\\pi}+1=0$ &copy;\n```'],
+    ['inline code', 'Use `$e^{i\\pi}$` and `&copy;` literally.'],
+    ['escaped currency', 'The budget is \\$5.']
+  ])('does not block rich mode for safe %s examples', (_description, markdown) => {
+    expect(getRichMarkdownLimitation(markdown)).toBeNull()
   })
 
   it.each([

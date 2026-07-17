@@ -489,7 +489,15 @@ describe('createWorkspaceAgentSession', () => {
       projectId: null,
       cwd: '/tmp/spacezero-workspace-sessions',
       workspaceTools: expect.arrayContaining([
-        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
+        expect.objectContaining({
+          name: 'knowledgeBase.readDocument',
+          safetyLevel: 'read'
+        }),
+        expect.objectContaining({
+          name: 'knowledgeBase.saveDocument',
+          safetyLevel: 'write'
+        })
       ]),
       defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
       thinkingLevel: 'high'

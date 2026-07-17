@@ -24,6 +24,10 @@ export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getStatus, () =>
     getKnowledgeBaseService().getStatus()
   )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
+    await getKnowledgeBaseProjectsService().clearProjectLinks()
+    return getKnowledgeBaseService().reset()
+  })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.createNew, async () => {
     const status = await getKnowledgeBaseService().createNew()
     const links = await getKnowledgeBaseProjectsService().linkExistingProjects()

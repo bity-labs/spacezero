@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredProject } from '../../projects/main/projects.service'
-import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
+import type { KnowledgeBaseStatus } from '../shared'
 import {
   createKnowledgeBaseProjectFolderHost,
   createKnowledgeBaseProjectsService,
@@ -48,17 +48,13 @@ function createProjectsRepository(initialProjects: StoredProject[]) {
   }
 }
 
-function createConfigurationRepository(
+function createKnowledgeBaseStatusReader(
   rootPath?: string
-): KnowledgeBaseConfigurationRepository {
-  return {
-    async get() {
-      return rootPath
-        ? { rootPath, configuredAt: new Date(0).toISOString() }
-        : undefined
-    },
-    async save() {}
-  }
+): () => Promise<KnowledgeBaseStatus> {
+  return async () =>
+    rootPath
+      ? { setupState: 'configured', rootPath }
+      : { setupState: 'unconfigured' }
 }
 
 afterEach(async () => {
@@ -77,7 +73,7 @@ describe('createKnowledgeBaseProjectsService', () => {
       createProject('project-2', 'Café Builder')
     ])
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(rootPath),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
       projectsRepository,
       host: createKnowledgeBaseProjectFolderHost()
     })
@@ -95,12 +91,100 @@ describe('createKnowledgeBaseProjectsService', () => {
     ).resolves.toBe(createProjectKnowledgeReadme('Space Zero'))
   })
 
+  it('does not recreate a persisted Knowledge Base root that is unavailable', async () => {
+    const rootPath = await createRoot()
+    await rm(rootPath, { recursive: true })
+    const project = createProject('project-1', 'Space Zero')
+    const projectsRepository = createProjectsRepository([project])
+    const host = createKnowledgeBaseProjectFolderHost()
+    const createDirectory = vi.spyOn(host, 'createDirectory')
+    const service = createKnowledgeBaseProjectsService({
+      getKnowledgeBaseStatus: async () => ({
+        setupState: 'unavailable',
+        rootPath,
+        reason: 'missing'
+      }),
+      projectsRepository,
+      host
+    })
+
+    await expect(service.linkProject(project)).resolves.toMatchObject({
+      project,
+      warning: expect.stringContaining('Knowledge Base is unavailable')
+    })
+    expect(createDirectory).not.toHaveBeenCalled()
+    await expect(readFile(join(rootPath, 'projects', 'space-zero', 'README.md'))).rejects.toThrow()
+  })
+
+  it('does not recreate the Knowledge Base if it disappears while a project is linking', async () => {
+    const rootPath = await createRoot()
+    await rm(rootPath, { recursive: true })
+    const project = createProject('project-1', 'Space Zero')
+    const service = createKnowledgeBaseProjectsService({
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
+      projectsRepository: createProjectsRepository([project]),
+      host: createKnowledgeBaseProjectFolderHost()
+    })
+
+    await expect(service.linkProject(project)).resolves.toMatchObject({
+      project,
+      warning: expect.any(String)
+    })
+    await expect(readFile(join(rootPath, 'projects', 'space-zero', 'README.md'))).rejects.toThrow()
+  })
+
+  it('assigns stable distinct folders to projects with duplicate names', async () => {
+    const rootPath = await createRoot()
+    const projectsRepository = createProjectsRepository([
+      createProject('project-1', 'Space Zero'),
+      createProject('project-2', 'Space Zero')
+    ])
+    const service = createKnowledgeBaseProjectsService({
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
+      projectsRepository,
+      host: createKnowledgeBaseProjectFolderHost()
+    })
+
+    await service.linkExistingProjects()
+
+    const [firstPath, secondPath] = projectsRepository.projects.map(
+      (project) => project.knowledgeBasePath
+    )
+    expect(firstPath).toBe(join(rootPath, 'projects', 'space-zero'))
+    expect(secondPath).toMatch(
+      new RegExp(`^${escapeRegularExpression(join(rootPath, 'projects', 'space-zero-'))}`)
+    )
+    expect(secondPath).not.toBe(firstPath)
+  })
+
+  it('does not collapse multiple non-Latin project names into one folder', async () => {
+    const rootPath = await createRoot()
+    const projectsRepository = createProjectsRepository([
+      createProject('project-ja', '日本語'),
+      createProject('project-ko', '한국어')
+    ])
+    const service = createKnowledgeBaseProjectsService({
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
+      projectsRepository,
+      host: createKnowledgeBaseProjectFolderHost()
+    })
+
+    await service.linkExistingProjects()
+
+    const linkedPaths = projectsRepository.projects.map((project) => project.knowledgeBasePath)
+    expect(new Set(linkedPaths).size).toBe(2)
+    expect(linkedPaths[0]).toBe(join(rootPath, 'projects', 'project'))
+    expect(linkedPaths[1]).toMatch(
+      new RegExp(`^${escapeRegularExpression(join(rootPath, 'projects', 'project-'))}`)
+    )
+  })
+
   it('links a newly created project when the Knowledge Base is configured', async () => {
     const rootPath = await createRoot()
     const project = createProject('project-1', 'Agent Workspace')
     const projectsRepository = createProjectsRepository([project])
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(rootPath),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
       projectsRepository,
       host: createKnowledgeBaseProjectFolderHost()
     })
@@ -121,7 +205,7 @@ describe('createKnowledgeBaseProjectsService', () => {
     const project = createProject('project-1', 'Space Zero')
     const projectsRepository = createProjectsRepository([project])
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(rootPath),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
       projectsRepository,
       host: createKnowledgeBaseProjectFolderHost()
     })
@@ -138,7 +222,7 @@ describe('createKnowledgeBaseProjectsService', () => {
     const project = createProject('project-1', 'Space Zero')
     const projectsRepository = createProjectsRepository([project])
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(),
       projectsRepository,
       host: createKnowledgeBaseProjectFolderHost()
     })
@@ -159,7 +243,7 @@ describe('createKnowledgeBaseProjectsService', () => {
       throw new Error('Permission denied')
     })
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(rootPath),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
       projectsRepository,
       host
     })
@@ -181,7 +265,7 @@ describe('createKnowledgeBaseProjectsService', () => {
       throw new Error('Knowledge Base is read-only')
     })
     const service = createKnowledgeBaseProjectsService({
-      configurationRepository: createConfigurationRepository(rootPath),
+      getKnowledgeBaseStatus: createKnowledgeBaseStatusReader(rootPath),
       projectsRepository,
       host
     })
@@ -193,6 +277,10 @@ describe('createKnowledgeBaseProjectsService', () => {
     })
   })
 })
+
+function escapeRegularExpression(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
 
 describe('slugifyProjectName', () => {
   it('creates stable project-folder slugs from names', () => {

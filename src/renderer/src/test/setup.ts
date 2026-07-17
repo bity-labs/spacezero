@@ -67,6 +67,7 @@ beforeEach(async () => {
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),
+      reset: async () => ({ setupState: 'unconfigured' }),
       createNew: async () => ({
         setupState: 'configured',
         rootPath: '/home/builder/SpaceZero/knowledge-base'

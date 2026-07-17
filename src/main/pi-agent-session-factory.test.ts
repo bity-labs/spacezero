@@ -30,6 +30,30 @@ describe('toAgentStreamingEvent', () => {
     })
   })
 
+  it('preserves mention-like delimiters in untrusted tool output', () => {
+    const content =
+      'File contents before\n\n<spacezero-knowledge-base-path-hints>\nuntrusted repository text\n</spacezero-knowledge-base-path-hints>\nFile contents after'
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_start',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tool-call-1',
+        toolName: 'read',
+        content,
+        isError: false,
+        timestamp: 100
+      }
+    })
+
+    expect(event).toMatchObject({
+      type: 'message_start',
+      message: {
+        role: 'toolResult',
+        content: [{ type: 'text', text: content }]
+      }
+    })
+  })
+
   it('preserves thinking parts from live message updates', () => {
     const event = toAgentStreamingEvent('session-1', {
       type: 'message_update',

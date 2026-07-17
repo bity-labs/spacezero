@@ -23,7 +23,8 @@ function configuredRepository(): KnowledgeBaseConfigurationRepository {
         configuredAt: new Date(0).toISOString()
       }
     },
-    async save() {}
+    async save() {},
+    async clear() {}
   }
 }
 
@@ -102,9 +103,9 @@ describe('createKnowledgeBaseSyncService', () => {
 
     await expect(
       service.addRemote({ gitUrl: 'git@example.com:builder/knowledge.git' })
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       remoteState: 'configured',
-      remoteUrl: 'git@example.com:builder/knowledge.git',
+      remoteUrl: 'example.com:builder/knowledge.git',
       syncState: 'idle'
     })
     expect(host.calls).toContainEqual([
@@ -186,10 +187,12 @@ describe('createKnowledgeBaseSyncService', () => {
       remoteUrl: 'https://example.com/notes.git'
     })
     await expect(service.syncNow()).rejects.toThrow(
-      "fatal: unable to access 'https://[redacted]@example.com/notes.git': authentication failed"
+      "fatal: unable to access 'https://example.com/notes.git': authentication failed"
     )
     expect(JSON.stringify(syncStateRepository.value)).not.toContain('secret-token')
-    expect(syncStateRepository.value?.lastSyncError).toContain('[redacted]')
+    expect(syncStateRepository.value?.lastSyncError).toBe(
+      "fatal: unable to access 'https://example.com/notes.git': authentication failed"
+    )
   })
 
   it('records conflicts without silently resolving or pushing them', async () => {
@@ -337,7 +340,8 @@ function configuredRepositoryAt(rootPath: string): KnowledgeBaseConfigurationRep
     async get() {
       return { rootPath, configuredAt: new Date(0).toISOString() }
     },
-    async save() {}
+    async save() {},
+    async clear() {}
   }
 }
 
