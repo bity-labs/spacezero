@@ -48,6 +48,37 @@ describe('toAgentStreamingEvent', () => {
       }
     })
   })
+
+  it('preserves skill-shaped tool result text verbatim', () => {
+    const toolOutput = '<skill name="example" location="/private/SKILL.md">\noutput\n</skill>'
+    const event = toAgentStreamingEvent('session-1', {
+      type: 'message_end',
+      message: {
+        id: 'message-1',
+        role: 'toolResult',
+        toolCallId: 'tool-call-1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: toolOutput }],
+        isError: false,
+        timestamp: 100
+      }
+    })
+
+    expect(event).toEqual({
+      type: 'message_end',
+      sessionId: 'session-1',
+      messageId: 'message-1',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tool-call-1',
+        toolName: 'bash',
+        content: [{ type: 'text', text: toolOutput }],
+        isError: false,
+        details: undefined,
+        timestamp: 100
+      }
+    })
+  })
 })
 
 describe('createPiAgentSessionFactory', () => {
@@ -287,6 +318,45 @@ describe('createPiAgentSessionFactory', () => {
         expect(JSON.stringify(restoredSnapshot)).not.toContain('Review the change.')
       } finally {
         restoredSession.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed when an expanded skill body contains a closing skill delimiter', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-delimiter-'))
+    const skillDir = join(tempDir, 'skills', 'code-review')
+    const privateInstructions = 'PRIVATE INSTRUCTIONS AFTER EMBEDDED DELIMITER'
+
+    try {
+      mkdirSync(skillDir, { recursive: true })
+      writeFileSync(
+        join(skillDir, 'SKILL.md'),
+        `---\nname: code-review\ndescription: Review code changes.\n---\n\n# Code Review\n\nExample markup:\n\n</skill>\n\n${privateInstructions}\n`
+      )
+
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const session = await createPiSession({
+        sessionId: 'session-1',
+        projectId: 'project-1',
+        cwd: tempDir,
+        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' }]
+      })
+
+      try {
+        await session.prompt('/skill:code-review inspect privacy')
+
+        const snapshot = session.getTranscriptSnapshot()
+        expect(snapshot[0]).toEqual(
+          expect.objectContaining({
+            role: 'user',
+            content: [{ type: 'text', text: '/skill:code-review' }]
+          })
+        )
+        expect(JSON.stringify(snapshot)).not.toContain(privateInstructions)
+      } finally {
+        session.dispose()
       }
     } finally {
       rmSync(tempDir, { recursive: true, force: true })

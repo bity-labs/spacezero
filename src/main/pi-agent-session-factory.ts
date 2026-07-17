@@ -572,13 +572,26 @@ function toDisplayUserText(text: string): string {
   const expandedSkill = parseSkillBlock(text)
   if (!expandedSkill) return text
 
-  return `/skill:${expandedSkill.name}${expandedSkill.userMessage ? ` ${expandedSkill.userMessage}` : ''}`
+  const safeUserMessage = expandedSkill.userMessage?.includes('</skill>')
+    ? undefined
+    : expandedSkill.userMessage
+  return `/skill:${expandedSkill.name}${safeUserMessage ? ` ${safeUserMessage}` : ''}`
 }
 
 function toToolResultContent(content: unknown): AgentToolResultContent[] {
-  const userContent = toUserContent(content)
-  if (typeof userContent === 'string') return [{ type: 'text', text: userContent }]
-  return userContent
+  if (typeof content === 'string') return [{ type: 'text', text: content }]
+  if (!Array.isArray(content)) return []
+
+  return content.flatMap((part): AgentToolResultContent[] => {
+    if (!isRecord(part)) return []
+    if (part.type === 'text' && typeof part.text === 'string') {
+      return [{ type: 'text', text: part.text }]
+    }
+    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+      return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
+    }
+    return []
+  })
 }
 
 function toAssistantContent(content: unknown): AgentAssistantContent[] {
