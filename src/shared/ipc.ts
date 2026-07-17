@@ -32,7 +32,10 @@ import type {
   GitHubConnection,
   GitHubDeviceAuthorization,
   GitHubFlowRequest,
-  GitHubRepository
+  GitHubProjectLinkOptions,
+  GitHubProjectRequest,
+  GitHubRepository,
+  LinkGitHubProjectRequest
 } from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
@@ -65,7 +68,9 @@ export const IPC_CHANNELS = {
     openInstallation: 'github:openInstallation',
     openManageAccess: 'github:openManageAccess',
     disconnect: 'github:disconnect',
-    listAuthorizedRepositories: 'github:listAuthorizedRepositories'
+    listAuthorizedRepositories: 'github:listAuthorizedRepositories',
+    getProjectLinkOptions: 'github:getProjectLinkOptions',
+    linkProjectRepository: 'github:linkProjectRepository'
   },
   projects: {
     list: 'projects:list',
@@ -152,6 +157,8 @@ export type SpaceZeroAPI = {
     openManageAccess: () => Promise<void>
     disconnect: () => Promise<void>
     listAuthorizedRepositories: () => Promise<GitHubRepository[]>
+    getProjectLinkOptions: (request: GitHubProjectRequest) => Promise<GitHubProjectLinkOptions>
+    linkProjectRepository: (request: LinkGitHubProjectRequest) => Promise<Project>
   }
   projects: {
     list: () => Promise<Project[]>

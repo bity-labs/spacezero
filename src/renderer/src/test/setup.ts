@@ -140,7 +140,19 @@ beforeEach(async () => {
       openInstallation: async () => undefined,
       openManageAccess: async () => undefined,
       disconnect: async () => undefined,
-      listAuthorizedRepositories: async () => []
+      listAuthorizedRepositories: async () => [],
+      getProjectLinkOptions: async () => ({
+        repositories: [],
+        suggestedRepositoryIds: [],
+        ambiguous: false
+      }),
+      linkProjectRepository: async ({ projectId }) => ({
+        id: projectId,
+        name: 'Linked Project',
+        path: '/tmp/linked-project',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      })
     },
     projects: {
       list: async () => [],

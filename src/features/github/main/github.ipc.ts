@@ -1,8 +1,16 @@
 import { ipcMain } from 'electron'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
-import { githubFlowRequestSchema } from '../shared'
-import { getGitHubAuthService, getGitHubConnectionService } from './github-runtime'
+import {
+  githubFlowRequestSchema,
+  githubProjectRequestSchema,
+  linkGitHubProjectRequestSchema
+} from '../shared'
+import {
+  getGitHubAuthService,
+  getGitHubConnectionService,
+  getGitHubProjectsService
+} from './github-runtime'
 
 export function registerGitHubIpc(): void {
   ipcMain.handle(IPC_CHANNELS.github.getConnection, () =>
@@ -32,5 +40,11 @@ export function registerGitHubIpc(): void {
   ipcMain.handle(IPC_CHANNELS.github.disconnect, () => getGitHubAuthService().disconnect())
   ipcMain.handle(IPC_CHANNELS.github.listAuthorizedRepositories, () =>
     getGitHubConnectionService().listAuthorizedRepositories()
+  )
+  ipcMain.handle(IPC_CHANNELS.github.getProjectLinkOptions, (_event, input: unknown) =>
+    getGitHubProjectsService().getLinkOptions(githubProjectRequestSchema.parse(input))
+  )
+  ipcMain.handle(IPC_CHANNELS.github.linkProjectRepository, (_event, input: unknown) =>
+    getGitHubProjectsService().linkProject(linkGitHubProjectRequestSchema.parse(input))
   )
 }

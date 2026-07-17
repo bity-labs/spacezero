@@ -348,7 +348,8 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
     expect(await screen.findByRole('button', { name: /Session 1/ })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: 'Running' })).toBeInTheDocument()
-    expect(screen.getByText('No session open for Space Zero')).toBeInTheDocument()
+    expect(screen.getByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 

@@ -47,7 +47,11 @@ const api: SpaceZeroAPI = {
     openManageAccess: () => ipcRenderer.invoke(IPC_CHANNELS.github.openManageAccess),
     disconnect: () => ipcRenderer.invoke(IPC_CHANNELS.github.disconnect),
     listAuthorizedRepositories: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.github.listAuthorizedRepositories)
+      ipcRenderer.invoke(IPC_CHANNELS.github.listAuthorizedRepositories),
+    getProjectLinkOptions: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.getProjectLinkOptions, request),
+    linkProjectRepository: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.github.linkProjectRepository, request)
   },
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),

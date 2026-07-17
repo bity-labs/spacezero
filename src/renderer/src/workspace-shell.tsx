@@ -35,6 +35,7 @@ import type { ProjectSession, WorkspaceSession } from '../../features/sessions/s
 import {
   AddProjectDialog,
   EditProjectDialog,
+  ProjectHome,
   ProjectSidebarList,
   useProjects
 } from '../../features/projects/renderer'
@@ -117,6 +118,7 @@ export function WorkspaceShell(): React.JSX.Element {
     error: projectsError,
     warning: projectsWarning,
     selectProject,
+    upsertProject,
     createEmptyProject,
     addProjectFromFolder,
     updateProject,
@@ -175,10 +177,7 @@ export function WorkspaceShell(): React.JSX.Element {
   )
 
   const shouldBlockRouteNavigation = useCallback(async (): Promise<boolean> => {
-    if (
-      activePrimaryView !== 'knowledge-base' ||
-      !knowledgeBasePageRef.current?.hasPendingSave()
-    ) {
+    if (activePrimaryView !== 'knowledge-base' || !knowledgeBasePageRef.current?.hasPendingSave()) {
       return false
     }
     return !(await knowledgeBasePageRef.current.flushPendingSave())
@@ -264,7 +263,10 @@ export function WorkspaceShell(): React.JSX.Element {
   function handleNewSession(project: Project): void {
     runInWorkspaceView(async () => {
       selectProject(project)
-      const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
+      const agentSession = await window.spacezero.agent.createSession({
+        projectId: project.id,
+        cwd: project.path
+      })
       const session: ProjectSession = {
         id: agentSession.sessionId,
         kind: 'project',
@@ -319,7 +321,12 @@ export function WorkspaceShell(): React.JSX.Element {
   }
 
   async function handleDeleteProject(project: Project): Promise<void> {
-    if (!window.confirm(`Delete ${project.name} and all of its sessions permanently? This cannot be undone.`)) return
+    if (
+      !window.confirm(
+        `Delete ${project.name} and all of its sessions permanently? This cannot be undone.`
+      )
+    )
+      return
     await deleteProject(project.id)
     await refreshSessions()
     if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
@@ -416,11 +423,7 @@ export function WorkspaceShell(): React.JSX.Element {
             className="pt-4"
             contentClassName="px-0 overflow-hidden"
             header={
-              <SidebarMenu
-                className="px-0"
-                aria-label={t('workspace.navigation')}
-                role="menu"
-              >
+              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')} role="menu">
                 <SidebarNavItem
                   icon={BookOpenText}
                   label="Knowledge Base"
@@ -553,23 +556,20 @@ export function WorkspaceShell(): React.JSX.Element {
           {activePrimaryView === 'knowledge-base' ? (
             <KnowledgeBasePage ref={knowledgeBasePageRef} />
           ) : activeTab ? (
-            <SessionWorkspaceTabSurface
-              tab={activeTab}
-              projects={projects}
-              sessions={sessions}
+            <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
+          ) : activeProject ? (
+            <ProjectHome
+              key={`${activeProject.id}:${activeProject.updatedAt}`}
+              project={activeProject}
+              onProjectLinked={upsertProject}
+              onNewSession={() => handleNewSession(activeProject)}
             />
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
               <div>
-                <h2 className="text-sm font-medium">
-                  {activeProject
-                    ? t('sessions.workspace.emptyProjectTitle', { project: activeProject.name })
-                    : t('sessions.workspace.emptyTitle')}
-                </h2>
+                <h2 className="text-sm font-medium">{t('sessions.workspace.emptyTitle')}</h2>
                 <p className="mt-2 max-w-sm text-xs text-muted-foreground">
-                  {activeProject
-                    ? t('sessions.workspace.emptyProjectDescription')
-                    : t('sessions.workspace.emptyDescription')}
+                  {t('sessions.workspace.emptyDescription')}
                 </p>
               </div>
             </div>
@@ -606,7 +606,7 @@ function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | 
 function SessionWorkspaceTabSurface({
   tab,
   projects,
-  sessions,
+  sessions
 }: {
   tab: SessionWorkspaceTab
   projects: Project[]
@@ -618,16 +618,9 @@ function SessionWorkspaceTabSurface({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {tab.kind === 'workspace' ? (
-        <WorkspaceSessionHostSurface
-          key={tab.session.id}
-          session={tab.session}
-        />
+        <WorkspaceSessionHostSurface key={tab.session.id} session={tab.session} />
       ) : session && project ? (
-        <ProjectSessionHostSurface
-          key={session.id}
-          project={project}
-          session={session}
-        />
+        <ProjectSessionHostSurface key={session.id} project={project} session={session} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">
           Session metadata is no longer available.

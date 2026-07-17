@@ -60,6 +60,21 @@ export type GitHubConnection =
     }
   | { status: 'reconnect-required'; identity: GitHubIdentity }
 
+export type GitHubProjectLinkOptions = {
+  repositories: GitHubRepository[]
+  suggestedRepositoryIds: string[]
+  ambiguous: boolean
+}
+
+export type GitHubProjectRequest = {
+  projectId: string
+}
+
+export type LinkGitHubProjectRequest = GitHubProjectRequest & {
+  repositoryId: string
+  confirmAmbiguous?: boolean
+}
+
 export type GitHubDeviceAuthorization = {
   flowId: string
   userCode: string
