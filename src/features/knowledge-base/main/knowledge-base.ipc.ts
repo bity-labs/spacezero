@@ -6,7 +6,9 @@ import {
   checkKnowledgeBaseDocumentRequestSchema,
   cloneKnowledgeBaseRequestSchema,
   createKnowledgeBaseItemRequestSchema,
+  importKnowledgeBaseImageRequestSchema,
   knowledgeBasePathRequestSchema,
+  loadKnowledgeBaseImageRequestSchema,
   moveKnowledgeBaseItemRequestSchema,
   renameKnowledgeBaseItemRequestSchema,
   saveKnowledgeBaseDocumentRequestSchema,
@@ -42,6 +44,12 @@ export function registerKnowledgeBaseIpc(): void {
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.search, (_event, input: unknown) =>
     getKnowledgeBaseService().search(searchKnowledgeBaseRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.importImage, (_event, input: unknown) =>
+    getKnowledgeBaseService().importImage(importKnowledgeBaseImageRequestSchema.parse(input))
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.loadImage, (_event, input: unknown) =>
+    getKnowledgeBaseService().loadImage(loadKnowledgeBaseImageRequestSchema.parse(input))
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.createItem, (_event, input: unknown) =>
     getKnowledgeBaseService().createItem(createKnowledgeBaseItemRequestSchema.parse(input))

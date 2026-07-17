@@ -1,3 +1,5 @@
+export const MAX_KNOWLEDGE_BASE_IMAGE_BYTES = 10 * 1024 * 1024
+
 export type KnowledgeBaseStatus =
   | { setupState: 'unconfigured' }
   | { setupState: 'configured'; rootPath: string }
@@ -42,6 +44,16 @@ export type KnowledgeBaseDocument = {
   modifiedAt: string
   revision: string
   content?: string
+}
+
+export type KnowledgeBaseImagePreview = {
+  dataUrl: string
+}
+
+export type KnowledgeBaseImageImport = {
+  assetRelativePath: string
+  markdownPath: string
+  altText: string
 }
 
 export type KnowledgeBaseSaveResult =

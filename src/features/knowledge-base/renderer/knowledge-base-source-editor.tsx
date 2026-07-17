@@ -17,12 +17,14 @@ export type KnowledgeBaseEditorRenderProps = {
 export function KnowledgeBaseSourceEditor({
   document,
   onDocumentChange,
-  headerActions,
+  renderHeaderActions,
+  renderEditorNotice,
   renderEditor
 }: {
   document: KnowledgeBaseDocument
   onDocumentChange?: (document: KnowledgeBaseDocument) => void
-  headerActions?: ReactNode
+  renderHeaderActions?: (value: string) => ReactNode
+  renderEditorNotice?: (value: string) => ReactNode
   renderEditor?: (props: KnowledgeBaseEditorRenderProps) => ReactNode
 }): React.JSX.Element {
   const [draft, setDraft] = useState(document.content ?? '')
@@ -110,7 +112,7 @@ export function KnowledgeBaseSourceEditor({
           <p className="truncate text-xs text-muted-foreground">{document.relativePath}</p>
         </div>
         <div className="flex items-center gap-2">
-          {headerActions}
+          {renderHeaderActions?.(draft)}
           <span className="text-xs text-muted-foreground" role="status" aria-live="polite">
             {getSaveStateLabel(saveState)}
           </span>
@@ -132,6 +134,8 @@ export function KnowledgeBaseSourceEditor({
           </div>
         </Alert>
       ) : null}
+
+      {renderEditorNotice?.(draft)}
 
       {renderEditor ? (
         renderEditor({

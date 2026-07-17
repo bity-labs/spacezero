@@ -19,6 +19,8 @@ const api: SpaceZeroAPI = {
     openDocument: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openDocument, request),
     search: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.search, request),
+    importImage: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.importImage, request),
+    loadImage: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.loadImage, request),
     createItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createItem, request),
     renameItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.renameItem, request),
     moveItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.moveItem, request),

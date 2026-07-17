@@ -3,9 +3,12 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
+import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../shared/knowledge-base.model'
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseDocumentCheck,
+  KnowledgeBaseImageImport,
+  KnowledgeBaseImagePreview,
   KnowledgeBaseSaveResult,
   KnowledgeBaseSearchResult,
   KnowledgeBaseTreeItem
@@ -14,6 +17,7 @@ import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.serv
 
 export const MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES = 2 * 1024 * 1024
 
+const IMAGE_ASSET_DIRECTORY = 'assets/img'
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.mdx'])
 const TEXT_EXTENSIONS = new Set([
   '.css',
@@ -38,6 +42,15 @@ export type KnowledgeBaseFilesService = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
   search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
+  importImage: (request: {
+    documentRelativePath: string
+    fileName: string
+    bytes: Uint8Array
+  }) => Promise<KnowledgeBaseImageImport>
+  loadImage: (request: {
+    documentRelativePath: string
+    markdownPath: string
+  }) => Promise<KnowledgeBaseImagePreview>
   createItem: (request: { relativePath: string; kind: 'file' | 'folder' }) => Promise<void>
   renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
   moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
@@ -76,6 +89,73 @@ export function createKnowledgeBaseFilesService({
       const rootPath = await getConfiguredRoot(configurationRepository)
       const canonicalRoot = await realpath(rootPath)
       return searchDirectory(canonicalRoot, '', query.toLowerCase())
+    },
+
+    async importImage(request) {
+      if (request.bytes.byteLength > MAX_KNOWLEDGE_BASE_IMAGE_BYTES) {
+        throw new Error('Knowledge Base image is too large.')
+      }
+
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const document = await openKnowledgeBaseDocument(rootPath, request.documentRelativePath)
+      if (document.contentKind !== 'markdown') {
+        throw new Error('Images can only be imported for Markdown documents.')
+      }
+      const imageFormat = detectImageFormat(request.bytes)
+      if (!imageFormat) throw new Error('Unsupported image type.')
+
+      const altText = createImageAltText(request.fileName)
+      const assetRelativePath = await writeImageAsset({
+        rootPath,
+        stem: createAssetStem(request.fileName),
+        extension: imageFormat.extension,
+        bytes: request.bytes
+      })
+
+      return {
+        assetRelativePath,
+        markdownPath: posix.relative(posix.dirname(document.relativePath), assetRelativePath),
+        altText
+      }
+    },
+
+    async loadImage(request) {
+      const rootPath = await getConfiguredRoot(configurationRepository)
+      const document = await openKnowledgeBaseDocument(rootPath, request.documentRelativePath)
+      if (document.contentKind !== 'markdown') {
+        throw new Error('Images can only be loaded for Markdown documents.')
+      }
+      if (
+        request.markdownPath.startsWith('/') ||
+        request.markdownPath.includes('\\') ||
+        /^[a-z][a-z\d+.-]*:/i.test(request.markdownPath)
+      ) {
+        throw new Error('Knowledge Base image path is invalid.')
+      }
+
+      const documentDirectory = posix.dirname(document.relativePath)
+      const imageRelativePath = posix.normalize(posix.join(documentDirectory, request.markdownPath))
+      if (!imageRelativePath.startsWith(`${IMAGE_ASSET_DIRECTORY}/`)) {
+        throw new Error(`Knowledge Base images must be stored under ${IMAGE_ASSET_DIRECTORY}.`)
+      }
+
+      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, imageRelativePath)
+      const details = await lstat(absolutePath)
+      if (details.isSymbolicLink()) {
+        throw new Error('Symbolic links cannot be loaded as Knowledge Base images.')
+      }
+      if (!details.isFile()) throw new Error('Knowledge Base image path is not a file.')
+      if (details.size > MAX_KNOWLEDGE_BASE_IMAGE_BYTES) {
+        throw new Error('Knowledge Base image is too large.')
+      }
+      await assertExistingPathInsideRoot(rootPath, absolutePath)
+
+      const bytes = await readFile(absolutePath)
+      const imageFormat = detectImageFormat(bytes)
+      if (!imageFormat) throw new Error('Unsupported image type.')
+      return {
+        dataUrl: `data:${imageFormat.mediaType};base64,${bytes.toString('base64')}`
+      }
     },
 
     async createItem(request) {
@@ -172,6 +252,64 @@ export function resolveKnowledgeBaseRelativePath(
   return { absolutePath, relativePath: segments.join('/') }
 }
 
+async function writeImageAsset({
+  rootPath,
+  stem,
+  extension,
+  bytes
+}: {
+  rootPath: string
+  stem: string
+  extension: SupportedImageFormat['extension']
+  bytes: Uint8Array
+}): Promise<string> {
+  const assetDirectoryPath = await ensureAssetImageDirectory(rootPath)
+  let sequence = 1
+
+  while (true) {
+    const suffix = sequence === 1 ? '' : `-${sequence}`
+    const assetRelativePath = `${IMAGE_ASSET_DIRECTORY}/${stem}${suffix}.${extension}`
+    const absolutePath = join(assetDirectoryPath, basename(assetRelativePath))
+
+    try {
+      await writeFile(absolutePath, bytes, { flag: 'wx' })
+      return assetRelativePath
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== 'EEXIST') throw error
+      sequence += 1
+    }
+  }
+}
+
+async function ensureAssetImageDirectory(rootPath: string): Promise<string> {
+  const canonicalRoot = await realpath(rootPath)
+  let directoryPath = canonicalRoot
+
+  for (const segment of IMAGE_ASSET_DIRECTORY.split('/')) {
+    const candidatePath = join(directoryPath, segment)
+
+    try {
+      const details = await lstat(candidatePath)
+      if (details.isSymbolicLink()) {
+        throw new Error('Knowledge Base asset directories cannot be symbolic links.')
+      }
+      if (!details.isDirectory()) {
+        throw new Error('Knowledge Base asset path is not a directory.')
+      }
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== 'ENOENT') throw error
+      await mkdir(candidatePath)
+    }
+
+    directoryPath = await realpath(candidatePath)
+    if (!isPathWithinRoot(canonicalRoot, directoryPath)) {
+      throw new Error('Knowledge Base path is outside the configured root.')
+    }
+  }
+
+  return directoryPath
+}
+
 async function getConfiguredRoot(
   repository: KnowledgeBaseConfigurationRepository
 ): Promise<string> {
@@ -217,6 +355,60 @@ async function openKnowledgeBaseDocument(
   return contentKind === 'binary'
     ? { ...baseDocument, contentKind, revision, content: undefined }
     : { ...baseDocument, contentKind, revision, content: content.toString('utf8') }
+}
+
+type SupportedImageFormat = {
+  extension: 'gif' | 'jpg' | 'png' | 'webp'
+  mediaType: string
+}
+
+function detectImageFormat(bytes: Uint8Array): SupportedImageFormat | null {
+  if (hasBytePrefix(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) {
+    return { extension: 'png', mediaType: 'image/png' }
+  }
+  if (hasBytePrefix(bytes, [0xff, 0xd8, 0xff])) {
+    return { extension: 'jpg', mediaType: 'image/jpeg' }
+  }
+  if (
+    hasBytePrefix(bytes, [0x47, 0x49, 0x46, 0x38]) &&
+    (bytes[4] === 0x37 || bytes[4] === 0x39) &&
+    bytes[5] === 0x61
+  ) {
+    return { extension: 'gif', mediaType: 'image/gif' }
+  }
+  if (
+    hasBytePrefix(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return { extension: 'webp', mediaType: 'image/webp' }
+  }
+  return null
+}
+
+function hasBytePrefix(bytes: Uint8Array, signature: readonly number[]): boolean {
+  return signature.every((byte, index) => bytes[index] === byte)
+}
+
+function createImageAltText(fileName: string): string {
+  return (
+    basename(fileName, extname(fileName))
+      .replace(/[-_]+/g, ' ')
+      .replace(/[[\]{}<>\\`*]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim() || 'Image'
+  )
+}
+
+function createAssetStem(fileName: string): string {
+  const sanitized = basename(fileName, extname(fileName))
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return sanitized.slice(0, 80).replace(/-+$/g, '') || 'image'
 }
 
 function hashRevision(content: string | Buffer): string {

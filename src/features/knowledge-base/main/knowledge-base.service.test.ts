@@ -34,6 +34,10 @@ function createHost(overrides: Partial<KnowledgeBaseHost> = {}): KnowledgeBaseHo
 }
 
 describe('createKnowledgeBaseService', () => {
+  it('documents the fixed image asset convention for Knowledge Base agents', () => {
+    expect(KNOWLEDGE_BASE_AGENTS_INSTRUCTIONS).toContain('assets/img')
+  })
+
   it('reports an unconfigured Knowledge Base before setup', async () => {
     const service = createKnowledgeBaseService({
       configurationRepository: createConfigurationRepository(),
