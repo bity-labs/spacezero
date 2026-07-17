@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createProjectsService, type ProjectsRepository, type StoredProject } from './projects.service'
+import {
+  createProjectsService,
+  type ProjectsRepository,
+  type StoredProject
+} from './projects.service'
 
 function createMemoryRepository(initialProjects: StoredProject[] = []): ProjectsRepository {
   let projects = [...initialProjects]
@@ -34,7 +38,13 @@ describe('createProjectsService', () => {
     const archivedAt = new Date('2026-07-11T00:00:00.000Z')
     const service = createProjectsService({
       repository: createMemoryRepository([
-        { id: 'project-1', name: 'Space Zero', path: '/tmp/spacezero', createdAt, updatedAt: createdAt }
+        {
+          id: 'project-1',
+          name: 'Space Zero',
+          path: '/tmp/spacezero',
+          createdAt,
+          updatedAt: createdAt
+        }
       ]),
       now: () => archivedAt,
       pathAdapter: {
@@ -53,7 +63,13 @@ describe('createProjectsService', () => {
     const createdAt = new Date('2026-07-10T00:00:00.000Z')
     const service = createProjectsService({
       repository: createMemoryRepository([
-        { id: 'project-1', name: 'Space Zero', path: '/tmp/spacezero', createdAt, updatedAt: createdAt }
+        {
+          id: 'project-1',
+          name: 'Space Zero',
+          path: '/tmp/spacezero',
+          createdAt,
+          updatedAt: createdAt
+        }
       ]),
       pathAdapter: {
         createEmptyProjectDirectory: async () => '/tmp/unused',
@@ -72,7 +88,8 @@ describe('createProjectsService', () => {
       repository: createMemoryRepository(),
       now: () => now,
       pathAdapter: {
-        createEmptyProjectDirectory: async (name) => `/tmp/${name.toLowerCase().replaceAll(' ', '-')}`,
+        createEmptyProjectDirectory: async (name) =>
+          `/tmp/${name.toLowerCase().replaceAll(' ', '-')}`,
         chooseProjectFolder: async () => ({ canceled: true }),
         normalizeProjectPath: (path) => path
       }
@@ -190,6 +207,46 @@ describe('createProjectsService', () => {
     await expect(service.listProjects()).resolves.toEqual([
       expect.objectContaining({ name: 'Existing Folder' })
     ])
+  })
+
+  it('links stable GitHub repository metadata without changing the Project path', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const linkedAt = new Date('2026-07-18T01:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository([
+        {
+          id: 'project-1',
+          name: 'Space Zero',
+          path: '/external/workspaces/spacezero',
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]),
+      now: () => linkedAt,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(
+      service.linkGitHubRepository('project-1', {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero'
+      })
+    ).resolves.toMatchObject({
+      path: '/external/workspaces/spacezero',
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        fullName: 'bity-labs/spacezero',
+        linkedAt: linkedAt.toISOString()
+      }
+    })
   })
 
   it('returns null when folder selection is canceled', async () => {

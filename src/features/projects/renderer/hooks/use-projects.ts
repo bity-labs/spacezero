@@ -12,6 +12,7 @@ export function useProjects(): {
   warning: string | null
   refreshProjects: () => Promise<void>
   selectProject: (project: Project) => void
+  upsertProject: (project: Project) => void
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
@@ -137,6 +138,7 @@ export function useProjects(): {
     warning,
     refreshProjects,
     selectProject: (project) => setActiveProjectId(project.id),
+    upsertProject: rememberProject,
     createEmptyProject,
     addProjectFromFolder,
     updateProject,

@@ -17,8 +17,7 @@ const projectIdRequestSchema = z.object({ projectId: z.string().trim().min(1) })
 const projectsService = createProjectsService({
   repository: createProjectsRepository(),
   pathAdapter: createProjectPathAdapter(),
-  linkKnowledgeBaseProject: (project) =>
-    getKnowledgeBaseProjectsService().linkProject(project)
+  linkKnowledgeBaseProject: (project) => getKnowledgeBaseProjectsService().linkProject(project)
 })
 
 const sessionsService = createSessionsService({
