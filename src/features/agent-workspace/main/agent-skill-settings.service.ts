@@ -101,9 +101,27 @@ export async function getDisabledGlobalSkillPaths(): Promise<string[]> {
   return parseDisabledGlobalSkillPaths(storedSetting?.value)
 }
 
-export async function setGlobalSkillEnabledPreference(skillPath: string, enabled: boolean): Promise<void> {
-  const currentPaths = await getDisabledGlobalSkillPaths()
-  const nextPaths = updateDisabledGlobalSkillPaths(currentPaths, skillPath, enabled)
+export function createGlobalSkillPreferenceMutator({
+  readDisabledPaths,
+  writeDisabledPaths
+}: {
+  readDisabledPaths: () => Promise<string[]>
+  writeDisabledPaths: (paths: string[]) => Promise<void>
+}): (skillPath: string, enabled: boolean) => Promise<void> {
+  let mutationQueue: Promise<void> = Promise.resolve()
+
+  return (skillPath, enabled) => {
+    const mutation = mutationQueue.then(async () => {
+      const currentPaths = await readDisabledPaths()
+      const nextPaths = updateDisabledGlobalSkillPaths(currentPaths, skillPath, enabled)
+      await writeDisabledPaths(nextPaths)
+    })
+    mutationQueue = mutation.catch(() => undefined)
+    return mutation
+  }
+}
+
+async function writeDisabledGlobalSkillPaths(paths: string[]): Promise<void> {
   const db = getDatabase()
   const now = new Date()
 
@@ -111,13 +129,25 @@ export async function setGlobalSkillEnabledPreference(skillPath: string, enabled
     .insert(schema.appSettings)
     .values({
       key: DISABLED_GLOBAL_SKILL_PATHS_KEY,
-      value: JSON.stringify(nextPaths),
+      value: JSON.stringify(paths),
       updatedAt: now
     })
     .onConflictDoUpdate({
       target: schema.appSettings.key,
-      set: { value: JSON.stringify(nextPaths), updatedAt: now }
+      set: { value: JSON.stringify(paths), updatedAt: now }
     })
+}
+
+const mutateGlobalSkillPreference = createGlobalSkillPreferenceMutator({
+  readDisabledPaths: getDisabledGlobalSkillPaths,
+  writeDisabledPaths: writeDisabledGlobalSkillPaths
+})
+
+export function setGlobalSkillEnabledPreference(
+  skillPath: string,
+  enabled: boolean
+): Promise<void> {
+  return mutateGlobalSkillPreference(skillPath, enabled)
 }
 
 function normalizeSkillPath(path: string): string {

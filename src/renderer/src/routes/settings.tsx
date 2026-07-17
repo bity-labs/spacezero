@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { ArrowLeft, Cube, FolderOpen, GearSix, Key, Plus, Plugs, Sparkle, Trash } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
@@ -400,6 +400,7 @@ function SkillsSettingsSection(): React.JSX.Element {
   const [skills, setSkills] = useState<AgentGlobalSkill[] | null>(null)
   const [error, setError] = useState(false)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
+  const updatePendingRef = useRef(false)
 
   useEffect(() => {
     let isCurrent = true
@@ -421,6 +422,9 @@ function SkillsSettingsSection(): React.JSX.Element {
   }, [])
 
   async function handleSkillEnabledChange(skill: AgentGlobalSkill, enabled: boolean): Promise<void> {
+    if (updatePendingRef.current) return
+
+    updatePendingRef.current = true
     setPendingPath(skill.path)
     setError(false)
 
@@ -433,6 +437,7 @@ function SkillsSettingsSection(): React.JSX.Element {
     } catch {
       setError(true)
     } finally {
+      updatePendingRef.current = false
       setPendingPath(null)
     }
   }
@@ -474,7 +479,7 @@ function SkillsSettingsSection(): React.JSX.Element {
                 </div>
                 <Switch
                   checked={skill.enabled}
-                  disabled={pendingPath === skill.path}
+                  disabled={pendingPath !== null}
                   aria-label={t(
                     skill.enabled ? 'settings.skills.disable' : 'settings.skills.enable',
                     { name: skill.name }

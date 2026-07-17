@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import type { ResourceDiagnostic } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -146,6 +147,50 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('reports malformed and colliding skill diagnostics', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-diagnostics-'))
+    const firstRoot = join(tempDir, 'first')
+    const secondRoot = join(tempDir, 'second')
+    const malformedSkillPath = join(firstRoot, 'malformed', 'SKILL.md')
+
+    try {
+      mkdirSync(join(firstRoot, 'review'), { recursive: true })
+      mkdirSync(join(secondRoot, 'review'), { recursive: true })
+      mkdirSync(join(firstRoot, 'malformed'), { recursive: true })
+      writeFileSync(
+        join(firstRoot, 'review', 'SKILL.md'),
+        `---\nname: review\ndescription: Review from the first source.\n---\n\n# Review\n`
+      )
+      writeFileSync(
+        join(secondRoot, 'review', 'SKILL.md'),
+        `---\nname: review\ndescription: Review from the second source.\n---\n\n# Review\n`
+      )
+      writeFileSync(malformedSkillPath, `---\nname: malformed\n---\n\n# Missing description\n`)
+      const diagnostics: ResourceDiagnostic[] = []
+      const runtime = createPiAgentRuntime({
+        agentDir: join(tempDir, 'agent'),
+        onSkillDiagnostics: (entries) => diagnostics.push(...entries)
+      })
+
+      await runtime.listSkills([
+        { path: firstRoot, scope: 'spacezero' },
+        { path: secondRoot, scope: 'user' }
+      ])
+
+      expect(diagnostics).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'warning', path: malformedSkillPath }),
+          expect.objectContaining({
+            type: 'collision',
+            collision: expect.objectContaining({ resourceType: 'skill', name: 'review' })
+          })
+        ])
+      )
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('does not load disabled global skills into the Pi session', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-disabled-skill-'))
     const skillsRoot = join(tempDir, 'skills')
@@ -185,41 +230,63 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
-  it('expands a native skill command before sending it to the model', async () => {
+  it('keeps expanded skill instructions inside Pi while restoring a safe display command', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-skill-command-'))
     const skillDir = join(tempDir, 'skills', 'code-review')
+    const skillPath = join(skillDir, 'SKILL.md')
 
     try {
       mkdirSync(skillDir, { recursive: true })
       writeFileSync(
-        join(skillDir, 'SKILL.md'),
+        skillPath,
         `---\nname: code-review\ndescription: Review code changes.\n---\n\n# Code Review\n\nReview the change.\n`
       )
 
       const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
-      const session = await createPiSession({
+      const sessionRequest = {
         sessionId: 'session-1',
         projectId: 'project-1',
         cwd: tempDir,
-        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' }]
-      })
+        skillPaths: [{ path: join(tempDir, 'skills'), scope: 'spacezero' as const }]
+      }
+      const session = await createPiSession(sessionRequest)
+      let transcriptPath: string | undefined
 
       try {
-        await session.prompt('/skill:code-review')
+        await session.prompt('/skill:code-review inspect privacy')
 
-        expect(session.getTranscriptSnapshot()[0]).toEqual(
+        const snapshot = session.getTranscriptSnapshot()
+        expect(snapshot[0]).toEqual(
           expect.objectContaining({
             role: 'user',
-            content: [
-              expect.objectContaining({
-                type: 'text',
-                text: expect.stringContaining('<skill name="code-review"')
-              })
-            ]
+            content: [{ type: 'text', text: '/skill:code-review inspect privacy' }]
           })
         )
+        expect(JSON.stringify(snapshot)).not.toContain(skillPath)
+        expect(JSON.stringify(snapshot)).not.toContain('Review the change.')
+
+        transcriptPath = session.sessionFile
+        expect(readFileSync(transcriptPath!, 'utf8')).toContain(skillPath)
+        expect(readFileSync(transcriptPath!, 'utf8')).toContain('Review the change.')
       } finally {
         session.dispose()
+      }
+
+      if (!transcriptPath) throw new Error('Expected Pi to persist the transcript')
+      const restoredSession = await createPiSession({ ...sessionRequest, transcriptPath })
+
+      try {
+        const restoredSnapshot = restoredSession.getTranscriptSnapshot()
+        expect(restoredSnapshot[0]).toEqual(
+          expect.objectContaining({
+            role: 'user',
+            content: [{ type: 'text', text: '/skill:code-review inspect privacy' }]
+          })
+        )
+        expect(JSON.stringify(restoredSnapshot)).not.toContain(skillPath)
+        expect(JSON.stringify(restoredSnapshot)).not.toContain('Review the change.')
+      } finally {
+        restoredSession.dispose()
       }
     } finally {
       rmSync(tempDir, { recursive: true, force: true })

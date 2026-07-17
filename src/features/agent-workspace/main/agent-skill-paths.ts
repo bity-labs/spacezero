@@ -6,14 +6,15 @@ import { getStorageSettings } from '../../settings/main/storage-settings.service
 
 export async function resolveAgentSkillPaths(
   cwd: string,
-  kind: 'project' | 'workspace' = 'project'
+  kind: 'project' | 'workspace' = 'project',
+  projectTrusted = false
 ): Promise<AgentSkillPath[]> {
   const { spaceZeroHome } = await getStorageSettings()
   return createAgentSkillPaths({
     cwd,
     homePath: app.getPath('home'),
     spaceZeroHome,
-    includeProjectPaths: kind === 'project'
+    includeProjectPaths: kind === 'project' && projectTrusted
   })
 }
 
@@ -31,7 +32,7 @@ export function createAgentSkillPaths({
   cwd,
   homePath,
   spaceZeroHome,
-  includeProjectPaths = true
+  includeProjectPaths = false
 }: {
   cwd: string
   homePath: string

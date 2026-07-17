@@ -54,8 +54,8 @@ Explicit path composition keeps Space Zero's security model and allows project t
 
 - The main process resolves skill directories using the configured Space Zero Home and project cwd before creating a session.
 - The utility owns Pi skill loading and expansion; the renderer receives only safe session skill descriptors. The Settings UI receives a separate global-skill management descriptor that includes the source path needed to identify a toggle target.
-- Chat composer UI must handle empty skill catalogs, malformed skill diagnostics, and skill name collisions without blocking normal prompts.
-- Project trust must be added or integrated before untrusted repository skills are enabled broadly.
+- Skill loading retains malformed-skill and name-collision diagnostics through structured utility-process logging without blocking normal prompts. A future Settings or session surface may present those diagnostics directly.
+- Project-local skill paths fail closed and remain excluded until a main-owned persisted project-trust decision is integrated.
 - Skill changes are picked up when a new session is created or a session is explicitly reloaded; live sessions do not silently change their skill catalog. Global skill toggles follow the same lifecycle rule, and apply only to global skills; project-local skills remain controlled by project scope.
 - Skills are not stored in the Knowledge Base. The Knowledge Base remains for durable user knowledge and documentation.
 
