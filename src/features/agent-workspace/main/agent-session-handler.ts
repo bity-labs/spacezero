@@ -1,13 +1,14 @@
 import { app } from 'electron'
 import { mkdir } from 'node:fs/promises'
 import { nanoid } from 'nanoid'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
 import type { SessionsRepository } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
 import type { WorkspaceSession } from '../../sessions/shared'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
@@ -22,6 +23,7 @@ export type CreateAgentSessionHandlerDependencies = {
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   createSessionId?: () => string
   readModelDefaults?: typeof getModelDefaults
+  getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
 }
 
 export type CreateWorkspaceAgentSessionHandlerDependencies = CreateAgentSessionHandlerDependencies & {
@@ -32,6 +34,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   getWorkspaceSessionCwd?: () => string
+  getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
@@ -42,7 +45,8 @@ export async function createProjectAgentSession(
     repository,
     utilityHost,
     createSessionId = nanoid,
-    readModelDefaults = getModelDefaults
+    readModelDefaults = getModelDefaults,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus
   }: CreateAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = createSessionRequestSchema.parse(input)
@@ -54,13 +58,17 @@ export async function createProjectAgentSession(
 
   const sessionId = createSessionId()
   const modelDefaults = await readModelDefaults()
+  const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
+    project.knowledgeBasePath,
+    getKnowledgeBaseStatus
+  )
   const state = await utilityHost.createSession({
     sessionId,
     kind: 'project',
     projectId: request.projectId,
     cwd: projectPath,
     workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
-    appendSystemPrompt: [createProjectKnowledgeBaseInstructions(project.knowledgeBasePath)],
+    appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking
   })
@@ -87,7 +95,8 @@ export async function restoreAgentSessionState(
   {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
@@ -97,7 +106,8 @@ export async function restoreAgentSessionState(
   const restore = restoreAgentSessionStateOnce(request, {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd
+    getWorkspaceSessionCwd,
+    getKnowledgeBaseStatus
   })
   pendingSessionRestores.set(request.sessionId, restore)
 
@@ -115,7 +125,8 @@ async function restoreAgentSessionStateOnce(
   {
     repository,
     utilityHost,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   try {
@@ -131,6 +142,12 @@ async function restoreAgentSessionStateOnce(
     ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
     : undefined
   const cwd = project ? resolve(project.path) : resolve(getWorkspaceSessionCwd())
+  const knowledgeBasePath = project
+    ? await getAvailableProjectKnowledgeBasePath(
+        project.knowledgeBasePath,
+        getKnowledgeBaseStatus
+      )
+    : null
 
   if (!project) await mkdir(cwd, { recursive: true })
 
@@ -145,7 +162,7 @@ async function restoreAgentSessionStateOnce(
       ...(project
         ? {
             appendSystemPrompt: [
-              createProjectKnowledgeBaseInstructions(project.knowledgeBasePath)
+              createProjectKnowledgeBaseInstructions(knowledgeBasePath)
             ]
           }
         : {}),
@@ -210,6 +227,35 @@ function resolveStoredProject(
 ): { id: string; path: string; knowledgeBasePath?: string | null } {
   if (!project) throw new Error('Project not found')
   return project
+}
+
+async function getAvailableProjectKnowledgeBasePath(
+  knowledgeBasePath: string | null | undefined,
+  getKnowledgeBaseStatus: () => Promise<KnowledgeBaseStatus>
+): Promise<string | null> {
+  if (!knowledgeBasePath) return null
+
+  try {
+    const status = await getKnowledgeBaseStatus()
+    if (status.setupState !== 'configured') return null
+
+    const pathFromRoot = relative(resolve(status.rootPath), resolve(knowledgeBasePath))
+    if (
+      pathFromRoot === '' ||
+      pathFromRoot === '..' ||
+      pathFromRoot.startsWith(`..${sep}`) ||
+      isAbsolute(pathFromRoot)
+    ) {
+      return null
+    }
+    return knowledgeBasePath
+  } catch {
+    return null
+  }
+}
+
+async function getUnconfiguredKnowledgeBaseStatus(): Promise<KnowledgeBaseStatus> {
+  return { setupState: 'unconfigured' }
 }
 
 export function createProjectKnowledgeBaseInstructions(

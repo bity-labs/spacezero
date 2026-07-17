@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
 import {
-  createKnowledgeBaseSyncService,
+  createKnowledgeBaseSyncService as createKnowledgeBaseSyncServiceImplementation,
   formatKnowledgeBaseCommitMessage,
   type KnowledgeBaseGitHost,
   type KnowledgeBaseSyncStateRepository
@@ -28,6 +28,27 @@ function configuredRepository(): KnowledgeBaseConfigurationRepository {
   }
 }
 
+function createKnowledgeBaseSyncService({
+  configurationRepository,
+  ...options
+}: Omit<
+  Parameters<typeof createKnowledgeBaseSyncServiceImplementation>[0],
+  'rootProvider'
+> & {
+  configurationRepository: KnowledgeBaseConfigurationRepository
+}) {
+  return createKnowledgeBaseSyncServiceImplementation({
+    ...options,
+    rootProvider: {
+      async getVerifiedRoot() {
+        const configuration = await configurationRepository.get()
+        if (!configuration) throw new Error('Knowledge Base is not configured.')
+        return configuration.rootPath
+      }
+    }
+  })
+}
+
 function createSyncStateRepository(): KnowledgeBaseSyncStateRepository & {
   value?: Awaited<ReturnType<KnowledgeBaseSyncStateRepository['get']>>
 } {
@@ -38,6 +59,9 @@ function createSyncStateRepository(): KnowledgeBaseSyncStateRepository & {
     },
     async save(state) {
       this.value = state
+    },
+    async clear() {
+      this.value = undefined
     }
   }
 }
@@ -80,6 +104,25 @@ describe('createKnowledgeBaseSyncService', () => {
     )
     expect(host.calls).toEqual([['remote'], ['remote']])
     expect(host.calls.flat()).not.toContain('commit')
+  })
+
+  it('does not run Git when the configured Knowledge Base root is unavailable', async () => {
+    const host = createGitHost(() => new Error('Git must not run'))
+    const service = createKnowledgeBaseSyncServiceImplementation({
+      rootProvider: {
+        async getVerifiedRoot() {
+          throw new Error('Knowledge Base is unavailable at /knowledge-base.')
+        }
+      },
+      syncStateRepository: createSyncStateRepository(),
+      host
+    })
+
+    await expect(service.getSyncStatus()).rejects.toThrow(
+      'Knowledge Base is unavailable'
+    )
+    await expect(service.syncNow()).rejects.toThrow('Knowledge Base is unavailable')
+    expect(host.calls).toEqual([])
   })
 
   it('adds a fixed origin remote using a safe Git argument list', async () => {

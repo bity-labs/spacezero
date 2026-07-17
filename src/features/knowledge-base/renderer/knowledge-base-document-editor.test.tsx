@@ -151,7 +151,10 @@ describe('KnowledgeBaseDocumentEditor', () => {
     ['inline math', 'Euler says $e^{i\\pi}+1=0$.'],
     ['block math', '$$\\int_0^1 x^2 dx$$'],
     ['a named entity', 'Copyright &copy; 2026.'],
-    ['a numeric entity', 'Copyright &#169; 2026.']
+    ['a numeric entity', 'Copyright &#169; 2026.'],
+    ['escaped heading punctuation', '\\# not a heading'],
+    ['a GitHub alert', '> [!NOTE]\n> Durable context.'],
+    ['a reference link', '[Notes][durable]\n\n[durable]: https://example.com/notes']
   ])('keeps %s byte-for-byte in source mode', (_description, markdown) => {
     render(
       <KnowledgeBaseDocumentEditor

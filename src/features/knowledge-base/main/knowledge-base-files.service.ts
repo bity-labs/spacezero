@@ -14,7 +14,7 @@ import type {
   KnowledgeBaseTreeItem
 } from '../shared/knowledge-base.model'
 import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
-import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
+import type { KnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 
 export const MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES = 2 * 1024 * 1024
 
@@ -68,28 +68,28 @@ export type KnowledgeBaseFilesService = {
 }
 
 export function createKnowledgeBaseFilesService({
-  configurationRepository,
+  rootProvider,
   operations = { runExclusive: (operation) => operation() }
 }: {
-  configurationRepository: KnowledgeBaseConfigurationRepository
+  rootProvider: Pick<KnowledgeBaseRootProvider, 'getVerifiedRoot'>
   operations?: KnowledgeBaseOperationCoordinator
 }): KnowledgeBaseFilesService {
   const service: KnowledgeBaseFilesService = {
     async getTree() {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const canonicalRoot = await realpath(rootPath)
       return readTree(canonicalRoot, '')
     },
 
     async openDocument(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       return openKnowledgeBaseDocument(rootPath, request.relativePath)
     },
 
     async search(request) {
       const query = request.query.trim()
       if (!query) return []
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const canonicalRoot = await realpath(rootPath)
       return searchDirectory(canonicalRoot, '', query.toLowerCase())
     },
@@ -99,7 +99,7 @@ export function createKnowledgeBaseFilesService({
         throw new Error('Knowledge Base image is too large.')
       }
 
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const document = await openKnowledgeBaseDocument(rootPath, request.documentRelativePath)
       if (document.contentKind !== 'markdown') {
         throw new Error('Images can only be imported for Markdown documents.')
@@ -123,7 +123,7 @@ export function createKnowledgeBaseFilesService({
     },
 
     async loadImage(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const document = await openKnowledgeBaseDocument(rootPath, request.documentRelativePath)
       if (document.contentKind !== 'markdown') {
         throw new Error('Images can only be loaded for Markdown documents.')
@@ -162,7 +162,7 @@ export function createKnowledgeBaseFilesService({
     },
 
     async createItem(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
       await assertParentPathInsideRoot(rootPath, absolutePath)
       if (await pathExists(absolutePath)) {
@@ -181,19 +181,19 @@ export function createKnowledgeBaseFilesService({
       const relativePath = request.relativePath.trim()
       const parentPath = posix.dirname(relativePath)
       const destinationPath = parentPath === '.' ? request.newName.trim() : `${parentPath}/${request.newName.trim()}`
-      await moveKnowledgeBaseItem(configurationRepository, relativePath, destinationPath)
+      await moveKnowledgeBaseItem(rootProvider, relativePath, destinationPath)
     },
 
     async moveItem(request) {
       await moveKnowledgeBaseItem(
-        configurationRepository,
+        rootProvider,
         request.sourcePath,
         request.destinationPath
       )
     },
 
     async deleteItem(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
       await lstat(absolutePath)
       await assertExistingPathInsideRoot(rootPath, absolutePath)
@@ -201,7 +201,7 @@ export function createKnowledgeBaseFilesService({
     },
 
     async saveDocument(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const currentDocument = await openKnowledgeBaseDocument(rootPath, request.relativePath)
       if (currentDocument.contentKind === 'binary') {
         throw new Error('This Knowledge Base file is not text-editable.')
@@ -220,7 +220,7 @@ export function createKnowledgeBaseFilesService({
     },
 
     async checkDocument(request) {
-      const rootPath = await getConfiguredRoot(configurationRepository)
+      const rootPath = await rootProvider.getVerifiedRoot()
       const document = await openKnowledgeBaseDocument(rootPath, request.relativePath)
       return document.revision === request.revision
         ? { changed: false }
@@ -319,18 +319,10 @@ async function ensureAssetImageDirectory(rootPath: string): Promise<string> {
     }
 
     directoryPath = await realpath(candidatePath)
-    await assertCanonicalPathAllowed(canonicalRoot, directoryPath)
+    await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, directoryPath)
   }
 
   return directoryPath
-}
-
-async function getConfiguredRoot(
-  repository: KnowledgeBaseConfigurationRepository
-): Promise<string> {
-  const configuration = await repository.get()
-  if (!configuration) throw new Error('Knowledge Base is not configured.')
-  return configuration.rootPath
 }
 
 async function openKnowledgeBaseDocument(
@@ -473,11 +465,11 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
 }
 
 async function moveKnowledgeBaseItem(
-  configurationRepository: KnowledgeBaseConfigurationRepository,
+  rootProvider: Pick<KnowledgeBaseRootProvider, 'getVerifiedRoot'>,
   sourcePath: string,
   destinationPath: string
 ): Promise<void> {
-  const rootPath = await getConfiguredRoot(configurationRepository)
+  const rootPath = await rootProvider.getVerifiedRoot()
   const source = resolveKnowledgeBaseRelativePath(rootPath, sourcePath)
   const destination = resolveKnowledgeBaseRelativePath(rootPath, destinationPath)
   await lstat(source.absolutePath)
@@ -507,7 +499,7 @@ async function assertParentPathInsideRoot(rootPath: string, targetPath: string):
     realpath(rootPath),
     realpath(dirname(targetPath))
   ])
-  await assertCanonicalPathAllowed(canonicalRoot, canonicalParent)
+  await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, canonicalParent)
 }
 
 async function pathExists(path: string): Promise<boolean> {
@@ -605,10 +597,10 @@ async function assertExistingPathInsideRoot(rootPath: string, targetPath: string
     realpath(rootPath),
     realpath(targetPath)
   ])
-  await assertCanonicalPathAllowed(canonicalRoot, canonicalTarget)
+  await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, canonicalTarget)
 }
 
-async function assertCanonicalPathAllowed(
+export async function assertKnowledgeBaseCanonicalPathAllowed(
   canonicalRoot: string,
   canonicalTarget: string
 ): Promise<void> {

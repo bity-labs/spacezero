@@ -3,7 +3,7 @@ import {
   parseKnowledgeBaseMentions
 } from '../shared'
 import { resolveKnowledgeBaseRelativePath } from './knowledge-base-files.service'
-import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
+import type { KnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 
 export type KnowledgeBasePromptHints = {
   message: string
@@ -15,28 +15,20 @@ export type KnowledgeBaseMentionsService = {
 }
 
 export function createKnowledgeBaseMentionsService({
-  configurationRepository
+  rootProvider
 }: {
-  configurationRepository: KnowledgeBaseConfigurationRepository
+  rootProvider: Pick<KnowledgeBaseRootProvider, 'getVerifiedRoot'>
 }): KnowledgeBaseMentionsService {
   return {
     async addPromptHints(message) {
       const mentions = parseKnowledgeBaseMentions(message)
       if (mentions.length === 0) return { message }
 
-      const configuration = await configurationRepository.get()
-      if (!configuration) {
-        throw new Error(
-          'Knowledge Base is not configured. Open Knowledge Base to set it up.'
-        )
-      }
-
+      const rootPath = await rootProvider.getVerifiedRoot()
       const resolvedMentions = mentions.map((mention) => ({
         mention,
-        absolutePath: resolveKnowledgeBaseRelativePath(
-          configuration.rootPath,
-          mention.relativePath
-        ).absolutePath
+        absolutePath: resolveKnowledgeBaseRelativePath(rootPath, mention.relativePath)
+          .absolutePath
       }))
       return {
         message: appendKnowledgeBaseMentionContext(message, resolvedMentions),

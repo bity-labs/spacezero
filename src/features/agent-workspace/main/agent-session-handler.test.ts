@@ -88,6 +88,11 @@ const readModelDefaults = async () => ({
   defaultThinking: 'high' as const
 })
 
+const getConfiguredKnowledgeBaseStatus = async () => ({
+  setupState: 'configured' as const,
+  rootPath: '/home/builder/SpaceZero/knowledge-base'
+})
+
 describe('createProjectAgentSession', () => {
   it('derives the utility cwd from stored project metadata', async () => {
     const utilityHost = {
@@ -133,7 +138,13 @@ describe('createProjectAgentSession', () => {
 
     await createProjectAgentSession(
       { projectId: 'project-1', cwd: '/repo' },
-      { repository, utilityHost, createSessionId: () => 'session-1', readModelDefaults }
+      {
+        repository,
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        getKnowledgeBaseStatus: getConfiguredKnowledgeBaseStatus
+      }
     )
 
     expect(utilityHost.createSession).toHaveBeenCalledWith(
@@ -151,6 +162,46 @@ describe('createProjectAgentSession', () => {
     expect(instructions).toContain('durable notes, decisions, debugging findings')
     expect(instructions).toContain('Do not fill it with transient output')
     expect(instructions).toContain('update the project README.md index')
+  })
+
+  it('does not inject a stale project link when the Knowledge Base is unavailable', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository({
+      async findProjectById(projectId) {
+        return {
+          id: projectId,
+          path: '/repo',
+          knowledgeBasePath: '/home/builder/SpaceZero/knowledge-base/projects/space-zero'
+        }
+      }
+    })
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository,
+        utilityHost,
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        getKnowledgeBaseStatus: async () => ({
+          setupState: 'unavailable',
+          rootPath: '/home/builder/SpaceZero/knowledge-base',
+          reason: 'missing'
+        })
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendSystemPrompt: [expect.stringContaining('not configured')]
+      })
+    )
+    expect(JSON.stringify(utilityHost.createSession.mock.calls)).not.toContain(
+      '/projects/space-zero'
+    )
   })
 
   it('tells project sessions to report missing Knowledge Base setup without inventing a save', async () => {
@@ -397,7 +448,11 @@ describe('restoreAgentSessionState', () => {
             }
           }
         }),
-        utilityHost
+        utilityHost,
+        getKnowledgeBaseStatus: async () => ({
+          setupState: 'configured',
+          rootPath: '/knowledge'
+        })
       }
     )
 
@@ -405,6 +460,57 @@ describe('restoreAgentSessionState', () => {
       expect.objectContaining({
         appendSystemPrompt: [expect.stringContaining('/knowledge/projects/space-zero')]
       })
+    )
+  })
+
+  it('does not restore stale Knowledge Base guidance while the repository is unavailable', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          },
+          async findProjectById(projectId) {
+            return {
+              id: projectId,
+              path: '/repo',
+              knowledgeBasePath: '/knowledge/projects/space-zero'
+            }
+          }
+        }),
+        utilityHost,
+        getKnowledgeBaseStatus: async () => ({
+          setupState: 'unavailable',
+          rootPath: '/knowledge',
+          reason: 'missing'
+        })
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appendSystemPrompt: [expect.stringContaining('not configured')]
+      })
+    )
+    expect(JSON.stringify(utilityHost.createSession.mock.calls)).not.toContain(
+      '/knowledge/projects/space-zero'
     )
   })
 
