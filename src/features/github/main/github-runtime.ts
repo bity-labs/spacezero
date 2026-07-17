@@ -3,10 +3,13 @@ import { join } from 'node:path'
 
 import { createGitHubAuthAdapter } from './github-auth.adapter'
 import { createGitHubAuthService, type GitHubAuthService } from './github-auth.service'
+import { createGitHubConnectionService } from './github-connection.service'
 import { loadGitHubAppConfig } from './github-config'
 import { createProtectedGitHubCredentialStore } from './github-credential-store'
+import { createGitHubInstallationsAdapter } from './github-installations.adapter'
 
 let authService: GitHubAuthService | undefined
+let connectionService: ReturnType<typeof createGitHubConnectionService> | undefined
 
 export function getGitHubAuthService(): GitHubAuthService {
   if (authService) return authService
@@ -24,4 +27,17 @@ export function getGitHubAuthService(): GitHubAuthService {
   })
 
   return authService
+}
+
+export function getGitHubConnectionService(): ReturnType<typeof createGitHubConnectionService> {
+  if (connectionService) return connectionService
+
+  const config = loadGitHubAppConfig({ appPath: app.getAppPath() })
+  connectionService = createGitHubConnectionService({
+    auth: getGitHubAuthService(),
+    adapter: createGitHubInstallationsAdapter(),
+    appSlug: config?.appSlug,
+    openExternal: (url) => shell.openExternal(url)
+  })
+  return connectionService
 }
