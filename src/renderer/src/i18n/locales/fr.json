@@ -184,6 +184,7 @@
       "placeholder": "Rechercher dans les paramètres"
     },
     "navigation": {
+      "account": "Compte",
       "general": "Général",
       "profile": "Profil",
       "appearance": "Apparence",

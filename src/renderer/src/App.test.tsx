@@ -187,9 +187,7 @@ describe('App', () => {
 
     expect(event.defaultPrevented).toBe(true)
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue(
-      '# Unsaved note'
-    )
+    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue('# Unsaved note')
   })
 
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
@@ -265,8 +263,7 @@ describe('App', () => {
       projects.push(project)
       return {
         ...project,
-        setupWarning:
-          'Project was added, but its Knowledge Base folder could not be linked.'
+        setupWarning: 'Project was added, but its Knowledge Base folder could not be linked.'
       }
     }
 
@@ -337,10 +334,16 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
-    expect(await screen.findByText('Ask the agent to work on this project. Streamed replies appear here.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Ask the agent to work on this project. Streamed replies appear here.'
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 2'
+    )
 
     rendered.unmount()
     render(<App />)
@@ -400,11 +403,15 @@ describe('App', () => {
       screen.queryByRole('heading', { name: 'Space Zero → Session 1' })
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 1')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 1'
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 2'
+    )
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
@@ -465,8 +472,13 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Session 3' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute('placeholder', 'Message Space Zero / Session 3…')
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 3')
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute(
+      'placeholder',
+      'Message Space Zero / Session 3…'
+    )
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 3'
+    )
   })
 
   it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
@@ -670,8 +682,8 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(window.location.hash).toBe('#/settings')
+    expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings?section=account')
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
 
@@ -692,11 +704,14 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
-  it('shows only implemented Settings categories and defaults to General', async () => {
+  it('shows only implemented Settings categories and opens the account area from the sidebar', async () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
+    expect(await screen.findByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'General' }))
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
@@ -729,6 +744,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
 
     expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
@@ -795,9 +811,7 @@ describe('App', () => {
     const skillName = screen.getByText('code-review')
     expect(skillName).toBeInTheDocument()
     expect(screen.queryByText('/skill:code-review')).not.toBeInTheDocument()
-    const skillPath = screen.getByText(
-      /Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/
-    )
+    const skillPath = screen.getByText(/Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/)
     expect(skillPath).toHaveClass('mt-2')
 
     const skillsCard = skillName.closest('[data-slot="card"]')
@@ -807,7 +821,9 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: 'Disable code-review' }))
 
-    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument()
+    )
     expect(toggleRequests).toEqual([
       { path: '/Users/tiby/.agents/skills/code-review/SKILL.md', enabled: false }
     ])
@@ -856,10 +872,7 @@ describe('App', () => {
     expect(window.spacezero.agent.setGlobalSkillEnabled).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      resolveToggle?.([
-        { ...globalSkills[0], enabled: false },
-        globalSkills[1]
-      ])
+      resolveToggle?.([{ ...globalSkills[0], enabled: false }, globalSkills[1]])
       await Promise.resolve()
     })
 
@@ -979,7 +992,9 @@ describe('App', () => {
 
     const keyDialog = await screen.findByRole('dialog', { name: 'Enter API key' })
     expect(within(keyDialog).getByRole('button', { name: 'Save' })).toBeDisabled()
-    fireEvent.change(within(keyDialog).getByLabelText('API key'), { target: { value: 'sk-secret' } })
+    fireEvent.change(within(keyDialog).getByLabelText('API key'), {
+      target: { value: 'sk-secret' }
+    })
     fireEvent.click(within(keyDialog).getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText('Stored API key')).toBeInTheDocument()
@@ -1002,14 +1017,10 @@ describe('App', () => {
     render(<App />)
 
     expect(
-      await screen.findByText(
-        'Configure credentials to choose a default model.'
-      )
+      await screen.findByText('Configure credentials to choose a default model.')
     ).toBeInTheDocument()
     expect(
-      screen.getByText(
-        'Configure credentials to browse available models.'
-      )
+      screen.getByText('Configure credentials to browse available models.')
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()
   })
@@ -1168,6 +1179,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
 
     fireEvent.click(languageSelect)
@@ -1194,6 +1206,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     const themeSelect = await screen.findByRole('combobox', { name: 'Theme' })
 
     expect(themeSelect).toHaveTextContent('System')

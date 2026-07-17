@@ -14,9 +14,9 @@ export type AccountMenuProps = {
 }
 
 export function AccountMenu({
-  username = 'Guest',
+  username = 'Connect GitHub',
   avatarUrl,
-  avatarFallback = 'G',
+  avatarFallback = 'GH',
   settingsLabel,
   settingsTo
 }: AccountMenuProps): React.JSX.Element {
@@ -37,6 +37,7 @@ export function AccountMenu({
 
       <Link
         to={resolvedSettingsTo}
+        search={resolvedSettingsTo === '/settings' ? { section: 'account' } : undefined}
         className={cn(
           buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
           'text-muted-foreground'

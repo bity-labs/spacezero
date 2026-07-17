@@ -6,7 +6,12 @@ import type {
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
-import type { AddApiKeyRequest, AuthTestResult, ModelAuthSettings, ProviderRequest } from './model-auth'
+import type {
+  AddApiKeyRequest,
+  AuthTestResult,
+  ModelAuthSettings,
+  ProviderRequest
+} from './model-auth'
 import type {
   AvailableModel,
   ModelDefaults,
@@ -23,6 +28,11 @@ import type {
   Project,
   UpdateProjectRequest
 } from '../features/projects/shared/project.model'
+import type {
+  GitHubConnection,
+  GitHubDeviceAuthorization,
+  GitHubFlowRequest
+} from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
@@ -44,6 +54,14 @@ export const IPC_CHANNELS = {
     health: 'db:health'
   },
   knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
+  github: {
+    getConnection: 'github:getConnection',
+    startAuthorization: 'github:startAuthorization',
+    waitForAuthorization: 'github:waitForAuthorization',
+    cancelAuthorization: 'github:cancelAuthorization',
+    openAuthorization: 'github:openAuthorization',
+    copyDeviceCode: 'github:copyDeviceCode'
+  },
   projects: {
     list: 'projects:list',
     createEmpty: 'projects:createEmpty',
@@ -118,6 +136,14 @@ export type SpaceZeroAPI = {
     health: () => Promise<DbHealth>
   }
   knowledgeBase: KnowledgeBaseAPI
+  github: {
+    getConnection: () => Promise<GitHubConnection>
+    startAuthorization: () => Promise<GitHubDeviceAuthorization>
+    waitForAuthorization: (request: GitHubFlowRequest) => Promise<GitHubConnection>
+    cancelAuthorization: (request: GitHubFlowRequest) => Promise<void>
+    openAuthorization: (request: GitHubFlowRequest) => Promise<void>
+    copyDeviceCode: (request: GitHubFlowRequest) => Promise<void>
+  }
   projects: {
     list: () => Promise<Project[]>
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
@@ -138,7 +164,9 @@ export type SpaceZeroAPI = {
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     createWorkspaceSession: () => Promise<WorkspaceSession>
     getGlobalSkills: () => Promise<AgentGlobalSkill[]>
-    setGlobalSkillEnabled: (request: SetGlobalAgentSkillEnabledRequest) => Promise<AgentGlobalSkill[]>
+    setGlobalSkillEnabled: (
+      request: SetGlobalAgentSkillEnabledRequest
+    ) => Promise<AgentGlobalSkill[]>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     prompt: (request: { sessionId: string; message: string }) => Promise<void>
@@ -146,7 +174,9 @@ export type SpaceZeroAPI = {
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
     onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
     onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
-    onToolConfirmationRequest: (listener: (event: AgentToolConfirmationRequest) => void) => () => void
+    onToolConfirmationRequest: (
+      listener: (event: AgentToolConfirmationRequest) => void
+    ) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAuthStatus: () => Promise<ModelAuthSettings>

@@ -125,6 +125,19 @@ beforeEach(async () => {
       openFolder: async () => undefined,
       openRemote: async () => undefined
     },
+    github: {
+      getConnection: async () => ({ status: 'disconnected' }),
+      startAuthorization: async () => ({
+        flowId: 'github-flow-test',
+        userCode: 'TEST-CODE',
+        verificationUri: 'https://github.com/login/device',
+        expiresAt: new Date(Date.now() + 900_000).toISOString()
+      }),
+      waitForAuthorization: async () => ({ status: 'disconnected' }),
+      cancelAuthorization: async () => undefined,
+      openAuthorization: async () => undefined,
+      copyDeviceCode: async () => undefined
+    },
     projects: {
       list: async () => [],
       createEmpty: async ({ name }) => ({
@@ -230,7 +243,10 @@ beforeEach(async () => {
       }),
       getAuthStatus: async () => ({
         subscriptions: { connected: [], availableProviders: [] },
-        apiKeys: { configured: [], availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }] }
+        apiKeys: {
+          configured: [],
+          availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+        }
       }),
       getAvailableModels: async () => [],
       setModel: async ({ sessionId }) => ({
