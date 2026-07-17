@@ -17,6 +17,7 @@ import {
   removeApiKey
 } from './model-auth-settings.service'
 import { getThemeSettings, updateThemePreference } from './theme-settings.service'
+import { chooseSpaceZeroHome, getStorageSettings } from './storage-settings.service'
 
 export function registerSettingsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.settings.getLanguageSettings, () => getLanguageSettings())
@@ -42,6 +43,9 @@ export function registerSettingsIpc(): void {
 
     return updateThemePreference(parsedPreference.data)
   })
+
+  ipcMain.handle(IPC_CHANNELS.settings.getStorageSettings, () => getStorageSettings())
+  ipcMain.handle(IPC_CHANNELS.settings.chooseSpaceZeroHome, () => chooseSpaceZeroHome())
 
   ipcMain.handle(IPC_CHANNELS.settings.getModelDefaults, () => getModelDefaults())
 

@@ -13,7 +13,12 @@ export type {
   AiChatToolConfirmationPart,
   AiChatToolConfirmationState
 } from './ai-chat.types'
-export { ChatInput, type ChatInputModel, type ChatInputProps } from './chat-input'
+export {
+  ChatInput,
+  type ChatInputModel,
+  type ChatInputProps,
+  type ChatInputSkill
+} from './chat-input'
 export { ChatMessage, type ChatMessageProps } from './chat-message'
 export { ChatThinkingBlock, type ChatThinkingBlockProps } from './chat-thinking-block'
 export { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'

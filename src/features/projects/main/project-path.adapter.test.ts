@@ -1,10 +1,27 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
-import { normalizeExistingProjectPath } from './project-path.adapter'
+import { createProjectPathAdapter, normalizeExistingProjectPath } from './project-path.adapter'
+
+describe('createProjectPathAdapter', () => {
+  it('creates new projects under the configured Space Zero projects path', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'spacezero-storage-'))
+    const projectsPath = join(root, 'projects')
+    const adapter = createProjectPathAdapter({ getProjectsPath: async () => projectsPath })
+
+    try {
+      const projectPath = await adapter.createEmptyProjectDirectory('Space Zero')
+
+      expect(projectPath).toBe(join(projectsPath, 'space-zero'))
+      expect(existsSync(projectPath)).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
 
 describe('normalizeExistingProjectPath', () => {
   it('requires an absolute existing directory', () => {

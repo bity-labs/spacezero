@@ -245,6 +245,26 @@ describe('createKnowledgeBaseService', () => {
     })
   })
 
+  it('resolves the setup path when setup starts so Space Zero Home changes are honored', async () => {
+    const configurationRepository = createConfigurationRepository()
+    const host = createHost()
+    let setupRootPath = '/home/builder/SpaceZero/knowledge-base'
+    const service = createKnowledgeBaseService({
+      configurationRepository,
+      host,
+      rootPath: async () => setupRootPath
+    })
+
+    setupRootPath = '/Volumes/workspace/knowledge-base'
+
+    await expect(service.createNew()).resolves.toEqual({
+      setupState: 'configured',
+      rootPath: '/Volumes/workspace/knowledge-base'
+    })
+    expect(host.createDirectory).toHaveBeenCalledWith('/Volumes/workspace/knowledge-base')
+    expect(configurationRepository.value?.rootPath).toBe('/Volumes/workspace/knowledge-base')
+  })
+
   it('blocks setup without modifying an existing destination', async () => {
     const configurationRepository = createConfigurationRepository()
     const host = createHost({ pathExists: vi.fn(async () => true) })
