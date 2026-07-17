@@ -163,7 +163,26 @@ beforeEach(async () => {
       listRepositorySetupOptions: async () => [],
       startClone: async () => ({ status: 'started', operationId: 'clone-test' }),
       cancelClone: async () => undefined,
-      onCloneProgress: () => () => undefined
+      onCloneProgress: () => () => undefined,
+      listIssues: async (request) => ({ items: [], page: request.page, hasNextPage: false }),
+      getIssue: async (request) => ({
+        number: request.number,
+        title: 'Issue',
+        body: null,
+        state: 'open',
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}`,
+        author: null,
+        labels: [],
+        assignees: [],
+        commentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      listIssueComments: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      })
     },
     projects: {
       list: async () => [],

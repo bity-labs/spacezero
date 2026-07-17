@@ -35,6 +35,12 @@ import type {
   GitHubConnection,
   GitHubDeviceAuthorization,
   GitHubFlowRequest,
+  GitHubIssue,
+  GitHubIssueComment,
+  GitHubIssueCommentsRequest,
+  GitHubIssueListRequest,
+  GitHubIssueRequest,
+  GitHubPage,
   GitHubProjectLinkOptions,
   GitHubProjectRequest,
   GitHubRepository,
@@ -85,7 +91,10 @@ export const IPC_CHANNELS = {
     listRepositorySetupOptions: 'github:listRepositorySetupOptions',
     startClone: 'github:startClone',
     cancelClone: 'github:cancelClone',
-    cloneProgress: 'github:cloneProgress'
+    cloneProgress: 'github:cloneProgress',
+    listIssues: 'github:listIssues',
+    getIssue: 'github:getIssue',
+    listIssueComments: 'github:listIssueComments'
   },
   projects: {
     list: 'projects:list',
@@ -183,6 +192,11 @@ export type SpaceZeroAPI = {
     startClone: (request: StartGitHubCloneRequest) => Promise<StartGitHubCloneResult>
     cancelClone: (request: CancelGitHubCloneRequest) => Promise<void>
     onCloneProgress: (listener: (event: GitHubCloneProgress) => void) => () => void
+    listIssues: (request: GitHubIssueListRequest) => Promise<GitHubPage<GitHubIssue>>
+    getIssue: (request: GitHubIssueRequest) => Promise<GitHubIssue>
+    listIssueComments: (
+      request: GitHubIssueCommentsRequest
+    ) => Promise<GitHubPage<GitHubIssueComment>>
   }
   projects: {
     list: () => Promise<Project[]>

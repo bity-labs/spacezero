@@ -60,6 +60,61 @@ export type GitHubConnection =
     }
   | { status: 'reconnect-required'; identity: GitHubIdentity }
 
+export type GitHubPage<T> = {
+  items: T[]
+  page: number
+  hasNextPage: boolean
+}
+
+export type GitHubUser = {
+  id: string
+  login: string
+  avatarUrl: string
+}
+
+export type GitHubLabel = {
+  id: string
+  name: string
+  color: string
+}
+
+export type GitHubIssue = {
+  number: number
+  title: string
+  body: string | null
+  state: 'open' | 'closed'
+  htmlUrl: string
+  author: GitHubUser | null
+  labels: GitHubLabel[]
+  assignees: GitHubUser[]
+  commentCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export type GitHubIssueComment = {
+  id: string
+  body: string
+  htmlUrl: string
+  author: GitHubUser | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type GitHubIssueListRequest = GitHubProjectRequest & {
+  page: number
+  perPage?: number
+}
+
+export type GitHubIssueRequest = GitHubProjectRequest & {
+  number: number
+}
+
+export type GitHubIssueCommentsRequest = GitHubIssueRequest & {
+  page: number
+  perPage?: number
+}
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference
