@@ -136,4 +136,9 @@ export function registerGitHubIpc(): void {
   ipcMain.handle(IPC_CHANNELS.github.startIssueSession, (_event, input: unknown) =>
     getGitHubSourceSessionsService().startIssueSession(githubIssueRequestSchema.parse(input))
   )
+  ipcMain.handle(IPC_CHANNELS.github.startPullRequestSession, (_event, input: unknown) =>
+    getGitHubSourceSessionsService().startPullRequestSession(
+      githubPullRequestRequestSchema.parse(input)
+    )
+  )
 }

@@ -107,6 +107,8 @@ export function getGitHubSourceSessionsService(): ReturnType<
   sourceSessionsService = createGitHubSourceSessionsService({
     projects: getGitHubProjectsService(),
     issues: getGitHubIssuesService(),
+    pullRequests: getGitHubPullRequestsService(),
+    auth: getGitHubAuthService(),
     createSession: (request) =>
       createManagedProjectAgentSession(request, {
         repository: createSessionsRepository(),

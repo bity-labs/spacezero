@@ -41,6 +41,39 @@ describe('managed worktree service', () => {
     })
   })
 
+  it('derives a Pull Request branch and forwards its authenticated start point only to Git', async () => {
+    const adapter = createAdapter()
+    const service = createManagedWorktreeService({
+      adapter,
+      getWorktreesPath: async () => '/SpaceZero/worktrees'
+    })
+
+    await service.create({
+      projectPath: '/repos/spacezero',
+      projectId: 'project-1',
+      sessionId: 'session-pr-1',
+      source: { type: 'pull-request', number: 79 },
+      startPoint: {
+        kind: 'github-ref',
+        remoteUrl: 'https://github.com/bity-labs/spacezero.git',
+        ref: 'refs/pull/79/head',
+        accessToken: 'access-secret'
+      }
+    })
+
+    expect(adapter.create).toHaveBeenCalledWith({
+      projectPath: '/repos/spacezero',
+      destination: '/SpaceZero/worktrees/project-1/session-pr-1',
+      branch: 'spacezero/pull-request-79-session-pr-1',
+      startPoint: {
+        kind: 'github-ref',
+        remoteUrl: 'https://github.com/bity-labs/spacezero.git',
+        ref: 'refs/pull/79/head',
+        accessToken: 'access-secret'
+      }
+    })
+  })
+
   it('rejects identifiers that could escape the managed root', async () => {
     const adapter = createAdapter()
     const service = createManagedWorktreeService({

@@ -208,6 +208,7 @@ export function ProjectHome({
               key={selectedPullRequestNumber ?? 'pull-request-list'}
               project={displayProject}
               initialPullRequestNumber={selectedPullRequestNumber}
+              onSessionCreated={onSessionCreated}
             />
           </GitHubWorkflowGate>
         )}

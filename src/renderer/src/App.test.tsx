@@ -561,7 +561,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
   })
 
-  it('shows a persisted Issue source in the Session breadcrumb and reopens in-app detail', async () => {
+  it('shows persisted GitHub sources in Session breadcrumbs and reopens in-app detail', async () => {
     const repository = {
       id: '1000',
       nodeId: 'R_1000',
@@ -617,6 +617,31 @@ describe('App', () => {
         },
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
+      },
+      {
+        id: 'session-pr-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Pull Request #79: Managed storage foundation',
+        status: 'idle',
+        worktree: {
+          path: '/SpaceZero/worktrees/project-1/session-pr-1',
+          branch: 'spacezero/pull-request-79-session-pr-1',
+          baseRevision: 'def456'
+        },
+        source: {
+          type: 'pull-request',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 79,
+          url: 'https://github.com/bity-labs/spacezero/pull/79',
+          title: 'Managed storage foundation'
+        },
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
       }
     ]
     window.spacezero.github.getConnection = async () => ({
@@ -649,6 +674,26 @@ describe('App', () => {
       page,
       hasNextPage: false
     })
+    window.spacezero.github.getPullRequest = async () => ({
+      number: 79,
+      title: 'Managed storage foundation',
+      body: 'Restored Pull Request detail',
+      state: 'open',
+      isDraft: false,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      baseBranch: 'main',
+      headBranch: 'feat/storage',
+      commitCount: 4,
+      conversationCommentCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    })
+    window.spacezero.github.listPullRequestComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
 
     render(<App />)
 
@@ -659,6 +704,17 @@ describe('App', () => {
 
     expect(await screen.findByText('Restored Issue detail')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start Session from Issue' })).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Pull Request #79: Managed storage foundation/ })
+    )
+    expect(await screen.findByRole('button', { name: 'Pull Request #79' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pull Request #79' }))
+
+    expect(await screen.findByText('Restored Pull Request detail')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Start Session from Pull Request' })
+    ).toBeInTheDocument()
   })
 
   it('replaces the active project session when another project session is selected', async () => {
