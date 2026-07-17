@@ -123,6 +123,39 @@ export type GitHubIssueStateUpdateRequest = GitHubIssueRequest & {
   state: 'open' | 'closed'
 }
 
+export type GitHubPullRequestSummary = {
+  number: number
+  title: string
+  state: 'open' | 'closed' | 'merged'
+  isDraft: boolean
+  htmlUrl: string
+  author: GitHubUser | null
+  baseBranch: string
+  headBranch: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type GitHubPullRequest = GitHubPullRequestSummary & {
+  body: string | null
+  commitCount: number
+  conversationCommentCount: number
+}
+
+export type GitHubPullRequestListRequest = GitHubProjectRequest & {
+  page: number
+  perPage?: number
+}
+
+export type GitHubPullRequestRequest = GitHubProjectRequest & {
+  number: number
+}
+
+export type GitHubPullRequestCommentsRequest = GitHubPullRequestRequest & {
+  page: number
+  perPage?: number
+}
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference

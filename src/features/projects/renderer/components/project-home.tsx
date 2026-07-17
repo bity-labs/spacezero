@@ -1,8 +1,13 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@phosphor-icons/react'
 
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
-import { IssuesView, useGitHubConnection, useProjectRepository } from '../../../github/renderer'
+import {
+  IssuesView,
+  PullRequestsView,
+  useGitHubConnection,
+  useProjectRepository
+} from '../../../github/renderer'
 import type { Project } from '../../shared'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -122,13 +127,23 @@ export function ProjectHome({
             onLinkRepository={() => void linkRepository()}
           />
         ) : view === 'issues' ? (
-          <IssuesView project={displayProject} />
-        ) : (
-          <ProjectSectionPlaceholder
-            title="Pull Requests"
+          <GitHubWorkflowGate
             project={displayProject}
+            connectionLoading={connectionLoading}
             connected={connection?.status === 'connected'}
-          />
+            onShowOverview={() => setView('overview')}
+          >
+            <IssuesView project={displayProject} />
+          </GitHubWorkflowGate>
+        ) : (
+          <GitHubWorkflowGate
+            project={displayProject}
+            connectionLoading={connectionLoading}
+            connected={connection?.status === 'connected'}
+            onShowOverview={() => setView('overview')}
+          >
+            <PullRequestsView project={displayProject} />
+          </GitHubWorkflowGate>
         )}
       </div>
     </div>
@@ -324,6 +339,58 @@ function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.El
   )
 }
 
+function GitHubWorkflowGate({
+  project,
+  connectionLoading,
+  connected,
+  onShowOverview,
+  children
+}: {
+  project: Project
+  connectionLoading: boolean
+  connected: boolean
+  onShowOverview: () => void
+  children: ReactNode
+}): React.JSX.Element {
+  if (connectionLoading) {
+    return (
+      <Card className="p-6" role="status">
+        <p className="text-sm text-muted-foreground">Loading GitHub connection…</p>
+      </Card>
+    )
+  }
+  if (!connected) {
+    return (
+      <Card className="gap-3 p-6">
+        <h2 className="font-medium">Connect GitHub to continue</h2>
+        <p className="text-sm text-muted-foreground">
+          This Project workflow reads live data from GitHub.
+        </p>
+        <a
+          className="text-sm font-medium text-primary hover:underline"
+          href="#/settings?section=account"
+        >
+          Connect GitHub
+        </a>
+      </Card>
+    )
+  }
+  if (!project.githubRepository) {
+    return (
+      <Card className="gap-3 p-6">
+        <h2 className="font-medium">Link a GitHub repository</h2>
+        <p className="text-sm text-muted-foreground">
+          Link this Project before opening repository workflows.
+        </p>
+        <Button className="w-fit" variant="outline" onClick={onShowOverview}>
+          Link GitHub repository
+        </Button>
+      </Card>
+    )
+  }
+  return <>{children}</>
+}
+
 function getRepositoryErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : ''
   if (message.includes('repositoryAccessRevoked')) {
@@ -333,28 +400,4 @@ function getRepositoryErrorMessage(error: unknown): string {
     return 'Your GitHub authorization expired or was revoked. Reconnect GitHub and try again.'
   }
   return 'Check your network or GitHub rate limit, then retry.'
-}
-
-function ProjectSectionPlaceholder({
-  title,
-  project,
-  connected
-}: {
-  title: string
-  project: Project
-  connected: boolean
-}): React.JSX.Element {
-  const action = !connected
-    ? 'Connect GitHub'
-    : !project.githubRepository
-      ? 'Link GitHub repository'
-      : null
-  return (
-    <Card className="gap-2 p-6">
-      <h2 className="font-medium">{title}</h2>
-      <p className="text-sm text-muted-foreground">
-        {action ?? `${title} for ${project.githubRepository?.fullName} will appear here.`}
-      </p>
-    </Card>
-  )
 }

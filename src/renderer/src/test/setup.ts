@@ -203,6 +203,31 @@ beforeEach(async () => {
         commentCount: 0,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
+      }),
+      listPullRequests: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      getPullRequest: async (request) => ({
+        number: request.number,
+        title: 'Pull Request',
+        body: null,
+        state: 'open',
+        isDraft: false,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}`,
+        author: null,
+        baseBranch: 'main',
+        headBranch: 'feature',
+        commitCount: 0,
+        conversationCommentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      listPullRequestComments: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
       })
     },
     projects: {

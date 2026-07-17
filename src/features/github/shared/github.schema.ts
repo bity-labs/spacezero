@@ -40,6 +40,20 @@ export const githubIssueStateUpdateRequestSchema = githubIssueRequestSchema.exte
   state: z.enum(['open', 'closed'])
 })
 
+export const githubPullRequestListRequestSchema = githubProjectRequestSchema.extend({
+  page: githubPageSchema,
+  perPage: z.number().int().min(1).max(100).optional()
+})
+
+export const githubPullRequestRequestSchema = githubProjectRequestSchema.extend({
+  number: githubNumberSchema
+})
+
+export const githubPullRequestCommentsRequestSchema = githubPullRequestRequestSchema.extend({
+  page: githubPageSchema,
+  perPage: z.number().int().min(1).max(100).optional()
+})
+
 export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
 
 export const cancelGitHubCloneRequestSchema = z.object({

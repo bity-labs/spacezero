@@ -385,6 +385,107 @@ describe('ProjectHome', () => {
     await waitFor(() => expect(listReads).toBeGreaterThan(1))
   })
 
+  it('lists paginated Pull Requests and opens core detail with conversation comments', async () => {
+    const linkedProject: Project = {
+      ...project,
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: '2026-07-18T01:00:00.000Z'
+      }
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    const requestedPages: number[] = []
+    window.spacezero.github.listPullRequests = async ({ page }) => {
+      requestedPages.push(page)
+      return {
+        page,
+        hasNextPage: page === 1,
+        items: [
+          {
+            number: page === 1 ? 79 : 80,
+            title: page === 1 ? 'Managed storage foundation' : 'Follow-up Pull Request',
+            state: 'open',
+            isDraft: false,
+            htmlUrl: `https://github.com/bity-labs/spacezero/pull/${page === 1 ? 79 : 80}`,
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            baseBranch: 'main',
+            headBranch: page === 1 ? 'feat/storage' : 'feat/follow-up',
+            createdAt: '2026-07-18T00:00:00.000Z',
+            updatedAt: '2026-07-18T01:00:00.000Z'
+          }
+        ]
+      }
+    }
+    window.spacezero.github.getPullRequest = async ({ number }) => ({
+      number,
+      title: 'Managed storage foundation',
+      body: 'Pull Request body',
+      state: 'open',
+      isDraft: false,
+      htmlUrl: `https://github.com/bity-labs/spacezero/pull/${number}`,
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      baseBranch: 'main',
+      headBranch: 'feat/storage',
+      commitCount: 4,
+      conversationCommentCount: 1,
+      createdAt: '2026-07-18T00:00:00.000Z',
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    })
+    window.spacezero.github.listPullRequestComments = async ({ page }) => ({
+      page,
+      hasNextPage: false,
+      items: [
+        {
+          id: '500',
+          body: 'Please update the docs.',
+          htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#issuecomment-500',
+          author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+          createdAt: '2026-07-18T02:00:00.000Z',
+          updatedAt: '2026-07-18T02:00:00.000Z'
+        }
+      ]
+    })
+
+    renderProjectHome(
+      <ProjectHome
+        project={linkedProject}
+        onProjectLinked={() => undefined}
+        onNewSession={() => undefined}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Pull Requests' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Managed storage foundation/ }))
+    expect(await screen.findByText('Pull Request body')).toBeInTheDocument()
+    expect(screen.getByText('feat/storage → main')).toBeInTheDocument()
+    expect(screen.getByText('4')).toBeInTheDocument()
+    expect(await screen.findByText('Please update the docs.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /merge|close|checkout/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Pull Requests' }))
+    const nextPage = await screen.findByRole('button', { name: 'Next' })
+    await waitFor(() => expect(nextPage).toBeEnabled())
+    fireEvent.click(nextPage)
+    expect(await screen.findByText('Follow-up Pull Request')).toBeInTheDocument()
+    expect(requestedPages).toContain(2)
+  })
+
   it('shows revoked repository access as stale rather than false success', async () => {
     const linkedProject: Project = {
       ...project,
