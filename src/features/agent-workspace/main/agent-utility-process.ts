@@ -24,10 +24,12 @@ import type {
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest,
+  ListAgentSkillsRequest,
   PromptAgentSessionRequest,
   ResolveAgentToolConfirmationCommandRequest
 } from '../../../shared/agent-protocol'
 import type { AgentToolConfirmationRequest } from '../../../shared/agent-session-projection.model'
+import type { AgentSkillDiscovery } from '../shared/agent-skill.model'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import type { AuthTestResult, ModelAuthSettings } from '../../../shared/model-auth'
 import type { AvailableModel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../../../shared/model-settings'
@@ -170,6 +172,10 @@ export class AgentUtilityProcessHost {
 
   listSessions(): Promise<AgentSessionState[]> {
     return this.getBroker().listSessions()
+  }
+
+  listSkills(request: ListAgentSkillsRequest): Promise<AgentSkillDiscovery[]> {
+    return this.getBroker().listSkills(request)
   }
 
   addApiKey(request: AgentAddApiKeyRequest): Promise<void> {

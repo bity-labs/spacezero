@@ -52,6 +52,7 @@ type RegisteredAgentSession = {
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   skillPaths: AgentSkillPath[] | undefined
+  disabledGlobalSkillPaths: string[] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -63,6 +64,7 @@ type DormantAgentSession = {
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   skillPaths: AgentSkillPath[] | undefined
+  disabledGlobalSkillPaths: string[] | undefined
   transcriptPath: string | undefined
   modelProvider: string | undefined
   modelId: string | undefined
@@ -139,6 +141,7 @@ export class AgentSessionRegistry {
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
           skillPaths: normalizedRequest.skillPaths,
+          disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -292,6 +295,9 @@ export class AgentSessionRegistry {
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
       ...(request.skillPaths ? { skillPaths: request.skillPaths } : {}),
+      ...(request.disabledGlobalSkillPaths
+        ? { disabledGlobalSkillPaths: request.disabledGlobalSkillPaths.map((path) => resolve(path)) }
+        : {}),
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
     }
@@ -336,6 +342,9 @@ export class AgentSessionRegistry {
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
       ...(dormantSession.skillPaths ? { skillPaths: dormantSession.skillPaths } : {}),
+      ...(dormantSession.disabledGlobalSkillPaths
+        ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
+        : {}),
       ...(dormantSession.modelProvider && dormantSession.modelId
         ? {
             defaultModel: {
@@ -358,6 +367,7 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
       skillPaths: dormantSession.skillPaths,
+      disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -416,6 +426,7 @@ export class AgentSessionRegistry {
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
       skillPaths: session.skillPaths,
+      disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,

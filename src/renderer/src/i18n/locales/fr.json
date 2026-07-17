@@ -150,6 +150,17 @@
       "changing": "Modification…",
       "error": "Impossible de mettre à jour l’emplacement de stockage de Space Zero."
     },
+    "skills": {
+      "sectionTitle": "Compétences globales des agents",
+      "description": "Choisissez les compétences globales disponibles pour les nouvelles sessions d’agent ou les sessions rechargées.",
+      "loading": "Chargement des compétences globales…",
+      "empty": "Aucune compétence globale trouvée.",
+      "path": "Chemin : {{path}}",
+      "enable": "Activer {{name}}",
+      "disable": "Désactiver {{name}}",
+      "applyNote": "Les changements s’appliquent aux nouvelles sessions ou aux sessions rechargées.",
+      "error": "Impossible de mettre à jour la disponibilité des compétences globales."
+    },
     "language": {
       "sectionTitle": "Langue",
       "label": "Langue",
@@ -179,6 +190,7 @@
       "appearance": "Apparence",
       "agents": "Agents",
       "models": "Modèles",
+      "skills": "Compétences",
       "cloudAgents": "Agents cloud"
     },
     "account": {

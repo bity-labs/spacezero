@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowLeft, Cube, FolderOpen, GearSix, Key, Plus, Plugs, Trash } from '@phosphor-icons/react'
+import { ArrowLeft, Cube, FolderOpen, GearSix, Key, Plus, Plugs, Sparkle, Trash } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
@@ -9,6 +9,7 @@ import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model
 import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
+import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
@@ -37,12 +38,13 @@ import {
   SelectValue
 } from '../components/ui/select'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '../components/ui/sidebar'
+import { Switch } from '../components/ui/switch'
 import { useColorMode } from '../color-mode-provider'
 import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'general' | 'models'
+type SettingsSectionId = 'general' | 'models' | 'skills'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -50,13 +52,16 @@ type SettingsSearch = {
 
 export const Route = createFileRoute('/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch =>
-    search.section === 'models' ? { section: 'models' } : {},
+    search.section === 'models' || search.section === 'skills'
+      ? { section: search.section }
+      : {},
   component: SettingsPage
 })
 
 const settingsNavigation = [
   { id: 'general', translationKey: 'general', icon: GearSix },
-  { id: 'models', translationKey: 'models', icon: Cube }
+  { id: 'models', translationKey: 'models', icon: Cube },
+  { id: 'skills', translationKey: 'skills', icon: Sparkle }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
   translationKey: string
@@ -221,6 +226,8 @@ function SettingsPage(): React.JSX.Element {
               onLanguagePreferenceChange={handleLanguagePreferenceChange}
               onThemePreferenceChange={handleThemePreferenceChange}
             />
+          ) : selectedSection === 'skills' ? (
+            <SkillsSettingsSection />
           ) : (
             <ModelsSettingsSection />
           )}
@@ -390,6 +397,104 @@ function StorageSettingsSection(): React.JSX.Element {
         <p className="px-4 pb-3 text-sm text-destructive">{t('settings.storage.error')}</p>
       ) : null}
     </SettingsSection>
+  )
+}
+
+function SkillsSettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const [skills, setSkills] = useState<AgentGlobalSkill[] | null>(null)
+  const [error, setError] = useState(false)
+  const [pendingPath, setPendingPath] = useState<string | null>(null)
+
+  useEffect(() => {
+    let isCurrent = true
+
+    window.spacezero.agent
+      .getGlobalSkills()
+      .then((globalSkills) => {
+        if (!isCurrent) return
+        setSkills(globalSkills)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setError(true)
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [])
+
+  async function handleSkillEnabledChange(skill: AgentGlobalSkill, enabled: boolean): Promise<void> {
+    setPendingPath(skill.path)
+    setError(false)
+
+    try {
+      const nextSkills = await window.spacezero.agent.setGlobalSkillEnabled({
+        path: skill.path,
+        enabled
+      })
+      setSkills(nextSkills)
+    } catch {
+      setError(true)
+    } finally {
+      setPendingPath(null)
+    }
+  }
+
+  return (
+    <>
+      <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.skills')}</h2>
+      <div className="space-y-8">
+        <SettingsSection title={t('settings.skills.sectionTitle')}>
+          <p className="px-4 pb-3 pt-4 text-sm text-muted-foreground">
+            {t('settings.skills.description')}
+          </p>
+          {skills === null ? (
+            <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.loading')}</p>
+          ) : skills.length === 0 ? (
+            <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.empty')}</p>
+          ) : (
+            skills.map((skill) => (
+              <div
+                key={skill.path}
+                className="flex items-center gap-4 border-t border-border/70 px-4 py-4"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium">/skill:{skill.name}</p>
+                    <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
+                      {skill.scope}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
+                  <p className="mt-1 truncate text-[11px] text-muted-foreground" title={skill.path}>
+                    {t('settings.skills.path', { path: skill.path })}
+                  </p>
+                </div>
+                <Switch
+                  checked={skill.enabled}
+                  disabled={pendingPath === skill.path}
+                  aria-label={t(
+                    skill.enabled ? 'settings.skills.disable' : 'settings.skills.enable',
+                    { name: skill.name }
+                  )}
+                  onCheckedChange={(enabled) =>
+                    void handleSkillEnabledChange(skill, enabled)
+                  }
+                />
+              </div>
+            ))
+          )}
+          <p className="px-4 pb-4 text-xs text-muted-foreground">
+            {t('settings.skills.applyNote')}
+          </p>
+          {error ? (
+            <p className="px-4 pb-4 text-sm text-destructive">{t('settings.skills.error')}</p>
+          ) : null}
+        </SettingsSection>
+      </div>
+    </>
   )
 }
 

@@ -25,7 +25,7 @@ Space Zero supports both a native Space Zero skill location and the standard Age
 
 Space Zero does not copy or move skills between locations.
 
-Space Zero composes these paths explicitly for each agent session and passes them to Pi's `DefaultResourceLoader` as additional skill paths. Pi's default broad resource discovery remains disabled so Space Zero controls the capability surface.
+Space Zero composes these paths explicitly for each agent session and passes them to Pi's `DefaultResourceLoader` as additional skill paths. Pi's default broad resource discovery remains disabled so Space Zero controls the capability surface. Space Zero stores global enable/disable preferences for skills under `<Space Zero Home>/skills` and `~/.agents/skills`; disabled global skills are filtered through Pi's resource-loader override before they become part of the session catalog or system prompt. Project-local skills are not affected by the global toggles.
 
 Skill precedence is:
 
@@ -40,7 +40,7 @@ Project-local skills are loaded only for Project Sessions. Workspace Sessions re
 
 Pi's native `/skill:name` command is the activation mechanism. Space Zero's chat input provides `/` and `/skill:` discovery, filtering, keyboard navigation, and insertion, then passes the selected command unchanged to Pi for expansion.
 
-Skill metadata is exposed to the renderer per session. Only name, description, and scope are exposed; filesystem paths remain in the utility process.
+Skill metadata is exposed to the renderer per session. Only name, description, and scope are exposed through the session API; filesystem paths remain in the utility process. A separate Settings API may expose source paths for global-skill management because users need to identify which global skill they are enabling or disabling.
 
 ## Rationale
 
@@ -53,10 +53,10 @@ Explicit path composition keeps Space Zero's security model and allows project t
 ## Consequences
 
 - The main process resolves skill directories using the configured Space Zero Home and project cwd before creating a session.
-- The utility owns Pi skill loading and expansion; the renderer receives only safe skill descriptors.
+- The utility owns Pi skill loading and expansion; the renderer receives only safe session skill descriptors. The Settings UI receives a separate global-skill management descriptor that includes the source path needed to identify a toggle target.
 - Chat composer UI must handle empty skill catalogs, malformed skill diagnostics, and skill name collisions without blocking normal prompts.
 - Project trust must be added or integrated before untrusted repository skills are enabled broadly.
-- Skill changes are picked up when a new session is created or a session is explicitly reloaded; live sessions do not silently change their skill catalog.
+- Skill changes are picked up when a new session is created or a session is explicitly reloaded; live sessions do not silently change their skill catalog. Global skill toggles follow the same lifecycle rule, and apply only to global skills; project-local skills remain controlled by project scope.
 - Skills are not stored in the Knowledge Base. The Knowledge Base remains for durable user knowledge and documentation.
 
 ## Alternatives Considered

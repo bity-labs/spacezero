@@ -123,6 +123,8 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      getGlobalSkills: async () => [],
+      setGlobalSkillEnabled: async () => [],
       getState: async ({ sessionId }) => ({
         sessionId,
         kind: sessionId.startsWith('workspace') ? 'workspace' : 'project',

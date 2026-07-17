@@ -12,3 +12,18 @@ export type AgentSkillDescriptor = {
   description: string
   scope: AgentSkillScope
 }
+
+/** Skill metadata discovered from a source path inside the agent utility. */
+export type AgentSkillDiscovery = AgentSkillDescriptor & {
+  path: string
+}
+
+/** Global skill metadata exposed to the Settings UI. */
+export type AgentGlobalSkill = AgentSkillDiscovery & {
+  enabled: boolean
+}
+
+export type SetGlobalAgentSkillEnabledRequest = {
+  path: string
+  enabled: boolean
+}

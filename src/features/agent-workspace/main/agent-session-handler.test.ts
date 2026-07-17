@@ -123,6 +123,7 @@ describe('createProjectAgentSession', () => {
         utilityHost,
         createSessionId: () => 'session-1',
         readModelDefaults,
+        readDisabledGlobalSkillPaths: async () => ['/Users/tiby/.agents/skills/review/SKILL.md'],
         resolveSkillPaths: async () => [
           { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
         ]
@@ -131,7 +132,8 @@ describe('createProjectAgentSession', () => {
 
     expect(utilityHost.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
+        skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }],
+        disabledGlobalSkillPaths: ['/Users/tiby/.agents/skills/review/SKILL.md']
       })
     )
   })

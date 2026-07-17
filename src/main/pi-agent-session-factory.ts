@@ -23,7 +23,11 @@ import type {
   AgentTranscriptMessage,
   AgentUserContent
 } from '../shared/agent-session-projection.model'
-import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
+import type {
+  AgentSkillDescriptor,
+  AgentSkillDiscovery,
+  AgentSkillPath
+} from '../features/agent-workspace/shared/agent-skill.model'
 import type { WorkspaceToolResult } from '../features/agent-workspace/shared/workspace-tool.model'
 import type {
   ExecuteWorkspaceToolRequest,
@@ -46,6 +50,7 @@ export type PiAgentRuntime = {
   removeApiKey: (providerId: string) => Promise<void>
   getAuthStatus: () => Promise<ModelAuthSettings>
   getAvailableModels: () => Promise<AvailableModel[]>
+  listSkills: (skillPaths: AgentSkillPath[]) => Promise<AgentSkillDiscovery[]>
   testAuth: (providerId: string) => Promise<AuthTestResult>
   loginOAuth: (providerId: string, callbacks: OAuthRuntimeCallbacks) => Promise<void>
   logoutOAuth: (providerId: string) => Promise<void>
@@ -93,6 +98,9 @@ export function createPiAgentRuntime({
     request: CreateAgentSessionRequest
   ): Promise<CreatedPiAgentSession> {
     const settingsManager = SettingsManager.inMemory()
+    const disabledGlobalSkillPaths = new Set(
+      (request.disabledGlobalSkillPaths ?? []).map((path) => resolve(path))
+    )
     const resourceLoader = new DefaultResourceLoader({
       cwd: request.cwd,
       agentDir,
@@ -102,6 +110,10 @@ export function createPiAgentRuntime({
       additionalSkillPaths: (request.skillPaths ?? [])
         .map((entry) => entry.path)
         .filter((path) => existsSync(path)),
+      skillsOverride: ({ skills, diagnostics }) => ({
+        skills: skills.filter((skill) => !disabledGlobalSkillPaths.has(resolve(skill.filePath))),
+        diagnostics
+      }),
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true
@@ -158,6 +170,24 @@ export function createPiAgentRuntime({
     },
     getAuthStatus: async () => getModelAuthSettingsFromRegistry(modelRegistry, authStorage),
     getAvailableModels: async () => getAvailableModelsFromRegistry(modelRegistry),
+    listSkills: async (skillPaths) => {
+      const settingsManager = SettingsManager.inMemory()
+      const resourceLoader = new DefaultResourceLoader({
+        cwd: process.cwd(),
+        agentDir,
+        settingsManager,
+        noExtensions: true,
+        noSkills: true,
+        additionalSkillPaths: skillPaths
+          .map((entry) => entry.path)
+          .filter((path) => existsSync(path)),
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true
+      })
+      await resourceLoader.reload()
+      return toAgentSkillDiscoveries(resourceLoader.getSkills().skills, skillPaths)
+    },
     testAuth: async (providerId) => testProviderAuth(modelRegistry, authStorage, providerId),
     loginOAuth: async (providerId, callbacks) => {
       assertKnownOAuthProvider(authStorage, providerId)
@@ -435,6 +465,18 @@ function toAgentSkillDescriptors(
     name: skill.name,
     description: skill.description,
     scope: resolveSkillScope(skill.filePath, skillPaths, skill.sourceInfo.scope)
+  }))
+}
+
+function toAgentSkillDiscoveries(
+  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skillPaths: AgentSkillPath[]
+): AgentSkillDiscovery[] {
+  return skills.map((skill) => ({
+    name: skill.name,
+    description: skill.description,
+    scope: resolveSkillScope(skill.filePath, skillPaths, skill.sourceInfo.scope),
+    path: resolve(skill.filePath)
   }))
 }
 
