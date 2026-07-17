@@ -104,6 +104,10 @@ export function createGitHubConnectionService({
     return (await loadRepositoryAccess(credential.accessToken)).repositories
   }
 
+  async function openManageAccess(): Promise<void> {
+    await openExternal('https://github.com/settings/installations')
+  }
+
   async function openInstallation(): Promise<void> {
     const slug = appSlug?.trim()
     if (!slug || !/^[a-zA-Z0-9-]+$/.test(slug)) {
@@ -158,7 +162,7 @@ export function createGitHubConnectionService({
     }
   }
 
-  return { getConnection, listAuthorizedRepositories, openInstallation }
+  return { getConnection, listAuthorizedRepositories, openInstallation, openManageAccess }
 }
 
 export class GitHubInstallationAccessError extends Error {

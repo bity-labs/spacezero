@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { ArrowSquareOut, Check, Copy, GithubLogo } from '@phosphor-icons/react'
 
-import type { GitHubDeviceAuthorization } from '../../shared'
+import type { GitHubDeviceAuthorization, GitHubInstallation } from '../../shared'
 import { notifyGitHubConnectionChanged, useGitHubConnection } from '../hooks/use-github-connection'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@renderer/components/ui/avatar'
@@ -72,6 +72,29 @@ export function AccountSettings(): React.JSX.Element {
     setError(null)
     await refresh()
     notifyGitHubConnectionChanged()
+  }
+
+  async function openManageAccess(): Promise<void> {
+    setError(null)
+    try {
+      await window.spacezero.github.openManageAccess()
+    } catch (caught) {
+      setError(toAuthorizationError(caught))
+    }
+  }
+
+  async function disconnect(): Promise<void> {
+    if (!window.confirm('Disconnect GitHub from Space Zero? Local Projects and files are kept.')) {
+      return
+    }
+    setError(null)
+    try {
+      await window.spacezero.github.disconnect()
+      setConnection({ status: 'disconnected' })
+      notifyGitHubConnectionChanged()
+    } catch (caught) {
+      setError(toAuthorizationError(caught))
+    }
   }
 
   if (isLoading) {
@@ -146,6 +169,22 @@ export function AccountSettings(): React.JSX.Element {
               </div>
             </div>
           )}
+          {connection && 'installations' in connection && connection.installations ? (
+            <InstallationGroups installations={connection.installations} />
+          ) : null}
+          {connection?.status !== 'reconnect-required' ? (
+            <div className="flex flex-wrap gap-2 border-t pt-4">
+              <Button variant="outline" onClick={() => void openInstallation()}>
+                Add or change repository access
+              </Button>
+              <Button variant="outline" onClick={() => void openManageAccess()}>
+                Manage/Revoke access on GitHub
+              </Button>
+              <Button variant="ghost" onClick={() => void disconnect()}>
+                Disconnect
+              </Button>
+            </div>
+          ) : null}
         </Card>
       ) : authorization ? (
         <Card className="gap-5 p-5">
@@ -201,6 +240,67 @@ export function AccountSettings(): React.JSX.Element {
       )}
     </div>
   )
+}
+
+function InstallationGroups({
+  installations
+}: {
+  installations: GitHubInstallation[]
+}): React.JSX.Element | null {
+  if (installations.length === 0) return null
+
+  const personal = installations.filter((installation) => installation.owner.type === 'user')
+  const organizations = installations.filter(
+    (installation) => installation.owner.type === 'organization'
+  )
+
+  return (
+    <div className="space-y-4 border-t pt-4">
+      <InstallationGroup title="Personal" installations={personal} />
+      <InstallationGroup title="Organizations" installations={organizations} />
+    </div>
+  )
+}
+
+function InstallationGroup({
+  title,
+  installations
+}: {
+  title: string
+  installations: GitHubInstallation[]
+}): React.JSX.Element | null {
+  if (installations.length === 0) return null
+
+  return (
+    <section aria-label={`${title} GitHub installations`} className="space-y-2">
+      <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h4>
+      {installations.map((installation) => (
+        <div
+          key={installation.id}
+          className="flex items-center justify-between gap-4 rounded-md border p-3"
+        >
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{installation.owner.login}</p>
+            <p className="text-xs text-muted-foreground">{getInstallationStatus(installation)}</p>
+          </div>
+          <span className="shrink-0 text-xs text-muted-foreground">
+            {installation.repositoryCount}{' '}
+            {installation.repositoryCount === 1 ? 'repository' : 'repositories'}
+          </span>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function getInstallationStatus(installation: GitHubInstallation): string {
+  if (installation.status === 'pending-approval') return 'Pending organization approval'
+  if (installation.status === 'organization-authorization-required') {
+    return 'Organization or SSO authorization required'
+  }
+  if (installation.status === 'suspended') return 'Installation unavailable'
+  if (installation.status === 'no-repositories') return 'No accessible repositories'
+  return installation.repositorySelection === 'all' ? 'All repositories' : 'Selected repositories'
 }
 
 function getConnectionLabel(

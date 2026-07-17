@@ -138,6 +138,8 @@ beforeEach(async () => {
       openAuthorization: async () => undefined,
       copyDeviceCode: async () => undefined,
       openInstallation: async () => undefined,
+      openManageAccess: async () => undefined,
+      disconnect: async () => undefined,
       listAuthorizedRepositories: async () => []
     },
     projects: {

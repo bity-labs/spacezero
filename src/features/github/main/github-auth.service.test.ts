@@ -192,6 +192,30 @@ describe('GitHub auth service', () => {
     })
   })
 
+  it('disconnects locally by clearing protected credentials', async () => {
+    const credentials = createMemoryCredentialStore({
+      accessToken: 'access-secret',
+      refreshToken: 'refresh-secret',
+      accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z',
+      identity
+    })
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter: createAdapter([]),
+      credentialStore: credentials,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await service.disconnect()
+
+    expect(credentials.value).toBeUndefined()
+    await expect(service.getConnection()).resolves.toEqual({ status: 'disconnected' })
+  })
+
   it('fails closed when the refresh grant has expired', async () => {
     const credentials = createMemoryCredentialStore({
       accessToken: 'expired-access-secret',

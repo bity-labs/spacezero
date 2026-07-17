@@ -63,6 +63,8 @@ export const IPC_CHANNELS = {
     openAuthorization: 'github:openAuthorization',
     copyDeviceCode: 'github:copyDeviceCode',
     openInstallation: 'github:openInstallation',
+    openManageAccess: 'github:openManageAccess',
+    disconnect: 'github:disconnect',
     listAuthorizedRepositories: 'github:listAuthorizedRepositories'
   },
   projects: {
@@ -147,6 +149,8 @@ export type SpaceZeroAPI = {
     openAuthorization: (request: GitHubFlowRequest) => Promise<void>
     copyDeviceCode: (request: GitHubFlowRequest) => Promise<void>
     openInstallation: () => Promise<void>
+    openManageAccess: () => Promise<void>
+    disconnect: () => Promise<void>
     listAuthorizedRepositories: () => Promise<GitHubRepository[]>
   }
   projects: {
