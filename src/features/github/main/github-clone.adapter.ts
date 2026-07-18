@@ -93,9 +93,12 @@ function createAskPassScript(): string {
 function assertTokenFreeCloneUrl(url: string): void {
   try {
     const parsed = new URL(url)
+    // URL normalizes an explicit default :443 port away, so also require the raw canonical origin.
     if (
       parsed.protocol !== 'https:' ||
       parsed.hostname !== 'github.com' ||
+      parsed.port ||
+      !url.startsWith('https://github.com/') ||
       parsed.username ||
       parsed.password ||
       parsed.search ||

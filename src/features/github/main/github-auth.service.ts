@@ -64,6 +64,8 @@ type AuthorizationFlow = GitHubDeviceGrant & {
 
 type Sleep = (milliseconds: number, signal?: AbortSignal) => Promise<void>
 
+const MAX_DEVICE_POLL_INTERVAL_SECONDS = 60
+
 export type GitHubAuthService = ReturnType<typeof createGitHubAuthService>
 
 export class GitHubIntegrationError extends Error {
@@ -205,7 +207,12 @@ export function createGitHubAuthService({
 
         if (result.status === 'pending') continue
         if (result.status === 'slow_down') {
-          flow.intervalSeconds += 5
+          if (flow.intervalSeconds < MAX_DEVICE_POLL_INTERVAL_SECONDS) {
+            flow.intervalSeconds = Math.min(
+              flow.intervalSeconds + 5,
+              MAX_DEVICE_POLL_INTERVAL_SECONDS
+            )
+          }
           continue
         }
         if (result.status === 'denied') {

@@ -106,6 +106,25 @@ describe('GitHub clone adapter', () => {
     ).rejects.toThrow('github.invalidCloneUrl')
   })
 
+  it('refuses a GitHub clone URL containing an explicit port', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-test-'))
+    roots.push(root)
+    const adapter = createGitHubCloneAdapter()
+
+    await expect(
+      adapter.clone({
+        repository: {
+          ...repository,
+          cloneUrl: 'https://github.com:443/bity-labs/spacezero.git'
+        },
+        destination: join(root, 'spacezero'),
+        accessToken: 'access-secret',
+        signal: new AbortController().signal,
+        onProgress: () => undefined
+      })
+    ).rejects.toThrow('github.invalidCloneUrl')
+  })
+
   it('refuses to overwrite an existing destination', async () => {
     const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-test-'))
     roots.push(root)

@@ -1,3 +1,4 @@
+import log from 'electron-log/main'
 import { nanoid } from 'nanoid'
 
 import type {
@@ -75,6 +76,14 @@ export type SessionsRepository = {
 
 export type Clock = () => Date
 
+type IncompleteSessionMetadataCode =
+  'session.worktreeMetadataIncomplete' | 'session.sourceMetadataIncomplete'
+
+type InvalidSessionMetadata = {
+  sessionId: string
+  code: IncompleteSessionMetadataCode
+}
+
 export type SessionsService = {
   listProjectSessions: () => Promise<ProjectSession[]>
   listWorkspaceSessions: () => Promise<WorkspaceSession[]>
@@ -93,14 +102,26 @@ export type SessionsService = {
 
 export function createSessionsService({
   repository,
-  now = () => new Date()
+  now = () => new Date(),
+  onInvalidSessionMetadata = logInvalidSessionMetadata
 }: {
   repository: SessionsRepository
   now?: Clock
+  onInvalidSessionMetadata?: (metadata: InvalidSessionMetadata) => void
 }): SessionsService {
   return {
     async listProjectSessions() {
-      return (await repository.listProjectSessions()).map(toProjectSession)
+      const sessions: ProjectSession[] = []
+      for (const storedSession of await repository.listProjectSessions()) {
+        try {
+          sessions.push(toProjectSession(storedSession))
+        } catch (error) {
+          const code = getIncompleteSessionMetadataCode(error)
+          if (!code) throw error
+          onInvalidSessionMetadata({ sessionId: storedSession.id, code })
+        }
+      }
+      return sessions
     },
 
     async listWorkspaceSessions() {
@@ -240,6 +261,23 @@ function normalizeTitle(title: string): string {
   const normalized = title.trim().replace(/\s+/g, ' ')
   if (!normalized) throw new Error('Session title is required')
   return normalized
+}
+
+function getIncompleteSessionMetadataCode(
+  error: unknown
+): IncompleteSessionMetadataCode | undefined {
+  if (!(error instanceof Error)) return undefined
+  if (
+    error.message === 'session.worktreeMetadataIncomplete' ||
+    error.message === 'session.sourceMetadataIncomplete'
+  ) {
+    return error.message
+  }
+  return undefined
+}
+
+function logInvalidSessionMetadata({ sessionId, code }: InvalidSessionMetadata): void {
+  log.warn(`[sessions] Skipping Session ${sessionId}: ${code}`)
 }
 
 function toProjectSession(session: StoredSession): ProjectSession {

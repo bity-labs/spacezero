@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createGitHubConnectionService,
@@ -169,6 +169,32 @@ describe('GitHub connection service', () => {
     })
   })
 
+  it('reuses a recent repository snapshot for connection status', async () => {
+    const adapter = createAdapter()
+    const listInstallations = vi.spyOn(adapter, 'listInstallations')
+    const listRepositories = vi.spyOn(adapter, 'listInstallationRepositories')
+    let currentTime = 0
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter,
+      appSlug: 'space-zero',
+      now: () => currentTime,
+      openExternal: async () => undefined
+    })
+
+    await service.getConnection()
+    await service.getConnection()
+
+    expect(listInstallations).toHaveBeenCalledTimes(1)
+    expect(listRepositories).toHaveBeenCalledTimes(2)
+
+    currentTime += 60_000
+    await service.getConnection()
+
+    expect(listInstallations).toHaveBeenCalledTimes(2)
+    expect(listRepositories).toHaveBeenCalledTimes(4)
+  })
+
   it('revalidates changed grants every time repositories are queried', async () => {
     const adapter = createAdapter()
     let revoked = false
@@ -216,5 +242,21 @@ describe('GitHub connection service', () => {
     await service.openInstallation()
 
     expect(opened).toEqual(['https://github.com/apps/space-zero-dev/installations/new'])
+  })
+
+  it('accepts a configured GitHub App slug containing underscores', async () => {
+    const opened: string[] = []
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter: createAdapter(),
+      appSlug: 'space_zero-dev',
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+
+    await service.openInstallation()
+
+    expect(opened).toEqual(['https://github.com/apps/space_zero-dev/installations/new'])
   })
 })

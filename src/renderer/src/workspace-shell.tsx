@@ -271,7 +271,7 @@ export function WorkspaceShell(): React.JSX.Element {
     const project = nextProjects.find((candidate) => candidate.id === projectId)
     if (!project) throw new Error('Cloned Project was not registered')
     runInWorkspaceView(() => {
-      upsertProject(project)
+      selectProject(project)
       resetSessionWorkspaceLayout()
     })
   }

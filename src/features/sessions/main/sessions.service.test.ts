@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   createSessionsService,
@@ -280,6 +280,62 @@ describe('createSessionsService', () => {
       updatedAt: now.toISOString()
     })
     expect(await service.listProjectSessions()).toEqual([session])
+  })
+
+  it('skips and reports project sessions with incomplete durable metadata', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const onInvalidSessionMetadata = vi.fn()
+    const service = createSessionsService({
+      repository: createMemoryRepository({
+        sessions: [
+          {
+            id: 'valid-session',
+            projectId: 'project-1',
+            title: 'Valid session',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now
+          },
+          {
+            id: 'partial-worktree-session',
+            projectId: 'project-1',
+            title: 'Partial worktree',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now,
+            worktreePath: '/worktrees/partial'
+          },
+          {
+            id: 'partial-source-session',
+            projectId: 'project-1',
+            title: 'Partial source',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now,
+            sourceType: 'issue'
+          }
+        ]
+      }),
+      onInvalidSessionMetadata
+    })
+
+    await expect(service.listProjectSessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'valid-session' })
+    ])
+    expect(onInvalidSessionMetadata.mock.calls).toEqual([
+      [
+        {
+          sessionId: 'partial-worktree-session',
+          code: 'session.worktreeMetadataIncomplete'
+        }
+      ],
+      [
+        {
+          sessionId: 'partial-source-session',
+          code: 'session.sourceMetadataIncomplete'
+        }
+      ]
+    ])
   })
 
   it('numbers new default titles per project and preserves stored running status', async () => {

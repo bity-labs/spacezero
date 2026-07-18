@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ArrowSquareOut, Check, Copy, GithubLogo } from '@phosphor-icons/react'
 
 import type { GitHubDeviceAuthorization, GitHubInstallation } from '../../shared'
@@ -15,6 +15,20 @@ export function AccountSettings(): React.JSX.Element {
   const [copied, setCopied] = useState(false)
   const [installationOpened, setInstallationOpened] = useState(false)
   const attemptRef = useRef(0)
+  const pendingAuthorizationRef = useRef<GitHubDeviceAuthorization | null>(null)
+
+  useEffect(() => {
+    return () => {
+      attemptRef.current += 1
+      const pendingAuthorization = pendingAuthorizationRef.current
+      pendingAuthorizationRef.current = null
+      if (pendingAuthorization) {
+        void window.spacezero.github
+          .cancelAuthorization({ flowId: pendingAuthorization.flowId })
+          .catch(() => undefined)
+      }
+    }
+  }, [])
 
   async function startAuthorization(): Promise<void> {
     const attempt = ++attemptRef.current
@@ -23,26 +37,35 @@ export function AccountSettings(): React.JSX.Element {
 
     try {
       const nextAuthorization = await window.spacezero.github.startAuthorization()
-      if (attempt !== attemptRef.current) return
+      if (attempt !== attemptRef.current) {
+        await window.spacezero.github
+          .cancelAuthorization({ flowId: nextAuthorization.flowId })
+          .catch(() => undefined)
+        return
+      }
+      pendingAuthorizationRef.current = nextAuthorization
       setAuthorization(nextAuthorization)
 
       const nextConnection = await window.spacezero.github.waitForAuthorization({
         flowId: nextAuthorization.flowId
       })
       if (attempt !== attemptRef.current) return
+      pendingAuthorizationRef.current = null
       setConnection(nextConnection)
       setAuthorization(null)
       notifyGitHubConnectionChanged()
     } catch (caught) {
       if (attempt !== attemptRef.current) return
+      pendingAuthorizationRef.current = null
       setAuthorization(null)
       setError(toAuthorizationError(caught))
     }
   }
 
   async function cancelAuthorization(): Promise<void> {
-    const current = authorization
+    const current = pendingAuthorizationRef.current
     attemptRef.current += 1
+    pendingAuthorizationRef.current = null
     setAuthorization(null)
     setError(null)
     if (current) {

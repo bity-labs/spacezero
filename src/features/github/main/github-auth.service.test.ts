@@ -115,6 +115,41 @@ describe('GitHub auth service', () => {
     })
   })
 
+  it('caps provider-requested polling slowdowns at 60 seconds', async () => {
+    const sleeps: number[] = []
+    const adapter = createAdapter([
+      { status: 'slow_down' },
+      { status: 'slow_down' },
+      {
+        status: 'authorized',
+        tokens: {
+          accessToken: 'access-secret',
+          refreshToken: 'refresh-secret',
+          accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+          refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+        }
+      }
+    ])
+    adapter.requestDeviceCode = async () => ({ ...deviceGrant, intervalSeconds: 58 })
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: createMemoryCredentialStore(),
+      createFlowId: () => 'flow-1',
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds)
+      },
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await service.startAuthorization()
+    await service.waitForAuthorization({ flowId: 'flow-1' })
+
+    expect(sleeps).toEqual([58_000, 60_000, 60_000])
+  })
+
   it('cancels an unfinished flow without persisting a partial connection', async () => {
     const credentials = createMemoryCredentialStore()
     const service = createGitHubAuthService({
