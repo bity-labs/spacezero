@@ -139,7 +139,7 @@ function SummarySection<T>({
           {emptyMessage}
         </p>
       ) : null}
-      {items.length ? (
+      {!error && items.length ? (
         <div className="divide-y rounded-lg border">{items.map(renderItem)}</div>
       ) : null}
     </section>

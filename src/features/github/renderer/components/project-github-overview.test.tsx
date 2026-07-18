@@ -78,6 +78,46 @@ describe('ProjectGitHubOverview', () => {
     })
   })
 
+  it('hides previously loaded private titles when a refresh loses repository access', async () => {
+    let accessRevoked = false
+    window.spacezero.github.listIssues = async ({ page }) => {
+      if (accessRevoked) throw new Error('github.repositoryAccessRevoked')
+      return {
+        items: [
+          {
+            number: 83,
+            title: 'Private roadmap details',
+            body: null,
+            state: 'open',
+            htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            labels: [],
+            assignees: [],
+            commentCount: 0,
+            createdAt: '2026-07-18T00:00:00.000Z',
+            updatedAt: '2026-07-18T01:00:00.000Z'
+          }
+        ],
+        page,
+        hasNextPage: false
+      }
+    }
+    window.spacezero.github.listPullRequests = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+
+    renderOverview()
+    expect(await screen.findByText('Private roadmap details')).toBeInTheDocument()
+
+    accessRevoked = true
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('Private roadmap details')).not.toBeInTheDocument()
+  })
+
   it('shows independent empty states and contextual navigation controls', async () => {
     window.spacezero.github.listIssues = async ({ page }) => ({
       items: [],

@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { lstat, mkdir, mkdtemp, rename, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 
+import { withGitHubGitAuthentication } from '../../../main/lib/github-git-authentication'
 import type { GitHubCloneAdapter } from './github-repository-setup.service'
 import { GitHubCloneCancelledError } from './github-repository-setup.service'
 
@@ -25,45 +25,52 @@ export function createGitHubCloneAdapter({
       assertTokenFreeCloneUrl(repository.cloneUrl)
       if (await pathExists(destination)) throw new Error('github.cloneDestinationExists')
 
-      await mkdir(dirname(destination), { recursive: true })
-      const partialDestination = `${destination}.spacezero-partial`
-      await rm(partialDestination, { recursive: true, force: true })
-
-      const askPassDirectory = await mkdtemp(join(tmpdir(), 'spacezero-git-askpass-'))
-      const askPassPath = join(
-        askPassDirectory,
-        process.platform === 'win32' ? 'askpass.cmd' : 'askpass.sh'
+      const destinationParent = dirname(destination)
+      await mkdir(destinationParent, { recursive: true })
+      const partialDestination = await mkdtemp(
+        join(destinationParent, `.${basename(destination)}.spacezero-partial-`)
       )
-      await writeFile(askPassPath, createAskPassScript(), { mode: 0o700, flag: 'wx' })
-      await chmod(askPassPath, 0o700)
 
       try {
-        await runGit({
-          args: [
-            '-c',
-            'credential.helper=',
-            'clone',
-            '--progress',
-            '--',
-            repository.cloneUrl,
-            partialDestination
-          ],
-          environment: {
-            ...process.env,
-            GIT_ASKPASS: askPassPath,
-            GIT_TERMINAL_PROMPT: '0',
-            SPACEZERO_GITHUB_TOKEN: accessToken
-          },
-          signal,
-          onProgress: (percent) => onProgress({ percent })
+        await withGitHubGitAuthentication(accessToken, async (authentication) => {
+          await runGit({
+            args: [
+              ...authentication.configArgs,
+              'clone',
+              '--no-checkout',
+              '--no-recurse-submodules',
+              `--template=${authentication.templateDirectory}`,
+              '--progress',
+              '--',
+              repository.cloneUrl,
+              partialDestination
+            ],
+            environment: authentication.authenticatedEnvironment,
+            signal,
+            onProgress: (percent) => onProgress({ percent })
+          })
+          const remote = await runGit({
+            args: [
+              ...authentication.configArgs,
+              '-C',
+              partialDestination,
+              'remote',
+              'get-url',
+              'origin'
+            ],
+            environment: authentication.isolatedEnvironment,
+            signal
+          })
+          if (remote.stdout.trim() !== repository.cloneUrl) {
+            throw new Error('github.cloneRemoteMismatch')
+          }
         })
-        const remote = await runGit({
-          args: ['-C', partialDestination, 'remote', 'get-url', 'origin'],
+
+        // Materialize project files only after the credential has left the child environment.
+        await runGit({
+          args: ['-C', partialDestination, 'reset', '--hard', 'HEAD'],
           signal
         })
-        if (remote.stdout.trim() !== repository.cloneUrl) {
-          throw new Error('github.cloneRemoteMismatch')
-        }
         if (await pathExists(destination)) throw new Error('github.cloneDestinationExists')
         await rename(partialDestination, destination)
       } catch (error) {
@@ -72,8 +79,6 @@ export function createGitHubCloneAdapter({
           throw new GitHubCloneCancelledError()
         }
         throw createSanitizedCloneError()
-      } finally {
-        await rm(askPassDirectory, { recursive: true, force: true }).catch(() => undefined)
       }
     },
 
@@ -81,13 +86,6 @@ export function createGitHubCloneAdapter({
       await rm(destination, { recursive: true, force: true })
     }
   }
-}
-
-function createAskPassScript(): string {
-  if (process.platform === 'win32') {
-    return '@echo off\r\necho %* | findstr /I "Username" >nul\r\nif %errorlevel%==0 (echo x-access-token) else (echo %SPACEZERO_GITHUB_TOKEN%)\r\n'
-  }
-  return '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%s\\n" "x-access-token" ;;\n  *) printf "%s\\n" "$SPACEZERO_GITHUB_TOKEN" ;;\nesac\n'
 }
 
 function assertTokenFreeCloneUrl(url: string): void {

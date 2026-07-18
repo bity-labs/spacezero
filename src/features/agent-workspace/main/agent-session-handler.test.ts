@@ -428,6 +428,95 @@ describe('createProjectAgentSession', () => {
       }
     })
   })
+
+  it('retains recoverable Session metadata when utility rollback fails', async () => {
+    let createCalls = 0
+    let recoverySession: StoredSession | undefined
+    const repository = createRepository({
+      async create(session) {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('db write failed')
+        recoverySession = session
+        return session
+      },
+      async findSessionById(sessionId) {
+        return recoverySession?.id === sessionId ? recoverySession : undefined
+      }
+    })
+    const worktrees = createTestWorktrees()
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => {
+        throw new Error('utility cleanup failed')
+      })
+    }
+
+    await expect(
+      createManagedProjectAgentSession(
+        { projectId: 'project-1' },
+        {
+          repository,
+          utilityHost,
+          worktrees,
+          createSessionId: () => 'session-1',
+          readModelDefaults
+        }
+      )
+    ).rejects.toThrow('session.creationRollbackFailed')
+
+    expect(createCalls).toBe(2)
+    expect(worktrees.remove).not.toHaveBeenCalled()
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      id: 'session-1',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-session-1'
+    })
+  })
+
+  it('retains recoverable Session metadata when Git rollback fails', async () => {
+    let createCalls = 0
+    let recoverySession: StoredSession | undefined
+    const repository = createRepository({
+      async create(session) {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('db write failed')
+        recoverySession = session
+        return session
+      },
+      async findSessionById(sessionId) {
+        return recoverySession?.id === sessionId ? recoverySession : undefined
+      }
+    })
+    const worktrees = createTestWorktrees()
+    worktrees.remove = vi.fn(async () => {
+      throw new Error('session.worktreeRemoveFailed')
+    })
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await expect(
+      createManagedProjectAgentSession(
+        { projectId: 'project-1' },
+        {
+          repository,
+          utilityHost,
+          worktrees,
+          createSessionId: () => 'session-1',
+          readModelDefaults
+        }
+      )
+    ).rejects.toThrow('session.creationRollbackFailed')
+
+    expect(createCalls).toBe(2)
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      id: 'session-1',
+      worktreePath: '/worktrees/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+  })
 })
 
 describe('restoreAgentSessionState', () => {
@@ -766,6 +855,58 @@ describe('restoreAgentSessionState', () => {
         )
       })
     )
+  })
+
+  it.each([
+    { worktreePath: '/worktrees/session-1' },
+    { worktreeBranch: 'spacezero/session-session-1' },
+    { worktreeBaseRevision: 'abc123' },
+    {
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-session-1'
+    },
+    {
+      worktreePath: '/worktrees/session-1',
+      worktreeBaseRevision: 'abc123'
+    },
+    {
+      worktreeBranch: 'spacezero/session-session-1',
+      worktreeBaseRevision: 'abc123'
+    }
+  ])('rejects partial managed-worktree metadata before restoring an agent', async (metadata) => {
+    const storedSession: StoredSession = {
+      id: 'session-partial',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...metadata
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: storedSession.id },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost,
+          worktrees
+        }
+      )
+    ).rejects.toThrow('session.worktreeMetadataIncomplete')
+    expect(worktrees.validate).not.toHaveBeenCalled()
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
   })
 
   it('fails explicitly instead of restoring a managed Session in the base checkout', async () => {

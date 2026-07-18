@@ -78,7 +78,10 @@ export const githubPullRequestReviewCreateRequestSchema = githubPullRequestReque
     }
   })
 
-export const startGitHubCloneRequestSchema = z.object({ repositoryId: repositoryIdSchema })
+export const startGitHubCloneRequestSchema = z.object({
+  repositoryId: repositoryIdSchema,
+  existingProjectId: z.string().trim().min(1).max(128).optional()
+})
 
 export const cancelGitHubCloneRequestSchema = z.object({
   operationId: z.string().trim().min(1).max(128)

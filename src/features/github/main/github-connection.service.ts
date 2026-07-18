@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import type {
   GitHubConnection,
   GitHubInstallation,
@@ -32,7 +34,7 @@ export type GitHubInstallationsAdapter = {
 }
 
 type AuthBoundary = Pick<GitHubAuthService, 'getAuthorizedCredential'> &
-  Partial<Pick<GitHubAuthService, 'getConnection'>>
+  Partial<Pick<GitHubAuthService, 'getAuthorizationGeneration' | 'getConnection'>>
 
 type RepositoryAccessSnapshot = {
   installations: GitHubInstallation[]
@@ -56,14 +58,14 @@ export function createGitHubConnectionService({
 }) {
   let connectionSnapshotCache:
     | {
-        identityId: string
+        authorizationKey: string
         expiresAt: number
         snapshot: RepositoryAccessSnapshot
       }
     | undefined
   let connectionSnapshotInFlight:
     | {
-        identityId: string
+        authorizationKey: string
         generation: number
         promise: Promise<RepositoryAccessSnapshot>
       }
@@ -148,9 +150,10 @@ export function createGitHubConnectionService({
     credential: StoredGitHubCredential,
     forceRefresh: boolean
   ): Promise<RepositoryAccessSnapshot> {
+    const authorizationKey = createAuthorizationKey(credential, auth.getAuthorizationGeneration?.())
     if (
       !forceRefresh &&
-      connectionSnapshotCache?.identityId === credential.identity.id &&
+      connectionSnapshotCache?.authorizationKey === authorizationKey &&
       now() < connectionSnapshotCache.expiresAt
     ) {
       return connectionSnapshotCache.snapshot
@@ -158,7 +161,7 @@ export function createGitHubConnectionService({
 
     const generation = connectionSnapshotGeneration
     if (
-      connectionSnapshotInFlight?.identityId === credential.identity.id &&
+      connectionSnapshotInFlight?.authorizationKey === authorizationKey &&
       connectionSnapshotInFlight.generation === generation
     ) {
       return connectionSnapshotInFlight.promise
@@ -166,7 +169,7 @@ export function createGitHubConnectionService({
 
     const promise = loadRepositoryAccess(credential.accessToken)
     connectionSnapshotInFlight = {
-      identityId: credential.identity.id,
+      authorizationKey,
       generation,
       promise
     }
@@ -175,7 +178,7 @@ export function createGitHubConnectionService({
       const snapshot = await promise
       if (generation === connectionSnapshotGeneration) {
         connectionSnapshotCache = {
-          identityId: credential.identity.id,
+          authorizationKey,
           expiresAt: now() + CONNECTION_SNAPSHOT_TTL_MS,
           snapshot
         }
@@ -250,6 +253,19 @@ export class GitHubInstallationAccessError extends Error {
     super(`github.${code}`)
     this.name = 'GitHubInstallationAccessError'
   }
+}
+
+function createAuthorizationKey(
+  credential: StoredGitHubCredential,
+  authorizationGeneration: number | undefined
+): string {
+  return createHash('sha256')
+    .update(credential.identity.id)
+    .update('\0')
+    .update(credential.accessToken)
+    .update('\0')
+    .update(String(authorizationGeneration ?? 'unavailable'))
+    .digest('base64url')
 }
 
 function isGitHubError(error: unknown, code: GitHubIntegrationError['code']): boolean {
