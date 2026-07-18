@@ -234,4 +234,25 @@ describe('AccountSettings', () => {
     expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
     expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
   })
+
+  it('cancels a pending authorization flow when Account Settings unmounts', async () => {
+    const cancelAuthorization = vi.fn(async () => undefined)
+    window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
+    window.spacezero.github.startAuthorization = async () => ({
+      flowId: 'flow-1',
+      userCode: 'ABCD-EFGH',
+      verificationUri: 'https://github.com/login/device',
+      expiresAt: '2026-07-18T00:15:00.000Z'
+    })
+    window.spacezero.github.waitForAuthorization = () => new Promise<never>(() => undefined)
+    window.spacezero.github.cancelAuthorization = cancelAuthorization
+
+    const { unmount } = render(<AccountSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
+    await screen.findByText('ABCD-EFGH')
+
+    unmount()
+
+    await waitFor(() => expect(cancelAuthorization).toHaveBeenCalledWith({ flowId: 'flow-1' }))
+  })
 })

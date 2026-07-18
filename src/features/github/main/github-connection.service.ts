@@ -34,17 +34,34 @@ export type GitHubInstallationsAdapter = {
 type AuthBoundary = Pick<GitHubAuthService, 'getAuthorizedCredential'> &
   Partial<Pick<GitHubAuthService, 'getConnection'>>
 
+type RepositoryAccessSnapshot = {
+  installations: GitHubInstallation[]
+  repositories: GitHubRepository[]
+}
+
+const CONNECTION_SNAPSHOT_TTL_MS = 30_000
+
 export function createGitHubConnectionService({
   auth,
   adapter,
   appSlug,
+  now = Date.now,
   openExternal
 }: {
   auth: AuthBoundary
   adapter: GitHubInstallationsAdapter
   appSlug: string | undefined
+  now?: () => number
   openExternal: (url: string) => Promise<void>
 }) {
+  let connectionSnapshotCache:
+    | {
+        identityId: string
+        expiresAt: number
+        snapshot: RepositoryAccessSnapshot
+      }
+    | undefined
+
   async function getConnection(): Promise<GitHubConnection> {
     let credential: StoredGitHubCredential
     try {
@@ -59,9 +76,9 @@ export function createGitHubConnectionService({
       throw error
     }
 
-    let snapshot: Awaited<ReturnType<typeof loadRepositoryAccess>>
+    let snapshot: RepositoryAccessSnapshot
     try {
-      snapshot = await loadRepositoryAccess(credential.accessToken)
+      snapshot = await loadConnectionRepositoryAccess(credential)
     } catch (error) {
       if (isGitHubError(error, 'reconnect-required')) {
         return { status: 'reconnect-required', identity: credential.identity }
@@ -105,21 +122,39 @@ export function createGitHubConnectionService({
   }
 
   async function openManageAccess(): Promise<void> {
+    connectionSnapshotCache = undefined
     await openExternal('https://github.com/settings/installations')
   }
 
   async function openInstallation(): Promise<void> {
     const slug = appSlug?.trim()
-    if (!slug || !/^[a-zA-Z0-9-]+$/.test(slug)) {
+    if (!slug || !/^[a-zA-Z0-9_-]+$/.test(slug)) {
       throw new GitHubIntegrationError('configuration-missing')
     }
+    connectionSnapshotCache = undefined
     await openExternal(`https://github.com/apps/${slug}/installations/new`)
   }
 
-  async function loadRepositoryAccess(accessToken: string): Promise<{
-    installations: GitHubInstallation[]
-    repositories: GitHubRepository[]
-  }> {
+  async function loadConnectionRepositoryAccess(
+    credential: StoredGitHubCredential
+  ): Promise<RepositoryAccessSnapshot> {
+    if (
+      connectionSnapshotCache?.identityId === credential.identity.id &&
+      now() < connectionSnapshotCache.expiresAt
+    ) {
+      return connectionSnapshotCache.snapshot
+    }
+
+    const snapshot = await loadRepositoryAccess(credential.accessToken)
+    connectionSnapshotCache = {
+      identityId: credential.identity.id,
+      expiresAt: now() + CONNECTION_SNAPSHOT_TTL_MS,
+      snapshot
+    }
+    return snapshot
+  }
+
+  async function loadRepositoryAccess(accessToken: string): Promise<RepositoryAccessSnapshot> {
     const installationAccess = await adapter.listInstallations(accessToken)
     const installations: GitHubInstallation[] = []
     const repositories = new Map<string, GitHubRepository>()
