@@ -59,6 +59,10 @@ type AuthorizationFlow = GitHubDeviceGrant & {
   expiresAt: Date
   intervalSeconds: number
   cancelled: boolean
+  discardCredentialOnCancel: boolean
+  waitStarted: boolean
+  settled: Promise<void>
+  markSettled: () => void
   abortController: AbortController
 }
 
@@ -110,57 +114,81 @@ export function createGitHubAuthService({
   copyText: (text: string) => void
 }) {
   const flows = new Map<string, AuthorizationFlow>()
+  let refreshInFlight:
+    { refreshToken: string; promise: Promise<StoredGitHubCredential> } | undefined
 
   async function getConnection(): Promise<GitHubConnection> {
     const credential = await credentialStore.read()
     if (!credential) return { status: 'disconnected' }
 
-    if (isAfter(now(), credential.refreshTokenExpiresAt)) {
+    try {
+      const authorized = await ensureAuthorizedCredential(credential)
+      return { status: 'repository-access-required', identity: authorized.identity }
+    } catch {
       return { status: 'reconnect-required', identity: credential.identity }
     }
-
-    if (isAfter(now(), credential.accessTokenExpiresAt)) {
-      try {
-        const tokens = await adapter.refreshAccessToken(
-          requireClientId(clientId),
-          credential.refreshToken
-        )
-        await credentialStore.write({ ...tokens, identity: credential.identity })
-      } catch {
-        return { status: 'reconnect-required', identity: credential.identity }
-      }
-    }
-
-    return { status: 'repository-access-required', identity: credential.identity }
   }
 
   async function getAuthorizedCredential(): Promise<StoredGitHubCredential> {
     const credential = await credentialStore.read()
     if (!credential) throw new GitHubIntegrationError('authorization-required')
+    return ensureAuthorizedCredential(credential)
+  }
+
+  async function ensureAuthorizedCredential(
+    credential: StoredGitHubCredential
+  ): Promise<StoredGitHubCredential> {
     if (isAfter(now(), credential.refreshTokenExpiresAt)) {
       throw new GitHubIntegrationError('reconnect-required')
     }
     if (!isAfter(now(), credential.accessTokenExpiresAt)) return credential
 
     try {
-      const tokens = await adapter.refreshAccessToken(
-        requireClientId(clientId),
-        credential.refreshToken
-      )
-      const refreshed = { ...tokens, identity: credential.identity }
-      await credentialStore.write(refreshed)
-      return refreshed
+      return await refreshCredential(credential)
     } catch {
       throw new GitHubIntegrationError('reconnect-required')
     }
   }
 
+  async function refreshCredential(
+    credential: StoredGitHubCredential
+  ): Promise<StoredGitHubCredential> {
+    if (refreshInFlight?.refreshToken === credential.refreshToken) {
+      return refreshInFlight.promise
+    }
+
+    const promise = (async () => {
+      const tokens = await adapter.refreshAccessToken(
+        requireClientId(clientId),
+        credential.refreshToken
+      )
+      const currentCredential = await credentialStore.read()
+      if (!currentCredential || currentCredential.refreshToken !== credential.refreshToken) {
+        throw new GitHubIntegrationError('reconnect-required')
+      }
+      const refreshed = { ...tokens, identity: credential.identity }
+      await credentialStore.write(refreshed)
+      return refreshed
+    })()
+    refreshInFlight = { refreshToken: credential.refreshToken, promise }
+
+    try {
+      return await promise
+    } finally {
+      if (refreshInFlight?.promise === promise) refreshInFlight = undefined
+    }
+  }
+
   async function disconnect(): Promise<void> {
+    const pendingFlows: Promise<void>[] = []
     for (const flow of flows.values()) {
       flow.cancelled = true
+      flow.discardCredentialOnCancel = true
       flow.abortController.abort()
+      if (flow.waitStarted) pendingFlows.push(flow.settled)
     }
     flows.clear()
+    await Promise.all(pendingFlows)
     await credentialStore.clear()
   }
 
@@ -171,12 +199,17 @@ export function createGitHubAuthService({
 
     const flowId = createFlowId()
     const expiresAt = new Date(now().getTime() + grant.expiresInSeconds * 1_000)
+    const settled = createSettledSignal()
     const flow: AuthorizationFlow = {
       ...grant,
       flowId,
       expiresAt,
       intervalSeconds: Math.max(1, grant.intervalSeconds),
       cancelled: false,
+      discardCredentialOnCancel: false,
+      waitStarted: false,
+      settled: settled.promise,
+      markSettled: settled.resolve,
       abortController: new AbortController()
     }
     flows.set(flowId, flow)
@@ -194,6 +227,9 @@ export function createGitHubAuthService({
   async function waitForAuthorization(request: GitHubFlowRequest): Promise<GitHubConnection> {
     const flow = requireFlow(request.flowId)
     const configuredClientId = requireClientId(clientId)
+    flow.waitStarted = true
+    let previousCredential: StoredGitHubCredential | undefined
+    let credentialWriteStarted = false
 
     try {
       while (true) {
@@ -225,16 +261,25 @@ export function createGitHubAuthService({
         const identity = await safelyRequest(() =>
           adapter.getIdentity(result.tokens.accessToken, flow.abortController.signal)
         )
+        assertFlowActive(flow)
+        previousCredential = await credentialStore.read()
+        assertFlowActive(flow)
+        credentialWriteStarted = true
         await credentialStore.write({ ...result.tokens, identity })
+        assertFlowActive(flow)
         return { status: 'repository-access-required', identity }
       }
     } catch (error) {
+      if (credentialWriteStarted) {
+        await restoreCredentialAfterIncompleteFlow(flow, previousCredential, credentialStore)
+      }
       if (flow.cancelled || flow.abortController.signal.aborted) {
         throw new GitHubIntegrationError('authorization-cancelled')
       }
       throw sanitizeError(error)
     } finally {
       flows.delete(flow.flowId)
+      flow.markSettled()
     }
   }
 
@@ -243,6 +288,7 @@ export function createGitHubAuthService({
     if (!flow) return
     flow.cancelled = true
     flow.abortController.abort()
+    if (flow.waitStarted) await flow.settled
   }
 
   async function openAuthorization(request: GitHubFlowRequest): Promise<void> {
@@ -282,6 +328,26 @@ export function createGitHubAuthService({
       throw new GitHubIntegrationError('authorization-expired')
     }
   }
+}
+
+function createSettledSignal(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void
+  const promise = new Promise<void>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
+async function restoreCredentialAfterIncompleteFlow(
+  flow: AuthorizationFlow,
+  previousCredential: StoredGitHubCredential | undefined,
+  credentialStore: GitHubCredentialStore
+): Promise<void> {
+  if (flow.discardCredentialOnCancel || !previousCredential) {
+    await credentialStore.clear()
+    return
+  }
+  await credentialStore.write(previousCredential)
 }
 
 function requireClientId(clientId: string | undefined): string {

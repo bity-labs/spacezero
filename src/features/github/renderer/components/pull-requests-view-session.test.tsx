@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -103,6 +103,40 @@ describe('Pull Request-linked Session action', () => {
     expect(createComment).not.toHaveBeenCalled()
     expect(createReview).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /checkout|merge|close/i })).not.toBeInTheDocument()
+  })
+
+  it('hides cached Pull Request content and write actions after access is revoked', async () => {
+    setupPullRequest()
+    let accessRevoked = false
+    const getPullRequest = window.spacezero.github.getPullRequest
+    window.spacezero.github.getPullRequest = async (request) => {
+      if (accessRevoked) throw new Error('github.repositoryAccessRevoked')
+      return getPullRequest(request)
+    }
+
+    render(
+      <QueryClientProvider client={createGitHubQueryClient()}>
+        <PullRequestsView project={project} initialPullRequestNumber={79} />
+      </QueryClientProvider>
+    )
+
+    expect(await screen.findByText('Managed storage foundation')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Pull Request actions' })).toBeInTheDocument()
+    accessRevoked = true
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(
+      await screen.findByText(
+        'Repository access was revoked. Restore GitHub App access before loading Pull Request.'
+      )
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('Managed storage foundation')).not.toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: 'Pull Request actions' })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: 'Start Session from Pull Request' })
+      ).not.toBeInTheDocument()
+    })
   })
 
   it('reports creation failure without disturbing the base Project', async () => {

@@ -74,7 +74,11 @@ export function createProtectedGitHubCredentialStore({
     },
 
     async clear() {
-      await rm(filePath, { force: true }).catch(() => undefined)
+      try {
+        await rm(filePath, { force: true })
+      } catch {
+        throw new GitHubIntegrationError('credentials-unavailable')
+      }
     }
   }
 }

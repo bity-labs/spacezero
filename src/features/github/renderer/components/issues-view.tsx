@@ -59,13 +59,18 @@ function IssueList({
   onOpenIssue: (number: number) => void
 }): React.JSX.Element {
   const query = useProjectIssues(projectId, page)
+  const issues = query.isError ? undefined : query.data
 
   return (
     <section className="space-y-4" aria-label="GitHub Issues">
       <header className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Issues</h2>
-          <p className="text-sm text-muted-foreground">Live from the linked GitHub repository.</p>
+          <p className="text-sm text-muted-foreground">
+            {query.isError
+              ? 'GitHub data is unavailable; previously loaded Issues are hidden.'
+              : 'Live from the linked GitHub repository.'}
+          </p>
         </div>
         <RefreshButton fetching={query.isFetching} onRefresh={() => void query.refetch()} />
       </header>
@@ -77,14 +82,14 @@ function IssueList({
           onRetry={query.refetch}
         />
       ) : null}
-      {query.data?.items.length === 0 ? (
+      {issues?.items.length === 0 ? (
         <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
           No Issues were found in this repository.
         </p>
       ) : null}
-      {query.data?.items.length ? (
+      {issues?.items.length ? (
         <ul className="divide-y rounded-lg border" aria-label="Issue list">
-          {query.data.items.map((issue) => (
+          {issues.items.map((issue) => (
             <li key={issue.number}>
               <button
                 type="button"
@@ -111,7 +116,7 @@ function IssueList({
         </ul>
       ) : null}
 
-      {query.data ? (
+      {issues ? (
         <nav className="flex items-center justify-between" aria-label="Issue pages">
           <Button
             variant="outline"
@@ -125,7 +130,7 @@ function IssueList({
           <Button
             variant="outline"
             size="sm"
-            disabled={!query.data.hasNextPage || query.isFetching}
+            disabled={!issues.hasNextPage || query.isFetching}
             onClick={() => onPageChange(page + 1)}
           >
             Next
@@ -156,6 +161,8 @@ function IssueDetail({
   const queryClient = useQueryClient()
   const issueQuery = useProjectIssue(projectId, number)
   const commentsQuery = useProjectIssueComments(projectId, number, commentsPage)
+  const issue = issueQuery.isError ? undefined : issueQuery.data
+  const comments = commentsQuery.isError ? undefined : commentsQuery.data
   const commentMutation = useMutation({
     mutationFn: (body: string) =>
       window.spacezero.github.createIssueComment({ projectId, number, body }),
@@ -218,9 +225,9 @@ function IssueDetail({
           onRetry={issueQuery.refetch}
         />
       ) : null}
-      {issueQuery.data ? (
+      {issue ? (
         <>
-          <IssueContent issue={issueQuery.data} />
+          <IssueContent issue={issue} />
           <div className="flex flex-wrap items-center gap-3">
             <Button
               disabled={isStartingSession}
@@ -246,12 +253,12 @@ function IssueDetail({
               onClick={() => {
                 setSuccessMessage(null)
                 stateMutation.reset()
-                stateMutation.mutate(issueQuery.data.state === 'open' ? 'closed' : 'open')
+                stateMutation.mutate(issue.state === 'open' ? 'closed' : 'open')
               }}
             >
               {stateMutation.isPending
                 ? 'Updating Issue…'
-                : issueQuery.data.state === 'open'
+                : issue.state === 'open'
                   ? 'Close Issue'
                   : 'Reopen Issue'}
             </Button>
@@ -274,7 +281,7 @@ function IssueDetail({
         </>
       ) : null}
 
-      {issueQuery.data ? (
+      {issue ? (
         <section className="space-y-3" aria-label="Issue comments">
           <h3 className="font-semibold">Comments</h3>
           <form
@@ -320,13 +327,13 @@ function IssueDetail({
               onRetry={commentsQuery.refetch}
             />
           ) : null}
-          {commentsQuery.data?.items.length === 0 ? (
+          {comments?.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No comments yet.</p>
           ) : null}
-          {commentsQuery.data?.items.map((comment) => (
+          {comments?.items.map((comment) => (
             <IssueCommentCard key={comment.id} comment={comment} />
           ))}
-          {commentsQuery.data ? (
+          {comments ? (
             <nav className="flex items-center justify-between" aria-label="Comment pages">
               <Button
                 variant="outline"
@@ -340,7 +347,7 @@ function IssueDetail({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!commentsQuery.data.hasNextPage || commentsQuery.isFetching}
+                disabled={!comments.hasNextPage || commentsQuery.isFetching}
                 onClick={() => setCommentsPage((current) => current + 1)}
               >
                 Next comments

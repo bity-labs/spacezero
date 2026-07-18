@@ -93,9 +93,7 @@ export type SessionsService = {
     request: CreateWorkspaceAgentSessionRequest
   ) => Promise<WorkspaceSession>
   archiveSession: (sessionId: string) => Promise<void>
-  deleteSession: (sessionId: string) => Promise<StoredSession>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
-  deleteProjectSessions: (projectId: string) => Promise<StoredSession[]>
   updateAgentModel: (sessionId: string, provider: string, modelId: string) => Promise<void>
   updateAgentThinkingLevel: (sessionId: string, level: ThinkingLevel) => Promise<void>
 }
@@ -212,13 +210,6 @@ export function createSessionsService({
       await repository.update({ ...session, archivedAt: now(), updatedAt: now() })
     },
 
-    async deleteSession(sessionId) {
-      const session = await repository.findSessionById(sessionId.trim())
-      if (!session) throw new Error('Session not found')
-      await repository.deleteById(session.id)
-      return session
-    },
-
     async archiveProjectSessions(projectId) {
       const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
       const timestamp = now()
@@ -229,12 +220,6 @@ export function createSessionsService({
           updatedAt: timestamp
         }))
       )
-      return sessions
-    },
-
-    async deleteProjectSessions(projectId) {
-      const sessions = await repository.listByProjectIdIncludingArchived(projectId.trim())
-      await repository.deleteByProjectId(projectId.trim())
       return sessions
     },
 

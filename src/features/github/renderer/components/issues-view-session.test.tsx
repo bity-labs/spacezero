@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -94,6 +94,38 @@ describe('Issue-linked Session action', () => {
     )
     expect(createComment).not.toHaveBeenCalled()
     expect(updateState).not.toHaveBeenCalled()
+  })
+
+  it('hides cached Issue content and write actions after access is revoked', async () => {
+    setupIssue()
+    let accessRevoked = false
+    const getIssue = window.spacezero.github.getIssue
+    window.spacezero.github.getIssue = async (request) => {
+      if (accessRevoked) throw new Error('github.repositoryAccessRevoked')
+      return getIssue(request)
+    }
+
+    render(
+      <QueryClientProvider client={createGitHubQueryClient()}>
+        <IssuesView project={project} initialIssueNumber={83} />
+      </QueryClientProvider>
+    )
+
+    expect(await screen.findByText('GitHub integration')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close Issue' })).toBeInTheDocument()
+    accessRevoked = true
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+
+    expect(
+      await screen.findByText(
+        'Repository access was revoked. Restore GitHub App access before loading Issue.'
+      )
+    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(screen.queryByText('GitHub integration')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Close Issue' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Add comment' })).not.toBeInTheDocument()
+    })
   })
 
   it('reports creation failure without opening a missing Session', async () => {

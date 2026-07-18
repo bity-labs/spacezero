@@ -102,30 +102,6 @@ describe('createSessionsService', () => {
     })
   })
 
-  it('deletes session metadata and returns the deleted session for transcript cleanup', async () => {
-    const now = new Date('2026-07-10T00:00:00.000Z')
-    const repository = createMemoryRepository({
-      sessions: [
-        {
-          id: 'agent-session-1',
-          projectId: 'project-1',
-          title: 'Session 1',
-          status: 'idle',
-          createdAt: now,
-          updatedAt: now,
-          transcriptPath: '/agent/sessions/session-1.jsonl'
-        }
-      ]
-    })
-    const service = createSessionsService({ repository, now: () => now })
-
-    await expect(service.deleteSession('agent-session-1')).resolves.toMatchObject({
-      id: 'agent-session-1',
-      transcriptPath: '/agent/sessions/session-1.jsonl'
-    })
-    await expect(repository.findSessionById('agent-session-1')).resolves.toBeUndefined()
-  })
-
   it('persists agent model and thinking selections', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository({

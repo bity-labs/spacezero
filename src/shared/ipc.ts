@@ -90,6 +90,7 @@ export const IPC_CHANNELS = {
   },
   github: {
     getConnection: 'github:getConnection',
+    refreshConnection: 'github:refreshConnection',
     startAuthorization: 'github:startAuthorization',
     waitForAuthorization: 'github:waitForAuthorization',
     cancelAuthorization: 'github:cancelAuthorization',
@@ -203,6 +204,7 @@ export type SpaceZeroAPI = {
   }
   github: {
     getConnection: () => Promise<GitHubConnection>
+    refreshConnection: () => Promise<GitHubConnection>
     startAuthorization: () => Promise<GitHubDeviceAuthorization>
     waitForAuthorization: (request: GitHubFlowRequest) => Promise<GitHubConnection>
     cancelAuthorization: (request: GitHubFlowRequest) => Promise<void>

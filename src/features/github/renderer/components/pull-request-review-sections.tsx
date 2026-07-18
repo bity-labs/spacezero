@@ -36,6 +36,7 @@ function FilesSection({
 }): React.JSX.Element {
   const [page, setPage] = useState(1)
   const query = useProjectPullRequestFiles(projectId, number, page)
+  const files = query.isError ? undefined : query.data
 
   return (
     <section className="space-y-3" aria-label="Changed files">
@@ -47,17 +48,17 @@ function FilesSection({
           onRetry={query.refetch}
         />
       ) : null}
-      {query.data?.items.length === 0 ? (
+      {files?.items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No changed files were returned.</p>
       ) : null}
-      {query.data?.items.map((file) => (
+      {files?.items.map((file) => (
         <FileCard key={`${file.sha}:${file.filename}`} file={file} />
       ))}
-      {query.data ? (
+      {files ? (
         <Pagination
           label="Changed file pages"
           page={page}
-          hasNextPage={query.data.hasNextPage}
+          hasNextPage={files.hasNextPage}
           fetching={query.isFetching}
           onPageChange={setPage}
         />
@@ -126,6 +127,8 @@ function ChecksSection({
   const [statusesPage, setStatusesPage] = useState(1)
   const checks = useProjectPullRequestCheckRuns(projectId, number, checksPage)
   const statuses = useProjectPullRequestCommitStatuses(projectId, number, statusesPage)
+  const currentChecks = checks.isError ? undefined : checks.data
+  const currentStatuses = statuses.isError ? undefined : statuses.data
 
   return (
     <section className="space-y-5" aria-label="Checks and statuses">
@@ -138,10 +141,10 @@ function ChecksSection({
             onRetry={checks.refetch}
           />
         ) : null}
-        {checks.data?.items.length === 0 ? (
+        {currentChecks?.items.length === 0 ? (
           <p className="text-sm text-muted-foreground">No check runs were reported.</p>
         ) : null}
-        {checks.data?.items.map((check) => (
+        {currentChecks?.items.map((check) => (
           <article
             key={check.id}
             className="flex items-center justify-between gap-3 rounded-lg border p-3"
@@ -157,11 +160,11 @@ function ChecksSection({
             </Badge>
           </article>
         ))}
-        {checks.data ? (
+        {currentChecks ? (
           <Pagination
             label="Check run pages"
             page={checksPage}
-            hasNextPage={checks.data.hasNextPage}
+            hasNextPage={currentChecks.hasNextPage}
             fetching={checks.isFetching}
             onPageChange={setChecksPage}
           />
@@ -177,10 +180,10 @@ function ChecksSection({
             onRetry={statuses.refetch}
           />
         ) : null}
-        {statuses.data?.items.length === 0 ? (
+        {currentStatuses?.items.length === 0 ? (
           <p className="text-sm text-muted-foreground">No commit statuses were reported.</p>
         ) : null}
-        {statuses.data?.items.map((status) => (
+        {currentStatuses?.items.map((status) => (
           <article
             key={status.id}
             className="flex items-center justify-between gap-3 rounded-lg border p-3"
@@ -196,11 +199,11 @@ function ChecksSection({
             </Badge>
           </article>
         ))}
-        {statuses.data ? (
+        {currentStatuses ? (
           <Pagination
             label="Commit status pages"
             page={statusesPage}
-            hasNextPage={statuses.data.hasNextPage}
+            hasNextPage={currentStatuses.hasNextPage}
             fetching={statuses.isFetching}
             onPageChange={setStatusesPage}
           />
@@ -219,6 +222,7 @@ function ReviewsSection({
 }): React.JSX.Element {
   const [page, setPage] = useState(1)
   const query = useProjectPullRequestReviews(projectId, number, page)
+  const reviews = query.isError ? undefined : query.data
 
   return (
     <section className="space-y-3" aria-label="Submitted reviews">
@@ -230,10 +234,10 @@ function ReviewsSection({
           onRetry={query.refetch}
         />
       ) : null}
-      {query.data?.items.length === 0 ? (
+      {reviews?.items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No submitted reviews yet.</p>
       ) : null}
-      {query.data?.items.map((review) => (
+      {reviews?.items.map((review) => (
         <article key={review.id} className="space-y-2 rounded-lg border p-4">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-medium">{review.author?.login ?? 'ghost'}</p>
@@ -244,11 +248,11 @@ function ReviewsSection({
           {review.body ? <p className="whitespace-pre-wrap text-sm">{review.body}</p> : null}
         </article>
       ))}
-      {query.data ? (
+      {reviews ? (
         <Pagination
           label="Review pages"
           page={page}
-          hasNextPage={query.data.hasNextPage}
+          hasNextPage={reviews.hasNextPage}
           fetching={query.isFetching}
           onPageChange={setPage}
         />

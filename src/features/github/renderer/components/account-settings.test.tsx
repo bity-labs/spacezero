@@ -65,6 +65,7 @@ describe('AccountSettings', () => {
     }
     let installed = false
     let installationOpens = 0
+    let repositoryAccessChecks = 0
     window.spacezero.github.getConnection = async () =>
       installed
         ? {
@@ -95,6 +96,10 @@ describe('AccountSettings', () => {
             ]
           }
         : { status: 'repository-access-required', identity }
+    window.spacezero.github.refreshConnection = async () => {
+      repositoryAccessChecks += 1
+      return window.spacezero.github.getConnection()
+    }
     window.spacezero.github.openInstallation = async () => {
       installationOpens += 1
       installed = true
@@ -108,37 +113,26 @@ describe('AccountSettings', () => {
 
     expect(await screen.findByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('1 accessible repository across 1 installation.')).toBeInTheDocument()
+    expect(repositoryAccessChecks).toBe(1)
   })
 
-  it('shows pending organization approval without blocking local use', async () => {
+  it('does not claim organization approval is pending without a provider signal', async () => {
     window.spacezero.github.getConnection = async () => ({
-      status: 'pending-organization-approval',
+      status: 'repository-access-required',
       identity: {
         id: '42',
         login: 'octocat',
         avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
         profileUrl: 'https://github.com/octocat'
       },
-      installations: [
-        {
-          id: '200',
-          owner: {
-            id: '84',
-            login: 'bity-labs',
-            type: 'organization',
-            avatarUrl: 'https://avatars.githubusercontent.com/u/84?v=4'
-          },
-          repositorySelection: 'selected',
-          status: 'pending-approval',
-          repositoryCount: 0
-        }
-      ]
+      installations: []
     })
 
     render(<AccountSettings />)
 
-    expect(await screen.findAllByText('Pending organization approval')).toHaveLength(2)
-    expect(screen.getByText(/continue using local Projects/i)).toBeInTheDocument()
+    expect(await screen.findByText('Repository access required')).toBeInTheDocument()
+    expect(screen.getByText(/Install the Space Zero GitHub App/i)).toBeInTheDocument()
+    expect(screen.queryByText('Pending organization approval')).not.toBeInTheDocument()
   })
 
   it('groups installations and manages or disconnects the local connection', async () => {
@@ -208,6 +202,39 @@ describe('AccountSettings', () => {
 
     await waitFor(() => expect(openedActions).toEqual(['install', 'manage']))
     expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+  })
+
+  it('shows and cancels the device code while reconnecting an existing identity', async () => {
+    const identity = {
+      id: '42',
+      login: 'octocat',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+      profileUrl: 'https://github.com/octocat'
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'reconnect-required',
+      identity
+    })
+    window.spacezero.github.startAuthorization = async () => ({
+      flowId: 'reconnect-flow',
+      userCode: 'RECONNECT',
+      verificationUri: 'https://github.com/login/device',
+      expiresAt: '2026-07-18T00:15:00.000Z'
+    })
+    window.spacezero.github.waitForAuthorization = () => new Promise<never>(() => undefined)
+    window.spacezero.github.cancelAuthorization = vi.fn(async () => undefined)
+
+    render(<AccountSettings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconnect GitHub' }))
+
+    expect(await screen.findByText('RECONNECT')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reconnect GitHub' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByRole('button', { name: 'Reconnect GitHub' })).toBeInTheDocument()
+    expect(window.spacezero.github.cancelAuthorization).toHaveBeenCalledWith({
+      flowId: 'reconnect-flow'
+    })
   })
 
   it('cancels authorization without showing a connected state', async () => {

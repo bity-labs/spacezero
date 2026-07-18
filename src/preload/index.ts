@@ -39,6 +39,7 @@ const api: SpaceZeroAPI = {
   },
   github: {
     getConnection: () => ipcRenderer.invoke(IPC_CHANNELS.github.getConnection),
+    refreshConnection: () => ipcRenderer.invoke(IPC_CHANNELS.github.refreshConnection),
     startAuthorization: () => ipcRenderer.invoke(IPC_CHANNELS.github.startAuthorization),
     waitForAuthorization: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.github.waitForAuthorization, request),

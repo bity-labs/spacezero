@@ -9,14 +9,22 @@ import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-p
 import { createProjectSessionRequestSchema } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
-import type { StoredSession } from './sessions.service'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { createSessionCleanupService } from './session-cleanup.service'
 import { createSessionsService } from './sessions.service'
 
 const sessionIdRequestSchema = z.object({ sessionId: z.string().trim().min(1) })
 
 const sessionsRepository = createSessionsRepository()
 const sessionsService = createSessionsService({ repository: sessionsRepository })
+const sessionCleanupService = createSessionCleanupService({
+  repository: sessionsRepository,
+  worktrees: {
+    remove: (request) => getManagedWorktreeService().remove(request)
+  },
+  deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
+  removeTranscript: (path) => rm(path, { force: true })
+})
 
 export function registerSessionsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.sessions.listProjectSessions, () =>
@@ -45,32 +53,6 @@ export function registerSessionsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.sessions.delete, async (_event, input: unknown) => {
     const { sessionId } = sessionIdRequestSchema.parse(input)
-    const session = await sessionsService.deleteSession(sessionId)
-    await getAgentUtilityProcessHost()
-      .deleteSession({ sessionId })
-      .catch(() => undefined)
-    await removeManagedWorktree(session)
-    if (session.transcriptPath)
-      await rm(session.transcriptPath, { force: true }).catch(() => undefined)
+    await sessionCleanupService.deleteSession(sessionId)
   })
-}
-
-async function removeManagedWorktree(session: StoredSession): Promise<void> {
-  if (
-    !session.projectId ||
-    !session.worktreePath ||
-    !session.worktreeBranch ||
-    !session.worktreeBaseRevision
-  ) {
-    return
-  }
-  const project = await sessionsRepository.findProjectById(session.projectId)
-  if (!project) return
-  await getManagedWorktreeService()
-    .remove(project.path, {
-      path: session.worktreePath,
-      branch: session.worktreeBranch,
-      baseRevision: session.worktreeBaseRevision
-    })
-    .catch(() => undefined)
 }

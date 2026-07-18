@@ -417,10 +417,15 @@ describe('createProjectAgentSession', () => {
       thinkingLevel: 'high'
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
-    expect(worktrees.remove).toHaveBeenCalledWith('/repo', {
-      path: '/worktrees/session-1',
-      branch: 'spacezero/session-session-1',
-      baseRevision: 'abc123'
+    expect(worktrees.remove).toHaveBeenCalledWith({
+      projectPath: '/repo',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      worktree: {
+        path: '/worktrees/session-1',
+        branch: 'spacezero/session-session-1',
+        baseRevision: 'abc123'
+      }
     })
   })
 })
@@ -743,7 +748,16 @@ describe('restoreAgentSessionState', () => {
       }
     )
 
-    expect(worktrees.validate).toHaveBeenCalledWith('/worktrees/session-1')
+    expect(worktrees.validate).toHaveBeenCalledWith({
+      projectPath: '/repo',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      worktree: {
+        path: '/worktrees/session-1',
+        branch: 'spacezero/issue-83-session-1',
+        baseRevision: 'abc123'
+      }
+    })
     expect(utilityHost.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         cwd: '/worktrees/session-1',

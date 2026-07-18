@@ -23,6 +23,7 @@ Space Zero uses one GitHub.com identity at a time through a GitHub App and GitHu
 - Pi's utility process and project tools do not receive the Space Zero GitHub credential.
 - Main-owned managed HTTPS clones use a temporary `GIT_ASKPASS` helper with the token scoped to the clone child process. Git credential helpers are disabled for that command. The token is never placed in command arguments, the clone URL, Git config, logs, progress events, or the resulting remote, and temporary helper/partial-clone files are removed.
 - Authentication and repository authorization are separate. An authorized identity is shown as **Repository access required** until a current installation query finds at least one usable repository.
+- Space Zero does not infer **Pending organization approval** from missing installation access. GitHub exposes pending installation requests only through [`GET /app/installation-requests`](https://docs.github.com/en/rest/apps/installations#list-installation-requests-for-the-authenticated-app). That endpoint requires app authentication with a JWT and therefore the GitHub App private key that this native client intentionally does not have. Until GitHub exposes a user-token signal or Space Zero adopts a trusted backend, an organization request remains **Repository access required** with explicit manage and recheck actions.
 - Repository access is revalidated against GitHub before privileged reads or writes. Unknown, expired, revoked, suspended, SSO-restricted, or malformed states deny access.
 - Device-flow errors crossing IPC are stable Space Zero error codes rather than raw GitHub payloads.
 - The system browser is used for device verification and GitHub App installation/management. GitHub URLs are allow-listed before main opens them.
@@ -39,6 +40,7 @@ This design works without a Space Zero account or backend while preserving selec
 - Builders whose OS credential backend is unavailable must configure a supported keyring before connecting GitHub.
 - A local disconnect removes encrypted credentials but does not uninstall the GitHub App or mutate Projects and Git remotes.
 - App installation grants remain the authorization source of truth; cached renderer data cannot grant access.
+- The client cannot distinguish a pending organization request from an installation that has not been requested, so it must not present a fabricated pending state.
 - GitHub Enterprise Server and multiple simultaneous GitHub identities require a later decision.
 
 ## Alternatives Considered
