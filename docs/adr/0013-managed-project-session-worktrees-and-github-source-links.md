@@ -1,4 +1,4 @@
-# ADR 0012: Isolate Project Sessions in managed worktrees and persist GitHub source links
+# ADR 0013: Isolate Project Sessions in managed worktrees and persist GitHub source links
 
 - Status: Accepted
 - Date: 2026-07-18
