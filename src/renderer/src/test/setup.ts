@@ -131,6 +131,7 @@ beforeEach(async () => {
     },
     github: {
       getConnection: async () => ({ status: 'disconnected' }),
+      refreshConnection: async () => ({ status: 'disconnected' }),
       startAuthorization: async () => ({
         flowId: 'github-flow-test',
         userCode: 'TEST-CODE',

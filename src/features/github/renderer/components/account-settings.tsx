@@ -13,7 +13,6 @@ export function AccountSettings(): React.JSX.Element {
   const [authorization, setAuthorization] = useState<GitHubDeviceAuthorization | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
-  const [installationOpened, setInstallationOpened] = useState(false)
   const attemptRef = useRef(0)
   const pendingAuthorizationRef = useRef<GitHubDeviceAuthorization | null>(null)
 
@@ -85,7 +84,6 @@ export function AccountSettings(): React.JSX.Element {
     setError(null)
     try {
       await window.spacezero.github.openInstallation()
-      setInstallationOpened(true)
     } catch (caught) {
       setError(toAuthorizationError(caught))
     }
@@ -93,7 +91,7 @@ export function AccountSettings(): React.JSX.Element {
 
   async function checkRepositoryAccess(): Promise<void> {
     setError(null)
-    await refresh()
+    await refresh({ force: true })
     notifyGitHubConnectionChanged()
   }
 
@@ -124,7 +122,8 @@ export function AccountSettings(): React.JSX.Element {
     return <p className="text-sm text-muted-foreground">Loading GitHub account…</p>
   }
 
-  const identity = connection && 'identity' in connection ? connection.identity : null
+  const identity =
+    !authorization && connection && 'identity' in connection ? connection.identity : null
 
   return (
     <div className="space-y-4">
@@ -158,20 +157,6 @@ export function AccountSettings(): React.JSX.Element {
               {connection.installations.length}{' '}
               {connection.installations.length === 1 ? 'installation' : 'installations'}.
             </p>
-          ) : connection?.status === 'pending-organization-approval' ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                An organization owner must approve the GitHub App request. You can continue using
-                local Projects while approval is pending.
-              </p>
-              <Button
-                variant="outline"
-                className="w-fit"
-                onClick={() => void checkRepositoryAccess()}
-              >
-                Check repository access
-              </Button>
-            </div>
           ) : (
             <div className="space-y-3">
               <p className="text-sm text-muted-foreground">
@@ -184,11 +169,9 @@ export function AccountSettings(): React.JSX.Element {
                   <ArrowSquareOut className="size-4" aria-hidden="true" />
                   Choose repository access
                 </Button>
-                {installationOpened ? (
-                  <Button variant="outline" onClick={() => void checkRepositoryAccess()}>
-                    Check repository access
-                  </Button>
-                ) : null}
+                <Button variant="outline" onClick={() => void checkRepositoryAccess()}>
+                  Check repository access
+                </Button>
               </div>
             </div>
           )}
@@ -317,7 +300,6 @@ function InstallationGroup({
 }
 
 function getInstallationStatus(installation: GitHubInstallation): string {
-  if (installation.status === 'pending-approval') return 'Pending organization approval'
   if (installation.status === 'organization-authorization-required') {
     return 'Organization or SSO authorization required'
   }
@@ -330,9 +312,6 @@ function getConnectionLabel(
   connection: ReturnType<typeof useGitHubConnection>['connection']
 ): string {
   if (connection?.status === 'connected') return 'Connected'
-  if (connection?.status === 'pending-organization-approval') {
-    return 'Pending organization approval'
-  }
   if (connection?.status === 'reconnect-required') return 'Reconnect GitHub'
   return 'Repository access required'
 }

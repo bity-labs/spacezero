@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { GitHubRepository } from '../shared'
 import { createGitHubIssuesService, type GitHubIssuesAdapter } from './github-issues.service'
@@ -225,5 +225,27 @@ describe('GitHub Issues service', () => {
     await expect(service.getIssue({ projectId: 'project-1', number: 84 })).rejects.toThrow(
       'github.issueNotFound'
     )
+  })
+
+  it('rejects a Pull Request number before issuing an Issue state mutation', async () => {
+    const adapter = createAdapter()
+    adapter.getIssue = async () => ({
+      ...(await createAdapter().getIssue({} as never)),
+      number: 84,
+      isPullRequest: true
+    })
+    adapter.updateIssueState = vi.fn(async () => {
+      throw new Error('Issue state mutation must not run')
+    })
+    const service = createGitHubIssuesService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.updateIssueState({ projectId: 'project-1', number: 84, state: 'closed' })
+    ).rejects.toThrow('github.issueNotFound')
+    expect(adapter.updateIssueState).not.toHaveBeenCalled()
   })
 })

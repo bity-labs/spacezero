@@ -43,6 +43,14 @@ const organizationInstallation = {
   status: 'usable' as const
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
 function createAdapter(): GitHubInstallationsAdapter {
   return {
     async listInstallations() {
@@ -127,30 +135,6 @@ describe('GitHub connection service', () => {
     })
   })
 
-  it('represents pending organization approval without granting repository access', async () => {
-    const adapter = createAdapter()
-    adapter.listInstallations = async () => [
-      {
-        ...organizationInstallation,
-        status: 'pending-approval'
-      }
-    ]
-    const service = createGitHubConnectionService({
-      auth: { getAuthorizedCredential: async () => credential },
-      adapter,
-      appSlug: 'space-zero',
-      openExternal: async () => undefined
-    })
-
-    await expect(service.getConnection()).resolves.toEqual({
-      status: 'pending-organization-approval',
-      identity: credential.identity,
-      installations: [
-        { ...organizationInstallation, status: 'pending-approval', repositoryCount: 0 }
-      ]
-    })
-  })
-
   it('transitions revoked authorization to reconnect required', async () => {
     const adapter = createAdapter()
     adapter.listInstallations = async () => {
@@ -193,6 +177,54 @@ describe('GitHub connection service', () => {
 
     expect(listInstallations).toHaveBeenCalledTimes(2)
     expect(listRepositories).toHaveBeenCalledTimes(4)
+  })
+
+  it('coalesces simultaneous connection snapshots for the same identity', async () => {
+    const adapter = createAdapter()
+    const installationsStarted = deferred<void>()
+    const allowInstallations = deferred<void>()
+    const listInstallations = vi
+      .spyOn(adapter, 'listInstallations')
+      .mockImplementation(async () => {
+        installationsStarted.resolve()
+        await allowInstallations.promise
+        return [personalInstallation, organizationInstallation]
+      })
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter,
+      appSlug: 'space-zero',
+      openExternal: async () => undefined
+    })
+
+    const first = service.getConnection()
+    const second = service.getConnection()
+    await installationsStarted.promise
+    expect(listInstallations).toHaveBeenCalledTimes(1)
+    allowInstallations.resolve()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ status: 'connected' }),
+      expect.objectContaining({ status: 'connected' })
+    ])
+    expect(listInstallations).toHaveBeenCalledTimes(1)
+  })
+
+  it('bypasses a recent snapshot for an explicit repository access check', async () => {
+    const adapter = createAdapter()
+    const listInstallations = vi.spyOn(adapter, 'listInstallations')
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => credential },
+      adapter,
+      appSlug: 'space-zero',
+      openExternal: async () => undefined
+    })
+
+    await service.getConnection()
+    await service.getConnection()
+    await service.refreshConnection()
+
+    expect(listInstallations).toHaveBeenCalledTimes(2)
   })
 
   it('revalidates changed grants every time repositories are queried', async () => {

@@ -131,6 +131,14 @@ export function createGitHubIssuesService({
 
   async function updateIssueState(request: GitHubIssueStateUpdateRequest): Promise<GitHubIssue> {
     const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    const target = await adapter.getIssue({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number
+    })
+    if (target.isPullRequest) throw new Error('github.issueNotFound')
+
     const issue = await adapter.updateIssueState({
       accessToken,
       owner: repository.owner,

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -10,6 +10,19 @@ type RunGit = (request: {
   environment?: NodeJS.ProcessEnv
   allowFailure?: boolean
 }) => Promise<{ stdout: string; exitCode: number }>
+
+type ManagedWorktreeValidationRequest = {
+  projectPath: string
+  destination: string
+  branch: string
+  baseRevision: string
+}
+
+type RegisteredWorktree = {
+  path: string
+  head?: string
+  branch?: string
+}
 
 export function createManagedWorktreeAdapter({
   runGit = runGitProcess
@@ -27,7 +40,7 @@ export function createManagedWorktreeAdapter({
         })
         if (repository.stdout.trim() !== 'true') throw new Error('session.projectNotGitRepository')
 
-        const baseRevision = await resolveBaseRevision(runGit, projectPath, startPoint)
+        const baseRevision = await resolveBaseRevision(runGit, projectPath, branch, startPoint)
         await runGit({
           args: [
             '-C',
@@ -50,55 +63,195 @@ export function createManagedWorktreeAdapter({
       }
     },
 
-    async remove({ projectPath, destination, branch }) {
-      await runGit({
-        args: ['-C', projectPath, 'worktree', 'remove', '--force', '--', destination],
+    async remove(request) {
+      if (!(await validateManagedWorktree(runGit, request))) {
+        throw new Error('session.worktreeInvalid')
+      }
+
+      const removal = await runGit({
+        args: [
+          '-C',
+          request.projectPath,
+          'worktree',
+          'remove',
+          '--force',
+          '--',
+          request.destination
+        ],
         allowFailure: true
       })
-      await runGit({
-        args: ['-C', projectPath, 'branch', '-D', '--', branch],
+      if (removal.exitCode !== 0) throw new Error('session.worktreeRemoveFailed')
+
+      const branchRemoval = await runGit({
+        args: ['-C', request.projectPath, 'branch', '-D', '--', request.branch],
         allowFailure: true
       })
-      await rm(destination, { recursive: true, force: true })
+      if (branchRemoval.exitCode !== 0) throw new Error('session.worktreeBranchRemoveFailed')
     },
 
-    async validate(path) {
-      if (!(await pathExists(path))) return false
-      const result = await runGit({
-        args: ['-C', path, 'rev-parse', '--is-inside-work-tree'],
-        allowFailure: true
-      })
-      return result.exitCode === 0 && result.stdout.trim() === 'true'
+    async validate(request) {
+      return validateManagedWorktree(runGit, request)
     }
   }
+}
+
+async function validateManagedWorktree(
+  runGit: RunGit,
+  request: ManagedWorktreeValidationRequest
+): Promise<boolean> {
+  if (!/^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(request.baseRevision)) return false
+
+  try {
+    const projectPath = await realpath(request.projectPath)
+    const destination = await realpath(request.destination)
+    if (samePath(projectPath, destination)) return false
+
+    const projectRoot = await runGit({
+      args: ['-C', request.projectPath, 'rev-parse', '--show-toplevel'],
+      allowFailure: true
+    })
+    if (projectRoot.exitCode !== 0) return false
+    if (!samePath(projectPath, await realpath(projectRoot.stdout.trim()))) return false
+
+    const destinationRoot = await runGit({
+      args: ['-C', request.destination, 'rev-parse', '--show-toplevel'],
+      allowFailure: true
+    })
+    if (destinationRoot.exitCode !== 0) return false
+    if (!samePath(destination, await realpath(destinationRoot.stdout.trim()))) return false
+
+    const projectCommonDirectory = await resolveGitCommonDirectory(runGit, request.projectPath)
+    const destinationCommonDirectory = await resolveGitCommonDirectory(runGit, request.destination)
+    if (
+      !projectCommonDirectory ||
+      !destinationCommonDirectory ||
+      !samePath(projectCommonDirectory, destinationCommonDirectory)
+    ) {
+      return false
+    }
+
+    const listedWorktrees = await runGit({
+      args: ['-C', request.projectPath, 'worktree', 'list', '--porcelain', '-z'],
+      allowFailure: true
+    })
+    if (listedWorktrees.exitCode !== 0) return false
+    const registered = await findRegisteredWorktree(listedWorktrees.stdout, destination)
+    const expectedBranch = `refs/heads/${request.branch}`
+    if (!registered || registered.branch !== expectedBranch || !registered.head) return false
+
+    const destinationBranch = await runGit({
+      args: ['-C', request.destination, 'symbolic-ref', '--quiet', 'HEAD'],
+      allowFailure: true
+    })
+    if (destinationBranch.exitCode !== 0 || destinationBranch.stdout.trim() !== expectedBranch) {
+      return false
+    }
+
+    const destinationHead = await runGit({
+      args: ['-C', request.destination, 'rev-parse', 'HEAD'],
+      allowFailure: true
+    })
+    if (destinationHead.exitCode !== 0 || destinationHead.stdout.trim() !== registered.head) {
+      return false
+    }
+
+    const baseRevision = await runGit({
+      args: ['-C', request.projectPath, 'cat-file', '-e', `${request.baseRevision}^{commit}`],
+      allowFailure: true
+    })
+    return baseRevision.exitCode === 0
+  } catch {
+    return false
+  }
+}
+
+async function resolveGitCommonDirectory(
+  runGit: RunGit,
+  path: string
+): Promise<string | undefined> {
+  const result = await runGit({
+    args: ['-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+    allowFailure: true
+  })
+  if (result.exitCode !== 0 || !result.stdout.trim()) return undefined
+  return realpath(result.stdout.trim())
+}
+
+async function findRegisteredWorktree(
+  output: string,
+  destination: string
+): Promise<RegisteredWorktree | undefined> {
+  for (const worktree of parseRegisteredWorktrees(output)) {
+    try {
+      if (samePath(await realpath(worktree.path), destination)) return worktree
+    } catch {
+      // Ignore stale registrations that no longer resolve on disk.
+    }
+  }
+  return undefined
+}
+
+function parseRegisteredWorktrees(output: string): RegisteredWorktree[] {
+  const worktrees: RegisteredWorktree[] = []
+  let current: RegisteredWorktree | undefined
+
+  for (const field of output.split('\0')) {
+    if (!field) continue
+    const separator = field.indexOf(' ')
+    const key = separator === -1 ? field : field.slice(0, separator)
+    const value = separator === -1 ? '' : field.slice(separator + 1)
+    if (key === 'worktree') {
+      if (current) worktrees.push(current)
+      current = { path: value }
+    } else if (key === 'HEAD' && current) {
+      current.head = value
+    } else if (key === 'branch' && current) {
+      current.branch = value
+    }
+  }
+  if (current) worktrees.push(current)
+  return worktrees
+}
+
+function samePath(left: string, right: string): boolean {
+  return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
 async function resolveBaseRevision(
   runGit: RunGit,
   projectPath: string,
+  branch: string,
   startPoint: ManagedWorktreeStartPoint
 ): Promise<string> {
   if (startPoint.kind === 'github-ref') {
     assertTokenFreeGitHubUrl(startPoint.remoteUrl)
-    await withAskPass(startPoint.accessToken, async (environment) => {
-      await runGit({
-        args: [
-          '-c',
-          'credential.helper=',
-          '-C',
-          projectPath,
-          'fetch',
-          '--force',
-          '--no-tags',
-          '--',
-          startPoint.remoteUrl,
-          startPoint.ref
-        ],
-        environment
+    const temporaryRef = `refs/spacezero/fetch/${branch}`
+    try {
+      await withAskPass(startPoint.accessToken, async (environment) => {
+        await runGit({
+          args: [
+            '-c',
+            'credential.helper=',
+            '-C',
+            projectPath,
+            'fetch',
+            '--force',
+            '--no-tags',
+            '--',
+            startPoint.remoteUrl,
+            `${startPoint.ref}:${temporaryRef}`
+          ],
+          environment
+        })
       })
-    })
-    const revision = await runGit({ args: ['-C', projectPath, 'rev-parse', 'FETCH_HEAD'] })
-    return revision.stdout.trim()
+      const revision = await runGit({ args: ['-C', projectPath, 'rev-parse', temporaryRef] })
+      return revision.stdout.trim()
+    } finally {
+      await runGit({
+        args: ['-C', projectPath, 'update-ref', '-d', temporaryRef],
+        allowFailure: true
+      }).catch(() => undefined)
+    }
   }
 
   const revision = await runGit({ args: ['-C', projectPath, 'rev-parse', 'HEAD'] })

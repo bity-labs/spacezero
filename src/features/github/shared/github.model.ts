@@ -13,11 +13,7 @@ export type GitHubInstallationOwner = {
 }
 
 export type GitHubInstallationStatus =
-  | 'usable'
-  | 'pending-approval'
-  | 'no-repositories'
-  | 'suspended'
-  | 'organization-authorization-required'
+  'usable' | 'no-repositories' | 'suspended' | 'organization-authorization-required'
 
 export type GitHubInstallation = {
   id: string
@@ -46,11 +42,6 @@ export type GitHubConnection =
       status: 'repository-access-required'
       identity: GitHubIdentity
       installations?: GitHubInstallation[]
-    }
-  | {
-      status: 'pending-organization-approval'
-      identity: GitHubIdentity
-      installations: GitHubInstallation[]
     }
   | {
       status: 'connected'

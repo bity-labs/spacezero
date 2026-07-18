@@ -17,7 +17,7 @@ export type GitHubInstallationAccess = {
   repositorySelection: 'all' | 'selected'
   status: Extract<
     GitHubInstallationStatus,
-    'usable' | 'pending-approval' | 'suspended' | 'organization-authorization-required'
+    'usable' | 'suspended' | 'organization-authorization-required'
   >
 }
 
@@ -61,8 +61,16 @@ export function createGitHubConnectionService({
         snapshot: RepositoryAccessSnapshot
       }
     | undefined
+  let connectionSnapshotInFlight:
+    | {
+        identityId: string
+        generation: number
+        promise: Promise<RepositoryAccessSnapshot>
+      }
+    | undefined
+  let connectionSnapshotGeneration = 0
 
-  async function getConnection(): Promise<GitHubConnection> {
+  async function getConnection(forceRefresh = false): Promise<GitHubConnection> {
     let credential: StoredGitHubCredential
     try {
       credential = await auth.getAuthorizedCredential()
@@ -78,7 +86,7 @@ export function createGitHubConnectionService({
 
     let snapshot: RepositoryAccessSnapshot
     try {
-      snapshot = await loadConnectionRepositoryAccess(credential)
+      snapshot = await loadConnectionRepositoryAccess(credential, forceRefresh)
     } catch (error) {
       if (isGitHubError(error, 'reconnect-required')) {
         return { status: 'reconnect-required', identity: credential.identity }
@@ -101,19 +109,15 @@ export function createGitHubConnectionService({
       }
     }
 
-    if (snapshot.installations.some((installation) => installation.status === 'pending-approval')) {
-      return {
-        status: 'pending-organization-approval',
-        identity: credential.identity,
-        installations: snapshot.installations
-      }
-    }
-
     return {
       status: 'repository-access-required',
       identity: credential.identity,
       installations: snapshot.installations
     }
+  }
+
+  async function refreshConnection(): Promise<GitHubConnection> {
+    return getConnection(true)
   }
 
   async function listAuthorizedRepositories(): Promise<GitHubRepository[]> {
@@ -122,7 +126,7 @@ export function createGitHubConnectionService({
   }
 
   async function openManageAccess(): Promise<void> {
-    connectionSnapshotCache = undefined
+    invalidateConnectionSnapshot()
     await openExternal('https://github.com/settings/installations')
   }
 
@@ -131,27 +135,57 @@ export function createGitHubConnectionService({
     if (!slug || !/^[a-zA-Z0-9_-]+$/.test(slug)) {
       throw new GitHubIntegrationError('configuration-missing')
     }
-    connectionSnapshotCache = undefined
+    invalidateConnectionSnapshot()
     await openExternal(`https://github.com/apps/${slug}/installations/new`)
   }
 
+  function invalidateConnectionSnapshot(): void {
+    connectionSnapshotGeneration += 1
+    connectionSnapshotCache = undefined
+  }
+
   async function loadConnectionRepositoryAccess(
-    credential: StoredGitHubCredential
+    credential: StoredGitHubCredential,
+    forceRefresh: boolean
   ): Promise<RepositoryAccessSnapshot> {
     if (
+      !forceRefresh &&
       connectionSnapshotCache?.identityId === credential.identity.id &&
       now() < connectionSnapshotCache.expiresAt
     ) {
       return connectionSnapshotCache.snapshot
     }
 
-    const snapshot = await loadRepositoryAccess(credential.accessToken)
-    connectionSnapshotCache = {
-      identityId: credential.identity.id,
-      expiresAt: now() + CONNECTION_SNAPSHOT_TTL_MS,
-      snapshot
+    const generation = connectionSnapshotGeneration
+    if (
+      connectionSnapshotInFlight?.identityId === credential.identity.id &&
+      connectionSnapshotInFlight.generation === generation
+    ) {
+      return connectionSnapshotInFlight.promise
     }
-    return snapshot
+
+    const promise = loadRepositoryAccess(credential.accessToken)
+    connectionSnapshotInFlight = {
+      identityId: credential.identity.id,
+      generation,
+      promise
+    }
+
+    try {
+      const snapshot = await promise
+      if (generation === connectionSnapshotGeneration) {
+        connectionSnapshotCache = {
+          identityId: credential.identity.id,
+          expiresAt: now() + CONNECTION_SNAPSHOT_TTL_MS,
+          snapshot
+        }
+      }
+      return snapshot
+    } finally {
+      if (connectionSnapshotInFlight?.promise === promise) {
+        connectionSnapshotInFlight = undefined
+      }
+    }
   }
 
   async function loadRepositoryAccess(accessToken: string): Promise<RepositoryAccessSnapshot> {
@@ -197,7 +231,13 @@ export function createGitHubConnectionService({
     }
   }
 
-  return { getConnection, listAuthorizedRepositories, openInstallation, openManageAccess }
+  return {
+    getConnection: () => getConnection(),
+    refreshConnection,
+    listAuthorizedRepositories,
+    openInstallation,
+    openManageAccess
+  }
 }
 
 export class GitHubInstallationAccessError extends Error {

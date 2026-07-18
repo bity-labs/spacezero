@@ -63,13 +63,18 @@ function PullRequestList({
   onOpenPullRequest: (number: number) => void
 }): React.JSX.Element {
   const query = useProjectPullRequests(projectId, page)
+  const pullRequests = query.isError ? undefined : query.data
 
   return (
     <section className="space-y-4" aria-label="GitHub Pull Requests">
       <header className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Pull Requests</h2>
-          <p className="text-sm text-muted-foreground">Live from the linked GitHub repository.</p>
+          <p className="text-sm text-muted-foreground">
+            {query.isError
+              ? 'GitHub data is unavailable; previously loaded Pull Requests are hidden.'
+              : 'Live from the linked GitHub repository.'}
+          </p>
         </div>
         <RefreshButton fetching={query.isFetching} onRefresh={() => void query.refetch()} />
       </header>
@@ -81,14 +86,14 @@ function PullRequestList({
           onRetry={query.refetch}
         />
       ) : null}
-      {query.data?.items.length === 0 ? (
+      {pullRequests?.items.length === 0 ? (
         <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
           No Pull Requests were found in this repository.
         </p>
       ) : null}
-      {query.data?.items.length ? (
+      {pullRequests?.items.length ? (
         <ul className="divide-y rounded-lg border" aria-label="Pull Request list">
-          {query.data.items.map((pullRequest) => (
+          {pullRequests.items.map((pullRequest) => (
             <li key={pullRequest.number}>
               <button
                 type="button"
@@ -110,7 +115,7 @@ function PullRequestList({
         </ul>
       ) : null}
 
-      {query.data ? (
+      {pullRequests ? (
         <nav className="flex items-center justify-between" aria-label="Pull Request pages">
           <Button
             variant="outline"
@@ -124,7 +129,7 @@ function PullRequestList({
           <Button
             variant="outline"
             size="sm"
-            disabled={!query.data.hasNextPage || query.isFetching}
+            disabled={!pullRequests.hasNextPage || query.isFetching}
             onClick={() => onPageChange(page + 1)}
           >
             Next
@@ -152,6 +157,8 @@ function PullRequestDetail({
   const queryClient = useQueryClient()
   const pullRequestQuery = useProjectPullRequest(projectId, number)
   const commentsQuery = useProjectPullRequestComments(projectId, number, commentsPage)
+  const pullRequest = pullRequestQuery.isError ? undefined : pullRequestQuery.data
+  const comments = commentsQuery.isError ? undefined : commentsQuery.data
   const refresh = (): void => {
     void Promise.all([
       pullRequestQuery.refetch(),
@@ -191,9 +198,9 @@ function PullRequestDetail({
           onRetry={pullRequestQuery.refetch}
         />
       ) : null}
-      {pullRequestQuery.data ? <PullRequestContent pullRequest={pullRequestQuery.data} /> : null}
+      {pullRequest ? <PullRequestContent pullRequest={pullRequest} /> : null}
 
-      {pullRequestQuery.data ? (
+      {pullRequest ? (
         <div className="space-y-2">
           <Button
             disabled={isStartingSession}
@@ -221,18 +228,16 @@ function PullRequestDetail({
         </div>
       ) : null}
 
-      {pullRequestQuery.data ? <PullRequestActions projectId={projectId} number={number} /> : null}
+      {pullRequest ? <PullRequestActions projectId={projectId} number={number} /> : null}
 
-      {pullRequestQuery.data ? (
-        <PullRequestReviewSections projectId={projectId} number={number} />
-      ) : null}
+      {pullRequest ? <PullRequestReviewSections projectId={projectId} number={number} /> : null}
 
-      {pullRequestQuery.data ? (
+      {pullRequest ? (
         <section className="space-y-3" aria-label="Pull Request conversation">
           <div>
             <h3 className="font-semibold">Conversation</h3>
             <p className="text-xs text-muted-foreground">
-              {pullRequestQuery.data.conversationCommentCount} comments
+              {pullRequest.conversationCommentCount} comments
             </p>
           </div>
           {commentsQuery.isPending ? <LoadingState label="Loading conversation…" /> : null}
@@ -242,13 +247,13 @@ function PullRequestDetail({
               onRetry={commentsQuery.refetch}
             />
           ) : null}
-          {commentsQuery.data?.items.length === 0 ? (
+          {comments?.items.length === 0 ? (
             <p className="text-sm text-muted-foreground">No conversation comments yet.</p>
           ) : null}
-          {commentsQuery.data?.items.map((comment) => (
+          {comments?.items.map((comment) => (
             <CommentCard key={comment.id} comment={comment} />
           ))}
-          {commentsQuery.data ? (
+          {comments ? (
             <nav className="flex items-center justify-between" aria-label="Conversation pages">
               <Button
                 variant="outline"
@@ -262,7 +267,7 @@ function PullRequestDetail({
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!commentsQuery.data.hasNextPage || commentsQuery.isFetching}
+                disabled={!comments.hasNextPage || commentsQuery.isFetching}
                 onClick={() => setCommentsPage((current) => current + 1)}
               >
                 Next comments

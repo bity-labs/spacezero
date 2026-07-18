@@ -165,7 +165,7 @@ export async function createManagedProjectAgentSession(
     return { state, session }
   } catch (error) {
     if (state) await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
-    await worktrees.remove(projectPath, worktree).catch(() => undefined)
+    await worktrees.remove({ projectPath, projectId, sessionId, worktree }).catch(() => undefined)
     throw error
   }
 }
@@ -393,9 +393,22 @@ async function resolveStoredProjectSessionCwd(
   if (!session.worktreeBranch || !session.worktreeBaseRevision) {
     throw new Error('session.worktreeMetadataIncomplete')
   }
-  const path = resolve(session.worktreePath)
-  if (!(await worktrees.validate(path))) throw new Error('session.worktreeMissing')
-  return path
+  const worktree = {
+    path: resolve(session.worktreePath),
+    branch: session.worktreeBranch,
+    baseRevision: session.worktreeBaseRevision
+  }
+  if (
+    !(await worktrees.validate({
+      projectPath: resolve(project.path),
+      projectId: project.id,
+      sessionId: session.id,
+      worktree
+    }))
+  ) {
+    throw new Error('session.worktreeMissing')
+  }
+  return worktree.path
 }
 
 function createStoredSourceContext(session: StoredSession): string | undefined {

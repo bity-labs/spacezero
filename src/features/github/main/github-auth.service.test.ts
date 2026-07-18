@@ -40,6 +40,17 @@ function createMemoryCredentialStore(
   }
 }
 
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
 function createAdapter(
   polls: Awaited<ReturnType<GitHubAuthAdapter['pollDeviceCode']>>[]
 ): GitHubAuthAdapter {
@@ -173,6 +184,47 @@ describe('GitHub auth service', () => {
     expect(credentials.value).toBeUndefined()
   })
 
+  it('rolls back a completed device grant when cancellation arrives during credential persistence', async () => {
+    const writeStarted = deferred<void>()
+    const allowWrite = deferred<void>()
+    const credentials = createMemoryCredentialStore()
+    credentials.write = async (value) => {
+      writeStarted.resolve()
+      await allowWrite.promise
+      credentials.value = value
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter: createAdapter([
+        {
+          status: 'authorized',
+          tokens: {
+            accessToken: 'access-secret',
+            refreshToken: 'refresh-secret',
+            accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+            refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+          }
+        }
+      ]),
+      credentialStore: credentials,
+      createFlowId: () => 'flow-1',
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await service.startAuthorization()
+    const completion = service.waitForAuthorization({ flowId: 'flow-1' })
+    await writeStarted.promise
+    const cancellation = service.cancelAuthorization({ flowId: 'flow-1' })
+    allowWrite.resolve()
+    await cancellation
+
+    await expect(completion).rejects.toMatchObject({ code: 'authorization-cancelled' })
+    expect(credentials.value).toBeUndefined()
+  })
+
   it('reports denial without exposing the provider response', async () => {
     const service = createGitHubAuthService({
       clientId: 'Iv1.public-client-id',
@@ -225,6 +277,51 @@ describe('GitHub auth service', () => {
       accessToken: 'new-access-secret',
       refreshToken: 'new-refresh-secret'
     })
+  })
+
+  it('refreshes one rotating token only once for concurrent authorization reads', async () => {
+    const credentials = createMemoryCredentialStore({
+      accessToken: 'expired-access-secret',
+      refreshToken: 'rotating-refresh-secret',
+      accessTokenExpiresAt: '2026-07-17T23:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z',
+      identity
+    })
+    const refreshStarted = deferred<void>()
+    const allowRefresh = deferred<void>()
+    const adapter = createAdapter([])
+    let refreshCalls = 0
+    adapter.refreshAccessToken = async () => {
+      refreshCalls += 1
+      refreshStarted.resolve()
+      await allowRefresh.promise
+      return {
+        accessToken: 'new-access-secret',
+        refreshToken: 'new-rotating-refresh-secret',
+        accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+        refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+      }
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    const first = service.getAuthorizedCredential()
+    const second = service.getAuthorizedCredential()
+    await refreshStarted.promise
+    allowRefresh.resolve()
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ accessToken: 'new-access-secret' }),
+      expect.objectContaining({ accessToken: 'new-access-secret' })
+    ])
+    expect(refreshCalls).toBe(1)
   })
 
   it('disconnects locally by clearing protected credentials', async () => {
