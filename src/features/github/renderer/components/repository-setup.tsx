@@ -10,6 +10,7 @@ export function RepositorySetup({
 }): React.JSX.Element {
   const [options, setOptions] = useState<GitHubRepositorySetupOption[] | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
+  const [selectedExistingProjectId, setSelectedExistingProjectId] = useState<string | null>(null)
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null)
   const activeOperationRef = useRef<string | null>(null)
   const [progress, setProgress] = useState<GitHubCloneProgress | null>(null)
@@ -42,6 +43,9 @@ export function RepositorySetup({
   }, [onProjectReady])
 
   const selectedOption = options?.find((option) => option.repository.id === selectedRepositoryId)
+  const matchingProjects = selectedOption?.matchingProjects ?? []
+  const selectedMatchId =
+    matchingProjects.length === 1 ? matchingProjects[0].id : selectedExistingProjectId
   const cloneRunning = progress?.status === 'starting' || progress?.status === 'cloning'
   const cloneFailed = progress?.status === 'failed' || progress?.status === 'cancelled'
 
@@ -53,7 +57,8 @@ export function RepositorySetup({
 
     try {
       const result = await window.spacezero.github.startClone({
-        repositoryId: selectedRepositoryId
+        repositoryId: selectedRepositoryId,
+        ...(selectedMatchId ? { existingProjectId: selectedMatchId } : {})
       })
       if (result.status === 'already-added') {
         await onProjectReady(result.projectId)
@@ -101,7 +106,11 @@ export function RepositorySetup({
                   type="radio"
                   name="github-project-repository"
                   checked={selectedRepositoryId === option.repository.id}
-                  onChange={() => setSelectedRepositoryId(option.repository.id)}
+                  onChange={() => {
+                    setSelectedRepositoryId(option.repository.id)
+                    setSelectedExistingProjectId(null)
+                    setProgress(null)
+                  }}
                 />
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">
@@ -117,11 +126,38 @@ export function RepositorySetup({
                 <span className="shrink-0 text-xs font-medium text-muted-foreground">
                   Already added
                 </span>
+              ) : option.matchingProjects?.length ? (
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  {option.matchingProjects.length === 1
+                    ? 'Local Project match'
+                    : `${option.matchingProjects.length} local matches`}
+                </span>
               ) : null}
             </label>
           ))}
         </fieldset>
       )}
+
+      {matchingProjects.length > 1 ? (
+        <fieldset className="space-y-2 rounded-md border p-3">
+          <legend className="px-1 text-sm font-medium">Choose matching local Project</legend>
+          <p className="text-xs text-muted-foreground">
+            More than one registered Project has this exact GitHub remote. Choose which one to link;
+            Space Zero will not clone a duplicate.
+          </p>
+          {matchingProjects.map((project) => (
+            <label key={project.id} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="github-existing-project"
+                checked={selectedExistingProjectId === project.id}
+                onChange={() => setSelectedExistingProjectId(project.id)}
+              />
+              {project.name}
+            </label>
+          ))}
+        </fieldset>
+      ) : null}
 
       {progress ? (
         <div className="space-y-2" role="status" aria-live="polite">
@@ -140,16 +176,23 @@ export function RepositorySetup({
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
       <Button
-        disabled={!selectedOption || isStarting || cloneRunning}
+        disabled={
+          !selectedOption ||
+          isStarting ||
+          cloneRunning ||
+          (matchingProjects.length > 1 && !selectedExistingProjectId)
+        }
         onClick={() => void startClone()}
       >
         {isStarting
           ? 'Starting…'
-          : cloneFailed
-            ? 'Retry clone'
-            : selectedOption?.existingProject
-              ? 'Open Project'
-              : 'Clone repository'}
+          : selectedOption?.existingProject
+            ? 'Open Project'
+            : matchingProjects.length > 0
+              ? 'Link Project'
+              : cloneFailed
+                ? 'Retry clone'
+                : 'Clone repository'}
       </Button>
     </div>
   )

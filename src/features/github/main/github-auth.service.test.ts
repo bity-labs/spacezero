@@ -324,6 +324,53 @@ describe('GitHub auth service', () => {
     expect(refreshCalls).toBe(1)
   })
 
+  it('keeps disconnect terminal when an expired-token refresh write is already in flight', async () => {
+    const credentials = createMemoryCredentialStore({
+      accessToken: 'expired-access-secret',
+      refreshToken: 'rotating-refresh-secret',
+      accessTokenExpiresAt: '2026-07-17T23:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z',
+      identity
+    })
+    const writeStarted = deferred<void>()
+    const allowWrite = deferred<void>()
+    credentials.write = async (value) => {
+      writeStarted.resolve()
+      await allowWrite.promise
+      credentials.value = value
+    }
+    const adapter = createAdapter([])
+    adapter.refreshAccessToken = async () => ({
+      accessToken: 'new-access-secret',
+      refreshToken: 'new-rotating-refresh-secret',
+      accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+    })
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    const refresh = service.getAuthorizedCredential()
+    await writeStarted.promise
+    let disconnectSettled = false
+    const disconnect = service.disconnect().then(() => {
+      disconnectSettled = true
+    })
+    await Promise.resolve()
+    expect(disconnectSettled).toBe(false)
+
+    allowWrite.resolve()
+    await disconnect
+    await expect(refresh).rejects.toMatchObject({ code: 'reconnect-required' })
+    expect(credentials.value).toBeUndefined()
+  })
+
   it('disconnects locally by clearing protected credentials', async () => {
     const credentials = createMemoryCredentialStore({
       accessToken: 'access-secret',

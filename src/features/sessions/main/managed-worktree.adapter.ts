@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 
+import { withGitHubGitAuthentication } from '../../../main/lib/github-git-authentication'
 import type { ManagedWorktreeAdapter, ManagedWorktreeStartPoint } from './managed-worktree.service'
 
 type RunGit = (request: {
@@ -35,11 +36,7 @@ export function createManagedWorktreeAdapter({
       await mkdir(dirname(destination), { recursive: true })
 
       try {
-        const repository = await runGit({
-          args: ['-C', projectPath, 'rev-parse', '--is-inside-work-tree']
-        })
-        if (repository.stdout.trim() !== 'true') throw new Error('session.projectNotGitRepository')
-
+        await assertProjectRepositoryRoot(runGit, projectPath)
         const baseRevision = await resolveBaseRevision(runGit, projectPath, branch, startPoint)
         await runGit({
           args: [
@@ -217,6 +214,28 @@ function samePath(left: string, right: string): boolean {
   return process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right
 }
 
+async function assertProjectRepositoryRoot(runGit: RunGit, projectPath: string): Promise<void> {
+  try {
+    const repository = await runGit({
+      args: ['-C', projectPath, 'rev-parse', '--is-inside-work-tree']
+    })
+    if (repository.stdout.trim() !== 'true') throw new Error('session.projectNotGitRepository')
+
+    const root = await runGit({ args: ['-C', projectPath, 'rev-parse', '--show-toplevel'] })
+    if (!root.stdout.trim() || !samePath(resolve(projectPath), resolve(root.stdout.trim()))) {
+      throw new Error('session.projectNotRepositoryRoot')
+    }
+    try {
+      await runGit({ args: ['-C', projectPath, 'rev-parse', '--verify', 'HEAD^{commit}'] })
+    } catch (error) {
+      throw new Error('session.projectHasNoCommits', { cause: error })
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('session.project')) throw error
+    throw new Error('session.projectNotGitRepository', { cause: error })
+  }
+}
+
 async function resolveBaseRevision(
   runGit: RunGit,
   projectPath: string,
@@ -225,37 +244,94 @@ async function resolveBaseRevision(
 ): Promise<string> {
   if (startPoint.kind === 'github-ref') {
     assertTokenFreeGitHubUrl(startPoint.remoteUrl)
-    const temporaryRef = `refs/spacezero/fetch/${branch}`
-    try {
-      await withAskPass(startPoint.accessToken, async (environment) => {
-        await runGit({
-          args: [
-            '-c',
-            'credential.helper=',
-            '-C',
-            projectPath,
-            'fetch',
-            '--force',
-            '--no-tags',
-            '--',
-            startPoint.remoteUrl,
-            `${startPoint.ref}:${temporaryRef}`
-          ],
-          environment
-        })
-      })
-      const revision = await runGit({ args: ['-C', projectPath, 'rev-parse', temporaryRef] })
-      return revision.stdout.trim()
-    } finally {
-      await runGit({
-        args: ['-C', projectPath, 'update-ref', '-d', temporaryRef],
-        allowFailure: true
-      }).catch(() => undefined)
-    }
+    return fetchGitHubRevision(runGit, projectPath, branch, startPoint)
   }
 
   const revision = await runGit({ args: ['-C', projectPath, 'rev-parse', 'HEAD'] })
   return revision.stdout.trim()
+}
+
+async function fetchGitHubRevision(
+  runGit: RunGit,
+  projectPath: string,
+  branch: string,
+  startPoint: Extract<ManagedWorktreeStartPoint, { kind: 'github-ref' }>
+): Promise<string> {
+  const temporaryRef = `refs/spacezero/fetch/${branch}`
+  const fetchDirectory = await mkdtemp(join(tmpdir(), 'spacezero-github-fetch-'))
+  const isolatedRepository = join(fetchDirectory, 'repository.git')
+
+  try {
+    return await withGitHubGitAuthentication(startPoint.accessToken, async (authentication) => {
+      await runGit({
+        args: [
+          ...authentication.configArgs,
+          'init',
+          '--bare',
+          `--template=${authentication.templateDirectory}`,
+          '--',
+          isolatedRepository
+        ],
+        environment: authentication.isolatedEnvironment
+      })
+      await runGit({
+        args: [
+          ...authentication.configArgs,
+          '-C',
+          isolatedRepository,
+          'fetch',
+          '--force',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--',
+          startPoint.remoteUrl,
+          `${startPoint.ref}:refs/spacezero/fetched`
+        ],
+        environment: authentication.authenticatedEnvironment
+      })
+      const isolatedRevision = await runGit({
+        args: ['-C', isolatedRepository, 'rev-parse', 'refs/spacezero/fetched'],
+        environment: authentication.isolatedEnvironment
+      })
+      const revision = isolatedRevision.stdout.trim()
+      if (!/^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$/.test(revision)) {
+        throw new Error('session.gitCommandFailed')
+      }
+
+      // Import only the fetched object after removing the credential from the child environment.
+      await runGit({
+        args: [
+          '-c',
+          'protocol.allow=never',
+          '-c',
+          'protocol.file.allow=always',
+          '-c',
+          'protocol.ext.allow=never',
+          '-c',
+          'fetch.recurseSubmodules=false',
+          '-C',
+          projectPath,
+          'fetch',
+          '--force',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--',
+          isolatedRepository,
+          `${revision}:${temporaryRef}`
+        ]
+      })
+      const importedRevision = await runGit({
+        args: ['-C', projectPath, 'rev-parse', temporaryRef]
+      })
+      return importedRevision.stdout.trim()
+    })
+  } finally {
+    await runGit({
+      args: ['-C', projectPath, 'update-ref', '-d', temporaryRef],
+      allowFailure: true
+    }).catch(() => undefined)
+    await rm(fetchDirectory, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 async function cleanupFailedWorktree(
@@ -273,33 +349,6 @@ async function cleanupFailedWorktree(
     allowFailure: true
   }).catch(() => undefined)
   await rm(destination, { recursive: true, force: true }).catch(() => undefined)
-}
-
-async function withAskPass<T>(
-  accessToken: string,
-  operation: (environment: NodeJS.ProcessEnv) => Promise<T>
-): Promise<T> {
-  const directory = await mkdtemp(join(tmpdir(), 'spacezero-worktree-askpass-'))
-  const path = join(directory, process.platform === 'win32' ? 'askpass.cmd' : 'askpass.sh')
-  await writeFile(path, createAskPassScript(), { mode: 0o700, flag: 'wx' })
-  await chmod(path, 0o700)
-  try {
-    return await operation({
-      ...process.env,
-      GIT_ASKPASS: path,
-      GIT_TERMINAL_PROMPT: '0',
-      SPACEZERO_GITHUB_TOKEN: accessToken
-    })
-  } finally {
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
-  }
-}
-
-function createAskPassScript(): string {
-  if (process.platform === 'win32') {
-    return '@echo off\r\necho %* | findstr /I "Username" >nul\r\nif %errorlevel%==0 (echo x-access-token) else (echo %SPACEZERO_GITHUB_TOKEN%)\r\n'
-  }
-  return '#!/bin/sh\ncase "$1" in\n  *Username*) printf "%s\\n" "x-access-token" ;;\n  *) printf "%s\\n" "$SPACEZERO_GITHUB_TOKEN" ;;\nesac\n'
 }
 
 function assertTokenFreeGitHubUrl(url: string): void {

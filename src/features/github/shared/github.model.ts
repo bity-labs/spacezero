@@ -211,6 +211,7 @@ export type GitHubPullRequestReviewCreateRequest = GitHubPullRequestRequest & {
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference
+  matchingProjects?: ProjectReference[]
 }
 
 export type ProjectReference = {
@@ -220,6 +221,7 @@ export type ProjectReference = {
 
 export type StartGitHubCloneRequest = {
   repositoryId: string
+  existingProjectId?: string
 }
 
 export type StartGitHubCloneResult =

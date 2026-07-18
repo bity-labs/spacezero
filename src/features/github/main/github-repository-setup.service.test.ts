@@ -38,6 +38,17 @@ const registeredProject: Project = {
   updatedAt: '2026-07-18T01:00:00.000Z'
 }
 
+const unlinkedProject: Project = {
+  id: 'project-unlinked',
+  name: 'Space Zero local',
+  path: '/home/tiby/ws/dev/spacezero',
+  createdAt: '2026-07-18T01:00:00.000Z',
+  updatedAt: '2026-07-18T01:00:00.000Z'
+}
+
+const noRemotes = { listRemotes: async () => [] }
+const unusedProjectLink = async () => registeredProject
+
 function createCloneAdapter(): GitHubCloneAdapter & {
   requests: Array<{ destination: string; accessToken: string; cloneUrl: string }>
   removed: string[]
@@ -95,11 +106,13 @@ describe('GitHub repository setup service', () => {
       },
       projects: {
         listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
         registerGitHubProject: async (input) => {
           registrations.push(input)
           return registeredProject
         }
       },
+      git: noRemotes,
       clone,
       getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
       createOperationId: () => 'clone-1'
@@ -142,8 +155,10 @@ describe('GitHub repository setup service', () => {
       auth: { getAuthorizedCredential: async () => Promise.reject(new Error('unused')) },
       projects: {
         listProjects: async () => [registeredProject],
+        linkGitHubRepository: unusedProjectLink,
         registerGitHubProject: async () => Promise.reject(new Error('unused'))
       },
+      git: noRemotes,
       clone,
       getProjectsPath: async () => '/home/tiby/SpaceZero/projects'
     })
@@ -161,6 +176,98 @@ describe('GitHub repository setup service', () => {
     expect(clone.requests).toEqual([])
   })
 
+  it('links an unassociated registered Project whose remote exactly matches', async () => {
+    const clone = createCloneAdapter()
+    const linkGitHubRepository = vi.fn(async () => registeredProject)
+    const service = createGitHubRepositorySetupService({
+      repositories: { listAuthorizedRepositories: async () => [repository] },
+      auth: { getAuthorizedCredential: async () => Promise.reject(new Error('unused')) },
+      projects: {
+        listProjects: async () => [unlinkedProject],
+        linkGitHubRepository,
+        registerGitHubProject: async () => Promise.reject(new Error('unused'))
+      },
+      git: {
+        listRemotes: async () => ['git@github.com:bity-labs/spacezero.git']
+      },
+      clone,
+      getProjectsPath: async () => '/home/tiby/SpaceZero/projects'
+    })
+
+    await expect(service.listSetupOptions()).resolves.toEqual([
+      {
+        repository,
+        matchingProjects: [{ id: 'project-unlinked', name: 'Space Zero local' }]
+      }
+    ])
+    await expect(service.startClone({ repositoryId: '1000' }, () => undefined)).resolves.toEqual({
+      status: 'already-added',
+      projectId: 'project-unlinked'
+    })
+    expect(linkGitHubRepository).toHaveBeenCalledWith('project-unlinked', {
+      repositoryId: '1000',
+      nodeId: 'R_1000',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      htmlUrl: 'https://github.com/bity-labs/spacezero'
+    })
+    expect(clone.requests).toEqual([])
+  })
+
+  it('requires an explicit matching Project selection when remote matches are ambiguous', async () => {
+    const clone = createCloneAdapter()
+    const secondProject = {
+      ...unlinkedProject,
+      id: 'project-unlinked-2',
+      name: 'Space Zero backup',
+      path: '/home/tiby/ws/archive/spacezero'
+    }
+    const linkGitHubRepository = vi.fn(async () => ({
+      ...registeredProject,
+      id: secondProject.id,
+      name: secondProject.name,
+      path: secondProject.path
+    }))
+    const service = createGitHubRepositorySetupService({
+      repositories: { listAuthorizedRepositories: async () => [repository] },
+      auth: { getAuthorizedCredential: async () => Promise.reject(new Error('unused')) },
+      projects: {
+        listProjects: async () => [unlinkedProject, secondProject],
+        linkGitHubRepository,
+        registerGitHubProject: async () => Promise.reject(new Error('unused'))
+      },
+      git: {
+        listRemotes: async () => ['https://github.com/bity-labs/spacezero.git']
+      },
+      clone,
+      getProjectsPath: async () => '/home/tiby/SpaceZero/projects'
+    })
+
+    await expect(service.listSetupOptions()).resolves.toEqual([
+      {
+        repository,
+        matchingProjects: [
+          { id: 'project-unlinked', name: 'Space Zero local' },
+          { id: 'project-unlinked-2', name: 'Space Zero backup' }
+        ]
+      }
+    ])
+    await expect(service.startClone({ repositoryId: '1000' }, () => undefined)).rejects.toThrow(
+      'github.ambiguousProjectRemoteMatch'
+    )
+    await expect(
+      service.startClone(
+        { repositoryId: '1000', existingProjectId: 'project-unlinked-2' },
+        () => undefined
+      )
+    ).resolves.toEqual({ status: 'already-added', projectId: 'project-unlinked-2' })
+    expect(linkGitHubRepository).toHaveBeenCalledWith(
+      'project-unlinked-2',
+      expect.objectContaining({ repositoryId: '1000' })
+    )
+    expect(clone.requests).toEqual([])
+  })
+
   it('removes a completed clone when Project registration rolls back', async () => {
     const clone = createCloneAdapter()
     const service = createGitHubRepositorySetupService({
@@ -168,10 +275,12 @@ describe('GitHub repository setup service', () => {
       auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
       projects: {
         listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
         registerGitHubProject: async () => {
           throw new Error('database constraint')
         }
       },
+      git: noRemotes,
       clone,
       getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
       createOperationId: () => 'clone-1'
@@ -201,11 +310,13 @@ describe('GitHub repository setup service', () => {
       },
       projects: {
         listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
         registerGitHubProject: async () => {
           registrations += 1
           return registeredProject
         }
       },
+      git: noRemotes,
       clone,
       getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
       createOperationId: () => 'clone-1'
@@ -238,8 +349,10 @@ describe('GitHub repository setup service', () => {
       auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
       projects: {
         listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
         registerGitHubProject: async () => registeredProject
       },
+      git: noRemotes,
       clone,
       getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
       createOperationId: () => 'clone-1'

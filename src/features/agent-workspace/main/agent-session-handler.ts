@@ -122,6 +122,18 @@ export async function createManagedProjectAgentSession(
     startPoint: request.startPoint
   })
   let state: AgentSessionState | undefined
+  const persistSession = () =>
+    createSessionsService({ repository }).createProjectAgentSession({
+      id: sessionId,
+      projectId,
+      title: request.title,
+      worktree,
+      source: request.source,
+      transcriptPath: state?.transcriptPath,
+      modelProvider: state?.modelProvider,
+      modelId: state?.modelId,
+      thinkingLevel: state?.thinkingLevel
+    })
 
   try {
     const modelDefaults = await readModelDefaults()
@@ -151,22 +163,45 @@ export async function createManagedProjectAgentSession(
       thinkingLevel: modelDefaults.defaultThinking
     })
 
-    const session = await createSessionsService({ repository }).createProjectAgentSession({
-      id: sessionId,
-      projectId,
-      title: request.title,
-      worktree,
-      source: request.source,
-      transcriptPath: state.transcriptPath,
-      modelProvider: state.modelProvider,
-      modelId: state.modelId,
-      thinkingLevel: state.thinkingLevel
-    })
+    const session = await persistSession()
     return { state, session }
   } catch (error) {
-    if (state) await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
-    await worktrees.remove({ projectPath, projectId, sessionId, worktree }).catch(() => undefined)
-    throw error
+    const cleanupFailures: unknown[] = []
+    let utilityCleanupFailed = false
+
+    if (state) {
+      try {
+        await utilityHost.deleteSession({ sessionId })
+      } catch (cleanupError) {
+        utilityCleanupFailed = true
+        cleanupFailures.push(cleanupError)
+      }
+    }
+
+    // A live utility Session may still be using the worktree, so do not remove its cwd.
+    if (!utilityCleanupFailed) {
+      try {
+        await worktrees.remove({ projectPath, projectId, sessionId, worktree })
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError)
+      }
+    }
+
+    if (cleanupFailures.length === 0) throw error
+
+    try {
+      const existing = await repository.findSessionById(sessionId)
+      if (!existing) await persistSession()
+    } catch (recoveryError) {
+      cleanupFailures.push(recoveryError)
+    }
+
+    const rollbackError = new Error('session.creationRollbackFailed', { cause: error })
+    Object.defineProperty(rollbackError, 'cleanupFailures', {
+      value: [...cleanupFailures],
+      enumerable: false
+    })
+    throw rollbackError
   }
 }
 
@@ -389,8 +424,13 @@ async function resolveStoredProjectSessionCwd(
   worktrees: Pick<ManagedWorktreeService, 'validate'>
 ): Promise<string> {
   if (!project) throw new Error('Project not found')
-  if (!session.worktreePath) return resolve(project.path)
-  if (!session.worktreeBranch || !session.worktreeBaseRevision) {
+  const worktreeValues = [
+    session.worktreePath,
+    session.worktreeBranch,
+    session.worktreeBaseRevision
+  ]
+  if (worktreeValues.every((value) => !value)) return resolve(project.path)
+  if (!session.worktreePath || !session.worktreeBranch || !session.worktreeBaseRevision) {
     throw new Error('session.worktreeMetadataIncomplete')
   }
   const worktree = {

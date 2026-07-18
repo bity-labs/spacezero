@@ -72,6 +72,35 @@ describe('RepositorySetup', () => {
     await waitFor(() => expect(onProjectReady).toHaveBeenCalledWith('project-1'))
   })
 
+  it('requires an explicit local Project choice for ambiguous exact remote matches', async () => {
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      {
+        repository,
+        matchingProjects: [
+          { id: 'project-1', name: 'Space Zero local' },
+          { id: 'project-2', name: 'Space Zero backup' }
+        ]
+      }
+    ]
+    window.spacezero.github.onCloneProgress = () => () => undefined
+    const requests: unknown[] = []
+    window.spacezero.github.startClone = async (request) => {
+      requests.push(request)
+      return { status: 'already-added', projectId: 'project-2' }
+    }
+    const onProjectReady = vi.fn()
+
+    render(<RepositorySetup onProjectReady={onProjectReady} />)
+
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    expect(screen.getByRole('button', { name: 'Link Project' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Space Zero backup' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Link Project' }))
+
+    await waitFor(() => expect(onProjectReady).toHaveBeenCalledWith('project-2'))
+    expect(requests).toEqual([{ repositoryId: '1000', existingProjectId: 'project-2' }])
+  })
+
   it('offers retry or cancellation without showing false success', async () => {
     window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
     let progressListener: ((event: GitHubCloneProgress) => void) | undefined

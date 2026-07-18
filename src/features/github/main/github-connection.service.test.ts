@@ -179,6 +179,78 @@ describe('GitHub connection service', () => {
     expect(listRepositories).toHaveBeenCalledTimes(4)
   })
 
+  it('does not reuse a snapshot after the same identity is reauthorized with changed grants', async () => {
+    let activeCredential = credential
+    let authorizationGeneration = 0
+    let repositoriesAvailable = true
+    const adapter = createAdapter()
+    adapter.listInstallationRepositories = async (_accessToken, installationId) =>
+      repositoriesAvailable
+        ? createAdapter().listInstallationRepositories('ignored', installationId)
+        : []
+    const listInstallations = vi.spyOn(adapter, 'listInstallations')
+    const service = createGitHubConnectionService({
+      auth: {
+        getAuthorizedCredential: async () => activeCredential,
+        getAuthorizationGeneration: () => authorizationGeneration
+      },
+      adapter,
+      appSlug: 'space-zero',
+      openExternal: async () => undefined
+    })
+
+    await expect(service.getConnection()).resolves.toMatchObject({ status: 'connected' })
+    activeCredential = { ...credential }
+    authorizationGeneration += 1
+    repositoriesAvailable = false
+
+    await expect(service.getConnection()).resolves.toMatchObject({
+      status: 'repository-access-required',
+      installations: expect.arrayContaining([
+        expect.objectContaining({ status: 'no-repositories' })
+      ])
+    })
+    expect(listInstallations).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not coalesce an old authorization request with a same-user reconnect', async () => {
+    let activeCredential = credential
+    const oldRequestStarted = deferred<void>()
+    const allowOldRequest = deferred<void>()
+    const adapter = createAdapter()
+    const listInstallations = vi.spyOn(adapter, 'listInstallations')
+    adapter.listInstallationRepositories = async (accessToken, installationId) => {
+      if (accessToken === credential.accessToken) {
+        oldRequestStarted.resolve()
+        await allowOldRequest.promise
+        return createAdapter().listInstallationRepositories(accessToken, installationId)
+      }
+      return []
+    }
+    const service = createGitHubConnectionService({
+      auth: { getAuthorizedCredential: async () => activeCredential },
+      adapter,
+      appSlug: 'space-zero',
+      openExternal: async () => undefined
+    })
+
+    const oldConnection = service.getConnection()
+    await oldRequestStarted.promise
+    activeCredential = {
+      ...credential,
+      accessToken: 'reauthorized-access-secret',
+      refreshToken: 'reauthorized-refresh-secret'
+    }
+    const reconnected = service.getConnection()
+    await Promise.resolve()
+    const requestsBeforeOldCompletion = listInstallations.mock.calls.length
+    allowOldRequest.resolve()
+
+    const [, reconnectedState] = await Promise.all([oldConnection, reconnected])
+    expect(requestsBeforeOldCompletion).toBe(2)
+    expect(reconnectedState).toMatchObject({ status: 'repository-access-required' })
+  })
+
   it('coalesces simultaneous connection snapshots for the same identity', async () => {
     const adapter = createAdapter()
     const installationsStarted = deferred<void>()

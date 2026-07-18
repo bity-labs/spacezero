@@ -204,6 +204,37 @@ describe('AccountSettings', () => {
     expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
   })
 
+  it('keeps management and local disconnect available when reconnection is required', async () => {
+    const identity = {
+      id: '42',
+      login: 'octocat',
+      avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+      profileUrl: 'https://github.com/octocat'
+    }
+    let connected = true
+    window.spacezero.github.getConnection = async () =>
+      connected
+        ? {
+            status: 'reconnect-required',
+            identity
+          }
+        : { status: 'disconnected' }
+    window.spacezero.github.openManageAccess = vi.fn(async () => undefined)
+    window.spacezero.github.disconnect = vi.fn(async () => {
+      connected = false
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<AccountSettings />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Manage/Revoke access on GitHub' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }))
+
+    await waitFor(() => expect(window.spacezero.github.openManageAccess).toHaveBeenCalledOnce())
+    expect(window.spacezero.github.disconnect).toHaveBeenCalledOnce()
+    expect(await screen.findByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+  })
+
   it('shows and cancels the device code while reconnecting an existing identity', async () => {
     const identity = {
       id: '42',

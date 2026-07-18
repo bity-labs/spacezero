@@ -116,6 +116,17 @@ export function createGitHubAuthService({
   const flows = new Map<string, AuthorizationFlow>()
   let refreshInFlight:
     { refreshToken: string; promise: Promise<StoredGitHubCredential> } | undefined
+  let credentialGeneration = 0
+  let credentialMutationQueue = Promise.resolve()
+
+  function serializeCredentialMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = credentialMutationQueue.then(operation, operation)
+    credentialMutationQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
 
   async function getConnection(): Promise<GitHubConnection> {
     const credential = await credentialStore.read()
@@ -157,18 +168,28 @@ export function createGitHubAuthService({
       return refreshInFlight.promise
     }
 
+    const generation = credentialGeneration
     const promise = (async () => {
       const tokens = await adapter.refreshAccessToken(
         requireClientId(clientId),
         credential.refreshToken
       )
-      const currentCredential = await credentialStore.read()
-      if (!currentCredential || currentCredential.refreshToken !== credential.refreshToken) {
-        throw new GitHubIntegrationError('reconnect-required')
-      }
-      const refreshed = { ...tokens, identity: credential.identity }
-      await credentialStore.write(refreshed)
-      return refreshed
+      return serializeCredentialMutation(async () => {
+        if (generation !== credentialGeneration) {
+          throw new GitHubIntegrationError('reconnect-required')
+        }
+        const currentCredential = await credentialStore.read()
+        if (!currentCredential || currentCredential.refreshToken !== credential.refreshToken) {
+          throw new GitHubIntegrationError('reconnect-required')
+        }
+        const refreshed = { ...tokens, identity: credential.identity }
+        await credentialStore.write(refreshed)
+        if (generation !== credentialGeneration) {
+          throw new GitHubIntegrationError('reconnect-required')
+        }
+        credentialGeneration += 1
+        return refreshed
+      })
     })()
     refreshInFlight = { refreshToken: credential.refreshToken, promise }
 
@@ -180,6 +201,7 @@ export function createGitHubAuthService({
   }
 
   async function disconnect(): Promise<void> {
+    credentialGeneration += 1
     const pendingFlows: Promise<void>[] = []
     for (const flow of flows.values()) {
       flow.cancelled = true
@@ -189,7 +211,7 @@ export function createGitHubAuthService({
     }
     flows.clear()
     await Promise.all(pendingFlows)
-    await credentialStore.clear()
+    await serializeCredentialMutation(() => credentialStore.clear())
   }
 
   async function startAuthorization(): Promise<GitHubDeviceAuthorization> {
@@ -262,16 +284,28 @@ export function createGitHubAuthService({
           adapter.getIdentity(result.tokens.accessToken, flow.abortController.signal)
         )
         assertFlowActive(flow)
-        previousCredential = await credentialStore.read()
-        assertFlowActive(flow)
-        credentialWriteStarted = true
-        await credentialStore.write({ ...result.tokens, identity })
-        assertFlowActive(flow)
+        previousCredential = await serializeCredentialMutation(async () => {
+          assertFlowActive(flow)
+          const storedCredential = await credentialStore.read()
+          assertFlowActive(flow)
+          credentialWriteStarted = true
+          await credentialStore.write({ ...result.tokens, identity })
+          assertFlowActive(flow)
+          credentialGeneration += 1
+          return storedCredential
+        })
         return { status: 'repository-access-required', identity }
       }
     } catch (error) {
       if (credentialWriteStarted) {
-        await restoreCredentialAfterIncompleteFlow(flow, previousCredential, credentialStore)
+        await serializeCredentialMutation(async () => {
+          if (flow.discardCredentialOnCancel || !previousCredential) {
+            await credentialStore.clear()
+          } else {
+            await credentialStore.write(previousCredential)
+          }
+          credentialGeneration += 1
+        })
       }
       if (flow.cancelled || flow.abortController.signal.aborted) {
         throw new GitHubIntegrationError('authorization-cancelled')
@@ -306,6 +340,7 @@ export function createGitHubAuthService({
   return {
     getConnection,
     getAuthorizedCredential,
+    getAuthorizationGeneration: () => credentialGeneration,
     disconnect,
     startAuthorization,
     waitForAuthorization,
@@ -336,18 +371,6 @@ function createSettledSignal(): { promise: Promise<void>; resolve: () => void } 
     resolve = next
   })
   return { promise, resolve }
-}
-
-async function restoreCredentialAfterIncompleteFlow(
-  flow: AuthorizationFlow,
-  previousCredential: StoredGitHubCredential | undefined,
-  credentialStore: GitHubCredentialStore
-): Promise<void> {
-  if (flow.discardCredentialOnCancel || !previousCredential) {
-    await credentialStore.clear()
-    return
-  }
-  await credentialStore.write(previousCredential)
 }
 
 function requireClientId(clientId: string | undefined): string {

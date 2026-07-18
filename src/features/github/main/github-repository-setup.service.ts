@@ -12,7 +12,8 @@ import type {
   StartGitHubCloneResult
 } from '../shared'
 import type { GitHubAuthService } from './github-auth.service'
-import type { AuthorizedRepositories } from './github-projects.service'
+import type { AuthorizedRepositories, GitHubRemoteAdapter } from './github-projects.service'
+import { canonicalizeGitHubRemote } from './github-remote'
 
 export type GitHubCloneAdapter = {
   clone: (request: {
@@ -25,7 +26,10 @@ export type GitHubCloneAdapter = {
   removeDestination: (destination: string) => Promise<void>
 }
 
-type ProjectsBoundary = Pick<ProjectsService, 'listProjects' | 'registerGitHubProject'>
+type ProjectsBoundary = Pick<
+  ProjectsService,
+  'listProjects' | 'linkGitHubRepository' | 'registerGitHubProject'
+>
 type EmitCloneProgress = (event: GitHubCloneProgress) => void
 
 type CloneOperation = {
@@ -44,6 +48,7 @@ export function createGitHubRepositorySetupService({
   repositories,
   auth,
   projects,
+  git,
   clone,
   getProjectsPath,
   createOperationId = nanoid
@@ -51,6 +56,7 @@ export function createGitHubRepositorySetupService({
   repositories: AuthorizedRepositories
   auth: Pick<GitHubAuthService, 'getAuthorizedCredential'>
   projects: ProjectsBoundary
+  git: GitHubRemoteAdapter
   clone: GitHubCloneAdapter
   getProjectsPath: () => Promise<string>
   createOperationId?: () => string
@@ -59,6 +65,32 @@ export function createGitHubRepositorySetupService({
   const activeDestinations = new Set<string>()
 
   async function listSetupOptions(): Promise<GitHubRepositorySetupOption[]> {
+    const { authorizedRepositories, projectsByRepositoryId, remoteMatchesByRepository } =
+      await loadSetupState()
+
+    return authorizedRepositories.map((repository) => {
+      const existingProject = projectsByRepositoryId.get(repository.id)
+      const matchingProjects = existingProject
+        ? []
+        : (remoteMatchesByRepository.get(repository.fullName.toLowerCase()) ?? [])
+      return {
+        repository,
+        ...(existingProject
+          ? { existingProject: { id: existingProject.id, name: existingProject.name } }
+          : {}),
+        ...(matchingProjects.length > 0
+          ? {
+              matchingProjects: matchingProjects.map((project) => ({
+                id: project.id,
+                name: project.name
+              }))
+            }
+          : {})
+      }
+    })
+  }
+
+  async function loadSetupState() {
     const [authorizedRepositories, registeredProjects] = await Promise.all([
       repositories.listAuthorizedRepositories(),
       projects.listProjects()
@@ -68,16 +100,27 @@ export function createGitHubRepositorySetupService({
         project.githubRepository ? [[project.githubRepository.repositoryId, project] as const] : []
       )
     )
+    const remoteMatchesByRepository = new Map<string, typeof registeredProjects>()
 
-    return authorizedRepositories.map((repository) => {
-      const existingProject = projectsByRepositoryId.get(repository.id)
-      return {
-        repository,
-        ...(existingProject
-          ? { existingProject: { id: existingProject.id, name: existingProject.name } }
-          : {})
-      }
-    })
+    await Promise.all(
+      registeredProjects
+        .filter((project) => !project.githubRepository)
+        .map(async (project) => {
+          const remoteKeys = new Set(
+            (await git.listRemotes(project.path))
+              .map(canonicalizeGitHubRemote)
+              .filter((remote): remote is NonNullable<typeof remote> => remote !== null)
+              .map((remote) => remote.key)
+          )
+          for (const remoteKey of remoteKeys) {
+            const matches = remoteMatchesByRepository.get(remoteKey) ?? []
+            matches.push(project)
+            remoteMatchesByRepository.set(remoteKey, matches)
+          }
+        })
+    )
+
+    return { authorizedRepositories, projectsByRepositoryId, remoteMatchesByRepository }
   }
 
   async function startClone(
@@ -85,17 +128,35 @@ export function createGitHubRepositorySetupService({
     emit: EmitCloneProgress
   ): Promise<StartGitHubCloneResult> {
     const repositoryId = request.repositoryId.trim()
-    const [authorizedRepositories, registeredProjects] = await Promise.all([
-      repositories.listAuthorizedRepositories(),
-      projects.listProjects()
-    ])
+    const { authorizedRepositories, projectsByRepositoryId, remoteMatchesByRepository } =
+      await loadSetupState()
     const repository = authorizedRepositories.find((candidate) => candidate.id === repositoryId)
     if (!repository) throw new Error('github.repositoryNotAuthorized')
 
-    const existingProject = registeredProjects.find(
-      (project) => project.githubRepository?.repositoryId === repositoryId
-    )
+    const existingProject = projectsByRepositoryId.get(repositoryId)
     if (existingProject) return { status: 'already-added', projectId: existingProject.id }
+
+    const matchingProjects = remoteMatchesByRepository.get(repository.fullName.toLowerCase()) ?? []
+    if (matchingProjects.length > 0) {
+      const requestedProjectId = request.existingProjectId?.trim()
+      if (matchingProjects.length > 1 && !requestedProjectId) {
+        throw new Error('github.ambiguousProjectRemoteMatch')
+      }
+      const matchingProject = requestedProjectId
+        ? matchingProjects.find((project) => project.id === requestedProjectId)
+        : matchingProjects[0]
+      if (!matchingProject) throw new Error('github.ambiguousProjectRemoteMatch')
+
+      await projects.linkGitHubRepository(matchingProject.id, {
+        repositoryId: repository.id,
+        nodeId: repository.nodeId,
+        owner: repository.owner,
+        name: repository.name,
+        htmlUrl: repository.htmlUrl
+      })
+      return { status: 'already-added', projectId: matchingProject.id }
+    }
+    if (request.existingProjectId) throw new Error('github.projectRemoteMatchNotFound')
 
     const credential = await auth.getAuthorizedCredential()
     const projectsPath = resolve(await getProjectsPath())

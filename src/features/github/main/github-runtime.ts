@@ -133,6 +133,7 @@ export function getGitHubRepositorySetupService(): ReturnType<
       repository: createProjectsRepository(),
       pathAdapter: createProjectPathAdapter()
     }),
+    git: createGitHubRemoteAdapter(),
     clone: createGitHubCloneAdapter(),
     getProjectsPath: getSpaceZeroProjectsPath
   })

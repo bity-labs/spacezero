@@ -178,19 +178,19 @@ export function AccountSettings(): React.JSX.Element {
           {connection && 'installations' in connection && connection.installations ? (
             <InstallationGroups installations={connection.installations} />
           ) : null}
-          {connection?.status !== 'reconnect-required' ? (
-            <div className="flex flex-wrap gap-2 border-t pt-4">
+          <div className="flex flex-wrap gap-2 border-t pt-4">
+            {connection?.status !== 'reconnect-required' ? (
               <Button variant="outline" onClick={() => void openInstallation()}>
                 Add or change repository access
               </Button>
-              <Button variant="outline" onClick={() => void openManageAccess()}>
-                Manage/Revoke access on GitHub
-              </Button>
-              <Button variant="ghost" onClick={() => void disconnect()}>
-                Disconnect
-              </Button>
-            </div>
-          ) : null}
+            ) : null}
+            <Button variant="outline" onClick={() => void openManageAccess()}>
+              Manage/Revoke access on GitHub
+            </Button>
+            <Button variant="ghost" onClick={() => void disconnect()}>
+              Disconnect
+            </Button>
+          </div>
         </Card>
       ) : authorization ? (
         <Card className="gap-5 p-5">
