@@ -1,5 +1,11 @@
+import { resolve } from 'node:path'
+
 import { nanoid } from 'nanoid'
 
+import {
+  withProjectLifecycleLock as runWithProjectLifecycleLock,
+  type ProjectLifecycleLock
+} from './project-lifecycle-lock'
 import type {
   CreateEmptyProjectRequest,
   GitHubRepositoryAssociation,
@@ -72,11 +78,15 @@ export function createProjectsService({
   repository,
   pathAdapter,
   linkKnowledgeBaseProject = async (project) => ({ project }),
+  hasManagedSessions = async () => false,
+  withProjectLifecycleLock = runWithProjectLifecycleLock,
   now = () => new Date()
 }: {
   repository: ProjectsRepository
   pathAdapter: ProjectPathAdapter
   linkKnowledgeBaseProject?: (project: StoredProject) => Promise<OptionalProjectLinkResult>
+  hasManagedSessions?: (projectId: string) => Promise<boolean>
+  withProjectLifecycleLock?: ProjectLifecycleLock
   now?: Clock
 }): ProjectsService {
   async function linkOptionalKnowledgeBase(project: StoredProject): Promise<Project> {
@@ -105,21 +115,24 @@ export function createProjectsService({
     },
 
     async linkGitHubRepository(projectId, association) {
-      const project = await repository.findById(projectId.trim())
-      if (!project) throw new Error('Project not found')
-      const linkedAt = now()
-      return toProject(
-        await repository.update({
-          ...project,
-          githubRepositoryId: association.repositoryId,
-          githubRepositoryNodeId: association.nodeId,
-          githubOwner: association.owner,
-          githubName: association.name,
-          githubUrl: association.htmlUrl,
-          githubLinkedAt: linkedAt,
-          updatedAt: linkedAt
-        })
-      )
+      const normalizedProjectId = projectId.trim()
+      return withProjectLifecycleLock(normalizedProjectId, async () => {
+        const project = await repository.findById(normalizedProjectId)
+        if (!project) throw new Error('Project not found')
+        const linkedAt = now()
+        return toProject(
+          await repository.update({
+            ...project,
+            githubRepositoryId: association.repositoryId,
+            githubRepositoryNodeId: association.nodeId,
+            githubOwner: association.owner,
+            githubName: association.name,
+            githubUrl: association.htmlUrl,
+            githubLinkedAt: linkedAt,
+            updatedAt: linkedAt
+          })
+        )
+      })
     },
 
     async registerGitHubProject(input) {
@@ -172,17 +185,28 @@ export function createProjectsService({
     },
 
     async updateProject(request) {
-      const existing = await repository.findById(request.id.trim())
-      if (!existing) throw new Error('Project not found')
+      const projectId = request.id.trim()
+      return withProjectLifecycleLock(projectId, async () => {
+        const existing = await repository.findById(projectId)
+        if (!existing) throw new Error('Project not found')
 
-      return toProject(
-        await repository.update({
-          ...existing,
-          name: normalizeName(request.name),
-          path: pathAdapter.normalizeProjectPath(request.path),
-          updatedAt: now()
-        })
-      )
+        const requestedPath = request.path.trim()
+        const normalizedPath = samePath(requestedPath, existing.path)
+          ? existing.path
+          : pathAdapter.normalizeProjectPath(requestedPath)
+        if (!samePath(normalizedPath, existing.path) && (await hasManagedSessions(projectId))) {
+          throw new Error('project.pathChangeBlockedByManagedSessions')
+        }
+
+        return toProject(
+          await repository.update({
+            ...existing,
+            name: normalizeName(request.name),
+            path: normalizedPath,
+            updatedAt: now()
+          })
+        )
+      })
     },
 
     async archiveProject(projectId) {
@@ -199,6 +223,14 @@ export function createProjectsService({
       return existing
     }
   }
+}
+
+function samePath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left)
+  const normalizedRight = resolve(right)
+  return process.platform === 'win32'
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight
 }
 
 function normalizeName(name: string): string {

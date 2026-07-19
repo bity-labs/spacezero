@@ -7,11 +7,16 @@ import {
   type GitHubRepositoryAccess
 } from './github-connection.service'
 import { GitHubIntegrationError } from './github-auth.service'
+import { getGitHubErrorStatus, isGitHubRateLimitError } from './github-api-error'
 
-export function createGitHubInstallationsAdapter(): GitHubInstallationsAdapter {
+export function createGitHubInstallationsAdapter({
+  createClient = (accessToken) => new Octokit({ auth: accessToken })
+}: {
+  createClient?: (accessToken: string) => Pick<Octokit, 'request'>
+} = {}): GitHubInstallationsAdapter {
   return {
     async listInstallations(accessToken) {
-      const octokit = new Octokit({ auth: accessToken })
+      const octokit = createClient(accessToken)
       const installations: GitHubInstallationAccess[] = []
 
       try {
@@ -35,7 +40,7 @@ export function createGitHubInstallationsAdapter(): GitHubInstallationsAdapter {
     },
 
     async listInstallationRepositories(accessToken, installationId) {
-      const octokit = new Octokit({ auth: accessToken })
+      const octokit = createClient(accessToken)
       const repositories: GitHubRepositoryAccess[] = []
 
       try {
@@ -58,7 +63,8 @@ export function createGitHubInstallationsAdapter(): GitHubInstallationsAdapter {
         }
         return repositories
       } catch (error) {
-        const status = getStatus(error)
+        if (isGitHubRateLimitError(error)) throw sanitizeOctokitError(error)
+        const status = getGitHubErrorStatus(error)
         if (status === 403) {
           throw new GitHubInstallationAccessError('organization-authorization-required')
         }
@@ -108,15 +114,10 @@ function toRepository(
   }
 }
 
-function sanitizeOctokitError(error: unknown): GitHubIntegrationError {
-  const status = getStatus(error)
+function sanitizeOctokitError(error: unknown): Error {
+  if (isGitHubRateLimitError(error)) return new Error('github.rateLimited')
+  const status = getGitHubErrorStatus(error)
   if (status === 401) return new GitHubIntegrationError('reconnect-required')
   if (status === 403) return new GitHubIntegrationError('authorization-failed')
   return new GitHubIntegrationError('network-error')
-}
-
-function getStatus(error: unknown): number | undefined {
-  return typeof error === 'object' && error !== null && 'status' in error
-    ? Number((error as { status?: unknown }).status)
-    : undefined
 }

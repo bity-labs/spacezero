@@ -6,6 +6,10 @@ import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
 import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
+import {
+  withProjectLifecycleLock as runWithProjectLifecycleLock,
+  type ProjectLifecycleLock
+} from '../../projects/main/project-lifecycle-lock'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
@@ -42,6 +46,8 @@ export type CreateAgentSessionHandlerDependencies = {
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
   worktrees: Pick<ManagedWorktreeService, 'create' | 'remove'>
   createSessionId?: () => string
+  withProjectLifecycleLock?: ProjectLifecycleLock
+  resolveProjectPathForSession?: (path: string) => string
   readModelDefaults?: typeof getModelDefaults
   getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
@@ -75,6 +81,7 @@ const unavailableStoredWorktrees = { validate: async () => false }
 
 export type CreateManagedProjectAgentSessionRequest = {
   projectId: string
+  expectedProjectPath?: string
   title?: string
   source?: SessionGitHubSource
   systemPromptContext?: string
@@ -86,13 +93,15 @@ export async function createProjectAgentSession(
   dependencies: CreateAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = createSessionRequestSchema.parse(input)
-  const project = await dependencies.repository.findProjectById(request.projectId)
-  if (!project) throw new Error('Project not found')
-  if (resolve(request.cwd) !== resolve(project.path)) {
-    throw new Error('Session cwd must match the project path')
-  }
-
-  return (await createManagedProjectAgentSession(request, dependencies)).state
+  return (
+    await createManagedProjectAgentSession(
+      {
+        projectId: request.projectId,
+        expectedProjectPath: request.cwd
+      },
+      dependencies
+    )
+  ).state
 }
 
 export async function createManagedProjectAgentSession(
@@ -102,6 +111,8 @@ export async function createManagedProjectAgentSession(
     utilityHost,
     worktrees,
     createSessionId = nanoid,
+    withProjectLifecycleLock = runWithProjectLifecycleLock,
+    resolveProjectPathForSession = (path) => resolve(path),
     readModelDefaults = getModelDefaults,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
@@ -110,99 +121,116 @@ export async function createManagedProjectAgentSession(
   }: CreateAgentSessionHandlerDependencies
 ): Promise<{ state: AgentSessionState; session: ProjectSession }> {
   const projectId = request.projectId.trim()
-  const project = await repository.findProjectById(projectId)
-  if (!project) throw new Error('Project not found')
-  const projectPath = resolve(project.path)
-  const sessionId = createSessionId()
-  const worktree = await worktrees.create({
-    projectPath,
-    projectId,
-    sessionId,
-    source: request.source,
-    startPoint: request.startPoint
-  })
-  let state: AgentSessionState | undefined
-  const persistSession = () =>
-    createSessionsService({ repository }).createProjectAgentSession({
-      id: sessionId,
-      projectId,
-      title: request.title,
-      worktree,
-      source: request.source,
-      transcriptPath: state?.transcriptPath,
-      modelProvider: state?.modelProvider,
-      modelId: state?.modelId,
-      thinkingLevel: state?.thinkingLevel
-    })
+  return withProjectLifecycleLock(projectId, async () => {
+    let project = await repository.findProjectById(projectId)
+    if (!project) throw new Error('Project not found')
+    if (
+      request.expectedProjectPath &&
+      !samePath(request.expectedProjectPath, project.path) &&
+      !samePath(resolveProjectPathForSession(request.expectedProjectPath), project.path)
+    ) {
+      throw new Error('Session cwd must match the project path')
+    }
 
-  try {
-    const modelDefaults = await readModelDefaults()
-    const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
-      project.knowledgeBasePath,
-      getKnowledgeBaseStatus
-    )
-    const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-    const projectTrusted = await readProjectTrust(projectId, projectPath)
-    const skillPaths = await resolveSessionSkillPaths(
-      resolveSkillPaths,
-      worktree.path,
-      'project',
-      projectTrusted
-    )
-    state = await utilityHost.createSession({
+    const preparedProjectPath = resolveProjectPathForSession(project.path)
+    if (!samePath(preparedProjectPath, project.path)) {
+      await repository.updateProjectPath(projectId, preparedProjectPath)
+      project = { ...project, path: preparedProjectPath }
+    }
+    const projectPath = resolve(project.path)
+    const sessionId = createSessionId()
+    const worktree = await worktrees.create({
+      projectPath,
+      projectId,
       sessionId,
-      kind: 'project',
-      projectId,
-      cwd: worktree.path,
-      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
-      appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
-      ...(skillPaths ? { skillPaths } : {}),
-      ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
-      ...(request.systemPromptContext ? { systemPromptContext: request.systemPromptContext } : {}),
-      defaultModel: modelDefaults.defaultModel,
-      thinkingLevel: modelDefaults.defaultThinking
+      source: request.source,
+      startPoint: request.startPoint
     })
-
-    const session = await persistSession()
-    return { state, session }
-  } catch (error) {
-    const cleanupFailures: unknown[] = []
-    let utilityCleanupFailed = false
-
-    if (state) {
-      try {
-        await utilityHost.deleteSession({ sessionId })
-      } catch (cleanupError) {
-        utilityCleanupFailed = true
-        cleanupFailures.push(cleanupError)
-      }
-    }
-
-    // A live utility Session may still be using the worktree, so do not remove its cwd.
-    if (!utilityCleanupFailed) {
-      try {
-        await worktrees.remove({ projectPath, projectId, sessionId, worktree })
-      } catch (cleanupError) {
-        cleanupFailures.push(cleanupError)
-      }
-    }
-
-    if (cleanupFailures.length === 0) throw error
+    let state: AgentSessionState | undefined
+    const persistSession = () =>
+      createSessionsService({ repository }).createProjectAgentSession({
+        id: sessionId,
+        projectId,
+        title: request.title,
+        worktree,
+        source: request.source,
+        transcriptPath: state?.transcriptPath,
+        modelProvider: state?.modelProvider,
+        modelId: state?.modelId,
+        thinkingLevel: state?.thinkingLevel
+      })
 
     try {
-      const existing = await repository.findSessionById(sessionId)
-      if (!existing) await persistSession()
-    } catch (recoveryError) {
-      cleanupFailures.push(recoveryError)
-    }
+      const modelDefaults = await readModelDefaults()
+      const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
+        project.knowledgeBasePath,
+        getKnowledgeBaseStatus
+      )
+      const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
+      const projectTrusted = await readProjectTrust(projectId, projectPath)
+      const skillPaths = await resolveSessionSkillPaths(
+        resolveSkillPaths,
+        worktree.path,
+        'project',
+        projectTrusted
+      )
+      state = await utilityHost.createSession({
+        sessionId,
+        kind: 'project',
+        projectId,
+        cwd: worktree.path,
+        workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+        appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
+        ...(skillPaths ? { skillPaths } : {}),
+        ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+        ...(request.systemPromptContext
+          ? { systemPromptContext: request.systemPromptContext }
+          : {}),
+        defaultModel: modelDefaults.defaultModel,
+        thinkingLevel: modelDefaults.defaultThinking
+      })
 
-    const rollbackError = new Error('session.creationRollbackFailed', { cause: error })
-    Object.defineProperty(rollbackError, 'cleanupFailures', {
-      value: [...cleanupFailures],
-      enumerable: false
-    })
-    throw rollbackError
-  }
+      const session = await persistSession()
+      return { state, session }
+    } catch (error) {
+      const cleanupFailures: unknown[] = []
+      let utilityCleanupFailed = false
+
+      if (state) {
+        try {
+          await utilityHost.deleteSession({ sessionId })
+        } catch (cleanupError) {
+          utilityCleanupFailed = true
+          cleanupFailures.push(cleanupError)
+        }
+      }
+
+      // A live utility Session may still be using the worktree, so do not remove its cwd.
+      if (!utilityCleanupFailed) {
+        try {
+          await worktrees.remove({ projectPath, projectId, sessionId, worktree })
+        } catch (cleanupError) {
+          cleanupFailures.push(cleanupError)
+        }
+      }
+
+      if (cleanupFailures.length === 0) throw error
+
+      try {
+        const existing = await repository.findSessionById(sessionId)
+        if (!existing) await persistSession()
+      } catch (recoveryError) {
+        cleanupFailures.push(recoveryError)
+      }
+
+      const rollbackError = new Error('session.creationRollbackFailed', { cause: error })
+      Object.defineProperty(rollbackError, 'cleanupFailures', {
+        value: [...cleanupFailures],
+        enumerable: false
+      })
+      throw rollbackError
+    }
+  })
 }
 
 export async function restoreAgentSessionState(
@@ -473,6 +501,14 @@ function createStoredSourceContext(session: StoredSession): string | undefined {
     '',
     'Treat this source as context. Do not comment, close, approve, merge, assign, or otherwise mutate GitHub unless the builder explicitly asks.'
   ].join('\n')
+}
+
+function samePath(left: string, right: string): boolean {
+  const normalizedLeft = resolve(left)
+  const normalizedRight = resolve(right)
+  return process.platform === 'win32'
+    ? normalizedLeft.toLowerCase() === normalizedRight.toLowerCase()
+    : normalizedLeft === normalizedRight
 }
 
 function defaultWorkspaceSessionCwd(): string {

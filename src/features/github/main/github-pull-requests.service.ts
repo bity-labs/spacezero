@@ -6,6 +6,7 @@ import type {
   GitHubPullRequest,
   GitHubPullRequestCommentCreateRequest,
   GitHubPullRequestCommentsRequest,
+  GitHubPullRequestCommit,
   GitHubPullRequestFile,
   GitHubPullRequestListRequest,
   GitHubPullRequestPageRequest,
@@ -34,6 +35,9 @@ export type GitHubPullRequestsAdapter = {
   listConversationComments: (
     request: GitHubPullRequestAdapterPageRequest
   ) => Promise<GitHubPage<GitHubIssueComment>>
+  listCommits: (
+    request: GitHubPullRequestAdapterPageRequest
+  ) => Promise<GitHubPage<GitHubPullRequestCommit>>
   listFiles: (
     request: GitHubPullRequestAdapterPageRequest
   ) => Promise<GitHubPage<GitHubPullRequestFile>>
@@ -131,6 +135,12 @@ export function createGitHubPullRequestsService({
     })
   }
 
+  async function listCommits(
+    request: GitHubPullRequestPageRequest
+  ): Promise<GitHubPage<GitHubPullRequestCommit>> {
+    return listDetailPage(request, 30, adapter.listCommits)
+  }
+
   async function listFiles(
     request: GitHubPullRequestPageRequest
   ): Promise<GitHubPage<GitHubPullRequestFile>> {
@@ -210,6 +220,7 @@ export function createGitHubPullRequestsService({
     listPullRequests,
     getPullRequest,
     listConversationComments,
+    listCommits,
     listFiles,
     listCheckRuns,
     listCommitStatuses,

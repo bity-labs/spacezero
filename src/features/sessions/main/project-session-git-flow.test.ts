@@ -7,12 +7,20 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
-import { createManagedProjectAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import {
+  createManagedProjectAgentSession,
+  createProjectAgentSession
+} from '../../agent-workspace/main/agent-session-handler'
 import type { AgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
 import {
   createProjectPathAdapter,
   normalizeExistingProjectPath
 } from '../../projects/main/project-path.adapter'
+import {
+  createProjectsService,
+  type ProjectsRepository,
+  type StoredProject
+} from '../../projects/main/projects.service'
 import { createManagedWorktreeAdapter } from './managed-worktree.adapter'
 import { createManagedWorktreeService } from './managed-worktree.service'
 import { createSessionCleanupService } from './session-cleanup.service'
@@ -68,12 +76,14 @@ async function createGitRepository(path: string): Promise<void> {
 function createRepository(
   projectPath: string,
   { failFirstCreate = false }: { failFirstCreate?: boolean } = {}
-): SessionsRepository & { storedSessions: StoredSession[] } {
+): SessionsRepository & { storedSessions: StoredSession[]; getProjectPath: () => string } {
   const storedSessions: StoredSession[] = []
   let createAttempts = 0
+  let storedProjectPath = projectPath
 
   return {
     storedSessions,
+    getProjectPath: () => storedProjectPath,
     async listProjectSessions() {
       return storedSessions.filter((session) => session.projectId !== null)
     },
@@ -96,7 +106,17 @@ function createRepository(
       return projectId === 'project-1'
     },
     async findProjectById(projectId) {
-      return projectId === 'project-1' ? { id: projectId, path: projectPath } : undefined
+      return projectId === 'project-1' ? { id: projectId, path: storedProjectPath } : undefined
+    },
+    async updateProjectPath(_projectId, path) {
+      storedProjectPath = path
+    },
+    async hasManagedSessions(projectId) {
+      return storedSessions.some(
+        (session) =>
+          session.projectId === projectId &&
+          Boolean(session.worktreePath || session.worktreeBranch || session.worktreeBaseRevision)
+      )
     },
     async findSessionById(sessionId) {
       return storedSessions.find((session) => session.id === sessionId)
@@ -140,6 +160,54 @@ function createState(request: CreateUtilitySessionRequest): AgentSessionState {
     modelId: 'faux-1',
     thinkingLevel: 'medium'
   }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
+function createProjectService(
+  sessionsRepository: SessionsRepository,
+  projectPath: string
+): ReturnType<typeof createProjectsService> {
+  let storedProject: StoredProject = {
+    id: 'project-1',
+    name: 'Test Project',
+    path: projectPath,
+    createdAt: new Date('2026-07-18T00:00:00.000Z'),
+    updatedAt: new Date('2026-07-18T00:00:00.000Z')
+  }
+  const repository: ProjectsRepository = {
+    async list() {
+      return [storedProject]
+    },
+    async create(project) {
+      storedProject = project
+      return project
+    },
+    async update(project) {
+      storedProject = project
+      await sessionsRepository.updateProjectPath(project.id, project.path)
+      return project
+    },
+    async findById(id) {
+      return id === storedProject.id ? storedProject : undefined
+    },
+    async deleteById() {}
+  }
+  return createProjectsService({
+    repository,
+    pathAdapter: {
+      createEmptyProjectDirectory: async () => projectPath,
+      chooseProjectFolder: async () => ({ canceled: true }),
+      normalizeProjectPath: normalizeExistingProjectPath
+    },
+    hasManagedSessions: (projectId) => sessionsRepository.hasManagedSessions(projectId)
+  })
 }
 
 const readModelDefaults = async () => ({
@@ -230,6 +298,189 @@ describe('Project Session real Git flows', () => {
         startPoint: { kind: 'current-head' }
       })
     ).rejects.toThrow('session.projectNotRepositoryRoot')
+  })
+
+  it('repairs an upgraded Project subdirectory before creating a real worktree', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-upgraded-subdirectory-test-'))
+    temporaryPaths.push(root)
+    const repositoryRoot = join(root, 'project')
+    await createGitRepository(repositoryRoot)
+    const persistedSubdirectory = join(repositoryRoot, 'packages', 'desktop')
+    await mkdir(persistedSubdirectory, { recursive: true })
+    const repository = createRepository(persistedSubdirectory)
+    const worktrees = createManagedWorktreeService({
+      adapter: createManagedWorktreeAdapter(),
+      getWorktreesPath: async () => join(root, 'worktrees')
+    })
+
+    const state = await createProjectAgentSession(
+      { projectId: 'project-1', cwd: persistedSubdirectory },
+      {
+        repository,
+        utilityHost: {
+          createSession: async (request) => createState(request),
+          deleteSession: async () => undefined
+        },
+        worktrees,
+        createSessionId: () => 'session-1',
+        resolveProjectPathForSession: normalizeExistingProjectPath,
+        readModelDefaults
+      }
+    )
+
+    expect(state.cwd).toBe(join(root, 'worktrees', 'project-1', 'session-1'))
+    expect(repository.getProjectPath()).toBe(repositoryRoot)
+    const storedSession = await repository.findSessionById('session-1')
+    await expect(
+      worktrees.validate({
+        projectPath: repositoryRoot,
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        worktree: {
+          path: storedSession!.worktreePath!,
+          branch: storedSession!.worktreeBranch!,
+          baseRevision: storedSession!.worktreeBaseRevision!
+        }
+      })
+    ).resolves.toBe(true)
+  })
+
+  it('fails an upgraded plain-directory Project before creating a utility Session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-upgraded-plain-project-test-'))
+    temporaryPaths.push(root)
+    const projectPath = join(root, 'plain-project')
+    await mkdir(projectPath)
+    const repository = createRepository(projectPath)
+    const utilityHost = {
+      createSession: vi.fn(async (request: CreateUtilitySessionRequest) => createState(request)),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await expect(
+      createProjectAgentSession(
+        { projectId: 'project-1', cwd: projectPath },
+        {
+          repository,
+          utilityHost,
+          worktrees: createManagedWorktreeService({
+            adapter: createManagedWorktreeAdapter(),
+            getWorktreesPath: async () => join(root, 'worktrees')
+          }),
+          createSessionId: () => 'session-1',
+          resolveProjectPathForSession: normalizeExistingProjectPath,
+          readModelDefaults
+        }
+      )
+    ).rejects.toThrow('project.notGitRepository')
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
+  it('keeps an existing managed Session recoverable when a Project path edit is attempted', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-project-path-edit-test-'))
+    temporaryPaths.push(root)
+    const originalProjectPath = join(root, 'project-a')
+    const replacementProjectPath = join(root, 'project-b')
+    await createGitRepository(originalProjectPath)
+    await createGitRepository(replacementProjectPath)
+    const repository = createRepository(originalProjectPath)
+    const worktrees = createManagedWorktreeService({
+      adapter: createManagedWorktreeAdapter(),
+      getWorktreesPath: async () => join(root, 'worktrees')
+    })
+    const utilityHost = {
+      createSession: async (request: CreateUtilitySessionRequest) => createState(request),
+      deleteSession: async () => undefined
+    }
+    const { session } = await createManagedProjectAgentSession(
+      { projectId: 'project-1' },
+      {
+        repository,
+        utilityHost,
+        worktrees,
+        createSessionId: () => 'session-1',
+        resolveProjectPathForSession: normalizeExistingProjectPath,
+        readModelDefaults
+      }
+    )
+    const projects = createProjectService(repository, originalProjectPath)
+
+    await expect(
+      projects.updateProject({
+        id: 'project-1',
+        name: 'Test Project',
+        path: replacementProjectPath
+      })
+    ).rejects.toThrow('project.pathChangeBlockedByManagedSessions')
+    await expect(projects.getProject('project-1')).resolves.toMatchObject({
+      path: originalProjectPath
+    })
+    await expect(
+      worktrees.validate({
+        projectPath: originalProjectPath,
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        worktree: session.worktree!
+      })
+    ).resolves.toBe(true)
+
+    await createSessionCleanupService({
+      repository,
+      worktrees,
+      deleteUtilitySession: async () => undefined,
+      removeTranscript: async () => undefined
+    }).deleteSession('session-1')
+    await expect(repository.findSessionById('session-1')).resolves.toBeUndefined()
+  })
+
+  it('serializes Project path edits against in-flight managed Session creation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-project-path-race-test-'))
+    temporaryPaths.push(root)
+    const originalProjectPath = join(root, 'project-a')
+    const replacementProjectPath = join(root, 'project-b')
+    await createGitRepository(originalProjectPath)
+    await createGitRepository(replacementProjectPath)
+    const repository = createRepository(originalProjectPath)
+    const projects = createProjectService(repository, originalProjectPath)
+    const utilityRequest = deferred<CreateUtilitySessionRequest>()
+    const allowUtility = deferred<AgentSessionState>()
+    const creation = createManagedProjectAgentSession(
+      { projectId: 'project-1' },
+      {
+        repository,
+        utilityHost: {
+          createSession: async (request) => {
+            utilityRequest.resolve(request)
+            return allowUtility.promise
+          },
+          deleteSession: async () => undefined
+        },
+        worktrees: createManagedWorktreeService({
+          adapter: createManagedWorktreeAdapter(),
+          getWorktreesPath: async () => join(root, 'worktrees')
+        }),
+        createSessionId: () => 'session-1',
+        resolveProjectPathForSession: normalizeExistingProjectPath,
+        readModelDefaults
+      }
+    )
+    const request = await utilityRequest.promise
+    let updateSettled = false
+    const update = projects
+      .updateProject({
+        id: 'project-1',
+        name: 'Test Project',
+        path: replacementProjectPath
+      })
+      .finally(() => {
+        updateSettled = true
+      })
+
+    await Promise.resolve()
+    expect(updateSettled).toBe(false)
+    allowUtility.resolve(createState(request))
+    await creation
+    await expect(update).rejects.toThrow('project.pathChangeBlockedByManagedSessions')
+    expect(repository.getProjectPath()).toBe(originalProjectPath)
   })
 
   it('retains recovery metadata across utility rollback and verified worktree cleanup failures', async () => {

@@ -2,6 +2,7 @@ import { app, clipboard, safeStorage, shell } from 'electron'
 import { join } from 'node:path'
 
 import { createProjectPathAdapter } from '../../projects/main/project-path.adapter'
+import { resolveProjectRepositoryPath } from '../../projects/main/project-repository-path'
 import { getSpaceZeroProjectsPath } from '../../settings/main/storage-settings.service'
 import { createProjectsRepository } from '../../projects/main/projects.repository'
 import { createProjectsService } from '../../projects/main/projects.service'
@@ -114,6 +115,7 @@ export function getGitHubSourceSessionsService(): ReturnType<
         repository: createSessionsRepository(),
         utilityHost: getAgentUtilityProcessHost(),
         worktrees: getManagedWorktreeService(),
+        resolveProjectPathForSession: resolveProjectRepositoryPath,
         readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
         resolveSkillPaths: resolveAgentSkillPaths
       })

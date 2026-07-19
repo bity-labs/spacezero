@@ -55,6 +55,38 @@ describe('ProjectHome', () => {
     )
   })
 
+  it.each([
+    [
+      'session.projectNotGitRepository',
+      'This Project folder is not a Git repository. Choose a repository path or initialize Git with an initial commit, then retry.'
+    ],
+    [
+      'session.projectHasNoCommits',
+      'This Git repository has no commits. Create an initial commit, then retry the Session.'
+    ],
+    [
+      'session.projectNotRepositoryRoot',
+      'This Project points to a repository subdirectory. Edit the Project path to the repository root, then retry.'
+    ]
+  ])('shows actionable Session setup guidance for %s', async (code, message) => {
+    window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
+
+    renderProjectHome(
+      <ProjectHome
+        project={project}
+        onProjectLinked={() => undefined}
+        onNewSession={async () => {
+          throw new Error(code)
+        }}
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New session' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.getByRole('button', { name: 'New session' })).toBeEnabled()
+  })
+
   it('suggests a matching remote and links the selected authorized repository', async () => {
     window.spacezero.github.getConnection = async () => ({
       status: 'connected',

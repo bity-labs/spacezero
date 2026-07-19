@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -52,6 +52,7 @@ describe('GitHub clone adapter', () => {
 
     await adapter.clone({
       repository,
+      managedRoot: join(root, 'projects'),
       destination,
       accessToken: 'access-secret',
       signal: new AbortController().signal,
@@ -121,6 +122,7 @@ describe('GitHub clone adapter', () => {
 
     await adapter.clone({
       repository,
+      managedRoot: join(root, 'projects'),
       destination,
       accessToken: 'access-secret',
       signal: new AbortController().signal,
@@ -201,6 +203,7 @@ describe('GitHub clone adapter', () => {
       await expect(
         createGitHubCloneAdapter().clone({
           repository,
+          managedRoot: join(root, 'projects'),
           destination: join(root, 'projects', 'bity-labs', 'spacezero'),
           accessToken: 'test-canary-not-a-credential',
           signal: new AbortController().signal,
@@ -238,6 +241,7 @@ describe('GitHub clone adapter', () => {
 
     await adapter.clone({
       repository,
+      managedRoot: join(root, 'projects'),
       destination,
       accessToken: 'access-secret',
       signal: new AbortController().signal,
@@ -263,6 +267,7 @@ describe('GitHub clone adapter', () => {
     await expect(
       adapter.clone({
         repository,
+        managedRoot: join(root, 'projects'),
         destination,
         accessToken: 'access-secret',
         signal: new AbortController().signal,
@@ -283,6 +288,7 @@ describe('GitHub clone adapter', () => {
           ...repository,
           cloneUrl: 'https://access-secret@github.com/bity-labs/spacezero.git'
         },
+        managedRoot: join(root, 'projects'),
         destination: join(root, 'spacezero'),
         accessToken: 'access-secret',
         signal: new AbortController().signal,
@@ -302,12 +308,129 @@ describe('GitHub clone adapter', () => {
           ...repository,
           cloneUrl: 'https://github.com:443/bity-labs/spacezero.git'
         },
+        managedRoot: join(root, 'projects'),
         destination: join(root, 'spacezero'),
         accessToken: 'access-secret',
         signal: new AbortController().signal,
         onProgress: () => undefined
       })
     ).rejects.toThrow('github.invalidCloneUrl')
+  })
+
+  it.skipIf(process.platform === 'win32')(
+    'refuses a managed destination whose parent is a symlink outside the managed root',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-containment-test-'))
+      roots.push(root)
+      const projectsPath = join(root, 'projects')
+      const outsidePath = join(root, 'outside')
+      await mkdir(projectsPath, { recursive: true })
+      await mkdir(outsidePath, { recursive: true })
+      await symlink(outsidePath, join(projectsPath, 'bity-labs'), 'dir')
+      let processRuns = 0
+      const adapter = createGitHubCloneAdapter({
+        runGit: async () => {
+          processRuns += 1
+          return { stdout: '' }
+        }
+      })
+
+      await expect(
+        adapter.clone({
+          repository,
+          managedRoot: projectsPath,
+          destination: join(projectsPath, 'bity-labs', 'spacezero'),
+          accessToken: 'access-secret',
+          signal: new AbortController().signal,
+          onProgress: () => undefined
+        })
+      ).rejects.toThrow('github.cloneFailed')
+
+      expect(processRuns).toBe(0)
+      await expect(access(join(outsidePath, 'spacezero'))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  )
+
+  it.skipIf(process.platform === 'win32')(
+    'revalidates the managed parent when it is replaced during clone materialization',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-parent-race-test-'))
+      roots.push(root)
+      const projectsPath = join(root, 'projects')
+      const ownerPath = join(projectsPath, 'bity-labs')
+      const outsidePath = join(root, 'outside')
+      await mkdir(outsidePath, { recursive: true })
+      const adapter = createGitHubCloneAdapter({
+        runGit: async (request) => {
+          if (request.args.includes('clone')) {
+            const partialDestination = request.args.at(-1)!
+            await mkdir(join(partialDestination, '.git'), { recursive: true })
+            await writeFile(
+              join(partialDestination, '.git', 'config'),
+              `[remote "origin"]\n  url = ${repository.cloneUrl}\n`
+            )
+          } else if (request.args.includes('reset')) {
+            await rm(ownerPath, { recursive: true, force: true })
+            await symlink(outsidePath, ownerPath, 'dir')
+          }
+          return {
+            stdout: request.args.includes('get-url') ? `${repository.cloneUrl}\n` : ''
+          }
+        }
+      })
+
+      await expect(
+        adapter.clone({
+          repository,
+          managedRoot: projectsPath,
+          destination: join(ownerPath, 'spacezero'),
+          accessToken: 'access-secret',
+          signal: new AbortController().signal,
+          onProgress: () => undefined
+        })
+      ).rejects.toThrow('github.cloneFailed')
+      await expect(access(join(outsidePath, 'spacezero'))).rejects.toMatchObject({ code: 'ENOENT' })
+    }
+  )
+
+  it('does not spawn Git when cancellation already won', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-cancelled-test-'))
+    roots.push(root)
+    const controller = new AbortController()
+    controller.abort()
+    let processRuns = 0
+    const adapter = createGitHubCloneAdapter({
+      runGit: async () => {
+        processRuns += 1
+        return { stdout: '' }
+      }
+    })
+
+    await expect(
+      adapter.clone({
+        repository,
+        managedRoot: join(root, 'projects'),
+        destination: join(root, 'projects', 'bity-labs', 'spacezero'),
+        accessToken: 'access-secret',
+        signal: controller.signal,
+        onProgress: () => undefined
+      })
+    ).rejects.toThrow('github.cloneCancelled')
+    expect(processRuns).toBe(0)
+  })
+
+  it('refuses cleanup for a destination this adapter did not create', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-clone-cleanup-ownership-test-'))
+    roots.push(root)
+    const destination = join(root, 'projects', 'bity-labs', 'spacezero')
+    const sentinel = join(destination, 'local-only.txt')
+    await mkdir(destination, { recursive: true })
+    await writeFile(sentinel, 'keep me')
+
+    await expect(createGitHubCloneAdapter().removeDestination(destination)).rejects.toThrow(
+      'github.cloneDestinationNotOwned'
+    )
+    await expect(readFile(sentinel, 'utf8')).resolves.toBe('keep me')
   })
 
   it('refuses to overwrite an existing destination', async () => {
@@ -326,6 +449,7 @@ describe('GitHub clone adapter', () => {
     await expect(
       adapter.clone({
         repository,
+        managedRoot: join(root, 'projects'),
         destination,
         accessToken: 'access-secret',
         signal: new AbortController().signal,

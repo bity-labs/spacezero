@@ -76,8 +76,15 @@ export function AddProjectDialog({
         return
       }
       setIsSaving(false)
-    } catch {
-      setError(t('projects.add.folderError'))
+    } catch (error) {
+      const message = String(error)
+      setError(
+        message.includes('project.notGitRepository')
+          ? t('projects.add.folderNotGit')
+          : message.includes('project.repositoryHasNoCommits')
+            ? t('projects.add.folderNoCommits')
+            : t('projects.add.folderError')
+      )
       setIsSaving(false)
     }
   }

@@ -66,6 +66,8 @@ export type SessionsRepository = {
   findProjectById: (
     projectId: string
   ) => Promise<{ id: string; path: string; knowledgeBasePath?: string | null } | undefined>
+  updateProjectPath: (projectId: string, path: string) => Promise<void>
+  hasManagedSessions: (projectId: string) => Promise<boolean>
   findSessionById: (sessionId: string) => Promise<StoredSession | undefined>
   update: (session: StoredSession) => Promise<StoredSession>
   deleteById: (sessionId: string) => Promise<void>

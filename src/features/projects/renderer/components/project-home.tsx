@@ -11,6 +11,7 @@ import {
 } from '../../../github/renderer'
 import type { ProjectSession } from '../../../sessions/shared'
 import type { Project } from '../../shared'
+import { projectSessionSetupErrorMessage } from '../project-session-error-message'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import { cn } from '@renderer/lib/utils'
@@ -31,7 +32,7 @@ export function ProjectHome({
 }: {
   project: Project
   onProjectLinked: (project: Project) => void
-  onNewSession: () => void
+  onNewSession: () => void | Promise<void>
   onSessionCreated?: (session: ProjectSession) => void
   initialGitHubTarget?: ProjectHomeGitHubTarget | null
 }): React.JSX.Element {
@@ -55,6 +56,20 @@ export function ProjectHome({
   const [linkError, setLinkError] = useState<string | null>(null)
   const [isLoadingOptions, setIsLoadingOptions] = useState(false)
   const [isSavingLink, setIsSavingLink] = useState(false)
+  const [isStartingSession, setIsStartingSession] = useState(false)
+  const [sessionSetupError, setSessionSetupError] = useState<string | null>(null)
+
+  async function startSession(): Promise<void> {
+    setIsStartingSession(true)
+    setSessionSetupError(null)
+    try {
+      await onNewSession()
+    } catch (error) {
+      setSessionSetupError(projectSessionSetupErrorMessage(error))
+    } finally {
+      setIsStartingSession(false)
+    }
+  }
 
   async function loadLinkOptions(): Promise<void> {
     setIsLoadingOptions(true)
@@ -113,9 +128,13 @@ export function ProjectHome({
             </p>
             <h1 className="mt-1 text-2xl font-semibold">{displayProject.name}</h1>
           </div>
-          <Button className="gap-2" onClick={onNewSession}>
+          <Button
+            className="gap-2"
+            disabled={isStartingSession}
+            onClick={() => void startSession()}
+          >
             <Plus className="size-4" aria-hidden="true" />
-            New session
+            {isStartingSession ? 'Starting Session…' : 'New session'}
           </Button>
         </div>
         <nav aria-label="Project Home" className="mt-7 flex gap-1">
@@ -144,6 +163,11 @@ export function ProjectHome({
       </div>
 
       <div className="mx-auto w-full max-w-5xl space-y-5 p-8">
+        {sessionSetupError ? (
+          <div className="rounded-lg border border-destructive/40 p-4" role="alert">
+            <p className="text-sm">{sessionSetupError}</p>
+          </div>
+        ) : null}
         {view === 'overview' ? (
           <>
             <GitHubProjectState

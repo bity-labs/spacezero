@@ -164,6 +164,9 @@ function PullRequestDetail({
       pullRequestQuery.refetch(),
       commentsQuery.refetch(),
       queryClient.refetchQueries({
+        queryKey: ['github', 'pull-request-commits', projectId, number]
+      }),
+      queryClient.refetchQueries({
         queryKey: ['github', 'pull-request-files', projectId, number]
       }),
       queryClient.refetchQueries({

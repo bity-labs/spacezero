@@ -18,18 +18,21 @@ import { canonicalizeGitHubRemote } from './github-remote'
 export type GitHubCloneAdapter = {
   clone: (request: {
     repository: GitHubRepository
+    managedRoot: string
     destination: string
     accessToken: string
     signal: AbortSignal
     onProgress: (progress: { percent?: number }) => void
   }) => Promise<void>
   removeDestination: (destination: string) => Promise<void>
+  releaseDestination?: (destination: string) => void
 }
 
 type ProjectsBoundary = Pick<
   ProjectsService,
   'listProjects' | 'linkGitHubRepository' | 'registerGitHubProject'
->
+> &
+  Partial<Pick<ProjectsService, 'deleteProject'>>
 type EmitCloneProgress = (event: GitHubCloneProgress) => void
 
 type CloneOperation = {
@@ -176,6 +179,7 @@ export function createGitHubRepositorySetupService({
       void runClone({
         operationId,
         repository,
+        managedRoot: projectsPath,
         destination,
         accessToken: credential.accessToken,
         abortController,
@@ -193,6 +197,7 @@ export function createGitHubRepositorySetupService({
   async function runClone({
     operationId,
     repository,
+    managedRoot,
     destination,
     accessToken,
     abortController,
@@ -200,18 +205,21 @@ export function createGitHubRepositorySetupService({
   }: {
     operationId: string
     repository: GitHubRepository
+    managedRoot: string
     destination: string
     accessToken: string
     abortController: AbortController
     emit: EmitCloneProgress
   }): Promise<void> {
     let cloneCompleted = false
+    let cancellationRollbackFailed = false
     emit({ operationId, status: 'starting', message: 'Preparing managed clone…' })
 
     try {
-      if (abortController.signal.aborted) throw new GitHubCloneCancelledError()
+      assertCloneActive(abortController.signal)
       await clone.clone({
         repository,
+        managedRoot,
         destination,
         accessToken,
         signal: abortController.signal,
@@ -224,6 +232,8 @@ export function createGitHubRepositorySetupService({
           })
       })
       cloneCompleted = true
+      assertCloneActive(abortController.signal)
+
       const project = await projects.registerGitHubProject({
         name: repository.name,
         path: destination,
@@ -232,6 +242,18 @@ export function createGitHubRepositorySetupService({
         owner: repository.owner,
         htmlUrl: repository.htmlUrl
       })
+      if (abortController.signal.aborted) {
+        try {
+          if (!projects.deleteProject) throw new Error('github.cloneCancellationRollbackFailed')
+          await projects.deleteProject(project.id)
+        } catch (error) {
+          cancellationRollbackFailed = true
+          throw error
+        }
+        throw new GitHubCloneCancelledError()
+      }
+
+      clone.releaseDestination?.(destination)
       emit({
         operationId,
         status: 'complete',
@@ -239,8 +261,19 @@ export function createGitHubRepositorySetupService({
         projectId: project.id
       })
     } catch (error) {
-      if (cloneCompleted) await clone.removeDestination(destination).catch(() => undefined)
-      if (abortController.signal.aborted || error instanceof GitHubCloneCancelledError) {
+      let cleanupFailed = false
+      if (cloneCompleted) {
+        try {
+          await clone.removeDestination(destination)
+        } catch {
+          cleanupFailed = true
+        }
+      }
+      if (
+        !cleanupFailed &&
+        !cancellationRollbackFailed &&
+        (abortController.signal.aborted || error instanceof GitHubCloneCancelledError)
+      ) {
         emit({ operationId, status: 'cancelled', message: 'Clone cancelled.' })
         return
       }
@@ -282,4 +315,8 @@ function assertSafePathSegment(segment: string): void {
   if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(segment)) {
     throw new Error('github.invalidRepositoryPath')
   }
+}
+
+function assertCloneActive(signal: AbortSignal): void {
+  if (signal.aborted) throw new GitHubCloneCancelledError()
 }

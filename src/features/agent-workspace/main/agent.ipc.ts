@@ -6,6 +6,7 @@ import {
   getKnowledgeBaseRootProvider,
   getKnowledgeBaseService
 } from '../../knowledge-base/main'
+import { resolveProjectRepositoryPath } from '../../projects/main/project-repository-path'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
@@ -66,6 +67,7 @@ export function registerAgentIpc(): void {
       repository: createSessionsRepository(),
       utilityHost: getAgentUtilityProcessHost(),
       worktrees: getManagedWorktreeService(),
+      resolveProjectPathForSession: resolveProjectRepositoryPath,
       getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths

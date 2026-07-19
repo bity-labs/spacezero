@@ -4,21 +4,30 @@ import type { GitHubCloneProgress, GitHubRepositorySetupOption } from '../../sha
 import { Button } from '@renderer/components/ui/button'
 
 export function RepositorySetup({
-  onProjectReady
+  onProjectReady,
+  onBusyChange
 }: {
   onProjectReady: (projectId: string) => void | Promise<void>
+  onBusyChange?: (busy: boolean) => void
 }): React.JSX.Element {
   const [options, setOptions] = useState<GitHubRepositorySetupOption[] | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
   const [selectedExistingProjectId, setSelectedExistingProjectId] = useState<string | null>(null)
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null)
   const activeOperationRef = useRef<string | null>(null)
+  const mountedRef = useRef(true)
   const [progress, setProgress] = useState<GitHubCloneProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+  const onProjectReadyRef = useRef(onProjectReady)
+
+  useEffect(() => {
+    onProjectReadyRef.current = onProjectReady
+  }, [onProjectReady])
 
   useEffect(() => {
     let current = true
+    mountedRef.current = true
     window.spacezero.github
       .listRepositorySetupOptions()
       .then((nextOptions) => {
@@ -31,16 +40,28 @@ export function RepositorySetup({
     const unsubscribe = window.spacezero.github.onCloneProgress((event) => {
       if (event.operationId !== activeOperationRef.current) return
       setProgress(event)
+      if (
+        event.status === 'complete' ||
+        event.status === 'failed' ||
+        event.status === 'cancelled'
+      ) {
+        activeOperationRef.current = null
+        setActiveOperationId(null)
+      }
       if (event.status === 'complete' && event.projectId) {
-        void onProjectReady(event.projectId)
+        void onProjectReadyRef.current(event.projectId)
       }
     })
 
     return () => {
       current = false
+      mountedRef.current = false
       unsubscribe()
+      const operationId = activeOperationRef.current
+      activeOperationRef.current = null
+      if (operationId) void window.spacezero.github.cancelClone({ operationId })
     }
-  }, [onProjectReady])
+  }, [])
 
   const selectedOption = options?.find((option) => option.repository.id === selectedRepositoryId)
   const matchingProjects = selectedOption?.matchingProjects ?? []
@@ -48,9 +69,15 @@ export function RepositorySetup({
     matchingProjects.length === 1 ? matchingProjects[0].id : selectedExistingProjectId
   const cloneRunning = progress?.status === 'starting' || progress?.status === 'cloning'
   const cloneFailed = progress?.status === 'failed' || progress?.status === 'cancelled'
+  const busy = isStarting || cloneRunning
+
+  useEffect(() => {
+    onBusyChange?.(busy)
+    return () => onBusyChange?.(false)
+  }, [busy, onBusyChange])
 
   async function startClone(): Promise<void> {
-    if (!selectedRepositoryId) return
+    if (!selectedRepositoryId || activeOperationRef.current) return
     setIsStarting(true)
     setError(null)
     setProgress(null)
@@ -60,6 +87,12 @@ export function RepositorySetup({
         repositoryId: selectedRepositoryId,
         ...(selectedMatchId ? { existingProjectId: selectedMatchId } : {})
       })
+      if (!mountedRef.current) {
+        if (result.status === 'started') {
+          await window.spacezero.github.cancelClone({ operationId: result.operationId })
+        }
+        return
+      }
       if (result.status === 'already-added') {
         await onProjectReady(result.projectId)
         return
@@ -106,7 +139,9 @@ export function RepositorySetup({
                   type="radio"
                   name="github-project-repository"
                   checked={selectedRepositoryId === option.repository.id}
+                  disabled={busy}
                   onChange={() => {
+                    if (busy) return
                     setSelectedRepositoryId(option.repository.id)
                     setSelectedExistingProjectId(null)
                     setProgress(null)
@@ -151,6 +186,7 @@ export function RepositorySetup({
                 type="radio"
                 name="github-existing-project"
                 checked={selectedExistingProjectId === project.id}
+                disabled={busy}
                 onChange={() => setSelectedExistingProjectId(project.id)}
               />
               {project.name}

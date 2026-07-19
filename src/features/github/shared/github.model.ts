@@ -152,6 +152,14 @@ export type GitHubPullRequestPageRequest = GitHubPullRequestRequest & {
   perPage?: number
 }
 
+export type GitHubPullRequestCommit = {
+  sha: string
+  message: string
+  htmlUrl: string
+  author: GitHubUser | null
+  authoredAt: string | null
+}
+
 export type GitHubPullRequestPatch =
   | { status: 'available'; text: string; truncated: boolean }
   | { status: 'binary' }

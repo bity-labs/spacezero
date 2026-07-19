@@ -37,6 +37,14 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
       if (projectId !== 'project-1') return undefined
       return { id: projectId, path: '/repo' }
     },
+    async updateProjectPath() {},
+    async hasManagedSessions(projectId) {
+      return sessions.some(
+        (session) =>
+          session.projectId === projectId &&
+          Boolean(session.worktreePath || session.worktreeBranch || session.worktreeBaseRevision)
+      )
+    },
     async findSessionById(sessionId) {
       return sessions.find((session) => session.id === sessionId)
     },

@@ -62,13 +62,37 @@ describe('normalizeExistingProjectPath', () => {
     }
   })
 
+  it('rejects a current folder registration that is not a Git repository', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-'))
+
+    try {
+      expect(() => normalizeExistingProjectPath(` ${directory} `)).toThrow(
+        'project.notGitRepository'
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a Git repository without a commit', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-no-head-'))
+    execFileSync('git', ['init', '-b', 'main', directory])
+
+    try {
+      expect(() => normalizeExistingProjectPath(directory)).toThrow(
+        'project.repositoryHasNoCommits'
+      )
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   it('requires an absolute existing directory', () => {
     const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-'))
     const file = join(directory, 'README.md')
     writeFileSync(file, '# Project')
 
     try {
-      expect(normalizeExistingProjectPath(` ${directory} `)).toBe(directory)
       expect(() => normalizeExistingProjectPath('relative/project')).toThrow(
         'Project path must be absolute'
       )
