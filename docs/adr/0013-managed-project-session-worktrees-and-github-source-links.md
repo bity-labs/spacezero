@@ -11,8 +11,8 @@ Project Sessions currently run in a Project's registered path. Concurrent agents
 ## Decision
 
 - Every newly created Project Session receives a dedicated Git worktree below `<Space Zero Home>/worktrees/<project-id>/<session-id>`.
-- **Create empty project** initializes a repository with an empty initial commit so its first Session is immediately worktree-capable. Newly registered folder Projects are canonicalized to the repository top level; managed Session creation rejects non-repositories and persisted subdirectory paths rather than creating a worktree that restore or cleanup would later reject.
-- The registered Project path remains the base repository and is not checked out or switched during Session creation.
+- **Create empty project** initializes a repository with an empty initial commit so its first Session is immediately worktree-capable. Newly registered folder Projects must be Git repositories with a commit and are canonicalized to the repository top level. Before Session creation, an upgraded Project record that still points to a repository subdirectory is canonicalized and persisted; upgraded non-Git or no-commit Projects fail with actionable repair guidance.
+- The registered Project path remains the base repository and is not checked out or switched during Session creation. Project path edits and Session creation share a Project-scoped lifecycle lock, and path changes are refused while any managed Session metadata exists so restore and cleanup retain the repository identity they authenticated.
 - Ordinary and Issue-linked Sessions branch from the base repository's current `HEAD`.
 - Pull Request-linked Sessions fetch the base repository's `refs/pull/<number>/head` with main-owned GitHub authorization and branch from the fetched revision. This also supports fork-origin Pull Requests without making a fork remote durable.
 - Managed branch names use the collision-resistant Session id and a readable `spacezero/<source>-<number>-<id>` prefix.
@@ -30,5 +30,5 @@ Project Sessions currently run in a Project's registered path. Concurrent agents
 
 - Renderer callers request a Project Session by Project/source identity; they do not choose an agent cwd or execute Git.
 - Space Zero Home moves do not move existing worktrees. Persisted absolute paths continue to identify existing Session worktrees; new Sessions use the newly configured Home.
-- Repositories must have a valid commit at `HEAD`. Existing registered non-Git folders fail explicitly when starting a managed Session; Space Zero does not silently initialize or commit user-owned folder contents. Git LFS and submodule materialization follow normal `git worktree add` behavior and can be handled by later lifecycle improvements.
+- Repositories must have a valid commit at `HEAD`. Existing registered non-Git folders fail explicitly with guidance when starting a managed Session; Space Zero does not silently initialize or commit user-owned folder contents. New non-Git folder registrations are rejected before an unusable Project is persisted. Git LFS and submodule materialization follow normal `git worktree add` behavior and can be handled by later lifecycle improvements.
 - Interrupted or externally modified worktrees produce explicit recovery errors. Cleanup may remove the worktree before a later branch-removal failure; retained Session metadata provides diagnostics and manual recovery rather than claiming deletion succeeded. Broader recovery, cleanup policy, and dirty-worktree UX remain follow-up work under #81.

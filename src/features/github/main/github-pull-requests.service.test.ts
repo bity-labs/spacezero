@@ -74,6 +74,21 @@ function createAdapter(): GitHubPullRequestsAdapter {
         hasNextPage: false
       }
     },
+    async listCommits() {
+      return {
+        items: [
+          {
+            sha: '0123456789abcdef0123456789abcdef01234567',
+            message: 'feat: add managed worktrees',
+            htmlUrl: 'https://github.com/bity-labs/spacezero/commit/0123456',
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            authoredAt: '2026-07-18T01:30:00.000Z'
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      }
+    },
     async listFiles() {
       return {
         items: [
@@ -199,9 +214,14 @@ describe('GitHub Pull Requests service', () => {
     expect(JSON.stringify(page)).not.toContain('access-secret')
   })
 
-  it('loads independently paginated files, checks, statuses, and reviews', async () => {
+  it('loads independently paginated commits, files, checks, statuses, and reviews', async () => {
     const adapter = createAdapter()
     const requests: unknown[] = []
+    const listCommits = adapter.listCommits
+    adapter.listCommits = async (request) => {
+      requests.push(request)
+      return listCommits(request)
+    }
     const listFiles = adapter.listFiles
     adapter.listFiles = async (request) => {
       requests.push(request)
@@ -213,6 +233,13 @@ describe('GitHub Pull Requests service', () => {
       adapter
     })
 
+    await expect(
+      service.listCommits({ projectId: 'project-1', number: 79, page: 1 })
+    ).resolves.toMatchObject({
+      items: [
+        { sha: '0123456789abcdef0123456789abcdef01234567', message: 'feat: add managed worktrees' }
+      ]
+    })
     await expect(
       service.listFiles({ projectId: 'project-1', number: 79, page: 2 })
     ).resolves.toMatchObject({ items: [{ filename: 'src/index.ts' }], hasNextPage: true })
@@ -226,6 +253,14 @@ describe('GitHub Pull Requests service', () => {
       service.listReviews({ projectId: 'project-1', number: 79, page: 1 })
     ).resolves.toMatchObject({ items: [{ state: 'approved' }] })
     expect(requests).toEqual([
+      expect.objectContaining({
+        accessToken: 'access-secret',
+        owner: 'bity-labs',
+        repository: 'spacezero',
+        number: 79,
+        page: 1,
+        perPage: 30
+      }),
       expect.objectContaining({
         accessToken: 'access-secret',
         owner: 'bity-labs',

@@ -2,11 +2,16 @@ import { useState } from 'react'
 
 import { Badge } from '../../../../renderer/src/components/ui/badge'
 import { Button } from '../../../../renderer/src/components/ui/button'
-import type { GitHubPullRequestFile, GitHubPullRequestPatch } from '../../shared'
+import type {
+  GitHubPullRequestCommit,
+  GitHubPullRequestFile,
+  GitHubPullRequestPatch
+} from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
 import {
   useProjectPullRequestCheckRuns,
   useProjectPullRequestCommitStatuses,
+  useProjectPullRequestCommits,
   useProjectPullRequestFiles,
   useProjectPullRequestReviews
 } from '../hooks/use-project-pull-requests'
@@ -20,10 +25,63 @@ export function PullRequestReviewSections({
 }): React.JSX.Element {
   return (
     <div className="space-y-8">
+      <CommitsSection projectId={projectId} number={number} />
       <FilesSection projectId={projectId} number={number} />
       <ChecksSection projectId={projectId} number={number} />
       <ReviewsSection projectId={projectId} number={number} />
     </div>
+  )
+}
+
+function CommitsSection({
+  projectId,
+  number
+}: {
+  projectId: string
+  number: number
+}): React.JSX.Element {
+  const [page, setPage] = useState(1)
+  const query = useProjectPullRequestCommits(projectId, number, page)
+  const commits = query.isError ? undefined : query.data
+
+  return (
+    <section className="space-y-3" aria-label="Pull Request commits">
+      <h3 className="font-semibold">Commits</h3>
+      {query.isPending ? <Loading label="Loading commits…" /> : null}
+      {query.isError ? (
+        <ErrorState
+          message={githubReadErrorMessage(query.error, 'Pull Request commits')}
+          onRetry={query.refetch}
+        />
+      ) : null}
+      {commits?.items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No commits were returned.</p>
+      ) : null}
+      {commits?.items.map((commit) => (
+        <CommitCard key={commit.sha} commit={commit} />
+      ))}
+      {commits ? (
+        <Pagination
+          label="Commit pages"
+          page={page}
+          hasNextPage={commits.hasNextPage}
+          fetching={query.isFetching}
+          onPageChange={setPage}
+        />
+      ) : null}
+    </section>
+  )
+}
+
+function CommitCard({ commit }: { commit: GitHubPullRequestCommit }): React.JSX.Element {
+  return (
+    <article className="space-y-2 rounded-lg border p-4">
+      <p className="whitespace-pre-wrap text-sm">{commit.message}</p>
+      <p className="font-mono text-xs text-muted-foreground">
+        {commit.sha.slice(0, 12)} · {commit.author?.login ?? 'unlinked author'}
+        {commit.authoredAt ? ` · ${new Date(commit.authoredAt).toLocaleString()}` : ''}
+      </p>
+    </article>
   )
 }
 

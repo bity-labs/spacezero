@@ -18,6 +18,15 @@ export function useProjectPullRequest(projectId: string, number: number) {
   })
 }
 
+export function useProjectPullRequestCommits(projectId: string, number: number, page: number) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-commits', projectId, number, page],
+    queryFn: () => window.spacezero.github.listPullRequestCommits({ projectId, number, page }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
 export function useProjectPullRequestFiles(projectId: string, number: number, page: number) {
   return useQuery({
     queryKey: ['github', 'pull-request-files', projectId, number, page],

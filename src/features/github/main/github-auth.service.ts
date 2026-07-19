@@ -54,13 +54,16 @@ export type GitHubCredentialStore = {
   clear: () => Promise<void>
 }
 
-type AuthorizationFlow = GitHubDeviceGrant & {
+type AuthorizationFlow = {
   flowId: string
-  expiresAt: Date
-  intervalSeconds: number
+  generation: number
+  grant?: GitHubDeviceGrant
+  expiresAt?: Date
+  intervalSeconds?: number
   cancelled: boolean
   discardCredentialOnCancel: boolean
   waitStarted: boolean
+  waitPromise?: Promise<GitHubConnection>
   settled: Promise<void>
   markSettled: () => void
   abortController: AbortController
@@ -216,17 +219,13 @@ export function createGitHubAuthService({
 
   async function startAuthorization(): Promise<GitHubDeviceAuthorization> {
     const configuredClientId = requireClientId(clientId)
-    const grant = await safelyRequest(() => adapter.requestDeviceCode(configuredClientId))
-    assertGitHubDeviceUrl(grant.verificationUri)
-
     const flowId = createFlowId()
-    const expiresAt = new Date(now().getTime() + grant.expiresInSeconds * 1_000)
+    if (flows.has(flowId)) throw new GitHubIntegrationError('authorization-failed')
+
     const settled = createSettledSignal()
     const flow: AuthorizationFlow = {
-      ...grant,
       flowId,
-      expiresAt,
-      intervalSeconds: Math.max(1, grant.intervalSeconds),
+      generation: credentialGeneration,
       cancelled: false,
       discardCredentialOnCancel: false,
       waitStarted: false,
@@ -234,42 +233,67 @@ export function createGitHubAuthService({
       markSettled: settled.resolve,
       abortController: new AbortController()
     }
+    // Register ownership before the first provider await so disconnect can invalidate this start.
     flows.set(flowId, flow)
 
     try {
-      await openExternal(flow.verificationUri)
-    } catch {
-      flows.delete(flowId)
-      throw new GitHubIntegrationError('authorization-failed')
-    }
+      const grant = await safelyRequest(() =>
+        adapter.requestDeviceCode(configuredClientId, flow.abortController.signal)
+      )
+      assertFlowActive(flow)
+      assertGitHubDeviceUrl(grant.verificationUri)
+      flow.grant = grant
+      flow.expiresAt = new Date(now().getTime() + grant.expiresInSeconds * 1_000)
+      flow.intervalSeconds = Math.max(1, grant.intervalSeconds)
 
-    return toDeviceAuthorization(flow)
+      try {
+        await openExternal(grant.verificationUri)
+      } catch {
+        throw new GitHubIntegrationError('authorization-failed')
+      }
+      assertFlowActive(flow)
+      return toDeviceAuthorization(flow)
+    } catch (error) {
+      if (flows.get(flowId) === flow) flows.delete(flowId)
+      flow.markSettled()
+      if (!ownsCurrentGeneration(flow) || flow.cancelled || flow.abortController.signal.aborted) {
+        throw new GitHubIntegrationError('authorization-cancelled')
+      }
+      throw sanitizeError(error)
+    }
   }
 
-  async function waitForAuthorization(request: GitHubFlowRequest): Promise<GitHubConnection> {
-    const flow = requireFlow(request.flowId)
-    const configuredClientId = requireClientId(clientId)
+  function waitForAuthorization(request: GitHubFlowRequest): Promise<GitHubConnection> {
+    const flow = requireReadyFlow(request.flowId)
+    if (flow.waitPromise) return flow.waitPromise
+
     flow.waitStarted = true
-    let previousCredential: StoredGitHubCredential | undefined
-    let credentialWriteStarted = false
+    const completion = completeAuthorization(flow, requireClientId(clientId))
+    flow.waitPromise = completion
+    return completion
+  }
+
+  async function completeAuthorization(
+    flow: AuthorizationFlow,
+    configuredClientId: string
+  ): Promise<GitHubConnection> {
+    const grant = requireGrant(flow)
 
     try {
       while (true) {
         assertFlowActive(flow)
-        await sleep(flow.intervalSeconds * 1_000, flow.abortController.signal)
+        await sleep(requireInterval(flow) * 1_000, flow.abortController.signal)
         assertFlowActive(flow)
 
         const result = await safelyRequest(() =>
-          adapter.pollDeviceCode(configuredClientId, flow.deviceCode, flow.abortController.signal)
+          adapter.pollDeviceCode(configuredClientId, grant.deviceCode, flow.abortController.signal)
         )
 
         if (result.status === 'pending') continue
         if (result.status === 'slow_down') {
-          if (flow.intervalSeconds < MAX_DEVICE_POLL_INTERVAL_SECONDS) {
-            flow.intervalSeconds = Math.min(
-              flow.intervalSeconds + 5,
-              MAX_DEVICE_POLL_INTERVAL_SECONDS
-            )
+          const interval = requireInterval(flow)
+          if (interval < MAX_DEVICE_POLL_INTERVAL_SECONDS) {
+            flow.intervalSeconds = Math.min(interval + 5, MAX_DEVICE_POLL_INTERVAL_SECONDS)
           }
           continue
         }
@@ -284,37 +308,51 @@ export function createGitHubAuthService({
           adapter.getIdentity(result.tokens.accessToken, flow.abortController.signal)
         )
         assertFlowActive(flow)
-        previousCredential = await serializeCredentialMutation(async () => {
-          assertFlowActive(flow)
-          const storedCredential = await credentialStore.read()
-          assertFlowActive(flow)
-          credentialWriteStarted = true
-          await credentialStore.write({ ...result.tokens, identity })
-          assertFlowActive(flow)
-          credentialGeneration += 1
-          return storedCredential
-        })
+        await persistAuthorizedCredential(flow, { ...result.tokens, identity })
         return { status: 'repository-access-required', identity }
       }
     } catch (error) {
-      if (credentialWriteStarted) {
-        await serializeCredentialMutation(async () => {
+      if (!ownsCurrentGeneration(flow) || flow.cancelled || flow.abortController.signal.aborted) {
+        throw new GitHubIntegrationError('authorization-cancelled')
+      }
+      throw sanitizeError(error)
+    } finally {
+      if (flows.get(flow.flowId) === flow) flows.delete(flow.flowId)
+      flow.markSettled()
+    }
+  }
+
+  async function persistAuthorizedCredential(
+    flow: AuthorizationFlow,
+    credential: StoredGitHubCredential
+  ): Promise<void> {
+    await serializeCredentialMutation(async () => {
+      assertFlowActive(flow)
+      const previousCredential = await credentialStore.read()
+      assertFlowActive(flow)
+
+      try {
+        await credentialStore.write(credential)
+        assertFlowActive(flow)
+      } catch (error) {
+        // Roll back while this operation still owns the generation and before another flow writes.
+        if (ownsCurrentGeneration(flow)) {
           if (flow.discardCredentialOnCancel || !previousCredential) {
             await credentialStore.clear()
           } else {
             await credentialStore.write(previousCredential)
           }
-          credentialGeneration += 1
-        })
+        }
+        throw error
       }
-      if (flow.cancelled || flow.abortController.signal.aborted) {
-        throw new GitHubIntegrationError('authorization-cancelled')
+
+      credentialGeneration += 1
+      for (const candidate of flows.values()) {
+        if (candidate === flow) continue
+        candidate.cancelled = true
+        candidate.abortController.abort()
       }
-      throw sanitizeError(error)
-    } finally {
-      flows.delete(flow.flowId)
-      flow.markSettled()
-    }
+    })
   }
 
   async function cancelAuthorization(request: GitHubFlowRequest): Promise<void> {
@@ -326,15 +364,15 @@ export function createGitHubAuthService({
   }
 
   async function openAuthorization(request: GitHubFlowRequest): Promise<void> {
-    const flow = requireFlow(request.flowId)
+    const flow = requireReadyFlow(request.flowId)
     assertFlowActive(flow)
-    await openExternal(flow.verificationUri)
+    await openExternal(requireGrant(flow).verificationUri)
   }
 
   function copyDeviceCode(request: GitHubFlowRequest): void {
-    const flow = requireFlow(request.flowId)
+    const flow = requireReadyFlow(request.flowId)
     assertFlowActive(flow)
-    copyText(flow.userCode)
+    copyText(requireGrant(flow).userCode)
   }
 
   return {
@@ -349,17 +387,23 @@ export function createGitHubAuthService({
     copyDeviceCode
   }
 
-  function requireFlow(flowId: string): AuthorizationFlow {
+  function requireReadyFlow(flowId: string): AuthorizationFlow {
     const flow = flows.get(flowId.trim())
-    if (!flow) throw new GitHubIntegrationError('authorization-flow-not-found')
+    if (!flow?.grant || !flow.expiresAt || flow.intervalSeconds === undefined) {
+      throw new GitHubIntegrationError('authorization-flow-not-found')
+    }
     return flow
   }
 
+  function ownsCurrentGeneration(flow: AuthorizationFlow): boolean {
+    return flow.generation === credentialGeneration
+  }
+
   function assertFlowActive(flow: AuthorizationFlow): void {
-    if (flow.cancelled || flow.abortController.signal.aborted) {
+    if (!ownsCurrentGeneration(flow) || flow.cancelled || flow.abortController.signal.aborted) {
       throw new GitHubIntegrationError('authorization-cancelled')
     }
-    if (now().getTime() >= flow.expiresAt.getTime()) {
+    if (flow.expiresAt && now().getTime() >= flow.expiresAt.getTime()) {
       throw new GitHubIntegrationError('authorization-expired')
     }
   }
@@ -379,11 +423,25 @@ function requireClientId(clientId: string | undefined): string {
   return value
 }
 
+function requireGrant(flow: AuthorizationFlow): GitHubDeviceGrant {
+  if (!flow.grant) throw new GitHubIntegrationError('authorization-flow-not-found')
+  return flow.grant
+}
+
+function requireInterval(flow: AuthorizationFlow): number {
+  if (flow.intervalSeconds === undefined) {
+    throw new GitHubIntegrationError('authorization-flow-not-found')
+  }
+  return flow.intervalSeconds
+}
+
 function toDeviceAuthorization(flow: AuthorizationFlow): GitHubDeviceAuthorization {
+  const grant = requireGrant(flow)
+  if (!flow.expiresAt) throw new GitHubIntegrationError('authorization-flow-not-found')
   return {
     flowId: flow.flowId,
-    userCode: flow.userCode,
-    verificationUri: flow.verificationUri,
+    userCode: grant.userCode,
+    verificationUri: grant.verificationUri,
     expiresAt: flow.expiresAt.toISOString()
   }
 }

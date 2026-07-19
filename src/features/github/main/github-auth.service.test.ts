@@ -184,6 +184,46 @@ describe('GitHub auth service', () => {
     expect(credentials.value).toBeUndefined()
   })
 
+  it('keeps disconnect terminal when device-code creation completes after disconnect', async () => {
+    const requestStarted = deferred<void>()
+    const allowDeviceCode = deferred<void>()
+    const credentials = createMemoryCredentialStore()
+    const adapter = createAdapter([
+      {
+        status: 'authorized',
+        tokens: {
+          accessToken: 'access-after-disconnect',
+          refreshToken: 'refresh-after-disconnect',
+          accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+          refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+        }
+      }
+    ])
+    adapter.requestDeviceCode = async () => {
+      requestStarted.resolve()
+      await allowDeviceCode.promise
+      return deviceGrant
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      createFlowId: () => 'flow-1',
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    const authorization = service.startAuthorization()
+    await requestStarted.promise
+    await service.disconnect()
+    allowDeviceCode.resolve()
+
+    await expect(authorization).rejects.toMatchObject({ code: 'authorization-cancelled' })
+    expect(credentials.value).toBeUndefined()
+  })
+
   it('rolls back a completed device grant when cancellation arrives during credential persistence', async () => {
     const writeStarted = deferred<void>()
     const allowWrite = deferred<void>()
@@ -223,6 +263,110 @@ describe('GitHub auth service', () => {
 
     await expect(completion).rejects.toMatchObject({ code: 'authorization-cancelled' })
     expect(credentials.value).toBeUndefined()
+  })
+
+  it('does not let an older cancelled flow roll back a newer successful authorization', async () => {
+    const firstWriteStarted = deferred<void>()
+    const allowFirstWrite = deferred<void>()
+    const newerIdentityLoaded = deferred<void>()
+    const credentials = createMemoryCredentialStore()
+    const grants = [
+      { ...deviceGrant, deviceCode: 'device-a', userCode: 'FLOW-A' },
+      { ...deviceGrant, deviceCode: 'device-b', userCode: 'FLOW-B' }
+    ]
+    const adapter = createAdapter([])
+    adapter.requestDeviceCode = async () => grants.shift()!
+    adapter.pollDeviceCode = async (_clientId, deviceCode) => ({
+      status: 'authorized',
+      tokens: {
+        accessToken: deviceCode === 'device-a' ? 'access-a' : 'access-b',
+        refreshToken: deviceCode === 'device-a' ? 'refresh-a' : 'refresh-b',
+        accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+        refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+      }
+    })
+    adapter.getIdentity = async (accessToken) => {
+      if (accessToken === 'access-b') newerIdentityLoaded.resolve()
+      return identity
+    }
+    let writeCount = 0
+    credentials.write = async (value) => {
+      writeCount += 1
+      if (writeCount === 1) {
+        firstWriteStarted.resolve()
+        await allowFirstWrite.promise
+      }
+      credentials.value = value
+    }
+    const flowIds = ['flow-a', 'flow-b']
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      createFlowId: () => flowIds.shift()!,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await service.startAuthorization()
+    await service.startAuthorization()
+    const olderCompletion = service.waitForAuthorization({ flowId: 'flow-a' })
+    await firstWriteStarted.promise
+    const olderCancellation = service.cancelAuthorization({ flowId: 'flow-a' })
+    const newerCompletion = service.waitForAuthorization({ flowId: 'flow-b' })
+    await newerIdentityLoaded.promise
+    await Promise.resolve()
+    allowFirstWrite.resolve()
+
+    await olderCancellation
+    await expect(olderCompletion).rejects.toMatchObject({ code: 'authorization-cancelled' })
+    await expect(newerCompletion).resolves.toEqual({
+      status: 'repository-access-required',
+      identity
+    })
+    expect(credentials.value).toMatchObject({
+      accessToken: 'access-b',
+      refreshToken: 'refresh-b'
+    })
+  })
+
+  it('shares one polling loop when the same authorization wait is requested twice', async () => {
+    const adapter = createAdapter([
+      {
+        status: 'authorized',
+        tokens: {
+          accessToken: 'access-secret',
+          refreshToken: 'refresh-secret',
+          accessTokenExpiresAt: '2026-07-18T01:00:00.000Z',
+          refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z'
+        }
+      }
+    ])
+    let polls = 0
+    const poll = adapter.pollDeviceCode
+    adapter.pollDeviceCode = async (...args) => {
+      polls += 1
+      return poll(...args)
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: createMemoryCredentialStore(),
+      createFlowId: () => 'flow-1',
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await service.startAuthorization()
+    const first = service.waitForAuthorization({ flowId: 'flow-1' })
+    const second = service.waitForAuthorization({ flowId: 'flow-1' })
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2)
+    expect(polls).toBe(1)
   })
 
   it('reports denial without exposing the provider response', async () => {

@@ -49,6 +49,14 @@ const unlinkedProject: Project = {
 const noRemotes = { listRemotes: async () => [] }
 const unusedProjectLink = async () => registeredProject
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value?: T) => void } {
+  let resolve!: (value?: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = (value) => next(value as T)
+  })
+  return { promise, resolve }
+}
+
 function createCloneAdapter(): GitHubCloneAdapter & {
   requests: Array<{ destination: string; accessToken: string; cloneUrl: string }>
   removed: string[]
@@ -334,6 +342,82 @@ describe('GitHub repository setup service', () => {
       message: 'Clone failed. Check repository access, network, and destination, then retry.'
     })
     expect(JSON.stringify(events)).not.toContain('access-secret')
+  })
+
+  it('treats cancellation as terminal when a clone completes after its signal is aborted', async () => {
+    const clone = createCloneAdapter()
+    const cloneStarted = deferred<void>()
+    const allowCloneCompletion = deferred<void>()
+    clone.clone = async () => {
+      cloneStarted.resolve()
+      await allowCloneCompletion.promise
+    }
+    let registrations = 0
+    const service = createGitHubRepositorySetupService({
+      repositories: { listAuthorizedRepositories: async () => [repository] },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      projects: {
+        listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
+        registerGitHubProject: async () => {
+          registrations += 1
+          return registeredProject
+        }
+      },
+      git: noRemotes,
+      clone,
+      getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
+      createOperationId: () => 'clone-1'
+    })
+    const events: GitHubCloneProgress[] = []
+
+    await service.startClone({ repositoryId: '1000' }, (event) => events.push(event))
+    await cloneStarted.promise
+    const cancellation = service.cancelClone({ operationId: 'clone-1' })
+    allowCloneCompletion.resolve()
+    await cancellation
+
+    expect(registrations).toBe(0)
+    expect(clone.removed).toEqual(['/home/tiby/SpaceZero/projects/bity-labs/spacezero'])
+    expect(events.at(-1)?.status).toBe('cancelled')
+  })
+
+  it('rolls back registration when cancellation wins during Project persistence', async () => {
+    const clone = createCloneAdapter()
+    const registrationStarted = deferred<void>()
+    const allowRegistration = deferred<Project>()
+    const deletedProjects: string[] = []
+    const service = createGitHubRepositorySetupService({
+      repositories: { listAuthorizedRepositories: async () => [repository] },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      projects: {
+        listProjects: async () => [],
+        linkGitHubRepository: unusedProjectLink,
+        registerGitHubProject: async () => {
+          registrationStarted.resolve()
+          return allowRegistration.promise
+        },
+        deleteProject: async (projectId) => {
+          deletedProjects.push(projectId)
+          return registeredProject as never
+        }
+      },
+      git: noRemotes,
+      clone,
+      getProjectsPath: async () => '/home/tiby/SpaceZero/projects',
+      createOperationId: () => 'clone-1'
+    })
+    const events: GitHubCloneProgress[] = []
+
+    await service.startClone({ repositoryId: '1000' }, (event) => events.push(event))
+    await registrationStarted.promise
+    const cancellation = service.cancelClone({ operationId: 'clone-1' })
+    allowRegistration.resolve(registeredProject)
+    await cancellation
+
+    expect(deletedProjects).toEqual(['project-1'])
+    expect(clone.removed).toEqual(['/home/tiby/SpaceZero/projects/bity-labs/spacezero'])
+    expect(events.at(-1)?.status).toBe('cancelled')
   })
 
   it('cancels an active clone without registering partial content', async () => {

@@ -12,6 +12,7 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
   const [step, setStep] = useState<OnboardingStep>('welcome')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
+  const [isProjectSetupBusy, setIsProjectSetupBusy] = useState(false)
 
   async function finish(projectId?: string): Promise<void> {
     setIsFinishing(true)
@@ -127,8 +128,15 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
                 without a Project.
               </p>
             </div>
-            <RepositorySetup onProjectReady={(projectId) => finish(projectId)} />
-            <Button variant="outline" disabled={isFinishing} onClick={() => void finish()}>
+            <RepositorySetup
+              onProjectReady={(projectId) => finish(projectId)}
+              onBusyChange={setIsProjectSetupBusy}
+            />
+            <Button
+              variant="outline"
+              disabled={isFinishing || isProjectSetupBusy}
+              onClick={() => void finish()}
+            >
               Continue without a Project
             </Button>
           </Card>

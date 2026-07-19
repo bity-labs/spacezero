@@ -37,6 +37,7 @@ import {
   EditProjectDialog,
   ProjectHome,
   ProjectSidebarList,
+  projectSessionSetupErrorMessage,
   type ProjectHomeGitHubTarget,
   useProjects
 } from '../../features/projects/renderer'
@@ -104,6 +105,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [sidebarSessionError, setSidebarSessionError] = useState<string | null>(null)
   const [projectHomeRequest, setProjectHomeRequest] = useState<
     (ProjectHomeGitHubTarget & { projectId: string; requestId: number }) | null
   >(null)
@@ -276,26 +278,30 @@ export function WorkspaceShell(): React.JSX.Element {
     })
   }
 
-  function handleNewSession(project: Project): void {
-    runInWorkspaceView(async () => {
-      selectProject(project)
-      const agentSession = await window.spacezero.agent.createSession({
-        projectId: project.id,
-        cwd: project.path
-      })
-      const session: ProjectSession = {
-        id: agentSession.sessionId,
-        kind: 'project',
-        projectId: agentSession.projectId ?? project.id,
-        title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
-        status: agentSession.status,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
-      upsertProjectSession(session)
-      openProjectSessionInWorkspace(session)
-      await refreshSessions()
+  async function handleNewSession(project: Project): Promise<void> {
+    if (activePrimaryView === 'knowledge-base') {
+      const saved = await knowledgeBasePageRef.current?.flushPendingSave()
+      if (!saved) throw new Error('workspace.pendingKnowledgeBaseSave')
+    }
+
+    setActivePrimaryView('workspace')
+    selectProject(project)
+    const agentSession = await window.spacezero.agent.createSession({
+      projectId: project.id,
+      cwd: project.path
     })
+    const session: ProjectSession = {
+      id: agentSession.sessionId,
+      kind: 'project',
+      projectId: agentSession.projectId ?? project.id,
+      title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
+      status: agentSession.status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    upsertProjectSession(session)
+    openProjectSessionInWorkspace(session)
+    await Promise.all([refreshSessions(), refreshProjects()])
   }
 
   function handleGitHubSessionCreated(session: ProjectSession): void {
@@ -551,7 +557,12 @@ export function WorkspaceShell(): React.JSX.Element {
                     activeSessionId={activeProjectSession?.id ?? null}
                     sessionsStatus={sessionsStatus}
                     sessionsError={sessionsError}
-                    onNewSession={(project) => void handleNewSession(project)}
+                    onNewSession={(project) => {
+                      setSidebarSessionError(null)
+                      void handleNewSession(project).catch((error) => {
+                        setSidebarSessionError(projectSessionSetupErrorMessage(error))
+                      })
+                    }}
                     onSelectSession={handleSelectSession}
                     onArchiveSession={(session) => void handleArchiveSession(session.id)}
                     onDeleteSession={(session) => void handleDeleteSession(session.id)}
@@ -596,6 +607,11 @@ export function WorkspaceShell(): React.JSX.Element {
           {projectsWarning ? (
             <Alert className="m-4 mb-0 w-auto">
               <AlertDescription>{projectsWarning}</AlertDescription>
+            </Alert>
+          ) : null}
+          {sidebarSessionError ? (
+            <Alert className="m-4 mb-0 w-auto" variant="destructive">
+              <AlertDescription>{sidebarSessionError}</AlertDescription>
             </Alert>
           ) : null}
           {activePrimaryView === 'knowledge-base' ? (

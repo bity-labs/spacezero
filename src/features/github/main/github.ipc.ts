@@ -29,119 +29,163 @@ import {
   getGitHubSourceSessionsService
 } from './github-runtime'
 
+export type GitHubIpcEvent = {
+  sender: {
+    isDestroyed: () => boolean
+    send: (channel: string, payload: unknown) => void
+  }
+}
+
+export type GitHubIpcRegistrar = {
+  handle: (channel: string, listener: (event: GitHubIpcEvent, input?: unknown) => unknown) => void
+}
+
+export type GitHubIpcRuntime = {
+  getAuthService: typeof getGitHubAuthService
+  getConnectionService: typeof getGitHubConnectionService
+  getIssuesService: typeof getGitHubIssuesService
+  getProjectsService: typeof getGitHubProjectsService
+  getPullRequestsService: typeof getGitHubPullRequestsService
+  getRepositorySetupService: typeof getGitHubRepositorySetupService
+  getSourceSessionsService: typeof getGitHubSourceSessionsService
+}
+
+const defaultRuntime: GitHubIpcRuntime = {
+  getAuthService: getGitHubAuthService,
+  getConnectionService: getGitHubConnectionService,
+  getIssuesService: getGitHubIssuesService,
+  getProjectsService: getGitHubProjectsService,
+  getPullRequestsService: getGitHubPullRequestsService,
+  getRepositorySetupService: getGitHubRepositorySetupService,
+  getSourceSessionsService: getGitHubSourceSessionsService
+}
+
 export function registerGitHubIpc(): void {
-  ipcMain.handle(IPC_CHANNELS.github.getConnection, () =>
-    getGitHubConnectionService().getConnection()
+  registerGitHubIpcHandlers(ipcMain as unknown as GitHubIpcRegistrar, defaultRuntime)
+}
+
+export function registerGitHubIpcHandlers(
+  ipc: GitHubIpcRegistrar,
+  runtime: GitHubIpcRuntime
+): void {
+  ipc.handle(IPC_CHANNELS.github.getConnection, () =>
+    runtime.getConnectionService().getConnection()
   )
-  ipcMain.handle(IPC_CHANNELS.github.refreshConnection, () =>
-    getGitHubConnectionService().refreshConnection()
+  ipc.handle(IPC_CHANNELS.github.refreshConnection, () =>
+    runtime.getConnectionService().refreshConnection()
   )
-  ipcMain.handle(IPC_CHANNELS.github.startAuthorization, () =>
-    getGitHubAuthService().startAuthorization()
+  ipc.handle(IPC_CHANNELS.github.startAuthorization, () =>
+    runtime.getAuthService().startAuthorization()
   )
-  ipcMain.handle(IPC_CHANNELS.github.waitForAuthorization, (_event, input: unknown) =>
-    getGitHubAuthService().waitForAuthorization(githubFlowRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.waitForAuthorization, (_event, input) =>
+    runtime.getAuthService().waitForAuthorization(githubFlowRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.cancelAuthorization, (_event, input: unknown) =>
-    getGitHubAuthService().cancelAuthorization(githubFlowRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.cancelAuthorization, (_event, input) =>
+    runtime.getAuthService().cancelAuthorization(githubFlowRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.openAuthorization, (_event, input: unknown) =>
-    getGitHubAuthService().openAuthorization(githubFlowRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.openAuthorization, (_event, input) =>
+    runtime.getAuthService().openAuthorization(githubFlowRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.copyDeviceCode, (_event, input: unknown) =>
-    getGitHubAuthService().copyDeviceCode(githubFlowRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.copyDeviceCode, (_event, input) =>
+    runtime.getAuthService().copyDeviceCode(githubFlowRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.openInstallation, () =>
-    getGitHubConnectionService().openInstallation()
+  ipc.handle(IPC_CHANNELS.github.openInstallation, () =>
+    runtime.getConnectionService().openInstallation()
   )
-  ipcMain.handle(IPC_CHANNELS.github.openManageAccess, () =>
-    getGitHubConnectionService().openManageAccess()
+  ipc.handle(IPC_CHANNELS.github.openManageAccess, () =>
+    runtime.getConnectionService().openManageAccess()
   )
-  ipcMain.handle(IPC_CHANNELS.github.disconnect, () => getGitHubAuthService().disconnect())
-  ipcMain.handle(IPC_CHANNELS.github.listAuthorizedRepositories, () =>
-    getGitHubConnectionService().listAuthorizedRepositories()
+  ipc.handle(IPC_CHANNELS.github.disconnect, () => runtime.getAuthService().disconnect())
+  ipc.handle(IPC_CHANNELS.github.listAuthorizedRepositories, () =>
+    runtime.getConnectionService().listAuthorizedRepositories()
   )
-  ipcMain.handle(IPC_CHANNELS.github.getProjectLinkOptions, (_event, input: unknown) =>
-    getGitHubProjectsService().getLinkOptions(githubProjectRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.getProjectLinkOptions, (_event, input) =>
+    runtime.getProjectsService().getLinkOptions(githubProjectRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.linkProjectRepository, (_event, input: unknown) =>
-    getGitHubProjectsService().linkProject(linkGitHubProjectRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.linkProjectRepository, (_event, input) =>
+    runtime.getProjectsService().linkProject(linkGitHubProjectRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.getProjectRepository, (_event, input: unknown) =>
-    getGitHubProjectsService().getLinkedRepository(githubProjectRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.getProjectRepository, (_event, input) =>
+    runtime.getProjectsService().getLinkedRepository(githubProjectRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listRepositorySetupOptions, () =>
-    getGitHubRepositorySetupService().listSetupOptions()
+  ipc.handle(IPC_CHANNELS.github.listRepositorySetupOptions, () =>
+    runtime.getRepositorySetupService().listSetupOptions()
   )
-  ipcMain.handle(IPC_CHANNELS.github.startClone, (event, input: unknown) =>
-    getGitHubRepositorySetupService().startClone(
-      startGitHubCloneRequestSchema.parse(input),
-      (progress) => {
+  ipc.handle(IPC_CHANNELS.github.startClone, (event, input) =>
+    runtime
+      .getRepositorySetupService()
+      .startClone(startGitHubCloneRequestSchema.parse(input), (progress) => {
         if (!event.sender.isDestroyed()) {
           event.sender.send(IPC_CHANNELS.github.cloneProgress, progress)
         }
-      }
-    )
+      })
   )
-  ipcMain.handle(IPC_CHANNELS.github.cancelClone, (_event, input: unknown) =>
-    getGitHubRepositorySetupService().cancelClone(cancelGitHubCloneRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.cancelClone, (_event, input) =>
+    runtime.getRepositorySetupService().cancelClone(cancelGitHubCloneRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listIssues, (_event, input: unknown) =>
-    getGitHubIssuesService().listIssues(githubIssueListRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listIssues, (_event, input) =>
+    runtime.getIssuesService().listIssues(githubIssueListRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.getIssue, (_event, input: unknown) =>
-    getGitHubIssuesService().getIssue(githubIssueRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.getIssue, (_event, input) =>
+    runtime.getIssuesService().getIssue(githubIssueRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listIssueComments, (_event, input: unknown) =>
-    getGitHubIssuesService().listIssueComments(githubIssueCommentsRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listIssueComments, (_event, input) =>
+    runtime.getIssuesService().listIssueComments(githubIssueCommentsRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.createIssueComment, (_event, input: unknown) =>
-    getGitHubIssuesService().createIssueComment(githubIssueCommentCreateRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.createIssueComment, (_event, input) =>
+    runtime
+      .getIssuesService()
+      .createIssueComment(githubIssueCommentCreateRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.updateIssueState, (_event, input: unknown) =>
-    getGitHubIssuesService().updateIssueState(githubIssueStateUpdateRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.updateIssueState, (_event, input) =>
+    runtime.getIssuesService().updateIssueState(githubIssueStateUpdateRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequests, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listPullRequests(githubPullRequestListRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listPullRequests, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .listPullRequests(githubPullRequestListRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.getPullRequest, (_event, input: unknown) =>
-    getGitHubPullRequestsService().getPullRequest(githubPullRequestRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.getPullRequest, (_event, input) =>
+    runtime.getPullRequestsService().getPullRequest(githubPullRequestRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequestComments, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listConversationComments(
-      githubPullRequestCommentsRequestSchema.parse(input)
-    )
+  ipc.handle(IPC_CHANNELS.github.listPullRequestComments, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .listConversationComments(githubPullRequestCommentsRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequestFiles, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listFiles(githubPullRequestPageRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listPullRequestCommits, (_event, input) =>
+    runtime.getPullRequestsService().listCommits(githubPullRequestPageRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequestCheckRuns, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listCheckRuns(githubPullRequestPageRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listPullRequestFiles, (_event, input) =>
+    runtime.getPullRequestsService().listFiles(githubPullRequestPageRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequestCommitStatuses, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listCommitStatuses(
-      githubPullRequestPageRequestSchema.parse(input)
-    )
+  ipc.handle(IPC_CHANNELS.github.listPullRequestCheckRuns, (_event, input) =>
+    runtime.getPullRequestsService().listCheckRuns(githubPullRequestPageRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.listPullRequestReviews, (_event, input: unknown) =>
-    getGitHubPullRequestsService().listReviews(githubPullRequestPageRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.listPullRequestCommitStatuses, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .listCommitStatuses(githubPullRequestPageRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.createPullRequestComment, (_event, input: unknown) =>
-    getGitHubPullRequestsService().createConversationComment(
-      githubPullRequestCommentCreateRequestSchema.parse(input)
-    )
+  ipc.handle(IPC_CHANNELS.github.listPullRequestReviews, (_event, input) =>
+    runtime.getPullRequestsService().listReviews(githubPullRequestPageRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.createPullRequestReview, (_event, input: unknown) =>
-    getGitHubPullRequestsService().createReview(
-      githubPullRequestReviewCreateRequestSchema.parse(input)
-    )
+  ipc.handle(IPC_CHANNELS.github.createPullRequestComment, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .createConversationComment(githubPullRequestCommentCreateRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.startIssueSession, (_event, input: unknown) =>
-    getGitHubSourceSessionsService().startIssueSession(githubIssueRequestSchema.parse(input))
+  ipc.handle(IPC_CHANNELS.github.createPullRequestReview, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .createReview(githubPullRequestReviewCreateRequestSchema.parse(input))
   )
-  ipcMain.handle(IPC_CHANNELS.github.startPullRequestSession, (_event, input: unknown) =>
-    getGitHubSourceSessionsService().startPullRequestSession(
-      githubPullRequestRequestSchema.parse(input)
-    )
+  ipc.handle(IPC_CHANNELS.github.startIssueSession, (_event, input) =>
+    runtime.getSourceSessionsService().startIssueSession(githubIssueRequestSchema.parse(input))
+  )
+  ipc.handle(IPC_CHANNELS.github.startPullRequestSession, (_event, input) =>
+    runtime
+      .getSourceSessionsService()
+      .startPullRequestSession(githubPullRequestRequestSchema.parse(input))
   )
 }

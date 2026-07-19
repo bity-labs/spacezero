@@ -17,6 +17,19 @@ describe('PullRequestReviewSections', () => {
   it('preserves successful sections across patch states, pagination, and a partial endpoint failure', async () => {
     const filePages: number[] = []
     let checkReads = 0
+    window.spacezero.github.listPullRequestCommits = async ({ page }) => ({
+      items: [
+        {
+          sha: '0123456789abcdef0123456789abcdef01234567',
+          message: 'feat: add managed worktrees',
+          htmlUrl: 'https://github.com/example/repository/commit/0123456',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          authoredAt: '2026-07-18T01:30:00.000Z'
+        }
+      ],
+      page,
+      hasNextPage: false
+    })
     window.spacezero.github.listPullRequestFiles = async ({ page }) => {
       filePages.push(page)
       if (page === 2) {
@@ -135,6 +148,8 @@ describe('PullRequestReviewSections', () => {
 
     renderSections()
 
+    expect(await screen.findByText('feat: add managed worktrees')).toBeInTheDocument()
+    expect(screen.getByText(/0123456789ab · octocat/)).toBeInTheDocument()
     expect(await screen.findByText('src/index.ts')).toBeInTheDocument()
     expect(screen.getByText(/truncated patch/i)).toBeInTheDocument()
     expect(screen.getByText(/Binary file/)).toBeInTheDocument()
@@ -157,6 +172,11 @@ describe('PullRequestReviewSections', () => {
   })
 
   it('represents empty files, checks, statuses, and reviews explicitly', async () => {
+    window.spacezero.github.listPullRequestCommits = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
     window.spacezero.github.listPullRequestFiles = async ({ page }) => ({
       items: [],
       page,
@@ -180,6 +200,7 @@ describe('PullRequestReviewSections', () => {
 
     renderSections()
 
+    expect(await screen.findByText('No commits were returned.')).toBeInTheDocument()
     expect(await screen.findByText('No changed files were returned.')).toBeInTheDocument()
     expect(await screen.findByText('No check runs were reported.')).toBeInTheDocument()
     expect(await screen.findByText('No commit statuses were reported.')).toBeInTheDocument()

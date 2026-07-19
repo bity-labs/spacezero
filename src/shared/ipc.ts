@@ -50,6 +50,7 @@ import type {
   GitHubPullRequest,
   GitHubPullRequestCommentCreateRequest,
   GitHubPullRequestCommentsRequest,
+  GitHubPullRequestCommit,
   GitHubPullRequestFile,
   GitHubPullRequestListRequest,
   GitHubPullRequestPageRequest,
@@ -115,6 +116,7 @@ export const IPC_CHANNELS = {
     listPullRequests: 'github:listPullRequests',
     getPullRequest: 'github:getPullRequest',
     listPullRequestComments: 'github:listPullRequestComments',
+    listPullRequestCommits: 'github:listPullRequestCommits',
     listPullRequestFiles: 'github:listPullRequestFiles',
     listPullRequestCheckRuns: 'github:listPullRequestCheckRuns',
     listPullRequestCommitStatuses: 'github:listPullRequestCommitStatuses',
@@ -235,6 +237,9 @@ export type SpaceZeroAPI = {
     listPullRequestComments: (
       request: GitHubPullRequestCommentsRequest
     ) => Promise<GitHubPage<GitHubIssueComment>>
+    listPullRequestCommits: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestCommit>>
     listPullRequestFiles: (
       request: GitHubPullRequestPageRequest
     ) => Promise<GitHubPage<GitHubPullRequestFile>>

@@ -86,6 +86,8 @@
       "description": "Register an existing folder or create a new project workspace.",
       "saveError": "Could not create project.",
       "folderError": "Could not add folder.",
+      "folderNotGit": "Choose a Git repository. Plain folders cannot start isolated Sessions.",
+      "folderNoCommits": "Choose a Git repository with at least one commit before adding it.",
       "empty": {
         "title": "Empty Project",
         "description": "Create a blank local project folder.",
@@ -110,7 +112,8 @@
       "action": "Edit {{name}}",
       "nameLabel": "Project name",
       "pathLabel": "Project path",
-      "saveError": "Could not update project."
+      "saveError": "Could not update project.",
+      "pathBlockedByManagedSessions": "Delete this Project’s managed Sessions before changing its repository path. You can still rename the Project."
     }
   },
   "appCommands": {

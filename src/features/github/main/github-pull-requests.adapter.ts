@@ -5,6 +5,7 @@ import type {
   GitHubCommitStatus,
   GitHubIssueComment,
   GitHubPullRequest,
+  GitHubPullRequestCommit,
   GitHubPullRequestFile,
   GitHubPullRequestPatch,
   GitHubPullRequestReview,
@@ -44,6 +45,16 @@ type ApiComment = {
   user: ApiUser | null
   created_at: string
   updated_at: string
+}
+
+type ApiCommit = {
+  sha: string
+  html_url: string
+  author: ApiUser | null
+  commit: {
+    message: string
+    author?: { date?: string | null } | null
+  }
 }
 
 type ApiFile = {
@@ -141,6 +152,29 @@ export function createGitHubPullRequestsAdapter(): GitHubPullRequestsAdapter {
         )
         return {
           items: response.data.map((comment) => toComment(comment as ApiComment)),
+          page,
+          hasNextPage: hasNextPage(response.headers.link)
+        }
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
+    },
+
+    async listCommits({ accessToken, owner, repository, number, page, perPage }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request(
+          'GET /repos/{owner}/{repo}/pulls/{pull_number}/commits',
+          {
+            owner,
+            repo: repository,
+            pull_number: number,
+            page,
+            per_page: perPage
+          }
+        )
+        return {
+          items: response.data.map((commit) => toPullRequestCommit(commit as ApiCommit)),
           page,
           hasNextPage: hasNextPage(response.headers.link)
         }
@@ -325,6 +359,16 @@ function toComment(comment: ApiComment): GitHubIssueComment {
     author: toUser(comment.user),
     createdAt: comment.created_at,
     updatedAt: comment.updated_at
+  }
+}
+
+function toPullRequestCommit(commit: ApiCommit): GitHubPullRequestCommit {
+  return {
+    sha: commit.sha,
+    message: commit.commit.message,
+    htmlUrl: commit.html_url,
+    author: toUser(commit.author),
+    authoredAt: commit.commit.author?.date ?? null
   }
 }
 

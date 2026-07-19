@@ -44,6 +44,14 @@ function createMemoryRepository({
       if (!projects.has(projectId)) return undefined
       return { id: projectId, path: `/tmp/${projectId}` }
     },
+    async updateProjectPath() {},
+    async hasManagedSessions(projectId) {
+      return storedSessions.some(
+        (session) =>
+          session.projectId === projectId &&
+          Boolean(session.worktreePath || session.worktreeBranch || session.worktreeBaseRevision)
+      )
+    },
     async findSessionById(sessionId) {
       return storedSessions.find((session) => session.id === sessionId)
     },

@@ -295,6 +295,39 @@ describe('createProjectsService', () => {
     await expect(service.listProjects()).resolves.toEqual([])
   })
 
+  it('refuses to change a Project path while managed Session worktrees exist', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository([
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/tmp/spacezero',
+        createdAt,
+        updatedAt: createdAt
+      }
+    ])
+    const service = createProjectsService({
+      repository,
+      hasManagedSessions: async () => true,
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path.trim()
+      }
+    })
+
+    await expect(
+      service.updateProject({
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/tmp/other-repository'
+      })
+    ).rejects.toThrow('project.pathChangeBlockedByManagedSessions')
+    await expect(service.getProject('project-1')).resolves.toMatchObject({
+      path: '/tmp/spacezero'
+    })
+  })
+
   it('updates an existing project name and path', async () => {
     const createdAt = new Date('2026-07-10T00:00:00.000Z')
     const updatedAt = new Date('2026-07-10T01:00:00.000Z')

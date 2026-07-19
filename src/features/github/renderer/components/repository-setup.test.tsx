@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GitHubCloneProgress } from '../../shared'
 import { RepositorySetup } from './repository-setup'
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((next) => {
+    resolve = next
+  })
+  return { promise, resolve }
+}
+
 const repository = {
   id: '1000',
   nodeId: 'R_1000',
@@ -99,6 +107,61 @@ describe('RepositorySetup', () => {
 
     await waitFor(() => expect(onProjectReady).toHaveBeenCalledWith('project-2'))
     expect(requests).toEqual([{ repositoryId: '1000', existingProjectId: 'project-2' }])
+  })
+
+  it('keeps one repository operation selected and cancels it when the setup surface closes', async () => {
+    const secondRepository = {
+      ...repository,
+      id: '2000',
+      nodeId: 'R_2000',
+      name: 'other',
+      fullName: 'bity-labs/other',
+      htmlUrl: 'https://github.com/bity-labs/other',
+      cloneUrl: 'https://github.com/bity-labs/other.git'
+    }
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository },
+      { repository: secondRepository }
+    ]
+    window.spacezero.github.onCloneProgress = () => () => undefined
+    window.spacezero.github.startClone = async () => ({
+      status: 'started',
+      operationId: 'clone-1'
+    })
+    const cancelClone = vi.fn(async () => undefined)
+    window.spacezero.github.cancelClone = cancelClone
+    const onBusyChange = vi.fn()
+
+    const view = render(
+      <RepositorySetup onProjectReady={() => undefined} onBusyChange={onBusyChange} />
+    )
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+
+    await screen.findByText('Preparing managed clone…')
+    expect(screen.getByRole('radio', { name: /bity-labs\/other/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeDisabled()
+    await waitFor(() => expect(onBusyChange).toHaveBeenLastCalledWith(true))
+
+    view.unmount()
+    await waitFor(() => expect(cancelClone).toHaveBeenCalledWith({ operationId: 'clone-1' }))
+  })
+
+  it('cancels an operation that starts after the setup surface has already closed', async () => {
+    window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
+    window.spacezero.github.onCloneProgress = () => () => undefined
+    const startResult = deferred<Awaited<ReturnType<typeof window.spacezero.github.startClone>>>()
+    window.spacezero.github.startClone = async () => startResult.promise
+    const cancelClone = vi.fn(async () => undefined)
+    window.spacezero.github.cancelClone = cancelClone
+
+    const view = render(<RepositorySetup onProjectReady={() => undefined} />)
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    view.unmount()
+    startResult.resolve({ status: 'started', operationId: 'clone-late' })
+
+    await waitFor(() => expect(cancelClone).toHaveBeenCalledWith({ operationId: 'clone-late' }))
   })
 
   it('offers retry or cancellation without showing false success', async () => {

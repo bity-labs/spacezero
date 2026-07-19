@@ -1,10 +1,11 @@
 import { dialog } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, isAbsolute, join, resolve } from 'node:path'
+import { basename, join } from 'node:path'
 
 import { getSpaceZeroProjectsPath } from '../../settings/main'
+import { resolveProjectRepositoryPath } from './project-repository-path'
 import type { ProjectPathAdapter } from './projects.service'
 
 export function createProjectPathAdapter({
@@ -59,24 +60,7 @@ export function createProjectPathAdapter({
 }
 
 export function normalizeExistingProjectPath(path: string): string {
-  const trimmedPath = path.trim()
-  if (!trimmedPath) throw new Error('Project path is required')
-  if (!isAbsolute(trimmedPath)) throw new Error('Project path must be absolute')
-
-  const normalized = resolve(trimmedPath)
-  if (!existsSync(normalized)) throw new Error('Project path does not exist')
-  if (!statSync(normalized).isDirectory()) throw new Error('Project path must be a directory')
-
-  try {
-    const repositoryRoot = execFileSync('git', ['-C', normalized, 'rev-parse', '--show-toplevel'], {
-      encoding: 'utf8',
-      env: withoutInheritedGitEnvironment(),
-      stdio: ['ignore', 'pipe', 'ignore']
-    }).trim()
-    return repositoryRoot ? resolve(repositoryRoot) : normalized
-  } catch {
-    return normalized
-  }
+  return resolveProjectRepositoryPath(path)
 }
 
 function initializeEmptyGitRepository(path: string): void {

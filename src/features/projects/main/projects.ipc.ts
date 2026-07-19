@@ -16,13 +16,14 @@ import { createProjectsService } from './projects.service'
 
 const projectIdRequestSchema = z.object({ projectId: z.string().trim().min(1) })
 
+const sessionsRepository = createSessionsRepository()
 const projectsService = createProjectsService({
   repository: createProjectsRepository(),
   pathAdapter: createProjectPathAdapter(),
-  linkKnowledgeBaseProject: (project) => getKnowledgeBaseProjectsService().linkProject(project)
+  linkKnowledgeBaseProject: (project) => getKnowledgeBaseProjectsService().linkProject(project),
+  hasManagedSessions: (projectId) => sessionsRepository.hasManagedSessions(projectId)
 })
 
-const sessionsRepository = createSessionsRepository()
 const sessionsService = createSessionsService({ repository: sessionsRepository })
 const sessionCleanupService = createSessionCleanupService({
   repository: sessionsRepository,
