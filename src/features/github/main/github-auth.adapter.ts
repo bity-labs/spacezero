@@ -1,15 +1,17 @@
 import { Octokit } from '@octokit/rest'
 import { z } from 'zod'
 
-import type {
-  GitHubAuthAdapter,
-  GitHubDevicePollResult,
-  GitHubTokenSet
+import {
+  GitHubIntegrationError,
+  type GitHubAuthAdapter,
+  type GitHubDevicePollResult,
+  type GitHubTokenSet
 } from './github-auth.service'
 
 const DEVICE_CODE_URL = 'https://github.com/login/device/code'
 const ACCESS_TOKEN_URL = 'https://github.com/login/oauth/access_token'
 const OAUTH_GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:device_code'
+const INVALID_REFRESH_GRANT_ERRORS = new Set(['bad_refresh_token', 'invalid_grant'])
 
 const deviceGrantSchema = z.object({
   device_code: z.string().min(1),
@@ -38,7 +40,8 @@ export function createGitHubAuthAdapter({
   async function postOAuth(
     url: string,
     body: URLSearchParams,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    reconnectErrors: ReadonlySet<string> = new Set()
   ): Promise<unknown> {
     const response = await fetchImpl(url, {
       method: 'POST',
@@ -49,8 +52,13 @@ export function createGitHubAuthAdapter({
       body,
       signal
     })
+    const payload: unknown = await response.json()
+    const providerError = oauthErrorSchema.safeParse(payload)
+    if (providerError.success && reconnectErrors.has(providerError.data.error)) {
+      throw new GitHubIntegrationError('reconnect-required')
+    }
     if (!response.ok) throw new Error('github.oauthRequestFailed')
-    return response.json()
+    return payload
   }
 
   function toTokens(payload: unknown): GitHubTokenSet {
@@ -110,7 +118,8 @@ export function createGitHubAuthAdapter({
             grant_type: 'refresh_token',
             refresh_token: refreshToken
           }),
-          signal
+          signal,
+          INVALID_REFRESH_GRANT_ERRORS
         )
       )
     },

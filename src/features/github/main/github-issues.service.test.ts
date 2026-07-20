@@ -227,6 +227,28 @@ describe('GitHub Issues service', () => {
     )
   })
 
+  it('rejects a Pull Request number before creating an Issue conversation comment', async () => {
+    const adapter = createAdapter()
+    adapter.getIssue = async () => ({
+      ...(await createAdapter().getIssue({} as never)),
+      number: 84,
+      isPullRequest: true
+    })
+    adapter.createIssueComment = vi.fn(async () => {
+      throw new Error('Issue comment mutation must not run')
+    })
+    const service = createGitHubIssuesService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.createIssueComment({ projectId: 'project-1', number: 84, body: 'Wrong resource' })
+    ).rejects.toThrow('github.issueNotFound')
+    expect(adapter.createIssueComment).not.toHaveBeenCalled()
+  })
+
   it('rejects a Pull Request number before issuing an Issue state mutation', async () => {
     const adapter = createAdapter()
     adapter.getIssue = async () => ({

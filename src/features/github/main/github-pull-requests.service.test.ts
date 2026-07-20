@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import type { GitHubRepository } from '../shared'
 import {
@@ -343,6 +343,30 @@ describe('GitHub Pull Requests service', () => {
       })
     ).rejects.toThrow('github.invalidReview')
     expect(credentialReads).toBe(0)
+  })
+
+  it('rejects an Issue number before creating a Pull Request conversation comment', async () => {
+    const adapter = createAdapter()
+    adapter.getPullRequest = vi.fn(async () => {
+      throw new Error('github.notFound')
+    })
+    adapter.createConversationComment = vi.fn(async () => {
+      throw new Error('Pull Request comment mutation must not run')
+    })
+    const service = createGitHubPullRequestsService({
+      projects: { getLinkedRepository: async () => repository },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'access-secret' }) as never },
+      adapter
+    })
+
+    await expect(
+      service.createConversationComment({
+        projectId: 'project-1',
+        number: 83,
+        body: 'Wrong resource'
+      })
+    ).rejects.toThrow('github.notFound')
+    expect(adapter.createConversationComment).not.toHaveBeenCalled()
   })
 
   it('returns core Pull Request detail and paginated conversation comments', async () => {

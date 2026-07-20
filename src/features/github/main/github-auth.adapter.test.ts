@@ -27,6 +27,23 @@ describe('GitHub auth adapter', () => {
     })
   })
 
+  it('classifies a provider-rejected refresh grant as reconnect required', async () => {
+    const adapter = createGitHubAuthAdapter({
+      fetchImpl: (async () =>
+        new Response(
+          JSON.stringify({
+            error: 'bad_refresh_token',
+            error_description: 'The refresh token is invalid or revoked.'
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )) as typeof fetch
+    })
+
+    await expect(
+      adapter.refreshAccessToken('Iv1.client', 'revoked-refresh-secret')
+    ).rejects.toMatchObject({ code: 'reconnect-required' })
+  })
+
   it('calculates access and refresh expiry from the token response', async () => {
     const adapter = createGitHubAuthAdapter({
       now: () => new Date('2026-07-18T00:00:00.000Z'),

@@ -120,6 +120,14 @@ export function createGitHubIssuesService({
     const body = request.body.trim()
     if (!body || body.length > 65_536) throw new Error('github.invalidComment')
     const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    const target = await adapter.getIssue({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number
+    })
+    if (target.isPullRequest) throw new Error('github.issueNotFound')
+
     return adapter.createIssueComment({
       accessToken,
       owner: repository.owner,

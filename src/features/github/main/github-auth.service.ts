@@ -138,8 +138,11 @@ export function createGitHubAuthService({
     try {
       const authorized = await ensureAuthorizedCredential(credential)
       return { status: 'repository-access-required', identity: authorized.identity }
-    } catch {
-      return { status: 'reconnect-required', identity: credential.identity }
+    } catch (error) {
+      if (error instanceof GitHubIntegrationError && error.code === 'reconnect-required') {
+        return { status: 'reconnect-required', identity: credential.identity }
+      }
+      throw error
     }
   }
 
@@ -159,8 +162,9 @@ export function createGitHubAuthService({
 
     try {
       return await refreshCredential(credential)
-    } catch {
-      throw new GitHubIntegrationError('reconnect-required')
+    } catch (error) {
+      if (error instanceof GitHubIntegrationError) throw error
+      throw new GitHubIntegrationError('network-error')
     }
   }
 
