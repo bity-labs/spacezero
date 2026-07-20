@@ -63,9 +63,15 @@ export type SessionsRepository = {
   countByProjectId: (projectId: string) => Promise<number>
   countWorkspaceSessions: () => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
-  findProjectById: (
-    projectId: string
-  ) => Promise<{ id: string; path: string; knowledgeBasePath?: string | null } | undefined>
+  findProjectById: (projectId: string) => Promise<
+    | {
+        id: string
+        path: string
+        knowledgeBasePath?: string | null
+        archivedAt?: Date | null
+      }
+    | undefined
+  >
   updateProjectPath: (projectId: string, path: string) => Promise<void>
   hasManagedSessions: (projectId: string) => Promise<boolean>
   findSessionById: (sessionId: string) => Promise<StoredSession | undefined>

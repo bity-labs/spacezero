@@ -60,7 +60,8 @@ export function createSessionsRepository(): SessionsRepository {
         .select({
           id: schema.projects.id,
           path: schema.projects.path,
-          knowledgeBasePath: schema.projects.knowledgeBasePath
+          knowledgeBasePath: schema.projects.knowledgeBasePath,
+          archivedAt: schema.projects.archivedAt
         })
         .from(schema.projects)
         .where(eq(schema.projects.id, projectId))

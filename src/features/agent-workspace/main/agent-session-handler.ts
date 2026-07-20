@@ -39,6 +39,7 @@ type StoredProject = {
   id: string
   path: string
   knowledgeBasePath?: string | null
+  archivedAt?: Date | null
 }
 
 export type CreateAgentSessionHandlerDependencies = {
@@ -124,6 +125,7 @@ export async function createManagedProjectAgentSession(
   return withProjectLifecycleLock(projectId, async () => {
     let project = await repository.findProjectById(projectId)
     if (!project) throw new Error('Project not found')
+    if (project.archivedAt) throw new Error('Project is archived')
     if (
       request.expectedProjectPath &&
       !samePath(request.expectedProjectPath, project.path) &&
