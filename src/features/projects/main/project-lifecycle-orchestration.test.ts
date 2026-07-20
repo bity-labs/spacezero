@@ -127,6 +127,68 @@ function startPausedSessionCreation(repository: SessionsRepository, sessionId: s
 }
 
 describe('Project lifecycle orchestration', () => {
+  it('rejects queued Session creation when Project archive wins the lifecycle lock', async () => {
+    const archivedAt = new Date('2026-07-20T00:00:00.000Z')
+    let projectArchivedAt: Date | null = null
+    const baseRepository = createRepository()
+    const repository: SessionsRepository = {
+      ...baseRepository,
+      async findProjectById(projectId) {
+        return projectId === 'project-1'
+          ? { id: projectId, path: '/repo', archivedAt: projectArchivedAt }
+          : undefined
+      }
+    }
+    const archiveStarted = deferred<void>()
+    const allowArchiveCompletion = deferred<void>()
+    const archive = archiveProjectLifecycle('project-1', {
+      sessionsService: createSessionsService({ repository, now: () => archivedAt }),
+      projectsService: {
+        archiveProject: async () => {
+          projectArchivedAt = archivedAt
+          archiveStarted.resolve()
+          await allowArchiveCompletion.promise
+        }
+      },
+      deleteUtilitySession: async () => undefined
+    })
+    await archiveStarted.promise
+
+    const createWorktree = vi.fn(async () => ({
+      path: '/worktrees/session-archive-first',
+      branch: 'spacezero/session-session-archive-first',
+      baseRevision: 'abc123'
+    }))
+    const createUtilitySession = vi.fn(async (request: CreateAgentSessionRequest) =>
+      createState(request)
+    )
+    const creation = createManagedProjectAgentSession(
+      { projectId: 'project-1' },
+      {
+        repository,
+        utilityHost: {
+          createSession: createUtilitySession,
+          deleteSession: async () => undefined
+        },
+        worktrees: { create: createWorktree, remove: async () => undefined },
+        createSessionId: () => 'session-archive-first',
+        readModelDefaults: async () => ({
+          defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+          defaultThinking: 'high'
+        })
+      }
+    )
+
+    expect(createWorktree).not.toHaveBeenCalled()
+    allowArchiveCompletion.resolve()
+    await archive
+
+    await expect(creation).rejects.toThrow('Project is archived')
+    expect(createWorktree).not.toHaveBeenCalled()
+    expect(createUtilitySession).not.toHaveBeenCalled()
+    await expect(repository.findSessionById('session-archive-first')).resolves.toBeUndefined()
+  })
+
   it('waits for concurrent Session creation before archiving the Project and its new Session', async () => {
     const repository = createRepository()
     const pausedCreation = startPausedSessionCreation(repository, 'session-archive')
