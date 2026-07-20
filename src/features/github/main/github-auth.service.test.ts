@@ -539,6 +539,65 @@ describe('GitHub auth service', () => {
     await expect(service.getConnection()).resolves.toEqual({ status: 'disconnected' })
   })
 
+  it('preserves transient refresh failures as network errors', async () => {
+    const credentials = createMemoryCredentialStore({
+      accessToken: 'expired-access-secret',
+      refreshToken: 'valid-refresh-secret',
+      accessTokenExpiresAt: '2026-07-17T23:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z',
+      identity
+    })
+    const adapter = createAdapter([])
+    adapter.refreshAccessToken = async () => {
+      throw new Error('GitHub temporarily unavailable')
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await expect(service.getAuthorizedCredential()).rejects.toMatchObject({
+      code: 'network-error'
+    })
+    await expect(service.getConnection()).rejects.toMatchObject({ code: 'network-error' })
+  })
+
+  it('requires reconnection when the provider rejects the refresh grant', async () => {
+    const credentials = createMemoryCredentialStore({
+      accessToken: 'expired-access-secret',
+      refreshToken: 'revoked-refresh-secret',
+      accessTokenExpiresAt: '2026-07-17T23:00:00.000Z',
+      refreshTokenExpiresAt: '2026-08-18T00:00:00.000Z',
+      identity
+    })
+    const adapter = createAdapter([])
+    adapter.refreshAccessToken = async () => {
+      throw new GitHubIntegrationError('reconnect-required')
+    }
+    const service = createGitHubAuthService({
+      clientId: 'Iv1.public-client-id',
+      adapter,
+      credentialStore: credentials,
+      now: () => new Date('2026-07-18T00:00:00.000Z'),
+      sleep: async () => undefined,
+      openExternal: async () => undefined,
+      copyText: () => undefined
+    })
+
+    await expect(service.getAuthorizedCredential()).rejects.toMatchObject({
+      code: 'reconnect-required'
+    })
+    await expect(service.getConnection()).resolves.toEqual({
+      status: 'reconnect-required',
+      identity
+    })
+  })
+
   it('fails closed when the refresh grant has expired', async () => {
     const credentials = createMemoryCredentialStore({
       accessToken: 'expired-access-secret',

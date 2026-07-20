@@ -187,6 +187,13 @@ export function createGitHubPullRequestsService({
     const body = request.body.trim()
     if (!body || body.length > 65_536) throw new Error('github.invalidComment')
     const { repository, accessToken } = await resolveAccess(request.projectId.trim())
+    await adapter.getPullRequest({
+      accessToken,
+      owner: repository.owner,
+      repository: repository.name,
+      number: request.number
+    })
+
     return adapter.createConversationComment({
       accessToken,
       owner: repository.owner,
