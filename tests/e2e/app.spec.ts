@@ -206,6 +206,14 @@ test('sets up and edits a searchable Knowledge Base through the public desktop U
     await window.getByRole('button', { name: 'Create new' }).click()
     await expect(window.getByText(knowledgeBasePath)).toBeVisible()
     await expect(window.getByRole('button', { name: 'AGENTS.md' })).toBeVisible()
+    await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical'
+    )
+    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+      await expect(window.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
+    }
+    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
 
     await window.getByRole('button', { name: 'New file' }).click()
     await window.getByRole('textbox', { name: 'File path' }).fill('notes.md')

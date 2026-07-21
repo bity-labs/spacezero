@@ -52,6 +52,15 @@ import {
   WorkspaceSessionList,
   type SessionWorkspaceTab
 } from '../../features/sessions/renderer'
+import {
+  createKnowledgeBaseToolPaneConfiguration,
+  createProjectSessionToolPaneConfiguration,
+  createWorkspaceSessionToolPaneConfiguration,
+  ToolPaneShell,
+  ToolPaneToggleButton,
+  useToolPaneController,
+  type ToolPaneConfiguration
+} from '../../features/tool-pane/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
@@ -73,27 +82,18 @@ import { useUiLayoutStore } from './stores/ui-layout-store'
 
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
-  { commandId: 'workspace.toggle-right-panel', defaultKeybinding: { normalized: 'mod+shift+b' } }
+  { commandId: 'workspace.toggle-tool-pane', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
-  const isRightPanelOpen = useUiLayoutStore((state) => state.isRightSidebarOpen)
   const leftPanelWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
-  const rightPanelWidth = useUiLayoutStore((state) => state.rightSidebarWidth)
   const setLeftPanelWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
-  const setRightPanelWidth = useUiLayoutStore((state) => state.setRightSidebarWidth)
   const toggleLeftPanel = useUiLayoutStore((state) => state.toggleLeftSidebar)
-  const toggleRightPanel = useUiLayoutStore((state) => state.toggleRightSidebar)
   const leftPanelResize = useSidebarResize({
     side: 'left',
     width: leftPanelWidth,
     setWidth: setLeftPanelWidth
-  })
-  const rightPanelResize = useSidebarResize({
-    side: 'right',
-    width: rightPanelWidth,
-    setWidth: setRightPanelWidth
   })
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
@@ -101,6 +101,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const [activePrimaryView, setActivePrimaryView] = useState<'workspace' | 'knowledge-base'>(
     'workspace'
   )
+  const [isKnowledgeBaseConfigured, setKnowledgeBaseConfigured] = useState(false)
   const knowledgeBasePageRef = useRef<KnowledgeBasePageHandle>(null)
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
@@ -163,6 +164,19 @@ export function WorkspaceShell(): React.JSX.Element {
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
+  const toolPaneConfiguration = useMemo<ToolPaneConfiguration | null>(() => {
+    if (activePrimaryView === 'knowledge-base') {
+      return isKnowledgeBaseConfigured ? createKnowledgeBaseToolPaneConfiguration() : null
+    }
+    if (activeProjectSession) {
+      return createProjectSessionToolPaneConfiguration(activeProjectSession)
+    }
+    if (activeWorkspaceSession) {
+      return createWorkspaceSessionToolPaneConfiguration(activeWorkspaceSession)
+    }
+    return null
+  }, [activePrimaryView, activeProjectSession, activeWorkspaceSession, isKnowledgeBaseConfigured])
+  const toolPaneController = useToolPaneController(toolPaneConfiguration)
 
   const runInWorkspaceView = useCallback(
     (action: () => void | Promise<void>): void => {
@@ -240,11 +254,11 @@ export function WorkspaceShell(): React.JSX.Element {
         handler: toggleLeftPanel
       },
       {
-        id: 'workspace.toggle-right-panel',
-        title: isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel'),
+        id: 'workspace.toggle-tool-pane',
+        title: 'Toggle Tool Pane',
         category: t('appCommands.categories.workspace'),
-        keywords: ['sidebar', 'inspector'],
-        handler: toggleRightPanel
+        keywords: ['tools', 'pane', 'switcher'],
+        handler: toolPaneController.toggle
       },
       {
         id: 'workspace.open-workspace-session',
@@ -254,14 +268,7 @@ export function WorkspaceShell(): React.JSX.Element {
         handler: () => void handleNewWorkspaceSession()
       }
     ],
-    [
-      isLeftPanelOpen,
-      isRightPanelOpen,
-      handleNewWorkspaceSession,
-      t,
-      toggleLeftPanel,
-      toggleRightPanel
-    ]
+    [isLeftPanelOpen, handleNewWorkspaceSession, t, toolPaneController.toggle, toggleLeftPanel]
   )
 
   useRegisterAppCommands(workspaceCommands)
@@ -382,18 +389,14 @@ export function WorkspaceShell(): React.JSX.Element {
     }
   }
 
-  const gridTemplateColumns = [
-    isLeftPanelOpen ? `${leftPanelWidth}px 4px` : '',
-    'minmax(0, 1fr)',
-    isRightPanelOpen ? `4px ${rightPanelWidth}px` : ''
-  ]
+  const gridTemplateColumns = [isLeftPanelOpen ? `${leftPanelWidth}px 4px` : '', 'minmax(0, 1fr)']
     .filter(Boolean)
     .join(' ')
 
   const titlebarGridTemplateColumns = [
     isLeftPanelOpen ? `${leftPanelWidth}px` : 'minmax(0, 1fr)',
     'minmax(0, 1fr)',
-    isRightPanelOpen ? `${rightPanelWidth}px` : 'minmax(0, 1fr)'
+    '48px'
   ].join(' ')
 
   return (
@@ -444,24 +447,8 @@ export function WorkspaceShell(): React.JSX.Element {
           />
         </div>
 
-        <div
-          className={cn(
-            'flex h-full w-full items-center justify-end px-3',
-            isRightPanelOpen ? 'border-l border-sidebar-border bg-sidebar' : 'bg-background'
-          )}
-        >
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="titlebar-control text-muted-foreground"
-            aria-label={
-              isRightPanelOpen ? t('workspace.hideRightPanel') : t('workspace.showRightPanel')
-            }
-            aria-pressed={isRightPanelOpen}
-            onClick={toggleRightPanel}
-          >
-            <Sidebar className="h-4 w-4 rotate-180" />
-          </Button>
+        <div className="flex h-full w-full items-center justify-end px-2">
+          <ToolPaneToggleButton configuration={toolPaneConfiguration} />
         </div>
       </header>
 
@@ -615,9 +602,31 @@ export function WorkspaceShell(): React.JSX.Element {
             </Alert>
           ) : null}
           {activePrimaryView === 'knowledge-base' ? (
-            <KnowledgeBasePage ref={knowledgeBasePageRef} />
+            toolPaneConfiguration ? (
+              <ToolPaneShell {...toolPaneConfiguration}>
+                <KnowledgeBasePage
+                  ref={knowledgeBasePageRef}
+                  onConfiguredChange={setKnowledgeBaseConfigured}
+                />
+              </ToolPaneShell>
+            ) : (
+              <KnowledgeBasePage
+                ref={knowledgeBasePageRef}
+                onConfiguredChange={setKnowledgeBaseConfigured}
+              />
+            )
           ) : activeTab ? (
-            <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
+            toolPaneConfiguration ? (
+              <ToolPaneShell {...toolPaneConfiguration}>
+                <SessionWorkspaceTabSurface
+                  tab={activeTab}
+                  projects={projects}
+                  sessions={sessions}
+                />
+              </ToolPaneShell>
+            ) : (
+              <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
+            )
           ) : activeProject ? (
             <ProjectHome
               key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
@@ -640,24 +649,6 @@ export function WorkspaceShell(): React.JSX.Element {
             </div>
           )}
         </section>
-
-        {isRightPanelOpen ? (
-          <ResizeHandle
-            label={t('workspace.resizeRightPanel')}
-            value={rightPanelWidth}
-            onPointerDown={rightPanelResize.startResize}
-            onKeyDown={rightPanelResize.resizeWithKeyboard}
-          />
-        ) : null}
-
-        {isRightPanelOpen ? (
-          <aside
-            aria-label={t('workspace.rightPanel')}
-            className="min-w-0 border-l border-sidebar-border bg-sidebar p-4 text-sidebar-foreground"
-          >
-            <h2 className="text-sm font-medium">{t('workspace.rightPanel')}</h2>
-          </aside>
-        ) : null}
       </div>
     </div>
   )
