@@ -32,7 +32,6 @@ export function EditProjectDialog({
   const [error, setError] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
 
-
   async function save(): Promise<void> {
     if (!project) return
     setIsSaving(true)
@@ -40,8 +39,17 @@ export function EditProjectDialog({
     try {
       await onUpdateProject({ id: project.id, name, path })
       onOpenChange(false)
-    } catch {
-      setError(t('projects.edit.saveError'))
+    } catch (error) {
+      const message = String(error)
+      setError(
+        message.includes('project.pathChangeBlockedByManagedSessions')
+          ? t('projects.edit.pathBlockedByManagedSessions')
+          : message.includes('project.notGitRepository')
+            ? t('projects.add.folderNotGit')
+            : message.includes('project.repositoryHasNoCommits')
+              ? t('projects.add.folderNoCommits')
+              : t('projects.edit.saveError')
+      )
       setIsSaving(false)
     }
   }

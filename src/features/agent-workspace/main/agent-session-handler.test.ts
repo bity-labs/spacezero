@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentSessionState } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import {
+  createManagedProjectAgentSession,
   createProjectAgentSession,
   createProjectKnowledgeBaseInstructions,
   createWorkspaceAgentSession,
@@ -35,6 +36,14 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
     async findProjectById(projectId) {
       if (projectId !== 'project-1') return undefined
       return { id: projectId, path: '/repo' }
+    },
+    async updateProjectPath() {},
+    async hasManagedSessions(projectId) {
+      return sessions.some(
+        (session) =>
+          session.projectId === projectId &&
+          Boolean(session.worktreePath || session.worktreeBranch || session.worktreeBaseRevision)
+      )
     },
     async findSessionById(sessionId) {
       return sessions.find((session) => session.id === sessionId)
@@ -93,25 +102,43 @@ const getConfiguredKnowledgeBaseStatus = async () => ({
   rootPath: '/home/builder/SpaceZero/knowledge-base'
 })
 
+function createTestWorktrees() {
+  return {
+    create: vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      path: `/worktrees/${sessionId}`,
+      branch: `spacezero/session-${sessionId}`,
+      baseRevision: 'abc123'
+    })),
+    remove: vi.fn(async () => undefined),
+    validate: vi.fn(async () => true)
+  }
+}
+
 describe('createProjectAgentSession', () => {
-  it('derives the utility cwd from stored project metadata', async () => {
+  it('derives a managed worktree cwd from stored Project metadata', async () => {
     const utilityHost = {
-      createSession: vi.fn(async () => createState()),
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
       deleteSession: vi.fn(async () => undefined)
     }
 
     await expect(
       createProjectAgentSession(
         { projectId: 'project-1', cwd: '/repo/../repo' },
-        { repository: createRepository(), utilityHost, createSessionId: () => 'session-1', readModelDefaults }
+        {
+          repository: createRepository(),
+          utilityHost,
+          worktrees: createTestWorktrees(),
+          createSessionId: () => 'session-1',
+          readModelDefaults
+        }
       )
-    ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/repo' })
+    ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/worktrees/session-1' })
 
     expect(utilityHost.createSession).toHaveBeenCalledWith({
       sessionId: 'session-1',
       kind: 'project',
       projectId: 'project-1',
-      cwd: '/repo',
+      cwd: '/worktrees/session-1',
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
       ]),
@@ -141,6 +168,7 @@ describe('createProjectAgentSession', () => {
       {
         repository,
         utilityHost,
+        worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
         readModelDefaults,
         getKnowledgeBaseStatus: getConfiguredKnowledgeBaseStatus
@@ -150,9 +178,7 @@ describe('createProjectAgentSession', () => {
     expect(utilityHost.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         appendSystemPrompt: [
-          expect.stringContaining(
-            '/home/builder/SpaceZero/knowledge-base/projects/space-zero'
-          )
+          expect.stringContaining('/home/builder/SpaceZero/knowledge-base/projects/space-zero')
         ]
       })
     )
@@ -184,6 +210,7 @@ describe('createProjectAgentSession', () => {
       {
         repository,
         utilityHost,
+        worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
         readModelDefaults,
         getKnowledgeBaseStatus: async () => ({
@@ -215,6 +242,7 @@ describe('createProjectAgentSession', () => {
       {
         repository: createRepository(),
         utilityHost,
+        worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
         readModelDefaults
       }
@@ -239,6 +267,7 @@ describe('createProjectAgentSession', () => {
       {
         repository: createRepository(),
         utilityHost,
+        worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
         readModelDefaults,
         readProjectTrust,
@@ -273,6 +302,7 @@ describe('createProjectAgentSession', () => {
       {
         repository: createRepository(),
         utilityHost,
+        worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
         readModelDefaults,
         readProjectTrust: async () => false,
@@ -290,6 +320,52 @@ describe('createProjectAgentSession', () => {
     )
   })
 
+  it('persists a source link and passes runtime-only Issue context to Pi', async () => {
+    const repository = createRepository()
+    const worktrees = createTestWorktrees()
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    const { session } = await createManagedProjectAgentSession(
+      {
+        projectId: 'project-1',
+        title: 'Issue #83: GitHub integration',
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 83,
+          url: 'https://github.com/bity-labs/spacezero/issues/83',
+          title: 'GitHub integration'
+        },
+        systemPromptContext: 'Live Issue context without an automatic GitHub write.'
+      },
+      {
+        repository,
+        utilityHost,
+        worktrees,
+        createSessionId: () => 'session-1',
+        readModelDefaults
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/worktrees/session-1',
+        systemPromptContext: 'Live Issue context without an automatic GitHub write.'
+      })
+    )
+    expect(session).toMatchObject({
+      worktree: { path: '/worktrees/session-1', baseRevision: 'abc123' },
+      source: { type: 'issue', repositoryId: '1000', number: 83 }
+    })
+  })
+
   it('rejects a renderer-supplied cwd that does not match the stored project path', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),
@@ -299,17 +375,23 @@ describe('createProjectAgentSession', () => {
     await expect(
       createProjectAgentSession(
         { projectId: 'project-1', cwd: '/tmp/not-this-project' },
-        { repository: createRepository(), utilityHost, createSessionId: () => 'session-1' }
+        {
+          repository: createRepository(),
+          utilityHost,
+          worktrees: createTestWorktrees(),
+          createSessionId: () => 'session-1'
+        }
       )
     ).rejects.toThrow('Session cwd must match the project path')
 
     expect(utilityHost.createSession).not.toHaveBeenCalled()
   })
 
-  it('cleans up the live utility session when session metadata persistence fails', async () => {
+  it('cleans up the live utility session and worktree when metadata persistence fails', async () => {
     const persistenceError = new Error('db write failed')
+    const worktrees = createTestWorktrees()
     const utilityHost = {
-      createSession: vi.fn(async () => createState()),
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
       deleteSession: vi.fn(async () => undefined)
     }
 
@@ -323,6 +405,7 @@ describe('createProjectAgentSession', () => {
             }
           }),
           utilityHost,
+          worktrees,
           createSessionId: () => 'session-1',
           readModelDefaults
         }
@@ -333,7 +416,7 @@ describe('createProjectAgentSession', () => {
       sessionId: 'session-1',
       kind: 'project',
       projectId: 'project-1',
-      cwd: '/repo',
+      cwd: '/worktrees/session-1',
       workspaceTools: expect.arrayContaining([
         expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
       ]),
@@ -342,6 +425,105 @@ describe('createProjectAgentSession', () => {
       thinkingLevel: 'high'
     })
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+    expect(worktrees.remove).toHaveBeenCalledWith({
+      projectPath: '/repo',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      worktree: {
+        path: '/worktrees/session-1',
+        branch: 'spacezero/session-session-1',
+        baseRevision: 'abc123'
+      }
+    })
+  })
+
+  it('retains recoverable Session metadata when utility rollback fails', async () => {
+    let createCalls = 0
+    let recoverySession: StoredSession | undefined
+    const repository = createRepository({
+      async create(session) {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('db write failed')
+        recoverySession = session
+        return session
+      },
+      async findSessionById(sessionId) {
+        return recoverySession?.id === sessionId ? recoverySession : undefined
+      }
+    })
+    const worktrees = createTestWorktrees()
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => {
+        throw new Error('utility cleanup failed')
+      })
+    }
+
+    await expect(
+      createManagedProjectAgentSession(
+        { projectId: 'project-1' },
+        {
+          repository,
+          utilityHost,
+          worktrees,
+          createSessionId: () => 'session-1',
+          readModelDefaults
+        }
+      )
+    ).rejects.toThrow('session.creationRollbackFailed')
+
+    expect(createCalls).toBe(2)
+    expect(worktrees.remove).not.toHaveBeenCalled()
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      id: 'session-1',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-session-1'
+    })
+  })
+
+  it('retains recoverable Session metadata when Git rollback fails', async () => {
+    let createCalls = 0
+    let recoverySession: StoredSession | undefined
+    const repository = createRepository({
+      async create(session) {
+        createCalls += 1
+        if (createCalls === 1) throw new Error('db write failed')
+        recoverySession = session
+        return session
+      },
+      async findSessionById(sessionId) {
+        return recoverySession?.id === sessionId ? recoverySession : undefined
+      }
+    })
+    const worktrees = createTestWorktrees()
+    worktrees.remove = vi.fn(async () => {
+      throw new Error('session.worktreeRemoveFailed')
+    })
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await expect(
+      createManagedProjectAgentSession(
+        { projectId: 'project-1' },
+        {
+          repository,
+          utilityHost,
+          worktrees,
+          createSessionId: () => 'session-1',
+          readModelDefaults
+        }
+      )
+    ).rejects.toThrow('session.creationRollbackFailed')
+
+    expect(createCalls).toBe(2)
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      id: 'session-1',
+      worktreePath: '/worktrees/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
   })
 })
 
@@ -399,7 +581,10 @@ describe('restoreAgentSessionState', () => {
 
     resolveCreate?.(createState())
 
-    await expect(Promise.all([firstRestore, secondRestore])).resolves.toEqual([createState(), createState()])
+    await expect(Promise.all([firstRestore, secondRestore])).resolves.toEqual([
+      createState(),
+      createState()
+    ])
     expect(utilityHost.createSession).toHaveBeenCalledTimes(1)
   })
 
@@ -616,6 +801,156 @@ describe('restoreAgentSessionState', () => {
         skillPaths: [{ path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }]
       })
     )
+  })
+
+  it('restores an Issue-linked agent in its persisted worktree with durable source context', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Issue #83: GitHub integration',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/issue-83-session-1',
+      worktreeBaseRevision: 'abc123',
+      sourceType: 'issue',
+      sourceRepositoryId: '1000',
+      sourceRepositoryNodeId: 'R_1000',
+      sourceRepositoryOwner: 'bity-labs',
+      sourceRepositoryName: 'spacezero',
+      sourceNumber: 83,
+      sourceUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+      sourceTitle: 'GitHub integration'
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' }))
+    }
+
+    await restoreAgentSessionState(
+      { sessionId: 'session-1' },
+      {
+        repository: createRepository({
+          async findSessionById() {
+            return storedSession
+          }
+        }),
+        utilityHost,
+        worktrees
+      }
+    )
+
+    expect(worktrees.validate).toHaveBeenCalledWith({
+      projectPath: '/repo',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      worktree: {
+        path: '/worktrees/session-1',
+        branch: 'spacezero/issue-83-session-1',
+        baseRevision: 'abc123'
+      }
+    })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: '/worktrees/session-1',
+        systemPromptContext: expect.stringContaining(
+          'https://github.com/bity-labs/spacezero/issues/83'
+        )
+      })
+    )
+  })
+
+  it.each([
+    { worktreePath: '/worktrees/session-1' },
+    { worktreeBranch: 'spacezero/session-session-1' },
+    { worktreeBaseRevision: 'abc123' },
+    {
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-session-1'
+    },
+    {
+      worktreePath: '/worktrees/session-1',
+      worktreeBaseRevision: 'abc123'
+    },
+    {
+      worktreeBranch: 'spacezero/session-session-1',
+      worktreeBaseRevision: 'abc123'
+    }
+  ])('rejects partial managed-worktree metadata before restoring an agent', async (metadata) => {
+    const storedSession: StoredSession = {
+      id: 'session-partial',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      ...metadata
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: storedSession.id },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost,
+          worktrees
+        }
+      )
+    ).rejects.toThrow('session.worktreeMetadataIncomplete')
+    expect(worktrees.validate).not.toHaveBeenCalled()
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
+  it('fails explicitly instead of restoring a managed Session in the base checkout', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      worktreePath: '/worktrees/missing',
+      worktreeBranch: 'spacezero/session-session-1',
+      worktreeBaseRevision: 'abc123'
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost,
+          worktrees: { validate: async () => false }
+        }
+      )
+    ).rejects.toThrow('session.worktreeMissing')
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
   })
 
   it('recreates a stored project session from its transcript after app relaunch', async () => {

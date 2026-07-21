@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, count, eq, isNotNull, isNull, or } from 'drizzle-orm'
 
 import { getDatabase } from '../../../main/db'
 import * as schema from '../../../main/db/schema'
@@ -60,13 +60,38 @@ export function createSessionsRepository(): SessionsRepository {
         .select({
           id: schema.projects.id,
           path: schema.projects.path,
-          knowledgeBasePath: schema.projects.knowledgeBasePath
+          knowledgeBasePath: schema.projects.knowledgeBasePath,
+          archivedAt: schema.projects.archivedAt
         })
         .from(schema.projects)
         .where(eq(schema.projects.id, projectId))
         .limit(1)
 
       return project
+    },
+
+    async updateProjectPath(projectId, path) {
+      await getDatabase()
+        .update(schema.projects)
+        .set({ path, updatedAt: new Date() })
+        .where(eq(schema.projects.id, projectId))
+    },
+
+    async hasManagedSessions(projectId) {
+      const [{ value }] = await getDatabase()
+        .select({ value: count() })
+        .from(schema.sessions)
+        .where(
+          and(
+            eq(schema.sessions.projectId, projectId),
+            or(
+              isNotNull(schema.sessions.worktreePath),
+              isNotNull(schema.sessions.worktreeBranch),
+              isNotNull(schema.sessions.worktreeBaseRevision)
+            )
+          )
+        )
+      return value > 0
     },
 
     async findSessionById(sessionId) {
@@ -80,7 +105,10 @@ export function createSessionsRepository(): SessionsRepository {
     },
 
     async update(session) {
-      await getDatabase().update(schema.sessions).set(session).where(eq(schema.sessions.id, session.id))
+      await getDatabase()
+        .update(schema.sessions)
+        .set(session)
+        .where(eq(schema.sessions.id, session.id))
       return session
     },
 
@@ -97,7 +125,10 @@ export function createSessionsRepository(): SessionsRepository {
 
     async updateMany(sessions) {
       for (const session of sessions) {
-        await getDatabase().update(schema.sessions).set(session).where(eq(schema.sessions.id, session.id))
+        await getDatabase()
+          .update(schema.sessions)
+          .set(session)
+          .where(eq(schema.sessions.id, session.id))
       }
       return sessions
     },

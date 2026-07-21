@@ -6,11 +6,20 @@ import {
   getKnowledgeBaseRootProvider,
   getKnowledgeBaseService
 } from '../../knowledge-base/main'
+import { resolveProjectRepositoryPath } from '../../projects/main/project-repository-path'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { IPC_CHANNELS } from '../../../shared/ipc'
-import { setAgentModelRequestSchema, setAgentThinkingLevelRequestSchema } from '../../../shared/model-settings'
-import { createProjectAgentSession, createWorkspaceAgentSession, restoreAgentSessionState } from './agent-session-handler'
+import {
+  setAgentModelRequestSchema,
+  setAgentThinkingLevelRequestSchema
+} from '../../../shared/model-settings'
+import {
+  createProjectAgentSession,
+  createWorkspaceAgentSession,
+  restoreAgentSessionState
+} from './agent-session-handler'
 import {
   createGlobalAgentSkillSettingsService,
   getDisabledGlobalSkillPaths
@@ -57,6 +66,8 @@ export function registerAgentIpc(): void {
     return createProjectAgentSession(input, {
       repository: createSessionsRepository(),
       utilityHost: getAgentUtilityProcessHost(),
+      worktrees: getManagedWorktreeService(),
+      resolveProjectPathForSession: resolveProjectRepositoryPath,
       getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths
@@ -75,10 +86,12 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.getGlobalSkills, () => globalSkillSettings.listGlobalSkills())
 
   ipcMain.handle(IPC_CHANNELS.agent.setGlobalSkillEnabled, (_event, input) => {
-    const request = z.object({
-      path: z.string().trim().min(1).max(4096),
-      enabled: z.boolean()
-    }).parse(input)
+    const request = z
+      .object({
+        path: z.string().trim().min(1).max(4096),
+        enabled: z.boolean()
+      })
+      .parse(input)
     return globalSkillSettings.setGlobalSkillEnabled(request.path, request.enabled)
   })
 
@@ -86,6 +99,7 @@ export function registerAgentIpc(): void {
     return restoreAgentSessionState(input, {
       repository: createSessionsRepository(),
       utilityHost: getAgentUtilityProcessHost(),
+      worktrees: getManagedWorktreeService(),
       getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths
@@ -126,10 +140,9 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, async (_event, input) => {
     const request = setAgentThinkingLevelRequestSchema.parse(input)
     const state = await getAgentUtilityProcessHost().setThinkingLevel(request)
-    await createSessionsService({ repository: createSessionsRepository() }).updateAgentThinkingLevel(
-      request.sessionId,
-      request.level
-    )
+    await createSessionsService({
+      repository: createSessionsRepository()
+    }).updateAgentThinkingLevel(request.sessionId, request.level)
     return state
   })
 }

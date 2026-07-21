@@ -3,7 +3,13 @@ import type {
   AgentTranscriptMessage
 } from './agent-session-projection.model'
 import type { AuthTestResult, ModelAuthSettings } from './model-auth'
-import type { AvailableModel, DefaultModelSetting, SetAgentModelRequest, SetAgentThinkingLevelRequest, ThinkingLevel } from './model-settings'
+import type {
+  AvailableModel,
+  DefaultModelSetting,
+  SetAgentModelRequest,
+  SetAgentThinkingLevelRequest,
+  ThinkingLevel
+} from './model-settings'
 import type {
   ExecuteWorkspaceToolRequest,
   ExecuteWorkspaceToolResponse,
@@ -41,6 +47,8 @@ export type CreateAgentSessionRequest = {
   disabledGlobalSkillPaths?: string[]
   defaultModel?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
+  /** Runtime-only context appended to the system prompt for a linked Session source. */
+  systemPromptContext?: string
 }
 
 export type GetAgentSessionStateRequest = {
@@ -227,10 +235,7 @@ export type AgentUtilityProjectionEvent = {
 }
 
 export type AgentUtilityFrame =
-  | AgentUtilityCommand
-  | AgentUtilityEvent
-  | AgentUtilityProjectionEvent
-  | AgentUtilityResponse
+  AgentUtilityCommand | AgentUtilityEvent | AgentUtilityProjectionEvent | AgentUtilityResponse
 
 export type AgentUtilityConnectMessage = {
   type: 'spacezero.agent.connect'

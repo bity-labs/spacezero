@@ -26,6 +26,12 @@ export function createProjectsRepository(): ProjectsRepository {
           name: project.name,
           path: project.path,
           knowledgeBasePath: project.knowledgeBasePath,
+          githubRepositoryId: project.githubRepositoryId,
+          githubRepositoryNodeId: project.githubRepositoryNodeId,
+          githubOwner: project.githubOwner,
+          githubName: project.githubName,
+          githubUrl: project.githubUrl,
+          githubLinkedAt: project.githubLinkedAt,
           updatedAt: project.updatedAt,
           archivedAt: project.archivedAt
         })

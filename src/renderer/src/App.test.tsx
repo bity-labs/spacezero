@@ -59,6 +59,108 @@ describe('App', () => {
     document.documentElement.style.colorScheme = ''
   })
 
+  it('skips first-run GitHub onboarding once and persists completion', async () => {
+    let completed = false
+    window.spacezero.onboarding.getStatus = async () => ({ completed })
+    window.spacezero.onboarding.complete = async () => {
+      completed = true
+      return { completed: true }
+    }
+
+    const firstLaunch = render(<App />)
+
+    expect(await screen.findByRole('main', { name: 'Space Zero onboarding' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+
+    firstLaunch.unmount()
+    render(<App />)
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.queryByRole('main', { name: 'Space Zero onboarding' })).not.toBeInTheDocument()
+  })
+
+  it('composes GitHub connection and one Project setup without starting a Session', async () => {
+    let completed = false
+    let createSessionCalls = 0
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    const project = {
+      id: 'project-1',
+      name: 'spacezero',
+      path: '/tmp/SpaceZero/projects/bity-labs/spacezero',
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: new Date(0).toISOString()
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    window.spacezero.onboarding.getStatus = async () => ({ completed })
+    window.spacezero.onboarding.complete = async () => {
+      completed = true
+      return { completed: true }
+    }
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository, existingProject: { id: 'project-1', name: 'spacezero' } }
+    ]
+    window.spacezero.github.startClone = async () => ({
+      status: 'already-added',
+      projectId: 'project-1'
+    })
+    window.spacezero.projects.list = async () => [project]
+    window.spacezero.agent.createSession = async (request) => {
+      createSessionCalls += 1
+      return {
+        sessionId: 'unexpected',
+        kind: 'project',
+        projectId: request.projectId,
+        cwd: request.cwd,
+        status: 'idle',
+        live: true,
+        transcriptPath: undefined,
+        modelProvider: 'faux',
+        modelId: 'faux-1'
+      }
+    }
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Set up a Project' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Open Project' }))
+
+    expect(await screen.findByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'spacezero' })).toBeInTheDocument()
+    expect(createSessionCalls).toBe(0)
+  })
+
   it('renders the workspace route at /', async () => {
     render(<App />)
 
@@ -67,6 +169,25 @@ describe('App', () => {
     expect(screen.getByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Right panel' })).toBeInTheDocument()
     expect(screen.queryByText('Desktop foundation')).not.toBeInTheDocument()
+  })
+
+  it('shows the connected GitHub identity in the sidebar account area', async () => {
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: []
+    })
+
+    render(<App />)
+
+    expect(await screen.findByText('@octocat')).toBeInTheDocument()
+    expect(screen.queryByText('Guest')).not.toBeInTheDocument()
   })
 
   it('toggles the side columns from the top bar corner buttons', async () => {
@@ -187,9 +308,7 @@ describe('App', () => {
 
     expect(event.defaultPrevented).toBe(true)
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue(
-      '# Unsaved note'
-    )
+    expect(screen.getByRole('textbox', { name: 'Edit note.md' })).toHaveValue('# Unsaved note')
   })
 
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
@@ -204,9 +323,95 @@ describe('App', () => {
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByText('Empty Project')).toBeInTheDocument()
     expect(screen.getByText('Open Folder')).toBeInTheDocument()
-    expect(screen.getByText('Git Repository URL')).toBeInTheDocument()
-    expect(screen.getByText('Coming soon')).toBeInTheDocument()
+    expect(screen.getByText('GitHub Repository')).toBeInTheDocument()
+    expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+    expect(
+      await screen.findByText('No authorized GitHub repositories are available.')
+    ).toBeInTheDocument()
+  })
+
+  it('opens a cloned GitHub Project Home without starting a Session', async () => {
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    let projects: Array<{
+      id: string
+      name: string
+      path: string
+      githubRepository?: {
+        repositoryId: string
+        nodeId: string
+        owner: string
+        name: string
+        fullName: string
+        htmlUrl: string
+        linkedAt: string
+      }
+      createdAt: string
+      updatedAt: string
+    }> = []
+    let progressListener: Parameters<typeof window.spacezero.github.onCloneProgress>[0] | undefined
+    window.spacezero.projects.list = async () => projects
+    window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
+    window.spacezero.github.onCloneProgress = (listener) => {
+      progressListener = listener
+      return () => undefined
+    }
+    window.spacezero.github.startClone = async () => ({
+      status: 'started',
+      operationId: 'clone-1'
+    })
+    window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
+
+    render(<App />)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add project' }))[0])
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    await screen.findByText('Preparing managed clone…')
+
+    projects = [
+      {
+        id: 'project-1',
+        name: 'spacezero',
+        path: '/tmp/SpaceZero/projects/bity-labs/spacezero',
+        githubRepository: {
+          repositoryId: '1000',
+          nodeId: 'R_1000',
+          owner: 'bity-labs',
+          name: 'spacezero',
+          fullName: 'bity-labs/spacezero',
+          htmlUrl: 'https://github.com/bity-labs/spacezero',
+          linkedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    act(() =>
+      progressListener?.({
+        operationId: 'clone-1',
+        status: 'complete',
+        message: 'Repository cloned and Project added.',
+        projectId: 'project-1'
+      })
+    )
+
+    expect(await screen.findByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'spacezero' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Conversation' })).not.toBeInTheDocument()
   })
 
   it('creates an empty project and selects it in the workspace', async () => {
@@ -265,8 +470,7 @@ describe('App', () => {
       projects.push(project)
       return {
         ...project,
-        setupWarning:
-          'Project was added, but its Knowledge Base folder could not be linked.'
+        setupWarning: 'Project was added, but its Knowledge Base folder could not be linked.'
       }
     }
 
@@ -332,15 +536,22 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
     expect(await screen.findByRole('button', { name: /Session 1/ })).toBeInTheDocument()
     expect(screen.getByRole('status', { name: 'Running' })).toBeInTheDocument()
-    expect(screen.getByText('No session open for Space Zero')).toBeInTheDocument()
+    expect(screen.getByText('Project Home')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Overview' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'New Session' }))
 
     expect(await screen.findByRole('button', { name: /Session 2/ })).toBeInTheDocument()
-    expect(await screen.findByText('Ask the agent to work on this project. Streamed replies appear here.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Ask the agent to work on this project. Streamed replies appear here.'
+      )
+    ).toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: 'Session 2' })).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 2'
+    )
 
     rendered.unmount()
     render(<App />)
@@ -348,6 +559,162 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
     expect(await screen.findByRole('button', { name: /Session 1/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Session 2/ })).toBeInTheDocument()
+  })
+
+  it('shows persisted GitHub sources in Session breadcrumbs and reopens in-app detail', async () => {
+    const repository = {
+      id: '1000',
+      nodeId: 'R_1000',
+      installationId: '100',
+      owner: 'bity-labs',
+      name: 'spacezero',
+      fullName: 'bity-labs/spacezero',
+      isPrivate: true,
+      defaultBranch: 'main',
+      htmlUrl: 'https://github.com/bity-labs/spacezero',
+      cloneUrl: 'https://github.com/bity-labs/spacezero.git'
+    }
+    window.spacezero.projects.list = async () => [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        githubRepository: {
+          repositoryId: '1000',
+          nodeId: 'R_1000',
+          owner: 'bity-labs',
+          name: 'spacezero',
+          fullName: 'bity-labs/spacezero',
+          htmlUrl: repository.htmlUrl,
+          linkedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.listProjectSessions = async () => [
+      {
+        id: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Issue #83: GitHub integration',
+        status: 'idle',
+        worktree: {
+          path: '/SpaceZero/worktrees/project-1/session-1',
+          branch: 'spacezero/issue-83-session-1',
+          baseRevision: 'abc123'
+        },
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 83,
+          url: 'https://github.com/bity-labs/spacezero/issues/83',
+          title: 'GitHub integration'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      },
+      {
+        id: 'session-pr-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Pull Request #79: Managed storage foundation',
+        status: 'idle',
+        worktree: {
+          path: '/SpaceZero/worktrees/project-1/session-pr-1',
+          branch: 'spacezero/pull-request-79-session-pr-1',
+          baseRevision: 'def456'
+        },
+        source: {
+          type: 'pull-request',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 79,
+          url: 'https://github.com/bity-labs/spacezero/pull/79',
+          title: 'Managed storage foundation'
+        },
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }
+    ]
+    window.spacezero.github.getConnection = async () => ({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.example/42',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+    window.spacezero.github.getProjectRepository = async () => repository
+    window.spacezero.github.getIssue = async () => ({
+      number: 83,
+      title: 'GitHub integration',
+      body: 'Restored Issue detail',
+      state: 'open',
+      htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      labels: [],
+      assignees: [],
+      commentCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    })
+    window.spacezero.github.listIssueComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+    window.spacezero.github.getPullRequest = async () => ({
+      number: 79,
+      title: 'Managed storage foundation',
+      body: 'Restored Pull Request detail',
+      state: 'open',
+      isDraft: false,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79',
+      author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+      baseBranch: 'main',
+      headBranch: 'feat/storage',
+      commitCount: 4,
+      conversationCommentCount: 0,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    })
+    window.spacezero.github.listPullRequestComments = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Issue #83: GitHub integration/ }))
+    expect(await screen.findByRole('button', { name: 'Issue #83' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Issue #83' }))
+
+    expect(await screen.findByText('Restored Issue detail')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start Session from Issue' })).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Pull Request #79: Managed storage foundation/ })
+    )
+    expect(await screen.findByRole('button', { name: 'Pull Request #79' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Pull Request #79' }))
+
+    expect(await screen.findByText('Restored Pull Request detail')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Start Session from Pull Request' })
+    ).toBeInTheDocument()
   })
 
   it('replaces the active project session when another project session is selected', async () => {
@@ -400,11 +767,15 @@ describe('App', () => {
       screen.queryByRole('heading', { name: 'Space Zero → Session 1' })
     ).not.toBeInTheDocument()
     expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 1')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 1'
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 2')
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 2'
+    )
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
@@ -465,8 +836,13 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Session 3' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute('placeholder', 'Message Space Zero / Session 3…')
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Space ZeroSession 3')
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute(
+      'placeholder',
+      'Message Space Zero / Session 3…'
+    )
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroSession 3'
+    )
   })
 
   it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
@@ -670,8 +1046,8 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
     expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(window.location.hash).toBe('#/settings')
+    expect(screen.getByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings?section=account')
 
     fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
 
@@ -692,11 +1068,14 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
-  it('shows only implemented Settings categories and defaults to General', async () => {
+  it('shows only implemented Settings categories and opens the account area from the sidebar', async () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
 
+    expect(await screen.findByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('link', { name: 'General' }))
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
@@ -723,12 +1102,14 @@ describe('App', () => {
   it('changes the Space Zero Home from General Settings', async () => {
     window.spacezero.settings.chooseSpaceZeroHome = async () => ({
       spaceZeroHome: '/tmp/AlternateSpaceZero',
-      projectsPath: '/tmp/AlternateSpaceZero/projects'
+      projectsPath: '/tmp/AlternateSpaceZero/projects',
+      worktreesPath: '/tmp/AlternateSpaceZero/worktrees'
     })
 
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Change' }))
 
     expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
@@ -795,9 +1176,7 @@ describe('App', () => {
     const skillName = screen.getByText('code-review')
     expect(skillName).toBeInTheDocument()
     expect(screen.queryByText('/skill:code-review')).not.toBeInTheDocument()
-    const skillPath = screen.getByText(
-      /Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/
-    )
+    const skillPath = screen.getByText(/Users\/tiby\/\.agents\/skills\/code-review\/SKILL\.md/)
     expect(skillPath).toHaveClass('mt-2')
 
     const skillsCard = skillName.closest('[data-slot="card"]')
@@ -807,7 +1186,9 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('switch', { name: 'Disable code-review' }))
 
-    await waitFor(() => expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Enable code-review' })).toBeInTheDocument()
+    )
     expect(toggleRequests).toEqual([
       { path: '/Users/tiby/.agents/skills/code-review/SKILL.md', enabled: false }
     ])
@@ -856,10 +1237,7 @@ describe('App', () => {
     expect(window.spacezero.agent.setGlobalSkillEnabled).toHaveBeenCalledTimes(1)
 
     await act(async () => {
-      resolveToggle?.([
-        { ...globalSkills[0], enabled: false },
-        globalSkills[1]
-      ])
+      resolveToggle?.([{ ...globalSkills[0], enabled: false }, globalSkills[1]])
       await Promise.resolve()
     })
 
@@ -979,7 +1357,9 @@ describe('App', () => {
 
     const keyDialog = await screen.findByRole('dialog', { name: 'Enter API key' })
     expect(within(keyDialog).getByRole('button', { name: 'Save' })).toBeDisabled()
-    fireEvent.change(within(keyDialog).getByLabelText('API key'), { target: { value: 'sk-secret' } })
+    fireEvent.change(within(keyDialog).getByLabelText('API key'), {
+      target: { value: 'sk-secret' }
+    })
     fireEvent.click(within(keyDialog).getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText('Stored API key')).toBeInTheDocument()
@@ -1002,14 +1382,10 @@ describe('App', () => {
     render(<App />)
 
     expect(
-      await screen.findByText(
-        'Configure credentials to choose a default model.'
-      )
+      await screen.findByText('Configure credentials to choose a default model.')
     ).toBeInTheDocument()
     expect(
-      screen.getByText(
-        'Configure credentials to browse available models.'
-      )
+      screen.getByText('Configure credentials to browse available models.')
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()
   })
@@ -1168,6 +1544,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     const languageSelect = await screen.findByRole('combobox', { name: 'Language' })
 
     fireEvent.click(languageSelect)
@@ -1194,6 +1571,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
     const themeSelect = await screen.findByRole('combobox', { name: 'Theme' })
 
     expect(themeSelect).toHaveTextContent('System')

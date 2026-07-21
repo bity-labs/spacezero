@@ -3,11 +3,19 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import log from 'electron-log/main'
 import { join } from 'node:path'
 
-import { stopAgentUtilityProcessHost, getAgentUtilityProcessHost } from '../features/agent-workspace/main/agent-utility-process'
+import {
+  stopAgentUtilityProcessHost,
+  getAgentUtilityProcessHost
+} from '../features/agent-workspace/main/agent-utility-process'
 import { getKnowledgeBaseSyncScheduler } from '../features/knowledge-base/main'
 import { closeDatabase, getDatabase } from './db'
+import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
-import { findSpaceZeroOAuthUrl, registerSpaceZeroProtocol, routeSpaceZeroOAuthUrl } from './protocol'
+import {
+  findSpaceZeroOAuthUrl,
+  registerSpaceZeroProtocol,
+  routeSpaceZeroOAuthUrl
+} from './protocol'
 
 log.initialize()
 
@@ -60,7 +68,7 @@ function createWindow(): void {
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
+    if (isAllowedGitHubRepositoryUrl(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
   })
 

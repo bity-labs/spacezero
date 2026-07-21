@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Folder, GitBranch, PlusCircle } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
+import { RepositorySetup } from '../../../github/renderer'
 import type { Project } from '../../shared'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -20,6 +21,7 @@ type AddProjectDialogProps = {
   onOpenChange: (open: boolean) => void
   onCreateEmptyProject: (request: { name: string }) => Promise<Project>
   onAddFromFolder: () => Promise<Project | null>
+  onGitHubProjectReady: (projectId: string) => Promise<void>
 }
 
 type SetupPath = 'empty' | 'folder' | 'git'
@@ -28,7 +30,8 @@ export function AddProjectDialog({
   open,
   onOpenChange,
   onCreateEmptyProject,
-  onAddFromFolder
+  onAddFromFolder,
+  onGitHubProjectReady
 }: AddProjectDialogProps): React.JSX.Element {
   const { t } = useTranslation()
   const [selectedPath, setSelectedPath] = useState<SetupPath>('empty')
@@ -56,6 +59,12 @@ export function AddProjectDialog({
     }
   }
 
+  async function finishGitHubProject(projectId: string): Promise<void> {
+    await onGitHubProjectReady(projectId)
+    reset()
+    onOpenChange(false)
+  }
+
   async function addFolderProject(): Promise<void> {
     setIsSaving(true)
     setError(null)
@@ -67,8 +76,15 @@ export function AddProjectDialog({
         return
       }
       setIsSaving(false)
-    } catch {
-      setError(t('projects.add.folderError'))
+    } catch (error) {
+      const message = String(error)
+      setError(
+        message.includes('project.notGitRepository')
+          ? t('projects.add.folderNotGit')
+          : message.includes('project.repositoryHasNoCommits')
+            ? t('projects.add.folderNoCommits')
+            : t('projects.add.folderError')
+      )
       setIsSaving(false)
     }
   }
@@ -103,12 +119,10 @@ export function AddProjectDialog({
             onClick={() => setSelectedPath('folder')}
           />
           <SetupPathButton
-            disabled
             active={selectedPath === 'git'}
             icon={GitBranch}
             title={t('projects.add.git.title')}
             description={t('projects.add.git.description')}
-            badge={t('projects.add.git.comingSoon')}
             onClick={() => setSelectedPath('git')}
           />
         </div>
@@ -133,6 +147,8 @@ export function AddProjectDialog({
           </p>
         ) : null}
 
+        {selectedPath === 'git' ? <RepositorySetup onProjectReady={finishGitHubProject} /> : null}
+
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
         <DialogFooter>
@@ -143,11 +159,11 @@ export function AddProjectDialog({
             <Button disabled={isSaving} onClick={() => void addFolderProject()}>
               {t('projects.add.folder.choose')}
             </Button>
-          ) : (
+          ) : selectedPath === 'empty' ? (
             <Button disabled={isSaving || !name.trim()} onClick={() => void createEmptyProject()}>
               {t('projects.add.empty.create')}
             </Button>
-          )}
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -187,7 +203,9 @@ function SetupPathButton({
       <Icon className="h-5 w-5" aria-hidden="true" />
       <span className="font-medium">{title}</span>
       <span className="text-xs text-muted-foreground">{description}</span>
-      {badge ? <span className="mt-auto text-xs font-medium text-muted-foreground">{badge}</span> : null}
+      {badge ? (
+        <span className="mt-auto text-xs font-medium text-muted-foreground">{badge}</span>
+      ) : null}
     </button>
   )
 }

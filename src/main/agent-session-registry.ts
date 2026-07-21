@@ -11,9 +11,16 @@ import type {
   ResolveAgentToolConfirmationCommandRequest
 } from '../shared/agent-protocol'
 import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
-import type { ThinkingLevel, SetAgentModelRequest, SetAgentThinkingLevelRequest } from '../shared/model-settings'
+import type {
+  ThinkingLevel,
+  SetAgentModelRequest,
+  SetAgentThinkingLevelRequest
+} from '../shared/model-settings'
 import type { WorkspaceToolAgentDescriptor } from '../shared/workspace-tool-protocol'
-import type { AgentSkillDescriptor, AgentSkillPath } from '../features/agent-workspace/shared/agent-skill.model'
+import type {
+  AgentSkillDescriptor,
+  AgentSkillPath
+} from '../features/agent-workspace/shared/agent-skill.model'
 
 export type CreatedPiAgentSession = {
   sessionId: string
@@ -33,7 +40,9 @@ export type CreatedPiAgentSession = {
   getTranscriptSnapshot: () => AgentTranscriptMessage[]
 }
 
-export type CreatePiAgentSession = (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
+export type CreatePiAgentSession = (
+  request: CreateAgentSessionRequest
+) => Promise<CreatedPiAgentSession>
 
 export type AgentSessionRegistryEvent =
   | {
@@ -53,6 +62,7 @@ type RegisteredAgentSession = {
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   appendSystemPrompt: string[] | undefined
+  systemPromptContext: string | undefined
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
   piSession: CreatedPiAgentSession
@@ -66,6 +76,7 @@ type DormantAgentSession = {
   cwd: string
   workspaceTools: WorkspaceToolAgentDescriptor[] | undefined
   appendSystemPrompt: string[] | undefined
+  systemPromptContext: string | undefined
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
   transcriptPath: string | undefined
@@ -99,7 +110,10 @@ export class AgentSessionRegistry {
   private readonly onEvent: ((event: AgentSessionRegistryEvent) => void) | undefined
 
   constructor(private readonly options: AgentSessionRegistryOptions) {
-    this.maxLiveSessions = Math.max(1, Math.floor(options.maxLiveSessions ?? DEFAULT_MAX_LIVE_SESSIONS))
+    this.maxLiveSessions = Math.max(
+      1,
+      Math.floor(options.maxLiveSessions ?? DEFAULT_MAX_LIVE_SESSIONS)
+    )
     this.now = options.now ?? Date.now
     this.onEvent = options.onEvent
   }
@@ -137,13 +151,16 @@ export class AgentSessionRegistry {
         }
 
         this.suspendCandidateIfNeeded()
-        const unsubscribe = piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event))
+        const unsubscribe = piSession.subscribe((event) =>
+          this.forwardStreamingEvent(sessionId, event)
+        )
         this.sessions.set(sessionId, {
           kind: normalizedRequest.kind ?? 'project',
           projectId: normalizedRequest.projectId,
           cwd: normalizedRequest.cwd,
           workspaceTools: normalizedRequest.workspaceTools,
           appendSystemPrompt: normalizedRequest.appendSystemPrompt,
+          systemPromptContext: normalizedRequest.systemPromptContext,
           skillPaths: normalizedRequest.skillPaths,
           disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
           piSession,
@@ -247,7 +264,9 @@ export class AgentSessionRegistry {
 
   async listSessions(): Promise<AgentSessionState[]> {
     return [
-      ...[...this.sessions.entries()].map(([sessionId, session]) => this.toLiveState(sessionId, session)),
+      ...[...this.sessions.entries()].map(([sessionId, session]) =>
+        this.toLiveState(sessionId, session)
+      ),
       ...[...this.dormantSessions.entries()].map(([sessionId, session]) =>
         this.toDormantState(sessionId, session)
       )
@@ -299,9 +318,12 @@ export class AgentSessionRegistry {
       transcriptPath: request.transcriptPath,
       workspaceTools: request.workspaceTools,
       appendSystemPrompt: request.appendSystemPrompt,
+      ...(request.systemPromptContext ? { systemPromptContext: request.systemPromptContext } : {}),
       ...(request.skillPaths ? { skillPaths: request.skillPaths } : {}),
       ...(request.disabledGlobalSkillPaths
-        ? { disabledGlobalSkillPaths: request.disabledGlobalSkillPaths.map((path) => resolve(path)) }
+        ? {
+            disabledGlobalSkillPaths: request.disabledGlobalSkillPaths.map((path) => resolve(path))
+          }
         : {}),
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
@@ -347,6 +369,9 @@ export class AgentSessionRegistry {
       transcriptPath: dormantSession.transcriptPath,
       workspaceTools: dormantSession.workspaceTools,
       appendSystemPrompt: dormantSession.appendSystemPrompt,
+      ...(dormantSession.systemPromptContext
+        ? { systemPromptContext: dormantSession.systemPromptContext }
+        : {}),
       ...(dormantSession.skillPaths ? { skillPaths: dormantSession.skillPaths } : {}),
       ...(dormantSession.disabledGlobalSkillPaths
         ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
@@ -373,6 +398,7 @@ export class AgentSessionRegistry {
       cwd: dormantSession.cwd,
       workspaceTools: dormantSession.workspaceTools,
       appendSystemPrompt: dormantSession.appendSystemPrompt,
+      systemPromptContext: dormantSession.systemPromptContext,
       skillPaths: dormantSession.skillPaths,
       disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
       piSession,
@@ -380,7 +406,10 @@ export class AgentSessionRegistry {
       lastAccessedAt: this.now()
     }
 
-    if (this.pendingDeleteSessionIds.delete(sessionId) || this.dormantSessions.get(sessionId) !== dormantSession) {
+    if (
+      this.pendingDeleteSessionIds.delete(sessionId) ||
+      this.dormantSessions.get(sessionId) !== dormantSession
+    ) {
       piSession.dispose()
       throw new Error('agent.sessionRehydrationCancelled')
     }
@@ -433,6 +462,7 @@ export class AgentSessionRegistry {
       cwd: session.cwd,
       workspaceTools: session.workspaceTools,
       appendSystemPrompt: session.appendSystemPrompt,
+      systemPromptContext: session.systemPromptContext,
       skillPaths: session.skillPaths,
       disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
       transcriptPath: session.piSession.sessionFile,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import type { CreateEmptyProjectRequest, Project, UpdateProjectRequest } from '../../shared'
+import { consumeProjectOpenRequest } from '../project-open-request'
 
 type ProjectStatus = 'loading' | 'ready' | 'error'
 
@@ -10,8 +11,9 @@ export function useProjects(): {
   status: ProjectStatus
   error: string | null
   warning: string | null
-  refreshProjects: () => Promise<void>
+  refreshProjects: () => Promise<Project[]>
   selectProject: (project: Project) => void
+  upsertProject: (project: Project) => void
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
@@ -34,9 +36,11 @@ export function useProjects(): {
         currentId && nextProjects.some((project) => project.id === currentId) ? currentId : null
       )
       setStatus('ready')
+      return nextProjects
     } catch {
       setError('Unable to load projects.')
       setStatus('error')
+      throw new Error('Unable to load projects.')
     }
   }, [])
 
@@ -48,6 +52,13 @@ export function useProjects(): {
         const nextProjects = await window.spacezero.projects.list()
         if (canceled) return
         setProjects(nextProjects)
+        const requestedProjectId = consumeProjectOpenRequest()
+        if (
+          requestedProjectId &&
+          nextProjects.some((project) => project.id === requestedProjectId)
+        ) {
+          setActiveProjectId(requestedProjectId)
+        }
         setStatus('ready')
       } catch {
         if (canceled) return
@@ -137,6 +148,7 @@ export function useProjects(): {
     warning,
     refreshProjects,
     selectProject: (project) => setActiveProjectId(project.id),
+    upsertProject: rememberProject,
     createEmptyProject,
     addProjectFromFolder,
     updateProject,
