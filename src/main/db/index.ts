@@ -11,13 +11,19 @@ let sqlite: Database.Database | undefined
 let orm: ReturnType<typeof drizzle<typeof schema>> | undefined
 let dbPath: string | undefined
 
-function migrate(database: Database.Database): void {
+export function migrateDatabase(database: Database.Database): void {
   database.exec(`
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       path TEXT NOT NULL UNIQUE,
       knowledge_base_path TEXT,
+      github_repository_id TEXT,
+      github_repository_node_id TEXT,
+      github_owner TEXT,
+      github_name TEXT,
+      github_url TEXT,
+      github_linked_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -34,6 +40,17 @@ function migrate(database: Database.Database): void {
       model_provider TEXT,
       model_id TEXT,
       thinking_level TEXT,
+      worktree_path TEXT,
+      worktree_branch TEXT,
+      worktree_base_revision TEXT,
+      source_type TEXT,
+      source_repository_id TEXT,
+      source_repository_node_id TEXT,
+      source_repository_owner TEXT,
+      source_repository_name TEXT,
+      source_number INTEGER,
+      source_url TEXT,
+      source_title TEXT,
       archived_at INTEGER
     );
 
@@ -44,15 +61,32 @@ function migrate(database: Database.Database): void {
     );
   `)
 
-  const projectColumns = database.prepare(`PRAGMA table_info(projects)`).all() as Array<{ name: string }>
-  if (!projectColumns.some((column) => column.name === 'archived_at')) {
-    database.exec(`ALTER TABLE projects ADD COLUMN archived_at INTEGER`)
+  const projectColumns = database.prepare(`PRAGMA table_info(projects)`).all() as Array<{
+    name: string
+  }>
+  const projectMigrations = [
+    ['knowledge_base_path', 'TEXT'],
+    ['github_repository_id', 'TEXT'],
+    ['github_repository_node_id', 'TEXT'],
+    ['github_owner', 'TEXT'],
+    ['github_name', 'TEXT'],
+    ['github_url', 'TEXT'],
+    ['github_linked_at', 'INTEGER'],
+    ['archived_at', 'INTEGER']
+  ] as const
+  for (const [column, type] of projectMigrations) {
+    if (!projectColumns.some((existing) => existing.name === column)) {
+      database.exec(`ALTER TABLE projects ADD COLUMN ${column} ${type}`)
+    }
   }
-  if (!projectColumns.some((column) => column.name === 'knowledge_base_path')) {
-    database.exec(`ALTER TABLE projects ADD COLUMN knowledge_base_path TEXT`)
-  }
+  database.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS projects_github_repository_id_unique
+     ON projects(github_repository_id) WHERE github_repository_id IS NOT NULL`
+  )
 
-  const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>
+  const sessionColumns = database.prepare(`PRAGMA table_info(sessions)`).all() as Array<{
+    name: string
+  }>
   if (!sessionColumns.some((column) => column.name === 'transcript_path')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN transcript_path TEXT`)
   }
@@ -65,8 +99,24 @@ function migrate(database: Database.Database): void {
   if (!sessionColumns.some((column) => column.name === 'thinking_level')) {
     database.exec(`ALTER TABLE sessions ADD COLUMN thinking_level TEXT`)
   }
-  if (!sessionColumns.some((column) => column.name === 'archived_at')) {
-    database.exec(`ALTER TABLE sessions ADD COLUMN archived_at INTEGER`)
+  const sessionMigrations = [
+    ['worktree_path', 'TEXT'],
+    ['worktree_branch', 'TEXT'],
+    ['worktree_base_revision', 'TEXT'],
+    ['source_type', 'TEXT'],
+    ['source_repository_id', 'TEXT'],
+    ['source_repository_node_id', 'TEXT'],
+    ['source_repository_owner', 'TEXT'],
+    ['source_repository_name', 'TEXT'],
+    ['source_number', 'INTEGER'],
+    ['source_url', 'TEXT'],
+    ['source_title', 'TEXT'],
+    ['archived_at', 'INTEGER']
+  ] as const
+  for (const [column, type] of sessionMigrations) {
+    if (!sessionColumns.some((existing) => existing.name === column)) {
+      database.exec(`ALTER TABLE sessions ADD COLUMN ${column} ${type}`)
+    }
   }
 }
 
@@ -79,7 +129,7 @@ export function getDatabase() {
   sqlite = new Database(dbPath)
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
-  migrate(sqlite)
+  migrateDatabase(sqlite)
 
   orm = drizzle(sqlite, { schema })
   return orm

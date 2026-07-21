@@ -6,7 +6,12 @@ import type {
 import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
-import type { AddApiKeyRequest, AuthTestResult, ModelAuthSettings, ProviderRequest } from './model-auth'
+import type {
+  AddApiKeyRequest,
+  AuthTestResult,
+  ModelAuthSettings,
+  ProviderRequest
+} from './model-auth'
 import type {
   AvailableModel,
   ModelDefaults,
@@ -18,11 +23,47 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
 } from '../features/knowledge-base/shared/knowledge-base.contract'
+import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
   CreateEmptyProjectRequest,
   Project,
   UpdateProjectRequest
 } from '../features/projects/shared/project.model'
+import type {
+  CancelGitHubCloneRequest,
+  GitHubCheckRun,
+  GitHubCloneProgress,
+  GitHubCommitStatus,
+  GitHubConnection,
+  GitHubDeviceAuthorization,
+  GitHubFlowRequest,
+  GitHubIssue,
+  GitHubIssueComment,
+  GitHubIssueCommentCreateRequest,
+  GitHubIssueCommentsRequest,
+  GitHubIssueListRequest,
+  GitHubIssueRequest,
+  GitHubIssueStateUpdateRequest,
+  GitHubPage,
+  GitHubProjectLinkOptions,
+  GitHubProjectRequest,
+  GitHubPullRequest,
+  GitHubPullRequestCommentCreateRequest,
+  GitHubPullRequestCommentsRequest,
+  GitHubPullRequestCommit,
+  GitHubPullRequestFile,
+  GitHubPullRequestListRequest,
+  GitHubPullRequestPageRequest,
+  GitHubPullRequestRequest,
+  GitHubPullRequestReview,
+  GitHubPullRequestReviewCreateRequest,
+  GitHubPullRequestSummary,
+  GitHubRepository,
+  GitHubRepositorySetupOption,
+  LinkGitHubProjectRequest,
+  StartGitHubCloneRequest,
+  StartGitHubCloneResult
+} from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
@@ -44,6 +85,47 @@ export const IPC_CHANNELS = {
     health: 'db:health'
   },
   knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
+  onboarding: {
+    getStatus: 'onboarding:getStatus',
+    complete: 'onboarding:complete'
+  },
+  github: {
+    getConnection: 'github:getConnection',
+    refreshConnection: 'github:refreshConnection',
+    startAuthorization: 'github:startAuthorization',
+    waitForAuthorization: 'github:waitForAuthorization',
+    cancelAuthorization: 'github:cancelAuthorization',
+    openAuthorization: 'github:openAuthorization',
+    copyDeviceCode: 'github:copyDeviceCode',
+    openInstallation: 'github:openInstallation',
+    openManageAccess: 'github:openManageAccess',
+    disconnect: 'github:disconnect',
+    listAuthorizedRepositories: 'github:listAuthorizedRepositories',
+    getProjectLinkOptions: 'github:getProjectLinkOptions',
+    linkProjectRepository: 'github:linkProjectRepository',
+    getProjectRepository: 'github:getProjectRepository',
+    listRepositorySetupOptions: 'github:listRepositorySetupOptions',
+    startClone: 'github:startClone',
+    cancelClone: 'github:cancelClone',
+    cloneProgress: 'github:cloneProgress',
+    listIssues: 'github:listIssues',
+    getIssue: 'github:getIssue',
+    listIssueComments: 'github:listIssueComments',
+    createIssueComment: 'github:createIssueComment',
+    updateIssueState: 'github:updateIssueState',
+    listPullRequests: 'github:listPullRequests',
+    getPullRequest: 'github:getPullRequest',
+    listPullRequestComments: 'github:listPullRequestComments',
+    listPullRequestCommits: 'github:listPullRequestCommits',
+    listPullRequestFiles: 'github:listPullRequestFiles',
+    listPullRequestCheckRuns: 'github:listPullRequestCheckRuns',
+    listPullRequestCommitStatuses: 'github:listPullRequestCommitStatuses',
+    listPullRequestReviews: 'github:listPullRequestReviews',
+    createPullRequestComment: 'github:createPullRequestComment',
+    createPullRequestReview: 'github:createPullRequestReview',
+    startIssueSession: 'github:startIssueSession',
+    startPullRequestSession: 'github:startPullRequestSession'
+  },
   projects: {
     list: 'projects:list',
     createEmpty: 'projects:createEmpty',
@@ -118,6 +200,67 @@ export type SpaceZeroAPI = {
     health: () => Promise<DbHealth>
   }
   knowledgeBase: KnowledgeBaseAPI
+  onboarding: {
+    getStatus: () => Promise<OnboardingStatus>
+    complete: () => Promise<OnboardingStatus>
+  }
+  github: {
+    getConnection: () => Promise<GitHubConnection>
+    refreshConnection: () => Promise<GitHubConnection>
+    startAuthorization: () => Promise<GitHubDeviceAuthorization>
+    waitForAuthorization: (request: GitHubFlowRequest) => Promise<GitHubConnection>
+    cancelAuthorization: (request: GitHubFlowRequest) => Promise<void>
+    openAuthorization: (request: GitHubFlowRequest) => Promise<void>
+    copyDeviceCode: (request: GitHubFlowRequest) => Promise<void>
+    openInstallation: () => Promise<void>
+    openManageAccess: () => Promise<void>
+    disconnect: () => Promise<void>
+    listAuthorizedRepositories: () => Promise<GitHubRepository[]>
+    getProjectLinkOptions: (request: GitHubProjectRequest) => Promise<GitHubProjectLinkOptions>
+    linkProjectRepository: (request: LinkGitHubProjectRequest) => Promise<Project>
+    getProjectRepository: (request: GitHubProjectRequest) => Promise<GitHubRepository>
+    listRepositorySetupOptions: () => Promise<GitHubRepositorySetupOption[]>
+    startClone: (request: StartGitHubCloneRequest) => Promise<StartGitHubCloneResult>
+    cancelClone: (request: CancelGitHubCloneRequest) => Promise<void>
+    onCloneProgress: (listener: (event: GitHubCloneProgress) => void) => () => void
+    listIssues: (request: GitHubIssueListRequest) => Promise<GitHubPage<GitHubIssue>>
+    getIssue: (request: GitHubIssueRequest) => Promise<GitHubIssue>
+    listIssueComments: (
+      request: GitHubIssueCommentsRequest
+    ) => Promise<GitHubPage<GitHubIssueComment>>
+    createIssueComment: (request: GitHubIssueCommentCreateRequest) => Promise<GitHubIssueComment>
+    updateIssueState: (request: GitHubIssueStateUpdateRequest) => Promise<GitHubIssue>
+    listPullRequests: (
+      request: GitHubPullRequestListRequest
+    ) => Promise<GitHubPage<GitHubPullRequestSummary>>
+    getPullRequest: (request: GitHubPullRequestRequest) => Promise<GitHubPullRequest>
+    listPullRequestComments: (
+      request: GitHubPullRequestCommentsRequest
+    ) => Promise<GitHubPage<GitHubIssueComment>>
+    listPullRequestCommits: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestCommit>>
+    listPullRequestFiles: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestFile>>
+    listPullRequestCheckRuns: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubCheckRun>>
+    listPullRequestCommitStatuses: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubCommitStatus>>
+    listPullRequestReviews: (
+      request: GitHubPullRequestPageRequest
+    ) => Promise<GitHubPage<GitHubPullRequestReview>>
+    createPullRequestComment: (
+      request: GitHubPullRequestCommentCreateRequest
+    ) => Promise<GitHubIssueComment>
+    createPullRequestReview: (
+      request: GitHubPullRequestReviewCreateRequest
+    ) => Promise<GitHubPullRequestReview>
+    startIssueSession: (request: GitHubIssueRequest) => Promise<ProjectSession>
+    startPullRequestSession: (request: GitHubPullRequestRequest) => Promise<ProjectSession>
+  }
   projects: {
     list: () => Promise<Project[]>
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
@@ -138,7 +281,9 @@ export type SpaceZeroAPI = {
     createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
     createWorkspaceSession: () => Promise<WorkspaceSession>
     getGlobalSkills: () => Promise<AgentGlobalSkill[]>
-    setGlobalSkillEnabled: (request: SetGlobalAgentSkillEnabledRequest) => Promise<AgentGlobalSkill[]>
+    setGlobalSkillEnabled: (
+      request: SetGlobalAgentSkillEnabledRequest
+    ) => Promise<AgentGlobalSkill[]>
     getState: (request: { sessionId: string }) => Promise<AgentSessionState>
     listSessions: () => Promise<AgentSessionState[]>
     prompt: (request: { sessionId: string; message: string }) => Promise<void>
@@ -146,7 +291,9 @@ export type SpaceZeroAPI = {
     onEvent: (handler: (event: AgentUtilityEvent) => void) => () => void
     onSessionProjectionEvent: (listener: (event: AgentSessionProjectionEvent) => void) => () => void
     onToolExecution: (listener: (event: AgentToolExecutionEvent) => void) => () => void
-    onToolConfirmationRequest: (listener: (event: AgentToolConfirmationRequest) => void) => () => void
+    onToolConfirmationRequest: (
+      listener: (event: AgentToolConfirmationRequest) => void
+    ) => () => void
     resolveToolConfirmation: (request: ResolveAgentToolConfirmationRequest) => Promise<void>
     getModelAuthSettings: () => Promise<ModelAuthSettings>
     getAuthStatus: () => Promise<ModelAuthSettings>

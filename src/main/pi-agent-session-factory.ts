@@ -17,7 +17,12 @@ import {
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
-import type { AuthProviderOption, AuthProviderStatus, AuthTestResult, ModelAuthSettings } from '../shared/model-auth'
+import type {
+  AuthProviderOption,
+  AuthProviderStatus,
+  AuthTestResult,
+  ModelAuthSettings
+} from '../shared/model-auth'
 import type { AvailableModel, ThinkingLevel } from '../shared/model-settings'
 import type {
   AgentAssistantContent,
@@ -76,7 +81,10 @@ export function createPiAgentRuntime({
 
   const authStorage = AuthStorage.create(join(agentDir, 'auth.json'))
   const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, 'models.json'))
-  const faux = fauxProvider({ provider: FAUX_PROVIDER_ID, models: [{ id: FAUX_MODEL_ID, name: 'Faux Model' }] })
+  const faux = fauxProvider({
+    provider: FAUX_PROVIDER_ID,
+    models: [{ id: FAUX_MODEL_ID, name: 'Faux Model' }]
+  })
 
   modelRegistry.registerProvider(FAUX_PROVIDER_ID, {
     name: 'Faux',
@@ -100,9 +108,7 @@ export function createPiAgentRuntime({
     }))
   })
 
-  async function createSession(
-    request: CreateAgentSessionRequest
-  ): Promise<CreatedPiAgentSession> {
+  async function createSession(request: CreateAgentSessionRequest): Promise<CreatedPiAgentSession> {
     const settingsManager = SettingsManager.inMemory()
     const disabledGlobalSkillPaths = new Set(
       (request.disabledGlobalSkillPaths ?? []).map((path) => resolve(path))
@@ -120,6 +126,12 @@ export function createPiAgentRuntime({
         skills: skills.filter((skill) => !disabledGlobalSkillPaths.has(resolve(skill.filePath))),
         diagnostics
       }),
+      ...(request.systemPromptContext
+        ? {
+            systemPromptOverride: (base: string | undefined) =>
+              [base, request.systemPromptContext].filter(Boolean).join('\n\n')
+          }
+        : {}),
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
@@ -142,8 +154,14 @@ export function createPiAgentRuntime({
       cwd: request.cwd,
       agentDir,
       model: request.defaultModel
-        ? findConfiguredModel(modelRegistry, request.defaultModel.providerId, request.defaultModel.modelId)
-        : findInitialModel(modelRegistry) ?? modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ?? faux.getModel(),
+        ? findConfiguredModel(
+            modelRegistry,
+            request.defaultModel.providerId,
+            request.defaultModel.modelId
+          )
+        : (findInitialModel(modelRegistry) ??
+          modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ??
+          faux.getModel()),
       thinkingLevel: request.thinkingLevel,
       tools: [
         ...(request.kind === 'workspace' ? [] : PROJECT_TOOL_NAMES),
@@ -233,13 +251,18 @@ function findConfiguredModel(
 ): ReturnType<ModelRegistry['getAvailable']>[number] {
   const model = modelRegistry
     .getAvailable()
-    .find((availableModel) => availableModel.provider === providerId && availableModel.id === modelId)
+    .find(
+      (availableModel) => availableModel.provider === providerId && availableModel.id === modelId
+    )
 
   if (!model) throw new Error('agent.modelAuthNotConfigured')
   return model
 }
 
-function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStorage: AuthStorage): ModelAuthSettings {
+function getModelAuthSettingsFromRegistry(
+  modelRegistry: ModelRegistry,
+  authStorage: AuthStorage
+): ModelAuthSettings {
   const subscriptionProviders = getSubscriptionProviderOptions(authStorage)
   const apiKeyProviders = getApiKeyProviderOptions(modelRegistry, authStorage)
 
@@ -249,14 +272,16 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
         const status = authStorage.getAuthStatus(provider.providerId)
         if (!status.configured) return []
 
-        return [{
-          providerId: provider.providerId,
-          label: provider.label,
-          configured: true,
-          source: status.source,
-          displayLabel: getSubscriptionAuthStatusDisplayLabel(status.source),
-          removable: status.source === 'stored'
-        } satisfies AuthProviderStatus]
+        return [
+          {
+            providerId: provider.providerId,
+            label: provider.label,
+            configured: true,
+            source: status.source,
+            displayLabel: getSubscriptionAuthStatusDisplayLabel(status.source),
+            removable: status.source === 'stored'
+          } satisfies AuthProviderStatus
+        ]
       }),
       availableProviders: subscriptionProviders
     },
@@ -264,7 +289,8 @@ function getModelAuthSettingsFromRegistry(modelRegistry: ModelRegistry, authStor
       configured: apiKeyProviders.flatMap((provider) => {
         const status = modelRegistry.getProviderAuthStatus(provider.providerId)
         if (!status.configured) return []
-        if (status.source === 'stored' && authStorage.get(provider.providerId)?.type !== 'api_key') return []
+        if (status.source === 'stored' && authStorage.get(provider.providerId)?.type !== 'api_key')
+          return []
 
         return [
           {
@@ -297,7 +323,10 @@ function getSubscriptionProviderOptions(authStorage: AuthStorage): AuthProviderO
     })
 }
 
-function getApiKeyProviderOptions(modelRegistry: ModelRegistry, _authStorage: AuthStorage): AuthProviderOption[] {
+function getApiKeyProviderOptions(
+  modelRegistry: ModelRegistry,
+  _authStorage: AuthStorage
+): AuthProviderOption[] {
   const providerIds = new Set(
     modelRegistry
       .getAll()
@@ -307,7 +336,9 @@ function getApiKeyProviderOptions(modelRegistry: ModelRegistry, _authStorage: Au
 
   return [...providerIds]
     .sort((left, right) =>
-      modelRegistry.getProviderDisplayName(left).localeCompare(modelRegistry.getProviderDisplayName(right))
+      modelRegistry
+        .getProviderDisplayName(left)
+        .localeCompare(modelRegistry.getProviderDisplayName(right))
     )
     .map((providerId) => ({
       providerId,
@@ -342,7 +373,9 @@ async function testProviderAuth(
   return apiKey ? { ok: true } : { ok: false, message: 'agent.authUnavailable' }
 }
 
-function getSubscriptionAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string | undefined {
+function getSubscriptionAuthStatusDisplayLabel(
+  source: AuthProviderStatus['source']
+): string | undefined {
   if (source === 'stored') return undefined
   return getAuthStatusDisplayLabel(source)
 }
@@ -351,12 +384,17 @@ function getAuthStatusDisplayLabel(source: AuthProviderStatus['source']): string
   if (source === 'environment') return 'Configured from environment'
   if (source === 'stored') return 'Stored API key'
   if (source === 'runtime') return 'Configured for this run'
-  if (source === 'models_json_key' || source === 'models_json_command') return 'Configured from models.json'
+  if (source === 'models_json_key' || source === 'models_json_command')
+    return 'Configured from models.json'
   if (source === 'fallback') return 'Configured from provider fallback'
   return undefined
 }
 
-function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, _authStorage: AuthStorage, providerId: string): void {
+function assertKnownApiKeyProvider(
+  modelRegistry: ModelRegistry,
+  _authStorage: AuthStorage,
+  providerId: string
+): void {
   const isKnownApiKeyProvider = modelRegistry
     .getAll()
     .some((model) => model.provider === providerId && model.provider !== FAUX_PROVIDER_ID)
@@ -365,7 +403,11 @@ function assertKnownApiKeyProvider(modelRegistry: ModelRegistry, _authStorage: A
 }
 
 function assertKnownOAuthProvider(authStorage: AuthStorage, providerId: string): void {
-  if (!authStorage.getOAuthProviders().some((provider) => provider.id === providerId && isSupportedOAuthProvider(provider))) {
+  if (
+    !authStorage
+      .getOAuthProviders()
+      .some((provider) => provider.id === providerId && isSupportedOAuthProvider(provider))
+  ) {
     throw new Error('agent.unknownOAuthProvider')
   }
 }
@@ -430,7 +472,8 @@ function adaptAgentSession(
   initialThinkingLevel?: ThinkingLevel,
   skillPaths?: AgentSkillPath[]
 ): CreatedPiAgentSession {
-  let preferredThinkingLevel = initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
+  let preferredThinkingLevel =
+    initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
 
   return {
     sessionId: session.sessionId,
@@ -461,17 +504,24 @@ function adaptAgentSession(
     },
     prompt: (message) => session.prompt(message),
     abort: () => session.abort(),
-    subscribe: (listener) => session.subscribe((event) => {
-      const streamingEvent = toAgentStreamingEvent(session.sessionId, event)
-      if (streamingEvent) listener(streamingEvent)
-    }),
+    subscribe: (listener) =>
+      session.subscribe((event) => {
+        const streamingEvent = toAgentStreamingEvent(session.sessionId, event)
+        if (streamingEvent) listener(streamingEvent)
+      }),
     dispose: () => session.dispose(),
-    getTranscriptSnapshot: () => toTranscriptSnapshot(session.messages, session.state.streamingMessage)
+    getTranscriptSnapshot: () =>
+      toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
 }
 
 function toAgentSkillDescriptors(
-  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skills: Array<{
+    name: string
+    description: string
+    filePath: string
+    sourceInfo: { scope: string }
+  }>,
   skillPaths: AgentSkillPath[] | undefined
 ): AgentSkillDescriptor[] {
   return skills.map((skill) => ({
@@ -482,7 +532,12 @@ function toAgentSkillDescriptors(
 }
 
 function toAgentSkillDiscoveries(
-  skills: Array<{ name: string; description: string; filePath: string; sourceInfo: { scope: string } }>,
+  skills: Array<{
+    name: string
+    description: string
+    filePath: string
+    sourceInfo: { scope: string }
+  }>,
   skillPaths: AgentSkillPath[]
 ): AgentSkillDiscovery[] {
   return skills.map((skill) => ({
@@ -509,7 +564,10 @@ function resolveSkillScope(
 
 function isPathWithin(filePath: string, rootPath: string): boolean {
   const relativePath = relative(resolve(rootPath), resolve(filePath))
-  return relativePath === '' || (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath))
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath))
+  )
 }
 
 function toTranscriptSnapshot(
@@ -555,7 +613,9 @@ function toTranscriptMessage(message: unknown): AgentTranscriptMessage[] {
     ]
   }
 
-  return [{ ...message, role: typeof message.role === 'string' ? message.role : 'unknown', timestamp }]
+  return [
+    { ...message, role: typeof message.role === 'string' ? message.role : 'unknown', timestamp }
+  ]
 }
 
 function toUserContent(content: unknown): string | AgentUserContent[] {
@@ -567,7 +627,11 @@ function toUserContent(content: unknown): string | AgentUserContent[] {
     if (part.type === 'text' && typeof part.text === 'string') {
       return [{ type: 'text', text: toDisplayUserText(part.text) }]
     }
-    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+    if (
+      part.type === 'image' &&
+      typeof part.data === 'string' &&
+      typeof part.mimeType === 'string'
+    ) {
       return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
     }
     return []
@@ -596,7 +660,11 @@ function toToolResultContent(content: unknown): AgentToolResultContent[] {
     if (part.type === 'text' && typeof part.text === 'string') {
       return [{ type: 'text', text: part.text }]
     }
-    if (part.type === 'image' && typeof part.data === 'string' && typeof part.mimeType === 'string') {
+    if (
+      part.type === 'image' &&
+      typeof part.data === 'string' &&
+      typeof part.mimeType === 'string'
+    ) {
       return [{ type: 'image', data: part.data, mimeType: part.mimeType }]
     }
     return []
@@ -608,7 +676,8 @@ function toAssistantContent(content: unknown): AgentAssistantContent[] {
 
   return content.flatMap((part): AgentAssistantContent[] => {
     if (!isRecord(part)) return []
-    if (part.type === 'text' && typeof part.text === 'string') return [{ type: 'text', text: part.text }]
+    if (part.type === 'text' && typeof part.text === 'string')
+      return [{ type: 'text', text: part.text }]
     if (part.type === 'thinking' && typeof part.thinking === 'string') {
       return [{ type: 'thinking', thinking: part.thinking, redacted: part.redacted === true }]
     }
@@ -626,8 +695,14 @@ function toAssistantContent(content: unknown): AgentAssistantContent[] {
   })
 }
 
-function toAssistantStopReason(value: unknown): 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined {
-  return value === 'stop' || value === 'length' || value === 'toolUse' || value === 'error' || value === 'aborted'
+function toAssistantStopReason(
+  value: unknown
+): 'stop' | 'length' | 'toolUse' | 'error' | 'aborted' | undefined {
+  return value === 'stop' ||
+    value === 'length' ||
+    value === 'toolUse' ||
+    value === 'error' ||
+    value === 'aborted'
     ? value
     : undefined
 }
@@ -654,8 +729,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-export function toAgentStreamingEvent(sessionId: string, event: { type: string; [key: string]: unknown }): AgentStreamingEvent | undefined {
-  if (event.type === 'agent_start' || event.type === 'turn_start' || event.type === 'turn_end' || event.type === 'agent_end') {
+export function toAgentStreamingEvent(
+  sessionId: string,
+  event: { type: string; [key: string]: unknown }
+): AgentStreamingEvent | undefined {
+  if (
+    event.type === 'agent_start' ||
+    event.type === 'turn_start' ||
+    event.type === 'turn_end' ||
+    event.type === 'agent_end'
+  ) {
     return { type: event.type, sessionId }
   }
 
@@ -670,9 +753,11 @@ export function toAgentStreamingEvent(sessionId: string, event: { type: string; 
 
   if (event.type === 'message_update') {
     const message = toTranscriptMessage(event.message)[0]
-    const assistantMessageEvent = event.assistantMessageEvent as { type?: string; delta?: unknown } | undefined
+    const assistantMessageEvent = event.assistantMessageEvent as
+      { type?: string; delta?: unknown } | undefined
     const delta =
-      assistantMessageEvent?.type === 'text_delta' && typeof assistantMessageEvent.delta === 'string'
+      assistantMessageEvent?.type === 'text_delta' &&
+      typeof assistantMessageEvent.delta === 'string'
         ? assistantMessageEvent.delta
         : undefined
 

@@ -1,6 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
-import { ArrowLeft, Cube, FolderOpen, GearSix, Key, Plus, Plugs, Sparkle, Trash } from '@phosphor-icons/react'
+import {
+  ArrowLeft,
+  Cube,
+  FolderOpen,
+  GearSix,
+  Key,
+  Plus,
+  Plugs,
+  Sparkle,
+  Trash,
+  UserCircle
+} from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
@@ -10,6 +21,7 @@ import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
 import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
+import { AccountSettings } from '../../../features/github/renderer'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
@@ -44,7 +56,7 @@ import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'general' | 'models' | 'skills'
+type SettingsSectionId = 'account' | 'general' | 'models' | 'skills'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -52,13 +64,14 @@ type SettingsSearch = {
 
 export const Route = createFileRoute('/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch =>
-    search.section === 'models' || search.section === 'skills'
+    search.section === 'account' || search.section === 'models' || search.section === 'skills'
       ? { section: search.section }
       : {},
   component: SettingsPage
 })
 
 const settingsNavigation = [
+  { id: 'account', translationKey: 'account', icon: UserCircle },
   { id: 'general', translationKey: 'general', icon: GearSix },
   { id: 'models', translationKey: 'models', icon: Cube },
   { id: 'skills', translationKey: 'skills', icon: Sparkle }
@@ -217,7 +230,9 @@ function SettingsPage(): React.JSX.Element {
         <div className="app-titlebar sticky top-0 z-10 h-12" aria-hidden="true" />
         <div className="mx-auto w-full max-w-[810px] px-8 pb-24 pt-12">
           <h1 className="sr-only">{t('settings.title')}</h1>
-          {selectedSection === 'general' ? (
+          {selectedSection === 'account' ? (
+            <AccountSettingsSection />
+          ) : selectedSection === 'general' ? (
             <GeneralSettingsSection
               languageSettings={languageSettings}
               languageError={languageError}
@@ -234,6 +249,27 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </main>
     </div>
+  )
+}
+
+function AccountSettingsSection(): React.JSX.Element {
+  return (
+    <>
+      <h2 className="mb-6 text-xl font-medium">Account</h2>
+      <div className="space-y-8">
+        <section aria-labelledby="github-account-heading" className="space-y-3">
+          <div className="px-2">
+            <h3 id="github-account-heading" className="text-sm text-muted-foreground">
+              GitHub
+            </h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              GitHub is optional. Local Projects continue to work without a connection.
+            </p>
+          </div>
+          <AccountSettings />
+        </section>
+      </div>
+    </>
   )
 }
 
@@ -421,7 +457,10 @@ function SkillsSettingsSection(): React.JSX.Element {
     }
   }, [])
 
-  async function handleSkillEnabledChange(skill: AgentGlobalSkill, enabled: boolean): Promise<void> {
+  async function handleSkillEnabledChange(
+    skill: AgentGlobalSkill,
+    enabled: boolean
+  ): Promise<void> {
     if (updatePendingRef.current) return
 
     updatePendingRef.current = true
@@ -456,7 +495,9 @@ function SkillsSettingsSection(): React.JSX.Element {
           }
         >
           {skills === null ? (
-            <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.loading')}</p>
+            <p className="px-4 pb-4 text-sm text-muted-foreground">
+              {t('settings.skills.loading')}
+            </p>
           ) : skills.length === 0 ? (
             <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.empty')}</p>
           ) : (
@@ -484,9 +525,7 @@ function SkillsSettingsSection(): React.JSX.Element {
                     skill.enabled ? 'settings.skills.disable' : 'settings.skills.enable',
                     { name: skill.name }
                   )}
-                  onCheckedChange={(enabled) =>
-                    void handleSkillEnabledChange(skill, enabled)
-                  }
+                  onCheckedChange={(enabled) => void handleSkillEnabledChange(skill, enabled)}
                 />
               </div>
             ))
@@ -1257,7 +1296,13 @@ function ModelAuthCard({
         </div>
         <div className="flex items-center gap-2">
           {disabledReason ? <Badge variant="secondary">{disabledReason}</Badge> : null}
-          <Button variant="outline" size="sm" className="gap-2" disabled={addDisabled} onClick={onAdd}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            disabled={addDisabled}
+            onClick={onAdd}
+          >
             <Plus className="h-4 w-4" aria-hidden="true" />
             {addLabel}
           </Button>

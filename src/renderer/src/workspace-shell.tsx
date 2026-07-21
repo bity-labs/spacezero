@@ -35,7 +35,10 @@ import type { ProjectSession, WorkspaceSession } from '../../features/sessions/s
 import {
   AddProjectDialog,
   EditProjectDialog,
+  ProjectHome,
   ProjectSidebarList,
+  projectSessionSetupErrorMessage,
+  type ProjectHomeGitHubTarget,
   useProjects
 } from '../../features/projects/renderer'
 import {
@@ -102,6 +105,10 @@ export function WorkspaceShell(): React.JSX.Element {
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const [sidebarSessionError, setSidebarSessionError] = useState<string | null>(null)
+  const [projectHomeRequest, setProjectHomeRequest] = useState<
+    (ProjectHomeGitHubTarget & { projectId: string; requestId: number }) | null
+  >(null)
   const sessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.layout)
   const resetSessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.resetLayout)
   const openProjectSessionInWorkspace = useSessionWorkspaceStore(
@@ -116,7 +123,9 @@ export function WorkspaceShell(): React.JSX.Element {
     status: projectsStatus,
     error: projectsError,
     warning: projectsWarning,
+    refreshProjects,
     selectProject,
+    upsertProject,
     createEmptyProject,
     addProjectFromFolder,
     updateProject,
@@ -175,10 +184,7 @@ export function WorkspaceShell(): React.JSX.Element {
   )
 
   const shouldBlockRouteNavigation = useCallback(async (): Promise<boolean> => {
-    if (
-      activePrimaryView !== 'knowledge-base' ||
-      !knowledgeBasePageRef.current?.hasPendingSave()
-    ) {
+    if (activePrimaryView !== 'knowledge-base' || !knowledgeBasePageRef.current?.hasPendingSave()) {
       return false
     }
     return !(await knowledgeBasePageRef.current.flushPendingSave())
@@ -261,22 +267,66 @@ export function WorkspaceShell(): React.JSX.Element {
   useRegisterAppCommands(workspaceCommands)
   useRegisterKeyboardShortcuts(workspaceShortcuts)
 
-  function handleNewSession(project: Project): void {
-    runInWorkspaceView(async () => {
+  async function handleGitHubProjectReady(projectId: string): Promise<void> {
+    setProjectHomeRequest(null)
+    const nextProjects = await refreshProjects()
+    const project = nextProjects.find((candidate) => candidate.id === projectId)
+    if (!project) throw new Error('Cloned Project was not registered')
+    runInWorkspaceView(() => {
       selectProject(project)
-      const agentSession = await window.spacezero.agent.createSession({ projectId: project.id, cwd: project.path })
-      const session: ProjectSession = {
-        id: agentSession.sessionId,
-        kind: 'project',
-        projectId: agentSession.projectId ?? project.id,
-        title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
-        status: agentSession.status,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }
+      resetSessionWorkspaceLayout()
+    })
+  }
+
+  async function handleNewSession(project: Project): Promise<void> {
+    if (activePrimaryView === 'knowledge-base') {
+      const saved = await knowledgeBasePageRef.current?.flushPendingSave()
+      if (!saved) throw new Error('workspace.pendingKnowledgeBaseSave')
+    }
+
+    setActivePrimaryView('workspace')
+    selectProject(project)
+    const agentSession = await window.spacezero.agent.createSession({
+      projectId: project.id,
+      cwd: project.path
+    })
+    const session: ProjectSession = {
+      id: agentSession.sessionId,
+      kind: 'project',
+      projectId: agentSession.projectId ?? project.id,
+      title: `Session ${(sessionsByProjectId.get(project.id)?.length ?? 0) + 1}`,
+      status: agentSession.status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+    upsertProjectSession(session)
+    openProjectSessionInWorkspace(session)
+    await Promise.all([refreshSessions(), refreshProjects()])
+  }
+
+  function handleGitHubSessionCreated(session: ProjectSession): void {
+    runInWorkspaceView(async () => {
+      const project = projects.find((candidate) => candidate.id === session.projectId)
+      if (project) selectProject(project)
       upsertProjectSession(session)
       openProjectSessionInWorkspace(session)
       await refreshSessions()
+    })
+  }
+
+  function handleOpenSessionSource(session: ProjectSession): void {
+    if (!session.source) return
+    const project = projects.find((candidate) => candidate.id === session.projectId)
+    if (!project) return
+    runInWorkspaceView(() => {
+      selectProject(project)
+      setProjectHomeRequest({
+        projectId: project.id,
+        type: session.source!.type,
+        number: session.source!.number,
+        requestId: Date.now()
+      })
+      resetSessionWorkspaceLayout()
     })
   }
 
@@ -319,7 +369,12 @@ export function WorkspaceShell(): React.JSX.Element {
   }
 
   async function handleDeleteProject(project: Project): Promise<void> {
-    if (!window.confirm(`Delete ${project.name} and all of its sessions permanently? This cannot be undone.`)) return
+    if (
+      !window.confirm(
+        `Delete ${project.name} and all of its sessions permanently? This cannot be undone.`
+      )
+    )
+      return
     await deleteProject(project.id)
     await refreshSessions()
     if (activeProject?.id === project.id || activeProjectSession?.projectId === project.id) {
@@ -385,6 +440,7 @@ export function WorkspaceShell(): React.JSX.Element {
             project={activeSessionProject ?? activeProject}
             projectSession={activeProjectSession}
             workspaceSession={activeWorkspaceSession}
+            onOpenProjectSessionSource={handleOpenSessionSource}
           />
         </div>
 
@@ -416,11 +472,7 @@ export function WorkspaceShell(): React.JSX.Element {
             className="pt-4"
             contentClassName="px-0 overflow-hidden"
             header={
-              <SidebarMenu
-                className="px-0"
-                aria-label={t('workspace.navigation')}
-                role="menu"
-              >
+              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')} role="menu">
                 <SidebarNavItem
                   icon={BookOpenText}
                   label="Knowledge Base"
@@ -491,6 +543,7 @@ export function WorkspaceShell(): React.JSX.Element {
                     onAddProject={() => setAddProjectOpen(true)}
                     onSelectProject={(project) => {
                       runInWorkspaceView(() => {
+                        setProjectHomeRequest(null)
                         selectProject(project)
                         if (activeProjectSession?.projectId !== project.id) {
                           resetSessionWorkspaceLayout()
@@ -504,7 +557,12 @@ export function WorkspaceShell(): React.JSX.Element {
                     activeSessionId={activeProjectSession?.id ?? null}
                     sessionsStatus={sessionsStatus}
                     sessionsError={sessionsError}
-                    onNewSession={(project) => void handleNewSession(project)}
+                    onNewSession={(project) => {
+                      setSidebarSessionError(null)
+                      void handleNewSession(project).catch((error) => {
+                        setSidebarSessionError(projectSessionSetupErrorMessage(error))
+                      })
+                    }}
                     onSelectSession={handleSelectSession}
                     onArchiveSession={(session) => void handleArchiveSession(session.id)}
                     onDeleteSession={(session) => void handleDeleteSession(session.id)}
@@ -518,6 +576,7 @@ export function WorkspaceShell(): React.JSX.Element {
               onOpenChange={setAddProjectOpen}
               onCreateEmptyProject={createEmptyProject}
               onAddFromFolder={addProjectFromFolder}
+              onGitHubProjectReady={handleGitHubProjectReady}
             />
             <EditProjectDialog
               key={editingProject?.id ?? 'no-project'}
@@ -550,26 +609,32 @@ export function WorkspaceShell(): React.JSX.Element {
               <AlertDescription>{projectsWarning}</AlertDescription>
             </Alert>
           ) : null}
+          {sidebarSessionError ? (
+            <Alert className="m-4 mb-0 w-auto" variant="destructive">
+              <AlertDescription>{sidebarSessionError}</AlertDescription>
+            </Alert>
+          ) : null}
           {activePrimaryView === 'knowledge-base' ? (
             <KnowledgeBasePage ref={knowledgeBasePageRef} />
           ) : activeTab ? (
-            <SessionWorkspaceTabSurface
-              tab={activeTab}
-              projects={projects}
-              sessions={sessions}
+            <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
+          ) : activeProject ? (
+            <ProjectHome
+              key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
+              project={activeProject}
+              onProjectLinked={upsertProject}
+              onNewSession={() => handleNewSession(activeProject)}
+              onSessionCreated={(session) => void handleGitHubSessionCreated(session)}
+              initialGitHubTarget={
+                projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
+              }
             />
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
               <div>
-                <h2 className="text-sm font-medium">
-                  {activeProject
-                    ? t('sessions.workspace.emptyProjectTitle', { project: activeProject.name })
-                    : t('sessions.workspace.emptyTitle')}
-                </h2>
+                <h2 className="text-sm font-medium">{t('sessions.workspace.emptyTitle')}</h2>
                 <p className="mt-2 max-w-sm text-xs text-muted-foreground">
-                  {activeProject
-                    ? t('sessions.workspace.emptyProjectDescription')
-                    : t('sessions.workspace.emptyDescription')}
+                  {t('sessions.workspace.emptyDescription')}
                 </p>
               </div>
             </div>
@@ -606,7 +671,7 @@ function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | 
 function SessionWorkspaceTabSurface({
   tab,
   projects,
-  sessions,
+  sessions
 }: {
   tab: SessionWorkspaceTab
   projects: Project[]
@@ -618,16 +683,9 @@ function SessionWorkspaceTabSurface({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {tab.kind === 'workspace' ? (
-        <WorkspaceSessionHostSurface
-          key={tab.session.id}
-          session={tab.session}
-        />
+        <WorkspaceSessionHostSurface key={tab.session.id} session={tab.session} />
       ) : session && project ? (
-        <ProjectSessionHostSurface
-          key={session.id}
-          project={project}
-          session={session}
-        />
+        <ProjectSessionHostSurface key={session.id} project={project} session={session} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">
           Session metadata is no longer available.
@@ -641,12 +699,14 @@ function WorkspaceBreadcrumb({
   knowledgeBaseActive,
   project,
   projectSession,
-  workspaceSession
+  workspaceSession,
+  onOpenProjectSessionSource
 }: {
   knowledgeBaseActive: boolean
   project: Project | null
   projectSession: ProjectSession | null
   workspaceSession: WorkspaceSession | null
+  onOpenProjectSessionSource: (session: ProjectSession) => void
 }): React.JSX.Element {
   return (
     <Breadcrumb>
@@ -661,6 +721,21 @@ function WorkspaceBreadcrumb({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <BreadcrumbPage>{projectSession.title}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </>
+        ) : null}
+        {projectSession?.source ? (
+          <>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <button
+                type="button"
+                className="titlebar-control text-primary hover:underline"
+                onClick={() => onOpenProjectSessionSource(projectSession)}
+              >
+                {projectSession.source.type === 'issue' ? 'Issue' : 'Pull Request'} #
+                {projectSession.source.number}
+              </button>
             </BreadcrumbItem>
           </>
         ) : null}

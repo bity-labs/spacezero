@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { createSessionsService, type SessionsRepository, type StoredSession } from './sessions.service'
+import {
+  createSessionsService,
+  type SessionsRepository,
+  type StoredSession
+} from './sessions.service'
 
 function createMemoryRepository({
   projectIds = ['project-1'],
@@ -39,6 +43,14 @@ function createMemoryRepository({
     async findProjectById(projectId) {
       if (!projects.has(projectId)) return undefined
       return { id: projectId, path: `/tmp/${projectId}` }
+    },
+    async updateProjectPath() {},
+    async hasManagedSessions(projectId) {
+      return storedSessions.some(
+        (session) =>
+          session.projectId === projectId &&
+          Boolean(session.worktreePath || session.worktreeBranch || session.worktreeBaseRevision)
+      )
     },
     async findSessionById(sessionId) {
       return storedSessions.find((session) => session.id === sessionId)
@@ -98,30 +110,6 @@ describe('createSessionsService', () => {
     })
   })
 
-  it('deletes session metadata and returns the deleted session for transcript cleanup', async () => {
-    const now = new Date('2026-07-10T00:00:00.000Z')
-    const repository = createMemoryRepository({
-      sessions: [
-        {
-          id: 'agent-session-1',
-          projectId: 'project-1',
-          title: 'Session 1',
-          status: 'idle',
-          createdAt: now,
-          updatedAt: now,
-          transcriptPath: '/agent/sessions/session-1.jsonl'
-        }
-      ]
-    })
-    const service = createSessionsService({ repository, now: () => now })
-
-    await expect(service.deleteSession('agent-session-1')).resolves.toMatchObject({
-      id: 'agent-session-1',
-      transcriptPath: '/agent/sessions/session-1.jsonl'
-    })
-    await expect(repository.findSessionById('agent-session-1')).resolves.toBeUndefined()
-  })
-
   it('persists agent model and thinking selections', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository({
@@ -168,7 +156,10 @@ describe('createSessionsService', () => {
       updatedAt: now.toISOString()
     })
     await expect(repository.listWorkspaceSessions()).resolves.toEqual([
-      expect.objectContaining({ projectId: null, transcriptPath: '/agent/sessions/workspace-session.jsonl' })
+      expect.objectContaining({
+        projectId: null,
+        transcriptPath: '/agent/sessions/workspace-session.jsonl'
+      })
     ])
     await expect(service.listWorkspaceSessions()).resolves.toEqual([session])
   })
@@ -184,7 +175,12 @@ describe('createSessionsService', () => {
     const session = await service.createProjectAgentSession({
       id: 'agent-session-1',
       projectId: 'project-1',
-      transcriptPath: '/agent/sessions/session.jsonl'
+      transcriptPath: '/agent/sessions/session.jsonl',
+      worktree: {
+        path: '/SpaceZero/worktrees/project-1/agent-session-1',
+        branch: 'spacezero/session-agent-session-1',
+        baseRevision: 'abc123'
+      }
     })
 
     expect(session).toMatchObject({
@@ -199,6 +195,56 @@ describe('createSessionsService', () => {
     await expect(repository.listProjectSessions()).resolves.toEqual([
       expect.objectContaining({ transcriptPath: '/agent/sessions/session.jsonl' })
     ])
+  })
+
+  it('round-trips managed worktree and durable GitHub source metadata', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository()
+    const service = createSessionsService({ repository, now: () => now })
+
+    const session = await service.createProjectAgentSession({
+      id: 'issue-session-1',
+      projectId: 'project-1',
+      title: 'Issue #83: GitHub integration',
+      worktree: {
+        path: '/SpaceZero/worktrees/project-1/issue-session-1',
+        branch: 'spacezero/issue-83-issue-session-1',
+        baseRevision: 'abc123'
+      },
+      source: {
+        type: 'issue',
+        repositoryId: '1000',
+        repositoryNodeId: 'R_1000',
+        repositoryOwner: 'bity-labs',
+        repositoryName: 'spacezero',
+        repositoryFullName: 'bity-labs/spacezero',
+        number: 83,
+        url: 'https://github.com/bity-labs/spacezero/issues/83',
+        title: 'GitHub integration'
+      }
+    })
+
+    expect(session).toMatchObject({
+      worktree: {
+        path: '/SpaceZero/worktrees/project-1/issue-session-1',
+        branch: 'spacezero/issue-83-issue-session-1',
+        baseRevision: 'abc123'
+      },
+      source: {
+        type: 'issue',
+        repositoryId: '1000',
+        repositoryFullName: 'bity-labs/spacezero',
+        number: 83
+      }
+    })
+    await expect(service.listProjectSessions()).resolves.toEqual([session])
+    await expect(repository.findSessionById('issue-session-1')).resolves.toMatchObject({
+      sourceType: 'issue',
+      sourceRepositoryId: '1000',
+      sourceRepositoryNodeId: 'R_1000',
+      sourceNumber: 83,
+      worktreePath: '/SpaceZero/worktrees/project-1/issue-session-1'
+    })
   })
 
   it('creates project session metadata with an idle typed status', async () => {
@@ -218,6 +264,62 @@ describe('createSessionsService', () => {
       updatedAt: now.toISOString()
     })
     expect(await service.listProjectSessions()).toEqual([session])
+  })
+
+  it('skips and reports project sessions with incomplete durable metadata', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const onInvalidSessionMetadata = vi.fn()
+    const service = createSessionsService({
+      repository: createMemoryRepository({
+        sessions: [
+          {
+            id: 'valid-session',
+            projectId: 'project-1',
+            title: 'Valid session',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now
+          },
+          {
+            id: 'partial-worktree-session',
+            projectId: 'project-1',
+            title: 'Partial worktree',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now,
+            worktreePath: '/worktrees/partial'
+          },
+          {
+            id: 'partial-source-session',
+            projectId: 'project-1',
+            title: 'Partial source',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now,
+            sourceType: 'issue'
+          }
+        ]
+      }),
+      onInvalidSessionMetadata
+    })
+
+    await expect(service.listProjectSessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'valid-session' })
+    ])
+    expect(onInvalidSessionMetadata.mock.calls).toEqual([
+      [
+        {
+          sessionId: 'partial-worktree-session',
+          code: 'session.worktreeMetadataIncomplete'
+        }
+      ],
+      [
+        {
+          sessionId: 'partial-source-session',
+          code: 'session.sourceMetadataIncomplete'
+        }
+      ]
+    ])
   })
 
   it('numbers new default titles per project and preserves stored running status', async () => {
@@ -248,7 +350,9 @@ describe('createSessionsService', () => {
   })
 
   it('rejects sessions for unknown projects', async () => {
-    const service = createSessionsService({ repository: createMemoryRepository({ projectIds: [] }) })
+    const service = createSessionsService({
+      repository: createMemoryRepository({ projectIds: [] })
+    })
 
     await expect(service.createProjectSession({ projectId: 'missing-project' })).rejects.toThrow(
       'Project not found'

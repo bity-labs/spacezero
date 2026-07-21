@@ -1,4 +1,6 @@
 export * from './components/add-project-dialog'
 export * from './components/edit-project-dialog'
+export * from './components/project-home'
 export * from './components/project-sidebar-list'
 export * from './hooks/use-projects'
+export * from './project-session-error-message'

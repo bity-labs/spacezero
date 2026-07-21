@@ -14,7 +14,8 @@ describe('storage settings paths', () => {
   it('derives the managed projects path from the Space Zero Home', () => {
     expect(createStorageSettings('/Users/tiby/SpaceZero')).toEqual({
       spaceZeroHome: '/Users/tiby/SpaceZero',
-      projectsPath: '/Users/tiby/SpaceZero/projects'
+      projectsPath: '/Users/tiby/SpaceZero/projects',
+      worktreesPath: '/Users/tiby/SpaceZero/worktrees'
     })
   })
 

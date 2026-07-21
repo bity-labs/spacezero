@@ -1,10 +1,19 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ResourceDiagnostic } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it } from 'vitest'
 
+import { AgentSessionRegistry } from './agent-session-registry'
 import {
   createPiAgentRuntime,
   createPiAgentSessionFactory,
@@ -202,6 +211,44 @@ describe('createPiAgentSessionFactory', () => {
         session.dispose()
       }
     } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves linked source context in the final Pi prompt after suspension and rehydration', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-source-context-'))
+    const sourceContext = 'Linked GitHub Issue #97: preserve this context.'
+    const observedSystemPrompts: string[] = []
+    const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        const session = await createPiSession(request)
+        if (request.sessionId === 'session-linked') {
+          observedSystemPrompts.push(session.systemPrompt ?? '')
+        }
+        return session
+      }
+    })
+
+    try {
+      await registry.createSession({
+        sessionId: 'session-linked',
+        projectId: 'project-1',
+        cwd: tempDir,
+        systemPromptContext: sourceContext
+      })
+      await registry.createSession({
+        sessionId: 'session-replacement',
+        projectId: 'project-1',
+        cwd: tempDir
+      })
+      await registry.getState({ sessionId: 'session-linked' })
+
+      expect(observedSystemPrompts).toHaveLength(2)
+      expect(observedSystemPrompts.every((prompt) => prompt.includes(sourceContext))).toBe(true)
+    } finally {
+      registry.dispose()
       rmSync(tempDir, { recursive: true, force: true })
     }
   })
@@ -549,7 +596,9 @@ describe('createPiAgentSessionFactory', () => {
 
     try {
       process.env.PI_CODING_AGENT_DIR = terminalPiAgentDir
-      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'spacezero-agent') })
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'spacezero-agent')
+      })
 
       const session = await createPiSession({
         sessionId: 'session-1',
@@ -585,8 +634,18 @@ describe('createPiAgentRuntime auth', () => {
       writeFileSync(
         join(agentDir, 'auth.json'),
         JSON.stringify({
-          anthropic: { type: 'oauth', access: 'access-token', refresh: 'refresh-token', expires: Date.now() + 60_000 },
-          'openai-codex': { type: 'oauth', access: 'openai-access-token', refresh: 'openai-refresh-token', expires: Date.now() + 60_000 }
+          anthropic: {
+            type: 'oauth',
+            access: 'access-token',
+            refresh: 'refresh-token',
+            expires: Date.now() + 60_000
+          },
+          'openai-codex': {
+            type: 'oauth',
+            access: 'openai-access-token',
+            refresh: 'openai-refresh-token',
+            expires: Date.now() + 60_000
+          }
         }),
         { mode: 0o600 }
       )
@@ -652,10 +711,12 @@ describe('createPiAgentRuntime auth', () => {
       expect(status.subscriptions.availableProviders).not.toContainEqual(
         expect.objectContaining({ providerId: 'github-copilot' })
       )
-      await expect(runtime.loginOAuth('github-copilot', {
-        openExternal: async () => undefined,
-        waitForCallback: async () => ''
-      })).rejects.toThrow('agent.unknownOAuthProvider')
+      await expect(
+        runtime.loginOAuth('github-copilot', {
+          openExternal: async () => undefined,
+          waitForCallback: async () => ''
+        })
+      ).rejects.toThrow('agent.unknownOAuthProvider')
       await expect(runtime.addApiKey('acme-ai', 'sk-acme-secret')).resolves.toBeUndefined()
       expect(JSON.stringify(await runtime.getAuthStatus())).not.toContain('sk-acme-secret')
     } finally {
@@ -677,7 +738,12 @@ describe('createPiAgentRuntime auth', () => {
 
       const authStatus = await runtime.getAuthStatus()
       expect(authStatus.apiKeys.configured).toContainEqual(
-        expect.objectContaining({ providerId: 'anthropic', configured: true, source: 'stored', removable: true })
+        expect.objectContaining({
+          providerId: 'anthropic',
+          configured: true,
+          source: 'stored',
+          removable: true
+        })
       )
       expect(JSON.stringify(authStatus)).not.toContain('sk-secret')
       expect(statSync(join(agentDir, 'auth.json')).mode & 0o777).toBe(0o600)

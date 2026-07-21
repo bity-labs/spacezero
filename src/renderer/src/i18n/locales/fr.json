@@ -86,6 +86,8 @@
       "description": "Enregistrez un dossier existant ou créez un nouvel espace de projet.",
       "saveError": "Impossible de créer le projet.",
       "folderError": "Impossible d'ajouter le dossier.",
+      "folderNotGit": "Choisissez un dépôt Git. Les dossiers ordinaires ne peuvent pas démarrer de sessions isolées.",
+      "folderNoCommits": "Choisissez un dépôt Git contenant au moins un commit avant de l’ajouter.",
       "empty": {
         "title": "Projet vide",
         "description": "Créer un dossier local vide pour le projet.",
@@ -100,9 +102,8 @@
         "choose": "Choisir un dossier"
       },
       "git": {
-        "title": "URL du dépôt Git",
-        "description": "Cloner ou lier l'URL d'un dépôt distant.",
-        "comingSoon": "Bientôt disponible"
+        "title": "Dépôt GitHub",
+        "description": "Cloner un dépôt autorisé via GitHub."
       }
     },
     "edit": {
@@ -111,7 +112,8 @@
       "action": "Modifier {{name}}",
       "nameLabel": "Nom du projet",
       "pathLabel": "Chemin du projet",
-      "saveError": "Impossible de mettre à jour le projet."
+      "saveError": "Impossible de mettre à jour le projet.",
+      "pathBlockedByManagedSessions": "Supprimez les sessions gérées de ce projet avant de modifier le chemin du dépôt. Vous pouvez toujours renommer le projet."
     }
   },
   "appCommands": {
@@ -184,6 +186,7 @@
       "placeholder": "Rechercher dans les paramètres"
     },
     "navigation": {
+      "account": "Compte",
       "general": "Général",
       "profile": "Profil",
       "appearance": "Apparence",

@@ -6,23 +6,33 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
 import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
+import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
+import { createSessionCleanupService } from '../../sessions/main/session-cleanup.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import { createEmptyProjectRequestSchema, updateProjectRequestSchema } from '../shared'
+import { archiveProjectLifecycle, deleteProjectLifecycle } from './project-lifecycle-orchestration'
 import { createProjectPathAdapter } from './project-path.adapter'
 import { createProjectsRepository } from './projects.repository'
 import { createProjectsService } from './projects.service'
 
 const projectIdRequestSchema = z.object({ projectId: z.string().trim().min(1) })
 
+const sessionsRepository = createSessionsRepository()
 const projectsService = createProjectsService({
   repository: createProjectsRepository(),
   pathAdapter: createProjectPathAdapter(),
-  linkKnowledgeBaseProject: (project) =>
-    getKnowledgeBaseProjectsService().linkProject(project)
+  linkKnowledgeBaseProject: (project) => getKnowledgeBaseProjectsService().linkProject(project),
+  hasManagedSessions: (projectId) => sessionsRepository.hasManagedSessions(projectId)
 })
 
-const sessionsService = createSessionsService({
-  repository: createSessionsRepository()
+const sessionsService = createSessionsService({ repository: sessionsRepository })
+const sessionCleanupService = createSessionCleanupService({
+  repository: sessionsRepository,
+  worktrees: {
+    remove: (request) => getManagedWorktreeService().remove(request)
+  },
+  deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
+  removeTranscript: (path) => rm(path, { force: true })
 })
 
 export function registerProjectsIpc(): void {
@@ -36,27 +46,14 @@ export function registerProjectsIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.projects.archive, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
-    const sessions = await sessionsService.archiveProjectSessions(projectId)
-    await projectsService.archiveProject(projectId)
-    await stopUtilitySessions(sessions.map((session) => session.id))
+    await archiveProjectLifecycle(projectId, {
+      sessionsService,
+      projectsService,
+      deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request)
+    })
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
-    const sessions = await sessionsService.deleteProjectSessions(projectId)
-    await projectsService.deleteProject(projectId)
-    await stopUtilitySessions(sessions.map((session) => session.id))
-    await Promise.all(
-      sessions.map((session) =>
-        session.transcriptPath ? rm(session.transcriptPath, { force: true }).catch(() => undefined) : undefined
-      )
-    )
+    await deleteProjectLifecycle(projectId, { sessionCleanupService, projectsService })
   })
-}
-
-async function stopUtilitySessions(sessionIds: string[]): Promise<void> {
-  await Promise.all(
-    sessionIds.map((sessionId) =>
-      getAgentUtilityProcessHost().deleteSession({ sessionId }).catch(() => undefined)
-    )
-  )
 }

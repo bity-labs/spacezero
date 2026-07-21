@@ -125,6 +125,203 @@ beforeEach(async () => {
       openFolder: async () => undefined,
       openRemote: async () => undefined
     },
+    onboarding: {
+      getStatus: async () => ({ completed: true }),
+      complete: async () => ({ completed: true })
+    },
+    github: {
+      getConnection: async () => ({ status: 'disconnected' }),
+      refreshConnection: async () => ({ status: 'disconnected' }),
+      startAuthorization: async () => ({
+        flowId: 'github-flow-test',
+        userCode: 'TEST-CODE',
+        verificationUri: 'https://github.com/login/device',
+        expiresAt: new Date(Date.now() + 900_000).toISOString()
+      }),
+      waitForAuthorization: async () => ({ status: 'disconnected' }),
+      cancelAuthorization: async () => undefined,
+      openAuthorization: async () => undefined,
+      copyDeviceCode: async () => undefined,
+      openInstallation: async () => undefined,
+      openManageAccess: async () => undefined,
+      disconnect: async () => undefined,
+      listAuthorizedRepositories: async () => [],
+      getProjectLinkOptions: async () => ({
+        repositories: [],
+        suggestedRepositoryIds: [],
+        ambiguous: false
+      }),
+      linkProjectRepository: async ({ projectId }) => ({
+        id: projectId,
+        name: 'Linked Project',
+        path: '/tmp/linked-project',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }),
+      getProjectRepository: async () => {
+        throw new Error('github.projectNotLinked')
+      },
+      listRepositorySetupOptions: async () => [],
+      startClone: async () => ({ status: 'started', operationId: 'clone-test' }),
+      cancelClone: async () => undefined,
+      onCloneProgress: () => () => undefined,
+      listIssues: async (request) => ({ items: [], page: request.page, hasNextPage: false }),
+      getIssue: async (request) => ({
+        number: request.number,
+        title: 'Issue',
+        body: null,
+        state: 'open',
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}`,
+        author: null,
+        labels: [],
+        assignees: [],
+        commentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      listIssueComments: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      createIssueComment: async (request) => ({
+        id: 'comment-1',
+        body: request.body,
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}#comment-1`,
+        author: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      updateIssueState: async (request) => ({
+        number: request.number,
+        title: 'Issue',
+        body: null,
+        state: request.state,
+        htmlUrl: `https://github.com/example/repository/issues/${request.number}`,
+        author: null,
+        labels: [],
+        assignees: [],
+        commentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      listPullRequests: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      getPullRequest: async (request) => ({
+        number: request.number,
+        title: 'Pull Request',
+        body: null,
+        state: 'open',
+        isDraft: false,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}`,
+        author: null,
+        baseBranch: 'main',
+        headBranch: 'feature',
+        commitCount: 0,
+        conversationCommentCount: 0,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      listPullRequestComments: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestCommits: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestFiles: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestCheckRuns: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestCommitStatuses: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      listPullRequestReviews: async (request) => ({
+        items: [],
+        page: request.page,
+        hasNextPage: false
+      }),
+      createPullRequestComment: async (request) => ({
+        id: 'comment-1',
+        body: request.body,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}#comment-1`,
+        author: null,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      createPullRequestReview: async (request) => ({
+        id: 'review-1',
+        state: request.event === 'APPROVE' ? 'approved' : 'changes_requested',
+        body: request.body ?? null,
+        htmlUrl: `https://github.com/example/repository/pull/${request.number}#review-1`,
+        author: null,
+        submittedAt: new Date(0).toISOString()
+      }),
+      startIssueSession: async (request) => ({
+        id: 'issue-session-1',
+        kind: 'project',
+        projectId: request.projectId,
+        title: `Issue #${request.number}: Issue`,
+        status: 'idle',
+        worktree: {
+          path: `/tmp/SpaceZero/worktrees/${request.projectId}/issue-session-1`,
+          branch: `spacezero/issue-${request.number}-issue-session-1`,
+          baseRevision: 'abc123'
+        },
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'example',
+          repositoryName: 'repository',
+          repositoryFullName: 'example/repository',
+          number: request.number,
+          url: `https://github.com/example/repository/issues/${request.number}`,
+          title: 'Issue'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      startPullRequestSession: async (request) => ({
+        id: 'pull-request-session-1',
+        kind: 'project',
+        projectId: request.projectId,
+        title: `Pull Request #${request.number}: Pull Request`,
+        status: 'idle',
+        worktree: {
+          path: `/tmp/SpaceZero/worktrees/${request.projectId}/pull-request-session-1`,
+          branch: `spacezero/pull-request-${request.number}-pull-request-session-1`,
+          baseRevision: 'def456'
+        },
+        source: {
+          type: 'pull-request',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'example',
+          repositoryName: 'repository',
+          repositoryFullName: 'example/repository',
+          number: request.number,
+          url: `https://github.com/example/repository/pull/${request.number}`,
+          title: 'Pull Request'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      })
+    },
     projects: {
       list: async () => [],
       createEmpty: async ({ name }) => ({
@@ -230,7 +427,10 @@ beforeEach(async () => {
       }),
       getAuthStatus: async () => ({
         subscriptions: { connected: [], availableProviders: [] },
-        apiKeys: { configured: [], availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }] }
+        apiKeys: {
+          configured: [],
+          availableProviders: [{ providerId: 'anthropic', label: 'Anthropic' }]
+        }
       }),
       getAvailableModels: async () => [],
       setModel: async ({ sessionId }) => ({
@@ -282,11 +482,13 @@ beforeEach(async () => {
       }),
       getStorageSettings: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
-        projectsPath: '/tmp/SpaceZero/projects'
+        projectsPath: '/tmp/SpaceZero/projects',
+        worktreesPath: '/tmp/SpaceZero/worktrees'
       }),
       chooseSpaceZeroHome: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
-        projectsPath: '/tmp/SpaceZero/projects'
+        projectsPath: '/tmp/SpaceZero/projects',
+        worktreesPath: '/tmp/SpaceZero/worktrees'
       }),
       getModelDefaults: async () => ({ defaultThinking: 'medium' }),
       updateModelDefaults: async (request) => ({
