@@ -9,14 +9,12 @@ import { cn } from '@renderer/lib/utils'
 import { useUiLayoutStore } from '@renderer/stores/ui-layout-store'
 
 type AppSidebarProps = React.ComponentProps<'aside'> & {
-  side?: 'left' | 'right'
   header?: React.ReactNode
   footer?: React.ReactNode
   contentClassName?: string
 }
 
 function AppSidebar({
-  side = 'left',
   header,
   footer,
   className,
@@ -25,23 +23,22 @@ function AppSidebar({
   ...props
 }: AppSidebarProps): React.JSX.Element {
   const isLeftSidebarOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
-  const isRightSidebarOpen = useUiLayoutStore((state) => state.isRightSidebarOpen)
   const setLeftSidebarOpen = useUiLayoutStore((state) => state.setLeftSidebarOpen)
-  const setRightSidebarOpen = useUiLayoutStore((state) => state.setRightSidebarOpen)
-  const isOpen = side === 'left' ? isLeftSidebarOpen : isRightSidebarOpen
-  const setOpen = side === 'left' ? setLeftSidebarOpen : setRightSidebarOpen
 
   return (
     <aside
       className={cn(
-        'flex min-h-0 min-w-0 overflow-hidden flex-col bg-sidebar text-sidebar-foreground',
-        side === 'left' ? 'border-r border-sidebar-border' : 'border-l border-sidebar-border',
+        'flex min-h-0 min-w-0 overflow-hidden flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground',
         className
       )}
       {...props}
     >
-      <SidebarProvider className="min-h-0 w-full flex-1 overflow-hidden" open={isOpen} onOpenChange={setOpen}>
-        <Sidebar collapsible="none" side={side} className="min-h-0 w-full flex-1 overflow-hidden">
+      <SidebarProvider
+        className="min-h-0 w-full flex-1 overflow-hidden"
+        open={isLeftSidebarOpen}
+        onOpenChange={setLeftSidebarOpen}
+      >
+        <Sidebar collapsible="none" side="left" className="min-h-0 w-full flex-1 overflow-hidden">
           {header ? <SidebarHeader>{header}</SidebarHeader> : null}
           <SidebarContent className={cn('px-2 pb-3', contentClassName)}>{children}</SidebarContent>
           {footer ? (

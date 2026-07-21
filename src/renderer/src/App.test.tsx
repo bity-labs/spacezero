@@ -167,7 +167,9 @@ describe('App', () => {
     expect(await screen.findByRole('banner')).toBeInTheDocument()
     expect(screen.getByRole('complementary', { name: 'Left panel' })).toBeInTheDocument()
     expect(screen.getByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Right panel' })).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
+    expect(screen.queryByText('Right panel')).not.toBeInTheDocument()
     expect(screen.queryByText('Desktop foundation')).not.toBeInTheDocument()
   })
 
@@ -190,17 +192,16 @@ describe('App', () => {
     expect(screen.queryByText('Guest')).not.toBeInTheDocument()
   })
 
-  it('toggles the side columns from the top bar corner buttons', async () => {
+  it('toggles the left column and cannot open an empty Tool Pane', async () => {
     render(<App />)
 
     const topBar = await screen.findByRole('banner')
     fireEvent.click(within(topBar).getByRole('button', { name: 'Hide left panel' }))
-    fireEvent.click(within(topBar).getByRole('button', { name: 'Hide right panel' }))
 
     expect(screen.queryByRole('complementary', { name: 'Left panel' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('complementary', { name: 'Right panel' })).not.toBeInTheDocument()
     expect(within(topBar).getByRole('button', { name: 'Show left panel' })).toBeInTheDocument()
-    expect(within(topBar).getByRole('button', { name: 'Show right panel' })).toBeInTheDocument()
+    expect(within(topBar).getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
+    expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
   })
 
   it('does not render a theme toggle in the titlebar', async () => {
@@ -211,7 +212,7 @@ describe('App', () => {
       within(topBar)
         .getAllByRole('button')
         .map((button) => button.getAttribute('aria-label'))
-    ).toEqual(['Hide left panel', 'Open command palette', 'Hide right panel'])
+    ).toEqual(['Hide left panel', 'Open command palette', 'Toggle Tool Pane'])
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
@@ -228,6 +229,30 @@ describe('App', () => {
     expect(
       await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
     ).toBeInTheDocument()
+    expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
+  })
+
+  it('shows the full disabled Tool Switcher only for a configured Knowledge Base', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+
+    render(<App />)
+    fireEvent.click(
+      within(await screen.findByRole('menu', { name: 'Workspace navigation' })).getByRole(
+        'button',
+        { name: 'Knowledge Base' }
+      )
+    )
+
+    expect(await screen.findByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical'
+    )
+    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+      expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
+    }
   })
 
   it('blocks top-level navigation when a pending Knowledge Base save fails', async () => {
@@ -770,6 +795,9 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'Space ZeroSession 1'
     )
+    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+      expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
+    }
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
@@ -916,6 +944,15 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'WorkspaceWorkspace Session 1'
     )
+    expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical'
+    )
+    expect(screen.getByRole('button', { name: 'Browser — Coming soon' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Terminal — Coming soon' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /Files/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Git —/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
   })
 
   it('opens a global Workspace Session without selecting a project', async () => {
@@ -995,21 +1032,18 @@ describe('App', () => {
     expect(screen.queryByText('/Users/tiby/ws/dev/spacezero-desktop')).not.toBeInTheDocument()
   })
 
-  it('supports keyboard resizing for side columns', async () => {
+  it('supports keyboard resizing for the left column', async () => {
     render(<App />)
 
     await screen.findByRole('banner')
     const leftResize = screen.getByRole('separator', { name: 'Resize left panel' })
-    const rightResize = screen.getByRole('separator', { name: 'Resize right panel' })
 
     expect(leftResize).toHaveAttribute('aria-valuenow', '280')
-    expect(rightResize).toHaveAttribute('aria-valuenow', '320')
 
     fireEvent.keyDown(leftResize, { key: 'ArrowRight' })
-    fireEvent.keyDown(rightResize, { key: 'ArrowLeft' })
 
     expect(leftResize).toHaveAttribute('aria-valuenow', '304')
-    expect(rightResize).toHaveAttribute('aria-valuenow', '344')
+    expect(screen.queryByRole('separator', { name: 'Resize Tool Pane' })).not.toBeInTheDocument()
   })
 
   it('keeps the left sidebar width in sync between workspace and Settings', async () => {
@@ -1511,10 +1545,11 @@ describe('App', () => {
     fireEvent.click(within(topBar).getByRole('button', { name: 'Open command palette' }))
 
     const input = await screen.findByRole('combobox', { name: 'Search commands' })
-    fireEvent.change(input, { target: { value: 'right panel' } })
+    fireEvent.change(input, { target: { value: 'tool pane' } })
+    expect(screen.getByText('Toggle Tool Pane')).toBeInTheDocument()
     fireEvent.keyDown(input, { key: 'Enter' })
 
-    expect(screen.queryByRole('complementary', { name: 'Right panel' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
     )
