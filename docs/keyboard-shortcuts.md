@@ -104,4 +104,4 @@ Future settings UI can persist these overrides and replay them on app start.
 | Command ID | Default keybinding | Behavior |
 | --- | --- | --- |
 | `workspace.toggle-left-panel` | `mod+b` | Toggle the left sidebar |
-| `workspace.toggle-right-panel` | `mod+shift+b` | Toggle the right sidebar |
+| `workspace.toggle-tool-pane` | `mod+shift+b` | Toggle Tool Pane |
