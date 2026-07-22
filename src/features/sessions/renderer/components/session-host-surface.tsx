@@ -5,11 +5,11 @@ import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
-import {
-  type AiChatMessage,
-  type AiChatToolCallPart
-} from '@renderer/components/ai-chat'
+import { type AiChatMessage, type AiChatToolCallPart } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
+import { Alert, AlertDescription } from '@renderer/components/ui/alert'
+import { Button } from '@renderer/components/ui/button'
+import { Card } from '@renderer/components/ui/card'
 
 type ProjectSessionHostSurfaceProps = {
   project: Project
@@ -18,6 +18,9 @@ type ProjectSessionHostSurfaceProps = {
 
 type WorkspaceSessionHostSurfaceProps = {
   session: WorkspaceSession
+  placeholder?: string
+  emptyState?: string
+  requireRuntimeReady?: boolean
 }
 
 export function ProjectSessionHostSurface({
@@ -45,9 +48,41 @@ export function ProjectSessionHostSurface({
 }
 
 export function WorkspaceSessionHostSurface({
-  session
+  session,
+  placeholder = 'Ask about Space Zero…',
+  emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.',
+  requireRuntimeReady = false
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
+
+  if (requireRuntimeReady && agentSession.runtimeReadiness === 'loading') {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        Restoring agent Session…
+      </div>
+    )
+  }
+
+  if (requireRuntimeReady && agentSession.runtimeReadiness === 'error') {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8">
+        <Card className="w-full max-w-lg gap-4 p-6">
+          <Alert variant="destructive">
+            <AlertDescription>
+              Unable to restore the agent Session: {agentSession.restoreError}
+            </AlertDescription>
+          </Alert>
+          <p className="text-sm text-muted-foreground">
+            Retry when the agent runtime is available. Chat remains unavailable until the Session
+            is restored.
+          </p>
+          <Button className="self-end" onClick={agentSession.retryRestore}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <SessionHostFrame
@@ -56,13 +91,13 @@ export function WorkspaceSessionHostSurface({
       messages={agentSession.messages}
       error={agentSession.lastError ?? null}
       sessionState={agentSession.sessionState}
-      placeholder="Ask about Space Zero…"
+      placeholder={placeholder}
       onSubmit={(text) => void agentSession.prompt(text)}
       onAbort={() => void agentSession.abort()}
       onToolConfirmationResolve={(callId, approved) =>
         void agentSession.resolveToolConfirmation(callId, approved)
       }
-      emptyState="Ask the workspace agent about Space Zero. Streamed replies appear here."
+      emptyState={emptyState}
     />
   )
 }
@@ -109,7 +144,9 @@ function SessionHostFrame({
         messages={projectedMessages}
         sessionState={sessionState}
         status={status}
-        emptyState={emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined}
+        emptyState={
+          emptyState ? <p className="text-sm text-muted-foreground">{emptyState}</p> : undefined
+        }
         contentClassName="w-full px-6 pb-48 pt-12"
         placeholder={placeholder}
         onSubmit={onSubmit}
@@ -120,7 +157,10 @@ function SessionHostFrame({
   )
 }
 
-function useToolExecutionMessages(sessionId: string, baseMessages: AiChatMessage[]): AiChatMessage[] {
+function useToolExecutionMessages(
+  sessionId: string,
+  baseMessages: AiChatMessage[]
+): AiChatMessage[] {
   const [toolExecutionState, setToolExecutionState] = useState<{
     sessionId: string
     toolCalls: AiChatToolCallPart[]
@@ -146,7 +186,9 @@ function useToolExecutionMessages(sessionId: string, baseMessages: AiChatMessage
       {
         id: `${sessionId}-workspace-tool-executions`,
         role: 'assistant',
-        status: toolCalls.some((toolCall) => toolCall.state === 'running') ? 'streaming' : 'complete',
+        status: toolCalls.some((toolCall) => toolCall.state === 'running')
+          ? 'streaming'
+          : 'complete',
         parts: toolCalls
       }
     ]
@@ -184,4 +226,3 @@ function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): A
     error: next.error ?? current.error
   }
 }
-

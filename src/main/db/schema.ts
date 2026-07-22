@@ -42,7 +42,8 @@ export const sessions = sqliteTable('sessions', {
   sourceNumber: integer('source_number'),
   sourceUrl: text('source_url'),
   sourceTitle: text('source_title'),
-  archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
+  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  managedContext: text('managed_context', { enum: ['knowledge-base'] })
 })
 
 export const appSettings = sqliteTable('app_settings', {

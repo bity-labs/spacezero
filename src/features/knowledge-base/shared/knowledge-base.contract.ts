@@ -1,3 +1,4 @@
+import type { WorkspaceSession } from '../../sessions/shared'
 import type {
   KnowledgeBaseDocument,
   KnowledgeBaseDocumentCheck,
@@ -12,6 +13,7 @@ import type {
 
 export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getStatus: 'knowledgeBase:getStatus',
+  getCurrentSession: 'knowledgeBase:getCurrentSession',
   reset: 'knowledgeBase:reset',
   createNew: 'knowledgeBase:createNew',
   cloneFromGit: 'knowledgeBase:cloneFromGit',
@@ -35,6 +37,7 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
 
 export type KnowledgeBaseAPI = {
   getStatus: () => Promise<KnowledgeBaseStatus>
+  getCurrentSession: () => Promise<WorkspaceSession>
   reset: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>
@@ -50,10 +53,7 @@ export type KnowledgeBaseAPI = {
     documentRelativePath: string
     markdownPath: string
   }) => Promise<KnowledgeBaseImagePreview>
-  createItem: (request: {
-    relativePath: string
-    kind: 'file' | 'folder'
-  }) => Promise<void>
+  createItem: (request: { relativePath: string; kind: 'file' | 'folder' }) => Promise<void>
   renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
   moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
   deleteItem: (request: { relativePath: string }) => Promise<void>

@@ -1000,6 +1000,36 @@ describe('restoreAgentSessionState', () => {
 })
 
 describe('createWorkspaceAgentSession', () => {
+  it('persists a Knowledge Base chat as a system-managed Workspace Session', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions'
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository()
+
+    await createWorkspaceAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-1',
+      readModelDefaults,
+      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    await expect(repository.findSessionById('knowledge-base-session-1')).resolves.toMatchObject({
+      projectId: null,
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+  })
+
   it('creates a utility session with app-owned cwd and persists projectId null', async () => {
     const utilityHost = {
       createSession: vi.fn(async () =>

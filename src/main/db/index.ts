@@ -51,7 +51,8 @@ export function migrateDatabase(database: Database.Database): void {
       source_number INTEGER,
       source_url TEXT,
       source_title TEXT,
-      archived_at INTEGER
+      archived_at INTEGER,
+      managed_context TEXT
     );
 
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -111,7 +112,8 @@ export function migrateDatabase(database: Database.Database): void {
     ['source_number', 'INTEGER'],
     ['source_url', 'TEXT'],
     ['source_title', 'TEXT'],
-    ['archived_at', 'INTEGER']
+    ['archived_at', 'INTEGER'],
+    ['managed_context', 'TEXT']
   ] as const
   for (const [column, type] of sessionMigrations) {
     if (!sessionColumns.some((existing) => existing.name === column)) {

@@ -14,6 +14,7 @@ import {
   saveKnowledgeBaseDocumentRequestSchema,
   searchKnowledgeBaseRequestSchema
 } from '../shared'
+import { getKnowledgeBaseChatService } from './knowledge-base-chat.runtime'
 import {
   getKnowledgeBaseProjectsService,
   getKnowledgeBaseService,
@@ -21,8 +22,9 @@ import {
 } from './index'
 
 export function registerKnowledgeBaseIpc(): void {
-  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getStatus, () =>
-    getKnowledgeBaseService().getStatus()
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getStatus, () => getKnowledgeBaseService().getStatus())
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getCurrentSession, () =>
+    getKnowledgeBaseChatService().getOrCreateCurrentSession()
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
     await getKnowledgeBaseProjectsService().clearProjectLinks()
@@ -40,9 +42,7 @@ export function registerKnowledgeBaseIpc(): void {
     const links = await getKnowledgeBaseProjectsService().linkExistingProjects()
     return links.warning ? { ...status, setupWarning: links.warning } : status
   })
-  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getTree, () =>
-    getKnowledgeBaseService().getTree()
-  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getTree, () => getKnowledgeBaseService().getTree())
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.openDocument, (_event, input: unknown) =>
     getKnowledgeBaseService().openDocument(knowledgeBasePathRequestSchema.parse(input))
   )

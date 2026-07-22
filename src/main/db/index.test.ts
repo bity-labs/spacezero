@@ -57,5 +57,6 @@ describe('database migrations', () => {
       'ALTER TABLE sessions ADD COLUMN source_repository_id TEXT'
     )
     expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN source_number INTEGER')
+    expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN managed_context TEXT')
   })
 })
