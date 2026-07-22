@@ -1,5 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import {
+  ToolPaneShell,
+  useToolPaneStore,
+  type ToolDescriptor
+} from '../../tool-pane/renderer'
 import { KnowledgeBasePage } from './knowledge-base-page'
 
 const managedSession = {
@@ -48,6 +54,80 @@ describe('KnowledgeBasePage', () => {
     await waitFor(() =>
       expect(getState).toHaveBeenCalledWith({ sessionId: replacementSession.id })
     )
+  })
+
+  it('preserves Tool Pane and tool-owned state across chat rotation and layout across restart', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const replacementSession = { ...managedSession, id: 'knowledge-base-session-2' }
+    let currentSession = managedSession
+    window.spacezero.knowledgeBase.getCurrentSession = async () => currentSession
+    window.spacezero.knowledgeBase.startNewChat = async () => {
+      currentSession = replacementSession
+      return replacementSession
+    }
+    const getState = vi.spyOn(window.spacezero.agent, 'getState')
+    useToolPaneStore.setState({
+      contexts: {
+        'knowledge-base': { isOpen: true, width: 640, activeToolId: 'browser' }
+      }
+    })
+
+    const tools: readonly ToolDescriptor[] = [
+      {
+        id: 'browser',
+        label: 'Browser',
+        available: true,
+        icon: () => null,
+        render: () => <TestKnowledgeBaseTool />
+      }
+    ]
+    const renderKnowledgeBase = () =>
+      render(
+        <ToolPaneShell
+          contextKey="knowledge-base"
+          capabilities={{ kind: 'knowledge-base' }}
+          defaultToolId="browser"
+          tools={tools}
+        >
+          <KnowledgeBasePage />
+        </ToolPaneShell>
+      )
+
+    const firstRender = renderKnowledgeBase()
+    const toolDraft = await screen.findByRole('textbox', { name: 'Browser draft' })
+    fireEvent.change(toolDraft, { target: { value: 'preserved tool draft' } })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+
+    await waitFor(() =>
+      expect(getState).toHaveBeenCalledWith({
+        sessionId: replacementSession.id
+      })
+    )
+    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toHaveStyle({ width: '640px' })
+    expect(screen.getByRole('button', { name: 'Browser' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('textbox', { name: 'Browser draft' })).toHaveValue(
+      'preserved tool draft'
+    )
+
+    const persistedLayout = window.localStorage.getItem('spacezero.toolPane')
+    expect(persistedLayout).not.toBeNull()
+    firstRender.unmount()
+    useToolPaneStore.setState({ contexts: {} })
+    window.localStorage.setItem('spacezero.toolPane', persistedLayout!)
+    await act(async () => {
+      await useToolPaneStore.persist.rehydrate()
+    })
+
+    renderKnowledgeBase()
+
+    expect(await screen.findByRole('complementary', { name: 'Tool Pane' })).toHaveStyle({
+      width: '640px'
+    })
+    expect(screen.getByRole('button', { name: 'Browser' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('keeps the previous chat available and shows an actionable replacement failure', async () => {
@@ -165,3 +245,17 @@ describe('KnowledgeBasePage', () => {
     )
   })
 })
+
+function TestKnowledgeBaseTool(): React.JSX.Element {
+  const [draft, setDraft] = useState('')
+  return (
+    <label>
+      Browser draft
+      <input
+        aria-label="Browser draft"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+      />
+    </label>
+  )
+}
