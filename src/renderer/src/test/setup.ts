@@ -69,6 +69,14 @@ beforeEach(async () => {
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),
+      getCurrentSession: async () => ({
+        id: 'knowledge-base-session-test',
+        kind: 'workspace',
+        title: 'Knowledge Base Chat',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
       reset: async () => ({ setupState: 'unconfigured' }),
       createNew: async () => ({
         setupState: 'configured',
