@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 
 import type { AiChatMessage } from '@renderer/components/ai-chat'
 
@@ -17,6 +17,9 @@ export type UseAgentSessionResult = {
   sessionState: AgentSessionState | undefined
   status: 'idle' | 'running'
   lastError: string | undefined
+  runtimeReadiness: 'loading' | 'ready' | 'error'
+  restoreError: string | undefined
+  retryRestore: () => void
   prompt: (message: string) => Promise<void>
   abort: () => Promise<void>
   resolveToolConfirmation: (callId: string, approved: boolean) => Promise<void>
@@ -25,19 +28,26 @@ export type UseAgentSessionResult = {
 type HookState = {
   projection: AgentSessionProjectionState
   sessionState: AgentSessionState | undefined
+  runtimeReadiness: 'loading' | 'ready' | 'error'
+  restoreError: string | undefined
 }
 
 type HookAction =
   | { type: 'session-changed'; sessionId: AgentSessionId }
   | { type: 'projection-event'; event: AgentSessionProjectionEvent }
+  | { type: 'session-state-loading' }
   | { type: 'session-state-loaded'; sessionState: AgentSessionState }
-  | { type: 'load-failed'; error: string }
+  | { type: 'session-state-load-failed'; error: string }
+  | { type: 'prompt-failed'; error: string }
 
 export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResult {
-  const [state, dispatch] = useReducer(hookReducer, sessionId, (id) => ({
+  const [state, dispatch] = useReducer(hookReducer, sessionId, (id): HookState => ({
     projection: createAgentSessionProjectionState(id),
-    sessionState: undefined
+    sessionState: undefined,
+    runtimeReadiness: 'loading',
+    restoreError: undefined
   }))
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
 
   useEffect(() => {
     dispatch({ type: 'session-changed', sessionId })
@@ -45,6 +55,7 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
 
   useEffect(() => {
     let cancelled = false
+    dispatch({ type: 'session-state-loading' })
 
     void window.spacezero.agent
       .getState({ sessionId })
@@ -54,7 +65,7 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
       .catch((error: unknown) => {
         if (!cancelled) {
           dispatch({
-            type: 'load-failed',
+            type: 'session-state-load-failed',
             error: error instanceof Error ? error.message : String(error)
           })
         }
@@ -63,7 +74,7 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     return () => {
       cancelled = true
     }
-  }, [sessionId])
+  }, [restoreAttempt, sessionId])
 
   useEffect(() => {
     return window.spacezero.agent.onSessionProjectionEvent((event) => {
@@ -80,7 +91,10 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
       try {
         await window.spacezero.agent.prompt({ sessionId, message: text })
       } catch (error) {
-        dispatch({ type: 'load-failed', error: error instanceof Error ? error.message : String(error) })
+        dispatch({
+          type: 'prompt-failed',
+          error: error instanceof Error ? error.message : String(error)
+        })
       }
     },
     [sessionId]
@@ -95,7 +109,9 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
 
     return {
       projection: createAgentSessionProjectionState(sessionId),
-      sessionState: undefined
+      sessionState: undefined,
+      runtimeReadiness: 'loading',
+      restoreError: undefined
     }
   }, [state, sessionId])
 
@@ -110,6 +126,9 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     sessionState: effectiveState.sessionState,
     status: effectiveState.projection.status,
     lastError: effectiveState.projection.lastError,
+    runtimeReadiness: effectiveState.runtimeReadiness,
+    restoreError: effectiveState.restoreError,
+    retryRestore: () => setRestoreAttempt((attempt) => attempt + 1),
     prompt,
     abort,
     resolveToolConfirmation: (callId, approved) =>
@@ -123,12 +142,24 @@ function hookReducer(state: HookState, action: HookAction): HookState {
       if (state.projection.sessionId === action.sessionId) return state
       return {
         projection: createAgentSessionProjectionState(action.sessionId),
-        sessionState: undefined
+        sessionState: undefined,
+        runtimeReadiness: 'loading',
+        restoreError: undefined
       }
     case 'projection-event':
       return {
         ...state,
         projection: reduceAgentSessionProjectionState(state.projection, action.event)
+      }
+    case 'session-state-loading':
+      return {
+        ...state,
+        runtimeReadiness: 'loading',
+        restoreError: undefined,
+        projection: {
+          ...state.projection,
+          lastError: undefined
+        }
       }
     case 'session-state-loaded': {
       if (action.sessionState.sessionId !== state.projection.sessionId) return state
@@ -151,10 +182,22 @@ function hookReducer(state: HookState, action: HookAction): HookState {
       return {
         ...state,
         sessionState: action.sessionState,
+        runtimeReadiness: 'ready',
+        restoreError: undefined,
         projection
       }
     }
-    case 'load-failed':
+    case 'session-state-load-failed':
+      return {
+        ...state,
+        runtimeReadiness: 'error',
+        restoreError: action.error,
+        projection: {
+          ...state.projection,
+          lastError: action.error
+        }
+      }
+    case 'prompt-failed':
       return {
         ...state,
         projection: {

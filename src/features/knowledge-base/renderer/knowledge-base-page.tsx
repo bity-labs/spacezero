@@ -276,6 +276,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
       ) : null}
       <WorkspaceSessionHostSurface
         session={session}
+        requireRuntimeReady
         placeholder="Ask about your Knowledge Base…"
         emptyState="Ask the workspace agent about your Knowledge Base. Streamed replies appear here."
       />

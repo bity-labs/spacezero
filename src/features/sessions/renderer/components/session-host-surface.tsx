@@ -7,6 +7,9 @@ import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { type AiChatMessage, type AiChatToolCallPart } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
+import { Alert, AlertDescription } from '@renderer/components/ui/alert'
+import { Button } from '@renderer/components/ui/button'
+import { Card } from '@renderer/components/ui/card'
 
 type ProjectSessionHostSurfaceProps = {
   project: Project
@@ -17,6 +20,7 @@ type WorkspaceSessionHostSurfaceProps = {
   session: WorkspaceSession
   placeholder?: string
   emptyState?: string
+  requireRuntimeReady?: boolean
 }
 
 export function ProjectSessionHostSurface({
@@ -46,9 +50,39 @@ export function ProjectSessionHostSurface({
 export function WorkspaceSessionHostSurface({
   session,
   placeholder = 'Ask about Space Zero…',
-  emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.'
+  emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.',
+  requireRuntimeReady = false
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
+
+  if (requireRuntimeReady && agentSession.runtimeReadiness === 'loading') {
+    return (
+      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+        Restoring agent Session…
+      </div>
+    )
+  }
+
+  if (requireRuntimeReady && agentSession.runtimeReadiness === 'error') {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8">
+        <Card className="w-full max-w-lg gap-4 p-6">
+          <Alert variant="destructive">
+            <AlertDescription>
+              Unable to restore the agent Session: {agentSession.restoreError}
+            </AlertDescription>
+          </Alert>
+          <p className="text-sm text-muted-foreground">
+            Retry when the agent runtime is available. Chat remains unavailable until the Session
+            is restored.
+          </p>
+          <Button className="self-end" onClick={agentSession.retryRestore}>
+            Retry
+          </Button>
+        </Card>
+      </div>
+    )
+  }
 
   return (
     <SessionHostFrame
