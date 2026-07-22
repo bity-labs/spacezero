@@ -77,6 +77,37 @@ describe('KnowledgeBasePage', () => {
     expect(getCurrentSession).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps runtime restoration failures retryable without exposing an unusable composer', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    const getState = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Utility session restore failed'))
+      .mockResolvedValueOnce({
+        sessionId: managedSession.id,
+        kind: 'workspace',
+        projectId: null,
+        cwd: '/home/builder/SpaceZero/knowledge-base',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/tmp/knowledge-base-session.jsonl'
+      })
+    window.spacezero.agent.getState = getState
+
+    render(<KnowledgeBasePage />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Utility session restore failed')
+    expect(screen.queryByRole('textbox', { name: 'Agent prompt' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
+    expect(getState).toHaveBeenCalledTimes(2)
+  })
+
   it('creates a new Knowledge Base and then opens its managed chat', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
     window.spacezero.knowledgeBase.createNew = async () => ({
