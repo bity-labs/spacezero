@@ -26,6 +26,9 @@ export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getCurrentSession, () =>
     getKnowledgeBaseChatService().getOrCreateCurrentSession()
   )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.startNewChat, () =>
+    getKnowledgeBaseChatService().startNewChat()
+  )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
     await getKnowledgeBaseProjectsService().clearProjectLinks()
     return getKnowledgeBaseService().reset()

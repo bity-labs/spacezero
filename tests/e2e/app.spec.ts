@@ -216,12 +216,39 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     }
     await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
 
+    const previousSessionId = await window.evaluate(() =>
+      window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+    )
+    await window.getByRole('button', { name: 'New chat' }).click()
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+        )
+      )
+      .not.toBe(previousSessionId)
+    const replacementSessionId = await window.evaluate(() =>
+      window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+    )
+    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+      'aria-orientation',
+      'vertical'
+    )
+
     await electronApp.close()
     electronApp = await launchKnowledgeBaseApp()
     window = await electronApp.firstWindow()
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect
+      .poll(() =>
+        window.evaluate(() =>
+          window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+        )
+      )
+      .toBe(replacementSessionId)
   } finally {
     await electronApp.close()
     await rm(temporaryDirectory, { recursive: true, force: true })

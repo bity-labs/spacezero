@@ -29,6 +29,47 @@ describe('KnowledgeBasePage', () => {
     expect(screen.queryByLabelText('Search Knowledge Base')).not.toBeInTheDocument()
   })
 
+  it('starts a fresh managed chat and shows the replacement Session', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const replacementSession = { ...managedSession, id: 'knowledge-base-session-2' }
+    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    const startNewChat = vi.fn(async () => replacementSession)
+    window.spacezero.knowledgeBase.startNewChat = startNewChat
+    const getState = vi.spyOn(window.spacezero.agent, 'getState')
+
+    render(<KnowledgeBasePage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+
+    await waitFor(() => expect(startNewChat).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(getState).toHaveBeenCalledWith({ sessionId: replacementSession.id })
+    )
+  })
+
+  it('keeps the previous chat available and shows an actionable replacement failure', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.knowledgeBase.startNewChat = async () => {
+      throw new Error('Agent runtime unavailable')
+    }
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Agent runtime unavailable Your previous chat is still current.'
+    )
+    expect(screen.getByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeEnabled()
+  })
+
   it('keeps unconfigured setup full-page', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
 
