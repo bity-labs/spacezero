@@ -61,6 +61,8 @@ export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
   'worktrees'
 > & {
   getWorkspaceSessionCwd?: () => string
+  title?: string
+  managedContext?: 'knowledge-base'
 }
 
 export type RestoreAgentSessionHandlerDependencies = {
@@ -356,6 +358,8 @@ export async function createWorkspaceAgentSession({
   createSessionId = nanoid,
   readModelDefaults = getModelDefaults,
   getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+  title,
+  managedContext,
   readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
   resolveSkillPaths
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
@@ -384,7 +388,9 @@ export async function createWorkspaceAgentSession({
       transcriptPath: state.transcriptPath,
       modelProvider: state.modelProvider,
       modelId: state.modelId,
-      thinkingLevel: state.thinkingLevel
+      thinkingLevel: state.thinkingLevel,
+      title,
+      managedContext
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)

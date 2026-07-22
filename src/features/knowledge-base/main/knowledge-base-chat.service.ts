@@ -1,0 +1,64 @@
+import type { WorkspaceSession } from '../../sessions/shared'
+import { toWorkspaceSession, type StoredSession } from '../../sessions/main/sessions.service'
+import type { KnowledgeBaseStatus } from '../shared'
+
+export type KnowledgeBaseChatService = {
+  getOrCreateCurrentSession: () => Promise<WorkspaceSession>
+}
+
+export function createKnowledgeBaseChatService({
+  getStatus,
+  getCurrentSessionId,
+  setCurrentSessionId,
+  clearCurrentSessionId,
+  findSessionById,
+  createSession,
+  deleteSession
+}: {
+  getStatus: () => Promise<KnowledgeBaseStatus>
+  getCurrentSessionId: () => Promise<string | undefined>
+  setCurrentSessionId: (sessionId: string) => Promise<void>
+  clearCurrentSessionId: () => Promise<void>
+  findSessionById: (sessionId: string) => Promise<StoredSession | undefined>
+  createSession: () => Promise<StoredSession>
+  deleteSession: (sessionId: string) => Promise<void>
+}): KnowledgeBaseChatService {
+  let pending: Promise<WorkspaceSession> | undefined
+
+  async function getOrCreate(): Promise<WorkspaceSession> {
+    const status = await getStatus()
+    if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
+
+    const currentSessionId = await getCurrentSessionId()
+    if (currentSessionId) {
+      const stored = await findSessionById(currentSessionId)
+      if (
+        stored &&
+        stored.projectId === null &&
+        stored.managedContext === 'knowledge-base' &&
+        !stored.archivedAt
+      ) {
+        return toWorkspaceSession(stored)
+      }
+      await clearCurrentSessionId()
+    }
+
+    const created = await createSession()
+    try {
+      await setCurrentSessionId(created.id)
+      return toWorkspaceSession(created)
+    } catch (error) {
+      await deleteSession(created.id).catch(() => undefined)
+      throw error
+    }
+  }
+
+  return {
+    getOrCreateCurrentSession() {
+      pending ??= getOrCreate().finally(() => {
+        pending = undefined
+      })
+      return pending
+    }
+  }
+}
