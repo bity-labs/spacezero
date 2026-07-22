@@ -3,6 +3,7 @@ import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
 import { resetSessionWorkspaceStore } from '../../../features/sessions/renderer'
+import { resetToolPaneStore } from '../../../features/tool-pane/renderer'
 import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
@@ -54,6 +55,7 @@ beforeEach(async () => {
   window.localStorage.clear()
   resetUiLayoutStore()
   resetSessionWorkspaceStore()
+  resetToolPaneStore()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 

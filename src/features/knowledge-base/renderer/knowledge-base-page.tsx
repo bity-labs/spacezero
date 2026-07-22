@@ -4,7 +4,8 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
-  useState
+  useState,
+  type ForwardedRef
 } from 'react'
 import {
   BookOpenText,
@@ -51,9 +52,13 @@ export type KnowledgeBasePageHandle = {
   hasPendingSave: () => boolean
 }
 
-export const KnowledgeBasePage = forwardRef<KnowledgeBasePageHandle>(function KnowledgeBasePage(
-  _props,
-  ref
+type KnowledgeBasePageProps = {
+  onConfiguredChange?: (configured: boolean) => void
+}
+
+export const KnowledgeBasePage = forwardRef(function KnowledgeBasePage(
+  { onConfiguredChange }: KnowledgeBasePageProps,
+  ref: ForwardedRef<KnowledgeBasePageHandle>
 ): React.JSX.Element {
   const [status, setStatus] = useState<KnowledgeBaseStatus | null>(null)
   const configuredKnowledgeBaseRef = useRef<KnowledgeBasePageHandle>(null)
@@ -88,6 +93,10 @@ export const KnowledgeBasePage = forwardRef<KnowledgeBasePageHandle>(function Kn
       current = false
     }
   }, [])
+
+  useEffect(() => {
+    if (status) onConfiguredChange?.(status.setupState === 'configured')
+  }, [onConfiguredChange, status?.setupState])
 
   async function reconnect(): Promise<void> {
     setRecovering(true)
