@@ -1,5 +1,5 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -177,35 +177,36 @@ test('composes simulated GitHub connection and one Project setup without network
   await electronApp.close()
 })
 
-test('sets up and edits a searchable Knowledge Base through the public desktop UI', async () => {
+test('opens a configured Knowledge Base as a persistent managed chat', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-kb-e2e-'))
   const knowledgeBasePath = join(temporaryDirectory, 'SpaceZero', 'knowledge-base')
-  const electronApp = await electron.launch({
-    executablePath: electronPath,
-    args: [
-      join(process.cwd(), 'out/main/index.js'),
-      `--user-data-dir=${join(temporaryDirectory, 'user-data')}`
-    ],
-    env: {
-      ...process.env,
-      SPACEZERO_KNOWLEDGE_BASE_PATH: knowledgeBasePath,
-      GIT_AUTHOR_NAME: 'Space Zero Test',
-      GIT_AUTHOR_EMAIL: 'spacezero@example.test',
-      GIT_COMMITTER_NAME: 'Space Zero Test',
-      GIT_COMMITTER_EMAIL: 'spacezero@example.test'
-    }
-  })
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const launchKnowledgeBaseApp = () =>
+    electron.launch({
+      executablePath: electronPath,
+      args: [join(process.cwd(), 'out/main/index.js'), `--user-data-dir=${userDataPath}`],
+      env: {
+        ...process.env,
+        SPACEZERO_KNOWLEDGE_BASE_PATH: knowledgeBasePath,
+        GIT_AUTHOR_NAME: 'Space Zero Test',
+        GIT_AUTHOR_EMAIL: 'spacezero@example.test',
+        GIT_COMMITTER_NAME: 'Space Zero Test',
+        GIT_COMMITTER_EMAIL: 'spacezero@example.test'
+      }
+    })
+  let electronApp = await launchKnowledgeBaseApp()
 
   try {
-    const window = await electronApp.firstWindow()
+    let window = await electronApp.firstWindow()
     await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toBeVisible()
     await window.getByRole('button', { name: 'Skip' }).click()
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByRole('heading', { name: 'Set up your Knowledge Base' })).toBeVisible()
 
     await window.getByRole('button', { name: 'Create new' }).click()
-    await expect(window.getByText(knowledgeBasePath)).toBeVisible()
-    await expect(window.getByRole('button', { name: 'AGENTS.md' })).toBeVisible()
+    await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
+    await expect(window.getByRole('tree', { name: 'Knowledge Base files' })).toHaveCount(0)
+    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
       'vertical'
@@ -215,46 +216,12 @@ test('sets up and edits a searchable Knowledge Base through the public desktop U
     }
     await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
 
-    await window.getByRole('button', { name: 'New file' }).click()
-    await window.getByRole('textbox', { name: 'File path' }).fill('notes.md')
-    await window.getByRole('button', { name: 'Create file' }).click()
-    await window.getByRole('button', { name: 'notes.md' }).click()
-
-    const image = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
-      'base64'
-    )
-    await window.getByLabel('Choose image').setInputFiles({
-      name: 'E2E Diagram.png',
-      mimeType: 'image/png',
-      buffer: image
-    })
-    await expect(window.getByRole('img', { name: 'E2E Diagram' })).toBeVisible()
-    await expect
-      .poll(() => readFile(join(knowledgeBasePath, 'assets', 'img', 'e2e-diagram.png')))
-      .toEqual(image)
-    await expect
-      .poll(() => readFile(join(knowledgeBasePath, 'notes.md'), 'utf8'))
-      .toContain('![E2E Diagram](assets/img/e2e-diagram.png)')
-
-    const sourceMode = window.getByRole('button', { name: 'Source' })
-    await sourceMode.click()
-
-    const editor = window.getByRole('textbox', { name: 'Edit notes.md' })
-    await editor.fill('# E2E Knowledge\n\nDurable smoke-test context.')
-    await expect
-      .poll(() => readFile(join(knowledgeBasePath, 'notes.md'), 'utf8'))
-      .toContain('Durable smoke-test context.')
-    await expect(sourceMode).toHaveAttribute('aria-pressed', 'true')
-
-    const searchInput = window.getByRole('textbox', { name: 'Search Knowledge Base' })
-    await searchInput.fill('Durable smoke-test')
-    await searchInput.press('Enter')
-    const searchResults = window.getByRole('region', {
-      name: 'Knowledge Base search results'
-    })
-    await expect(searchResults.getByText('Durable smoke-test context.')).toBeVisible()
-    await expect(searchResults.getByRole('button', { name: /notes\.md/ })).toBeVisible()
+    await electronApp.close()
+    electronApp = await launchKnowledgeBaseApp()
+    window = await electronApp.firstWindow()
+    await window.getByRole('button', { name: 'Knowledge Base' }).click()
+    await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
+    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
   } finally {
     await electronApp.close()
     await rm(temporaryDirectory, { recursive: true, force: true })

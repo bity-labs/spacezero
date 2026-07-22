@@ -1,8 +1,6 @@
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type KeyboardEvent,
   type PointerEvent
@@ -18,14 +16,10 @@ import {
   Sidebar,
   SquaresFour
 } from '@phosphor-icons/react'
-import { useBlocker } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
-import {
-  KnowledgeBasePage,
-  type KnowledgeBasePageHandle
-} from '../../features/knowledge-base/renderer'
+import { KnowledgeBasePage } from '../../features/knowledge-base/renderer'
 import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
@@ -102,7 +96,6 @@ export function WorkspaceShell(): React.JSX.Element {
     'workspace'
   )
   const [isKnowledgeBaseConfigured, setKnowledgeBaseConfigured] = useState(false)
-  const knowledgeBasePageRef = useRef<KnowledgeBasePageHandle>(null)
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -178,56 +171,10 @@ export function WorkspaceShell(): React.JSX.Element {
   }, [activePrimaryView, activeProjectSession, activeWorkspaceSession, isKnowledgeBaseConfigured])
   const toolPaneController = useToolPaneController(toolPaneConfiguration)
 
-  const runInWorkspaceView = useCallback(
-    (action: () => void | Promise<void>): void => {
-      const activate = (): void => {
-        setActivePrimaryView('workspace')
-        void action()
-      }
-
-      if (activePrimaryView !== 'knowledge-base') {
-        activate()
-        return
-      }
-
-      void knowledgeBasePageRef.current?.flushPendingSave().then((saved) => {
-        if (saved) activate()
-      })
-    },
-    [activePrimaryView]
-  )
-
-  const shouldBlockRouteNavigation = useCallback(async (): Promise<boolean> => {
-    if (activePrimaryView !== 'knowledge-base' || !knowledgeBasePageRef.current?.hasPendingSave()) {
-      return false
-    }
-    return !(await knowledgeBasePageRef.current.flushPendingSave())
-  }, [activePrimaryView])
-
-  useBlocker({
-    shouldBlockFn: shouldBlockRouteNavigation,
-    enableBeforeUnload: false
-  })
-
-  useEffect(() => {
-    function handleBeforeUnload(event: BeforeUnloadEvent): void {
-      if (
-        activePrimaryView !== 'knowledge-base' ||
-        !knowledgeBasePageRef.current?.hasPendingSave()
-      ) {
-        return
-      }
-
-      event.preventDefault()
-      event.returnValue = ''
-      void knowledgeBasePageRef.current.flushPendingSave().then((saved) => {
-        if (saved) window.close()
-      })
-    }
-
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [activePrimaryView])
+  const runInWorkspaceView = useCallback((action: () => void | Promise<void>): void => {
+    setActivePrimaryView('workspace')
+    void action()
+  }, [])
 
   const openWorkspaceSession = useCallback(
     (session: WorkspaceSession): void => {
@@ -286,11 +233,6 @@ export function WorkspaceShell(): React.JSX.Element {
   }
 
   async function handleNewSession(project: Project): Promise<void> {
-    if (activePrimaryView === 'knowledge-base') {
-      const saved = await knowledgeBasePageRef.current?.flushPendingSave()
-      if (!saved) throw new Error('workspace.pendingKnowledgeBaseSave')
-    }
-
     setActivePrimaryView('workspace')
     selectProject(project)
     const agentSession = await window.spacezero.agent.createSession({
@@ -604,16 +546,10 @@ export function WorkspaceShell(): React.JSX.Element {
           {activePrimaryView === 'knowledge-base' ? (
             toolPaneConfiguration ? (
               <ToolPaneShell {...toolPaneConfiguration}>
-                <KnowledgeBasePage
-                  ref={knowledgeBasePageRef}
-                  onConfiguredChange={setKnowledgeBaseConfigured}
-                />
+                <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
               </ToolPaneShell>
             ) : (
-              <KnowledgeBasePage
-                ref={knowledgeBasePageRef}
-                onConfiguredChange={setKnowledgeBaseConfigured}
-              />
+              <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
             )
           ) : activeTab ? (
             toolPaneConfiguration ? (

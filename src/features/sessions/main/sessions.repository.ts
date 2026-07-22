@@ -18,7 +18,13 @@ export function createSessionsRepository(): SessionsRepository {
       return (await getDatabase()
         .select()
         .from(schema.sessions)
-        .where(and(isNull(schema.sessions.projectId), isNull(schema.sessions.archivedAt)))
+        .where(
+          and(
+            isNull(schema.sessions.projectId),
+            isNull(schema.sessions.archivedAt),
+            isNull(schema.sessions.managedContext)
+          )
+        )
         .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
     },
 
@@ -40,7 +46,13 @@ export function createSessionsRepository(): SessionsRepository {
       const [{ value }] = await getDatabase()
         .select({ value: count() })
         .from(schema.sessions)
-        .where(and(isNull(schema.sessions.projectId), isNull(schema.sessions.archivedAt)))
+        .where(
+          and(
+            isNull(schema.sessions.projectId),
+            isNull(schema.sessions.archivedAt),
+            isNull(schema.sessions.managedContext)
+          )
+        )
 
       return value
     },

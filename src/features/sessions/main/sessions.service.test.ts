@@ -137,6 +137,37 @@ describe('createSessionsService', () => {
     })
   })
 
+  it('excludes system-managed sessions from the ordinary Workspace Session list', async () => {
+    const now = new Date('2026-07-10T00:00:00.000Z')
+    const service = createSessionsService({
+      repository: createMemoryRepository({
+        sessions: [
+          {
+            id: 'ordinary-session',
+            projectId: null,
+            title: 'Workspace Session 1',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now
+          },
+          {
+            id: 'knowledge-base-session',
+            projectId: null,
+            managedContext: 'knowledge-base',
+            title: 'Knowledge Base Chat',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now
+          }
+        ]
+      })
+    })
+
+    await expect(service.listWorkspaceSessions()).resolves.toEqual([
+      expect.objectContaining({ id: 'ordinary-session' })
+    ])
+  })
+
   it('creates workspace agent session metadata with a null project link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository()

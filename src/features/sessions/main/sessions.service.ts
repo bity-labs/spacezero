@@ -34,6 +34,7 @@ export type StoredSession = {
   sourceUrl?: string | null
   sourceTitle?: string | null
   archivedAt?: Date | null
+  managedContext?: 'knowledge-base' | null
 }
 
 export type CreateProjectAgentSessionRequest = {
@@ -54,6 +55,8 @@ export type CreateWorkspaceAgentSessionRequest = {
   modelProvider?: string
   modelId?: string
   thinkingLevel?: ThinkingLevel
+  title?: string
+  managedContext?: 'knowledge-base'
 }
 
 export type SessionsRepository = {
@@ -131,7 +134,9 @@ export function createSessionsService({
     },
 
     async listWorkspaceSessions() {
-      return (await repository.listWorkspaceSessions()).map(toWorkspaceSession)
+      return (await repository.listWorkspaceSessions())
+        .filter((session) => !session.managedContext)
+        .map(toWorkspaceSession)
     },
 
     async createProjectSession(request) {
@@ -194,7 +199,9 @@ export function createSessionsService({
 
     async createWorkspaceAgentSession(request) {
       const timestamp = now()
-      const title = `Workspace Session ${(await repository.countWorkspaceSessions()) + 1}`
+      const title = request.title
+        ? normalizeTitle(request.title)
+        : `Workspace Session ${(await repository.countWorkspaceSessions()) + 1}`
 
       return toWorkspaceSession(
         await repository.create({
@@ -207,7 +214,8 @@ export function createSessionsService({
           transcriptPath: request.transcriptPath,
           modelProvider: request.modelProvider,
           modelId: request.modelId,
-          thinkingLevel: request.thinkingLevel
+          thinkingLevel: request.thinkingLevel,
+          managedContext: request.managedContext
         })
       )
     },
@@ -341,7 +349,7 @@ function toSessionSource(session: StoredSession): SessionGitHubSource | undefine
   }
 }
 
-function toWorkspaceSession(session: StoredSession): WorkspaceSession {
+export function toWorkspaceSession(session: StoredSession): WorkspaceSession {
   if (session.projectId) throw new Error('Workspace session must not have a project')
 
   return {
