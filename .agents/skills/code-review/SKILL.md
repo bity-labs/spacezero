@@ -106,9 +106,11 @@ Validate all trusted markers as one coherent chronological sequence:
 
 Use only this validated sequence to derive the latest trusted marker and review budget.
 
-Reconcile interrupted prior transitions before starting another review:
+Reconcile interrupted prior transitions before starting another review. First derive the active review-state labels from `needs-review`, `changes-requested`, `ready-to-merge`, and `human-review-required`:
 
-- If `human-review-required` is already active, stop; it is terminal for unattended automation.
+- If more than one review-state label is active, the state is non-exclusive and must not be treated as terminal. Use the latest trusted marker's `status` as the recovery target only when that marker reviews `review_start_head`; otherwise use `human-review-required`. Refetch the head immediately before setting exactly the target label, then refetch the head and labels. If the head stayed stable and the target is exact, report the recovered state and stop. If the head changed or exclusivity cannot be confirmed, make a best-effort transition to exactly `human-review-required` against the latest head, verify it, and stop.
+- If `human-review-required` is the only active review-state label, stop without mutation; it is terminal for unattended automation.
+- If `ready-to-merge` is the only active review-state label and the latest trusted marker reviews `review_start_head` with that status, stop without mutation; the current head already has a terminal review.
 - If the latest trusted marker reviews `review_start_head`, do not review the same head again. Refetch the head, idempotently set exactly the label named by that marker's `status`, then refetch the head and labels. If the head stayed stable and the label is exact, report the recovered/already-complete review and stop.
 - If the latest trusted marker names an older head while `changes-requested` or `ready-to-merge` is still active, treat the label as stale. Refetch the head, set exactly `needs-review`, and refetch the head and labels before continuing from the recovered state.
 - If three trusted markers already exist, do not run round 4. Transition to exactly `human-review-required`, verify it, report budget exhaustion, and stop.
@@ -319,7 +321,7 @@ Report:
 - Never publish or label a stale review.
 - Check the head before and after comment publication and before and after every review-state label transition.
 - Never leave an unresolved dispatchable label; reconcile deterministically or escalate to `human-review-required`.
-- Never run from `human-review-required` in unattended mode.
+- Never run from an exclusive, trusted terminal state in unattended mode; reconcile any non-exclusive review-state combination before stopping.
 - Never mix required changes with `ready-to-merge`.
 - Never promote optional work into required work merely to improve the PR.
 - Verification reviews inspect prior fixes and their delta, not the whole unchanged PR again.
