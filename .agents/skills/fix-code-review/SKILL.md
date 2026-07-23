@@ -1,63 +1,107 @@
 ---
 name: fix-code-review
-description: Address GitHub PR review feedback with minimal, verified changes. Use when the user says "fix review comments", "address PR feedback", "fix code review", or provides a GitHub PR URL with requested changes.
+description: Address required GitHub PR review findings when the user or an unattended controller explicitly requests fixes and the PR is currently labeled changes-requested. Do not invoke for ready-to-merge, human-review-required, PR analysis, or when a PR URL is merely mentioned.
 ---
 
 # Fix Code Review
 
-Address PR review feedback with minimal, verified changes, then push the fixes and move the PR back to review.
+Address the required findings from one current, SHA-aware review with minimal verified changes. Push one fix pass, then move the PR back to `needs-review` for focused verification.
 
 ## Read These First
 
-1. `docs/engineering/code-review.md` — review principles and severity model
+1. `docs/engineering/code-review.md` — review principles, severity, and convergence rules
 2. `docs/coding-standards.md` — repo conventions
 3. `docs/context.md` — domain language and project model
 4. Relevant `docs/adr/` files for the area being touched
-5. `docs/engineering/testing.md` and `docs/engineering/refactoring.md` when the feedback requires tests or code cleanup
+5. `docs/engineering/testing.md` and `docs/engineering/refactoring.md` when feedback requires tests or cleanup
+
+## Trigger Boundary
+
+Run this skill only when:
+
+- the user explicitly requests review fixes; or
+- an unattended controller dispatches a fix pass;
+- **and** the PR currently has exactly the active review state `changes-requested`.
+
+Do not edit, commit, push, comment, or mutate labels when:
+
+- the PR has `ready-to-merge`;
+- the PR has `human-review-required`;
+- the PR does not have `changes-requested`;
+- the task is review-loop analysis or PR history explanation; or
+- the PR URL is merely mentioned.
+
+`ready-to-merge` and `human-review-required` are terminal for unattended fix automation.
 
 ## Workflow
 
-### 1. Identify the PR
+### 1. Identify and Snapshot the PR
 
-If no PR URL is provided, ask the user for one.
-
-Parse the URL into:
-
-- repository owner/name
-- PR number
-- head branch
-- base branch
-
-Fetch the PR metadata:
+Require an explicit PR URL or unambiguous PR number. Fetch:
 
 ```bash
-gh pr view <PR_URL> --json title,body,author,baseRefName,headRefName,files,reviews,comments
+gh pr view <PR_URL> --json number,title,body,author,baseRefName,headRefName,headRefOid,isDraft,state,labels,files,reviews,comments
 ```
 
-### 2. Switch to the PR Worktree
+Record:
 
-Always work in a separate worktree for the PR. Do not fix review comments from the base checkout.
+- repository owner/name;
+- PR number;
+- head and base branches;
+- current full head SHA as `current_head`;
+- current labels.
 
-Use a stable worktree path:
+Require all of these before continuing:
+
+- PR is open and non-draft;
+- `changes-requested` is present;
+- `ready-to-merge`, `needs-review`, and `human-review-required` are absent.
+
+If the label state is inconsistent, stop without mutation and report it.
+
+### 2. Resolve the Latest Machine-Readable Review
+
+Inspect PR comments in chronological order and locate the latest valid marker:
+
+```html
+<!-- tstack-review {"head":"<full-head-sha>","round":2,"mode":"verification","status":"changes-requested"} -->
+```
+
+Validate:
+
+- metadata parses as JSON;
+- `head` is a full SHA and equals `current_head`;
+- `round` is `1` or `2` (`changes-requested` is invalid in round 3);
+- `mode` matches the review protocol;
+- `status` is exactly `changes-requested`;
+- the review body contains at least one concrete item under **Required Changes**.
+
+If metadata is absent, malformed, stale, or inconsistent with labels/prose, stop without editing. Do not guess which feedback applies.
+
+Record the metadata SHA as `reviewed_head` and round as `review_round`.
+
+### 3. Switch to the PR Worktree
+
+Always work in a separate stable worktree:
 
 ```text
 .worktrees/pr-<pr-number>
 ```
 
-Check whether the worktree already exists:
+Check existing worktrees:
 
 ```bash
 git worktree list --porcelain
 ```
 
-If `.worktrees/pr-<pr-number>` already exists, use it and update the PR branch from inside that worktree:
+If the worktree exists, use it and update the PR branch:
 
 ```bash
 cd .worktrees/pr-<pr-number>
 gh pr checkout <PR_URL>
 ```
 
-If it does not exist, create it, then check out the PR from inside the new worktree:
+If it does not exist:
 
 ```bash
 git worktree add .worktrees/pr-<pr-number>
@@ -65,204 +109,185 @@ cd .worktrees/pr-<pr-number>
 gh pr checkout <PR_URL>
 ```
 
-`gh pr checkout` handles same-repo and fork PRs better than manually fetching `origin/<head-branch>`. If checkout fails, inspect the real PR head repository and branch:
+`gh pr checkout` handles same-repository and fork PRs better than manually guessing a remote branch. If checkout or push permission fails, stop and report it.
+
+Before editing, require:
 
 ```bash
-gh pr view <PR_URL> --json headRefName,headRepository,headRepositoryOwner
+git rev-parse HEAD
 ```
 
-Fork PRs may not have a writable branch on the base repository. If you cannot check out or push to the PR head, stop and report the permission problem.
+to equal `reviewed_head`, and require a clean worktree. Never reset or discard unexpected work.
 
-Run all following steps from the PR worktree.
+### 4. Fetch and Classify Feedback
 
-### 3. Fetch Review Feedback
-
-Fetch all relevant feedback, because GitHub stores it in different places.
+Fetch all feedback channels for context:
 
 ```bash
-# Line-specific review comments
 gh api repos/<owner>/<repo>/pulls/<pr-number>/comments
-
-# Review summaries and states
-gh pr view <pr-number> --repo <owner/repo> --json reviews
-
-# General PR conversation comments
-gh pr view <pr-number> --repo <owner/repo> --json comments
+gh pr view <pr-number> --repo <owner/repo> --json reviews,comments
 ```
 
-Line-specific review comments are usually the most important. General conversation comments may include product or scope decisions.
+The associated metadata review is the automation contract. Classify its actionable items as:
 
-### 4. Classify Feedback
+- `required` — listed under **Required Changes** and must be addressed before merge;
+- `optional` — non-blocking follow-up;
+- `unclear` — needs a human decision or has multiple plausible interpretations;
+- `not-applicable` — stale, already fixed, incorrect, or conflicts with project doctrine.
 
-Classify every actionable item before changing code.
+For each item record:
 
-Use these categories:
+- source review and review round;
+- file/line or behavior;
+- requested change;
+- category;
+- planned fix or reason not to fix.
 
-- `required` — blocker or important feedback that must be addressed before merge
-- `safe-suggestion` — optional feedback that is clearly correct, low-risk, and small
-- `optional` — valid suggestion, but not necessary for this PR
-- `unclear` — needs a human decision or has multiple plausible interpretations
-- `not-applicable` — incorrect, stale, already fixed, or conflicts with project doctrine
+In unattended mode, apply **required items only**. Never automatically apply optional, “safe suggestion,” cleanup, or follow-up work.
 
-For each item, record:
+If any required item is unclear, contradictory, architectural, product-changing, security-sensitive without a clear safe fix, or scope-expanding, stop and escalate instead of inventing a decision.
 
-- source comment or reviewer
-- file and line if available
-- requested change
-- category
-- planned fix or reason not to fix
+If the associated review contains no valid required items, make no changes, commit, comment, or label transition. Report the inconsistent `changes-requested` state.
 
-### 5. Ask What to Fix
+### 5. Select Fix Scope
 
-If the user is present, ask which scope to apply:
+If the user is present, show the required-item classification and ask whether to apply all or a specified subset. Do not offer optional feedback as part of the default fix scope.
 
-```text
-What should I fix?
+If unattended, select all clear required items and only those items.
 
-1. Required only
-   Fix blockers and required important improvements.
-
-2. Required + safe suggestions
-   Fix required items and low-risk suggestions that are clearly correct.
-
-3. All actionable feedback
-   Fix required, safe-suggestion, and optional items that are valid and actionable.
-
-4. Custom
-   You choose specific comments/items to fix.
-
-Recommended: Required only.
-```
-
-If running unattended, use `Required only`.
-
-Do not fix `unclear` or `not-applicable` items without user instruction. Mention them in the summary instead.
-
-### 6. Build the Fix Plan
-
-Create a short plan for the selected scope:
+Build a short plan:
 
 ```md
 ## Fix Plan
 
-1. `src/example.ts:42`
-   - Feedback: <review comment summary>
-   - Category: required
-   - Plan: <minimal change>
+Review round: <round>
+Reviewed head: <full SHA>
 
-2. `src/other.ts:10`
-   - Feedback: <review comment summary>
-   - Category: safe-suggestion
+1. `src/example.ts:42`
+   - Required finding: <summary>
    - Plan: <minimal change>
 ```
 
-If the user is present, show the plan before editing. If running unattended, proceed with the selected default scope.
-
-### 7. Apply Minimal Fixes
-
-Apply only the selected review feedback.
+### 6. Apply Minimal Fixes
 
 Rules:
 
-- Do not expand scope.
-- Do not refactor unrelated code.
-- Do not change behavior beyond what the feedback requires.
+- Address only selected required findings.
+- Do not expand scope or refactor unrelated code.
+- Do not change behavior beyond what the finding requires.
 - Keep fixes small and reviewable.
 - Preserve project vocabulary and conventions.
-- Add or update tests when the feedback changes behavior or guards a risk.
+- Add or update regression tests when behavior or risk changes.
+- Avoid touching unchanged code merely because a new improvement was noticed.
 
-### 8. Validate
+### 7. Validate
 
-Run the relevant validation commands for the changed area, such as:
+Run focused checks for the changed area and all repository-required validation appropriate to the risk, such as:
 
-- tests
-- typecheck
-- lint
-- build
+- tests;
+- typecheck;
+- lint;
+- build;
+- relevant end-to-end coverage.
 
-Use `docs/coding-standards.md` and project scripts to choose the commands.
+Use `docs/coding-standards.md` and project scripts to choose commands.
 
 If validation fails:
 
-1. Make a targeted fix.
-2. Re-run validation.
-3. If still failing after a reasonable attempt, stop without pushing broken code and report the failure.
+1. make a targeted correction within the approved required scope;
+2. rerun validation;
+3. if it still fails, stop without pushing broken code and report the failure.
+
+### 8. Recheck the Remote Head Before Commit and Push
+
+Before committing, refetch the PR head:
+
+```bash
+gh pr view <PR_URL> --json headRefOid
+```
+
+Require it to still equal `reviewed_head`. If another actor advanced the PR, stop. Do not commit or push fixes based on stale feedback.
+
+Review the local diff and ensure it contains substantive changes that address the required findings. If there is no diff, make no empty commit and do not transition labels.
 
 ### 9. Commit and Push
 
-Commit only the review-fix changes.
+Commit only the review-fix changes:
 
 ```bash
 git add -A
-git commit -m "fix(review): address PR #<pr-number> feedback"
+git commit -m "fix(review): address PR #<pr-number> round <review-round> feedback"
 ```
 
-Push back to the PR head branch, not automatically to `origin`.
-
-For a same-repository PR, this is usually:
+Push to the PR head branch, not automatically to an assumed remote:
 
 ```bash
 git push origin HEAD:<head-branch>
 ```
 
-For a fork PR, push to the writable remote for the PR head repository, or stop and report that you cannot push if you do not have permission.
+For fork PRs, push to the writable PR-head remote or stop if permission is unavailable.
 
-The commit body should summarize the substantive changes, not just say "fixed comments".
+After pushing, fetch the PR again and require its head SHA to have advanced. Record the new full SHA as `pushed_head`.
 
-### 10. Move PR Back to Review
+### 10. Move the PR Back to Focused Verification
 
-After pushing fixes, keep only `needs-review` active so maintainers can filter PRs waiting for another review.
-
-Ensure labels exist:
+Only after a successful substantive push, keep exactly `needs-review` active:
 
 ```bash
 gh label create needs-review --repo <owner/repo> --description "PR status: ready and waiting for review" --color 5319E7 2>/dev/null || true
 gh label create changes-requested --repo <owner/repo> --description "PR status: reviewed and requires changes before merge" --color D73A4A 2>/dev/null || true
 gh label create ready-to-merge --repo <owner/repo> --description "PR status: reviewed and ready to merge" --color 0E8A16 2>/dev/null || true
-```
+gh label create human-review-required --repo <owner/repo> --description "PR status: automated review budget exhausted; human decision required" --color B60205 2>/dev/null || true
 
-Update the PR:
-
-```bash
-gh pr edit <pr-number> --repo <owner/repo> \
+gh pr edit <PR_URL> \
   --remove-label changes-requested \
   --remove-label ready-to-merge \
+  --remove-label human-review-required \
   --add-label needs-review
 ```
 
-Do not set `ready-to-merge`; the reviewer still needs to verify the fixes.
+Do not set `ready-to-merge`; a fresh reviewer must verify this fix delta. Do not move to `needs-review` when no commit was pushed.
 
-### 11. Post Summary Comment
+### 11. Post the Fix Summary
 
-Post a PR comment summarizing what changed.
+Post a PR comment:
 
 ```md
 ## Review Feedback Addressed
 
-Scope: Required only / Required + safe suggestions / All actionable feedback / Custom
+Review round: <round>
+Reviewed head: `<reviewed-head-sha>`
+Pushed head: `<new-head-sha>`
+Scope: Required only / User-selected required subset
 
 Fixed:
+
 - ✅ `<file:line>` — <what changed>
 
 Not fixed:
-- ⚠️ `<file:line>` — <unclear / optional / not-applicable reason>
+
+- ⚠️ `<file:line>` — <unclear/not-applicable reason>
 
 Validation:
+
 - ✅ `<command>` passed
 - ❌ `<command>` failed: <reason, if any>
 
-Pushed: `<commit-sha>`
 PR status: `needs-review`
 ```
 
-Then print the same summary locally for the user.
+The round and reviewed SHA must match the source review metadata. Then print the same summary locally.
 
 ## Guardrails
 
-- Ask the user what scope to fix when they are present.
+- Run only from a consistent `changes-requested` state.
+- Never run from `ready-to-merge` or `human-review-required` in unattended mode.
+- Never act on review metadata whose head differs from the current PR head.
 - If unattended, fix required feedback only.
-- Do not blindly obey review comments; classify them against project doctrine and current code.
-- Do not fix unclear items without user instruction.
+- Never apply optional or follow-up work automatically.
+- Do not fix unclear items without a human decision.
 - Do not expand PR scope.
 - Never push broken code.
-- Always move the PR back to `needs-review` after pushing fixes.
+- Never create an empty review-fix commit.
+- Move to `needs-review` only after pushing substantive validated fixes.
+- Preserve the review round and reviewed SHA in the fix summary.
