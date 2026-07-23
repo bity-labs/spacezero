@@ -10,6 +10,9 @@ const api: SpaceZeroAPI = {
   db: {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)
   },
+  files: {
+    listDirectory: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.listDirectory, request)
+  },
   knowledgeBase: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
     getCurrentSession: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getCurrentSession),

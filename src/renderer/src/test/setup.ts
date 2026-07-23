@@ -2,8 +2,9 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
+import { resetFilesStore } from '../../../features/files/renderer/files-store'
 import { resetSessionWorkspaceStore } from '../../../features/sessions/renderer'
-import { resetToolPaneStore } from '../../../features/tool-pane/renderer'
+import { resetToolPaneStore } from '../../../features/tool-pane/renderer/tool-pane-store'
 import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
@@ -54,6 +55,7 @@ beforeEach(async () => {
   mediaListeners.clear()
   window.localStorage.clear()
   resetUiLayoutStore()
+  resetFilesStore()
   resetSessionWorkspaceStore()
   resetToolPaneStore()
   window.location.hash = ''
@@ -66,6 +68,9 @@ beforeEach(async () => {
     },
     db: {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
+    },
+    files: {
+      listDirectory: async () => []
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),
