@@ -41,8 +41,9 @@ describe('Files directory adapter', () => {
   })
 
   it('identifies symbolic links without following or expanding them', async () => {
-    await mkdir(join(rootPath, 'target'))
+    await mkdir(join(rootPath, 'target', 'nested'), { recursive: true })
     await writeFile(join(rootPath, 'target', 'inside.txt'), '')
+    await writeFile(join(rootPath, 'target', 'nested', 'inside.txt'), '')
     await symlink(join(rootPath, 'target'), join(rootPath, 'linked-folder'))
 
     await expect(readFilesDirectory(rootPath, '')).resolves.toContainEqual({
@@ -51,6 +52,9 @@ describe('Files directory adapter', () => {
       kind: 'symlink'
     })
     await expect(readFilesDirectory(rootPath, 'linked-folder')).rejects.toThrow(
+      'files.symlinkTraversalDenied'
+    )
+    await expect(readFilesDirectory(rootPath, 'linked-folder/nested')).rejects.toThrow(
       'files.symlinkTraversalDenied'
     )
   })

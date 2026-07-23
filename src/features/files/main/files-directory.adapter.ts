@@ -16,11 +16,16 @@ export async function readFilesDirectory(
 
   try {
     const canonicalRoot = await realpath(rootPath)
-    const directoryPath = resolve(canonicalRoot, ...normalizedPath.split('/').filter(Boolean))
-    assertInsideRoot(canonicalRoot, directoryPath)
+    let directoryPath = canonicalRoot
+    let directoryDetails = await lstat(directoryPath)
 
-    const directoryDetails = await lstat(directoryPath)
-    if (directoryDetails.isSymbolicLink()) throw new Error('files.symlinkTraversalDenied')
+    for (const segment of normalizedPath.split('/').filter(Boolean)) {
+      directoryPath = resolve(directoryPath, segment)
+      assertInsideRoot(canonicalRoot, directoryPath)
+      directoryDetails = await lstat(directoryPath)
+      if (directoryDetails.isSymbolicLink()) throw new Error('files.symlinkTraversalDenied')
+    }
+
     if (!directoryDetails.isDirectory()) throw new Error('files.notDirectory')
 
     const canonicalDirectory = await realpath(directoryPath)

@@ -1,8 +1,12 @@
-import { createElement } from 'react'
+import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
-import { FilesTool } from '../../files/renderer'
 import type { ToolDescriptor, ToolPaneConfiguration } from './tool-pane-shell'
+
+const FilesTool = lazy(async () => {
+  const module = await import('../../files/renderer/components/files-tool')
+  return { default: module.FilesTool }
+})
 
 const toolRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
@@ -29,7 +33,11 @@ export function createProjectSessionToolPaneConfiguration(session: {
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-session'
-            ? createElement(FilesTool, { sessionId: capabilities.sessionId })
+            ? createElement(
+                Suspense,
+                { fallback: createElement(FilesToolLoading) },
+                createElement(FilesTool, { sessionId: capabilities.sessionId })
+              )
             : null
       },
       toolRegistry.git,
@@ -57,6 +65,14 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
     defaultToolId: 'files',
     tools: [toolRegistry.files, toolRegistry.git, toolRegistry.browser, toolRegistry.terminal]
   }
+}
+
+function FilesToolLoading(): React.JSX.Element {
+  return createElement(
+    'div',
+    { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
+    'Loading Files…'
+  )
 }
 
 function sessionContextKey(sessionId: string): string {
