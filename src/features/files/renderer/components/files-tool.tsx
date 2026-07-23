@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import Editor, { type OnMount } from '@monaco-editor/react'
 import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
-import type { FilesEntry } from '../../shared'
-import { createDefaultFilesContext, useFilesStore } from '../files-store'
+import type { FilesDocument, FilesEntry } from '../../shared'
+import {
+  createDefaultFilesContext,
+  toReadyDocument,
+  useFilesStore,
+  type FilesActiveDocumentState
+} from '../files-store'
+import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
 import { FilesIcon } from './files-icon'
 
 type FilesTreeItem =
@@ -37,12 +44,18 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const setExplorerCollapsed = useFilesStore((state) => state.setExplorerCollapsed)
   const setSelectedPath = useFilesStore((state) => state.setSelectedPath)
   const setExpanded = useFilesStore((state) => state.setExpanded)
+  const setActiveDocument = useFilesStore((state) => state.setActiveDocument)
+  const updateDraft = useFilesStore((state) => state.updateDraft)
+  const markSaving = useFilesStore((state) => state.markSaving)
+  const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
+  const markSaved = useFilesStore((state) => state.markSaved)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
   const [treeHeight, setTreeHeight] = useState(480)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
+  const openRequestRef = useRef(0)
   expandedPathsRef.current = context.expandedPaths
 
   const loadRoot = useCallback(async (): Promise<void> => {
@@ -95,10 +108,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
         )
 
         for (const entry of entries) {
-          if (
-            entry.kind === 'directory' &&
-            expandedPathsRef.current.includes(entry.relativePath)
-          ) {
+          if (entry.kind === 'directory' && expandedPathsRef.current.includes(entry.relativePath)) {
             await loadDirectory(entry.relativePath)
           }
         }
@@ -119,6 +129,54 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     [sessionId]
   )
 
+  const openFile = useCallback(
+    async (relativePath: string): Promise<void> => {
+      const requestId = openRequestRef.current + 1
+      openRequestRef.current = requestId
+      setSelectedPath(sessionId, relativePath)
+      setActiveDocument(sessionId, { status: 'loading', relativePath })
+      try {
+        const document = await window.spacezero.files.openDocument({ sessionId, relativePath })
+        if (activeSessionRef.current !== sessionId || openRequestRef.current !== requestId) return
+        setActiveDocument(sessionId, toActiveDocument(document))
+      } catch (error) {
+        if (activeSessionRef.current !== sessionId || openRequestRef.current !== requestId) return
+        setActiveDocument(sessionId, {
+          status: 'error',
+          relativePath,
+          message: documentErrorMessage(error)
+        })
+      }
+    },
+    [sessionId, setActiveDocument, setSelectedPath]
+  )
+
+  const saveActiveDocument = useCallback(async (): Promise<void> => {
+    const activeDocument = context.activeDocument
+    if (!activeDocument || activeDocument.status !== 'ready' || activeDocument.saveStatus === 'saving') {
+      return
+    }
+    markSaving(sessionId)
+    try {
+      const result = await window.spacezero.files.saveDocument({
+        sessionId,
+        relativePath: activeDocument.relativePath,
+        content: activeDocument.draft,
+        expectedRevision: activeDocument.revision
+      })
+      if (result.status === 'conflict') {
+        markSaveFailed(
+          sessionId,
+          'This file changed on disk. Reload from disk or review the external changes before saving.'
+        )
+        return
+      }
+      markSaved(sessionId, result.document)
+    } catch (error) {
+      markSaveFailed(sessionId, saveErrorMessage(error))
+    }
+  }, [context.activeDocument, markSaveFailed, markSaved, markSaving, sessionId])
+
   useEffect(() => {
     activeSessionRef.current = sessionId
     void loadRoot()
@@ -131,8 +189,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     if (rootState.status !== 'ready' || restoredRootRef.current) return
     restoredRootRef.current = true
     const expandedRoots = rootState.items.filter(
-      (item) =>
-        item.kind === 'directory' && expandedPathsRef.current.includes(item.relativePath)
+      (item) => item.kind === 'directory' && expandedPathsRef.current.includes(item.relativePath)
     )
     void (async () => {
       for (const item of expandedRoots) await loadDirectory(item.relativePath)
@@ -177,6 +234,13 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       sessionId,
       clampExplorerWidth(context.explorerWidth + direction * EXPLORER_RESIZE_STEP)
     )
+  }
+
+  function handleEditorKeyDown(event: React.KeyboardEvent<HTMLDivElement>): void {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault()
+      void saveActiveDocument()
+    }
   }
 
   return (
@@ -235,8 +299,9 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
                   width="100%"
                   onSelect={(nodes) => {
                     const item = nodes[0]?.data
-                    if (item && item.kind !== 'status')
-                      setSelectedPath(sessionId, item.relativePath)
+                    if (!item || item.kind === 'status') return
+                    setSelectedPath(sessionId, item.relativePath)
+                    if (item.kind === 'file') void openFile(item.relativePath)
                   }}
                   onToggle={(id) => {
                     const expanded = !context.expandedPaths.includes(id)
@@ -263,10 +328,99 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
           />
         </>
       )}
-      <div className="flex min-w-0 flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        Select a file to open it in a future Files slice.
+      <div className="flex min-w-0 flex-1 flex-col bg-background" onKeyDown={handleEditorKeyDown}>
+        <FilesEditorPanel
+          document={context.activeDocument}
+          sessionId={sessionId}
+          onChange={(draft) => updateDraft(sessionId, draft)}
+          onSave={saveActiveDocument}
+        />
       </div>
     </section>
+  )
+}
+
+function FilesEditorPanel({
+  document,
+  sessionId,
+  onChange,
+  onSave
+}: {
+  document: FilesActiveDocumentState | null
+  sessionId: string
+  onChange: (draft: string) => void
+  onSave: () => void | Promise<void>
+}): React.JSX.Element {
+  if (!document) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
+        Select a file to open it.
+      </div>
+    )
+  }
+
+  if (document.status === 'loading') {
+    return <FilesState message="Opening file…" />
+  }
+
+  if (document.status === 'error') {
+    return <FilesState message={document.message} />
+  }
+
+  if (document.status === 'metadata') {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+        <p className="font-medium text-foreground">{document.name}</p>
+        <p>{metadataMessage(document.contentKind)}</p>
+        <p>{formatBytes(document.size)}</p>
+      </div>
+    )
+  }
+
+  const language = getFilesEditorLanguage(document.relativePath)
+  const handleEditorMount: OnMount = (editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void onSave()
+    })
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
+        <div className="min-w-0">
+          <span className="font-medium">{document.name}</span>
+          {document.dirty ? <span className="ml-2 text-amber-600">Unsaved changes</span> : null}
+        </div>
+        <div className="flex items-center gap-3 text-muted-foreground">
+          {document.saveStatus === 'saving' ? <span>Saving…</span> : null}
+          {!document.dirty && document.saveStatus !== 'saving' ? <span>Saved</span> : null}
+          <button
+            className="rounded-md border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
+            disabled={document.saveStatus === 'saving'}
+            type="button"
+            onClick={() => void onSave()}
+          >
+            Save
+          </button>
+        </div>
+      </header>
+      {document.error ? (
+        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {document.error}
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1">
+        <Editor
+          height="100%"
+          language={language}
+          options={{ minimap: { enabled: false }, scrollBeyondLastLine: false }}
+          path={createFilesMonacoModelPath(sessionId, document.relativePath)}
+          theme="vs-dark"
+          value={document.draft}
+          onChange={(value) => onChange(value ?? '')}
+          onMount={handleEditorMount}
+        />
+      </div>
+    </div>
   )
 }
 
@@ -364,6 +518,12 @@ function toTreeItem(entry: FilesEntry): FilesTreeItem {
   }
 }
 
+function toActiveDocument(document: FilesDocument): FilesActiveDocumentState {
+  return document.contentKind === 'text'
+    ? toReadyDocument(document)
+    : { ...document, status: 'metadata' }
+}
+
 function statusItem(
   parentPath: string,
   status: 'loading' | 'empty' | 'error',
@@ -410,10 +570,37 @@ function filesErrorMessage(error: unknown): string {
   return 'Couldn’t read this directory. Try again.'
 }
 
+function documentErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.notFile')) return 'This item is not a regular file.'
+  if (code.includes('files.gitProtected')) return 'Git internals are protected and cannot be opened.'
+  if (code.includes('files.symlinkTraversalDenied')) return 'Symbolic links cannot be opened in Files.'
+  return 'Couldn’t open this file. Try again.'
+}
+
+function saveErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
+  if (code.includes('files.notEditableText')) return 'This file is not editable text.'
+  return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function metadataMessage(contentKind: 'binary' | 'oversized'): string {
+  return contentKind === 'oversized'
+    ? 'This file is larger than 2 MiB and cannot be edited here.'
+    : 'This file is binary and cannot be edited here.'
+}
+
 function statusMessage(status: 'loading' | 'empty' | 'error'): string {
   if (status === 'loading') return 'Loading…'
   if (status === 'empty') return 'Empty folder'
   return 'Couldn’t read this directory.'
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
 }
 
 function clampExplorerWidth(width: number): number {

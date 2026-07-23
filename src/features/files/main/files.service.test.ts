@@ -2,24 +2,61 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createFilesService } from './files.service'
 
+const validSession = {
+  id: 'session-1',
+  projectId: 'project-1',
+  worktreePath: '/worktrees/project-1/session-1',
+  worktreeBranch: 'spacezero/session-session-1',
+  worktreeBaseRevision: 'a'.repeat(40)
+}
+const validProject = { id: 'project-1', path: '/projects/project-1' }
+
+function createTestService(overrides: Partial<Parameters<typeof createFilesService>[0]> = {}) {
+  return createFilesService({
+    repository: {
+      findSessionById: async () => validSession,
+      findProjectById: async () => validProject
+    },
+    worktrees: { validate: async () => true },
+    readDirectory: async () => [],
+    openDocument: async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text',
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'content',
+      hasBom: false,
+      lineEnding: 'lf'
+    }),
+    saveDocument: async () => ({
+      status: 'saved',
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text',
+        size: 7,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content: 'updated',
+        hasBom: false,
+        lineEnding: 'lf'
+      }
+    }),
+    ...overrides
+  })
+}
+
 describe('Files service', () => {
   it('lists the authenticated managed worktree root for a Project Session', async () => {
     const repository = {
-      findSessionById: vi.fn(async () => ({
-        id: 'session-1',
-        projectId: 'project-1',
-        worktreePath: '/worktrees/project-1/session-1',
-        worktreeBranch: 'spacezero/session-session-1',
-        worktreeBaseRevision: 'a'.repeat(40)
-      })),
-      findProjectById: vi.fn(async () => ({
-        id: 'project-1',
-        path: '/projects/project-1'
-      }))
+      findSessionById: vi.fn(async () => validSession),
+      findProjectById: vi.fn(async () => validProject)
     }
     const worktrees = { validate: vi.fn(async () => true) }
     const readDirectory = vi.fn(async () => [])
-    const service = createFilesService({ repository, worktrees, readDirectory })
+    const service = createTestService({ repository, worktrees, readDirectory })
 
     await expect(
       service.listDirectory({ sessionId: 'session-1', relativePath: '' })
@@ -37,9 +74,57 @@ describe('Files service', () => {
     expect(readDirectory).toHaveBeenCalledWith('/worktrees/project-1/session-1', '')
   })
 
+  it('opens and saves documents through the same authenticated managed worktree', async () => {
+    const openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'content',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn(async () => ({
+      status: 'saved' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content: 'updated',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    const service = createTestService({ openDocument, saveDocument })
+
+    await expect(
+      service.openDocument({ sessionId: 'session-1', relativePath: 'README.md' })
+    ).resolves.toMatchObject({ contentKind: 'text', content: 'content' })
+    await expect(
+      service.saveDocument({
+        sessionId: 'session-1',
+        relativePath: 'README.md',
+        content: 'updated',
+        expectedRevision: 'revision-1'
+      })
+    ).resolves.toMatchObject({ status: 'saved' })
+
+    expect(openDocument).toHaveBeenCalledWith('/worktrees/project-1/session-1', 'README.md')
+    expect(saveDocument).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1'
+    })
+  })
+
   it('fails instead of falling back when the Project Session has no managed worktree', async () => {
     const readDirectory = vi.fn(async () => [])
-    const service = createFilesService({
+    const service = createTestService({
       repository: {
         findSessionById: async () => ({
           id: 'session-1',
@@ -50,7 +135,6 @@ describe('Files service', () => {
         }),
         findProjectById: async () => ({ id: 'project-1', path: '/projects/project-1' })
       },
-      worktrees: { validate: async () => true },
       readDirectory
     })
 
@@ -62,7 +146,7 @@ describe('Files service', () => {
 
   it('rejects a persisted worktree that does not authenticate for its Project Session', async () => {
     const readDirectory = vi.fn(async () => [])
-    const service = createFilesService({
+    const service = createTestService({
       repository: {
         findSessionById: async () => ({
           id: 'session-1',
@@ -84,20 +168,11 @@ describe('Files service', () => {
   })
 
   it('rejects archived Sessions as inactive Files contexts', async () => {
-    const service = createFilesService({
+    const service = createTestService({
       repository: {
-        findSessionById: async () => ({
-          id: 'session-1',
-          projectId: 'project-1',
-          worktreePath: '/worktrees/project-1/session-1',
-          worktreeBranch: 'spacezero/session-session-1',
-          worktreeBaseRevision: 'a'.repeat(40),
-          archivedAt: new Date()
-        }),
+        findSessionById: async () => ({ ...validSession, archivedAt: new Date() }),
         findProjectById: async () => ({ id: 'project-1', path: '/projects/project-1' })
-      },
-      worktrees: { validate: async () => true },
-      readDirectory: async () => []
+      }
     })
 
     await expect(

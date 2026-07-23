@@ -70,7 +70,32 @@ beforeEach(async () => {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
     },
     files: {
-      listDirectory: async () => []
+      listDirectory: async () => [],
+      openDocument: async ({ relativePath }) => ({
+        name: relativePath.split('/').at(-1) ?? relativePath,
+        relativePath,
+        contentKind: 'text',
+        size: 0,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'test-revision',
+        content: '',
+        hasBom: false,
+        lineEnding: 'lf'
+      }),
+      saveDocument: async ({ relativePath, content }) => ({
+        status: 'saved',
+        document: {
+          name: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+          contentKind: 'text',
+          size: content.length,
+          modifiedAt: new Date(0).toISOString(),
+          revision: 'saved-test-revision',
+          content,
+          hasBom: false,
+          lineEnding: 'lf'
+        }
+      })
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),

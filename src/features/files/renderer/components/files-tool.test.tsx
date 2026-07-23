@@ -1,6 +1,32 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+vi.mock('./files-icon', () => ({
+  FilesIcon: () => <span aria-hidden="true" />
+}))
+
+vi.mock('@monaco-editor/react', () => ({
+  default: ({
+    value,
+    language,
+    path,
+    onChange
+  }: {
+    value?: string
+    language?: string
+    path?: string
+    onChange?: (value: string | undefined) => void
+  }) => (
+    <textarea
+      aria-label="Monaco editor"
+      data-language={language}
+      data-model-path={path}
+      value={value ?? ''}
+      onChange={(event) => onChange?.(event.currentTarget.value)}
+    />
+  )
+}))
+
 import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
 
@@ -124,6 +150,151 @@ describe('Files Tool', () => {
     expect(await screen.findByText('linked-src')).toBeInTheDocument()
     expect(screen.getByText('Symbolic link')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Expand linked-src' })).not.toBeInTheDocument()
+  })
+
+  it('opens a text file in Monaco with context-scoped model identity and explicit save', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'src', relativePath: 'src', kind: 'directory' as const },
+      { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
+    ])
+    const openDocument = vi.fn(async ({ relativePath }: { relativePath: string }) => ({
+      name: 'package.json',
+      relativePath,
+      contentKind: 'text' as const,
+      size: 16,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '{"name":"app"}\n',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn(async ({ content }: { content: string }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'package.json',
+        relativePath: 'package.json',
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    window.spacezero.files.openDocument = openDocument
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('package.json'))
+
+    const editor = await screen.findByLabelText('Monaco editor')
+    expect(editor).toHaveAttribute('data-language', 'json')
+    expect(editor).toHaveAttribute('data-model-path', 'spacezero-files://session-1/package.json')
+    fireEvent.change(editor, { target: { value: '{"name":"updated"}\n' } })
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(saveDocument).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(editor, { key: 's', metaKey: true })
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(saveDocument).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      relativePath: 'package.json',
+      content: '{"name":"updated"}\n',
+      expectedRevision: 'revision-1'
+    })
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('keeps dirty buffers in memory across unmounts without autosaving', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => {
+      throw new Error('unexpected autosave')
+    })
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), { target: { value: 'draft' } })
+    view.unmount()
+    render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByDisplayValue('draft')).toBeInTheDocument()
+    expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
+  })
+
+  it('keeps the dirty buffer and shows actionable feedback when save conflicts or fails', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => ({
+      status: 'conflict' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 8,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content: 'external',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    const editor = await screen.findByLabelText('Monaco editor')
+    fireEvent.change(editor, { target: { value: 'draft' } })
+    fireEvent.keyDown(editor, { key: 's', metaKey: true })
+
+    expect(await screen.findByText(/changed on disk/i)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+  })
+
+  it('opens binary and oversized files as non-editable metadata', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'archive.bin', relativePath: 'archive.bin', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'archive.bin',
+      relativePath: 'archive.bin',
+      contentKind: 'binary' as const,
+      size: 1024,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1'
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('archive.bin'))
+
+    expect(await screen.findByText('This file is binary and cannot be edited here.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Monaco editor')).not.toBeInTheDocument()
   })
 
   it('keeps the collapsible and keyboard-resizable explorer layout per Project Session', async () => {
