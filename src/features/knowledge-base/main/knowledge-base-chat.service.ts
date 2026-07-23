@@ -4,6 +4,7 @@ import type { KnowledgeBaseStatus } from '../shared'
 
 export type KnowledgeBaseChatService = {
   getOrCreateCurrentSession: () => Promise<WorkspaceSession>
+  startNewChat: () => Promise<WorkspaceSession>
 }
 
 export function createKnowledgeBaseChatService({
@@ -25,6 +26,17 @@ export function createKnowledgeBaseChatService({
 }): KnowledgeBaseChatService {
   let pending: Promise<WorkspaceSession> | undefined
 
+  async function createAndPersist(): Promise<WorkspaceSession> {
+    const created = await createSession()
+    try {
+      await setCurrentSessionId(created.id)
+      return toWorkspaceSession(created)
+    } catch (error) {
+      await deleteSession(created.id).catch(() => undefined)
+      throw error
+    }
+  }
+
   async function getOrCreate(): Promise<WorkspaceSession> {
     const status = await getStatus()
     if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
@@ -43,14 +55,7 @@ export function createKnowledgeBaseChatService({
       await clearCurrentSessionId()
     }
 
-    const created = await createSession()
-    try {
-      await setCurrentSessionId(created.id)
-      return toWorkspaceSession(created)
-    } catch (error) {
-      await deleteSession(created.id).catch(() => undefined)
-      throw error
-    }
+    return createAndPersist()
   }
 
   return {
@@ -59,6 +64,11 @@ export function createKnowledgeBaseChatService({
         pending = undefined
       })
       return pending
+    },
+    async startNewChat() {
+      const status = await getStatus()
+      if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
+      return createAndPersist()
     }
   }
 }

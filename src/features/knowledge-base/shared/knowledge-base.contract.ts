@@ -14,6 +14,7 @@ import type {
 export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getStatus: 'knowledgeBase:getStatus',
   getCurrentSession: 'knowledgeBase:getCurrentSession',
+  startNewChat: 'knowledgeBase:startNewChat',
   reset: 'knowledgeBase:reset',
   createNew: 'knowledgeBase:createNew',
   cloneFromGit: 'knowledgeBase:cloneFromGit',
@@ -38,6 +39,7 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
 export type KnowledgeBaseAPI = {
   getStatus: () => Promise<KnowledgeBaseStatus>
   getCurrentSession: () => Promise<WorkspaceSession>
+  startNewChat: () => Promise<WorkspaceSession>
   reset: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>

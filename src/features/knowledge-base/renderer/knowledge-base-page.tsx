@@ -220,6 +220,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   const [session, setSession] = useState<WorkspaceSession | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
+  const [isStartingNewChat, setStartingNewChat] = useState(false)
 
   useEffect(() => {
     let current = true
@@ -236,7 +237,19 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
     }
   }, [requestId])
 
-  if (error) {
+  async function startNewChat(): Promise<void> {
+    setStartingNewChat(true)
+    setError(null)
+    try {
+      setSession(await window.spacezero.knowledgeBase.startNewChat())
+    } catch (startError) {
+      setError(getErrorMessage(startError, 'Unable to start a new Knowledge Base chat.'))
+    } finally {
+      setStartingNewChat(false)
+    }
+  }
+
+  if (error && !session) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <Card className="w-full max-w-lg gap-4 p-6">
@@ -269,12 +282,29 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center justify-end border-b px-4 py-2">
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={isStartingNewChat}
+          onClick={() => void startNewChat()}
+        >
+          <Plus aria-hidden="true" />
+          {isStartingNewChat ? 'Starting…' : 'New chat'}
+        </Button>
+      </div>
       {setupWarning ? (
         <Alert className="m-4 mb-0">
           <AlertDescription>{setupWarning}</AlertDescription>
         </Alert>
       ) : null}
+      {error ? (
+        <Alert className="m-4 mb-0" variant="destructive">
+          <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
+        </Alert>
+      ) : null}
       <WorkspaceSessionHostSurface
+        key={session.id}
         session={session}
         requireRuntimeReady
         placeholder="Ask about your Knowledge Base…"
