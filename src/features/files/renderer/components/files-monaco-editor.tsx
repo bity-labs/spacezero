@@ -1,5 +1,10 @@
-import { useEffect, useRef } from 'react'
-import * as monaco from 'monaco-editor'
+import { useMemo } from 'react'
+import Editor from '@monaco-editor/react'
+import type * as monaco from 'monaco-editor'
+
+import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
+
+configureFilesMonacoEnvironment()
 
 export type FilesMonacoEditorMount = (
   editor: monaco.editor.IStandaloneCodeEditor,
@@ -27,64 +32,25 @@ export function FilesMonacoEditor({
   onChange,
   onMount
 }: FilesMonacoEditorProps): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
-  const onChangeRef = useRef(onChange)
+  const editorOptions = useMemo<monaco.editor.IStandaloneEditorConstructionOptions>(
+    () => ({ ...options, automaticLayout: true }),
+    [options]
+  )
 
-  useEffect(() => {
-    onChangeRef.current = onChange
-  }, [onChange])
-
-  useEffect(() => {
-    if (!containerRef.current || editorRef.current) return
-    const editor = monaco.editor.create(containerRef.current, {
-      ...options,
-      automaticLayout: true,
-      theme
-    })
-    editorRef.current = editor
-    const changeSubscription = editor.onDidChangeModelContent(() => {
-      onChangeRef.current(editor.getValue())
-    })
-    onMount(editor, monaco)
-
-    return () => {
-      changeSubscription.dispose()
-      editor.dispose()
-      editorRef.current = null
-    }
-  }, [onMount, options, theme])
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    editor.updateOptions(options)
-  }, [options])
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    monaco.editor.setTheme(theme)
-  }, [theme])
-
-  useEffect(() => {
-    const editor = editorRef.current
-    if (!editor) return
-    const uri = monaco.Uri.parse(path)
-    let model = monaco.editor.getModel(uri)
-    if (!model) {
-      model = monaco.editor.createModel(value, language, uri)
-    } else {
-      monaco.editor.setModelLanguage(model, language)
-      if (model.getValue() !== value) model.setValue(value)
-    }
-    editor.setModel(model)
-  }, [language, path, value])
-
-  useEffect(() => {
-    const model = editorRef.current?.getModel()
-    if (model && model.getValue() !== value) model.setValue(value)
-  }, [value])
-
-  return <div ref={containerRef} className="size-full" style={{ height }} />
+  return (
+    <Editor
+      key={path}
+      className="size-full"
+      height={height}
+      keepCurrentModel={false}
+      language={language}
+      loading={null}
+      options={editorOptions}
+      path={path}
+      theme={theme}
+      value={value}
+      onChange={onChange}
+      onMount={onMount}
+    />
+  )
 }
