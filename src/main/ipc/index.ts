@@ -1,4 +1,5 @@
 import { registerAgentIpc } from '../../features/agent-workspace/main/agent.ipc'
+import { registerFilesIpc } from '../../features/files/main/files.ipc'
 import { registerGitHubIpc } from '../../features/github/main/github.ipc'
 import { registerKnowledgeBaseIpc } from '../../features/knowledge-base/main/knowledge-base.ipc'
 import { registerOnboardingIpc } from '../../features/onboarding/main/onboarding.ipc'
@@ -16,6 +17,7 @@ export function registerIpcHandlers(): void {
   registerAppIpc()
   registerAgentIpc()
   registerDbIpc()
+  registerFilesIpc()
   registerGitHubIpc()
   registerKnowledgeBaseIpc()
   registerOnboardingIpc()

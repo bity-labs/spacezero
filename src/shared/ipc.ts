@@ -23,6 +23,10 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
 } from '../features/knowledge-base/shared/knowledge-base.contract'
+import {
+  FILES_IPC_CHANNELS,
+  type FilesAPI
+} from '../features/files/shared/files.contract'
 import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
   CreateEmptyProjectRequest,
@@ -84,6 +88,7 @@ export const IPC_CHANNELS = {
   db: {
     health: 'db:health'
   },
+  files: FILES_IPC_CHANNELS,
   knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
   onboarding: {
     getStatus: 'onboarding:getStatus',
@@ -199,6 +204,7 @@ export type SpaceZeroAPI = {
   db: {
     health: () => Promise<DbHealth>
   }
+  files: FilesAPI
   knowledgeBase: KnowledgeBaseAPI
   onboarding: {
     getStatus: () => Promise<OnboardingStatus>

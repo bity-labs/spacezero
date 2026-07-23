@@ -1,5 +1,7 @@
+import { createElement } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
+import { FilesTool } from '../../files/renderer'
 import type { ToolDescriptor, ToolPaneConfiguration } from './tool-pane-shell'
 
 const toolRegistry = {
@@ -21,7 +23,19 @@ export function createProjectSessionToolPaneConfiguration(session: {
       sessionId: session.id
     },
     defaultToolId: 'files',
-    tools: [toolRegistry.files, toolRegistry.git, toolRegistry.browser, toolRegistry.terminal]
+    tools: [
+      {
+        ...toolRegistry.files,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-session'
+            ? createElement(FilesTool, { sessionId: capabilities.sessionId })
+            : null
+      },
+      toolRegistry.git,
+      toolRegistry.browser,
+      toolRegistry.terminal
+    ]
   }
 }
 
