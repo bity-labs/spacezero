@@ -671,7 +671,8 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'Space ZeroSession 1'
     )
-    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+    expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
+    for (const label of ['Git', 'Browser', 'Terminal']) {
       expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
 
