@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
 
 describe('Files Tool', () => {
@@ -33,6 +34,32 @@ describe('Files Tool', () => {
         relativePath: 'src'
       })
     )
+  })
+
+  it('reloads persisted expanded directories parent-first after remounting', async () => {
+    useFilesStore.getState().setExpanded('session-1', 'src', true)
+    useFilesStore.getState().setExpanded('session-1', 'src/nested', true)
+    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
+      if (relativePath === '') {
+        return [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
+      }
+      if (relativePath === 'src') {
+        return [
+          { name: 'nested', relativePath: 'src/nested', kind: 'directory' as const }
+        ]
+      }
+      return [{ name: 'index.ts', relativePath: 'src/nested/index.ts', kind: 'file' as const }]
+    })
+    window.spacezero.files.listDirectory = listDirectory
+
+    render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByText('index.ts')).toBeInTheDocument()
+    expect(listDirectory.mock.calls.map(([request]) => request.relativePath)).toEqual([
+      '',
+      'src',
+      'src/nested'
+    ])
   })
 
   it('shows an actionable managed-worktree failure and retries without fabricating content', async () => {

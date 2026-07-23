@@ -41,9 +41,13 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const [treeHeight, setTreeHeight] = useState(480)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
+  const expandedPathsRef = useRef(context.expandedPaths)
+  const restoredRootRef = useRef(false)
+  expandedPathsRef.current = context.expandedPaths
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
+    restoredRootRef.current = false
     setRootState({ status: 'loading' })
     try {
       const entries = await window.spacezero.files.listDirectory({
@@ -59,7 +63,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   }, [sessionId])
 
   const loadDirectory = useCallback(
-    async (relativePath: string): Promise<void> => {
+    async function loadDirectory(relativePath: string): Promise<void> {
       const requestedSession = sessionId
       setRootState((state) =>
         state.status === 'ready'
@@ -89,6 +93,15 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
               }
             : state
         )
+
+        for (const entry of entries) {
+          if (
+            entry.kind === 'directory' &&
+            expandedPathsRef.current.includes(entry.relativePath)
+          ) {
+            await loadDirectory(entry.relativePath)
+          }
+        }
       } catch (error) {
         if (activeSessionRef.current !== requestedSession) return
         setRootState((state) =>
@@ -113,6 +126,18 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       if (activeSessionRef.current === sessionId) activeSessionRef.current = ''
     }
   }, [loadRoot, sessionId])
+
+  useEffect(() => {
+    if (rootState.status !== 'ready' || restoredRootRef.current) return
+    restoredRootRef.current = true
+    const expandedRoots = rootState.items.filter(
+      (item) =>
+        item.kind === 'directory' && expandedPathsRef.current.includes(item.relativePath)
+    )
+    void (async () => {
+      for (const item of expandedRoots) await loadDirectory(item.relativePath)
+    })()
+  }, [loadDirectory, rootState])
 
   useEffect(() => {
     const element = treeContainerRef.current
