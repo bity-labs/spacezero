@@ -1,5 +1,5 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -173,6 +173,118 @@ test('composes simulated GitHub connection and one Project setup without network
   await expect(window.getByText('Project Home')).toBeVisible()
   await expect(window.getByRole('heading', { name: 'spacezero', exact: true })).toBeVisible()
   await expect(window.getByRole('region', { name: 'Conversation' })).toHaveCount(0)
+
+  await electronApp.close()
+})
+
+test('opens a Project Session text file in bundled Monaco without network loading', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-files-e2e-'))
+  const projectPath = join(temporaryDirectory, 'project')
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const documentPath = join(projectPath, 'README.md')
+  await mkdir(projectPath, { recursive: true })
+  await writeFile(documentPath, '# Bundled editor\n')
+
+  const electronApp = await launchApp(userDataPath)
+  userDataDirectories.push(temporaryDirectory)
+  const window = await electronApp.firstWindow()
+
+  await electronApp.evaluate(
+    ({ ipcMain, BrowserWindow }, { projectPath }) => {
+      const { readFile, readdir, stat } = process.getBuiltinModule('node:fs/promises')
+      const { join } = process.getBuiltinModule('node:path')
+      const project = {
+        id: 'project-files-e2e',
+        name: 'files-e2e',
+        path: projectPath,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+      const session = {
+        id: 'session-files-e2e',
+        kind: 'project',
+        projectId: project.id,
+        title: 'Files E2E',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+
+      for (const channel of [
+        'onboarding:getStatus',
+        'onboarding:complete',
+        'projects:list',
+        'sessions:listProjectSessions',
+        'sessions:listWorkspaceSessions',
+        'agent:getState',
+        'files:listDirectory',
+        'files:openDocument'
+      ]) {
+        ipcMain.removeHandler(channel)
+      }
+      ipcMain.handle('onboarding:getStatus', () => ({ completed: false }))
+      ipcMain.handle('onboarding:complete', () => ({ completed: true }))
+      ipcMain.handle('projects:list', () => [project])
+      ipcMain.handle('sessions:listProjectSessions', () => [session])
+      ipcMain.handle('sessions:listWorkspaceSessions', () => [])
+      ipcMain.handle('agent:getState', () => ({
+        sessionId: session.id,
+        projectId: project.id,
+        cwd: projectPath,
+        status: 'idle',
+        live: true,
+        transcriptPath: `${projectPath}/session.jsonl`,
+        modelProvider: undefined,
+        modelId: undefined,
+        thinking: undefined
+      }))
+      ipcMain.handle('files:listDirectory', async () => {
+        const entries = await readdir(projectPath, { withFileTypes: true })
+        return entries.map((entry) => ({
+          name: entry.name,
+          relativePath: entry.name,
+          kind: entry.isDirectory() ? 'directory' : 'file'
+        }))
+      })
+      ipcMain.handle('files:openDocument', async (_event, input) => {
+        const relativePath = String(input.relativePath)
+        const absolutePath = join(projectPath, relativePath)
+        const details = await stat(absolutePath)
+        const content = await readFile(absolutePath, 'utf8')
+        return {
+          name: relativePath,
+          relativePath,
+          contentKind: 'text',
+          size: details.size,
+          modifiedAt: details.mtime.toISOString(),
+          revision: 'revision-1',
+          content,
+          hasBom: false,
+          lineEnding: 'lf'
+        }
+      })
+
+      BrowserWindow.getAllWindows()[0]?.webContents.reload()
+    },
+    { projectPath }
+  )
+
+  await window.getByRole('button', { name: 'Skip' }).click()
+  await window.getByRole('button', { name: 'files-e2e', exact: true }).click()
+  await window.getByRole('button', { name: 'Files E2E' }).click()
+  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+  await expect(window.getByRole('tree', { name: 'Project files' })).toBeVisible()
+  await window.getByText('README.md').click()
+  await expect(window.locator('.monaco-editor')).toBeVisible()
+  await expect(window.getByText('Saved')).toBeVisible()
+
+  const externalMonacoRequests = await window.evaluate(() =>
+    performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .filter((name) => name.includes('cdn.jsdelivr.net'))
+  )
+  expect(externalMonacoRequests).toEqual([])
 
   await electronApp.close()
 })

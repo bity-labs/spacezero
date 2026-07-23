@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-const relativeDirectoryPathSchema = z
+const relativePathSchema = z
   .string()
   .max(4096)
   .refine(
@@ -11,13 +11,38 @@ const relativeDirectoryPathSchema = z
       !path.includes('\0')
   )
   .refine((path) => {
-    const segments = path.split('/').filter(Boolean)
-    return !segments.some((segment) => segment === '..' || segment.toLowerCase() === '.git')
+    if (path === '') return true
+    const segments = path.split('/')
+    return !segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === '.' ||
+        segment === '..' ||
+        segment.toLowerCase() === '.git'
+    )
   })
+
+const relativeFilePathSchema = relativePathSchema.refine((path) => path.length > 0)
 
 export const listFilesDirectoryRequestSchema = z
   .object({
     sessionId: z.string().trim().min(1),
-    relativePath: relativeDirectoryPathSchema
+    relativePath: relativePathSchema
+  })
+  .strict()
+
+export const openFilesDocumentRequestSchema = z
+  .object({
+    sessionId: z.string().trim().min(1),
+    relativePath: relativeFilePathSchema
+  })
+  .strict()
+
+export const saveFilesDocumentRequestSchema = z
+  .object({
+    sessionId: z.string().trim().min(1),
+    relativePath: relativeFilePathSchema,
+    content: z.string().max(2 * 1024 * 1024),
+    expectedRevision: z.string().trim().min(1)
   })
   .strict()
