@@ -3,6 +3,12 @@ import { persist } from 'zustand/middleware'
 
 import type { FilesDocument, FilesTextDocument } from '../shared'
 
+export type FilesSaveRequestSnapshot = {
+  relativePath: string
+  content: string
+  expectedRevision: string
+}
+
 export type FilesActiveDocumentState =
   | { status: 'loading'; relativePath: string }
   | { status: 'error'; relativePath: string; message: string }
@@ -12,6 +18,7 @@ export type FilesActiveDocumentState =
       dirty: boolean
       saveStatus: 'idle' | 'saving' | 'error'
       error?: string
+      saveRequest?: FilesSaveRequestSnapshot
     })
   | (Exclude<FilesDocument, FilesTextDocument> & { status: 'metadata' })
 
@@ -33,9 +40,13 @@ type FilesStore = {
   setExpanded: (sessionId: string, path: string, expanded: boolean) => void
   setActiveDocument: (sessionId: string, document: FilesActiveDocumentState | null) => void
   updateDraft: (sessionId: string, draft: string) => void
-  markSaving: (sessionId: string) => void
-  markSaveFailed: (sessionId: string, message: string) => void
-  markSaved: (sessionId: string, document: FilesTextDocument) => void
+  markSaving: (sessionId: string, request: FilesSaveRequestSnapshot) => void
+  markSaveFailed: (sessionId: string, message: string, request: FilesSaveRequestSnapshot) => void
+  markSaved: (
+    sessionId: string,
+    document: FilesTextDocument,
+    request: FilesSaveRequestSnapshot
+  ) => void
 }
 
 const DEFAULT_EXPLORER_WIDTH = 260
@@ -71,35 +82,68 @@ const useFilesStore = create<FilesStore>()(
               ...activeDocument,
               draft,
               dirty: draft !== activeDocument.content,
-              saveStatus: 'idle',
+              saveStatus: activeDocument.saveStatus === 'saving' ? 'saving' : 'idle',
               error: undefined
             }
           })
         }),
-      markSaving: (sessionId) =>
+      markSaving: (sessionId, request) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const activeDocument = context.activeDocument
           if (!activeDocument || activeDocument.status !== 'ready') return state
+          if (
+            activeDocument.relativePath !== request.relativePath ||
+            activeDocument.draft !== request.content ||
+            activeDocument.revision !== request.expectedRevision
+          ) {
+            return state
+          }
           return updateContext(state, sessionId, {
-            activeDocument: { ...activeDocument, saveStatus: 'saving', error: undefined }
+            activeDocument: {
+              ...activeDocument,
+              saveStatus: 'saving',
+              error: undefined,
+              saveRequest: request
+            }
           })
         }),
-      markSaveFailed: (sessionId, message) =>
+      markSaveFailed: (sessionId, message, request) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const activeDocument = context.activeDocument
           if (!activeDocument || activeDocument.status !== 'ready') return state
+          if (!matchesSaveRequest(activeDocument, request)) return state
           return updateContext(state, sessionId, {
-            activeDocument: { ...activeDocument, dirty: true, saveStatus: 'error', error: message }
+            activeDocument: {
+              ...activeDocument,
+              dirty: true,
+              saveStatus: 'error',
+              error: message,
+              saveRequest: undefined
+            }
           })
         }),
-      markSaved: (sessionId, document) =>
-        set((state) =>
-          updateContext(state, sessionId, {
-            activeDocument: toReadyDocument(document)
+      markSaved: (sessionId, document, request) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const activeDocument = context.activeDocument
+          if (!activeDocument || activeDocument.status !== 'ready') return state
+          if (!matchesSaveRequest(activeDocument, request)) return state
+          const draft =
+            activeDocument.draft === request.content ? document.content : activeDocument.draft
+          return updateContext(state, sessionId, {
+            activeDocument: {
+              ...document,
+              status: 'ready',
+              draft,
+              dirty: draft !== document.content,
+              saveStatus: 'idle',
+              error: undefined,
+              saveRequest: undefined
+            }
           })
-        )
+        })
     }),
     {
       name: 'spacezero.files',
@@ -113,7 +157,9 @@ const useFilesStore = create<FilesStore>()(
       }),
       merge: (persistedState, currentState) => {
         const persistedContexts =
-          typeof persistedState === 'object' && persistedState !== null && 'contexts' in persistedState
+          typeof persistedState === 'object' &&
+          persistedState !== null &&
+          'contexts' in persistedState
             ? (persistedState.contexts as Record<string, PersistedFilesContextState>)
             : {}
         return {
@@ -153,8 +199,21 @@ export function toReadyDocument(document: FilesTextDocument): FilesActiveDocumen
     status: 'ready',
     draft: document.content,
     dirty: false,
-    saveStatus: 'idle'
+    saveStatus: 'idle',
+    saveRequest: undefined
   }
+}
+
+function matchesSaveRequest(
+  activeDocument: Extract<FilesActiveDocumentState, { status: 'ready' }>,
+  request: FilesSaveRequestSnapshot
+): boolean {
+  return (
+    activeDocument.relativePath === request.relativePath &&
+    activeDocument.saveRequest?.relativePath === request.relativePath &&
+    activeDocument.saveRequest.content === request.content &&
+    activeDocument.saveRequest.expectedRevision === request.expectedRevision
+  )
 }
 
 function toPersistedContext(context: FilesContextState): PersistedFilesContextState {

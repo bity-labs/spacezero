@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -5,6 +9,7 @@ import {
   createOpenFilesDocumentHandler,
   createSaveFilesDocumentHandler
 } from './files.ipc'
+import { openFilesDocument } from './files-document.adapter'
 
 describe('Files IPC', () => {
   it('validates renderer input before listing a Session directory', async () => {
@@ -18,6 +23,24 @@ describe('Files IPC', () => {
       handle({ sessionId: 'session-1', relativePath: '../outside', rootPath: '/tmp' })
     ).rejects.toThrow()
     expect(listDirectory).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not expose absolute adapter paths in IPC-visible document errors', async () => {
+    const rootPath = await mkdtemp(join(tmpdir(), 'spacezero-files-ipc-'))
+    try {
+      const handle = createOpenFilesDocumentHandler({
+        openDocument: ({ relativePath }) => openFilesDocument(rootPath, relativePath)
+      })
+
+      await expect(handle({ sessionId: 'session-1', relativePath: 'missing.txt' })).rejects.toThrow(
+        'files.notFound'
+      )
+      await expect(
+        handle({ sessionId: 'session-1', relativePath: 'missing.txt' })
+      ).rejects.not.toThrow(rootPath)
+    } finally {
+      await rm(rootPath, { recursive: true, force: true })
+    }
   })
 
   it('validates renderer input before opening or saving a Session document', async () => {

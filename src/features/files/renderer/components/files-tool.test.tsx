@@ -1,36 +1,73 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const monacoMock = vi.hoisted(() => ({
+  saveCommand: undefined as undefined | (() => void)
+}))
 
 vi.mock('./files-icon', () => ({
   FilesIcon: () => <span aria-hidden="true" />
 }))
 
-vi.mock('@monaco-editor/react', () => ({
-  default: ({
+vi.mock('./files-monaco-editor', () => ({
+  FilesMonacoEditor: ({
     value,
     language,
     path,
-    onChange
+    onChange,
+    onMount
   }: {
     value?: string
     language?: string
     path?: string
     onChange?: (value: string | undefined) => void
-  }) => (
-    <textarea
-      aria-label="Monaco editor"
-      data-language={language}
-      data-model-path={path}
-      value={value ?? ''}
-      onChange={(event) => onChange?.(event.currentTarget.value)}
-    />
-  )
+    onMount?: (
+      editor: { addCommand: (_keybinding: number, callback: () => void) => void },
+      monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }
+    ) => void
+  }) => {
+    if (!monacoMock.saveCommand) {
+      onMount?.(
+        {
+          addCommand: (_keybinding, callback) => {
+            monacoMock.saveCommand = callback
+          }
+        },
+        { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } }
+      )
+    }
+
+    return (
+      <textarea
+        aria-label="Monaco editor"
+        data-language={language}
+        data-model-path={path}
+        value={value ?? ''}
+        onChange={(event) => onChange?.(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+            event.preventDefault()
+            event.stopPropagation()
+            monacoMock.saveCommand?.()
+          }
+        }}
+      />
+    )
+  }
+}))
+
+vi.mock('../lib/monaco-environment', () => ({
+  configureFilesMonacoEnvironment: vi.fn()
 }))
 
 import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
 
 describe('Files Tool', () => {
+  beforeEach(() => {
+    monacoMock.saveCommand = undefined
+  })
+
   it('loads only the visible directory and lazily expands folders through the Project Session API', async () => {
     const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) =>
       relativePath === ''
@@ -70,9 +107,7 @@ describe('Files Tool', () => {
         return [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
       }
       if (relativePath === 'src') {
-        return [
-          { name: 'nested', relativePath: 'src/nested', kind: 'directory' as const }
-        ]
+        return [{ name: 'nested', relativePath: 'src/nested', kind: 'directory' as const }]
       }
       return [{ name: 'index.ts', relativePath: 'src/nested/index.ts', kind: 'file' as const }]
     })
@@ -236,6 +271,42 @@ describe('Files Tool', () => {
     expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
   })
 
+  it('does not replace a dirty draft when navigation is canceled', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
+      { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
+    ])
+    const openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `${relativePath} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.openDocument = openDocument
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('one.txt'))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+      target: { value: 'one.txt draft' }
+    })
+    fireEvent.click(await screen.findByText('two.txt'))
+
+    expect(confirm).toHaveBeenCalledWith(
+      'Discard unsaved changes to one.txt before opening another file?'
+    )
+    expect(screen.getByDisplayValue('one.txt draft')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(openDocument.mock.calls).not.toContainEqual([
+      { sessionId: 'session-1', relativePath: 'two.txt' }
+    ])
+  })
+
   it('keeps the dirty buffer and shows actionable feedback when save conflicts or fails', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
@@ -293,7 +364,9 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('archive.bin'))
 
-    expect(await screen.findByText('This file is binary and cannot be edited here.')).toBeInTheDocument()
+    expect(
+      await screen.findByText('This file is binary and cannot be edited here.')
+    ).toBeInTheDocument()
     expect(screen.queryByLabelText('Monaco editor')).not.toBeInTheDocument()
   })
 
