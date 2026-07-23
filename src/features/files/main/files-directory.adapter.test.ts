@@ -17,11 +17,15 @@ describe('Files directory adapter', () => {
   })
 
   it('lists one level with folders first, natural case-insensitive ordering, and Git internals hidden', async () => {
+    await mkdir(join(rootPath, '.git'))
+    try {
+      await mkdir(join(rootPath, '.GIT'))
+    } catch (error) {
+      if (!isAlreadyExistsError(error)) throw error
+    }
     await Promise.all([
       mkdir(join(rootPath, 'folder10')),
       mkdir(join(rootPath, 'Folder2')),
-      mkdir(join(rootPath, '.git')),
-      mkdir(join(rootPath, '.GIT')),
       writeFile(join(rootPath, 'file10.ts'), ''),
       writeFile(join(rootPath, 'File2.ts'), ''),
       writeFile(join(rootPath, '.env'), ''),
@@ -76,3 +80,7 @@ describe('Files directory adapter', () => {
     await expect(readFilesDirectory(rootPath, 'missing')).rejects.toThrow('files.directoryNotFound')
   })
 })
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST'
+}

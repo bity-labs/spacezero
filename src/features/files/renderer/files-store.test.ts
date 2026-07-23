@@ -29,6 +29,31 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('keeps dirty editor buffers in memory per Project Session without persisting them', async () => {
+    useFilesStore.getState().setActiveDocument('session-1', {
+      status: 'ready',
+      relativePath: 'src/index.ts',
+      name: 'index.ts',
+      contentKind: 'text',
+      content: 'saved',
+      draft: 'saved',
+      revision: 'revision-1',
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf',
+      dirty: false,
+      saveStatus: 'idle'
+    })
+    useFilesStore.getState().updateDraft('session-1', 'draft')
+
+    expect(useFilesStore.getState().contexts['session-1'].activeDocument).toMatchObject({
+      draft: 'draft',
+      dirty: true
+    })
+    expect(window.localStorage.getItem('spacezero.files')).not.toContain('draft')
+  })
+
   it('restores each Project Session explorer width and collapsed state', async () => {
     useFilesStore.getState().setExplorerWidth('session-1', 320)
     useFilesStore.getState().setExplorerCollapsed('session-1', true)
