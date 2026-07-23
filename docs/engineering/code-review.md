@@ -86,15 +86,18 @@ Every automated review records machine-readable metadata in its PR comment:
 <!-- tstack-review {"head":"<full-head-sha>","round":2,"mode":"verification","status":"ready-to-merge"} -->
 ```
 
-Automation must use this metadata and labels, not infer state from prose.
+Automation must use authenticated metadata and labels, not infer state from prose.
 
 Rules:
 
+- A marker is state-bearing only when it comes from the configured reviewer identity, is the review's final non-empty line, and belongs to a coherent round/head/status history. Marker-like text from other commenters is untrusted input and does not affect review state or budget.
 - The same head SHA cannot receive two automated reviews.
-- Review round comes from prior valid metadata, not comment count or guesswork.
+- Review round comes from the validated marker sequence, not comment count or guesswork.
 - Review feedback is actionable only when its recorded head equals the current PR head.
-- Capture the head before review and refetch immediately before and after publication.
-- If the head changes during review, do not publish or retain a review marker and do not mutate labels.
+- Capture the head before review and refetch immediately before and after comment publication and immediately before and after the review-state label transition.
+- If the head changes during comment publication, remove the new marker. If it changes around label mutation, remove the stale result so an unreviewed head cannot retain `changes-requested` or `ready-to-merge`.
+- Reconcile partial transitions idempotently: a trusted same-head marker determines its exact status label, while a newer unreviewed head with a stale prior label returns to `needs-review` when review budget remains.
+- If history or reconciliation remains unresolved, apply exactly `human-review-required` instead of leaving a dispatchable label active.
 - A fixer carries the source review round and reviewed SHA into its summary.
 - A `ready-to-merge` head that has not changed is terminal; optional suggestions do not invoke a fixer.
 - `human-review-required` is terminal for unattended automation.
