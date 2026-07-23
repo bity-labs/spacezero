@@ -1,3 +1,4 @@
+import { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 import CssWorker from 'monaco-editor/language/css/css.worker?worker'
 import HtmlWorker from 'monaco-editor/language/html/html.worker?worker'
@@ -23,6 +24,7 @@ export function configureFilesMonacoEnvironment(): void {
   ;(globalThis as MonacoEnvironmentHost).MonacoEnvironment = {
     getWorker: (_workerId: string, label: string): Worker => createMonacoWorker(label)
   }
+  loader.config({ monaco })
   monaco.editor.setTheme('vs-dark')
 }
 
