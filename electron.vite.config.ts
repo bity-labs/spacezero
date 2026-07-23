@@ -31,6 +31,9 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
+        '@monaco-editor/loader': resolve(
+          'src/features/files/renderer/lib/monaco-loader.ts'
+        ),
         '@renderer': resolve('src/renderer/src'),
         '@shared': resolve('src/shared')
       }
