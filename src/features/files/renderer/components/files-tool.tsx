@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Editor, { type OnMount } from '@monaco-editor/react'
 import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
@@ -11,7 +10,11 @@ import {
   type FilesActiveDocumentState
 } from '../files-store'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
+import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesIcon } from './files-icon'
+import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
+
+configureFilesMonacoEnvironment()
 
 type FilesTreeItem =
   | (FilesEntry & { id: string; children?: FilesTreeItem[] })
@@ -131,6 +134,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
 
   const openFile = useCallback(
     async (relativePath: string): Promise<void> => {
+      if (!canReplaceActiveDocument(sessionId, relativePath)) return
       const requestId = openRequestRef.current + 1
       openRequestRef.current = requestId
       setSelectedPath(sessionId, relativePath)
@@ -153,27 +157,35 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
     const activeDocument = context.activeDocument
-    if (!activeDocument || activeDocument.status !== 'ready' || activeDocument.saveStatus === 'saving') {
+    if (
+      !activeDocument ||
+      activeDocument.status !== 'ready' ||
+      activeDocument.saveStatus === 'saving'
+    ) {
       return
     }
-    markSaving(sessionId)
+    const saveRequest = {
+      relativePath: activeDocument.relativePath,
+      content: activeDocument.draft,
+      expectedRevision: activeDocument.revision
+    }
+    markSaving(sessionId, saveRequest)
     try {
       const result = await window.spacezero.files.saveDocument({
         sessionId,
-        relativePath: activeDocument.relativePath,
-        content: activeDocument.draft,
-        expectedRevision: activeDocument.revision
+        ...saveRequest
       })
       if (result.status === 'conflict') {
         markSaveFailed(
           sessionId,
-          'This file changed on disk. Reload from disk or review the external changes before saving.'
+          'This file changed on disk. Reload from disk or review the external changes before saving.',
+          saveRequest
         )
         return
       }
-      markSaved(sessionId, result.document)
+      markSaved(sessionId, result.document, saveRequest)
     } catch (error) {
-      markSaveFailed(sessionId, saveErrorMessage(error))
+      markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
     }
   }, [context.activeDocument, markSaveFailed, markSaved, markSaving, sessionId])
 
@@ -300,8 +312,11 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
                   onSelect={(nodes) => {
                     const item = nodes[0]?.data
                     if (!item || item.kind === 'status') return
-                    setSelectedPath(sessionId, item.relativePath)
-                    if (item.kind === 'file') void openFile(item.relativePath)
+                    if (item.kind === 'file') {
+                      void openFile(item.relativePath)
+                    } else {
+                      setSelectedPath(sessionId, item.relativePath)
+                    }
                   }}
                   onToggle={(id) => {
                     const expanded = !context.expandedPaths.includes(id)
@@ -351,6 +366,20 @@ function FilesEditorPanel({
   onChange: (draft: string) => void
   onSave: () => void | Promise<void>
 }): React.JSX.Element {
+  const onSaveRef = useRef(onSave)
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
+  const editorOptions = useMemo(
+    () => ({ minimap: { enabled: false }, scrollBeyondLastLine: false }),
+    []
+  )
+  const handleEditorMount = useCallback<FilesMonacoEditorMount>((editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void onSaveRef.current()
+    })
+  }, [])
+
   if (!document) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
@@ -378,11 +407,6 @@ function FilesEditorPanel({
   }
 
   const language = getFilesEditorLanguage(document.relativePath)
-  const handleEditorMount: OnMount = (editor, monaco) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void onSave()
-    })
-  }
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
@@ -409,10 +433,10 @@ function FilesEditorPanel({
         </div>
       ) : null}
       <div className="min-h-0 flex-1">
-        <Editor
+        <FilesMonacoEditor
           height="100%"
           language={language}
-          options={{ minimap: { enabled: false }, scrollBeyondLastLine: false }}
+          options={editorOptions}
           path={createFilesMonacoModelPath(sessionId, document.relativePath)}
           theme="vs-dark"
           value={document.draft}
@@ -510,6 +534,16 @@ function FilesState({
   )
 }
 
+function canReplaceActiveDocument(sessionId: string, nextRelativePath: string): boolean {
+  const activeDocument = useFilesStore.getState().contexts[sessionId]?.activeDocument
+  if (!activeDocument || activeDocument.status !== 'ready') return true
+  if (activeDocument.relativePath === nextRelativePath) return false
+  if (!activeDocument.dirty) return true
+  return window.confirm(
+    `Discard unsaved changes to ${activeDocument.name} before opening another file?`
+  )
+}
+
 function toTreeItem(entry: FilesEntry): FilesTreeItem {
   return {
     ...entry,
@@ -573,8 +607,15 @@ function filesErrorMessage(error: unknown): string {
 function documentErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : ''
   if (code.includes('files.notFile')) return 'This item is not a regular file.'
-  if (code.includes('files.gitProtected')) return 'Git internals are protected and cannot be opened.'
-  if (code.includes('files.symlinkTraversalDenied')) return 'Symbolic links cannot be opened in Files.'
+  if (code.includes('files.gitProtected'))
+    return 'Git internals are protected and cannot be opened.'
+  if (code.includes('files.symlinkTraversalDenied'))
+    return 'Symbolic links cannot be opened in Files.'
+  if (code.includes('files.notFound'))
+    return 'This file no longer exists. Refresh the explorer and try again.'
+  if (code.includes('files.inaccessible')) {
+    return 'Space Zero cannot access this file. Check its permissions and try again.'
+  }
   return 'Couldn’t open this file. Try again.'
 }
 

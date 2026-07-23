@@ -2,28 +2,27 @@ import { z } from 'zod'
 
 const relativePathSchema = z
   .string()
-  .transform((path) => path.trim())
-  .pipe(
-    z
-      .string()
-      .max(4096)
-      .refine(
-        (path) =>
-          !path.startsWith('/') &&
-          !/^[a-z]:/i.test(path) &&
-          !path.includes('\\') &&
-          !path.includes('\0')
-      )
-      .refine((path) => {
-        const segments = path.split('/').filter(Boolean)
-        return !segments.some((segment) => segment === '..' || segment.toLowerCase() === '.git')
-      })
+  .max(4096)
+  .refine(
+    (path) =>
+      !path.startsWith('/') &&
+      !/^[a-z]:/i.test(path) &&
+      !path.includes('\\') &&
+      !path.includes('\0')
   )
+  .refine((path) => {
+    if (path === '') return true
+    const segments = path.split('/')
+    return !segments.some(
+      (segment) =>
+        segment.length === 0 ||
+        segment === '.' ||
+        segment === '..' ||
+        segment.toLowerCase() === '.git'
+    )
+  })
 
-const relativeFilePathSchema = relativePathSchema.refine((path) => {
-  const segments = path.split('/').filter(Boolean)
-  return path.length > 0 && !segments.some((segment) => segment === '.')
-})
+const relativeFilePathSchema = relativePathSchema.refine((path) => path.length > 0)
 
 export const listFilesDirectoryRequestSchema = z
   .object({

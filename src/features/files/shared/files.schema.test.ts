@@ -13,7 +13,7 @@ describe('Files IPC schemas', () => {
         sessionId: 'session-1',
         relativePath: ' src/features '
       })
-    ).toEqual({ sessionId: 'session-1', relativePath: 'src/features' })
+    ).toEqual({ sessionId: 'session-1', relativePath: ' src/features ' })
     expect(
       listFilesDirectoryRequestSchema.parse({ sessionId: 'session-1', relativePath: '' })
     ).toEqual({ sessionId: 'session-1', relativePath: '' })
@@ -26,7 +26,7 @@ describe('Files IPC schemas', () => {
       { sessionId: 'session-1', relativePath: 'src\\features' },
       { sessionId: 'session-1', relativePath: '.git/objects' },
       { sessionId: 'session-1', relativePath: '.GIT/objects' },
-      { sessionId: 'session-1', relativePath: ' .git/objects ' },
+      { sessionId: 'session-1', relativePath: 'src//features' },
       { sessionId: 'session-1', relativePath: 'a'.repeat(4097) },
       { sessionId: 'session-1', relativePath: '', rootPath: '/arbitrary' }
     ]) {
@@ -36,18 +36,18 @@ describe('Files IPC schemas', () => {
 
   it('requires document reads and writes to use non-empty context-relative file paths', () => {
     expect(
-      openFilesDocumentRequestSchema.parse({ sessionId: 'session-1', relativePath: 'README' })
-    ).toEqual({ sessionId: 'session-1', relativePath: 'README' })
+      openFilesDocumentRequestSchema.parse({ sessionId: 'session-1', relativePath: ' README ' })
+    ).toEqual({ sessionId: 'session-1', relativePath: ' README ' })
     expect(
       saveFilesDocumentRequestSchema.parse({
         sessionId: 'session-1',
-        relativePath: 'README',
+        relativePath: ' README ',
         content: 'updated',
         expectedRevision: 'revision-1'
       })
     ).toEqual({
       sessionId: 'session-1',
-      relativePath: 'README',
+      relativePath: ' README ',
       content: 'updated',
       expectedRevision: 'revision-1'
     })
@@ -56,8 +56,8 @@ describe('Files IPC schemas', () => {
       { sessionId: 'session-1', relativePath: '' },
       { sessionId: 'session-1', relativePath: '../outside' },
       { sessionId: 'session-1', relativePath: '.git/config' },
-      { sessionId: 'session-1', relativePath: ' .git/config ' },
       { sessionId: 'session-1', relativePath: 'src/./file.txt' },
+      { sessionId: 'session-1', relativePath: 'src//file.txt' },
       { sessionId: 'session-1', relativePath: 'src/file.txt', rootPath: '/arbitrary' }
     ]) {
       expect(() => openFilesDocumentRequestSchema.parse(input)).toThrow()

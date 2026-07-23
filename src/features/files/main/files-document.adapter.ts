@@ -13,7 +13,37 @@ type TextMetadata = {
   content: string
 }
 
-export async function openFilesDocument(rootPath: string, relativePath: string): Promise<FilesDocument> {
+type SaveLockKey = string
+
+const saveLocks = new Map<SaveLockKey, Promise<void>>()
+
+export async function openFilesDocument(
+  rootPath: string,
+  relativePath: string
+): Promise<FilesDocument> {
+  try {
+    return await openFilesDocumentUnsafe(rootPath, relativePath)
+  } catch (error) {
+    throw toBoundarySafeFilesError(error, 'read')
+  }
+}
+
+export async function saveFilesDocument(
+  rootPath: string,
+  request: Omit<SaveFilesDocumentRequest, 'sessionId'>
+): Promise<SaveFilesDocumentResult> {
+  try {
+    const lockKey = await createSaveLockKey(rootPath, request.relativePath)
+    return await withSaveLock(lockKey, () => saveFilesDocumentUnsafe(rootPath, request))
+  } catch (error) {
+    throw toBoundarySafeFilesError(error, 'write')
+  }
+}
+
+async function openFilesDocumentUnsafe(
+  rootPath: string,
+  relativePath: string
+): Promise<FilesDocument> {
   const { absolutePath, normalizedPath } = await resolveRegularFilePath(rootPath, relativePath)
   const details = await lstat(absolutePath)
   const baseDocument = {
@@ -52,11 +82,11 @@ export async function openFilesDocument(rootPath: string, relativePath: string):
   }
 }
 
-export async function saveFilesDocument(
+async function saveFilesDocumentUnsafe(
   rootPath: string,
   request: Omit<SaveFilesDocumentRequest, 'sessionId'>
 ): Promise<SaveFilesDocumentResult> {
-  const currentDocument = await openFilesDocument(rootPath, request.relativePath)
+  const currentDocument = await openFilesDocumentUnsafe(rootPath, request.relativePath)
   if (currentDocument.contentKind !== 'text') throw new Error('files.notEditableText')
   if (currentDocument.revision !== request.expectedRevision) {
     return { status: 'conflict', document: currentDocument }
@@ -69,7 +99,7 @@ export async function saveFilesDocument(
 
   const { absolutePath } = await resolveRegularFilePath(rootPath, request.relativePath)
   await writeFile(absolutePath, bytes)
-  const document = await openFilesDocument(rootPath, request.relativePath)
+  const document = await openFilesDocumentUnsafe(rootPath, request.relativePath)
   if (document.contentKind !== 'text') throw new Error('files.writeFailed')
   return { status: 'saved', document }
 }
@@ -97,20 +127,19 @@ async function resolveRegularFilePath(
 }
 
 function normalizeRelativeFilePath(path: string): string {
-  const trimmedPath = path.trim()
   if (
-    !trimmedPath ||
-    trimmedPath.includes('\0') ||
-    trimmedPath.includes('\\') ||
-    isAbsolute(trimmedPath) ||
-    win32.isAbsolute(trimmedPath) ||
-    /^[a-z]:/i.test(trimmedPath)
+    !path ||
+    path.includes('\0') ||
+    path.includes('\\') ||
+    isAbsolute(path) ||
+    win32.isAbsolute(path) ||
+    /^[a-z]:/i.test(path)
   ) {
     throw new Error('files.invalidPath')
   }
 
-  const segments = trimmedPath.split('/').filter((segment) => segment.length > 0)
-  if (segments.length === 0) throw new Error('files.invalidPath')
+  const segments = path.split('/')
+  if (segments.some((segment) => segment.length === 0)) throw new Error('files.invalidPath')
   if (segments.some((segment) => segment === '..' || segment === '.')) {
     throw new Error('files.invalidPath')
   }
@@ -124,6 +153,32 @@ function assertInsideRoot(rootPath: string, candidatePath: string): void {
   const relativePath = relative(rootPath, candidatePath)
   if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     throw new Error('files.invalidPath')
+  }
+}
+
+async function createSaveLockKey(rootPath: string, relativePath: string): Promise<SaveLockKey> {
+  const canonicalRoot = await realpath(rootPath)
+  return `${canonicalRoot}\0${normalizeRelativeFilePath(relativePath)}`
+}
+
+async function withSaveLock<T>(key: SaveLockKey, operation: () => Promise<T>): Promise<T> {
+  const previous = saveLocks.get(key) ?? Promise.resolve()
+  let release!: () => void
+  const current = new Promise<void>((resolveRelease) => {
+    release = resolveRelease
+  })
+  const chained = previous.then(
+    () => current,
+    () => current
+  )
+  saveLocks.set(key, chained)
+
+  await previous.catch(() => undefined)
+  try {
+    return await operation()
+  } finally {
+    release()
+    if (saveLocks.get(key) === chained) saveLocks.delete(key)
   }
 }
 
@@ -161,4 +216,15 @@ function hasUtf8Bom(bytes: Buffer): boolean {
 
 function hashRevision(input: Buffer | string): string {
   return createHash('sha256').update(input).digest('hex')
+}
+
+function toBoundarySafeFilesError(error: unknown, operation: 'read' | 'write'): Error {
+  if (error instanceof Error && error.message.startsWith('files.')) return error
+  const code =
+    typeof error === 'object' && error !== null && 'code' in error
+      ? (error as { code?: unknown }).code
+      : undefined
+  if (code === 'ENOENT' || code === 'ENOTDIR') return new Error('files.notFound')
+  if (code === 'EACCES' || code === 'EPERM') return new Error('files.inaccessible')
+  return new Error(operation === 'write' ? 'files.writeFailed' : 'files.readFailed')
 }

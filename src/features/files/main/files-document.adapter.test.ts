@@ -89,6 +89,48 @@ describe('Files document adapter', () => {
     )
   })
 
+  it('treats whitespace-bearing relative paths as distinct filenames', async () => {
+    await writeFile(join(rootPath, 'note.txt'), 'plain')
+    await writeFile(join(rootPath, ' note.txt '), 'spaced')
+
+    await expect(openFilesDocument(rootPath, ' note.txt ')).resolves.toMatchObject({
+      name: ' note.txt ',
+      relativePath: ' note.txt ',
+      contentKind: 'text',
+      content: 'spaced'
+    })
+  })
+
+  it('does not leak the absolute root path through filesystem errors', async () => {
+    await expect(openFilesDocument(rootPath, 'missing.txt')).rejects.toThrow('files.notFound')
+    await expect(openFilesDocument(rootPath, 'missing.txt')).rejects.not.toThrow(rootPath)
+  })
+
+  it('lets only one concurrent optimistic save with the same revision succeed', async () => {
+    await writeFile(join(rootPath, 'race.txt'), 'original')
+    const opened = await openFilesDocument(rootPath, 'race.txt')
+    if (opened.contentKind !== 'text') throw new Error('expected text fixture')
+
+    const results = await Promise.all([
+      saveFilesDocument(rootPath, {
+        relativePath: 'race.txt',
+        content: 'first',
+        expectedRevision: opened.revision
+      }),
+      saveFilesDocument(rootPath, {
+        relativePath: 'race.txt',
+        content: 'second',
+        expectedRevision: opened.revision
+      })
+    ])
+
+    expect(results.map((result) => result.status).sort()).toEqual(['conflict', 'saved'])
+    const savedResult = results.find((result) => result.status === 'saved')
+    await expect(readFile(join(rootPath, 'race.txt'), 'utf8')).resolves.toBe(
+      savedResult?.status === 'saved' ? savedResult.document.content : undefined
+    )
+  })
+
   it('leaves a file unchanged when the expected revision is stale', async () => {
     await writeFile(join(rootPath, 'conflict.txt'), 'original\n')
     const opened = await openFilesDocument(rootPath, 'conflict.txt')
