@@ -616,6 +616,11 @@ function createActiveDelegations(): ActiveDelegations {
       }
     },
     abortAll: () => {
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+        return
+      }
       cascadeReason = 'aborted'
       for (const entry of entries.values()) {
         entry.cascadeReason = 'aborted'
@@ -623,6 +628,11 @@ function createActiveDelegations(): ActiveDelegations {
       }
     },
     abortAndDisposeAll: () => {
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+        return
+      }
       cascadeReason = 'aborted'
       disposeOnCascade = true
       for (const entry of entries.values()) {
