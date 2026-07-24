@@ -188,7 +188,7 @@ describe('App', () => {
     expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
   })
 
-  it('shows the full disabled Tool Switcher only for a configured Knowledge Base', async () => {
+  it('enables only Files in the Tool Switcher for a configured Knowledge Base', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -207,7 +207,8 @@ describe('App', () => {
       'aria-orientation',
       'vertical'
     )
-    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+    expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
+    for (const label of ['Git', 'Browser', 'Terminal']) {
       expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
   })

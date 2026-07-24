@@ -30,7 +30,7 @@ export async function openFilesDocument(
 
 export async function saveFilesDocument(
   rootPath: string,
-  request: Omit<SaveFilesDocumentRequest, 'sessionId'>
+  request: Omit<SaveFilesDocumentRequest, 'context'>
 ): Promise<SaveFilesDocumentResult> {
   try {
     const lockKey = await createSaveLockKey(rootPath, request.relativePath)
@@ -84,7 +84,7 @@ async function openFilesDocumentUnsafe(
 
 async function saveFilesDocumentUnsafe(
   rootPath: string,
-  request: Omit<SaveFilesDocumentRequest, 'sessionId'>
+  request: Omit<SaveFilesDocumentRequest, 'context'>
 ): Promise<SaveFilesDocumentResult> {
   const currentDocument = await openFilesDocumentUnsafe(rootPath, request.relativePath)
   if (currentDocument.contentKind !== 'text') throw new Error('files.notEditableText')

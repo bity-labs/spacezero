@@ -6,29 +6,37 @@ import {
   saveFilesDocumentRequestSchema
 } from './files.schema'
 
+const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
+const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
+
 describe('Files IPC schemas', () => {
-  it('accepts only a Project Session id and a bounded context-relative directory path', () => {
+  it('accepts project and Knowledge Base contexts with bounded context-relative directory paths', () => {
     expect(
       listFilesDirectoryRequestSchema.parse({
-        sessionId: 'session-1',
+        context: projectContext,
         relativePath: ' src/features '
       })
-    ).toEqual({ sessionId: 'session-1', relativePath: ' src/features ' })
+    ).toEqual({ context: projectContext, relativePath: ' src/features ' })
     expect(
-      listFilesDirectoryRequestSchema.parse({ sessionId: 'session-1', relativePath: '' })
-    ).toEqual({ sessionId: 'session-1', relativePath: '' })
+      listFilesDirectoryRequestSchema.parse({ context: projectContext, relativePath: '' })
+    ).toEqual({ context: projectContext, relativePath: '' })
+    expect(
+      listFilesDirectoryRequestSchema.parse({ context: knowledgeBaseContext, relativePath: '' })
+    ).toEqual({ context: knowledgeBaseContext, relativePath: '' })
 
     for (const input of [
-      { sessionId: '', relativePath: '' },
-      { sessionId: 'session-1', relativePath: '../outside' },
-      { sessionId: 'session-1', relativePath: '/absolute' },
-      { sessionId: 'session-1', relativePath: 'C:/absolute' },
-      { sessionId: 'session-1', relativePath: 'src\\features' },
-      { sessionId: 'session-1', relativePath: '.git/objects' },
-      { sessionId: 'session-1', relativePath: '.GIT/objects' },
-      { sessionId: 'session-1', relativePath: 'src//features' },
-      { sessionId: 'session-1', relativePath: 'a'.repeat(4097) },
-      { sessionId: 'session-1', relativePath: '', rootPath: '/arbitrary' }
+      { context: { kind: 'project-session', sessionId: '' }, relativePath: '' },
+      { context: { kind: 'knowledge-base', contextKey: 'kb-session-1' }, relativePath: '' },
+      { context: knowledgeBaseContext, sessionId: 'kb-session-1', relativePath: '' },
+      { context: projectContext, relativePath: '../outside' },
+      { context: projectContext, relativePath: '/absolute' },
+      { context: projectContext, relativePath: 'C:/absolute' },
+      { context: projectContext, relativePath: 'src\\features' },
+      { context: projectContext, relativePath: '.git/objects' },
+      { context: projectContext, relativePath: '.GIT/objects' },
+      { context: projectContext, relativePath: 'src//features' },
+      { context: projectContext, relativePath: 'a'.repeat(4097) },
+      { context: projectContext, relativePath: '', rootPath: '/arbitrary' }
     ]) {
       expect(() => listFilesDirectoryRequestSchema.parse(input)).toThrow()
     }
@@ -36,36 +44,36 @@ describe('Files IPC schemas', () => {
 
   it('requires document reads and writes to use non-empty context-relative file paths', () => {
     expect(
-      openFilesDocumentRequestSchema.parse({ sessionId: 'session-1', relativePath: ' README ' })
-    ).toEqual({ sessionId: 'session-1', relativePath: ' README ' })
+      openFilesDocumentRequestSchema.parse({ context: projectContext, relativePath: ' README ' })
+    ).toEqual({ context: projectContext, relativePath: ' README ' })
     expect(
       saveFilesDocumentRequestSchema.parse({
-        sessionId: 'session-1',
+        context: knowledgeBaseContext,
         relativePath: ' README ',
         content: 'updated',
         expectedRevision: 'revision-1'
       })
     ).toEqual({
-      sessionId: 'session-1',
+      context: knowledgeBaseContext,
       relativePath: ' README ',
       content: 'updated',
       expectedRevision: 'revision-1'
     })
 
     for (const input of [
-      { sessionId: 'session-1', relativePath: '' },
-      { sessionId: 'session-1', relativePath: '../outside' },
-      { sessionId: 'session-1', relativePath: '.git/config' },
-      { sessionId: 'session-1', relativePath: 'src/./file.txt' },
-      { sessionId: 'session-1', relativePath: 'src//file.txt' },
-      { sessionId: 'session-1', relativePath: 'src/file.txt', rootPath: '/arbitrary' }
+      { context: projectContext, relativePath: '' },
+      { context: projectContext, relativePath: '../outside' },
+      { context: projectContext, relativePath: '.git/config' },
+      { context: projectContext, relativePath: 'src/./file.txt' },
+      { context: projectContext, relativePath: 'src//file.txt' },
+      { context: projectContext, relativePath: 'src/file.txt', rootPath: '/arbitrary' }
     ]) {
       expect(() => openFilesDocumentRequestSchema.parse(input)).toThrow()
     }
 
     expect(() =>
       saveFilesDocumentRequestSchema.parse({
-        sessionId: 'session-1',
+        context: projectContext,
         relativePath: 'README',
         content: 'x'.repeat(2 * 1024 * 1024 + 1),
         expectedRevision: 'revision-1'

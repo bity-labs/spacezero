@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createFilesService } from './files.service'
 
+const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
+const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
 const validSession = {
   id: 'session-1',
   projectId: 'project-1',
@@ -18,6 +20,8 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
       findProjectById: async () => validProject
     },
     worktrees: { validate: async () => true },
+    knowledgeBaseRootProvider: { getVerifiedRoot: async () => '/knowledge-base' },
+    operations: { runExclusive: (operation) => operation() },
     readDirectory: async () => [],
     openDocument: async () => ({
       name: 'README.md',
@@ -59,7 +63,7 @@ describe('Files service', () => {
     const service = createTestService({ repository, worktrees, readDirectory })
 
     await expect(
-      service.listDirectory({ sessionId: 'session-1', relativePath: '' })
+      service.listDirectory({ context: projectContext, relativePath: '' })
     ).resolves.toEqual([])
     expect(worktrees.validate).toHaveBeenCalledWith({
       projectPath: '/projects/project-1',
@@ -103,11 +107,11 @@ describe('Files service', () => {
     const service = createTestService({ openDocument, saveDocument })
 
     await expect(
-      service.openDocument({ sessionId: 'session-1', relativePath: 'README.md' })
+      service.openDocument({ context: projectContext, relativePath: 'README.md' })
     ).resolves.toMatchObject({ contentKind: 'text', content: 'content' })
     await expect(
       service.saveDocument({
-        sessionId: 'session-1',
+        context: projectContext,
         relativePath: 'README.md',
         content: 'updated',
         expectedRevision: 'revision-1'
@@ -116,6 +120,68 @@ describe('Files service', () => {
 
     expect(openDocument).toHaveBeenCalledWith('/worktrees/project-1/session-1', 'README.md')
     expect(saveDocument).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1'
+    })
+  })
+
+  it('resolves Knowledge Base Files from the verified Knowledge Base repository', async () => {
+    const knowledgeBaseRootProvider = { getVerifiedRoot: vi.fn(async () => '/verified/kb') }
+    const readDirectory = vi.fn(async () => [])
+    const openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'content',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const service = createTestService({ knowledgeBaseRootProvider, readDirectory, openDocument })
+
+    await expect(
+      service.listDirectory({ context: knowledgeBaseContext, relativePath: '' })
+    ).resolves.toEqual([])
+    await expect(
+      service.openDocument({ context: knowledgeBaseContext, relativePath: 'README.md' })
+    ).resolves.toMatchObject({ contentKind: 'text', content: 'content' })
+
+    expect(readDirectory).toHaveBeenCalledWith('/verified/kb', '')
+    expect(openDocument).toHaveBeenCalledWith('/verified/kb', 'README.md')
+  })
+
+  it('coordinates Knowledge Base writes through the existing Knowledge Base operation lock', async () => {
+    const operations = { runExclusive: vi.fn(async (operation) => operation()) }
+    const saveDocument = vi.fn(async () => ({
+      status: 'saved' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content: 'updated',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    const service = createTestService({ operations, saveDocument })
+
+    await expect(
+      service.saveDocument({
+        context: knowledgeBaseContext,
+        relativePath: 'README.md',
+        content: 'updated',
+        expectedRevision: 'revision-1'
+      })
+    ).resolves.toMatchObject({ status: 'saved' })
+
+    expect(operations.runExclusive).toHaveBeenCalledTimes(1)
+    expect(saveDocument).toHaveBeenCalledWith('/knowledge-base', {
       relativePath: 'README.md',
       content: 'updated',
       expectedRevision: 'revision-1'
@@ -139,7 +205,7 @@ describe('Files service', () => {
     })
 
     await expect(
-      service.listDirectory({ sessionId: 'session-1', relativePath: '' })
+      service.listDirectory({ context: projectContext, relativePath: '' })
     ).rejects.toThrow('files.worktreeMissing')
     expect(readDirectory).not.toHaveBeenCalled()
   })
@@ -162,7 +228,7 @@ describe('Files service', () => {
     })
 
     await expect(
-      service.listDirectory({ sessionId: 'session-1', relativePath: '' })
+      service.listDirectory({ context: projectContext, relativePath: '' })
     ).rejects.toThrow('files.worktreeInvalid')
     expect(readDirectory).not.toHaveBeenCalled()
   })
@@ -176,7 +242,7 @@ describe('Files service', () => {
     })
 
     await expect(
-      service.listDirectory({ sessionId: 'session-1', relativePath: '' })
+      service.listDirectory({ context: projectContext, relativePath: '' })
     ).rejects.toThrow('files.projectSessionNotFound')
   })
 })

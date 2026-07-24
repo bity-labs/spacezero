@@ -4,6 +4,12 @@ export const FILES_IPC_CHANNELS = {
   saveDocument: 'files:saveDocument'
 } as const
 
+export const KNOWLEDGE_BASE_FILES_CONTEXT_KEY = 'knowledge-base' as const
+
+export type FilesContext =
+  | { kind: 'project-session'; sessionId: string }
+  | { kind: 'knowledge-base'; contextKey: typeof KNOWLEDGE_BASE_FILES_CONTEXT_KEY }
+
 export type FilesEntryKind = 'directory' | 'file' | 'symlink'
 
 export type FilesEntry = {
@@ -13,17 +19,17 @@ export type FilesEntry = {
 }
 
 export type ListFilesDirectoryRequest = {
-  sessionId: string
+  context: FilesContext
   relativePath: string
 }
 
 export type OpenFilesDocumentRequest = {
-  sessionId: string
+  context: FilesContext
   relativePath: string
 }
 
 export type SaveFilesDocumentRequest = {
-  sessionId: string
+  context: FilesContext
   relativePath: string
   content: string
   expectedRevision: string

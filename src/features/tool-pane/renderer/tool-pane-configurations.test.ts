@@ -46,8 +46,13 @@ describe('Tool Pane contextual configurations', () => {
       'browser',
       'terminal'
     ])
-    expect([...workspace.tools, ...knowledgeBase.tools]).toSatisfy(
-      (tools: typeof project.tools) => tools.every((tool) => !tool.available)
+    expect(knowledgeBase.tools[0]).toMatchObject({ id: 'files', available: true })
+    expect(knowledgeBase.tools[0]?.render).toBeTypeOf('function')
+    expect(workspace.tools).toSatisfy((tools: typeof project.tools) =>
+      tools.every((tool) => !tool.available)
+    )
+    expect(knowledgeBase.tools.slice(1)).toSatisfy((tools: typeof project.tools) =>
+      tools.every((tool) => !tool.available)
     )
   })
 })

@@ -1,4 +1,5 @@
 import type {
+  FilesContext,
   FilesDocument,
   FilesEntry,
   ListFilesDirectoryRequest,
@@ -33,47 +34,76 @@ export type FilesWorktreeValidator = {
   }) => Promise<boolean>
 }
 
+type FilesKnowledgeBaseRootProvider = {
+  getVerifiedRoot: () => Promise<string>
+}
+
+type FilesOperationCoordinator = {
+  runExclusive: <T>(operation: () => Promise<T>) => Promise<T>
+}
+
 type ProjectSessionWorktree = {
   path: string
   branch: string
   baseRevision: string
 }
 
+type FilesResolvedRoot = {
+  path: string
+  coordinated: boolean
+}
+
 export function createFilesService({
   repository,
   worktrees,
+  knowledgeBaseRootProvider,
+  operations,
   readDirectory,
   openDocument,
   saveDocument
 }: {
   repository: FilesRepository
   worktrees: FilesWorktreeValidator
+  knowledgeBaseRootProvider?: FilesKnowledgeBaseRootProvider
+  operations?: FilesOperationCoordinator
   readDirectory: (rootPath: string, relativePath: string) => Promise<FilesEntry[]>
   openDocument: (rootPath: string, relativePath: string) => Promise<FilesDocument>
   saveDocument: (
     rootPath: string,
-    request: Omit<SaveFilesDocumentRequest, 'sessionId'>
+    request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
 }) {
   return {
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
-      const worktree = await resolveProjectSessionWorktree(request.sessionId)
-      return readDirectory(worktree.path, request.relativePath)
+      const root = await resolveFilesRoot(request.context)
+      return readDirectory(root.path, request.relativePath)
     },
 
     async openDocument(request: OpenFilesDocumentRequest): Promise<FilesDocument> {
-      const worktree = await resolveProjectSessionWorktree(request.sessionId)
-      return openDocument(worktree.path, request.relativePath)
+      const root = await resolveFilesRoot(request.context)
+      return openDocument(root.path, request.relativePath)
     },
 
-    async saveDocument(request: SaveFilesDocumentRequest & { sessionId: string }) {
-      const worktree = await resolveProjectSessionWorktree(request.sessionId)
-      return saveDocument(worktree.path, {
-        relativePath: request.relativePath,
-        content: request.content,
-        expectedRevision: request.expectedRevision
-      })
+    async saveDocument(request: SaveFilesDocumentRequest) {
+      const root = await resolveFilesRoot(request.context)
+      const write = () =>
+        saveDocument(root.path, {
+          relativePath: request.relativePath,
+          content: request.content,
+          expectedRevision: request.expectedRevision
+        })
+      return root.coordinated && operations ? operations.runExclusive(write) : write()
     }
+  }
+
+  async function resolveFilesRoot(context: FilesContext): Promise<FilesResolvedRoot> {
+    if (context.kind === 'knowledge-base') {
+      if (!knowledgeBaseRootProvider) throw new Error('files.knowledgeBaseUnavailable')
+      return { path: await knowledgeBaseRootProvider.getVerifiedRoot(), coordinated: true }
+    }
+
+    const worktree = await resolveProjectSessionWorktree(context.sessionId)
+    return { path: worktree.path, coordinated: false }
   }
 
   async function resolveProjectSessionWorktree(sessionId: string): Promise<ProjectSessionWorktree> {

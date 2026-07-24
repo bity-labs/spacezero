@@ -7,6 +7,10 @@ import {
   saveFilesDocumentRequestSchema,
   type FilesAPI
 } from '../shared'
+import {
+  getKnowledgeBaseOperationCoordinator,
+  getKnowledgeBaseRootProvider
+} from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { readFilesDirectory } from './files-directory.adapter'
@@ -16,6 +20,8 @@ import { createFilesService } from './files.service'
 const filesService = createFilesService({
   repository: createSessionsRepository(),
   worktrees: getManagedWorktreeService(),
+  knowledgeBaseRootProvider: getKnowledgeBaseRootProvider(),
+  operations: getKnowledgeBaseOperationCoordinator(),
   readDirectory: readFilesDirectory,
   openDocument: openFilesDocument,
   saveDocument: saveFilesDocument
