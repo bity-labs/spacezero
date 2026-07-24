@@ -119,6 +119,12 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
 import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
 
+function requestContextKey(request: Parameters<typeof window.spacezero.files.listDirectory>[0]): string {
+  return request.context.kind === 'project-session'
+    ? request.context.sessionId
+    : request.context.contextKey
+}
+
 describe('Files Tool', () => {
   beforeEach(() => {
     monacoMock.saveCommand = undefined
@@ -142,14 +148,14 @@ describe('Files Tool', () => {
     expect(screen.getByText('src')).toBeInTheDocument()
     expect(screen.getByText('README.md')).toBeInTheDocument()
     expect(listDirectory).toHaveBeenCalledTimes(1)
-    expect(listDirectory).toHaveBeenCalledWith({ sessionId: 'session-1', relativePath: '' })
+    expect(listDirectory).toHaveBeenCalledWith({ context: { kind: 'project-session', sessionId: 'session-1' }, relativePath: '' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
 
     expect(await screen.findByText('index.ts')).toBeInTheDocument()
     await waitFor(() =>
       expect(listDirectory).toHaveBeenLastCalledWith({
-        sessionId: 'session-1',
+        context: { kind: 'project-session', sessionId: 'session-1' },
         relativePath: 'src'
       })
     )
@@ -214,8 +220,8 @@ describe('Files Tool', () => {
     >((resolve) => {
       resolveFirst = resolve
     })
-    window.spacezero.files.listDirectory = vi.fn(async ({ sessionId }) =>
-      sessionId === 'session-1'
+    window.spacezero.files.listDirectory = vi.fn(async (request) =>
+      requestContextKey(request) === 'session-1'
         ? firstResult
         : [{ name: 'second.txt', relativePath: 'second.txt', kind: 'file' as const }]
     )
@@ -297,12 +303,88 @@ describe('Files Tool', () => {
 
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
     expect(saveDocument).toHaveBeenCalledWith({
-      sessionId: 'session-1',
+      context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'README.md',
       content: '## Source draft',
       expectedRevision: 'revision-1'
     })
     expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('uses the stable Knowledge Base context for shared Files reads, rich editing, and explicit save', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 8,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn(async ({ content }: { content: string }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    window.spacezero.files.saveDocument = saveDocument
+
+    const view = render(
+      <FilesTool
+        contextKey="knowledge-base"
+        ipcContext={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }}
+        treeLabel="Files"
+      />
+    )
+    expect(await screen.findByRole('tree', { name: 'Files' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByText('README.md'))
+    const richEditor = await screen.findByLabelText('Rich Markdown editor')
+    fireEvent.change(richEditor, { target: { value: '## Knowledge draft' } })
+
+    view.rerender(
+      <FilesTool
+        contextKey="knowledge-base"
+        ipcContext={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }}
+        treeLabel="Files"
+      />
+    )
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
+      '## Knowledge draft'
+    )
+    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(window.spacezero.files.listDirectory).toHaveBeenCalledWith({
+      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      relativePath: ''
+    })
+    expect(saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      relativePath: 'README.md',
+      content: '## Knowledge draft',
+      expectedRevision: 'revision-1'
+    })
+    expect(screen.getByLabelText('Rich Markdown editor').closest('.rich-markdown-editor')).toHaveAttribute(
+      'data-document-relative-path',
+      'README.md'
+    )
+
+    view.rerender(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Saved')
   })
 
   it('keeps lossy Markdown and MDX in source mode with an explanation', async () => {
@@ -374,7 +456,7 @@ describe('Files Tool', () => {
 
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
     expect(saveDocument).toHaveBeenCalledWith({
-      sessionId: 'session-1',
+      context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'docs/page.mdx',
       content: mdxContent,
       expectedRevision: 'revision-1'
@@ -385,17 +467,20 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'page.mdx', relativePath: 'docs/page.mdx', kind: 'file' as const }
     ])
-    window.spacezero.files.openDocument = vi.fn(async ({ sessionId }) => ({
-      name: 'page.mdx',
-      relativePath: 'docs/page.mdx',
-      contentKind: 'text' as const,
-      size: 6,
-      modifiedAt: new Date(0).toISOString(),
-      revision: `${sessionId}-revision`,
-      content: `# ${sessionId}`,
-      hasBom: false,
-      lineEnding: 'lf' as const
-    }))
+    window.spacezero.files.openDocument = vi.fn(async (request) => {
+      const contextKey = requestContextKey(request)
+      return {
+        name: 'page.mdx',
+        relativePath: 'docs/page.mdx',
+        contentKind: 'text' as const,
+        size: 6,
+        modifiedAt: new Date(0).toISOString(),
+        revision: `${contextKey}-revision`,
+        content: `# ${contextKey}`,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    })
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('page.mdx'))
@@ -520,7 +605,7 @@ describe('Files Tool', () => {
 
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
     expect(saveDocument).toHaveBeenCalledWith({
-      sessionId: 'session-1',
+      context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'package.json',
       content: '{"name":"updated"}\n',
       expectedRevision: 'revision-1'
@@ -615,22 +700,23 @@ describe('Files Tool', () => {
   })
 
   it('isolates tab state across Project Session contexts and component remounts', async () => {
-    window.spacezero.files.listDirectory = vi.fn(async ({ sessionId }) =>
-      sessionId === 'session-1'
-        ? [{ name: 'shared.txt', relativePath: 'shared.txt', kind: 'file' as const }]
-        : [{ name: 'shared.txt', relativePath: 'shared.txt', kind: 'file' as const }]
-    )
-    window.spacezero.files.openDocument = vi.fn(async ({ sessionId, relativePath }) => ({
-      name: 'shared.txt',
-      relativePath,
-      contentKind: 'text' as const,
-      size: 5,
-      modifiedAt: new Date(0).toISOString(),
-      revision: `${sessionId}-revision`,
-      content: `${sessionId} saved`,
-      hasBom: false,
-      lineEnding: 'lf' as const
-    }))
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'shared.txt', relativePath: 'shared.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async (request) => {
+      const contextKey = requestContextKey(request)
+      return {
+        name: 'shared.txt',
+        relativePath: request.relativePath,
+        contentKind: 'text' as const,
+        size: 5,
+        modifiedAt: new Date(0).toISOString(),
+        revision: `${contextKey}-revision`,
+        content: `${contextKey} saved`,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    })
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('shared.txt'))

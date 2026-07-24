@@ -1,6 +1,8 @@
 import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
+import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
 import type { ToolDescriptor, ToolPaneConfiguration } from './tool-pane-shell'
 
 const FilesTool = lazy(async () => {
@@ -36,7 +38,10 @@ export function createProjectSessionToolPaneConfiguration(session: {
             ? createElement(
                 Suspense,
                 { fallback: createElement(FilesToolLoading) },
-                createElement(FilesTool, { sessionId: capabilities.sessionId })
+                createElement(FilesTool, {
+                  contextKey: capabilities.sessionId,
+                  ipcContext: { kind: 'project-session', sessionId: capabilities.sessionId }
+                })
               )
             : null
       },
@@ -63,7 +68,31 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
     contextKey: 'knowledge-base',
     capabilities: { kind: 'knowledge-base' },
     defaultToolId: 'files',
-    tools: [toolRegistry.files, toolRegistry.git, toolRegistry.browser, toolRegistry.terminal]
+    tools: [
+      {
+        ...toolRegistry.files,
+        available: true,
+        render: ({ contextKey, capabilities }) =>
+          capabilities.kind === 'knowledge-base'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(FilesToolLoading) },
+                createElement(FilesTool, {
+                  contextKey,
+                  ipcContext: {
+                    kind: 'knowledge-base',
+                    contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
+                  },
+                  createRichImageAdapter: createKnowledgeBaseRichImageAdapter,
+                  treeLabel: 'Files'
+                })
+              )
+            : null
+      },
+      toolRegistry.git,
+      toolRegistry.browser,
+      toolRegistry.terminal
+    ]
   }
 }
 
@@ -73,6 +102,25 @@ function FilesToolLoading(): React.JSX.Element {
     { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
     'Loading Files…'
   )
+}
+
+function createKnowledgeBaseRichImageAdapter(documentRelativePath: string) {
+  return {
+    maxBytes: MAX_KNOWLEDGE_BASE_IMAGE_BYTES,
+    importImage: async (image: File) => {
+      const result = await window.spacezero.knowledgeBase.importImage({
+        documentRelativePath,
+        fileName: image.name,
+        bytes: new Uint8Array(await image.arrayBuffer())
+      })
+      return {
+        markdownPath: result.markdownPath,
+        altText: result.altText
+      }
+    },
+    loadImage: ({ markdownPath }: { markdownPath: string }) =>
+      window.spacezero.knowledgeBase.loadImage({ documentRelativePath, markdownPath })
+  }
 }
 
 function sessionContextKey(sessionId: string): string {

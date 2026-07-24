@@ -2,9 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
-import { RichMarkdownEditor } from '@renderer/components/rich-markdown-editor'
+import {
+  RichMarkdownEditor,
+  type RichMarkdownImageAdapter
+} from '@renderer/components/rich-markdown-editor'
 import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
-import type { FilesEntry } from '../../shared'
+import type { FilesContext, FilesEntry } from '../../shared'
 import {
   createDefaultFilesContext,
   getActiveFilesTab,
@@ -51,12 +54,47 @@ function createOpenRequestId(): number {
   return nextOpenRequestId
 }
 
-export function FilesTool({ sessionId }: { sessionId: string }): React.JSX.Element {
-  return <FilesToolSession key={sessionId} sessionId={sessionId} />
+type FilesToolProps =
+  | { sessionId: string; treeLabel?: string; createRichImageAdapter?: RichImageAdapterFactory }
+  | {
+      contextKey: string
+      ipcContext: FilesContext
+      treeLabel?: string
+      createRichImageAdapter?: RichImageAdapterFactory
+    }
+
+type RichImageAdapterFactory = (documentRelativePath: string) => RichMarkdownImageAdapter
+
+export function FilesTool(props: FilesToolProps): React.JSX.Element {
+  const contextKey = 'sessionId' in props ? props.sessionId : props.contextKey
+  const ipcContext: FilesContext =
+    'sessionId' in props
+      ? { kind: 'project-session', sessionId: props.sessionId }
+      : props.ipcContext
+  return (
+    <FilesToolSession
+      key={contextKey}
+      contextKey={contextKey}
+      ipcContext={ipcContext}
+      createRichImageAdapter={props.createRichImageAdapter}
+      treeLabel={props.treeLabel ?? 'Project files'}
+    />
+  )
 }
 
-function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Element {
-  const context = useFilesStore((state) => state.contexts[sessionId]) ?? createDefaultFilesContext()
+function FilesToolSession({
+  contextKey,
+  ipcContext,
+  createRichImageAdapter,
+  treeLabel
+}: {
+  contextKey: string
+  ipcContext: FilesContext
+  createRichImageAdapter?: RichImageAdapterFactory
+  treeLabel: string
+}): React.JSX.Element {
+  const sessionId = contextKey
+  const context = useFilesStore((state) => state.contexts[contextKey]) ?? createDefaultFilesContext()
   const setExplorerWidth = useFilesStore((state) => state.setExplorerWidth)
   const setExplorerCollapsed = useFilesStore((state) => state.setExplorerCollapsed)
   const setSelectedPath = useFilesStore((state) => state.setSelectedPath)
@@ -88,7 +126,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     setRootState({ status: 'loading' })
     try {
       const entries = await window.spacezero.files.listDirectory({
-        sessionId: requestedSession,
+        context: ipcContext,
         relativePath: ''
       })
       if (activeSessionRef.current !== requestedSession) return
@@ -97,7 +135,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       if (activeSessionRef.current !== requestedSession) return
       setRootState({ status: 'error', message: filesErrorMessage(error) })
     }
-  }, [sessionId])
+  }, [ipcContext, sessionId])
 
   const loadDirectory = useCallback(
     async function loadDirectory(relativePath: string): Promise<void> {
@@ -114,7 +152,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       )
       try {
         const entries = await window.spacezero.files.listDirectory({
-          sessionId: requestedSession,
+          context: ipcContext,
           relativePath
         })
         if (activeSessionRef.current !== requestedSession) return
@@ -150,7 +188,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
         )
       }
     },
-    [sessionId]
+    [ipcContext, sessionId]
   )
 
   const openFile = useCallback(
@@ -159,13 +197,16 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       const shouldFetch = beginOpenTab(sessionId, relativePath, intent, requestId)
       if (!shouldFetch) return
       try {
-        const document = await window.spacezero.files.openDocument({ sessionId, relativePath })
+        const document = await window.spacezero.files.openDocument({
+          context: ipcContext,
+          relativePath
+        })
         finishOpenTab(sessionId, document, requestId)
       } catch (error) {
         failOpenTab(sessionId, relativePath, documentErrorMessage(error), requestId)
       }
     },
-    [beginOpenTab, failOpenTab, finishOpenTab, sessionId]
+    [beginOpenTab, failOpenTab, finishOpenTab, ipcContext, sessionId]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
@@ -184,7 +225,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     markSaving(sessionId, saveRequest)
     try {
       const result = await window.spacezero.files.saveDocument({
-        sessionId,
+        context: ipcContext,
         ...saveRequest
       })
       if (result.status === 'conflict') {
@@ -199,7 +240,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     } catch (error) {
       markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
     }
-  }, [activeDocument, markSaveFailed, markSaved, markSaving, sessionId])
+  }, [activeDocument, ipcContext, markSaveFailed, markSaved, markSaving, sessionId])
 
   useEffect(() => {
     activeSessionRef.current = sessionId
@@ -307,7 +348,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
               ) : (
                 <Tree<FilesTreeItem>
                   key={sessionId}
-                  aria-label="Project files"
+                  aria-label={treeLabel}
                   data={rootState.items}
                   disableDrag
                   disableDrop
@@ -375,6 +416,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
           sessionId={sessionId}
           onChange={(draft) => updateDraft(sessionId, draft)}
           onPin={(relativePath) => promoteTab(sessionId, relativePath)}
+          createRichImageAdapter={createRichImageAdapter}
           onSave={saveActiveDocument}
           onSetEditorMode={(relativePath, mode) => setEditorMode(sessionId, relativePath, mode)}
         />
@@ -478,11 +520,13 @@ function FilesEditorPanel({
   sessionId,
   onChange,
   onPin,
+  createRichImageAdapter,
   onSave,
   onSetEditorMode
 }: {
   document: FilesTabState | null
   sessionId: string
+  createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
@@ -520,6 +564,7 @@ function FilesEditorPanel({
       sessionId={sessionId}
       onChange={onChange}
       onPin={onPin}
+      createRichImageAdapter={createRichImageAdapter}
       onSave={onSave}
       onSetEditorMode={onSetEditorMode}
     />
@@ -531,11 +576,13 @@ function FilesReadyEditorPanel({
   sessionId,
   onChange,
   onPin,
+  createRichImageAdapter,
   onSave,
   onSetEditorMode
 }: {
   document: Extract<FilesTabState, { status: 'ready' }>
   sessionId: string
+  createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
@@ -561,6 +608,10 @@ function FilesReadyEditorPanel({
   const activeMode: FilesEditorMode =
     supportsRichMode && !richModeLimitation && document.editorMode === 'rich' ? 'rich' : 'source'
   const language = getFilesEditorLanguage(document.relativePath)
+  const richImageAdapter = useMemo(
+    () => createRichImageAdapter?.(document.relativePath),
+    [createRichImageAdapter, document.relativePath]
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -629,6 +680,7 @@ function FilesReadyEditorPanel({
           <RichMarkdownEditor
             key={`${sessionId}:${document.relativePath}`}
             documentRelativePath={document.relativePath}
+            imageAdapter={richImageAdapter}
             markdown={document.draft}
             onChange={onChange}
           />

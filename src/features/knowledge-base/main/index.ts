@@ -101,6 +101,12 @@ export function getKnowledgeBaseRootProvider(): KnowledgeBaseRootProvider {
   return rootProvider
 }
 
+export function getKnowledgeBaseOperationCoordinator(): ReturnType<
+  typeof createKnowledgeBaseOperationCoordinator
+> {
+  return operationCoordinator
+}
+
 export function getKnowledgeBaseMentionsService(): KnowledgeBaseMentionsService {
   mentionsService ??= createKnowledgeBaseMentionsService({
     rootProvider: getKnowledgeBaseRootProvider()
