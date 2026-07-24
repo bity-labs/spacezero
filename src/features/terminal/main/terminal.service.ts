@@ -95,6 +95,11 @@ type RetainedOutput = {
   totalLines: number
 }
 
+type TrackedShutdown = {
+  run: () => Promise<void>
+  promise?: Promise<void>
+}
+
 const DEFAULT_MAX_RETAINED_LINES = 10_000
 const DEFAULT_MAX_RETAINED_BYTES = 5 * 1024 * 1024
 
@@ -121,7 +126,7 @@ export function createTerminalService({
   const emptyContexts = new Set<string>()
   const deletingContexts = new Set<string>()
   const inFlightCreates = new Map<string, InFlightCreate>()
-  const shutdownsByContext = new Map<string, Set<Promise<void>>>()
+  const shutdownsByContext = new Map<string, Set<TrackedShutdown>>()
   const isContextDeleting = (context: TerminalCreateRequest['context']) =>
     deletingContexts.has(deletionContextKey(context))
 
@@ -183,7 +188,7 @@ export function createTerminalService({
     }
 
     if (isContextDeleting(request.context)) {
-      await trackContextShutdown(request.context, process.kill())
+      await trackContextShutdown(request.context, () => process.kill())
       throw new Error('terminal.contextDeleting')
     }
 
@@ -307,7 +312,9 @@ export function createTerminalService({
       const kills = [...terminals.values()]
         .filter((terminal) => sameContext(terminal.context, context))
         .map((terminal) => closeTerminalRecord(terminal, { markEmpty: true }))
-      const shutdowns = [...(shutdownsByContext.get(deletionContextKey(context)) ?? [])]
+      const shutdowns = [...(shutdownsByContext.get(deletionContextKey(context)) ?? [])].map(
+        (shutdown) => runTrackedShutdown(deletionContextKey(context), shutdown)
+      )
 
       if (inFlight.length === 0 && kills.length === 0 && shutdowns.length === 0) return
       await Promise.all([...inFlight, ...kills, ...shutdowns])
@@ -445,7 +452,7 @@ export function createTerminalService({
     options: { markEmpty: boolean }
   ): Promise<void> {
     deleteTerminal(terminal, options)
-    await trackContextShutdown(terminal.context, terminal.pty.kill())
+    await trackContextShutdown(terminal.context, () => terminal.pty.kill())
   }
 
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
@@ -456,7 +463,7 @@ export function createTerminalService({
 
   function trackContextShutdown(
     context: TerminalCreateRequest['context'],
-    shutdown: Promise<void>
+    shutdown: () => Promise<void>
   ): Promise<void> {
     const key = deletionContextKey(context)
     let shutdowns = shutdownsByContext.get(key)
@@ -464,18 +471,25 @@ export function createTerminalService({
       shutdowns = new Set()
       shutdownsByContext.set(key, shutdowns)
     }
-    shutdowns.add(shutdown)
-    void shutdown.then(
+    const tracked: TrackedShutdown = { run: shutdown }
+    shutdowns.add(tracked)
+    return runTrackedShutdown(key, tracked)
+  }
+
+  function runTrackedShutdown(key: string, shutdown: TrackedShutdown): Promise<void> {
+    if (shutdown.promise) return shutdown.promise
+    const shutdowns = shutdownsByContext.get(key)
+    shutdown.promise = shutdown.run().then(
       () => {
         shutdowns?.delete(shutdown)
         if (shutdowns?.size === 0) shutdownsByContext.delete(key)
       },
-      () => {
-        shutdowns?.delete(shutdown)
-        if (shutdowns?.size === 0) shutdownsByContext.delete(key)
+      (error) => {
+        shutdown.promise = undefined
+        throw error
       }
     )
-    return shutdown
+    return shutdown.promise
   }
 
   async function swallowContextDeleting<T>(promise: Promise<T>): Promise<void> {
