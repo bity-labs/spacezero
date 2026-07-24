@@ -56,6 +56,181 @@ describe('Session cleanup service', () => {
     expect(removeTranscript).not.toHaveBeenCalled()
   })
 
+  it('stops owning terminals before destructive Session worktree cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => {
+        events.push('transcript')
+      },
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+      }
+    })
+
+    await service.deleteSession('session-1')
+
+    expect(events).toEqual(['terminal', 'utility', 'worktree', 'metadata', 'transcript'])
+  })
+
+  it('awaits terminal shutdown before destructive Session worktree cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    let releaseTerminals: (() => void) | undefined
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal-start')
+        await new Promise<void>((resolve) => {
+          releaseTerminals = resolve
+        })
+        events.push('terminal-finished')
+      }
+    })
+
+    const deletion = service.deleteSession('session-1')
+    await vi.waitFor(() => expect(events).toEqual(['terminal-start']))
+    expect(releaseTerminals).toBeDefined()
+    releaseTerminals?.()
+    await deletion
+
+    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
+  })
+
+  it('awaits terminal shutdown for each Session before Project deletion continues', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    let releaseTerminals: (() => void) | undefined
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => undefined,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal-start')
+        await new Promise<void>((resolve) => {
+          releaseTerminals = resolve
+        })
+        events.push('terminal-finished')
+      }
+    })
+
+    const deletion = service.deleteProjectSessions('project-1')
+    await vi.waitFor(() => expect(events).toEqual(['terminal-start']))
+    expect(releaseTerminals).toBeDefined()
+    releaseTerminals?.()
+    await deletion
+
+    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
+  })
+
+  it('propagates terminal shutdown failure before destructive Session cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+        throw new Error('terminal.killFailed')
+      }
+    })
+
+    await expect(service.deleteSession('session-1')).rejects.toThrow('terminal.killFailed')
+    expect(events).toEqual(['terminal'])
+  })
+
+  it('propagates terminal shutdown failure before destructive Project cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => undefined,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+        throw new Error('terminal.killFailed')
+      }
+    })
+
+    await expect(service.deleteProjectSessions('project-1')).rejects.toThrow('terminal.killFailed')
+    expect(events).toEqual(['terminal'])
+  })
+
   it('deletes durable metadata only after managed resources are removed', async () => {
     const session = createStoredSession()
     const events: string[] = []
@@ -111,13 +286,20 @@ describe('Session cleanup service', () => {
         }
       },
       deleteUtilitySession: async () => undefined,
-      removeTranscript: async () => undefined
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async (sessionId) => {
+        deletedSessionIds.push(`terminal:${sessionId}`)
+      }
     })
 
     await expect(service.deleteProjectSessions('project-1')).rejects.toThrow(
       'session.worktreeRemoveFailed'
     )
-    expect(deletedSessionIds).toEqual(['legacy-session'])
+    expect(deletedSessionIds).toEqual([
+      'terminal:legacy-session',
+      'legacy-session',
+      'terminal:session-1'
+    ])
   })
 
   it('rejects partial worktree metadata instead of deleting the Session row', async () => {

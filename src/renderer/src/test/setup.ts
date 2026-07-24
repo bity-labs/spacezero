@@ -415,6 +415,20 @@ beforeEach(async () => {
       archive: async () => undefined,
       delete: async () => undefined
     },
+    terminal: {
+      create: async () => ({ status: 'running', terminalId: 'terminal-test' }),
+      subscribe: async () => ({
+        terminalId: 'terminal-test',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      }),
+      unsubscribe: async () => undefined,
+      writeInput: async () => undefined,
+      resize: async () => undefined,
+      close: async () => undefined,
+      onEvent: () => () => undefined
+    },
     agent: {
       ping: async () => ({
         sessionId: 'agent-ping',

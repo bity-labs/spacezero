@@ -673,7 +673,8 @@ describe('App', () => {
       'Space ZeroSession 1'
     )
     expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
-    for (const label of ['Git', 'Browser', 'Terminal']) {
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
+    for (const label of ['Git', 'Browser']) {
       expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
 
