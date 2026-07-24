@@ -19,6 +19,7 @@ describe('Knowledge Base Markdown safety', () => {
   it.each([
     ['YAML frontmatter', '---\nmetadata: { kind: note }\n---\n\nBody', true],
     ['fenced MDX example', '```mdx\n<Callout>Example</Callout>\n```', true],
+    ['top-level indented MDX example', '    <Callout>Example</Callout>', true],
     ['inline MDX example', 'Use `<Callout>Example</Callout>` here.', true],
     ['inline MDX expression example', 'Use `{frontmatter.title}` here.', true],
     ['autolink', '<https://example.com>', true],
@@ -31,15 +32,11 @@ describe('Knowledge Base Markdown safety', () => {
   it('requires source mode for footnotes that the rich editor cannot preserve', () => {
     const markdown = 'A durable note[^decision].\n\n[^decision]: The supporting context.'
 
-    expect(getRichMarkdownLimitation(markdown)).toBe(
-      RICH_MARKDOWN_FOOTNOTE_LIMITATION
-    )
+    expect(getRichMarkdownLimitation(markdown)).toBe(RICH_MARKDOWN_FOOTNOTE_LIMITATION)
   })
 
   it('ignores footnote examples inside code blocks', () => {
-    expect(
-      getRichMarkdownLimitation('```md\nA note[^1].\n\n[^1]: Example only.\n```')
-    ).toBeNull()
+    expect(getRichMarkdownLimitation('```md\nA note[^1].\n\n[^1]: Example only.\n```')).toBeNull()
   })
 
   it.each([
@@ -56,9 +53,7 @@ describe('Knowledge Base Markdown safety', () => {
     ['reference links', '[Notes][durable]\n\n[durable]: https://example.com/notes'],
     ['wiki links', 'See [[Project Notes]].']
   ])('requires source mode for lossy %s syntax', (_description, markdown) => {
-    expect(getRichMarkdownLimitation(markdown)).toBe(
-      RICH_MARKDOWN_SYNTAX_LIMITATION
-    )
+    expect(getRichMarkdownLimitation(markdown)).toBe(RICH_MARKDOWN_SYNTAX_LIMITATION)
   })
 
   it.each([
@@ -69,6 +64,8 @@ describe('Knowledge Base Markdown safety', () => {
   })
 
   it.each([
+    ['list-indented MDX that rich mode would escape', '- item\n    <Callout />'],
+    ['tab-padded list-indented MDX that rich mode would escape', '-\titem\n    <Callout />'],
     ['an MDX component', '<Callout>Important</Callout>'],
     ['a multiline MDX component', '<Callout\n  kind="info"\n/>'],
     ['an MDX member component', '<UI.Callout>Important</UI.Callout>'],
