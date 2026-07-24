@@ -47,7 +47,9 @@ Definitions are discovered from four scopes, mirroring ADR 0010 skill discovery:
 3. **user** — `~/.agents/agents/*.md`.
 4. **bundled** — defaults shipped inside the app (a read-only `scout` researcher and a `reviewer`), so delegation is useful immediately and users have reference examples.
 
-On ID collision the most specific scope wins: project > spacezero > user > bundled. Shadowed definitions stay visible in Settings with their precedence status. Unlike skills, definitions have no enable/disable toggles — they are chosen explicitly, not loaded ambiently.
+On ID collision the most specific scope wins: project > spacezero > user > bundled. Unlike skills, definitions have no enable/disable toggles — they are chosen explicitly, not loaded ambiently.
+
+Discovery is contextual. Global Settings has no Project Session identity or cwd, so its read-only Agents section scans only the spacezero, user, and bundled scopes and shows shadowing and diagnostics within that global catalog. It must not borrow a last-active project or invent an implicit project context. Project definitions are discovered only for a trusted Project Session from that Session's cwd and appear in session-contextual definition surfaces. Persisted project trust and contextual project-definition diagnostics must exist before project-scope definitions are exposed; they are not inferred from repository registration or managed-worktree ownership. Issue #186 tracks that prerequisite.
 
 ### Two usage modes
 
@@ -62,7 +64,7 @@ The call is **blocking**: the parent's tool call waits and receives the child's 
 
 ### Validation posture
 
-Discovery is lenient and diagnostic-driven: invalid files are skipped with reasons surfaced in a read-only Settings "Agents" section. Using a definition is loud: unknown models, empty effective tool allowlists, and reserved fields fail with explicit errors and never silently reinterpret the author's intent.
+Discovery is lenient and diagnostic-driven: invalid global files are skipped with reasons surfaced in the read-only Settings "Agents" section, while project-file diagnostics belong to a trusted Project Session context. Using a definition is loud: unknown models, empty effective tool allowlists, and reserved fields fail with explicit errors and never silently reinterpret the author's intent.
 
 ### Deferred, designed for
 
@@ -87,7 +89,7 @@ The lean v0 contract deliberately reserves omp's field names (`output`, `blockin
 - A new main-process `agents` feature module owns discovery, parsing, validation, and Settings IPC for definitions, following the feature-module layout of ADR 0004.
 - Session creation accepts a definition reference; the resolved definition (body, model, thinking, tool allowlist) is passed into the utility, consistent with programmatic composition in ADR 0006.
 - The utility gains a child-session lifecycle: spawn from a definition, block the parent's tool call, return structured results, cascade aborts, and record `parentSessionId` for future async and progress work.
-- The renderer gains a definition picker in the chat input (fresh sessions only), an active-definition chip, and a read-only Settings "Agents" section with diagnostics and shadowing.
+- The renderer gains a definition picker in the chat input (fresh sessions only), an active-definition chip, and a read-only global Settings "Agents" section for spacezero, user, and bundled definitions with diagnostics and shadowing. Project definitions and their diagnostics require a trusted Project Session context.
 - Live sessions do not hot-reload definition changes, matching the skill lifecycle rule in ADR 0010.
 - Child runs are invisible in the sidebar for now; the follow-up progress-UI issue owns that surface.
 - Follow-up work: six enhancement issues (structured output, async spawns, batch delegation, worktree isolation, model fallback lists, live progress UI), each stating what v0 must not preclude.
