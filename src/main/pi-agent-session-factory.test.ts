@@ -55,6 +55,35 @@ function readToolResultDetails(toolResult: ToolResultSnapshot | undefined): {
   }
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
+
+async function waitForAbortOrRelease(signal: AbortSignal | undefined, release: Promise<void>) {
+  if (signal?.aborted) return
+  await Promise.race([
+    release,
+    new Promise<void>((resolve) =>
+      signal?.addEventListener('abort', () => resolve(), { once: true })
+    )
+  ])
+}
+
+async function expectSettled<T>(promise: Promise<T>, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timed out waiting for ${message}`)), 2_000)
+    )
+  ])
+}
+
 describe('toAgentStreamingEvent', () => {
   it('keeps internal Knowledge Base hints out of displayed user transcripts', () => {
     const event = toAgentStreamingEvent('session-1', {
@@ -1070,6 +1099,138 @@ describe('createPiAgentSessionFactory', () => {
       } finally {
         session.dispose()
       }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts an in-flight delegated child when the parent session is aborted and returns a structured aborted result', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-parent-abort-'))
+
+    try {
+      const childStarted = createDeferred<AbortSignal | undefined>()
+      const releaseChild = createDeferred<void>()
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Wait for parent abort.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            async (_context, options) => {
+              childStarted.resolve(options?.signal)
+              await waitForAbortOrRelease(options?.signal, releaseChild.promise)
+              return fauxAssistantMessage([
+                fauxText('Child should not complete after parent abort.')
+              ])
+            },
+            fauxAssistantMessage([fauxText('Parent observed aborted child.')])
+          ])
+        }
+      })
+      const session = await createPiSession({
+        sessionId: 'parent-abort-cascade',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      try {
+        const promptPromise = session.prompt('Delegate then abort.')
+        const childSignal = await expectSettled(childStarted.promise, 'delegated child to start')
+
+        await session.abort()
+        expect(childSignal?.aborted).toBe(true)
+        releaseChild.resolve()
+        await expectSettled(promptPromise, 'parent prompt to settle after abort cascade')
+
+        const toolResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        expect(readToolResultText(toolResult)).toBe(
+          JSON.stringify({ status: 'aborted', output: '' })
+        )
+        expect(toolResult?.isError).toBe(false)
+        expect(toolResult?.details).toMatchObject({
+          status: 'aborted',
+          output: '',
+          parentSessionId: 'parent-abort-cascade',
+          childSessionId: expect.stringMatching(/^subagent-/)
+        })
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('disposes an in-flight delegated child when the parent session is deleted from the registry', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-parent-delete-'))
+
+    try {
+      const childStarted = createDeferred<AbortSignal | undefined>()
+      const releaseChild = createDeferred<void>()
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Wait for parent deletion.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            async (_context, options) => {
+              childStarted.resolve(options?.signal)
+              await waitForAbortOrRelease(options?.signal, releaseChild.promise)
+              return fauxAssistantMessage([
+                fauxText('Child should not complete after parent delete.')
+              ])
+            }
+          ])
+        }
+      })
+      const registry = new AgentSessionRegistry({ createPiSession })
+      await registry.createSession({
+        sessionId: 'parent-delete-cascade',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      const promptPromise = registry.prompt({
+        sessionId: 'parent-delete-cascade',
+        message: 'Delegate then delete.'
+      })
+      const childSignal = await expectSettled(childStarted.promise, 'delegated child to start')
+
+      await registry.deleteSession({ sessionId: 'parent-delete-cascade' })
+      expect(childSignal?.aborted).toBe(true)
+      releaseChild.resolve()
+      await expectSettled(promptPromise, 'parent prompt to settle after delete cascade')
+      await expect(registry.listSessions()).resolves.toEqual([])
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }
