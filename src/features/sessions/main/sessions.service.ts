@@ -9,6 +9,7 @@ import type {
   SessionWorktree,
   WorkspaceSession
 } from '../shared'
+import type { ResolvedAgentDefinition } from '../../../shared/agent-protocol'
 import type { ThinkingLevel } from '../../../shared/model-settings'
 
 export type StoredSession = {
@@ -35,6 +36,7 @@ export type StoredSession = {
   sourceTitle?: string | null
   archivedAt?: Date | null
   managedContext?: 'knowledge-base' | null
+  agentDefinitionSnapshot?: string | null
 }
 
 export type CreateProjectAgentSessionRequest = {
@@ -47,6 +49,7 @@ export type CreateProjectAgentSessionRequest = {
   title?: string
   worktree: SessionWorktree
   source?: SessionGitHubSource
+  agentDefinitionSnapshot?: ResolvedAgentDefinition
 }
 
 export type CreateWorkspaceAgentSessionRequest = {
@@ -57,6 +60,7 @@ export type CreateWorkspaceAgentSessionRequest = {
   thinkingLevel?: ThinkingLevel
   title?: string
   managedContext?: 'knowledge-base'
+  agentDefinitionSnapshot?: ResolvedAgentDefinition
 }
 
 export type SessionsRepository = {
@@ -192,7 +196,10 @@ export function createSessionsService({
           sourceRepositoryName: source?.repositoryName,
           sourceNumber: source?.number,
           sourceUrl: source?.url,
-          sourceTitle: source?.title
+          sourceTitle: source?.title,
+          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(
+            request.agentDefinitionSnapshot
+          )
         })
       )
     },
@@ -215,7 +222,10 @@ export function createSessionsService({
           modelProvider: request.modelProvider,
           modelId: request.modelId,
           thinkingLevel: request.thinkingLevel,
-          managedContext: request.managedContext
+          managedContext: request.managedContext,
+          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(
+            request.agentDefinitionSnapshot
+          )
         })
       )
     },
@@ -256,6 +266,12 @@ export function createSessionsService({
       await repository.update({ ...session, thinkingLevel: level, updatedAt: now() })
     }
   }
+}
+
+function serializeAgentDefinitionSnapshot(
+  agentDefinition: ResolvedAgentDefinition | undefined
+): string | undefined {
+  return agentDefinition ? JSON.stringify(agentDefinition) : undefined
 }
 
 function normalizeTitle(title: string): string {
