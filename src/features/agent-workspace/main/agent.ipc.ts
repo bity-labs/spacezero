@@ -16,6 +16,7 @@ import {
   setAgentThinkingLevelRequestSchema
 } from '../../../shared/model-settings'
 import {
+  applyAgentDefinitionToFreshSession,
   createProjectAgentSession,
   createWorkspaceAgentSession,
   restoreAgentSessionState
@@ -92,6 +93,17 @@ export function registerAgentIpc(): void {
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths,
       ...(request?.agentDefinition ? { agentDefinition: request.agentDefinition } : {})
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.agent.applyDefinitionToFreshSession, (_event, input) => {
+    return applyAgentDefinitionToFreshSession(input, {
+      repository: createSessionsRepository(),
+      utilityHost: getAgentUtilityProcessHost(),
+      worktrees: getManagedWorktreeService(),
+      getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
+      readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+      resolveSkillPaths: resolveAgentSkillPaths
     })
   })
 

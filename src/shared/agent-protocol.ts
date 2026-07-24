@@ -51,6 +51,11 @@ export type AgentDefinitionReference = {
   id: string
 }
 
+export type ApplyAgentDefinitionToFreshSessionRequest = {
+  sessionId: AgentSessionId
+  agentDefinition: AgentDefinitionReference
+}
+
 export type CreateAgentSessionRequest = {
   sessionId: AgentSessionId
   kind?: AgentSessionKind

@@ -2,6 +2,7 @@ import { CaretDownIcon } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
+import type { AgentDefinitionScope } from '../../../../features/agents/shared'
 import {
   encodeKnowledgeBaseMentionPath,
   getActiveKnowledgeBaseMentionQuery,
@@ -48,9 +49,22 @@ export type ChatInputSubmit = {
   text: string
   files: File[]
   modelId?: string
+  agentDefinitionId?: string
 }
 
 export type ChatInputSkill = AgentSkillDescriptor
+
+export type ChatInputAgentDefinition = {
+  id: string
+  name: string
+  description: string
+  scope: AgentDefinitionScope
+}
+
+export type ChatInputActiveAgentDefinition = {
+  id: string
+  name: string
+}
 
 export type ChatInputProps = {
   disabled?: boolean
@@ -61,6 +75,12 @@ export type ChatInputProps = {
   selectedModelId?: string
   thinkingLevel?: AiChatThinkingLevel
   skills?: ChatInputSkill[]
+  agentDefinitions?: ChatInputAgentDefinition[]
+  selectedAgentDefinitionId?: string
+  activeAgentDefinition?: ChatInputActiveAgentDefinition
+  agentDefinitionLocked?: boolean
+  onAgentDefinitionChange?: (definitionId: string | undefined) => void
+  onAgentDefinitionPickerOpen?: () => void
   onModelChange?: (modelId: string) => void
   onThinkingChange?: (level: AiChatThinkingLevel) => void
   onSubmit: (input: ChatInputSubmit) => void
@@ -77,6 +97,12 @@ export function ChatInput({
   selectedModelId,
   thinkingLevel,
   skills = [],
+  agentDefinitions = [],
+  selectedAgentDefinitionId,
+  activeAgentDefinition,
+  agentDefinitionLocked = false,
+  onAgentDefinitionChange,
+  onAgentDefinitionPickerOpen,
   onModelChange,
   onThinkingChange,
   onSubmit,
@@ -84,7 +110,11 @@ export function ChatInput({
   className
 }: ChatInputProps) {
   const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
+  const [uncontrolledAgentDefinitionId, setUncontrolledAgentDefinitionId] = useState<
+    string | undefined
+  >(undefined)
   const [isModelSelectorOpen, setModelSelectorOpen] = useState(false)
+  const [isAgentDefinitionSelectorOpen, setAgentDefinitionSelectorOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
   const [isSkillMenuDismissed, setSkillMenuDismissed] = useState(false)
@@ -98,6 +128,14 @@ export function ChatInput({
     () => models.find((model) => model.id === activeModelId),
     [activeModelId, models]
   )
+  const activeAgentDefinitionId = selectedAgentDefinitionId ?? uncontrolledAgentDefinitionId
+  const selectedAgentDefinition = useMemo(
+    () => agentDefinitions.find((definition) => definition.id === activeAgentDefinitionId),
+    [activeAgentDefinitionId, agentDefinitions]
+  )
+  const showAgentDefinitionPicker =
+    !agentDefinitionLocked && agentDefinitions.length > 0 && Boolean(onAgentDefinitionChange)
+  const showActiveAgentDefinitionChip = agentDefinitionLocked && Boolean(activeAgentDefinition)
   const skillSuggestions = useMemo(
     () => (isSkillMenuDismissed ? [] : getSkillSuggestions(inputValue, skills)),
     [inputValue, isSkillMenuDismissed, skills]
@@ -149,6 +187,17 @@ export function ChatInput({
     onModelChange?.(modelId)
   }
 
+  const handleAgentDefinitionOpenChange = (open: boolean) => {
+    setAgentDefinitionSelectorOpen(open)
+    if (open) onAgentDefinitionPickerOpen?.()
+  }
+
+  const handleAgentDefinitionChange = (definitionId: string | undefined) => {
+    setUncontrolledAgentDefinitionId(definitionId)
+    setAgentDefinitionSelectorOpen(false)
+    onAgentDefinitionChange?.(definitionId)
+  }
+
   const handleSubmit = ({ text, files }: { text: string; files: PromptInputFile[] }) => {
     setInputValue('')
     setActiveSkillIndex(0)
@@ -156,7 +205,8 @@ export function ChatInput({
     onSubmit({
       text,
       files: files.map((item) => item.file),
-      modelId: activeModelId
+      modelId: activeModelId,
+      ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
     })
   }
 
@@ -202,9 +252,7 @@ export function ChatInput({
   function selectKnowledgeBaseMention(path: string): void {
     if (!activeKnowledgeBaseMention) return
     const encodedPath = encodeKnowledgeBaseMentionPath(path)
-    setInputValue(
-      `${inputValue.slice(0, activeKnowledgeBaseMention.start)}@kb/${encodedPath} `
-    )
+    setInputValue(`${inputValue.slice(0, activeKnowledgeBaseMention.start)}@kb/${encodedPath} `)
   }
 
   return (
@@ -285,6 +333,62 @@ export function ChatInput({
               </PromptInputActionMenuContent>
             </PromptInputActionMenu>
             <div className="flex items-center gap-1">
+              {showAgentDefinitionPicker ? (
+                <ModelSelector
+                  open={isAgentDefinitionSelectorOpen}
+                  onOpenChange={handleAgentDefinitionOpenChange}
+                >
+                  <ModelSelectorTrigger
+                    render={
+                      <button
+                        aria-label={`Agent Definition: ${selectedAgentDefinition?.name ?? 'None'}`}
+                        className="flex max-w-48 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                        disabled={isRunning}
+                        type="button"
+                      />
+                    }
+                  >
+                    <span className="truncate">
+                      Agent: {selectedAgentDefinition?.name ?? 'None'}
+                    </span>
+                    <CaretDownIcon className="size-3" aria-hidden="true" />
+                  </ModelSelectorTrigger>
+                  <ModelSelectorContent>
+                    <ModelSelectorInput placeholder="Search Agent Definitions..." />
+                    <ModelSelectorList>
+                      <ModelSelectorEmpty>No Agent Definitions found.</ModelSelectorEmpty>
+                      <ModelSelectorGroup>
+                        <ModelSelectorItem
+                          data-checked={activeAgentDefinitionId === undefined}
+                          onSelect={() => handleAgentDefinitionChange(undefined)}
+                        >
+                          <ModelSelectorName>No Agent Definition</ModelSelectorName>
+                        </ModelSelectorItem>
+                        {agentDefinitions.map((definition) => (
+                          <ModelSelectorItem
+                            key={`${definition.scope}:${definition.id}`}
+                            data-checked={definition.id === activeAgentDefinitionId}
+                            onSelect={() => handleAgentDefinitionChange(definition.id)}
+                          >
+                            <ModelSelectorName>{definition.name}</ModelSelectorName>
+                            <span className="ml-auto shrink-0 text-[10px] uppercase text-muted-foreground">
+                              {definition.scope}
+                            </span>
+                          </ModelSelectorItem>
+                        ))}
+                      </ModelSelectorGroup>
+                    </ModelSelectorList>
+                  </ModelSelectorContent>
+                </ModelSelector>
+              ) : null}
+              {showActiveAgentDefinitionChip && activeAgentDefinition ? (
+                <span className="flex max-w-48 items-center gap-1 rounded-md border border-border bg-background/70 px-2 py-1 text-xs text-muted-foreground">
+                  <span className="text-[10px] uppercase tracking-wide">Agent Definition</span>
+                  <span className="truncate font-medium text-foreground">
+                    {activeAgentDefinition.name}
+                  </span>
+                </span>
+              ) : null}
               {models.length > 0 ? (
                 <ModelSelector open={isModelSelectorOpen} onOpenChange={setModelSelectorOpen}>
                   <ModelSelectorTrigger
@@ -313,7 +417,9 @@ export function ChatInput({
                             data-checked={model.id === activeModelId}
                             onSelect={() => handleModelChange(model.id)}
                           >
-                            {model.provider ? <ModelSelectorLogo provider={model.provider} /> : null}
+                            {model.provider ? (
+                              <ModelSelectorLogo provider={model.provider} />
+                            ) : null}
                             <ModelSelectorName>{model.label}</ModelSelectorName>
                           </ModelSelectorItem>
                         ))}

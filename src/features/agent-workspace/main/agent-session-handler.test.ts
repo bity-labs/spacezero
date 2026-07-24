@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AgentSessionState } from '../../../shared/agent-protocol'
+import type { AgentSessionState, CreateAgentSessionRequest } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import {
+  applyAgentDefinitionToFreshSession,
   createManagedProjectAgentSession,
   createProjectAgentSession,
   createProjectKnowledgeBaseInstructions,
@@ -317,6 +318,86 @@ describe('createProjectAgentSession', () => {
         thinkingLevel: 'high',
         tools: ['read', 'workspace.getStatus']
       })
+    })
+  })
+
+  it('recreates a fresh stored utility session with the selected Agent Definition', async () => {
+    const repository = createRepository()
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+    const utilityHost = {
+      getState: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) =>
+        createState({
+          cwd: request.cwd,
+          agentDefinition: { id: 'reviewer', name: 'Reviewer' },
+          modelProvider: 'faux',
+          modelId: 'faux-1',
+          thinkingLevel: 'high'
+        })
+      )
+    }
+
+    await expect(
+      applyAgentDefinitionToFreshSession(
+        { sessionId: 'session-1', agentDefinition: { id: 'reviewer' } },
+        {
+          repository,
+          utilityHost,
+          worktrees: { validate: vi.fn(async () => true) },
+          readModelDefaults,
+          resolveAgentDefinition: async () => ({
+            id: 'reviewer',
+            name: 'Reviewer',
+            body: 'Review code carefully.',
+            model: { providerId: 'faux', modelId: 'faux-1' },
+            thinkingLevel: 'high',
+            tools: ['read']
+          })
+        }
+      )
+    ).resolves.toMatchObject({
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' },
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      thinkingLevel: 'high'
+    })
+
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        cwd: '/worktrees/session-1',
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        agentDefinition: expect.objectContaining({ id: 'reviewer', name: 'Reviewer' })
+      })
+    )
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'reviewer',
+        name: 'Reviewer',
+        body: 'Review code carefully.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high',
+        tools: ['read']
+      }),
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      thinkingLevel: 'high'
     })
   })
 

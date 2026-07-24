@@ -1,14 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import {
   ChatInput,
   ChatTranscript,
   type AiChatMessage,
   type AiChatThinkingLevel,
+  type ChatInputAgentDefinition,
   type ChatInputModel
 } from '@renderer/components/ai-chat'
 import { cn } from '@renderer/lib/utils'
-import type { AgentSessionState } from '@shared/agent-protocol'
+import type { AgentDefinitionReference, AgentSessionState } from '@shared/agent-protocol'
 import type { AvailableModel, ModelDefaults } from '@shared/model-settings'
 
 export type AgentChatMessage = AiChatMessage
@@ -23,7 +24,7 @@ export type AgentChatProps = {
   emptyState?: ReactNode
   className?: string
   contentClassName?: string
-  onSubmit?: (text: string) => void
+  onSubmit?: (text: string, options?: { agentDefinition?: AgentDefinitionReference }) => void
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
@@ -56,15 +57,27 @@ export function AgentChat({
   }, [onAbort, status])
 
   const modelControls = useAgentChatModelControls(sessionId, sessionState)
+  const definitionControls = useAgentDefinitionControls(sessionId, messages, sessionState)
   const defaultComposer = (
     <ChatInput
       models={modelControls.models}
       skills={sessionState?.skills}
+      agentDefinitions={definitionControls.definitions}
+      selectedAgentDefinitionId={definitionControls.selectedDefinitionId}
+      activeAgentDefinition={sessionState?.agentDefinition}
+      agentDefinitionLocked={definitionControls.locked}
+      onAgentDefinitionChange={definitionControls.setSelectedDefinitionId}
+      onAgentDefinitionPickerOpen={definitionControls.refreshDefinitions}
       selectedModelId={modelControls.selectedModelId}
       thinkingLevel={modelControls.thinkingLevel}
       onModelChange={modelControls.setModel}
       onThinkingChange={modelControls.setThinkingLevel}
-      onSubmit={({ text }) => onSubmit?.(text)}
+      onSubmit={({ text, agentDefinitionId }) =>
+        onSubmit?.(
+          text,
+          agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
+        )
+      }
       onAbort={onAbort}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
@@ -80,12 +93,12 @@ export function AgentChat({
         className
       )}
     >
-      {modelControls.error ? (
+      {modelControls.error || definitionControls.error ? (
         <div
           className="absolute inset-x-6 top-3 z-20 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
           role="alert"
         >
-          {modelControls.error}
+          {modelControls.error ?? definitionControls.error}
         </div>
       ) : null}
       <ChatTranscript
@@ -101,6 +114,66 @@ export function AgentChat({
       ) : null}
     </section>
   )
+}
+
+function useAgentDefinitionControls(
+  sessionId: string,
+  messages: AgentChatMessage[],
+  sessionState?: AgentSessionState
+) {
+  const [definitions, setDefinitions] = useState<ChatInputAgentDefinition[]>([])
+  const [selectedDefinition, setSelectedDefinition] = useState<
+    { sessionId: string; value: string | undefined } | undefined
+  >(undefined)
+  const [error, setError] = useState<string | undefined>(undefined)
+
+  const refreshDefinitions = useCallback(() => {
+    void window.spacezero.agents
+      .getGlobalDefinitions()
+      .then((catalog) => {
+        setDefinitions(
+          catalog.flatMap((entry) => {
+            if (entry.status !== 'valid' || entry.shadowedBy || !entry.name || !entry.description) {
+              return []
+            }
+
+            return [
+              {
+                id: entry.id,
+                name: entry.name,
+                description: entry.description,
+                scope: entry.scope
+              }
+            ]
+          })
+        )
+        setError(undefined)
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to load Agent Definitions', error)
+        setDefinitions([])
+        setError('Unable to load Agent Definitions.')
+      })
+  }, [])
+
+  useEffect(() => {
+    refreshDefinitions()
+  }, [refreshDefinitions])
+
+  const locked = Boolean(sessionState?.agentDefinition) || messages.length > 0
+  const selectedDefinitionId =
+    selectedDefinition?.sessionId === sessionId && !locked ? selectedDefinition.value : undefined
+
+  return {
+    definitions,
+    selectedDefinitionId,
+    locked,
+    error,
+    refreshDefinitions,
+    setSelectedDefinitionId: (definitionId: string | undefined) => {
+      setSelectedDefinition({ sessionId, value: definitionId })
+    }
+  }
 }
 
 function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessionState) {

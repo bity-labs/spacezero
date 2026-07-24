@@ -47,7 +47,9 @@ describe('ProjectSessionHostSurface', () => {
     await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'hello')
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Agent prompt failed: agent unavailable')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Agent prompt failed: agent unavailable'
+    )
   })
 
   it('uses configured model and thinking defaults when session state has no override', async () => {
@@ -172,6 +174,117 @@ describe('ProjectSessionHostSurface', () => {
       expect(setThinkingLevel).toHaveBeenCalledWith({ sessionId: 'session-1', level: 'high' })
     )
     expect(await screen.findByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
+  })
+
+  it('lists Agent Definitions in a fresh session picker', async () => {
+    const user = userEvent.setup()
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+
+    expect(screen.getByRole('option', { name: /Reviewer/ })).toBeInTheDocument()
+  })
+
+  it('applies the selected Agent Definition before the first prompt', async () => {
+    const user = userEvent.setup()
+    const applyDefinitionToFreshSession = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'high' as const,
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+    }))
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+    window.spacezero.agent.applyDefinitionToFreshSession = applyDefinitionToFreshSession
+    window.spacezero.agent.prompt = prompt
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+    await user.click(screen.getByRole('option', { name: /Reviewer/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'review this')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(applyDefinitionToFreshSession).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        agentDefinition: { id: 'reviewer' }
+      })
+    )
+    expect(prompt).toHaveBeenCalledWith({ sessionId: 'session-1', message: 'review this' })
+    expect(applyDefinitionToFreshSession.mock.invocationCallOrder[0]).toBeLessThan(
+      prompt.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('locks the picker and renders the active Agent Definition chip from session state', async () => {
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'high',
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' },
+      transcriptSnapshot: [
+        {
+          role: 'user',
+          timestamp: 100,
+          content: [{ type: 'text', text: 'review this' }]
+        }
+      ]
+    })
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(await screen.findByText('Reviewer')).toBeInTheDocument()
+    expect(screen.getByText('Agent Definition')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent Definition:/ })).not.toBeInTheDocument()
   })
 
   it('keeps the chat input visible for empty Workspace Sessions without fake placeholder messages', async () => {
