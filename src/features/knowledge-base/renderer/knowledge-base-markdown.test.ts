@@ -65,6 +65,7 @@ describe('Knowledge Base Markdown safety', () => {
 
   it.each([
     ['list-indented MDX that rich mode would escape', '- item\n    <Callout />'],
+    ['tab-padded list-indented MDX that rich mode would escape', '-\titem\n    <Callout />'],
     ['an MDX component', '<Callout>Important</Callout>'],
     ['a multiline MDX component', '<Callout\n  kind="info"\n/>'],
     ['an MDX member component', '<UI.Callout>Important</UI.Callout>'],

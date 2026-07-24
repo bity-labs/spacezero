@@ -132,16 +132,32 @@ function parseMarkdownListItem(
   if (!activeListContext && markerIndent > 3) return null
   if (activeListContext && markerIndent >= activeListContext.codeIndent) return null
 
-  const markerEnd = match[0].length - match[2].length
-  const followingPadding = countLeadingIndentColumns(match[2])
+  const markerPrefix = match[0].slice(0, match[0].length - match[2].length)
+  const markerEndColumn = countVisualColumns(markerPrefix)
+  const markerWithPaddingColumn = countVisualColumns(match[0])
+  const followingPadding = markerWithPaddingColumn - markerEndColumn
   const contentIndent =
-    markerEnd + (followingPadding > 0 && followingPadding < 5 ? followingPadding : 1)
+    markerEndColumn + (followingPadding > 0 && followingPadding < 5 ? followingPadding : 1)
 
   return {
     markerIndent,
     contentIndent,
     codeIndent: contentIndent + 4
   }
+}
+
+function countVisualColumns(value: string): number {
+  let columns = 0
+
+  for (const character of value) {
+    if (character === '\t') {
+      columns += 4 - (columns % 4)
+      continue
+    }
+    columns += 1
+  }
+
+  return columns
 }
 
 function isIndentedCodeLine(
