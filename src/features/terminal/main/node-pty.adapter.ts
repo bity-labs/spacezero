@@ -111,6 +111,9 @@ export function createUnixProcessTreeTerminator({
         pollIntervalMs,
         terminationTimeoutMs,
         hasRootExited: () => rootExited
+      }).catch((error) => {
+        terminatePromise = undefined
+        throw error
       })
       return terminatePromise
     }
