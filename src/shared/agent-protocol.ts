@@ -47,6 +47,10 @@ export type ResolvedAgentDefinition = AppliedAgentDefinition & {
   tools?: string[]
 }
 
+export type DelegationAgentDefinition = ResolvedAgentDefinition & {
+  description: string
+}
+
 export type AgentDefinitionReference = {
   id: string
 }
@@ -65,6 +69,10 @@ export type CreateAgentSessionRequest = {
   thinkingLevel?: ThinkingLevel
   /** Resolved Agent Definition configuration for persona-mode session creation. */
   agentDefinition?: ResolvedAgentDefinition
+  /** Visible Agent Definitions available to the utility-internal delegation tool. */
+  delegationDefinitions?: DelegationAgentDefinition[]
+  /** Parent Space Zero Session id for delegated child runs. */
+  parentSessionId?: AgentSessionId
   /** Runtime-only context appended to the system prompt for a linked Session source. */
   systemPromptContext?: string
 }

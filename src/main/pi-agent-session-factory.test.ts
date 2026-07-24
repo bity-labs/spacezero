@@ -11,8 +11,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ResourceDiagnostic } from '@earendil-works/pi-coding-agent'
+import {
+  fauxAssistantMessage,
+  fauxText,
+  fauxToolCall
+} from '@earendil-works/pi-ai/providers/faux'
 import { describe, expect, it } from 'vitest'
 
+import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
 import { AgentSessionRegistry } from './agent-session-registry'
 import {
   createPiAgentRuntime,
@@ -20,6 +26,38 @@ import {
   toAgentStreamingEvent,
   toPiToolName
 } from './pi-agent-session-factory'
+
+type ToolResultSnapshot = Extract<AgentTranscriptMessage, { role: 'toolResult' }>
+
+function findToolResult(
+  transcript: AgentTranscriptMessage[],
+  toolName: string
+): ToolResultSnapshot | undefined {
+  return transcript.find(
+    (message): message is ToolResultSnapshot =>
+      message.role === 'toolResult' && message.toolName === toolName
+  )
+}
+
+function readToolResultText(toolResult: ToolResultSnapshot | undefined): string | undefined {
+  return toolResult?.content.find((part) => part.type === 'text')?.text
+}
+
+function readToolResultDetails(toolResult: ToolResultSnapshot | undefined): {
+  status: string
+  output: string
+  parentSessionId: string
+  childSessionId?: string
+  transcriptPath?: string
+} {
+  return toolResult?.details as {
+    status: string
+    output: string
+    parentSessionId: string
+    childSessionId?: string
+    transcriptPath?: string
+  }
+}
 
 describe('toAgentStreamingEvent', () => {
   it('keeps internal Knowledge Base hints out of displayed user transcripts', () => {
@@ -728,6 +766,237 @@ describe('createPiAgentSessionFactory', () => {
       ).rejects.toThrow('agent.modelAuthNotConfigured')
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('registers agents.delegate only when visible Agent Definitions are provided and appends their catalog', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-catalog-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+      const sessionWithoutDefinitions = await createPiSession({
+        sessionId: 'session-no-delegation',
+        projectId: 'project-1',
+        cwd: tempDir
+      })
+      const sessionWithDefinitions = await createPiSession({
+        sessionId: 'session-with-delegation',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase without editing files.',
+            body: 'You inspect code.'
+          }
+        ]
+      })
+
+      try {
+        expect(sessionWithoutDefinitions.toolNames).not.toContain('agents_delegate_0')
+        expect(sessionWithoutDefinitions.systemPrompt).not.toContain(
+          'Available Agent Definitions for agents.delegate'
+        )
+        expect(sessionWithDefinitions.toolNames).toContain('agents_delegate_0')
+        expect(sessionWithDefinitions.systemPrompt).toContain(
+          'Available Agent Definitions for agents.delegate'
+        )
+        expect(sessionWithDefinitions.systemPrompt).toContain(
+          'scout: Scout — Researches the codebase without editing files.'
+        )
+      } finally {
+        sessionWithoutDefinitions.dispose()
+        sessionWithDefinitions.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('runs agents.delegate end-to-end with a fresh faux child session and structured result', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-e2e-'))
+
+    try {
+      const childSystemPrompts: string[] = []
+      const childToolNames: string[][] = []
+      const childMessageCounts: number[] = []
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Inspect the repository.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            (context) => {
+              childSystemPrompts.push(context.systemPrompt ?? '')
+              childToolNames.push((context.tools ?? []).map((tool) => tool.name))
+              childMessageCounts.push(context.messages.length)
+              return fauxAssistantMessage([fauxText('Child final report.')])
+            },
+            fauxAssistantMessage([fauxText('Parent received the child result.')])
+          ])
+        }
+      })
+
+      const session = await createPiSession({
+        sessionId: 'parent-session',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase without editing files.',
+            body: 'You inspect code.',
+            tools: ['read', 'grep']
+          }
+        ]
+      })
+
+      try {
+        await session.prompt('Delegate this inspection.')
+
+        const snapshot = session.getTranscriptSnapshot()
+        expect(JSON.stringify(snapshot)).toContain('agents_delegate_0')
+        const toolResult = findToolResult(snapshot, 'agents_delegate_0')
+        expect(toolResult).toBeDefined()
+        expect(readToolResultText(toolResult)).toBe(
+          JSON.stringify({ status: 'completed', output: 'Child final report.' })
+        )
+        const details = readToolResultDetails(toolResult)
+        expect(details).toMatchObject({
+          status: 'completed',
+          output: 'Child final report.',
+          parentSessionId: 'parent-session',
+          childSessionId: expect.stringMatching(/^subagent-/),
+          transcriptPath: expect.stringContaining(join(tempDir, 'agent', 'sessions'))
+        })
+        expect(details.transcriptPath).toBeDefined()
+        expect(readFileSync(details.transcriptPath!, 'utf8')).toContain(
+          '"parentSession":"parent-session"'
+        )
+        expect(readFileSync(details.transcriptPath!, 'utf8')).toContain(
+          '"customType":"spacezero.subagentRun"'
+        )
+        expect(childSystemPrompts).toEqual([
+          expect.stringContaining(
+            'You start with a fresh conversation and do not have the parent transcript.'
+          )
+        ])
+        expect(childToolNames).toEqual([expect.arrayContaining(['read', 'grep'])])
+        expect(childToolNames[0]).not.toContain('agents_delegate_0')
+        expect(childMessageCounts).toEqual([1])
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns structured delegation errors for unknown definitions, unauthenticated models, and empty child tool allowlists', async () => {
+    const cases = [
+      {
+        name: 'unknown-definition',
+        kind: undefined,
+        definition: 'missing',
+        task: 'Run missing agent.',
+        definitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ],
+        expectedOutput: 'Unknown Agent Definition: missing'
+      },
+      {
+        name: 'unauthenticated-model',
+        kind: undefined,
+        definition: 'needs-auth',
+        task: 'Use a model without auth.',
+        definitions: [
+          {
+            id: 'needs-auth',
+            name: 'Needs Auth',
+            description: 'Requires a configured model.',
+            body: 'Use a real model.',
+            model: { providerId: 'openai', modelId: 'gpt-5' }
+          }
+        ],
+        expectedOutput: 'agent.modelAuthNotConfigured'
+      },
+      {
+        name: 'empty-allowlist',
+        kind: 'workspace' as const,
+        definition: 'empty-tools',
+        task: 'Run with no effective tools.',
+        definitions: [
+          {
+            id: 'empty-tools',
+            name: 'Empty Tools',
+            description: 'Has no effective workspace tools.',
+            body: 'No tools.',
+            tools: ['bash']
+          }
+        ],
+        expectedOutput: 'agentDefinition.emptyToolAllowlist'
+      }
+    ]
+
+    for (const testCase of cases) {
+      const tempDir = mkdtempSync(join(tmpdir(), `spacezero-agent-delegate-${testCase.name}-`))
+
+      try {
+        const createPiSession = createPiAgentSessionFactory({
+          agentDir: join(tempDir, 'agent'),
+          configureFauxProvider: (faux) => {
+            faux.setResponses([
+              fauxAssistantMessage([
+                fauxToolCall('agents_delegate_0', {
+                  definition: testCase.definition,
+                  task: testCase.task
+                })
+              ], {
+                stopReason: 'toolUse'
+              }),
+              fauxAssistantMessage([fauxText('Parent handled the error.')])
+            ])
+          }
+        })
+        const session = await createPiSession({
+          sessionId: `parent-${testCase.name}`,
+          kind: testCase.kind,
+          projectId: testCase.kind === 'workspace' ? null : 'project-1',
+          cwd: tempDir,
+          delegationDefinitions: testCase.definitions
+        })
+
+        try {
+          await session.prompt('Try delegation.')
+          const toolResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+          expect(readToolResultText(toolResult)).toBe(
+            JSON.stringify({ status: 'error', output: testCase.expectedOutput })
+          )
+          expect(toolResult?.details).toMatchObject({
+            status: 'error',
+            output: testCase.expectedOutput,
+            parentSessionId: `parent-${testCase.name}`
+          })
+        } finally {
+          session.dispose()
+        }
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true })
+      }
     }
   })
 

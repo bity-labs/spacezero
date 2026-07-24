@@ -6,6 +6,8 @@ import type { AgentDefinitionSource, OpenAgentDefinitionsFolderScope } from '../
 import { BUNDLED_AGENT_DEFINITIONS } from './bundled-agent-definitions'
 
 export async function resolveGlobalAgentDefinitionSources(): Promise<AgentDefinitionSource[]> {
+  if (!app?.getPath) return [{ scope: 'bundled', definitions: BUNDLED_AGENT_DEFINITIONS }]
+
   const { spaceZeroHome } = await getStorageSettings()
   return createGlobalAgentDefinitionSources({
     homePath: app.getPath('home'),
