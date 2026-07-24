@@ -1186,6 +1186,83 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('allows a later delegation to complete after aborting a turn without delegated children', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-after-plain-abort-'))
+
+    try {
+      const parentStarted = createDeferred<AbortSignal | undefined>()
+      const releaseParent = createDeferred<void>()
+      let childPrompted = false
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            async (_context, options) => {
+              parentStarted.resolve(options?.signal)
+              await waitForAbortOrRelease(options?.signal, releaseParent.promise)
+              return fauxAssistantMessage([fauxText('Plain parent turn stopped.')])
+            },
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Run after the plain abort.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            () => {
+              childPrompted = true
+              return fauxAssistantMessage([fauxText('Child completed after plain abort.')])
+            },
+            fauxAssistantMessage([fauxText('Parent observed completed child.')])
+          ])
+        }
+      })
+      const session = await createPiSession({
+        sessionId: 'parent-delegation-after-plain-abort',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      try {
+        const plainPrompt = session.prompt('Run a parent-only turn, then stop it.')
+        const parentSignal = await expectSettled(parentStarted.promise, 'plain parent turn to start')
+
+        await session.abort()
+        expect(parentSignal?.aborted).toBe(true)
+        releaseParent.resolve()
+        await expectSettled(plainPrompt, 'plain parent turn to settle after abort')
+
+        await session.prompt('Delegate after the stopped parent-only turn.')
+
+        expect(childPrompted).toBe(true)
+        const toolResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        expect(readToolResultText(toolResult)).toBe(
+          JSON.stringify({ status: 'completed', output: 'Child completed after plain abort.' })
+        )
+        expect(toolResult?.details).toMatchObject({
+          status: 'completed',
+          output: 'Child completed after plain abort.',
+          parentSessionId: 'parent-delegation-after-plain-abort',
+          childSessionId: expect.stringMatching(/^subagent-/)
+        })
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('does not prompt a delegated child that finishes construction after parent abort', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-create-abort-'))
 
