@@ -22,6 +22,7 @@ import type {
   AgentDefinitionReference,
   AgentSessionKind,
   AgentSessionState,
+  DelegationAgentDefinition,
   ApplyAgentDefinitionToFreshSessionRequest,
   ResolvedAgentDefinition
 } from '../../../shared/agent-protocol'
@@ -31,7 +32,9 @@ import { defaultModelSettingSchema, thinkingLevelSchema } from '../../../shared/
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 import {
   resolveAgentDefinitionForSession,
-  type ResolveAgentDefinitionForSession
+  resolveAgentDefinitionsForDelegation,
+  type ResolveAgentDefinitionForSession,
+  type ResolveAgentDefinitionsForDelegation
 } from '../../agents/main/agent-definition-resolver'
 
 const agentDefinitionReferenceSchema = z.object({
@@ -87,6 +90,7 @@ export type CreateAgentSessionHandlerDependencies = {
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
   resolveAgentDefinition?: ResolveAgentDefinitionForSession
+  resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
 }
 
 export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
@@ -108,6 +112,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
+  resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
 }
 
 export type ApplyAgentDefinitionToFreshSessionDependencies = Omit<
@@ -167,7 +172,8 @@ export async function createManagedProjectAgentSession(
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
     resolveSkillPaths,
-    resolveAgentDefinition = resolveAgentDefinitionForSession
+    resolveAgentDefinition = resolveAgentDefinitionForSession,
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
   }: CreateAgentSessionHandlerDependencies
 ): Promise<{ state: AgentSessionState; session: ProjectSession }> {
   const projectId = request.projectId.trim()
@@ -230,6 +236,9 @@ export async function createManagedProjectAgentSession(
       agentDefinitionSnapshot = request.agentDefinition
         ? await resolveAgentDefinition(request.agentDefinition)
         : undefined
+      const delegationDefinitions = await resolveVisibleDelegationDefinitions(
+        resolveDelegationDefinitions
+      )
       state = await utilityHost.createSession({
         sessionId,
         kind: 'project',
@@ -244,7 +253,8 @@ export async function createManagedProjectAgentSession(
           : {}),
         defaultModel: modelDefaults.defaultModel,
         thinkingLevel: modelDefaults.defaultThinking,
-        ...(agentDefinitionSnapshot ? { agentDefinition: agentDefinitionSnapshot } : {})
+        ...(agentDefinitionSnapshot ? { agentDefinition: agentDefinitionSnapshot } : {}),
+        ...createDelegationDefinitionsRequest(delegationDefinitions)
       })
 
       const session = await persistSession()
@@ -443,7 +453,8 @@ export async function restoreAgentSessionState(
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
-    resolveSkillPaths
+    resolveSkillPaths,
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
@@ -458,7 +469,8 @@ export async function restoreAgentSessionState(
     getKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths,
     readProjectTrust,
-    resolveSkillPaths
+    resolveSkillPaths,
+    resolveDelegationDefinitions
   })
   pendingSessionRestores.set(request.sessionId, restore)
 
@@ -481,7 +493,8 @@ async function restoreAgentSessionStateOnce(
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
-    resolveSkillPaths
+    resolveSkillPaths,
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   try {
@@ -511,6 +524,9 @@ async function restoreAgentSessionStateOnce(
     projectTrusted
   )
   const sourceContext = createStoredSourceContext(storedSession)
+  const delegationDefinitions = await resolveVisibleDelegationDefinitions(
+    resolveDelegationDefinitions
+  )
 
   if (!project) await mkdir(cwd, { recursive: true })
 
@@ -531,6 +547,7 @@ async function restoreAgentSessionStateOnce(
       ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
       ...(sourceContext ? { systemPromptContext: sourceContext } : {}),
       ...createStoredAgentDefinitionRequest(storedSession),
+      ...createDelegationDefinitionsRequest(delegationDefinitions),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -594,7 +611,8 @@ export async function createWorkspaceAgentSession({
   readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
   resolveSkillPaths,
   agentDefinition: agentDefinitionReference,
-  resolveAgentDefinition = resolveAgentDefinitionForSession
+  resolveAgentDefinition = resolveAgentDefinitionForSession,
+  resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
   const sessionId = createSessionId()
   const cwd = resolve(getWorkspaceSessionCwd())
@@ -606,6 +624,9 @@ export async function createWorkspaceAgentSession({
   const agentDefinition = agentDefinitionReference
     ? await resolveAgentDefinition(agentDefinitionReference)
     : undefined
+  const delegationDefinitions = await resolveVisibleDelegationDefinitions(
+    resolveDelegationDefinitions
+  )
   const state = await utilityHost.createSession({
     sessionId,
     kind: 'workspace',
@@ -616,7 +637,8 @@ export async function createWorkspaceAgentSession({
     ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
     thinkingLevel: modelDefaults.defaultThinking,
-    ...(agentDefinition ? { agentDefinition } : {})
+    ...(agentDefinition ? { agentDefinition } : {}),
+    ...createDelegationDefinitionsRequest(delegationDefinitions)
   })
 
   try {
@@ -648,6 +670,18 @@ async function resolveSessionSkillPaths(
   return projectTrusted
     ? skillPaths
     : skillPaths.filter((skillPath) => skillPath.scope !== 'project')
+}
+
+async function resolveVisibleDelegationDefinitions(
+  resolveDelegationDefinitions: ResolveAgentDefinitionsForDelegation
+): Promise<DelegationAgentDefinition[]> {
+  return resolveDelegationDefinitions()
+}
+
+function createDelegationDefinitionsRequest(
+  definitions: DelegationAgentDefinition[]
+): { delegationDefinitions?: DelegationAgentDefinition[] } {
+  return definitions.length > 0 ? { delegationDefinitions: definitions } : {}
 }
 
 function resolveStoredProject(project: StoredProject | undefined): StoredProject {

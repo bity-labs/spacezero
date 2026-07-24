@@ -1,4 +1,8 @@
-import type { AgentDefinitionReference, ResolvedAgentDefinition } from '../../../shared/agent-protocol'
+import type {
+  AgentDefinitionReference,
+  DelegationAgentDefinition,
+  ResolvedAgentDefinition
+} from '../../../shared/agent-protocol'
 import { THINKING_LEVELS, type ThinkingLevel } from '../../../shared/model-settings'
 import type { AgentDefinitionCatalogEntry, AgentDefinitionSource } from '../shared'
 import { discoverGlobalAgentDefinitions } from './agent-definition-discovery'
@@ -7,6 +11,22 @@ import { resolveGlobalAgentDefinitionSources } from './agent-definition-paths'
 export type ResolveAgentDefinitionForSession = (
   reference: AgentDefinitionReference
 ) => Promise<ResolvedAgentDefinition>
+
+export type ResolveAgentDefinitionsForDelegation = () => Promise<DelegationAgentDefinition[]>
+
+export async function resolveAgentDefinitionsForDelegation({
+  resolveSources = resolveGlobalAgentDefinitionSources,
+  discoverDefinitions = discoverGlobalAgentDefinitions
+}: {
+  resolveSources?: () => Promise<AgentDefinitionSource[]>
+  discoverDefinitions?: typeof discoverGlobalAgentDefinitions
+} = {}): Promise<DelegationAgentDefinition[]> {
+  const catalog = await discoverDefinitions({ sources: await resolveSources() })
+  return catalog.flatMap((entry) => {
+    if (entry.status !== 'valid' || entry.shadowedBy) return []
+    return [toDelegationAgentDefinition(entry)]
+  })
+}
 
 export async function resolveAgentDefinitionForSession(
   reference: AgentDefinitionReference,
@@ -31,6 +51,42 @@ export async function resolveAgentDefinitionForSession(
 }
 
 function toResolvedAgentDefinition(
+  definition: AgentDefinitionCatalogEntry
+): ResolvedAgentDefinition {
+  const resolved = toBaseResolvedAgentDefinition(definition)
+  return {
+    id: resolved.id,
+    name: resolved.name,
+    body: resolved.body,
+    ...(resolved.model ? { model: resolved.model } : {}),
+    ...(resolved.thinkingLevel ? { thinkingLevel: resolved.thinkingLevel } : {}),
+    ...(resolved.tools ? { tools: resolved.tools } : {})
+  }
+}
+
+function toDelegationAgentDefinition(
+  definition: AgentDefinitionCatalogEntry
+): DelegationAgentDefinition {
+  try {
+    const resolved = toBaseResolvedAgentDefinition(definition)
+    if (!definition.description) throw new Error('agentDefinitions.definitionInvalid')
+
+    return {
+      ...resolved,
+      description: definition.description
+    }
+  } catch (error) {
+    return {
+      id: definition.id,
+      name: definition.name || definition.id,
+      body: definition.body ?? '',
+      description: definition.description || 'Invalid Agent Definition configuration.',
+      resolutionError: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
+
+function toBaseResolvedAgentDefinition(
   definition: AgentDefinitionCatalogEntry
 ): ResolvedAgentDefinition {
   if (!definition.name || definition.body === undefined) {

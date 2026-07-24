@@ -197,12 +197,16 @@ describe('WorkspaceToolExecutor', () => {
     })
 
     it('pauses a write tool until confirmation is approved, then executes the handler', async () => {
-      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true, data: { created: true } }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({
+        ok: true,
+        data: { created: true }
+      }))
       let approve!: (approved: boolean) => void
       const requestConfirmation = vi.fn(
-        () => new Promise<boolean>((resolve) => {
-          approve = resolve
-        })
+        () =>
+          new Promise<boolean>((resolve) => {
+            approve = resolve
+          })
       )
       const tools = [
         tool({
@@ -234,7 +238,33 @@ describe('WorkspaceToolExecutor', () => {
       approve(true)
       await expect(resultPromise).resolves.toEqual({ ok: true, data: { created: true } })
       expect(handler).toHaveBeenCalledOnce()
-      expect(history.list().map((record) => record.outcome)).toEqual(['confirmation-required', 'success'])
+      expect(history.list().map((record) => record.outcome)).toEqual([
+        'confirmation-required',
+        'success'
+      ])
+    })
+
+    it('fails delegated child calls immediately when a Workspace Tool would require invisible confirmation', async () => {
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true }))
+      const requestConfirmation = vi.fn(async () => true)
+      const { executor, history } = buildExecutor(
+        [tool({ name: 'projects.create', safetyLevel: 'write', handler })],
+        { requestConfirmation }
+      )
+
+      const result = await executor.executeForAgent({
+        sessionId: 'subagent-1',
+        parentSessionId: 'parent-session-1',
+        callId: 'call-1',
+        toolName: 'projects.create',
+        input: {}
+      })
+
+      expect(handler).not.toHaveBeenCalled()
+      expect(requestConfirmation).not.toHaveBeenCalled()
+      expect(result.ok).toBe(false)
+      expect(failureError(result).code).toBe('workspace-tool-confirmation-unsupported-in-child')
+      expect(history.list().map((record) => record.outcome)).toEqual(['confirmation-required'])
     })
 
     it('returns an error tool result and records denial when confirmation is denied', async () => {
@@ -254,11 +284,17 @@ describe('WorkspaceToolExecutor', () => {
       expect(handler).not.toHaveBeenCalled()
       expect(result.ok).toBe(false)
       expect(failureError(result).code).toBe('tool-denied')
-      expect(history.list().map((record) => record.outcome)).toEqual(['confirmation-required', 'denied'])
+      expect(history.list().map((record) => record.outcome)).toEqual([
+        'confirmation-required',
+        'denied'
+      ])
     })
 
     it('executes a read tool without confirmation regardless of policy', async () => {
-      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({ ok: true, data: { ok: true } }))
+      const handler = vi.fn(async (): Promise<WorkspaceToolResult> => ({
+        ok: true,
+        data: { ok: true }
+      }))
       const tools = [tool({ name: 'projects.list', safetyLevel: 'read', handler })]
       const { executor } = buildExecutor(tools)
 

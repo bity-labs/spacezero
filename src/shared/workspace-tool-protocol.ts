@@ -16,6 +16,7 @@ export type WorkspaceToolAgentDescriptor = {
 
 export type ExecuteWorkspaceToolRequest = {
   sessionId: string
+  parentSessionId?: string
   toolName: string
   input: unknown
   safetyLevel: WorkspaceToolSafetyLevel
