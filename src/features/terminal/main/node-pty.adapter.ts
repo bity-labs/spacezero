@@ -41,10 +41,28 @@ async function ensureDarwinSpawnHelperExecutable(): Promise<void> {
 }
 
 function toPtyProcess(pty: IPty): PtyProcess {
+  const terminator =
+    process.platform === 'win32'
+      ? undefined
+      : createUnixProcessTreeTerminator({
+          rootPid: pty.pid,
+          killPty: () => pty.kill(),
+          onExit: (listener) => {
+            const disposable = pty.onExit(listener)
+            return () => disposable.dispose()
+          }
+        })
+
   return {
     write: (data) => pty.write(data),
     resize: (cols, rows) => pty.resize(cols, rows),
-    kill: () => terminatePtyProcessTree(pty),
+    kill: async () => {
+      if (!terminator) {
+        pty.kill()
+        return
+      }
+      await terminator.terminate()
+    },
     onData: (listener) => {
       const disposable = pty.onData(listener)
       return () => disposable.dispose()
@@ -56,39 +74,70 @@ function toPtyProcess(pty: IPty): PtyProcess {
   }
 }
 
-function terminatePtyProcessTree(pty: IPty): void {
-  if (process.platform === 'win32') {
-    pty.kill()
-    return
+export function createUnixProcessTreeTerminator({
+  rootPid,
+  killPty,
+  onExit,
+  collectDescendants = collectDescendantPids,
+  signal = signalProcess,
+  fallbackDelayMs = 2_000
+}: {
+  rootPid: number
+  killPty: () => void
+  onExit: (listener: () => void) => () => void
+  collectDescendants?: (pid: number) => number[]
+  signal?: (pid: number, signal: NodeJS.Signals) => boolean
+  fallbackDelayMs?: number
+}): { terminate: () => Promise<void> } {
+  let exited = false
+  let terminatePromise: Promise<void> | undefined
+  let resolveTerminated: (() => void) | undefined
+  let fallbackTimer: NodeJS.Timeout | undefined
+  const disposeExit = onExit(() => {
+    exited = true
+    if (fallbackTimer) clearTimeout(fallbackTimer)
+    resolveTerminated?.()
+    disposeExit()
+  })
+
+  return {
+    terminate: () => {
+      if (exited) return Promise.resolve()
+      terminatePromise ??= new Promise<void>((resolve) => {
+        resolveTerminated = resolve
+        if (!Number.isSafeInteger(rootPid) || rootPid <= 1 || rootPid === process.pid) {
+          killPty()
+          return
+        }
+
+        signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGTERM', signal)
+        killPty()
+
+        fallbackTimer = setTimeout(() => {
+          fallbackTimer = undefined
+          if (!exited) {
+            signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGKILL', signal)
+          }
+        }, fallbackDelayMs)
+        fallbackTimer.unref()
+      })
+      return terminatePromise
+    }
   }
-
-  const pid = pty.pid
-  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) {
-    pty.kill()
-    return
-  }
-
-  const descendants = collectDescendantPids(pid)
-  signalUnixProcessTree(pid, descendants, 'SIGTERM')
-  pty.kill()
-
-  const timer = setTimeout(() => {
-    signalUnixProcessTree(pid, descendants, 'SIGKILL')
-  }, 2_000)
-  timer.unref()
 }
 
 function signalUnixProcessTree(
   rootPid: number,
   descendants: number[],
-  signal: NodeJS.Signals
+  signal: NodeJS.Signals,
+  signalPid: (pid: number, signal: NodeJS.Signals) => boolean = signalProcess
 ): void {
   for (const childPid of [...descendants].reverse()) {
-    signalProcess(childPid, signal)
+    signalPid(childPid, signal)
   }
 
-  if (!signalProcess(-rootPid, signal)) {
-    signalProcess(rootPid, signal)
+  if (!signalPid(-rootPid, signal)) {
+    signalPid(rootPid, signal)
   }
 }
 
