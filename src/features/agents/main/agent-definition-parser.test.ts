@@ -97,6 +97,36 @@ Body.
     ).toMatchObject({ status: 'valid', tools: ['read', 'grep', 'find'] })
   })
 
+  it.each([
+    ['numeric model', 'model: 123', 'model'],
+    ['array model', 'model: [anthropic, claude]', 'model'],
+    ['boolean thinking', 'thinking: false', 'thinking']
+  ])('rejects present non-string optional %s values with diagnostics', (_label, fieldSource, field) => {
+    const parsed = parseAgentDefinitionMarkdown({
+      ...baseInput,
+      markdown: `---
+name: Reviewer
+description: Reviews code changes.
+${fieldSource}
+---
+Body.
+`
+    })
+
+    expect(parsed).toMatchObject({
+      status: 'invalid',
+      diagnostics: [
+        {
+          severity: 'error',
+          code: 'agentDefinitions.invalidFieldType',
+          message: `Frontmatter field "${field}" must be a string.`
+        }
+      ]
+    })
+    expect(parsed.model).toBeUndefined()
+    expect(parsed.thinking).toBeUndefined()
+  })
+
   it('rejects missing required fields with diagnostics', () => {
     const parsed = parseAgentDefinitionMarkdown({
       ...baseInput,
