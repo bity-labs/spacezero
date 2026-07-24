@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from './files.contract'
+
 const relativePathSchema = z
   .string()
   .max(4096)
@@ -24,23 +26,38 @@ const relativePathSchema = z
 
 const relativeFilePathSchema = relativePathSchema.refine((path) => path.length > 0)
 
+const filesContextSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('project-session'),
+      sessionId: z.string().trim().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('knowledge-base'),
+      contextKey: z.literal(KNOWLEDGE_BASE_FILES_CONTEXT_KEY)
+    })
+    .strict()
+])
+
 export const listFilesDirectoryRequestSchema = z
   .object({
-    sessionId: z.string().trim().min(1),
+    context: filesContextSchema,
     relativePath: relativePathSchema
   })
   .strict()
 
 export const openFilesDocumentRequestSchema = z
   .object({
-    sessionId: z.string().trim().min(1),
+    context: filesContextSchema,
     relativePath: relativeFilePathSchema
   })
   .strict()
 
 export const saveFilesDocumentRequestSchema = z
   .object({
-    sessionId: z.string().trim().min(1),
+    context: filesContextSchema,
     relativePath: relativeFilePathSchema,
     content: z.string().max(2 * 1024 * 1024),
     expectedRevision: z.string().trim().min(1)
