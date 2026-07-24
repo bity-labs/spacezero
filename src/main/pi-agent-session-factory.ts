@@ -177,6 +177,7 @@ export function createPiAgentRuntime({
     }
     const workspaceToolProxies = createWorkspaceToolProxies({
       sessionId: request.sessionId,
+      parentSessionId: request.parentSessionId,
       descriptors: request.workspaceTools ?? [],
       executeWorkspaceTool
     })
@@ -464,10 +465,12 @@ function isSupportedOAuthProvider(provider: { usesCallbackServer?: boolean }): b
 
 function createWorkspaceToolProxies({
   sessionId,
+  parentSessionId,
   descriptors,
   executeWorkspaceTool
 }: {
   sessionId: string
+  parentSessionId: string | undefined
   descriptors: WorkspaceToolAgentDescriptor[]
   executeWorkspaceTool: PiAgentSessionFactoryOptions['executeWorkspaceTool']
 }): ToolDefinition[] {
@@ -481,6 +484,7 @@ function createWorkspaceToolProxies({
         const result = executeWorkspaceTool
           ? await executeWorkspaceTool({
               sessionId,
+              parentSessionId,
               callId,
               toolName: descriptor.name,
               input,
@@ -622,6 +626,12 @@ async function runDelegatedAgent({
       `Unknown Agent Definition: ${parsedInput.definition}`
     )
   }
+  if (definition.resolutionError) {
+    return createDelegationError(
+      parentRequest.sessionId,
+      `Agent Definition ${definition.id} cannot be delegated: ${definition.resolutionError}`
+    )
+  }
 
   const childSessionId = `subagent-${randomUUID()}`
   let childSession: CreatedPiAgentSession | undefined
@@ -649,9 +659,10 @@ async function runDelegatedAgent({
     })
     await childSession.prompt(parsedInput.task)
 
+    const finalAssistantResult = getFinalAssistantResult(childSession.getTranscriptSnapshot())
     return {
-      status: 'completed',
-      output: getFinalAssistantOutput(childSession.getTranscriptSnapshot()),
+      status: finalAssistantResult.status,
+      output: finalAssistantResult.output,
       childSessionId,
       transcriptPath: childSession.sessionFile,
       parentSessionId: parentRequest.sessionId
@@ -709,15 +720,32 @@ function createSubagentSystemPrompt(definition: DelegationAgentDefinition): stri
   ].join('\n')
 }
 
-function getFinalAssistantOutput(transcript: AgentTranscriptMessage[]): string {
-  const finalAssistant = [...transcript].reverse().find((message) => message.role === 'assistant')
+function isAssistantTranscriptMessage(
+  message: AgentTranscriptMessage
+): message is Extract<AgentTranscriptMessage, { role: 'assistant' }> {
+  return message.role === 'assistant' && Array.isArray(message.content)
+}
+
+function getFinalAssistantResult(transcript: AgentTranscriptMessage[]): {
+  status: 'completed' | 'error'
+  output: string
+} {
+  const finalAssistant = [...transcript].reverse().find(isAssistantTranscriptMessage)
   if (!finalAssistant || !('content' in finalAssistant) || !Array.isArray(finalAssistant.content)) {
-    return ''
+    return { status: 'completed', output: '' }
   }
 
-  return finalAssistant.content
+  const output = finalAssistant.content
     .flatMap((part) => (part.type === 'text' ? [part.text] : []))
     .join('')
+  if (finalAssistant.stopReason === 'error') {
+    return {
+      status: 'error',
+      output: finalAssistant.errorMessage || output || 'Agent stopped with an error.'
+    }
+  }
+
+  return { status: 'completed', output }
 }
 
 /** Pi providers accept only alphanumeric, underscore, and dash tool names. */

@@ -24,11 +24,7 @@ export async function resolveAgentDefinitionsForDelegation({
   const catalog = await discoverDefinitions({ sources: await resolveSources() })
   return catalog.flatMap((entry) => {
     if (entry.status !== 'valid' || entry.shadowedBy) return []
-    try {
-      return [toDelegationAgentDefinition(entry)]
-    } catch {
-      return []
-    }
+    return [toDelegationAgentDefinition(entry)]
   })
 }
 
@@ -71,12 +67,22 @@ function toResolvedAgentDefinition(
 function toDelegationAgentDefinition(
   definition: AgentDefinitionCatalogEntry
 ): DelegationAgentDefinition {
-  const resolved = toBaseResolvedAgentDefinition(definition)
-  if (!definition.description) throw new Error('agentDefinitions.definitionInvalid')
+  try {
+    const resolved = toBaseResolvedAgentDefinition(definition)
+    if (!definition.description) throw new Error('agentDefinitions.definitionInvalid')
 
-  return {
-    ...resolved,
-    description: definition.description
+    return {
+      ...resolved,
+      description: definition.description
+    }
+  } catch (error) {
+    return {
+      id: definition.id,
+      name: definition.name || definition.id,
+      body: definition.body ?? '',
+      description: definition.description || 'Invalid Agent Definition configuration.',
+      resolutionError: error instanceof Error ? error.message : String(error)
+    }
   }
 }
 
