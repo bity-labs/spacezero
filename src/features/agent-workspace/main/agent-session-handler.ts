@@ -386,11 +386,13 @@ export async function applyAgentDefinitionToFreshSession(
   }
 
   await utilityHost.deleteSession({ sessionId: request.sessionId })
+  let definitionSessionCreated = false
   try {
     const nextState = await utilityHost.createSession({
       ...baseCreateRequest,
       agentDefinition
     })
+    definitionSessionCreated = true
     await repository.update({
       ...storedSession,
       transcriptPath: nextState.transcriptPath,
@@ -402,7 +404,31 @@ export async function applyAgentDefinitionToFreshSession(
     })
     return nextState
   } catch (error) {
-    await utilityHost.createSession(baseCreateRequest).catch(() => undefined)
+    const rollbackFailures: unknown[] = []
+
+    if (definitionSessionCreated) {
+      try {
+        await utilityHost.deleteSession({ sessionId: request.sessionId })
+      } catch (rollbackError) {
+        rollbackFailures.push(rollbackError)
+      }
+    }
+
+    try {
+      await utilityHost.createSession(baseCreateRequest)
+    } catch (rollbackError) {
+      rollbackFailures.push(rollbackError)
+    }
+
+    if (rollbackFailures.length > 0) {
+      const rollbackError = new Error('agentDefinitions.applyRollbackFailed', { cause: error })
+      Object.defineProperty(rollbackError, 'rollbackFailures', {
+        value: rollbackFailures,
+        enumerable: false
+      })
+      throw rollbackError
+    }
+
     throw error
   }
 }

@@ -401,6 +401,204 @@ describe('createProjectAgentSession', () => {
     })
   })
 
+  it('rolls back the live definition session when persistence fails after recreation', async () => {
+    const repository = createRepository({
+      update: vi.fn(async () => {
+        throw new Error('database unavailable')
+      })
+    })
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+    const utilityHost = {
+      getState: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) =>
+        createState({
+          cwd: request.cwd,
+          agentDefinition: request.agentDefinition
+            ? { id: 'reviewer', name: 'Reviewer' }
+            : undefined,
+          modelProvider: request.agentDefinition ? 'faux' : 'anthropic',
+          modelId: request.agentDefinition ? 'faux-1' : 'claude-sonnet',
+          thinkingLevel: request.agentDefinition ? 'high' : 'medium'
+        })
+      )
+    }
+
+    await expect(
+      applyAgentDefinitionToFreshSession(
+        { sessionId: 'session-1', agentDefinition: { id: 'reviewer' } },
+        {
+          repository,
+          utilityHost,
+          worktrees: { validate: vi.fn(async () => true) },
+          readModelDefaults,
+          resolveAgentDefinition: async () => ({
+            id: 'reviewer',
+            name: 'Reviewer',
+            body: 'Review code carefully.',
+            model: { providerId: 'faux', modelId: 'faux-1' },
+            thinkingLevel: 'high',
+            tools: ['read']
+          })
+        }
+      )
+    ).rejects.toThrow('database unavailable')
+
+    expect(utilityHost.deleteSession).toHaveBeenCalledTimes(2)
+    expect(utilityHost.createSession).toHaveBeenCalledTimes(2)
+    expect(utilityHost.createSession).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ agentDefinition: expect.anything() })
+    )
+    const storedSession = await repository.findSessionById('session-1')
+    expect(storedSession).toMatchObject({
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium'
+    })
+    expect(storedSession?.agentDefinitionSnapshot).toBeUndefined()
+  })
+
+  it('surfaces rollback failure when definition application cannot restore the base runtime', async () => {
+    const repository = createRepository({
+      update: vi.fn(async () => {
+        throw new Error('database unavailable')
+      })
+    })
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet',
+      thinkingLevel: 'medium',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+    const utilityHost = {
+      getState: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      deleteSession: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(new Error('delete failed')),
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) =>
+        createState({
+          cwd: request.cwd,
+          agentDefinition: request.agentDefinition
+            ? { id: 'reviewer', name: 'Reviewer' }
+            : undefined
+        })
+      )
+    }
+
+    await expect(
+      applyAgentDefinitionToFreshSession(
+        { sessionId: 'session-1', agentDefinition: { id: 'reviewer' } },
+        {
+          repository,
+          utilityHost,
+          worktrees: { validate: vi.fn(async () => true) },
+          readModelDefaults,
+          resolveAgentDefinition: async () => ({
+            id: 'reviewer',
+            name: 'Reviewer',
+            body: 'Review code carefully.',
+            tools: ['read']
+          })
+        }
+      )
+    ).rejects.toThrow('agentDefinitions.applyRollbackFailed')
+  })
+
+  it('rejects applying an Agent Definition to a messageful session', async () => {
+    const repository = createRepository()
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+    const utilityHost = {
+      getState: vi.fn(async () =>
+        createState({
+          cwd: '/worktrees/session-1',
+          transcriptSnapshot: [
+            {
+              role: 'user',
+              timestamp: 100,
+              content: [{ type: 'text', text: 'hello' }]
+            }
+          ]
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await expect(
+      applyAgentDefinitionToFreshSession(
+        { sessionId: 'session-1', agentDefinition: { id: 'reviewer' } },
+        { repository, utilityHost, worktrees: { validate: vi.fn(async () => true) } }
+      )
+    ).rejects.toThrow('agentDefinitions.sessionNotFresh')
+    expect(utilityHost.deleteSession).not.toHaveBeenCalled()
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
+  it('rejects applying an Agent Definition to a running session', async () => {
+    const repository = createRepository()
+    await repository.create({
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(0),
+      updatedAt: new Date(0),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      worktreePath: '/worktrees/session-1',
+      worktreeBranch: 'spacezero/session-1',
+      worktreeBaseRevision: 'abc123'
+    })
+    const utilityHost = {
+      getState: vi.fn(async () => createState({ cwd: '/worktrees/session-1', status: 'running' })),
+      deleteSession: vi.fn(async () => undefined),
+      createSession: vi.fn(async () => createState())
+    }
+
+    await expect(
+      applyAgentDefinitionToFreshSession(
+        { sessionId: 'session-1', agentDefinition: { id: 'reviewer' } },
+        { repository, utilityHost, worktrees: { validate: vi.fn(async () => true) } }
+      )
+    ).rejects.toThrow('agentDefinitions.sessionNotFresh')
+    expect(utilityHost.deleteSession).not.toHaveBeenCalled()
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
   it('passes project skill paths to a trusted project session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),
