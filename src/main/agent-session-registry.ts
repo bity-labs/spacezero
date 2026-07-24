@@ -69,6 +69,7 @@ type RegisteredAgentSession = {
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
   agentDefinition: CreateAgentSessionRequest['agentDefinition'] | undefined
+  delegationDefinitions: CreateAgentSessionRequest['delegationDefinitions'] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -88,6 +89,7 @@ type DormantAgentSession = {
   modelId: string | undefined
   thinkingLevel: ThinkingLevel | undefined
   agentDefinition: CreateAgentSessionRequest['agentDefinition'] | undefined
+  delegationDefinitions: CreateAgentSessionRequest['delegationDefinitions'] | undefined
   skills?: AgentSkillDescriptor[]
   lastAccessedAt: number
 }
@@ -190,6 +192,7 @@ export class AgentSessionRegistry {
           skillPaths: normalizedRequest.skillPaths,
           disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
           agentDefinition: normalizedRequest.agentDefinition,
+          delegationDefinitions: normalizedRequest.delegationDefinitions,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -354,7 +357,10 @@ export class AgentSessionRegistry {
         : {}),
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
       ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}),
-      ...(request.agentDefinition ? { agentDefinition: request.agentDefinition } : {})
+      ...(request.agentDefinition ? { agentDefinition: request.agentDefinition } : {}),
+      ...(request.delegationDefinitions
+        ? { delegationDefinitions: request.delegationDefinitions }
+        : {})
     }
   }
 
@@ -405,6 +411,9 @@ export class AgentSessionRegistry {
         ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
         : {}),
       ...createDormantAgentDefinitionRequest(dormantSession),
+      ...(dormantSession.delegationDefinitions
+        ? { delegationDefinitions: dormantSession.delegationDefinitions }
+        : {}),
       ...(dormantSession.modelProvider && dormantSession.modelId
         ? {
             defaultModel: {
@@ -431,6 +440,7 @@ export class AgentSessionRegistry {
       skillPaths: dormantSession.skillPaths,
       disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
       agentDefinition: dormantSession.agentDefinition,
+      delegationDefinitions: dormantSession.delegationDefinitions,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -496,6 +506,7 @@ export class AgentSessionRegistry {
       skillPaths: session.skillPaths,
       disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
       agentDefinition: session.agentDefinition,
+      delegationDefinitions: session.delegationDefinitions,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
@@ -551,7 +562,9 @@ export class AgentSessionRegistry {
       modelId: session.modelId,
       thinkingLevel: session.thinkingLevel,
       ...(session.agentDefinition
-        ? { agentDefinition: { id: session.agentDefinition.id, name: session.agentDefinition.name } }
+        ? {
+            agentDefinition: { id: session.agentDefinition.id, name: session.agentDefinition.name }
+          }
         : {}),
       ...(session.skills ? { skills: session.skills } : {})
     }

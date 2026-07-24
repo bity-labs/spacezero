@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
@@ -16,7 +17,11 @@ import {
 } from '@earendil-works/pi-coding-agent'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
-import type { AgentStreamingEvent, CreateAgentSessionRequest } from '../shared/agent-protocol'
+import type {
+  AgentStreamingEvent,
+  CreateAgentSessionRequest,
+  DelegationAgentDefinition
+} from '../shared/agent-protocol'
 import type {
   AuthProviderOption,
   AuthProviderStatus,
@@ -47,11 +52,19 @@ const FAUX_PROVIDER_ID = 'faux'
 const FAUX_MODEL_ID = 'faux-1'
 const PI_SKILL_BLOCK_PREFIX = '<skill name="'
 const PROJECT_TOOL_NAMES = ['bash', 'edit', 'write', 'read', 'grep', 'find', 'ls']
+const DELEGATION_TOOL_NAME = 'agents.delegate'
+const DELEGATION_TOOL_DESCRIPTION = [
+  'Delegate a focused, self-contained task to the most specific visible Agent Definition.',
+  'Choose the definition whose description best matches the work.',
+  'The task must include all context the child needs because delegated agents start with a fresh conversation.'
+].join(' ')
+const DELEGATION_CATALOG_PROMPT_PREFIX = 'Available Agent Definitions for agents.delegate:'
 
 export type PiAgentSessionFactoryOptions = {
   agentDir: string
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
   onSkillDiagnostics?: (diagnostics: ResourceDiagnostic[]) => void
+  configureFauxProvider?: (provider: ReturnType<typeof fauxProvider>) => void
 }
 
 export type PiAgentRuntime = {
@@ -74,7 +87,8 @@ type OAuthRuntimeCallbacks = {
 export function createPiAgentRuntime({
   agentDir,
   executeWorkspaceTool,
-  onSkillDiagnostics = logAgentSkillDiagnostics
+  onSkillDiagnostics = logAgentSkillDiagnostics,
+  configureFauxProvider
 }: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
@@ -85,6 +99,7 @@ export function createPiAgentRuntime({
     provider: FAUX_PROVIDER_ID,
     models: [{ id: FAUX_MODEL_ID, name: 'Faux Model' }]
   })
+  configureFauxProvider?.(faux)
 
   modelRegistry.registerProvider(FAUX_PROVIDER_ID, {
     name: 'Faux',
@@ -112,6 +127,9 @@ export function createPiAgentRuntime({
     const settingsManager = SettingsManager.inMemory()
     const appendSystemPrompt = [
       ...(request.appendSystemPrompt ?? []),
+      ...((request.delegationDefinitions?.length ?? 0) > 0
+        ? [createDelegationCatalogPrompt(request.delegationDefinitions ?? [])]
+        : []),
       ...(request.agentDefinition ? [request.agentDefinition.body] : [])
     ]
     const disabledGlobalSkillPaths = new Set(
@@ -147,16 +165,33 @@ export function createPiAgentRuntime({
     const sessionsDir = join(agentDir, 'sessions')
     const sessionManager = request.transcriptPath
       ? SessionManager.open(request.transcriptPath, sessionsDir, request.cwd)
-      : SessionManager.create(request.cwd, sessionsDir, { id: request.sessionId })
-    const customTools = createWorkspaceToolProxies({
+      : SessionManager.create(request.cwd, sessionsDir, {
+          id: request.sessionId,
+          ...(request.parentSessionId ? { parentSession: request.parentSessionId } : {})
+        })
+    if (request.parentSessionId) {
+      sessionManager.appendCustomEntry('spacezero.subagentRun', {
+        parentSessionId: request.parentSessionId,
+        childSessionId: request.sessionId
+      })
+    }
+    const workspaceToolProxies = createWorkspaceToolProxies({
       sessionId: request.sessionId,
+      parentSessionId: request.parentSessionId,
       descriptors: request.workspaceTools ?? [],
       executeWorkspaceTool
     })
+    const delegationTools = createDelegationTools({
+      parentRequest: request,
+      definitions: request.delegationDefinitions ?? [],
+      createSession
+    })
+    const customTools = [...workspaceToolProxies, ...delegationTools]
     const toolNames = selectToolNames({
       kind: request.kind,
       workspaceTools: request.workspaceTools ?? [],
-      customTools,
+      workspaceToolProxies,
+      delegationTools,
       allowedTools: request.agentDefinition?.tools
     })
     const model = request.agentDefinition?.model ?? request.defaultModel
@@ -430,10 +465,12 @@ function isSupportedOAuthProvider(provider: { usesCallbackServer?: boolean }): b
 
 function createWorkspaceToolProxies({
   sessionId,
+  parentSessionId,
   descriptors,
   executeWorkspaceTool
 }: {
   sessionId: string
+  parentSessionId: string | undefined
   descriptors: WorkspaceToolAgentDescriptor[]
   executeWorkspaceTool: PiAgentSessionFactoryOptions['executeWorkspaceTool']
 }): ToolDefinition[] {
@@ -447,6 +484,7 @@ function createWorkspaceToolProxies({
         const result = executeWorkspaceTool
           ? await executeWorkspaceTool({
               sessionId,
+              parentSessionId,
               callId,
               toolName: descriptor.name,
               input,
@@ -473,22 +511,29 @@ function createWorkspaceToolProxies({
 function selectToolNames({
   kind,
   workspaceTools,
-  customTools,
+  workspaceToolProxies,
+  delegationTools,
   allowedTools
 }: {
   kind: CreateAgentSessionRequest['kind']
   workspaceTools: WorkspaceToolAgentDescriptor[]
-  customTools: ToolDefinition[]
+  workspaceToolProxies: ToolDefinition[]
+  delegationTools: ToolDefinition[]
   allowedTools: string[] | undefined
 }): string[] {
   const projectTools = kind === 'workspace' ? [] : PROJECT_TOOL_NAMES
   const workspaceToolNames = workspaceTools.map((descriptor, index) => ({
     originalName: descriptor.name,
-    piName: customTools[index]?.name
+    piName: workspaceToolProxies[index]?.name
   }))
+  const delegationToolNames = delegationTools.map((tool) => tool.name)
 
   if (!allowedTools) {
-    return [...projectTools, ...workspaceToolNames.flatMap((tool) => (tool.piName ? [tool.piName] : []))]
+    return [
+      ...projectTools,
+      ...workspaceToolNames.flatMap((tool) => (tool.piName ? [tool.piName] : [])),
+      ...delegationToolNames
+    ]
   }
 
   const allowed = new Set(allowedTools)
@@ -496,11 +541,211 @@ function selectToolNames({
     ...projectTools.filter((toolName) => allowed.has(toolName)),
     ...workspaceToolNames.flatMap((tool) =>
       tool.piName && allowed.has(tool.originalName) ? [tool.piName] : []
-    )
+    ),
+    ...delegationToolNames
   ]
 
   if (selectedTools.length === 0) throw new Error('agentDefinition.emptyToolAllowlist')
   return selectedTools
+}
+
+function createDelegationTools({
+  parentRequest,
+  definitions,
+  createSession
+}: {
+  parentRequest: CreateAgentSessionRequest
+  definitions: DelegationAgentDefinition[]
+  createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
+}): ToolDefinition[] {
+  if (definitions.length === 0) return []
+
+  return [
+    defineTool({
+      name: toPiToolName(DELEGATION_TOOL_NAME),
+      label: DELEGATION_TOOL_NAME,
+      description: DELEGATION_TOOL_DESCRIPTION,
+      parameters: {
+        type: 'object',
+        properties: {
+          definition: {
+            type: 'string',
+            description: 'The id of the visible Agent Definition to run.'
+          },
+          task: {
+            type: 'string',
+            description: 'A self-contained task for the delegated child agent.'
+          }
+        },
+        required: ['definition', 'task'],
+        additionalProperties: false
+      },
+      execute: async (_callId, input) => {
+        const result = await runDelegatedAgent({ parentRequest, definitions, input, createSession })
+        return {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({ status: result.status, output: result.output })
+            }
+          ],
+          isError: result.status === 'error',
+          details: result
+        }
+      }
+    } as ToolDefinition)
+  ]
+}
+
+async function runDelegatedAgent({
+  parentRequest,
+  definitions,
+  input,
+  createSession
+}: {
+  parentRequest: CreateAgentSessionRequest
+  definitions: DelegationAgentDefinition[]
+  input: unknown
+  createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
+}): Promise<{
+  status: 'completed' | 'error'
+  output: string
+  childSessionId?: string
+  transcriptPath?: string
+  parentSessionId: string
+}> {
+  const parsedInput = parseDelegationInput(input)
+  if (!parsedInput.ok) {
+    return createDelegationError(parentRequest.sessionId, parsedInput.error)
+  }
+
+  const definition = definitions.find((entry) => entry.id === parsedInput.definition)
+  if (!definition) {
+    return createDelegationError(
+      parentRequest.sessionId,
+      `Unknown Agent Definition: ${parsedInput.definition}`
+    )
+  }
+  if (definition.resolutionError) {
+    return createDelegationError(
+      parentRequest.sessionId,
+      `Agent Definition ${definition.id} cannot be delegated: ${definition.resolutionError}`
+    )
+  }
+
+  const childSessionId = `subagent-${randomUUID()}`
+  let childSession: CreatedPiAgentSession | undefined
+
+  try {
+    childSession = await createSession({
+      sessionId: childSessionId,
+      kind: parentRequest.kind,
+      projectId: parentRequest.kind === 'workspace' ? null : parentRequest.projectId,
+      cwd: parentRequest.cwd,
+      workspaceTools: parentRequest.workspaceTools,
+      skillPaths: parentRequest.skillPaths,
+      disabledGlobalSkillPaths: parentRequest.disabledGlobalSkillPaths,
+      defaultModel: parentRequest.defaultModel,
+      thinkingLevel: parentRequest.thinkingLevel,
+      parentSessionId: parentRequest.sessionId,
+      agentDefinition: {
+        id: definition.id,
+        name: definition.name,
+        body: createSubagentSystemPrompt(definition),
+        ...(definition.model ? { model: definition.model } : {}),
+        ...(definition.thinkingLevel ? { thinkingLevel: definition.thinkingLevel } : {}),
+        ...(definition.tools ? { tools: definition.tools } : {})
+      }
+    })
+    await childSession.prompt(parsedInput.task)
+
+    const finalAssistantResult = getFinalAssistantResult(childSession.getTranscriptSnapshot())
+    return {
+      status: finalAssistantResult.status,
+      output: finalAssistantResult.output,
+      childSessionId,
+      transcriptPath: childSession.sessionFile,
+      parentSessionId: parentRequest.sessionId
+    }
+  } catch (error) {
+    return {
+      status: 'error',
+      output: error instanceof Error ? error.message : String(error),
+      ...(childSession ? { childSessionId, transcriptPath: childSession.sessionFile } : {}),
+      parentSessionId: parentRequest.sessionId
+    }
+  } finally {
+    childSession?.dispose()
+  }
+}
+
+function parseDelegationInput(
+  input: unknown
+): { ok: true; definition: string; task: string } | { ok: false; error: string } {
+  if (!isRecord(input)) return { ok: false, error: 'agents.delegate input must be an object.' }
+
+  const definition = typeof input.definition === 'string' ? input.definition.trim() : ''
+  const task = typeof input.task === 'string' ? input.task.trim() : ''
+  if (!definition) return { ok: false, error: 'agents.delegate definition is required.' }
+  if (!task) return { ok: false, error: 'agents.delegate task is required.' }
+  return { ok: true, definition, task }
+}
+
+function createDelegationError(parentSessionId: string, output: string) {
+  return { status: 'error' as const, output, parentSessionId }
+}
+
+function createDelegationCatalogPrompt(definitions: DelegationAgentDefinition[]): string {
+  return [
+    DELEGATION_CATALOG_PROMPT_PREFIX,
+    ...definitions.map(
+      (definition) => `- ${definition.id}: ${definition.name} — ${definition.description}`
+    ),
+    '',
+    [
+      'Use agents.delegate only for focused work that benefits from a fresh specialist context.',
+      'Pick the most specific definition and provide a self-contained task.'
+    ].join(' ')
+  ].join('\n')
+}
+
+function createSubagentSystemPrompt(definition: DelegationAgentDefinition): string {
+  return [
+    'You are a delegated Space Zero subagent run.',
+    'You start with a fresh conversation and do not have the parent transcript.',
+    'Complete only the delegated task. Report your result in your final assistant message.',
+    '',
+    `Agent Definition: ${definition.name} (${definition.id})`,
+    definition.body
+  ].join('\n')
+}
+
+function isAssistantTranscriptMessage(
+  message: AgentTranscriptMessage
+): message is Extract<AgentTranscriptMessage, { role: 'assistant' }> {
+  return message.role === 'assistant' && Array.isArray(message.content)
+}
+
+function getFinalAssistantResult(transcript: AgentTranscriptMessage[]): {
+  status: 'completed' | 'error'
+  output: string
+} {
+  const finalAssistant = [...transcript].reverse().find(isAssistantTranscriptMessage)
+  if (!finalAssistant || !('content' in finalAssistant) || !Array.isArray(finalAssistant.content)) {
+    return { status: 'completed', output: '' }
+  }
+
+  const output = finalAssistant.content
+    .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+    .join('')
+  if (finalAssistant.stopReason === 'error') {
+    return {
+      status: 'error',
+      output: finalAssistant.errorMessage || output || 'Agent stopped with an error.'
+    }
+  }
+
+  return { status: 'completed', output }
 }
 
 /** Pi providers accept only alphanumeric, underscore, and dash tool names. */
