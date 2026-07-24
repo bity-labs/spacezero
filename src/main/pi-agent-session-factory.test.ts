@@ -566,6 +566,171 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('applies a resolved Agent Definition body, model, thinking level, and display state at creation', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-definition-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-definition',
+        projectId: 'project-1',
+        cwd: tempDir,
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet-4-5' },
+        thinkingLevel: 'medium',
+        agentDefinition: {
+          id: 'reviewer',
+          name: 'Reviewer',
+          body: 'You are a careful code reviewer.',
+          model: { providerId: 'faux', modelId: 'faux-1' },
+          thinkingLevel: 'high'
+        }
+      })
+
+      try {
+        expect(session.systemPrompt).toContain('You are a careful code reviewer.')
+        expect(session.modelProvider).toBe('faux')
+        expect(session.modelId).toBe('faux-1')
+        expect(session.thinkingLevel).toBe('high')
+        expect(session.agentDefinition).toEqual({ id: 'reviewer', name: 'Reviewer' })
+
+        await session.setThinkingLevel('low')
+        expect(session.thinkingLevel).toBe('low')
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to requested defaults when a resolved Agent Definition omits model and thinking', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-definition-defaults-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-definition-defaults',
+        projectId: 'project-1',
+        cwd: tempDir,
+        defaultModel: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'medium',
+        agentDefinition: {
+          id: 'scout',
+          name: 'Scout',
+          body: 'Scout the codebase.'
+        }
+      })
+
+      try {
+        expect(session.modelProvider).toBe('faux')
+        expect(session.modelId).toBe('faux-1')
+        expect(session.thinkingLevel).toBe('medium')
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('intersects Agent Definition tools with project and Workspace Tool defaults', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-definition-tools-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      const session = await createPiSession({
+        sessionId: 'session-definition-tools',
+        projectId: 'project-1',
+        cwd: tempDir,
+        workspaceTools: [
+          {
+            name: 'workspace.getStatus',
+            description: 'Read workspace status',
+            safetyLevel: 'read',
+            kind: 'app-state',
+            domain: 'workspace',
+            parameters: { type: 'object', properties: {} }
+          },
+          {
+            name: 'knowledgeBase.saveDocument',
+            description: 'Save a document',
+            safetyLevel: 'write',
+            kind: 'app-state',
+            domain: 'knowledge-base',
+            parameters: { type: 'object', properties: {} }
+          }
+        ],
+        agentDefinition: {
+          id: 'read-only',
+          name: 'Read Only',
+          body: 'Read only.',
+          tools: ['read', 'grep', 'workspace.getStatus', 'missing.tool']
+        }
+      })
+
+      try {
+        expect(session.toolNames).toEqual(['read', 'grep', 'workspace_getStatus_0'])
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails session creation when an Agent Definition tool allowlist has no effective tools', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-definition-empty-tools-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      await expect(
+        createPiSession({
+          sessionId: 'session-definition-empty-tools',
+          kind: 'workspace',
+          projectId: null,
+          cwd: tempDir,
+          agentDefinition: {
+            id: 'empty',
+            name: 'Empty',
+            body: 'No tools.',
+            tools: ['bash']
+          }
+        })
+      ).rejects.toThrow('agentDefinition.emptyToolAllowlist')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails session creation when an Agent Definition selects an unauthenticated model', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-definition-auth-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({ agentDir: join(tempDir, 'agent') })
+
+      await expect(
+        createPiSession({
+          sessionId: 'session-definition-auth',
+          projectId: 'project-1',
+          cwd: tempDir,
+          defaultModel: { providerId: 'faux', modelId: 'faux-1' },
+          agentDefinition: {
+            id: 'needs-auth',
+            name: 'Needs Auth',
+            body: 'Use a real model.',
+            model: { providerId: 'openai', modelId: 'gpt-5' }
+          }
+        })
+      ).rejects.toThrow('agent.modelAuthNotConfigured')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('uses the requested default thinking level when creating a new session', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-thinking-'))
 

@@ -18,14 +18,27 @@ import type {
   ManagedWorktreeService,
   ManagedWorktreeStartPoint
 } from '../../sessions/main/managed-worktree.service'
-import type { AgentSessionKind, AgentSessionState } from '../../../shared/agent-protocol'
+import type {
+  AgentDefinitionReference,
+  AgentSessionKind,
+  AgentSessionState
+} from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
 import { getDisabledGlobalSkillPaths } from './agent-skill-settings.service'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
+import {
+  resolveAgentDefinitionForSession,
+  type ResolveAgentDefinitionForSession
+} from '../../agents/main/agent-definition-resolver'
+
+const agentDefinitionReferenceSchema = z.object({
+  id: z.string().trim().min(1)
+})
 
 export const createSessionRequestSchema = z.object({
   projectId: z.string().trim().min(1),
-  cwd: z.string().trim().min(1)
+  cwd: z.string().trim().min(1),
+  agentDefinition: agentDefinitionReferenceSchema.optional()
 })
 
 type ReadProjectTrust = (projectId: string, projectPath: string) => Promise<boolean>
@@ -54,6 +67,7 @@ export type CreateAgentSessionHandlerDependencies = {
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
+  resolveAgentDefinition?: ResolveAgentDefinitionForSession
 }
 
 export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
@@ -63,6 +77,7 @@ export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
   getWorkspaceSessionCwd?: () => string
   title?: string
   managedContext?: 'knowledge-base'
+  agentDefinition?: AgentDefinitionReference
 }
 
 export type RestoreAgentSessionHandlerDependencies = {
@@ -89,6 +104,7 @@ export type CreateManagedProjectAgentSessionRequest = {
   source?: SessionGitHubSource
   systemPromptContext?: string
   startPoint?: ManagedWorktreeStartPoint
+  agentDefinition?: AgentDefinitionReference
 }
 
 export async function createProjectAgentSession(
@@ -100,7 +116,8 @@ export async function createProjectAgentSession(
     await createManagedProjectAgentSession(
       {
         projectId: request.projectId,
-        expectedProjectPath: request.cwd
+        expectedProjectPath: request.cwd,
+        ...(request.agentDefinition ? { agentDefinition: request.agentDefinition } : {})
       },
       dependencies
     )
@@ -120,7 +137,8 @@ export async function createManagedProjectAgentSession(
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust = denyProjectTrustWithoutPersistedDecision,
-    resolveSkillPaths
+    resolveSkillPaths,
+    resolveAgentDefinition = resolveAgentDefinitionForSession
   }: CreateAgentSessionHandlerDependencies
 ): Promise<{ state: AgentSessionState; session: ProjectSession }> {
   const projectId = request.projectId.trim()
@@ -178,6 +196,9 @@ export async function createManagedProjectAgentSession(
         'project',
         projectTrusted
       )
+      const agentDefinition = request.agentDefinition
+        ? await resolveAgentDefinition(request.agentDefinition)
+        : undefined
       state = await utilityHost.createSession({
         sessionId,
         kind: 'project',
@@ -191,7 +212,8 @@ export async function createManagedProjectAgentSession(
           ? { systemPromptContext: request.systemPromptContext }
           : {}),
         defaultModel: modelDefaults.defaultModel,
-        thinkingLevel: modelDefaults.defaultThinking
+        thinkingLevel: modelDefaults.defaultThinking,
+        ...(agentDefinition ? { agentDefinition } : {})
       })
 
       const session = await persistSession()
@@ -361,7 +383,9 @@ export async function createWorkspaceAgentSession({
   title,
   managedContext,
   readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
-  resolveSkillPaths
+  resolveSkillPaths,
+  agentDefinition: agentDefinitionReference,
+  resolveAgentDefinition = resolveAgentDefinitionForSession
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
   const sessionId = createSessionId()
   const cwd = resolve(getWorkspaceSessionCwd())
@@ -370,6 +394,9 @@ export async function createWorkspaceAgentSession({
   const modelDefaults = await readModelDefaults()
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const skillPaths = await resolveSessionSkillPaths(resolveSkillPaths, cwd, 'workspace', false)
+  const agentDefinition = agentDefinitionReference
+    ? await resolveAgentDefinition(agentDefinitionReference)
+    : undefined
   const state = await utilityHost.createSession({
     sessionId,
     kind: 'workspace',
@@ -379,7 +406,8 @@ export async function createWorkspaceAgentSession({
     ...(skillPaths ? { skillPaths } : {}),
     ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
-    thinkingLevel: modelDefaults.defaultThinking
+    thinkingLevel: modelDefaults.defaultThinking,
+    ...(agentDefinition ? { agentDefinition } : {})
   })
 
   try {

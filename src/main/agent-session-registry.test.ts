@@ -60,6 +60,56 @@ describe('AgentSessionRegistry', () => {
     await expect(registry.listSessions()).resolves.toEqual([created])
   })
 
+  it('carries the applied Agent Definition in live and dormant session state', async () => {
+    const createRequests: CreateAgentSessionRequest[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        return createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`,
+          agentDefinition: request.agentDefinition
+            ? { id: request.agentDefinition.id, name: request.agentDefinition.name }
+            : undefined
+        })
+      }
+    })
+
+    await expect(
+      registry.createSession({
+        projectId: 'project-1',
+        sessionId: 'session-1',
+        cwd: '/repo-1',
+        agentDefinition: {
+          id: 'reviewer',
+          name: 'Reviewer',
+          body: 'Review code.',
+          tools: ['read']
+        }
+      })
+    ).resolves.toMatchObject({
+      sessionId: 'session-1',
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+    })
+
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+
+    await expect(registry.listSessions()).resolves.toMatchObject([
+      {
+        sessionId: 'session-1',
+        live: false,
+        agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+      },
+      { sessionId: 'session-2', live: true }
+    ])
+    await registry.getState({ sessionId: 'session-1' })
+    expect(createRequests.at(-1)).toMatchObject({
+      sessionId: 'session-1',
+      agentDefinition: { id: 'reviewer', name: 'Reviewer', body: 'Review code.', tools: ['read'] }
+    })
+  })
+
   it('includes the live Pi transcript snapshot in session state when one exists', async () => {
     const registry = new AgentSessionRegistry({
       createPiSession: async () =>
@@ -535,6 +585,72 @@ describe('AgentSessionRegistry', () => {
       modelProvider: 'anthropic',
       modelId: 'claude-sonnet',
       thinkingLevel: 'medium'
+    })
+  })
+
+  it('preserves per-session model and thinking overrides for a suspended Agent Definition session', async () => {
+    const createRequests: CreateAgentSessionRequest[] = []
+    const registry = new AgentSessionRegistry({
+      maxLiveSessions: 1,
+      createPiSession: async (request) => {
+        createRequests.push(request)
+        const selection = {
+          provider: request.agentDefinition?.model?.providerId ?? request.defaultModel?.providerId ?? 'faux',
+          modelId: request.agentDefinition?.model?.modelId ?? request.defaultModel?.modelId ?? 'faux-1',
+          thinkingLevel: request.agentDefinition?.thinkingLevel ?? request.thinkingLevel ?? 'medium'
+        }
+        const session = createFakeSession({
+          sessionId: request.sessionId,
+          sessionFile: `/tmp/spacezero/agent/sessions/${request.sessionId}.jsonl`,
+          agentDefinition: request.agentDefinition
+            ? { id: request.agentDefinition.id, name: request.agentDefinition.name }
+            : undefined
+        })
+        Object.defineProperties(session, {
+          modelProvider: { get: () => selection.provider },
+          modelId: { get: () => selection.modelId },
+          thinkingLevel: { get: () => selection.thinkingLevel }
+        })
+        session.setModel = async ({ provider, modelId }) => {
+          selection.provider = provider
+          selection.modelId = modelId
+        }
+        session.setThinkingLevel = async (level) => {
+          selection.thinkingLevel = level
+        }
+        return session
+      }
+    })
+
+    await registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo-1',
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+      thinkingLevel: 'medium',
+      agentDefinition: {
+        id: 'reviewer',
+        name: 'Reviewer',
+        body: 'Review code.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high'
+      }
+    })
+    await registry.setModel({ sessionId: 'session-1', provider: 'openai', modelId: 'gpt-5' })
+    await registry.setThinkingLevel({ sessionId: 'session-1', level: 'low' })
+    await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
+    await registry.getState({ sessionId: 'session-1' })
+
+    expect(createRequests.at(-1)).toMatchObject({
+      sessionId: 'session-1',
+      defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+      thinkingLevel: 'low',
+      agentDefinition: {
+        id: 'reviewer',
+        name: 'Reviewer',
+        model: { providerId: 'openai', modelId: 'gpt-5' },
+        thinkingLevel: 'low'
+      }
     })
   })
 
