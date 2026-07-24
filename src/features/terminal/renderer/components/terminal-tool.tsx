@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
-import type { TerminalContext, TerminalEvent, TerminalOutputEvent } from '../../shared'
+import type { TerminalContext, TerminalEvent, TerminalOutputEvent, TerminalTab } from '../../shared'
 
 type TerminalToolProps = {
   context: TerminalContext
@@ -26,12 +26,15 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const terminalIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<SubscriptionState | null>(null)
   const lastSequenceByTerminalRef = useRef(new Map<string, number>())
+  const viewportByTerminalRef = useRef(new Map<string, number>())
+  const draggedTerminalIdRef = useRef<string | null>(null)
   const terminalContextKind = context.kind
   const terminalContextSessionId = 'sessionId' in context ? context.sessionId : undefined
   const terminalContext = useMemo<TerminalContext>(() => {
     if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
     return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
   }, [terminalContextKind, terminalContextSessionId])
+  const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [terminalId, setTerminalId] = useState<string | null>(null)
   const [status, setStatus] = useState<TerminalStatus>('starting')
   const [error, setError] = useState<string | null>(null)
@@ -65,10 +68,16 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         applyOutputEvent(event)
         return
       }
-      terminalIdRef.current = null
+      const exitedTerminalId = event.terminalId
+      setTabs((currentTabs) => {
+        const nextTabs = currentTabs.filter((tab) => tab.terminalId !== exitedTerminalId)
+        const nextActive = nextTabs[0]?.terminalId ?? null
+        terminalIdRef.current = nextActive
+        setTerminalId(nextActive)
+        setStatus(nextActive ? 'running' : 'empty')
+        return nextTabs
+      })
       subscriptionRef.current = null
-      setTerminalId(null)
-      setStatus('empty')
     },
     [applyOutputEvent]
   )
@@ -86,11 +95,55 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
 
   useEffect(() => {
     let cancelled = false
+    queueMicrotask(() => {
+      if (cancelled) return
+      setError(null)
+      setStatus('starting')
+      setTabs([])
+      setTerminalId(null)
+      terminalIdRef.current = null
+    })
+
+    async function createOrRestore(): Promise<void> {
+      try {
+        const dimensions = fitTerminal()
+        const created = await window.spacezero.terminal.create({
+          context: terminalContext,
+          cols: dimensions?.cols,
+          rows: dimensions?.rows,
+          forceNew: autoCreateToken > 0
+        })
+        if (cancelled) return
+        const createdTabs = created.tabs ?? (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
+        const activeTerminalId = created.activeTerminalId ?? created.terminalId
+        setTabs(createdTabs)
+        terminalIdRef.current = activeTerminalId
+        setTerminalId(activeTerminalId)
+        setStatus(created.status === 'empty' ? 'empty' : 'running')
+      } catch (caught) {
+        if (cancelled) return
+        setStatus('failed')
+        setError(caught instanceof Error ? caught.message : 'Terminal failed to start')
+      }
+    }
+
+    void createOrRestore()
+
+    return () => {
+      cancelled = true
+    }
+  }, [autoCreateToken, fitTerminal, terminalContext])
+
+  useEffect(() => {
+    if (!terminalId) return
+
+    let cancelled = false
     const xterm = new XTerm({ cursorBlink: true, convertEol: true, scrollback: 10_000 })
     const fitAddon = new FitAddon()
     xterm.loadAddon(fitAddon)
     xtermRef.current = xterm
     fitAddonRef.current = fitAddon
+    terminalIdRef.current = terminalId
 
     if (containerRef.current) xterm.open(containerRef.current)
 
@@ -114,56 +167,32 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       applyTerminalEvent(event)
     })
 
-    async function createAndSubscribe(): Promise<void> {
+    const activeTerminalId = terminalId
+    const viewportByTerminal = viewportByTerminalRef.current
+
+    async function subscribe(): Promise<void> {
       try {
-        const dimensions = fitTerminal()
-        const created = await window.spacezero.terminal.create({
-          context: terminalContext,
-          cols: dimensions?.cols,
-          rows: dimensions?.rows,
-          forceNew: autoCreateToken > 0
-        })
-        if (cancelled) return
-        if (created.status === 'empty') {
-          terminalIdRef.current = null
-          subscriptionRef.current = null
-          setTerminalId(null)
-          setStatus('empty')
-          return
-        }
-
-        const createdTerminalId = created.terminalId
-        if (terminalIdRef.current !== createdTerminalId) {
-          lastSequenceByTerminalRef.current.set(createdTerminalId, 0)
-        }
-        terminalIdRef.current = createdTerminalId
-        setTerminalId(createdTerminalId)
-        subscriptionRef.current = {
-          terminalId: createdTerminalId,
-          phase: 'subscribing',
-          buffer: []
-        }
-
+        subscriptionRef.current = { terminalId: activeTerminalId, phase: 'subscribing', buffer: [] }
         const subscription = await window.spacezero.terminal.subscribe({
-          terminalId: createdTerminalId,
+          terminalId: activeTerminalId,
           context: terminalContext,
-          afterSequence: lastSequenceByTerminalRef.current.get(createdTerminalId) ?? 0
+          afterSequence: 0
         })
         if (cancelled) return
         const buffered = subscriptionRef.current?.buffer ?? []
-        subscriptionRef.current = { terminalId: createdTerminalId, phase: 'running', buffer: [] }
+        subscriptionRef.current = { terminalId: activeTerminalId, phase: 'running', buffer: [] }
+        lastSequenceByTerminalRef.current.set(activeTerminalId, 0)
         for (const event of orderTerminalEvents([...subscription.events, ...buffered])) {
           applyTerminalEvent(event)
         }
-        const lastSequence = lastSequenceByTerminalRef.current.get(createdTerminalId) ?? 0
+        const lastSequence = lastSequenceByTerminalRef.current.get(activeTerminalId) ?? 0
         lastSequenceByTerminalRef.current.set(
-          createdTerminalId,
+          activeTerminalId,
           Math.max(lastSequence, subscription.nextSequence - 1)
         )
-        if (terminalIdRef.current === createdTerminalId) {
-          setStatus('running')
-          void resizeTerminal()
-        }
+        setStatus('running')
+        void resizeTerminal()
+        restoreViewport(xterm, viewportByTerminal.get(activeTerminalId))
       } catch (caught) {
         if (cancelled) return
         setStatus('failed')
@@ -171,7 +200,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       }
     }
 
-    void createAndSubscribe()
+    void subscribe()
 
     const observer = new ResizeObserver(() => {
       void resizeTerminal()
@@ -184,39 +213,104 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       removeEventListener()
       dataSubscription.dispose()
       const currentTerminalId = terminalIdRef.current
-      if (currentTerminalId) {
-        void window.spacezero.terminal.unsubscribe({
-          terminalId: currentTerminalId,
-          context: terminalContext
-        })
+      if (currentTerminalId === terminalId) {
+        viewportByTerminal.set(terminalId, readViewport(xterm))
+        void window.spacezero.terminal.unsubscribe({ terminalId, context: terminalContext })
       }
-      terminalIdRef.current = null
       subscriptionRef.current = null
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, [applyTerminalEvent, autoCreateToken, fitTerminal, resizeTerminal, terminalContext])
+  }, [applyTerminalEvent, resizeTerminal, terminalContext, terminalId])
 
-  async function closeTerminal(): Promise<void> {
-    if (!terminalId) return
+  async function selectTerminal(nextTerminalId: string): Promise<void> {
+    if (nextTerminalId === terminalId) return
+    const snapshot = await window.spacezero.terminal.selectTab({
+      terminalId: nextTerminalId,
+      context: terminalContext
+    })
+    setTabs(snapshot.tabs)
+    terminalIdRef.current = snapshot.activeTerminalId
+    setTerminalId(snapshot.activeTerminalId)
+  }
+
+  async function closeTerminal(idToClose: string): Promise<void> {
     if (!window.confirm('Close this live terminal and terminate its shell?')) return
-    await window.spacezero.terminal.close({ terminalId, context: terminalContext })
-    terminalIdRef.current = null
-    subscriptionRef.current = null
-    setTerminalId(null)
-    setStatus('empty')
+    await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
+    setTabs((currentTabs) => {
+      const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
+      const nextActive = idToClose === terminalId ? (nextTabs[0]?.terminalId ?? null) : terminalId
+      terminalIdRef.current = nextActive
+      setTerminalId(nextActive)
+      setStatus(nextActive ? 'running' : 'empty')
+      return nextTabs
+    })
+  }
+
+  async function reorderTabs(targetTerminalId: string): Promise<void> {
+    const draggedTerminalId = draggedTerminalIdRef.current
+    draggedTerminalIdRef.current = null
+    if (!draggedTerminalId || draggedTerminalId === targetTerminalId) return
+    const from = tabs.findIndex((tab) => tab.terminalId === draggedTerminalId)
+    const to = tabs.findIndex((tab) => tab.terminalId === targetTerminalId)
+    if (from < 0 || to < 0) return
+    const nextTabs = [...tabs]
+    const [dragged] = nextTabs.splice(from, 1)
+    if (!dragged) return
+    nextTabs.splice(to, 0, dragged)
+    setTabs(nextTabs)
+    const snapshot = await window.spacezero.terminal.reorderTabs({
+      context: terminalContext,
+      terminalIds: nextTabs.map((tab) => tab.terminalId)
+    })
+    setTabs(snapshot.tabs)
   }
 
   return (
     <section aria-label="Terminal" className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <div className="text-sm font-medium">Terminal</div>
-        {terminalId ? (
-          <Button size="sm" variant="ghost" onClick={closeTerminal}>
-            Close Terminal
-          </Button>
-        ) : null}
+        <div className="flex min-w-0 items-center gap-2">
+          <div className="shrink-0 text-sm font-medium">Terminal</div>
+          {tabs.length > 0 ? (
+            <div aria-label="Terminal tabs" role="tablist" className="flex min-w-0 items-center gap-1 overflow-x-auto">
+              {tabs.map((tab) => (
+                <div
+                  key={tab.terminalId}
+                  draggable
+                  onDragStart={() => {
+                    draggedTerminalIdRef.current = tab.terminalId
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => void reorderTabs(tab.terminalId)}
+                  className="flex shrink-0 items-center rounded-md border"
+                >
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={tab.terminalId === terminalId}
+                    aria-label={`Select terminal tab ${tab.title}`}
+                    onClick={() => void selectTerminal(tab.terminalId)}
+                    className="px-2 py-1 text-xs"
+                  >
+                    {tab.title}
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={tab.terminalId === terminalId ? 'Close Terminal' : `Close terminal tab ${tab.title}`}
+                    onClick={() => void closeTerminal(tab.terminalId)}
+                    className="px-2 py-1 text-xs text-muted-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <Button size="sm" variant="ghost" aria-label="Add terminal tab" onClick={startTerminal}>
+          New Terminal
+        </Button>
       </div>
       {status === 'failed' ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
@@ -236,7 +330,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
           </Button>
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-hidden p-2">
+        <div className="relative min-h-0 flex-1 overflow-hidden p-2">
           <div ref={containerRef} aria-label="Terminal output" className="h-full" />
           {status === 'starting' ? (
             <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
@@ -255,4 +349,13 @@ function orderTerminalEvents(events: TerminalEvent[]): TerminalEvent[] {
 
 function eventSequence(event: TerminalEvent): number {
   return event.type === 'output' ? event.sequence : Number.MAX_SAFE_INTEGER
+}
+
+function readViewport(xterm: XTerm): number {
+  return xterm.buffer?.active?.viewportY ?? 0
+}
+
+function restoreViewport(xterm: XTerm, viewport: number | undefined): void {
+  if (viewport === undefined) return
+  xterm.scrollToLine?.(viewport)
 }

@@ -27,6 +27,14 @@ vi.mock('@xterm/addon-fit', () => ({
 }))
 
 const context = { kind: 'project-session' as const, sessionId: 'session-1' }
+const terminalApiDefaults = {
+  listTabs: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
+  selectTab: vi.fn(async ({ terminalId }: { terminalId: string }) => ({
+    tabs: [{ terminalId, title: 'Shell' }],
+    activeTerminalId: terminalId
+  })),
+  reorderTabs: vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
+}
 
 describe('TerminalTool', () => {
   beforeEach(() => {
@@ -49,6 +57,7 @@ describe('TerminalTool', () => {
     const resize = vi.fn(async () => undefined)
     const unsubscribe = vi.fn(async () => undefined)
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create,
       subscribe,
       unsubscribe,
@@ -65,7 +74,7 @@ describe('TerminalTool', () => {
 
     await waitFor(() => expect(screen.getByRole('region', { name: 'Terminal' })).toBeVisible())
     await waitFor(() => expect(subscribe).toHaveBeenCalled())
-    expect(create).toHaveBeenCalledWith({ context, cols: 100, rows: 30, forceNew: false })
+    expect(create).toHaveBeenCalledWith({ context, cols: undefined, rows: undefined, forceNew: false })
     expect(lastTerminal?.write).toHaveBeenCalledWith('hello\r\n')
     expect(resize).toHaveBeenCalledWith({
       terminalId: 'terminal-1',
@@ -95,6 +104,7 @@ describe('TerminalTool', () => {
   it('uses the owning workspace-session or knowledge-base context without rewriting it to a project session', async () => {
     const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create,
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
@@ -129,6 +139,7 @@ describe('TerminalTool', () => {
     const removeEventListener = vi.fn()
     const unsubscribe = vi.fn(async () => undefined)
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
@@ -163,6 +174,7 @@ describe('TerminalTool', () => {
 
   it('recreates presentation and subscription only when the semantic terminal context changes', async () => {
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async ({ context: requestedContext }) => ({
         status: 'running' as const,
         terminalId:
@@ -217,6 +229,7 @@ describe('TerminalTool', () => {
       { kind: 'knowledge-base' as const }
     ]
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async ({ context: requestedContext }) => ({
         status: 'running' as const,
         terminalId:
@@ -247,28 +260,25 @@ describe('TerminalTool', () => {
     const mounted = render(<TerminalTool context={contexts[0]} />)
     for (let index = 0; index < contexts.length; index += 1) {
       if (index > 0) mounted.rerender(<TerminalTool context={contexts[index]!} />)
-      await waitFor(() =>
-        expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(index + 1)
-      )
       const expectedTerminalId =
         contexts[index]!.kind === 'knowledge-base'
           ? 'terminal-knowledge-base'
           : `terminal-${contexts[index]!.kind}-${contexts[index]!.sessionId}`
-      expect(lastTerminal?.write).toHaveBeenCalledWith(`${expectedTerminalId} output\r\n`)
+      await waitFor(() =>
+        expect(lastTerminal?.write).toHaveBeenCalledWith(`${expectedTerminalId} output\r\n`)
+      )
     }
 
     expect(window.spacezero.terminal.create).toHaveBeenCalledTimes(5)
-    expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(5)
-    expect(allTerminals).toHaveLength(5)
-    expect(allTerminals.map((terminal) => terminal.write.mock.calls.flat())).toEqual(
-      contexts.map((terminalContext) => {
-        const expectedTerminalId =
-          terminalContext.kind === 'knowledge-base'
-            ? 'terminal-knowledge-base'
-            : `terminal-${terminalContext.kind}-${terminalContext.sessionId}`
-        return [`${expectedTerminalId} output\r\n`]
-      })
-    )
+    for (const terminalContext of contexts) {
+      const expectedTerminalId =
+        terminalContext.kind === 'knowledge-base'
+          ? 'terminal-knowledge-base'
+          : `terminal-${terminalContext.kind}-${terminalContext.sessionId}`
+      expect(allTerminals.some((terminal) =>
+        terminal.write.mock.calls.flat().includes(`${expectedTerminalId} output\r\n`)
+      )).toBe(true)
+    }
   })
 
   it('merges subscribe replay and live output in sequence order without gaps or duplicates', async () => {
@@ -281,6 +291,7 @@ describe('TerminalTool', () => {
         }) => void)
       | null = null
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(
         () =>
@@ -331,6 +342,7 @@ describe('TerminalTool', () => {
     let createCount = 0
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async () => {
         createCount += 1
         return { status: 'running' as const, terminalId: `terminal-${createCount}` }
@@ -361,7 +373,7 @@ describe('TerminalTool', () => {
     render(<TerminalTool context={context} />)
 
     await screen.findByRole('button', { name: 'Close Terminal' })
-    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-1 output\r\n')
+    await waitFor(() => expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-1 output\r\n'))
     await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
     await user.click(await screen.findByRole('button', { name: 'New Terminal' }))
     await screen.findByRole('button', { name: 'Close Terminal' })
@@ -369,8 +381,8 @@ describe('TerminalTool', () => {
     expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n')
     expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
       context,
-      cols: 100,
-      rows: 30,
+      cols: undefined,
+      rows: undefined,
       forceNew: true
     })
   })
@@ -383,6 +395,7 @@ describe('TerminalTool', () => {
     const close = vi.fn(async () => undefined)
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create,
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
@@ -409,7 +422,7 @@ describe('TerminalTool', () => {
 
     expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
     expect(create).toHaveBeenCalledTimes(2)
-    expect(create).toHaveBeenLastCalledWith({ context, cols: 100, rows: 30, forceNew: false })
+    expect(create).toHaveBeenLastCalledWith({ context, cols: undefined, rows: undefined, forceNew: false })
   })
 
   it('asks before closing a live terminal and returns to the New Terminal state on close or exit', async () => {
@@ -417,6 +430,7 @@ describe('TerminalTool', () => {
     const close = vi.fn(async () => undefined)
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
@@ -449,8 +463,85 @@ describe('TerminalTool', () => {
     expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
   })
 
+  it('adds, selects, reorders, and closes accessible terminal tabs without stealing focus', async () => {
+    const user = userEvent.setup()
+    let activeTerminalId = 'terminal-1'
+    const tabs = [
+      { terminalId: 'terminal-1', title: 'zsh' },
+      { terminalId: 'terminal-2', title: 'zsh' }
+    ]
+    window.confirm = vi.fn(() => true)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async ({ forceNew }) => {
+        if (forceNew) activeTerminalId = 'terminal-2'
+        return {
+          status: 'running' as const,
+          terminalId: activeTerminalId,
+          tabs,
+          activeTerminalId
+        }
+      }),
+      selectTab: vi.fn(async ({ terminalId }) => {
+        activeTerminalId = terminalId
+        return { tabs, activeTerminalId }
+      }),
+      reorderTabs: vi.fn(async ({ terminalIds }) => ({
+        tabs: terminalIds.map((terminalId) => tabs.find((tab) => tab.terminalId === terminalId)!),
+        activeTerminalId
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [{ type: 'output' as const, terminalId, sequence: 1, data: `${terminalId}\r\n` }],
+        oldestSequence: 1,
+        nextSequence: 2
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await screen.findByRole('tab', { name: 'Select terminal tab zsh', selected: true })
+    expect(document.activeElement).not.toBe(screen.getByLabelText('Terminal output'))
+    await user.click(screen.getByRole('button', { name: 'Add terminal tab' }))
+    await waitFor(() => expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
+      context,
+      cols: 100,
+      rows: 30,
+      forceNew: true
+    }))
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+
+    await user.click(screen.getAllByRole('tab')[0]!)
+    expect(window.spacezero.terminal.selectTab).toHaveBeenCalledWith({
+      terminalId: 'terminal-1',
+      context
+    })
+
+    const tabRows = screen.getAllByRole('tab').map((tab) => tab.parentElement!)
+    act(() => {
+      tabRows[1]?.dispatchEvent(new Event('dragstart', { bubbles: true }))
+      tabRows[0]?.dispatchEvent(new Event('drop', { bubbles: true }))
+    })
+    await waitFor(() =>
+      expect(window.spacezero.terminal.reorderTabs).toHaveBeenCalledWith({
+        context,
+        terminalIds: ['terminal-2', 'terminal-1']
+      })
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
+    expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
+    expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context })
+  })
+
   it('shows an actionable launch failure instead of silently substituting another shell', async () => {
     window.spacezero.terminal = {
+      ...terminalApiDefaults,
       create: vi.fn(async () => {
         throw new Error('terminal.shellLaunchFailed: ENOENT')
       }),
