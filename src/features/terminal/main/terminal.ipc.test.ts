@@ -16,7 +16,24 @@ const event = { sender: {} } as never
 describe('Terminal IPC boundary', () => {
   it('validates create, input, resize, subscription, and close requests before calling main services', async () => {
     const service = {
-      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      listTabs: vi.fn(async () => ({
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1'
+      })),
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1'
+      })),
+      selectTab: vi.fn(async () => ({
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1'
+      })),
+      reorderTabs: vi.fn(async () => ({
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1'
+      })),
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
         events: [],
@@ -30,10 +47,19 @@ describe('Terminal IPC boundary', () => {
     }
     const handlers = createTerminalHandlers(service)
 
-    await expect(handlers.create(event, { context, cols: 80, rows: 24 })).resolves.toEqual({
+    await expect(handlers.listTabs(event, { context })).resolves.toMatchObject({
+      activeTerminalId: 'terminal-1'
+    })
+    await expect(handlers.create(event, { context, cols: 80, rows: 24 })).resolves.toMatchObject({
       status: 'running',
       terminalId: 'terminal-1'
     })
+    await expect(
+      handlers.selectTab(event, { terminalId: 'terminal-1', context })
+    ).resolves.toMatchObject({ activeTerminalId: 'terminal-1' })
+    await expect(
+      handlers.reorderTabs(event, { context, terminalIds: ['terminal-1'] })
+    ).resolves.toMatchObject({ activeTerminalId: 'terminal-1' })
     await expect(
       handlers.writeInput(event, { terminalId: 'terminal-1', context, data: 'echo ok\r' })
     ).resolves.toBeUndefined()
@@ -50,6 +76,10 @@ describe('Terminal IPC boundary', () => {
       handlers.close(event, { terminalId: 'terminal-1', context })
     ).resolves.toBeUndefined()
 
+    expect(service.listTabs).toHaveBeenCalledWith({
+      ownerWindowId: 7,
+      request: { context }
+    })
     expect(service.create).toHaveBeenCalledWith({
       ownerWindowId: 7,
       request: { context, cols: 80, rows: 24, forceNew: false }
@@ -61,6 +91,14 @@ describe('Terminal IPC boundary', () => {
     expect(service.resize).toHaveBeenCalledWith({
       ownerWindowId: 7,
       request: { terminalId: 'terminal-1', context, cols: 120, rows: 40 }
+    })
+    expect(service.selectTab).toHaveBeenCalledWith({
+      ownerWindowId: 7,
+      request: { terminalId: 'terminal-1', context }
+    })
+    expect(service.reorderTabs).toHaveBeenCalledWith({
+      ownerWindowId: 7,
+      request: { context, terminalIds: ['terminal-1'] }
     })
 
     expect(() =>

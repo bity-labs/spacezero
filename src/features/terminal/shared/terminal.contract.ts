@@ -1,5 +1,8 @@
 export const TERMINAL_IPC_CHANNELS = {
+  listTabs: 'terminal:listTabs',
   create: 'terminal:create',
+  selectTab: 'terminal:selectTab',
+  reorderTabs: 'terminal:reorderTabs',
   subscribe: 'terminal:subscribe',
   unsubscribe: 'terminal:unsubscribe',
   writeInput: 'terminal:writeInput',
@@ -15,6 +18,20 @@ export type TerminalContext =
 
 export type TerminalId = string
 
+export type TerminalTab = {
+  terminalId: TerminalId
+  title: string
+}
+
+export type TerminalTabsSnapshot = {
+  tabs: TerminalTab[]
+  activeTerminalId: TerminalId | null
+}
+
+export type TerminalListTabsRequest = {
+  context: TerminalContext
+}
+
 export type TerminalCreateRequest = {
   context: TerminalContext
   cols?: number
@@ -23,14 +40,24 @@ export type TerminalCreateRequest = {
 }
 
 export type TerminalCreateResult =
-  | {
+  | ({
       status: 'running'
       terminalId: TerminalId
-    }
-  | {
+    } & Partial<TerminalTabsSnapshot>)
+  | ({
       status: 'empty'
       terminalId: null
-    }
+    } & Partial<TerminalTabsSnapshot>)
+
+export type TerminalSelectTabRequest = {
+  context: TerminalContext
+  terminalId: TerminalId
+}
+
+export type TerminalReorderTabsRequest = {
+  context: TerminalContext
+  terminalIds: TerminalId[]
+}
 
 export type TerminalSubscribeRequest = {
   terminalId: TerminalId
@@ -85,7 +112,10 @@ export type TerminalCloseRequest = {
 }
 
 export type TerminalAPI = {
+  listTabs: (request: TerminalListTabsRequest) => Promise<TerminalTabsSnapshot>
   create: (request: TerminalCreateRequest) => Promise<TerminalCreateResult>
+  selectTab: (request: TerminalSelectTabRequest) => Promise<TerminalTabsSnapshot>
+  reorderTabs: (request: TerminalReorderTabsRequest) => Promise<TerminalTabsSnapshot>
   subscribe: (request: TerminalSubscribeRequest) => Promise<TerminalSubscribeResult>
   unsubscribe: (request: TerminalUnsubscribeRequest) => Promise<void>
   writeInput: (request: TerminalWriteInputRequest) => Promise<void>
