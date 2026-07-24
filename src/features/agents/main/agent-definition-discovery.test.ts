@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { discoverGlobalAgentDefinitions } from './agent-definition-discovery'
+import { BUNDLED_AGENT_DEFINITIONS } from './bundled-agent-definitions'
 
 const tempRoots: string[] = []
 
@@ -27,6 +28,31 @@ async function writeDefinition(
 describe('discoverGlobalAgentDefinitions', () => {
   afterEach(async () => {
     await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
+  })
+
+  it('discovers the shipped scout and reviewer definitions through the parser path', async () => {
+    const catalog = await discoverGlobalAgentDefinitions({
+      sources: [{ scope: 'bundled', definitions: BUNDLED_AGENT_DEFINITIONS }]
+    })
+
+    expect(catalog.map((entry) => [entry.id, entry.scope, entry.status, entry.path])).toEqual([
+      ['reviewer', 'bundled', 'valid', 'bundled://agents/reviewer.md'],
+      ['scout', 'bundled', 'valid', 'bundled://agents/scout.md']
+    ])
+    expect(catalog.every((entry) => entry.diagnostics.length === 0)).toBe(true)
+
+    expect(catalog.find((entry) => entry.id === 'scout')).toMatchObject({
+      name: 'Scout',
+      description: expect.stringContaining('Researches the codebase'),
+      tools: ['read', 'grep', 'find', 'ls'],
+      body: expect.stringContaining('Report format:')
+    })
+    expect(catalog.find((entry) => entry.id === 'reviewer')).toMatchObject({
+      name: 'Reviewer',
+      description: expect.stringContaining('Reviews completed changes'),
+      tools: expect.arrayContaining(['read', 'grep', 'find', 'ls']),
+      body: expect.stringContaining('diff')
+    })
   })
 
   it('discovers only spacezero, user, and bundled definitions with global precedence and shadowing', async () => {
@@ -82,23 +108,7 @@ describe('discoverGlobalAgentDefinitions', () => {
       sources: [
         { scope: 'spacezero', path: join(root, 'SpaceZero', 'agents') },
         { scope: 'user', path: userAgentsPath },
-        {
-          scope: 'bundled',
-          definitions: [
-            {
-              id: 'scout',
-              path: 'bundled://agents/scout.md',
-              markdown:
-                '---\nname: Bundled Scout\ndescription: Bundled scout definition.\n---\nScout.\n'
-            },
-            {
-              id: 'reviewer',
-              path: 'bundled://agents/reviewer.md',
-              markdown:
-                '---\nname: Bundled Reviewer\ndescription: Bundled reviewer definition.\n---\nReview.\n'
-            }
-          ]
-        }
+        { scope: 'bundled', definitions: BUNDLED_AGENT_DEFINITIONS }
       ]
     })
 
@@ -106,6 +116,31 @@ describe('discoverGlobalAgentDefinitions', () => {
       ['scout', 'user', undefined],
       ['reviewer', 'bundled', undefined],
       ['scout', 'bundled', 'user']
+    ])
+  })
+
+  it('marks bundled definitions shadowed by Space Zero definitions', async () => {
+    const root = await createTempRoot()
+    const spaceZeroAgentsPath = join(root, 'SpaceZero', 'agents')
+
+    await writeDefinition(
+      spaceZeroAgentsPath,
+      'reviewer.md',
+      'name: Space Zero Reviewer\ndescription: Space Zero reviewer definition.\n'
+    )
+
+    const catalog = await discoverGlobalAgentDefinitions({
+      sources: [
+        { scope: 'spacezero', path: spaceZeroAgentsPath },
+        { scope: 'user', path: join(root, 'home', '.agents', 'agents') },
+        { scope: 'bundled', definitions: BUNDLED_AGENT_DEFINITIONS }
+      ]
+    })
+
+    expect(catalog.map((entry) => [entry.id, entry.scope, entry.shadowedBy])).toEqual([
+      ['reviewer', 'spacezero', undefined],
+      ['scout', 'bundled', undefined],
+      ['reviewer', 'bundled', 'spacezero']
     ])
   })
 
