@@ -42,6 +42,7 @@ export type FilesContextState = {
 }
 
 export type FilesOpenTabIntent = 'preview' | 'permanent'
+export type FilesTabDropPosition = 'before' | 'after'
 
 type PersistedFilesContextState = Omit<FilesContextState, 'tabs' | 'activeTabPath'>
 
@@ -67,7 +68,12 @@ type FilesStore = {
   activateTab: (sessionId: string, relativePath: string) => void
   promoteTab: (sessionId: string, relativePath: string) => void
   closeTab: (sessionId: string, relativePath: string) => void
-  reorderTabs: (sessionId: string, sourcePath: string, targetPath: string) => void
+  reorderTabs: (
+    sessionId: string,
+    sourcePath: string,
+    targetPath: string,
+    dropPosition: FilesTabDropPosition
+  ) => void
   updateDraft: (sessionId: string, draft: string) => void
   markSaving: (sessionId: string, request: FilesSaveRequestSnapshot) => void
   markSaveFailed: (sessionId: string, message: string, request: FilesSaveRequestSnapshot) => void
@@ -195,16 +201,19 @@ const useFilesStore = create<FilesStore>()(
             selectedPath: activeTabPath ?? context.selectedPath
           })
         }),
-      reorderTabs: (sessionId, sourcePath, targetPath) =>
+      reorderTabs: (sessionId, sourcePath, targetPath, dropPosition) =>
         set((state) => {
           if (sourcePath === targetPath) return state
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const sourceIndex = context.tabs.findIndex((tab) => tab.relativePath === sourcePath)
-          const targetIndex = context.tabs.findIndex((tab) => tab.relativePath === targetPath)
-          if (sourceIndex < 0 || targetIndex < 0) return state
+          if (sourceIndex < 0) return state
           const tabs = [...context.tabs]
           const [source] = tabs.splice(sourceIndex, 1)
-          tabs.splice(targetIndex > sourceIndex ? targetIndex - 1 : targetIndex, 0, source)
+          if (!source) return state
+          const targetIndex = tabs.findIndex((tab) => tab.relativePath === targetPath)
+          if (targetIndex < 0) return state
+          const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex
+          tabs.splice(insertIndex, 0, source)
           return updateContext(state, sessionId, { tabs })
         }),
       updateDraft: (sessionId, draft) =>
@@ -362,23 +371,29 @@ function updateMatchingSaveRequest(
   sessionId: string,
   request: FilesSaveRequestSnapshot,
   update: (
-    activeDocument: Extract<FilesTabState, { status: 'ready' }>
+    document: Extract<FilesTabState, { status: 'ready' }>
   ) => Extract<FilesTabState, { status: 'ready' }>
 ): Pick<FilesStore, 'contexts'> {
-  return updateActiveReadyTab(state, sessionId, (activeDocument) =>
-    matchesSaveRequest(activeDocument, request) ? update(activeDocument) : activeDocument
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const matchingDocument = context.tabs.find(
+    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+      tab.status === 'ready' && matchesSaveRequest(tab, request)
   )
+  if (!matchingDocument) return state
+  return updateContext(state, sessionId, {
+    tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
+  })
 }
 
 function matchesSaveRequest(
-  activeDocument: Extract<FilesTabState, { status: 'ready' }>,
+  document: Extract<FilesTabState, { status: 'ready' }>,
   request: FilesSaveRequestSnapshot
 ): boolean {
   return (
-    activeDocument.relativePath === request.relativePath &&
-    activeDocument.saveRequest?.relativePath === request.relativePath &&
-    activeDocument.saveRequest.content === request.content &&
-    activeDocument.saveRequest.expectedRevision === request.expectedRevision
+    document.relativePath === request.relativePath &&
+    document.saveRequest?.relativePath === request.relativePath &&
+    document.saveRequest.content === request.content &&
+    document.saveRequest.expectedRevision === request.expectedRevision
   )
 }
 
