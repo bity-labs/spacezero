@@ -8,6 +8,8 @@ import type { TerminalEvent, TerminalSubscribeResult } from '../../shared'
 let lastTerminal: FakeXTerm | null = null
 let allTerminals: FakeXTerm[] = []
 let terminalEventListener: ((event: TerminalEvent) => void) | null = null
+let deferWriteCallbacks = false
+let pendingWriteCallbacks: Array<() => void> = []
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: vi.fn().mockImplementation(function Terminal() {
@@ -41,6 +43,8 @@ describe('TerminalTool', () => {
     lastTerminal = null
     allTerminals = []
     terminalEventListener = null
+    deferWriteCallbacks = false
+    pendingWriteCallbacks = []
   })
 
   it('lazily creates and subscribes to one Project Session terminal, replays output, and forwards keyboard input unchanged', async () => {
@@ -75,7 +79,7 @@ describe('TerminalTool', () => {
     await waitFor(() => expect(screen.getByRole('region', { name: 'Terminal' })).toBeVisible())
     await waitFor(() => expect(subscribe).toHaveBeenCalled())
     expect(create).toHaveBeenCalledWith({ context, cols: undefined, rows: undefined, forceNew: false })
-    expect(lastTerminal?.write).toHaveBeenCalledWith('hello\r\n')
+    expect(lastTerminal?.write).toHaveBeenCalledWith('hello\r\n', expect.any(Function))
     expect(resize).toHaveBeenCalledWith({
       terminalId: 'terminal-1',
       context,
@@ -265,7 +269,7 @@ describe('TerminalTool', () => {
           ? 'terminal-knowledge-base'
           : `terminal-${contexts[index]!.kind}-${contexts[index]!.sessionId}`
       await waitFor(() =>
-        expect(lastTerminal?.write).toHaveBeenCalledWith(`${expectedTerminalId} output\r\n`)
+        expect(lastTerminal?.write).toHaveBeenCalledWith(`${expectedTerminalId} output\r\n`, expect.any(Function))
       )
     }
 
@@ -332,8 +336,8 @@ describe('TerminalTool', () => {
       })
     })
 
-    expect(lastTerminal?.write).toHaveBeenNthCalledWith(1, 'first\r\n')
-    expect(lastTerminal?.write).toHaveBeenNthCalledWith(2, 'second\r\n')
+    expect(lastTerminal?.write).toHaveBeenNthCalledWith(1, 'first\r\n', expect.any(Function))
+    expect(lastTerminal?.write).toHaveBeenNthCalledWith(2, 'second\r\n', expect.any(Function))
     expect(lastTerminal?.write).toHaveBeenCalledTimes(2)
   })
 
@@ -373,12 +377,12 @@ describe('TerminalTool', () => {
     render(<TerminalTool context={context} />)
 
     await screen.findByRole('button', { name: 'Close Terminal' })
-    await waitFor(() => expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-1 output\r\n'))
+    await waitFor(() => expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-1 output\r\n', expect.any(Function)))
     await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
     await user.click(await screen.findByRole('button', { name: 'New Terminal' }))
     await screen.findByRole('button', { name: 'Close Terminal' })
 
-    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n')
+    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n', expect.any(Function))
     expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
       context,
       cols: undefined,
@@ -539,6 +543,169 @@ describe('TerminalTool', () => {
     expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context })
   })
 
+  it('removes inactive natural exits without changing the active tab and selects a sibling when the active tab exits', async () => {
+    const tabs = [
+      { terminalId: 'terminal-1', title: 'one' },
+      { terminalId: 'terminal-2', title: 'two' }
+    ]
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs,
+        activeTerminalId: 'terminal-1'
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    render(<TerminalTool context={context} />)
+
+    expect(await screen.findByRole('tab', { name: 'Select terminal tab one', selected: true })).toBeVisible()
+    act(() =>
+      terminalEventListener?.({ type: 'exit', terminalId: 'terminal-2', exitCode: 0, signal: null })
+    )
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Select terminal tab one', selected: true })).toBeVisible()
+    )
+    await waitFor(() =>
+      expect(screen.queryByRole('tab', { name: 'Select terminal tab two' })).not.toBeInTheDocument()
+    )
+    expect(window.spacezero.terminal.selectTab).not.toHaveBeenCalled()
+
+    act(() =>
+      terminalEventListener?.({ type: 'exit', terminalId: 'terminal-1', exitCode: 0, signal: null })
+    )
+    expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
+  })
+
+  it('saves and unsubscribes the source terminal when switching tabs', async () => {
+    const tabs = [
+      { terminalId: 'terminal-1', title: 'one' },
+      { terminalId: 'terminal-2', title: 'two' }
+    ]
+    const unsubscribe = vi.fn(async () => undefined)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs,
+        activeTerminalId: 'terminal-1'
+      })),
+      selectTab: vi.fn(async ({ terminalId }) => ({ tabs, activeTerminalId: terminalId })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe,
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await screen.findByRole('tab', { name: 'Select terminal tab one', selected: true })
+    lastTerminal!.buffer.active.viewportY = 12
+    await userEvent.click(screen.getByRole('tab', { name: 'Select terminal tab two' }))
+
+    await waitFor(() =>
+      expect(unsubscribe).toHaveBeenCalledWith({ terminalId: 'terminal-1', context })
+    )
+    await screen.findByRole('tab', { name: 'Select terminal tab two', selected: true })
+    await userEvent.click(screen.getByRole('tab', { name: 'Select terminal tab one' }))
+    await waitFor(() => expect(lastTerminal?.scrollToLine).toHaveBeenCalledWith(12))
+  })
+
+  it('restores viewport after unmount/remount only after asynchronous replay writes are parsed', async () => {
+    const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
+    const subscribe = vi
+      .fn()
+      .mockResolvedValueOnce({ terminalId: 'terminal-1', events: [], oldestSequence: 1, nextSequence: 1 })
+      .mockResolvedValueOnce({
+        terminalId: 'terminal-1',
+        events: [{ type: 'output' as const, terminalId: 'terminal-1', sequence: 1, data: 'replay\r\n' }],
+        oldestSequence: 1,
+        nextSequence: 2
+      })
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create,
+      subscribe,
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const mounted = render(<TerminalTool context={context} />)
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(1))
+    lastTerminal!.buffer.active.viewportY = 23
+    mounted.unmount()
+
+    deferWriteCallbacks = true
+    render(<TerminalTool context={context} />)
+    await waitFor(() => expect(subscribe).toHaveBeenCalledTimes(2))
+    expect(lastTerminal?.scrollToLine).not.toHaveBeenCalledWith(23)
+    act(() => {
+      for (const callback of pendingWriteCallbacks.splice(0)) callback()
+    })
+    await waitFor(() => expect(lastTerminal?.scrollToLine).toHaveBeenCalledWith(23))
+  })
+
+  it('treats add-terminal as one-shot and keeps live tabs visible when the add fails', async () => {
+    const user = userEvent.setup()
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'running' as const, terminalId: 'terminal-1' })
+      .mockRejectedValueOnce(new Error('terminal.shellLaunchFailed: ENOENT'))
+      .mockResolvedValueOnce({ status: 'running' as const, terminalId: 'workspace-terminal' })
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create,
+      subscribe: vi.fn(async ({ terminalId }) => ({ terminalId, events: [], oldestSequence: 1, nextSequence: 1 })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const mounted = render(<TerminalTool context={context} />)
+    expect(await screen.findByRole('button', { name: 'Close Terminal' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Add terminal tab' }))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('button', { name: 'Close Terminal' })).toBeVisible()
+
+    const workspaceContext = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
+    mounted.rerender(<TerminalTool context={workspaceContext} />)
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(3))
+    expect(create).toHaveBeenLastCalledWith({
+      context: workspaceContext,
+      cols: undefined,
+      rows: undefined,
+      forceNew: false
+    })
+  })
+
   it('shows an actionable launch failure instead of silently substituting another shell', async () => {
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -567,10 +734,18 @@ describe('TerminalTool', () => {
 })
 
 class FakeXTerm {
-  readonly write = vi.fn()
+  readonly write = vi.fn((_data: string, callback?: () => void) => {
+    if (!callback) return
+    if (deferWriteCallbacks) pendingWriteCallbacks.push(callback)
+    else callback()
+  })
   readonly open = vi.fn()
   readonly loadAddon = vi.fn()
   readonly dispose = vi.fn()
+  readonly scrollToLine = vi.fn((line: number) => {
+    this.buffer.active.viewportY = line
+  })
+  readonly buffer = { active: { viewportY: 0 } }
   private dataListener: ((data: string) => void) | null = null
 
   onData(listener: (data: string) => void): { dispose: () => void } {

@@ -151,6 +151,7 @@ export function createTerminalService({
   const emptyContexts = new Set<string>()
   const deletingContexts = new Set<string>()
   const inFlightCreates = new Map<string, InFlightCreate>()
+  const createPromisesByContext = new Map<string, Set<Promise<TerminalCreateResult>>>()
   const shutdownsByContext = new Map<string, Set<TrackedShutdown>>()
   const isContextDeleting = (context: TerminalCreateRequest['context']) =>
     deletingContexts.has(deletionContextKey(context))
@@ -177,12 +178,14 @@ export function createTerminalService({
       return { status: 'empty', terminalId: null, ...snapshot(ownerWindowId, request.context) }
     }
 
-    if (request.forceNew) return createFreshTerminal({ ownerWindowId, request })
+    if (request.forceNew) {
+      return trackCreate(request.context, createFreshTerminal({ ownerWindowId, request }))
+    }
 
     const inFlight = inFlightCreates.get(key)
     if (inFlight) return inFlight.promise
 
-    const createPromise = createFreshTerminal({ ownerWindowId, request }).finally(() => {
+    const createPromise = trackCreate(request.context, createFreshTerminal({ ownerWindowId, request })).finally(() => {
       inFlightCreates.delete(key)
     })
     inFlightCreates.set(key, { context: request.context, promise: createPromise })
@@ -281,6 +284,7 @@ export function createTerminalService({
     const currentIds = new Set(state.terminalIds)
     if (
       request.terminalIds.length !== state.terminalIds.length ||
+      new Set(request.terminalIds).size !== state.terminalIds.length ||
       request.terminalIds.some((id) => !currentIds.has(id))
     ) {
       throw new Error('terminal.notFound')
@@ -386,9 +390,9 @@ export function createTerminalService({
     deletingContexts.add(deletionContextKey(context))
 
     while (true) {
-      const inFlight = [...inFlightCreates.values()]
-        .filter((create) => sameContext(create.context, context))
-        .map((create) => swallowContextDeleting(create.promise))
+      const inFlight = [...(createPromisesByContext.get(deletionContextKey(context)) ?? [])].map(
+        (promise) => swallowContextDeleting(promise)
+      )
       const kills = [...terminals.values()]
         .filter((terminal) => sameContext(terminal.context, context))
         .map((terminal) => closeTerminalRecord(terminal, { markEmpty: true }))
@@ -599,6 +603,25 @@ export function createTerminalService({
     }
     if (options.markEmpty && (state?.terminalIds.length ?? 0) === 0) emptyContexts.add(key)
     for (const dispose of terminal.dispose.splice(0)) dispose()
+  }
+
+  function trackCreate(
+    context: TerminalCreateRequest['context'],
+    createPromise: Promise<TerminalCreateResult>
+  ): Promise<TerminalCreateResult> {
+    const key = deletionContextKey(context)
+    let creates = createPromisesByContext.get(key)
+    if (!creates) {
+      creates = new Set()
+      createPromisesByContext.set(key, creates)
+    }
+    creates.add(createPromise)
+    const untrack = () => {
+      creates?.delete(createPromise)
+      if (creates?.size === 0) createPromisesByContext.delete(key)
+    }
+    createPromise.then(untrack, untrack)
+    return createPromise
   }
 
   function trackContextShutdown(

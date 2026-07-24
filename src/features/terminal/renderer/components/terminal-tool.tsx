@@ -19,6 +19,8 @@ type SubscriptionState = {
   buffer: TerminalEvent[]
 }
 
+const viewportByContext = new Map<string, Map<string, number>>()
+
 export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
@@ -26,14 +28,17 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const terminalIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<SubscriptionState | null>(null)
   const lastSequenceByTerminalRef = useRef(new Map<string, number>())
-  const viewportByTerminalRef = useRef(new Map<string, number>())
   const draggedTerminalIdRef = useRef<string | null>(null)
+  const forceCreateRequestedRef = useRef(false)
+  const previousTerminalContextKeyRef = useRef<string | null>(null)
   const terminalContextKind = context.kind
   const terminalContextSessionId = 'sessionId' in context ? context.sessionId : undefined
   const terminalContext = useMemo<TerminalContext>(() => {
     if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
     return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
   }, [terminalContextKind, terminalContextSessionId])
+  const terminalContextKey = useMemo(() => terminalContextIdentity(terminalContext), [terminalContext])
+  const viewportByTerminal = getViewportStore(terminalContextKey)
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [terminalId, setTerminalId] = useState<string | null>(null)
   const [status, setStatus] = useState<TerminalStatus>('starting')
@@ -41,6 +46,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const [autoCreateToken, setAutoCreateToken] = useState(0)
 
   const startTerminal = useCallback(() => {
+    forceCreateRequestedRef.current = true
     setError(null)
     setStatus('starting')
     setAutoCreateToken((value) => value + 1)
@@ -62,6 +68,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     xtermRef.current?.write(event.data)
   }, [])
 
+  const applyReplayOutputEvent = useCallback(async (xterm: XTerm, event: TerminalOutputEvent): Promise<void> => {
+    const lastSequence = lastSequenceByTerminalRef.current.get(event.terminalId) ?? 0
+    if (event.sequence <= lastSequence) return
+    lastSequenceByTerminalRef.current.set(event.terminalId, event.sequence)
+    await writeParsed(xterm, event.data)
+  }, [])
+
   const applyTerminalEvent = useCallback(
     (event: TerminalEvent): void => {
       if (event.type === 'output') {
@@ -70,14 +83,16 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       }
       const exitedTerminalId = event.terminalId
       setTabs((currentTabs) => {
+        if (!currentTabs.some((tab) => tab.terminalId === exitedTerminalId)) return currentTabs
+        const wasActive = terminalIdRef.current === exitedTerminalId
         const nextTabs = currentTabs.filter((tab) => tab.terminalId !== exitedTerminalId)
-        const nextActive = nextTabs[0]?.terminalId ?? null
+        const nextActive = wasActive ? (nextTabs[0]?.terminalId ?? null) : terminalIdRef.current
         terminalIdRef.current = nextActive
         setTerminalId(nextActive)
         setStatus(nextActive ? 'running' : 'empty')
+        if (wasActive) subscriptionRef.current = null
         return nextTabs
       })
-      subscriptionRef.current = null
     },
     [applyOutputEvent]
   )
@@ -95,13 +110,20 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
 
   useEffect(() => {
     let cancelled = false
+    const forceNew = forceCreateRequestedRef.current
+    forceCreateRequestedRef.current = false
+    const previousContextKey = previousTerminalContextKeyRef.current
+    const contextChanged = previousContextKey !== terminalContextKey
+    previousTerminalContextKeyRef.current = terminalContextKey
     queueMicrotask(() => {
       if (cancelled) return
       setError(null)
-      setStatus('starting')
-      setTabs([])
-      setTerminalId(null)
-      terminalIdRef.current = null
+      if (contextChanged || !forceNew) {
+        setStatus('starting')
+        setTabs([])
+        setTerminalId(null)
+        terminalIdRef.current = null
+      }
     })
 
     async function createOrRestore(): Promise<void> {
@@ -111,7 +133,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
           context: terminalContext,
           cols: dimensions?.cols,
           rows: dimensions?.rows,
-          forceNew: autoCreateToken > 0
+          forceNew
         })
         if (cancelled) return
         const createdTabs = created.tabs ?? (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
@@ -122,8 +144,8 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         setStatus(created.status === 'empty' ? 'empty' : 'running')
       } catch (caught) {
         if (cancelled) return
-        setStatus('failed')
         setError(caught instanceof Error ? caught.message : 'Terminal failed to start')
+        setStatus(forceNew && terminalIdRef.current ? 'running' : 'failed')
       }
     }
 
@@ -132,7 +154,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     return () => {
       cancelled = true
     }
-  }, [autoCreateToken, fitTerminal, terminalContext])
+  }, [autoCreateToken, fitTerminal, terminalContext, terminalContextKey])
 
   useEffect(() => {
     if (!terminalId) return
@@ -158,7 +180,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     })
 
     const removeEventListener = window.spacezero.terminal.onEvent((event) => {
-      if (event.terminalId !== terminalIdRef.current) return
+      if (event.type === 'output' && event.terminalId !== activeTerminalId) return
       const subscription = subscriptionRef.current
       if (subscription?.terminalId === event.terminalId && subscription.phase === 'subscribing') {
         subscription.buffer.push(event)
@@ -168,7 +190,6 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     })
 
     const activeTerminalId = terminalId
-    const viewportByTerminal = viewportByTerminalRef.current
 
     async function subscribe(): Promise<void> {
       try {
@@ -183,7 +204,8 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         subscriptionRef.current = { terminalId: activeTerminalId, phase: 'running', buffer: [] }
         lastSequenceByTerminalRef.current.set(activeTerminalId, 0)
         for (const event of orderTerminalEvents([...subscription.events, ...buffered])) {
-          applyTerminalEvent(event)
+          if (event.type === 'output') await applyReplayOutputEvent(xterm, event)
+          else applyTerminalEvent(event)
         }
         const lastSequence = lastSequenceByTerminalRef.current.get(activeTerminalId) ?? 0
         lastSequenceByTerminalRef.current.set(
@@ -212,17 +234,14 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       observer.disconnect()
       removeEventListener()
       dataSubscription.dispose()
-      const currentTerminalId = terminalIdRef.current
-      if (currentTerminalId === terminalId) {
-        viewportByTerminal.set(terminalId, readViewport(xterm))
-        void window.spacezero.terminal.unsubscribe({ terminalId, context: terminalContext })
-      }
+      viewportByTerminal.set(activeTerminalId, readViewport(xterm))
+      void window.spacezero.terminal.unsubscribe({ terminalId: activeTerminalId, context: terminalContext })
       subscriptionRef.current = null
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, [applyTerminalEvent, resizeTerminal, terminalContext, terminalId])
+  }, [applyReplayOutputEvent, applyTerminalEvent, resizeTerminal, terminalContext, terminalId, viewportByTerminal])
 
   async function selectTerminal(nextTerminalId: string): Promise<void> {
     if (nextTerminalId === terminalId) return
@@ -358,4 +377,24 @@ function readViewport(xterm: XTerm): number {
 function restoreViewport(xterm: XTerm, viewport: number | undefined): void {
   if (viewport === undefined) return
   xterm.scrollToLine?.(viewport)
+}
+
+function writeParsed(xterm: XTerm, data: string): Promise<void> {
+  return new Promise((resolve) => {
+    xterm.write(data, resolve)
+  })
+}
+
+function getViewportStore(contextKey: string): Map<string, number> {
+  let store = viewportByContext.get(contextKey)
+  if (!store) {
+    store = new Map()
+    viewportByContext.set(contextKey, store)
+  }
+  return store
+}
+
+function terminalContextIdentity(context: TerminalContext): string {
+  if (context.kind === 'knowledge-base') return context.kind
+  return `${context.kind}:${context.sessionId}`
 }

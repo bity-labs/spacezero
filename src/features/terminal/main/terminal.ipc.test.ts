@@ -113,8 +113,12 @@ describe('Terminal IPC boundary', () => {
     expect(() =>
       handlers.writeInput(event, { terminalId: 'terminal-1', context, data: '' })
     ).toThrow()
+    expect(() =>
+      handlers.reorderTabs(event, { context, terminalIds: ['terminal-1', 'terminal-1'] })
+    ).toThrow()
     expect(service.create).toHaveBeenCalledTimes(1)
     expect(service.writeInput).toHaveBeenCalledTimes(1)
     expect(service.resize).toHaveBeenCalledTimes(1)
+    expect(service.reorderTabs).toHaveBeenCalledTimes(1)
   })
 })
