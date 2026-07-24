@@ -130,6 +130,21 @@ const api: SpaceZeroAPI = {
     archive: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.archive, request),
     delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.delete, request)
   },
+  terminal: {
+    create: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.create, request),
+    subscribe: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.subscribe, request),
+    unsubscribe: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.unsubscribe, request),
+    writeInput: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.writeInput, request),
+    resize: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.resize, request),
+    close: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.close, request),
+    onEvent: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.terminal.event, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.terminal.event, handler)
+    }
+  },
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),

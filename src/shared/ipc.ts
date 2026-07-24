@@ -80,6 +80,10 @@ import type {
   AgentDefinitionCatalogEntry,
   OpenAgentDefinitionsFolderRequest
 } from '../features/agents/shared'
+import {
+  TERMINAL_IPC_CHANNELS,
+  type TerminalAPI
+} from '../features/terminal/shared/terminal.contract'
 
 export const IPC_CHANNELS = {
   app: {
@@ -177,6 +181,7 @@ export const IPC_CHANNELS = {
     loginOAuth: 'agent:loginOAuth',
     logoutOAuth: 'agent:logoutOAuth'
   },
+  terminal: TERMINAL_IPC_CHANNELS,
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
     updateLanguagePreference: 'settings:updateLanguagePreference',
@@ -321,6 +326,7 @@ export type SpaceZeroAPI = {
     loginOAuth: (request: ProviderRequest) => Promise<void>
     logoutOAuth: (request: ProviderRequest) => Promise<void>
   }
+  terminal: TerminalAPI
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>

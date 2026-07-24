@@ -1,11 +1,14 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
+import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 
 const require = createRequire(import.meta.url)
 const electronPath = require('electron') as string
+const execFileAsync = promisify(execFile)
 const userDataDirectories: string[] = []
 
 async function launchApp(userDataPath?: string): Promise<ElectronApplication> {
@@ -328,6 +331,129 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   expect(externalMonacoRequests).toEqual([])
 
   await electronApp.close()
+})
+
+test('creates a real Project Session PTY through the packaged terminal IPC bridge', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-terminal-e2e-'))
+  const projectPath = join(temporaryDirectory, 'project')
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const projectId = 'project-terminal-e2e'
+  const sessionId = 'session-terminal-e2e'
+  const worktreePath = join(temporaryDirectory, 'worktrees', projectId, sessionId)
+  const branch = `spacezero/session-${sessionId}`
+
+  try {
+    await mkdir(projectPath, { recursive: true })
+    await execFileAsync('git', ['init'], { cwd: projectPath })
+    await execFileAsync('git', ['config', 'user.name', 'Space Zero Test'], { cwd: projectPath })
+    await execFileAsync('git', ['config', 'user.email', 'spacezero@example.test'], {
+      cwd: projectPath
+    })
+    await writeFile(join(projectPath, 'README.md'), '# Terminal E2E\n')
+    await execFileAsync('git', ['add', 'README.md'], { cwd: projectPath })
+    await execFileAsync('git', ['commit', '-m', 'Initial commit'], { cwd: projectPath })
+    const { stdout: baseRevision } = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+      cwd: projectPath
+    })
+    await execFileAsync('git', ['worktree', 'add', '-b', branch, worktreePath, 'HEAD'], {
+      cwd: projectPath
+    })
+
+    const electronApp = await launchApp(userDataPath)
+    const window = await electronApp.firstWindow()
+
+    await electronApp.evaluate(
+      ({ app }, { projectId, projectPath, sessionId, worktreePath, branch, baseRevision }) => {
+        const { createRequire } = process.getBuiltinModule('node:module')
+        const { join } = process.getBuiltinModule('node:path')
+        const require = createRequire(`${process.cwd()}/package.json`)
+        const Database = require('better-sqlite3')
+        const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+        const timestamp = Date.now()
+        database
+          .prepare(
+            `INSERT INTO projects (id, name, path, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?)`
+          )
+          .run(projectId, 'terminal-e2e', projectPath, timestamp, timestamp)
+        database
+          .prepare(
+            `INSERT INTO sessions (
+              id,
+              project_id,
+              title,
+              status,
+              created_at,
+              updated_at,
+              worktree_path,
+              worktree_branch,
+              worktree_base_revision
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            sessionId,
+            projectId,
+            'Terminal E2E',
+            'idle',
+            timestamp,
+            timestamp,
+            worktreePath,
+            branch,
+            baseRevision.trim()
+          )
+        database.close()
+      },
+      { projectId, projectPath, sessionId, worktreePath, branch, baseRevision }
+    )
+
+    const command =
+      process.platform === 'win32'
+        ? 'Write-Output "SPACEZERO_TERMINAL_E2E:$PWD"\r'
+        : 'printf "SPACEZERO_TERMINAL_E2E:%s\\n" "$PWD"\r'
+
+    const output = await window.evaluate(
+      async ({ sessionId, command, worktreePath }) => {
+        const context = { kind: 'project-session' as const, sessionId }
+        let output = ''
+        const waitForMarker = new Promise<string>((resolve, reject) => {
+          const timeout = window.setTimeout(() => {
+            unsubscribe()
+            reject(new Error(`Timed out waiting for terminal output: ${output}`))
+          }, 10_000)
+          const unsubscribe = window.spacezero.terminal.onEvent((event) => {
+            if (event.type !== 'output') return
+            output += event.data
+            if (output.includes('SPACEZERO_TERMINAL_E2E:') && output.includes(worktreePath)) {
+              window.clearTimeout(timeout)
+              unsubscribe()
+              resolve(output)
+            }
+          })
+        })
+        const { terminalId } = await window.spacezero.terminal.create({
+          context,
+          cols: 80,
+          rows: 24
+        })
+        const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
+        for (const event of replay.events) {
+          if (event.type === 'output') output += event.data
+        }
+        await window.spacezero.terminal.resize({ terminalId, context, cols: 100, rows: 30 })
+        await window.spacezero.terminal.writeInput({ terminalId, context, data: command })
+        const observed = await waitForMarker
+        await window.spacezero.terminal.close({ terminalId, context })
+        return observed
+      },
+      { sessionId, command, worktreePath }
+    )
+
+    expect(output).toContain('SPACEZERO_TERMINAL_E2E:')
+    expect(output).toContain(worktreePath)
+    await electronApp.close()
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true })
+  }
 })
 
 test('opens a configured Knowledge Base as a persistent managed chat', async () => {
