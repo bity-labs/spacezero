@@ -42,11 +42,12 @@ export function FilesMonacoEditor({
       key={path}
       className="size-full"
       height={height}
-      keepCurrentModel={false}
+      keepCurrentModel
       language={language}
       loading={null}
       options={editorOptions}
       path={path}
+      saveViewState
       theme={theme}
       value={value}
       onChange={onChange}
