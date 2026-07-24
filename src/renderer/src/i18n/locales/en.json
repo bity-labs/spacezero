@@ -328,6 +328,31 @@
         "makeDefault": "Make default",
         "defaultBadge": "Default"
       }
+    },
+    "agents": {
+      "sectionTitle": "Global Agent Definitions",
+      "description": "View reusable global agent personas discovered from Space Zero, user, and bundled scopes.",
+      "globalOnlyNote": "Global Settings does not scan project definitions or inherit a Project Session.",
+      "loading": "Loading Agent Definitions…",
+      "empty": "No Agent Definitions found.",
+      "emptyScope": "No Agent Definitions in this scope.",
+      "rescan": "Rescan",
+      "openFolder": "Open agents folder",
+      "openingFolder": "Opening…",
+      "invalid": "Invalid",
+      "shadowedBy": "Shadowed by {{scope}}",
+      "path": "Path: {{path}}",
+      "error": "Could not load Agent Definitions.",
+      "scopes": {
+        "spacezero": "Space Zero",
+        "user": "User",
+        "bundled": "Bundled"
+      },
+      "scopeDescriptions": {
+        "spacezero": "Definitions from your Space Zero Home agents folder.",
+        "user": "Definitions from ~/.agents/agents.",
+        "bundled": "Read-only defaults shipped with Space Zero."
+      }
     }
   }
 }

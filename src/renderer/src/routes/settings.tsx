@@ -21,6 +21,7 @@ import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
 import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
+import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
@@ -56,7 +57,7 @@ import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'account' | 'general' | 'models' | 'skills'
+type SettingsSectionId = 'account' | 'general' | 'models' | 'skills' | 'agents'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -64,7 +65,10 @@ type SettingsSearch = {
 
 export const Route = createFileRoute('/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch =>
-    search.section === 'account' || search.section === 'models' || search.section === 'skills'
+    search.section === 'account' ||
+    search.section === 'models' ||
+    search.section === 'skills' ||
+    search.section === 'agents'
       ? { section: search.section }
       : {},
   component: SettingsPage
@@ -74,6 +78,7 @@ const settingsNavigation = [
   { id: 'account', translationKey: 'account', icon: UserCircle },
   { id: 'general', translationKey: 'general', icon: GearSix },
   { id: 'models', translationKey: 'models', icon: Cube },
+  { id: 'agents', translationKey: 'agents', icon: UserCircle },
   { id: 'skills', translationKey: 'skills', icon: Sparkle }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
@@ -243,6 +248,8 @@ function SettingsPage(): React.JSX.Element {
             />
           ) : selectedSection === 'skills' ? (
             <SkillsSettingsSection />
+          ) : selectedSection === 'agents' ? (
+            <AgentsSettingsSection />
           ) : (
             <ModelsSettingsSection />
           )}
