@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
 import { useFilesStore } from './files-store'
+import type { FilesTextDocument } from '../shared'
+
+function textDocument(relativePath: string, content = `${relativePath} saved`): FilesTextDocument {
+  return {
+    name: relativePath.split('/').at(-1) ?? relativePath,
+    relativePath,
+    contentKind: 'text',
+    content,
+    revision: `${relativePath}-revision`,
+    size: content.length,
+    modifiedAt: new Date(0).toISOString(),
+    hasBom: false,
+    lineEnding: 'lf'
+  }
+}
 
 describe('Files renderer state', () => {
   it('keeps explorer layout, selection, and expansion independent per Project Session', () => {
@@ -29,25 +44,157 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('keeps dirty editor buffers in memory per Project Session without persisting them', async () => {
-    useFilesStore.getState().setActiveDocument('session-1', {
-      status: 'ready',
-      relativePath: 'src/index.ts',
-      name: 'index.ts',
-      contentKind: 'text',
-      content: 'saved',
-      draft: 'saved',
-      revision: 'revision-1',
-      size: 5,
-      modifiedAt: new Date(0).toISOString(),
-      hasBom: false,
-      lineEnding: 'lf',
-      dirty: false,
-      saveStatus: 'idle'
-    })
-    useFilesStore.getState().updateDraft('session-1', 'draft')
+  it('replaces one clean preview tab when browsing files', () => {
+    const store = useFilesStore.getState()
 
-    expect(useFilesStore.getState().contexts['session-1'].activeDocument).toMatchObject({
+    expect(store.beginOpenTab('session-1', 'one.txt', 'preview', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('one.txt'), 1)
+    expect(store.beginOpenTab('session-1', 'two.txt', 'preview', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('two.txt'), 2)
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'two.txt',
+      selectedPath: 'two.txt',
+      tabs: [{ relativePath: 'two.txt', preview: true, status: 'ready' }]
+    })
+  })
+
+  it('promotes previews by double-clicking, editing, saving, or explicit pinning', () => {
+    const store = useFilesStore.getState()
+
+    expect(store.beginOpenTab('session-1', 'double-clicked.txt', 'preview', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('double-clicked.txt'), 1)
+    expect(store.beginOpenTab('session-1', 'double-clicked.txt', 'permanent', 2)).toBe(false)
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'double-clicked.txt',
+      preview: false
+    })
+
+    expect(store.beginOpenTab('session-1', 'edited.txt', 'preview', 3)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('edited.txt'), 3)
+    store.updateDraft('session-1', 'edited draft')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.at(-1)).toMatchObject({
+      relativePath: 'edited.txt',
+      preview: false,
+      dirty: true
+    })
+
+    expect(store.beginOpenTab('session-1', 'saved.txt', 'preview', 4)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('saved.txt'), 4)
+    const saveRequest = {
+      relativePath: 'saved.txt',
+      content: 'saved.txt saved',
+      expectedRevision: 'saved.txt-revision'
+    }
+    store.markSaving('session-1', saveRequest)
+    store.markSaved('session-1', textDocument('saved.txt', 'saved.txt saved'), saveRequest)
+    expect(useFilesStore.getState().contexts['session-1'].tabs.at(-1)).toMatchObject({
+      relativePath: 'saved.txt',
+      preview: false,
+      dirty: false
+    })
+
+    expect(store.beginOpenTab('session-1', 'pinned.txt', 'preview', 5)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('pinned.txt'), 5)
+    store.promoteTab('session-1', 'pinned.txt')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.at(-1)).toMatchObject({
+      relativePath: 'pinned.txt',
+      preview: false
+    })
+  })
+
+  it('activates an existing tab instead of creating a duplicate', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'one.txt', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('one.txt'), 1)
+    expect(store.beginOpenTab('session-1', 'two.txt', 'preview', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('two.txt'), 2)
+
+    expect(store.beginOpenTab('session-1', 'one.txt', 'preview', 3)).toBe(false)
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'one.txt',
+      tabs: [{ relativePath: 'one.txt' }, { relativePath: 'two.txt' }]
+    })
+  })
+
+  it('keeps dirty tabs permanent and protected from preview replacement', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'draft.txt', 'preview', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('draft.txt'), 1)
+    store.updateDraft('session-1', 'draft text')
+
+    expect(store.beginOpenTab('session-1', 'browse.txt', 'preview', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('browse.txt'), 2)
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'browse.txt',
+      tabs: [
+        { relativePath: 'draft.txt', preview: false, dirty: true, draft: 'draft text' },
+        { relativePath: 'browse.txt', preview: true, dirty: false }
+      ]
+    })
+  })
+
+  it('reorders tabs forward, backward, and to the final position', () => {
+    const store = useFilesStore.getState()
+    for (const [index, path] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
+      expect(store.beginOpenTab('session-1', path, 'permanent', index + 1)).toBe(true)
+      store.finishOpenTab('session-1', textDocument(path), index + 1)
+    }
+
+    store.reorderTabs('session-1', 'one.txt', 'two.txt', 'after')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'two.txt',
+      'one.txt',
+      'three.txt'
+    ])
+
+    store.reorderTabs('session-1', 'three.txt', 'two.txt', 'before')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'three.txt',
+      'two.txt',
+      'one.txt'
+    ])
+
+    store.reorderTabs('session-1', 'three.txt', 'one.txt', 'after')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'two.txt',
+      'one.txt',
+      'three.txt'
+    ])
+  })
+
+  it('deterministically selects neighbors when clean tabs close', () => {
+    const store = useFilesStore.getState()
+    for (const [index, path] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
+      expect(store.beginOpenTab('session-1', path, 'permanent', index + 1)).toBe(true)
+      store.finishOpenTab('session-1', textDocument(path), index + 1)
+    }
+
+    store.reorderTabs('session-1', 'three.txt', 'one.txt', 'before')
+
+    store.activateTab('session-1', 'one.txt')
+    store.closeTab('session-1', 'one.txt')
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'two.txt',
+      tabs: [{ relativePath: 'three.txt' }, { relativePath: 'two.txt' }]
+    })
+
+    store.closeTab('session-1', 'two.txt')
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'three.txt',
+      tabs: [{ relativePath: 'three.txt' }]
+    })
+  })
+
+  it('keeps dirty editor buffers in memory per Project Session without persisting them', async () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/index.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'draft')
+
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
       draft: 'draft',
       dirty: true
     })
@@ -56,49 +203,22 @@ describe('Files renderer state', () => {
 
   it('preserves edits made after a save request while updating the saved baseline', () => {
     const store = useFilesStore.getState()
-    store.setActiveDocument('session-1', {
-      status: 'ready',
-      relativePath: 'src/index.ts',
-      name: 'index.ts',
-      contentKind: 'text',
-      content: 'saved',
-      draft: 'first draft',
-      revision: 'revision-1',
-      size: 5,
-      modifiedAt: new Date(0).toISOString(),
-      hasBom: false,
-      lineEnding: 'lf',
-      dirty: true,
-      saveStatus: 'idle'
-    })
+    expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/index.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
     const request = {
       relativePath: 'src/index.ts',
       content: 'first draft',
-      expectedRevision: 'revision-1'
+      expectedRevision: 'src/index.ts-revision'
     }
 
     store.markSaving('session-1', request)
     store.updateDraft('session-1', 'newer draft')
-    store.markSaved(
-      'session-1',
-      {
-        name: 'index.ts',
-        relativePath: 'src/index.ts',
-        contentKind: 'text',
-        content: 'first draft',
-        revision: 'revision-2',
-        size: 11,
-        modifiedAt: new Date(1).toISOString(),
-        hasBom: false,
-        lineEnding: 'lf'
-      },
-      request
-    )
+    store.markSaved('session-1', textDocument('src/index.ts', 'first draft'), request)
 
-    expect(useFilesStore.getState().contexts['session-1'].activeDocument).toMatchObject({
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
       content: 'first draft',
       draft: 'newer draft',
-      revision: 'revision-2',
       dirty: true,
       saveStatus: 'idle'
     })
@@ -106,32 +226,20 @@ describe('Files renderer state', () => {
 
   it('preserves edits made after a failed save request', () => {
     const store = useFilesStore.getState()
-    store.setActiveDocument('session-1', {
-      status: 'ready',
-      relativePath: 'src/index.ts',
-      name: 'index.ts',
-      contentKind: 'text',
-      content: 'saved',
-      draft: 'first draft',
-      revision: 'revision-1',
-      size: 5,
-      modifiedAt: new Date(0).toISOString(),
-      hasBom: false,
-      lineEnding: 'lf',
-      dirty: true,
-      saveStatus: 'idle'
-    })
+    expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/index.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
     const request = {
       relativePath: 'src/index.ts',
       content: 'first draft',
-      expectedRevision: 'revision-1'
+      expectedRevision: 'src/index.ts-revision'
     }
 
     store.markSaving('session-1', request)
     store.updateDraft('session-1', 'newer draft')
     store.markSaveFailed('session-1', 'save failed', request)
 
-    expect(useFilesStore.getState().contexts['session-1'].activeDocument).toMatchObject({
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
       draft: 'newer draft',
       dirty: true,
       saveStatus: 'error',
@@ -139,73 +247,73 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('ignores save results and failures for a different active document', () => {
+  it('settles a saved tab after switching to another active document', () => {
     const store = useFilesStore.getState()
     const request = {
       relativePath: 'src/one.ts',
       content: 'first draft',
-      expectedRevision: 'revision-1'
+      expectedRevision: 'src/one.ts-revision'
     }
-    store.setActiveDocument('session-1', {
-      status: 'ready',
-      relativePath: 'src/one.ts',
-      name: 'one.ts',
-      contentKind: 'text',
-      content: 'saved',
-      draft: 'first draft',
-      revision: 'revision-1',
-      size: 5,
-      modifiedAt: new Date(0).toISOString(),
-      hasBom: false,
-      lineEnding: 'lf',
-      dirty: true,
-      saveStatus: 'idle'
-    })
+    expect(store.beginOpenTab('session-1', 'src/one.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/one.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
     store.markSaving('session-1', request)
-    store.setActiveDocument('session-1', {
-      status: 'ready',
-      relativePath: 'src/two.ts',
-      name: 'two.ts',
-      contentKind: 'text',
-      content: 'two saved',
-      draft: 'two draft',
-      revision: 'revision-two',
-      size: 9,
-      modifiedAt: new Date(0).toISOString(),
-      hasBom: false,
-      lineEnding: 'lf',
-      dirty: true,
-      saveStatus: 'idle'
-    })
+    expect(store.beginOpenTab('session-1', 'src/two.ts', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/two.ts', 'two saved'), 2)
+    store.updateDraft('session-1', 'two draft')
 
-    store.markSaveFailed('session-1', 'failed old save', request)
-    store.markSaved(
-      'session-1',
-      {
-        name: 'one.ts',
-        relativePath: 'src/one.ts',
-        contentKind: 'text',
-        content: 'first draft',
-        revision: 'revision-2',
-        size: 11,
-        modifiedAt: new Date(1).toISOString(),
-        hasBom: false,
-        lineEnding: 'lf'
-      },
-      request
-    )
+    store.markSaved('session-1', textDocument('src/one.ts', 'first draft'), request)
 
-    expect(useFilesStore.getState().contexts['session-1'].activeDocument).toMatchObject({
-      relativePath: 'src/two.ts',
-      draft: 'two draft'
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'src/two.ts',
+      tabs: [
+        { relativePath: 'src/one.ts', draft: 'first draft', dirty: false, saveStatus: 'idle' },
+        { relativePath: 'src/two.ts', draft: 'two draft' }
+      ]
     })
   })
 
-  it('restores each Project Session explorer width and collapsed state', async () => {
-    useFilesStore.getState().setExplorerWidth('session-1', 320)
-    useFilesStore.getState().setExplorerCollapsed('session-1', true)
+  it('settles a failed save after switching to another active document', () => {
+    const store = useFilesStore.getState()
+    const request = {
+      relativePath: 'src/one.ts',
+      content: 'first draft',
+      expectedRevision: 'src/one.ts-revision'
+    }
+    expect(store.beginOpenTab('session-1', 'src/one.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/one.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
+    store.markSaving('session-1', request)
+    expect(store.beginOpenTab('session-1', 'src/two.ts', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/two.ts', 'two saved'), 2)
+    store.updateDraft('session-1', 'two draft')
+
+    store.markSaveFailed('session-1', 'failed old save', request)
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'src/two.ts',
+      tabs: [
+        {
+          relativePath: 'src/one.ts',
+          draft: 'first draft',
+          dirty: true,
+          saveStatus: 'error',
+          error: 'failed old save'
+        },
+        { relativePath: 'src/two.ts', draft: 'two draft' }
+      ]
+    })
+  })
+
+  it('restores each Project Session explorer width and collapsed state without restoring tabs', async () => {
+    const store = useFilesStore.getState()
+    store.setExplorerWidth('session-1', 320)
+    store.setExplorerCollapsed('session-1', true)
+    expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/index.ts'), 1)
     const persisted = window.localStorage.getItem('spacezero.files')
     expect(persisted).toContain('"explorerWidth":320')
+    expect(persisted).not.toContain('src/index.ts saved')
 
     useFilesStore.setState({ contexts: {} })
     window.localStorage.setItem('spacezero.files', persisted!)
@@ -213,7 +321,9 @@ describe('Files renderer state', () => {
 
     expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
       explorerWidth: 320,
-      explorerCollapsed: true
+      explorerCollapsed: true,
+      tabs: [],
+      activeTabPath: null
     })
   })
 })

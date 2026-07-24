@@ -9,28 +9,42 @@ export type FilesSaveRequestSnapshot = {
   expectedRevision: string
 }
 
-export type FilesActiveDocumentState =
-  | { status: 'loading'; relativePath: string }
-  | { status: 'error'; relativePath: string; message: string }
-  | (FilesTextDocument & {
-      status: 'ready'
-      draft: string
-      dirty: boolean
-      saveStatus: 'idle' | 'saving' | 'error'
-      error?: string
-      saveRequest?: FilesSaveRequestSnapshot
-    })
-  | (Exclude<FilesDocument, FilesTextDocument> & { status: 'metadata' })
+type FilesTabBase = {
+  relativePath: string
+  name: string
+  preview: boolean
+  openRequestId?: number
+}
+
+export type FilesTabState =
+  | (FilesTabBase & { status: 'loading' })
+  | (FilesTabBase & { status: 'error'; message: string })
+  | (FilesTextDocument &
+      FilesTabBase & {
+        status: 'ready'
+        draft: string
+        dirty: boolean
+        saveStatus: 'idle' | 'saving' | 'error'
+        error?: string
+        saveRequest?: FilesSaveRequestSnapshot
+      })
+  | (Exclude<FilesDocument, FilesTextDocument> & FilesTabBase & { status: 'metadata' })
+
+export type FilesActiveDocumentState = FilesTabState
 
 export type FilesContextState = {
   explorerWidth: number
   explorerCollapsed: boolean
   selectedPath: string | null
   expandedPaths: string[]
-  activeDocument: FilesActiveDocumentState | null
+  tabs: FilesTabState[]
+  activeTabPath: string | null
 }
 
-type PersistedFilesContextState = Omit<FilesContextState, 'activeDocument'>
+export type FilesOpenTabIntent = 'preview' | 'permanent'
+export type FilesTabDropPosition = 'before' | 'after'
+
+type PersistedFilesContextState = Omit<FilesContextState, 'tabs' | 'activeTabPath'>
 
 type FilesStore = {
   contexts: Record<string, FilesContextState>
@@ -38,7 +52,28 @@ type FilesStore = {
   setExplorerCollapsed: (sessionId: string, collapsed: boolean) => void
   setSelectedPath: (sessionId: string, path: string | null) => void
   setExpanded: (sessionId: string, path: string, expanded: boolean) => void
-  setActiveDocument: (sessionId: string, document: FilesActiveDocumentState | null) => void
+  beginOpenTab: (
+    sessionId: string,
+    relativePath: string,
+    intent: FilesOpenTabIntent,
+    openRequestId: number
+  ) => boolean
+  finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => void
+  failOpenTab: (
+    sessionId: string,
+    relativePath: string,
+    message: string,
+    openRequestId: number
+  ) => void
+  activateTab: (sessionId: string, relativePath: string) => void
+  promoteTab: (sessionId: string, relativePath: string) => void
+  closeTab: (sessionId: string, relativePath: string) => void
+  reorderTabs: (
+    sessionId: string,
+    sourcePath: string,
+    targetPath: string,
+    dropPosition: FilesTabDropPosition
+  ) => void
   updateDraft: (sessionId: string, draft: string) => void
   markSaving: (sessionId: string, request: FilesSaveRequestSnapshot) => void
   markSaveFailed: (sessionId: string, message: string, request: FilesSaveRequestSnapshot) => void
@@ -70,80 +105,177 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
-      setActiveDocument: (sessionId, activeDocument) =>
-        set((state) => updateContext(state, sessionId, { activeDocument })),
+      beginOpenTab: (sessionId, relativePath, intent, openRequestId) => {
+        let shouldOpen = false
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const existingIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
+          if (existingIndex >= 0) {
+            const tabs = context.tabs.map((tab, index) =>
+              index === existingIndex && intent === 'permanent' ? { ...tab, preview: false } : tab
+            )
+            return updateContext(state, sessionId, {
+              tabs,
+              activeTabPath: relativePath,
+              selectedPath: relativePath
+            })
+          }
+
+          shouldOpen = true
+          const previewIndex = context.tabs.findIndex(canReplacePreviewTab)
+          const nextTab = loadingTab(relativePath, intent === 'preview', openRequestId)
+          const tabs =
+            intent === 'preview' && previewIndex >= 0
+              ? context.tabs.map((tab, index) => (index === previewIndex ? nextTab : tab))
+              : [...context.tabs, nextTab]
+          return updateContext(state, sessionId, {
+            tabs,
+            activeTabPath: relativePath,
+            selectedPath: relativePath
+          })
+        })
+        return shouldOpen
+      },
+      finishOpenTab: (sessionId, document, openRequestId) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const tab = context.tabs.find(
+            (candidate) =>
+              candidate.relativePath === document.relativePath &&
+              candidate.status === 'loading' &&
+              candidate.openRequestId === openRequestId
+          )
+          if (!tab) return state
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((candidate) =>
+              candidate === tab ? toTabDocument(document, tab.preview) : candidate
+            )
+          })
+        }),
+      failOpenTab: (sessionId, relativePath, message, openRequestId) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              tab.relativePath === relativePath &&
+              tab.status === 'loading' &&
+              tab.openRequestId === openRequestId
+                ? {
+                    relativePath,
+                    name: pathName(relativePath),
+                    status: 'error' as const,
+                    message,
+                    preview: tab.preview
+                  }
+                : tab
+            )
+          })
+        }),
+      activateTab: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          if (!context.tabs.some((tab) => tab.relativePath === relativePath)) return state
+          return updateContext(state, sessionId, { activeTabPath: relativePath, selectedPath: relativePath })
+        }),
+      promoteTab: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              tab.relativePath === relativePath ? { ...tab, preview: false } : tab
+            )
+          })
+        }),
+      closeTab: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const tabIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
+          if (tabIndex < 0) return state
+          const tab = context.tabs[tabIndex]
+          if (tab.status === 'ready' && tab.dirty) return state
+          const tabs = context.tabs.filter((candidate) => candidate.relativePath !== relativePath)
+          const activeTabPath = selectTabAfterClose(context, tabs, tabIndex, relativePath)
+          return updateContext(state, sessionId, {
+            tabs,
+            activeTabPath,
+            selectedPath: activeTabPath ?? context.selectedPath
+          })
+        }),
+      reorderTabs: (sessionId, sourcePath, targetPath, dropPosition) =>
+        set((state) => {
+          if (sourcePath === targetPath) return state
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const sourceIndex = context.tabs.findIndex((tab) => tab.relativePath === sourcePath)
+          if (sourceIndex < 0) return state
+          const tabs = [...context.tabs]
+          const [source] = tabs.splice(sourceIndex, 1)
+          if (!source) return state
+          const targetIndex = tabs.findIndex((tab) => tab.relativePath === targetPath)
+          if (targetIndex < 0) return state
+          const insertIndex = dropPosition === 'after' ? targetIndex + 1 : targetIndex
+          tabs.splice(insertIndex, 0, source)
+          return updateContext(state, sessionId, { tabs })
+        }),
       updateDraft: (sessionId, draft) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
-          const activeDocument = context.activeDocument
-          if (!activeDocument || activeDocument.status !== 'ready') return state
-          return updateContext(state, sessionId, {
-            activeDocument: {
-              ...activeDocument,
-              draft,
-              dirty: draft !== activeDocument.content,
-              saveStatus: activeDocument.saveStatus === 'saving' ? 'saving' : 'idle',
-              error: undefined
-            }
-          })
+          const activeTabPath = context.activeTabPath
+          if (!activeTabPath) return state
+          return updateActiveReadyTab(state, sessionId, (activeDocument) => ({
+            ...activeDocument,
+            draft,
+            dirty: draft !== activeDocument.content,
+            preview: false,
+            saveStatus: activeDocument.saveStatus === 'saving' ? 'saving' : 'idle',
+            error: undefined
+          }))
         }),
       markSaving: (sessionId, request) =>
-        set((state) => {
-          const context = state.contexts[sessionId] ?? createDefaultContext()
-          const activeDocument = context.activeDocument
-          if (!activeDocument || activeDocument.status !== 'ready') return state
-          if (
-            activeDocument.relativePath !== request.relativePath ||
-            activeDocument.draft !== request.content ||
-            activeDocument.revision !== request.expectedRevision
-          ) {
-            return state
-          }
-          return updateContext(state, sessionId, {
-            activeDocument: {
+        set((state) =>
+          updateActiveReadyTab(state, sessionId, (activeDocument) => {
+            if (
+              activeDocument.relativePath !== request.relativePath ||
+              activeDocument.draft !== request.content ||
+              activeDocument.revision !== request.expectedRevision
+            ) {
+              return activeDocument
+            }
+            return {
               ...activeDocument,
+              preview: false,
               saveStatus: 'saving',
               error: undefined,
               saveRequest: request
             }
           })
-        }),
+        ),
       markSaveFailed: (sessionId, message, request) =>
-        set((state) => {
-          const context = state.contexts[sessionId] ?? createDefaultContext()
-          const activeDocument = context.activeDocument
-          if (!activeDocument || activeDocument.status !== 'ready') return state
-          if (!matchesSaveRequest(activeDocument, request)) return state
-          return updateContext(state, sessionId, {
-            activeDocument: {
-              ...activeDocument,
-              dirty: true,
-              saveStatus: 'error',
-              error: message,
-              saveRequest: undefined
-            }
-          })
-        }),
+        set((state) =>
+          updateMatchingSaveRequest(state, sessionId, request, (activeDocument) => ({
+            ...activeDocument,
+            dirty: true,
+            saveStatus: 'error',
+            error: message,
+            saveRequest: undefined
+          }))
+        ),
       markSaved: (sessionId, document, request) =>
-        set((state) => {
-          const context = state.contexts[sessionId] ?? createDefaultContext()
-          const activeDocument = context.activeDocument
-          if (!activeDocument || activeDocument.status !== 'ready') return state
-          if (!matchesSaveRequest(activeDocument, request)) return state
-          const draft =
-            activeDocument.draft === request.content ? document.content : activeDocument.draft
-          return updateContext(state, sessionId, {
-            activeDocument: {
+        set((state) =>
+          updateMatchingSaveRequest(state, sessionId, request, (activeDocument) => {
+            const draft =
+              activeDocument.draft === request.content ? document.content : activeDocument.draft
+            return {
               ...document,
               status: 'ready',
               draft,
               dirty: draft !== document.content,
+              preview: false,
               saveStatus: 'idle',
               error: undefined,
               saveRequest: undefined
             }
           })
-        })
+        )
     }),
     {
       name: 'spacezero.files',
@@ -167,7 +299,7 @@ const useFilesStore = create<FilesStore>()(
           contexts: Object.fromEntries(
             Object.entries(persistedContexts).map(([sessionId, context]) => [
               sessionId,
-              { ...createDefaultContext(), ...context, activeDocument: null }
+              { ...createDefaultContext(), ...context, tabs: [], activeTabPath: null }
             ])
           )
         }
@@ -193,9 +325,14 @@ export function createDefaultFilesContext(): FilesContextState {
   return createDefaultContext()
 }
 
-export function toReadyDocument(document: FilesTextDocument): FilesActiveDocumentState {
+export function toReadyDocument(
+  document: FilesTextDocument,
+  preview = false
+): Extract<FilesTabState, { status: 'ready' }> {
   return {
     ...document,
+    name: document.name,
+    preview,
     status: 'ready',
     draft: document.content,
     dirty: false,
@@ -204,15 +341,59 @@ export function toReadyDocument(document: FilesTextDocument): FilesActiveDocumen
   }
 }
 
+export function getActiveFilesTab(context: FilesContextState): FilesTabState | null {
+  if (!context.activeTabPath) return null
+  return context.tabs.find((tab) => tab.relativePath === context.activeTabPath) ?? null
+}
+
+function updateActiveReadyTab(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  update: (
+    activeDocument: Extract<FilesTabState, { status: 'ready' }>
+  ) => Extract<FilesTabState, { status: 'ready' }>
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const activeTabPath = context.activeTabPath
+  if (!activeTabPath) return state
+  const activeDocument = context.tabs.find(
+    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+      tab.relativePath === activeTabPath && tab.status === 'ready'
+  )
+  if (!activeDocument) return state
+  return updateContext(state, sessionId, {
+    tabs: context.tabs.map((tab) => (tab === activeDocument ? update(activeDocument) : tab))
+  })
+}
+
+function updateMatchingSaveRequest(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  request: FilesSaveRequestSnapshot,
+  update: (
+    document: Extract<FilesTabState, { status: 'ready' }>
+  ) => Extract<FilesTabState, { status: 'ready' }>
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const matchingDocument = context.tabs.find(
+    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+      tab.status === 'ready' && matchesSaveRequest(tab, request)
+  )
+  if (!matchingDocument) return state
+  return updateContext(state, sessionId, {
+    tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
+  })
+}
+
 function matchesSaveRequest(
-  activeDocument: Extract<FilesActiveDocumentState, { status: 'ready' }>,
+  document: Extract<FilesTabState, { status: 'ready' }>,
   request: FilesSaveRequestSnapshot
 ): boolean {
   return (
-    activeDocument.relativePath === request.relativePath &&
-    activeDocument.saveRequest?.relativePath === request.relativePath &&
-    activeDocument.saveRequest.content === request.content &&
-    activeDocument.saveRequest.expectedRevision === request.expectedRevision
+    document.relativePath === request.relativePath &&
+    document.saveRequest?.relativePath === request.relativePath &&
+    document.saveRequest.content === request.content &&
+    document.saveRequest.expectedRevision === request.expectedRevision
   )
 }
 
@@ -231,8 +412,47 @@ function createDefaultContext(): FilesContextState {
     explorerCollapsed: false,
     selectedPath: null,
     expandedPaths: [],
-    activeDocument: null
+    tabs: [],
+    activeTabPath: null
   }
+}
+
+function loadingTab(
+  relativePath: string,
+  preview: boolean,
+  openRequestId: number
+): Extract<FilesTabState, { status: 'loading' }> {
+  return {
+    relativePath,
+    name: pathName(relativePath),
+    preview,
+    openRequestId,
+    status: 'loading'
+  }
+}
+
+function toTabDocument(document: FilesDocument, preview: boolean): FilesTabState {
+  return document.contentKind === 'text'
+    ? toReadyDocument(document, preview)
+    : { ...document, name: document.name, preview, status: 'metadata' }
+}
+
+function canReplacePreviewTab(tab: FilesTabState): boolean {
+  return tab.preview && !(tab.status === 'ready' && tab.dirty)
+}
+
+function selectTabAfterClose(
+  context: FilesContextState,
+  tabs: FilesTabState[],
+  closedIndex: number,
+  closedPath: string
+): string | null {
+  if (context.activeTabPath !== closedPath) return context.activeTabPath
+  return tabs[closedIndex]?.relativePath ?? tabs[closedIndex - 1]?.relativePath ?? null
+}
+
+function pathName(relativePath: string): string {
+  return relativePath.split('/').at(-1) ?? relativePath
 }
 
 export function resetFilesStore(): void {

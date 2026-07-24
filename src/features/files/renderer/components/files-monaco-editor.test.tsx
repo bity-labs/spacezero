@@ -40,7 +40,8 @@ describe('FilesMonacoEditor', () => {
     const editorProps = editorMock.mock.calls[0]?.[0]
     expect(editorProps?.className).toBe('size-full')
     expect(editorProps?.height).toBe('100%')
-    expect(editorProps?.keepCurrentModel).toBe(false)
+    expect(editorProps?.keepCurrentModel).toBe(true)
+    expect(editorProps?.saveViewState).toBe(true)
     expect(editorProps?.language).toBe('cpp')
     expect(editorProps?.loading).toBeNull()
     expect(editorProps?.options).toEqual({ automaticLayout: true, minimap: { enabled: false } })
