@@ -240,6 +240,135 @@ describe('Files Tool', () => {
       expectedRevision: 'revision-1'
     })
     expect(await screen.findByText('Saved')).toBeInTheDocument()
+    expect(screen.queryByText('Pin preview')).not.toBeInTheDocument()
+  })
+
+  it('replaces clean previews, pins explicitly, and activates duplicates without another read', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
+      { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
+    ])
+    const openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `${relativePath} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.openDocument = openDocument
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('one.txt'))
+    expect(await screen.findByRole('tab', { name: /one\.txt\s*preview/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+
+    fireEvent.click(screen.getByText('two.txt'))
+    expect(await screen.findByRole('tab', { name: /two\.txt\s*preview/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /one\.txt\s*preview/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+    expect(screen.getByRole('tab', { name: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.click(screen.getByText('one.txt'))
+    expect(await screen.findByRole('tab', { name: /one\.txt\s*preview/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    fireEvent.click(screen.getByRole('treeitem', { name: 'two.txt' }))
+    expect(screen.getByRole('tab', { name: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
+    expect(openDocument).toHaveBeenCalledTimes(3)
+  })
+
+  it('supports readable overflow tabs, drag reordering, close selection, and active scroll', async () => {
+    const store = useFilesStore.getState()
+    for (const [index, path] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
+      expect(store.beginOpenTab('session-1', path, 'permanent', index + 1)).toBe(true)
+      store.finishOpenTab(
+        'session-1',
+        {
+          name: path,
+          relativePath: path,
+          contentKind: 'text',
+          size: 5,
+          modifiedAt: new Date(0).toISOString(),
+          revision: `${path}-revision`,
+          content: `${path} saved`,
+          hasBom: false,
+          lineEnding: 'lf'
+        },
+        index + 1
+      )
+    }
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+
+    render(<FilesTool sessionId="session-1" />)
+    await screen.findByText('This worktree is empty.')
+    expect(screen.getByRole('tablist', { name: 'Open files' })).toHaveClass('overflow-x-auto')
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+
+    const threeTabWrapper = screen.getByRole('tab', { name: 'three.txt' }).parentElement!
+    const oneTabWrapper = screen.getByRole('tab', { name: 'one.txt' }).parentElement!
+    fireEvent.dragStart(threeTabWrapper)
+    fireEvent.dragOver(oneTabWrapper)
+    fireEvent.drop(oneTabWrapper)
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'three.txt',
+      'one.txt',
+      'two.txt'
+    ])
+
+    fireEvent.click(screen.getByRole('tab', { name: 'two.txt' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Close two.txt' }))
+    expect(screen.getByRole('tab', { name: 'one.txt' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Close one.txt' }))
+    expect(screen.getByRole('tab', { name: 'three.txt' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('isolates tab state across Project Session contexts and component remounts', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async ({ sessionId }) =>
+      sessionId === 'session-1'
+        ? [{ name: 'shared.txt', relativePath: 'shared.txt', kind: 'file' as const }]
+        : [{ name: 'shared.txt', relativePath: 'shared.txt', kind: 'file' as const }]
+    )
+    window.spacezero.files.openDocument = vi.fn(async ({ sessionId, relativePath }) => ({
+      name: 'shared.txt',
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${sessionId}-revision`,
+      content: `${sessionId} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('shared.txt'))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+      target: { value: 'session-1 draft' }
+    })
+
+    view.rerender(<FilesTool sessionId="session-2" />)
+    fireEvent.click(await screen.findByText('shared.txt'))
+    expect(await screen.findByDisplayValue('session-2 saved')).toBeInTheDocument()
+    expect(screen.getByLabelText('Monaco editor')).toHaveAttribute(
+      'data-model-path',
+      'spacezero-files://session-2/shared.txt'
+    )
+
+    view.unmount()
+    render(<FilesTool sessionId="session-1" />)
+    expect(await screen.findByDisplayValue('session-1 draft')).toBeInTheDocument()
+    expect(screen.getByLabelText('Monaco editor')).toHaveAttribute(
+      'data-model-path',
+      'spacezero-files://session-1/shared.txt'
+    )
   })
 
   it('keeps dirty buffers in memory across unmounts without autosaving', async () => {
@@ -271,7 +400,7 @@ describe('Files Tool', () => {
     expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
   })
 
-  it('does not replace a dirty draft when navigation is canceled', async () => {
+  it('keeps dirty tabs permanent while single-click browsing uses a separate preview', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
       { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
@@ -295,16 +424,18 @@ describe('Files Tool', () => {
     fireEvent.change(await screen.findByLabelText('Monaco editor'), {
       target: { value: 'one.txt draft' }
     })
-    fireEvent.click(await screen.findByText('two.txt'))
+    fireEvent.click(screen.getByText('two.txt'))
 
-    expect(confirm).toHaveBeenCalledWith(
-      'Discard unsaved changes to one.txt before opening another file?'
+    expect(await screen.findByDisplayValue('two.txt saved')).toBeInTheDocument()
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByRole('tab', { name: /●\s*one\.txt/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /two\.txt\s*preview/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
     )
+    fireEvent.click(screen.getByRole('tab', { name: /●\s*one\.txt/ }))
     expect(screen.getByDisplayValue('one.txt draft')).toBeInTheDocument()
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
-    expect(openDocument.mock.calls).not.toContainEqual([
-      { sessionId: 'session-1', relativePath: 'two.txt' }
-    ])
+    expect(openDocument).toHaveBeenCalledTimes(2)
   })
 
   it('keeps the dirty buffer and shows actionable feedback when save conflicts or fails', async () => {

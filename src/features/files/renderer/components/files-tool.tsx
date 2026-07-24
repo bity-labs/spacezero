@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
-import type { FilesDocument, FilesEntry } from '../../shared'
+import type { FilesEntry } from '../../shared'
 import {
   createDefaultFilesContext,
-  toReadyDocument,
+  getActiveFilesTab,
   useFilesStore,
-  type FilesActiveDocumentState
+  type FilesOpenTabIntent,
+  type FilesTabState
 } from '../files-store'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
@@ -47,7 +48,13 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const setExplorerCollapsed = useFilesStore((state) => state.setExplorerCollapsed)
   const setSelectedPath = useFilesStore((state) => state.setSelectedPath)
   const setExpanded = useFilesStore((state) => state.setExpanded)
-  const setActiveDocument = useFilesStore((state) => state.setActiveDocument)
+  const beginOpenTab = useFilesStore((state) => state.beginOpenTab)
+  const finishOpenTab = useFilesStore((state) => state.finishOpenTab)
+  const failOpenTab = useFilesStore((state) => state.failOpenTab)
+  const activateTab = useFilesStore((state) => state.activateTab)
+  const promoteTab = useFilesStore((state) => state.promoteTab)
+  const closeTab = useFilesStore((state) => state.closeTab)
+  const reorderTabs = useFilesStore((state) => state.reorderTabs)
   const updateDraft = useFilesStore((state) => state.updateDraft)
   const markSaving = useFilesStore((state) => state.markSaving)
   const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
@@ -59,6 +66,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
   const openRequestRef = useRef(0)
+  const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
 
   const loadRoot = useCallback(async (): Promise<void> => {
@@ -133,30 +141,24 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   )
 
   const openFile = useCallback(
-    async (relativePath: string): Promise<void> => {
-      if (!canReplaceActiveDocument(sessionId, relativePath)) return
+    async (relativePath: string, intent: FilesOpenTabIntent): Promise<void> => {
       const requestId = openRequestRef.current + 1
       openRequestRef.current = requestId
-      setSelectedPath(sessionId, relativePath)
-      setActiveDocument(sessionId, { status: 'loading', relativePath })
+      const shouldFetch = beginOpenTab(sessionId, relativePath, intent, requestId)
+      if (!shouldFetch) return
       try {
         const document = await window.spacezero.files.openDocument({ sessionId, relativePath })
-        if (activeSessionRef.current !== sessionId || openRequestRef.current !== requestId) return
-        setActiveDocument(sessionId, toActiveDocument(document))
+        if (activeSessionRef.current !== sessionId) return
+        finishOpenTab(sessionId, document, requestId)
       } catch (error) {
-        if (activeSessionRef.current !== sessionId || openRequestRef.current !== requestId) return
-        setActiveDocument(sessionId, {
-          status: 'error',
-          relativePath,
-          message: documentErrorMessage(error)
-        })
+        if (activeSessionRef.current !== sessionId) return
+        failOpenTab(sessionId, relativePath, documentErrorMessage(error), requestId)
       }
     },
-    [sessionId, setActiveDocument, setSelectedPath]
+    [beginOpenTab, failOpenTab, finishOpenTab, sessionId]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
-    const activeDocument = context.activeDocument
     if (
       !activeDocument ||
       activeDocument.status !== 'ready' ||
@@ -187,7 +189,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
     } catch (error) {
       markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
     }
-  }, [context.activeDocument, markSaveFailed, markSaved, markSaving, sessionId])
+  }, [activeDocument, markSaveFailed, markSaved, markSaving, sessionId])
 
   useEffect(() => {
     activeSessionRef.current = sessionId
@@ -313,7 +315,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
                     const item = nodes[0]?.data
                     if (!item || item.kind === 'status') return
                     if (item.kind === 'file') {
-                      void openFile(item.relativePath)
+                      void openFile(item.relativePath, 'preview')
                     } else {
                       setSelectedPath(sessionId, item.relativePath)
                     }
@@ -324,7 +326,13 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
                     if (expanded) void loadDirectory(id)
                   }}
                 >
-                  {(props) => <FilesTreeRow {...props} onRetry={loadDirectory} />}
+                  {(props) => (
+                    <FilesTreeRow
+                      {...props}
+                      onOpenPermanent={(relativePath) => openFile(relativePath, 'permanent')}
+                      onRetry={loadDirectory}
+                    />
+                  )}
                 </Tree>
               )}
             </div>
@@ -344,10 +352,19 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
         </>
       )}
       <div className="flex min-w-0 flex-1 flex-col bg-background" onKeyDown={handleEditorKeyDown}>
+        <FilesTabStrip
+          activeTabPath={context.activeTabPath}
+          sessionId={sessionId}
+          tabs={context.tabs}
+          onActivate={activateTab}
+          onClose={closeTab}
+          onReorder={reorderTabs}
+        />
         <FilesEditorPanel
-          document={context.activeDocument}
+          document={activeDocument}
           sessionId={sessionId}
           onChange={(draft) => updateDraft(sessionId, draft)}
+          onPin={(relativePath) => promoteTab(sessionId, relativePath)}
           onSave={saveActiveDocument}
         />
       </div>
@@ -355,15 +372,95 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   )
 }
 
+function FilesTabStrip({
+  activeTabPath,
+  sessionId,
+  tabs,
+  onActivate,
+  onClose,
+  onReorder
+}: {
+  activeTabPath: string | null
+  sessionId: string
+  tabs: FilesTabState[]
+  onActivate: (sessionId: string, relativePath: string) => void
+  onClose: (sessionId: string, relativePath: string) => void
+  onReorder: (sessionId: string, sourcePath: string, targetPath: string) => void
+}): React.JSX.Element | null {
+  const activeTabRef = useRef<HTMLButtonElement | null>(null)
+  const draggedPathRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeTabPath, tabs.length])
+
+  if (tabs.length === 0) return null
+
+  return (
+    <div
+      aria-label="Open files"
+      className="flex h-10 shrink-0 overflow-x-auto border-b bg-background"
+      role="tablist"
+    >
+      {tabs.map((tab) => {
+        const active = tab.relativePath === activeTabPath
+        const dirty = tab.status === 'ready' && tab.dirty
+        return (
+          <div
+            key={tab.relativePath}
+            className="flex min-w-36 max-w-56 shrink-0 items-center border-r"
+            draggable
+            onDragOver={(event) => event.preventDefault()}
+            onDragStart={() => {
+              draggedPathRef.current = tab.relativePath
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              const sourcePath = draggedPathRef.current
+              draggedPathRef.current = null
+              if (sourcePath) onReorder(sessionId, sourcePath, tab.relativePath)
+            }}
+          >
+            <button
+              ref={active ? activeTabRef : undefined}
+              aria-selected={active}
+              className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-xs ${active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'} ${tab.preview ? 'italic' : ''}`}
+              role="tab"
+              type="button"
+              onClick={() => onActivate(sessionId, tab.relativePath)}
+            >
+              <span>{dirty ? '● ' : ''}</span>
+              <span>{tab.name}</span>
+              {tab.preview ? <span className="sr-only"> preview</span> : null}
+            </button>
+            <button
+              aria-label={`Close ${tab.name}`}
+              className="mr-1 rounded px-1 text-muted-foreground hover:bg-accent disabled:opacity-40"
+              disabled={dirty}
+              title={dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`}
+              type="button"
+              onClick={() => onClose(sessionId, tab.relativePath)}
+            >
+              ×
+            </button>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function FilesEditorPanel({
   document,
   sessionId,
   onChange,
+  onPin,
   onSave
 }: {
-  document: FilesActiveDocumentState | null
+  document: FilesTabState | null
   sessionId: string
   onChange: (draft: string) => void
+  onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
 }): React.JSX.Element {
   const onSaveRef = useRef(onSave)
@@ -412,11 +509,21 @@ function FilesEditorPanel({
       <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
         <div className="min-w-0">
           <span className="font-medium">{document.name}</span>
+          {document.preview ? <span className="ml-2 text-muted-foreground">Preview</span> : null}
           {document.dirty ? <span className="ml-2 text-amber-600">Unsaved changes</span> : null}
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
           {document.saveStatus === 'saving' ? <span>Saving…</span> : null}
           {!document.dirty && document.saveStatus !== 'saving' ? <span>Saved</span> : null}
+          {document.preview ? (
+            <button
+              className="rounded-md border px-2 py-1 text-foreground hover:bg-accent"
+              type="button"
+              onClick={() => onPin(document.relativePath)}
+            >
+              Pin preview
+            </button>
+          ) : null}
           <button
             className="rounded-md border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
             disabled={document.saveStatus === 'saving'}
@@ -452,8 +559,10 @@ function FilesTreeRow({
   node,
   style,
   dragHandle,
+  onOpenPermanent,
   onRetry
 }: NodeRendererProps<FilesTreeItem> & {
+  onOpenPermanent: (relativePath: string) => Promise<void>
   onRetry: (relativePath: string) => Promise<void>
 }): React.JSX.Element {
   const item = node.data
@@ -482,6 +591,9 @@ function FilesTreeRow({
       style={style}
       title={item.kind === 'symlink' ? `${item.name} — Symbolic link` : item.name}
       onClick={() => node.select()}
+      onDoubleClick={() => {
+        if (item.kind === 'file') void onOpenPermanent(item.relativePath)
+      }}
     >
       {expandable ? (
         <button
@@ -534,28 +646,12 @@ function FilesState({
   )
 }
 
-function canReplaceActiveDocument(sessionId: string, nextRelativePath: string): boolean {
-  const activeDocument = useFilesStore.getState().contexts[sessionId]?.activeDocument
-  if (!activeDocument || activeDocument.status !== 'ready') return true
-  if (activeDocument.relativePath === nextRelativePath) return false
-  if (!activeDocument.dirty) return true
-  return window.confirm(
-    `Discard unsaved changes to ${activeDocument.name} before opening another file?`
-  )
-}
-
 function toTreeItem(entry: FilesEntry): FilesTreeItem {
   return {
     ...entry,
     id: entry.relativePath,
     ...(entry.kind === 'directory' ? { children: [statusItem(entry.relativePath, 'loading')] } : {})
   }
-}
-
-function toActiveDocument(document: FilesDocument): FilesActiveDocumentState {
-  return document.contentKind === 'text'
-    ? toReadyDocument(document)
-    : { ...document, status: 'metadata' }
 }
 
 function statusItem(
