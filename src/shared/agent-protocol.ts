@@ -49,6 +49,7 @@ export type ResolvedAgentDefinition = AppliedAgentDefinition & {
 
 export type DelegationAgentDefinition = ResolvedAgentDefinition & {
   description: string
+  resolutionError?: string
 }
 
 export type AgentDefinitionReference = {

@@ -168,7 +168,9 @@ describe('AgentSessionRegistry', () => {
 
     expect(disposed).toBe(true)
     await expect(registry.listSessions()).resolves.toEqual([])
-    await expect(registry.getState({ sessionId: 'session-1' })).rejects.toThrow('agent.sessionNotFound')
+    await expect(registry.getState({ sessionId: 'session-1' })).rejects.toThrow(
+      'agent.sessionNotFound'
+    )
   })
 
   it('cancels and disposes an in-flight session when deletion arrives before creation completes', async () => {
@@ -181,7 +183,11 @@ describe('AgentSessionRegistry', () => {
         })
     })
 
-    const createPromise = registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    const createPromise = registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo'
+    })
     await registry.deleteSession({ sessionId: 'session-1' })
 
     resolveCreate?.(
@@ -213,7 +219,11 @@ describe('AgentSessionRegistry', () => {
       }
     })
 
-    const createPromise = registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
+    const createPromise = registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      cwd: '/repo'
+    })
     await createStartedPromise
     registry.dispose()
 
@@ -238,7 +248,9 @@ describe('AgentSessionRegistry', () => {
     await expect(
       registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo' })
     ).rejects.toThrow('agent.sessionAlreadyExists')
-    await expect(registry.getState({ sessionId: 'missing' })).rejects.toThrow('agent.sessionNotFound')
+    await expect(registry.getState({ sessionId: 'missing' })).rejects.toThrow(
+      'agent.sessionNotFound'
+    )
   })
 
   it('suspends the least recently used idle session when the live session cap is reached', async () => {
@@ -365,7 +377,7 @@ describe('AgentSessionRegistry', () => {
     ])
   })
 
-  it('preserves workspace tool descriptors when a suspended session is rehydrated', async () => {
+  it('preserves workspace and delegation tool descriptors when a suspended session is rehydrated', async () => {
     const createRequests: unknown[] = []
     const workspaceTools = [
       {
@@ -375,6 +387,15 @@ describe('AgentSessionRegistry', () => {
         kind: 'app-state' as const,
         domain: 'workspace' as const,
         parameters: { type: 'object', properties: {} }
+      }
+    ]
+    const delegationDefinitions = [
+      {
+        id: 'scout',
+        name: 'Scout',
+        description: 'Researches the codebase without editing files.',
+        body: 'You inspect code.',
+        tools: ['read', 'grep']
       }
     ]
     const registry = new AgentSessionRegistry({
@@ -393,8 +414,11 @@ describe('AgentSessionRegistry', () => {
       sessionId: 'session-1',
       cwd: '/repo-1',
       workspaceTools,
+      delegationDefinitions,
       appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/project-1']
     })
+    expect(createRequests[0]).toMatchObject({ delegationDefinitions })
+
     await registry.createSession({ projectId: 'project-2', sessionId: 'session-2', cwd: '/repo-2' })
     await registry.getState({ sessionId: 'session-1' })
 
@@ -402,6 +426,7 @@ describe('AgentSessionRegistry', () => {
       sessionId: 'session-1',
       transcriptPath: '/tmp/spacezero/agent/sessions/session-1.jsonl',
       workspaceTools,
+      delegationDefinitions,
       appendSystemPrompt: ['Project Knowledge Base: /knowledge/projects/project-1'],
       defaultModel: { providerId: 'faux', modelId: 'faux-1' }
     })
@@ -411,7 +436,10 @@ describe('AgentSessionRegistry', () => {
     const registry = new AgentSessionRegistry({
       maxLiveSessions: 1,
       createPiSession: async (request) =>
-        createFakeSession({ sessionId: request.sessionId, isStreaming: request.sessionId === 'session-1' })
+        createFakeSession({
+          sessionId: request.sessionId,
+          isStreaming: request.sessionId === 'session-1'
+        })
     })
 
     await registry.createSession({ projectId: 'project-1', sessionId: 'session-1', cwd: '/repo-1' })
@@ -552,7 +580,11 @@ describe('AgentSessionRegistry', () => {
     type Selection = { provider: string; modelId: string; thinkingLevel: 'medium' | 'high' }
     const registry = new AgentSessionRegistry({
       createPiSession: async (request) => {
-        const selection: Selection = { provider: 'anthropic', modelId: 'claude-sonnet', thinkingLevel: 'medium' }
+        const selection: Selection = {
+          provider: 'anthropic',
+          modelId: 'claude-sonnet',
+          thinkingLevel: 'medium'
+        }
         const session = createFakeSession({ sessionId: request.sessionId })
         Object.defineProperties(session, {
           modelProvider: { get: () => selection.provider },
@@ -575,10 +607,20 @@ describe('AgentSessionRegistry', () => {
 
     await expect(
       registry.setModel({ sessionId: 'session-1', provider: 'openai', modelId: 'gpt-5' })
-    ).resolves.toMatchObject({ sessionId: 'session-1', modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'medium' })
+    ).resolves.toMatchObject({
+      sessionId: 'session-1',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'medium'
+    })
     await expect(
       registry.setThinkingLevel({ sessionId: 'session-1', level: 'high' })
-    ).resolves.toMatchObject({ sessionId: 'session-1', modelProvider: 'openai', modelId: 'gpt-5', thinkingLevel: 'high' })
+    ).resolves.toMatchObject({
+      sessionId: 'session-1',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'high'
+    })
 
     await expect(registry.getState({ sessionId: 'session-2' })).resolves.toMatchObject({
       sessionId: 'session-2',
@@ -595,8 +637,12 @@ describe('AgentSessionRegistry', () => {
       createPiSession: async (request) => {
         createRequests.push(request)
         const selection = {
-          provider: request.agentDefinition?.model?.providerId ?? request.defaultModel?.providerId ?? 'faux',
-          modelId: request.agentDefinition?.model?.modelId ?? request.defaultModel?.modelId ?? 'faux-1',
+          provider:
+            request.agentDefinition?.model?.providerId ??
+            request.defaultModel?.providerId ??
+            'faux',
+          modelId:
+            request.agentDefinition?.model?.modelId ?? request.defaultModel?.modelId ?? 'faux-1',
           thinkingLevel: request.agentDefinition?.thinkingLevel ?? request.thinkingLevel ?? 'medium'
         }
         const session = createFakeSession({
@@ -796,7 +842,11 @@ describe('AgentSessionRegistry', () => {
       onStreamingEvent: (event) => events.push(event)
     })
 
-    await registry.createSession({ projectId: 'project-1', sessionId: 'spacezero-session-1', cwd: '/repo' })
+    await registry.createSession({
+      projectId: 'project-1',
+      sessionId: 'spacezero-session-1',
+      cwd: '/repo'
+    })
     listener?.({ type: 'agent_start', sessionId: 'pi-internal-session-1' })
 
     expect(events).toEqual([{ type: 'agent_start', sessionId: 'spacezero-session-1' }])

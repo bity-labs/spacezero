@@ -11,11 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { ResourceDiagnostic } from '@earendil-works/pi-coding-agent'
-import {
-  fauxAssistantMessage,
-  fauxText,
-  fauxToolCall
-} from '@earendil-works/pi-ai/providers/faux'
+import { fauxAssistantMessage, fauxText, fauxToolCall } from '@earendil-works/pi-ai/providers/faux'
 import { describe, expect, it } from 'vitest'
 
 import type { AgentTranscriptMessage } from '../shared/agent-session-projection.model'
@@ -901,7 +897,7 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
-  it('returns structured delegation errors for unknown definitions, unauthenticated models, and empty child tool allowlists', async () => {
+  it('returns structured delegation errors for unknown definitions, unauthenticated models, malformed definitions, and empty child tool allowlists', async () => {
     const cases = [
       {
         name: 'unknown-definition',
@@ -935,6 +931,23 @@ describe('createPiAgentSessionFactory', () => {
         expectedOutput: 'agent.modelAuthNotConfigured'
       },
       {
+        name: 'malformed-definition',
+        kind: undefined,
+        definition: 'bad-model',
+        task: 'Run malformed definition.',
+        definitions: [
+          {
+            id: 'bad-model',
+            name: 'Bad Model',
+            description: 'Has malformed model frontmatter.',
+            body: 'Bad model.',
+            resolutionError: 'agentDefinitions.invalidModel'
+          }
+        ],
+        expectedOutput:
+          'Agent Definition bad-model cannot be delegated: agentDefinitions.invalidModel'
+      },
+      {
         name: 'empty-allowlist',
         kind: 'workspace' as const,
         definition: 'empty-tools',
@@ -960,14 +973,17 @@ describe('createPiAgentSessionFactory', () => {
           agentDir: join(tempDir, 'agent'),
           configureFauxProvider: (faux) => {
             faux.setResponses([
-              fauxAssistantMessage([
-                fauxToolCall('agents_delegate_0', {
-                  definition: testCase.definition,
-                  task: testCase.task
-                })
-              ], {
-                stopReason: 'toolUse'
-              }),
+              fauxAssistantMessage(
+                [
+                  fauxToolCall('agents_delegate_0', {
+                    definition: testCase.definition,
+                    task: testCase.task
+                  })
+                ],
+                {
+                  stopReason: 'toolUse'
+                }
+              ),
               fauxAssistantMessage([fauxText('Parent handled the error.')])
             ])
           }
@@ -997,6 +1013,151 @@ describe('createPiAgentSessionFactory', () => {
       } finally {
         rmSync(tempDir, { recursive: true, force: true })
       }
+    }
+  })
+
+  it('returns a structured delegation error when the child ends with a provider error', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-provider-error-'))
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Trigger provider failure.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            fauxAssistantMessage([], {
+              stopReason: 'error',
+              errorMessage: 'Provider quota exceeded.'
+            }),
+            fauxAssistantMessage([fauxText('Parent handled the child provider error.')])
+          ])
+        }
+      })
+      const session = await createPiSession({
+        sessionId: 'parent-provider-error',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      try {
+        await session.prompt('Delegate to scout.')
+        const toolResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        expect(readToolResultText(toolResult)).toBe(
+          JSON.stringify({ status: 'error', output: 'Provider quota exceeded.' })
+        )
+        expect(toolResult?.details).toMatchObject({
+          status: 'error',
+          output: 'Provider quota exceeded.',
+          parentSessionId: 'parent-provider-error',
+          childSessionId: expect.stringMatching(/^subagent-/)
+        })
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('fails child write Workspace Tool calls immediately instead of waiting for invisible confirmation', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-child-confirmation-'))
+    let workspaceToolRequestParentSessionId: string | undefined
+
+    try {
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        executeWorkspaceTool: async (request) => {
+          workspaceToolRequestParentSessionId = request.parentSessionId
+          return {
+            ok: false,
+            error: {
+              code: 'workspace-tool-confirmation-unsupported-in-child',
+              message: `Workspace Tool confirmation is not supported for delegated child sessions: ${request.toolName}`
+            }
+          }
+        },
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'writer',
+                  task: 'Save a workspace note.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            fauxAssistantMessage([fauxToolCall('workspace_setNote_0', { note: 'child write' })], {
+              stopReason: 'toolUse'
+            }),
+            fauxAssistantMessage([fauxText('Child saw the Workspace Tool failure.')]),
+            fauxAssistantMessage([fauxText('Parent received the child result.')])
+          ])
+        }
+      })
+      const session = await createPiSession({
+        sessionId: 'parent-child-confirmation',
+        projectId: 'project-1',
+        cwd: tempDir,
+        workspaceTools: [
+          {
+            name: 'workspace.setNote',
+            description: 'Set workspace note',
+            safetyLevel: 'write',
+            kind: 'app-state',
+            domain: 'workspace',
+            parameters: {
+              type: 'object',
+              properties: { note: { type: 'string' } },
+              required: ['note'],
+              additionalProperties: false
+            }
+          }
+        ],
+        delegationDefinitions: [
+          {
+            id: 'writer',
+            name: 'Writer',
+            description: 'Writes workspace notes.',
+            body: 'Write notes.',
+            tools: ['workspace.setNote']
+          }
+        ]
+      })
+
+      try {
+        await session.prompt('Delegate writing.')
+        expect(workspaceToolRequestParentSessionId).toBe('parent-child-confirmation')
+        const delegateResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        const delegateDetails = readToolResultDetails(delegateResult)
+        expect(delegateDetails.status).toBe('completed')
+        expect(delegateDetails.transcriptPath).toBeDefined()
+        const childTranscript = readFileSync(delegateDetails.transcriptPath!, 'utf8')
+        expect(childTranscript).toContain('workspace-tool-confirmation-unsupported-in-child')
+        expect(childTranscript).toContain(
+          'Workspace Tool confirmation is not supported for delegated child sessions: workspace.setNote'
+        )
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
     }
   })
 

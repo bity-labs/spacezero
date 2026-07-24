@@ -6,7 +6,9 @@ import {
   resolveAgentDefinitionsForDelegation
 } from './agent-definition-resolver'
 
-function validDefinition(overrides: Partial<AgentDefinitionCatalogEntry> = {}): AgentDefinitionCatalogEntry {
+function validDefinition(
+  overrides: Partial<AgentDefinitionCatalogEntry> = {}
+): AgentDefinitionCatalogEntry {
   return {
     id: 'reviewer',
     scope: 'spacezero',
@@ -84,6 +86,13 @@ describe('resolveAgentDefinitionForSession', () => {
         description: 'Researches code.',
         body: 'Scout code.',
         tools: ['read', 'grep']
+      },
+      {
+        id: 'bad-model',
+        name: 'Reviewer',
+        description: 'Reviews code.',
+        body: 'Review code carefully.',
+        resolutionError: 'agentDefinitions.invalidModel'
       }
     ])
   })

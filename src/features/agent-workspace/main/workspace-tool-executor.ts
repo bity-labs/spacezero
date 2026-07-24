@@ -41,7 +41,8 @@ export class WorkspaceToolExecutor {
   private readonly registry: WorkspaceToolRegistry
   private readonly policy: WorkspaceToolSafetyPolicy
   private readonly history: AgentActivityHistory
-  private requestConfirmation: ((request: WorkspaceToolConfirmationRequest) => Promise<boolean>) | undefined
+  private requestConfirmation:
+    ((request: WorkspaceToolConfirmationRequest) => Promise<boolean>) | undefined
 
   constructor(init: WorkspaceToolExecutorInit) {
     this.registry = init.registry
@@ -50,7 +51,9 @@ export class WorkspaceToolExecutor {
     this.requestConfirmation = init.requestConfirmation
   }
 
-  setConfirmationRequester(requestConfirmation: (request: WorkspaceToolConfirmationRequest) => Promise<boolean>): void {
+  setConfirmationRequester(
+    requestConfirmation: (request: WorkspaceToolConfirmationRequest) => Promise<boolean>
+  ): void {
     this.requestConfirmation = requestConfirmation
   }
 
@@ -60,11 +63,12 @@ export class WorkspaceToolExecutor {
 
   async executeForAgent(request: {
     sessionId: string
+    parentSessionId?: string
     callId: string
     toolName: string
     input: unknown
   }): Promise<WorkspaceToolResult> {
-    const { sessionId, callId, toolName, input } = request
+    const { sessionId, parentSessionId, callId, toolName, input } = request
     const tool = this.registry.resolve(toolName)
 
     if (!tool) {
@@ -103,6 +107,16 @@ export class WorkspaceToolExecutor {
         domain: tool.domain
       })
 
+      if (parentSessionId) {
+        return {
+          ok: false,
+          error: {
+            code: 'workspace-tool-confirmation-unsupported-in-child',
+            message: `Workspace Tool confirmation is not supported for delegated child sessions: ${toolName}`
+          }
+        }
+      }
+
       if (!this.requestConfirmation) {
         return {
           ok: false,
@@ -117,11 +131,15 @@ export class WorkspaceToolExecutor {
         sessionId,
         callId,
         toolName,
-        sanitizedSummary: tool.confirmationSummary?.(parsed.data) ?? `Run Workspace Tool ${toolName}`
+        sanitizedSummary:
+          tool.confirmationSummary?.(parsed.data) ?? `Run Workspace Tool ${toolName}`
       })
 
       if (!approved) {
-        const error = { code: 'tool-denied', message: `Workspace tool denied by builder: ${toolName}` }
+        const error = {
+          code: 'tool-denied',
+          message: `Workspace tool denied by builder: ${toolName}`
+        }
         this.record({
           toolName,
           outcome: 'denied',
