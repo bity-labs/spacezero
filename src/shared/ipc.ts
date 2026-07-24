@@ -7,7 +7,8 @@ import type {
   AgentDefinitionReference,
   AgentPingResponse,
   AgentSessionState,
-  AgentUtilityEvent
+  AgentUtilityEvent,
+  ApplyAgentDefinitionToFreshSessionRequest
 } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
@@ -160,6 +161,7 @@ export const IPC_CHANNELS = {
     ping: 'agent:ping',
     createSession: 'agent:createSession',
     createWorkspaceSession: 'agent:createWorkspaceSession',
+    applyDefinitionToFreshSession: 'agent:applyDefinitionToFreshSession',
     getGlobalSkills: 'agent:getGlobalSkills',
     setGlobalSkillEnabled: 'agent:setGlobalSkillEnabled',
     getState: 'agent:getState',
@@ -306,6 +308,9 @@ export type SpaceZeroAPI = {
     createWorkspaceSession: (request?: {
       agentDefinition?: AgentDefinitionReference
     }) => Promise<WorkspaceSession>
+    applyDefinitionToFreshSession: (
+      request: ApplyAgentDefinitionToFreshSessionRequest
+    ) => Promise<AgentSessionState>
     getGlobalSkills: () => Promise<AgentGlobalSkill[]>
     setGlobalSkillEnabled: (
       request: SetGlobalAgentSkillEnabledRequest
