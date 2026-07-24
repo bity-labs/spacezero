@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
-import type { TerminalContext, TerminalEvent, TerminalOutputEvent, TerminalTab } from '../../shared'
+import type { TerminalContext, TerminalEvent, TerminalOutputEvent, TerminalTab, TerminalUnsubscribeRequest } from '../../shared'
 
 type TerminalToolProps = {
   context: TerminalContext
@@ -200,18 +200,27 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
           afterSequence: 0
         })
         if (cancelled) return
-        const buffered = subscriptionRef.current?.buffer ?? []
-        subscriptionRef.current = { terminalId: activeTerminalId, phase: 'running', buffer: [] }
         lastSequenceByTerminalRef.current.set(activeTerminalId, 0)
-        for (const event of orderTerminalEvents([...subscription.events, ...buffered])) {
+        let replayEvents = orderTerminalEvents(subscription.events)
+        while (replayEvents.length > 0 || subscriptionRef.current?.buffer.length) {
+          if (replayEvents.length === 0) {
+            const buffered = subscriptionRef.current?.buffer.splice(0) ?? []
+            replayEvents = orderTerminalEvents(buffered)
+          }
+          const event = replayEvents.shift()
+          if (!event) continue
           if (event.type === 'output') await applyReplayOutputEvent(xterm, event)
           else applyTerminalEvent(event)
+          if (cancelled || subscriptionRef.current?.terminalId !== activeTerminalId) return
         }
+        if (cancelled) return
+        subscriptionRef.current = { terminalId: activeTerminalId, phase: 'running', buffer: [] }
         const lastSequence = lastSequenceByTerminalRef.current.get(activeTerminalId) ?? 0
         lastSequenceByTerminalRef.current.set(
           activeTerminalId,
           Math.max(lastSequence, subscription.nextSequence - 1)
         )
+        if (cancelled || terminalIdRef.current !== activeTerminalId) return
         setStatus('running')
         void resizeTerminal()
         restoreViewport(xterm, viewportByTerminal.get(activeTerminalId))
@@ -235,7 +244,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       removeEventListener()
       dataSubscription.dispose()
       viewportByTerminal.set(activeTerminalId, readViewport(xterm))
-      void window.spacezero.terminal.unsubscribe({ terminalId: activeTerminalId, context: terminalContext })
+      void unsubscribeTerminal({ terminalId: activeTerminalId, context: terminalContext })
       subscriptionRef.current = null
       xterm.dispose()
       xtermRef.current = null
@@ -383,6 +392,15 @@ function writeParsed(xterm: XTerm, data: string): Promise<void> {
   return new Promise((resolve) => {
     xterm.write(data, resolve)
   })
+}
+
+async function unsubscribeTerminal(request: TerminalUnsubscribeRequest): Promise<void> {
+  try {
+    await window.spacezero.terminal.unsubscribe(request)
+  } catch (caught) {
+    if (caught instanceof Error && caught.message.includes('terminal.notFound')) return
+    console.error('Terminal unsubscribe failed', caught)
+  }
 }
 
 function getViewportStore(contextKey: string): Map<string, number> {
