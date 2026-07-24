@@ -440,6 +440,18 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      applyDefinitionToFreshSession: async ({ sessionId, agentDefinition }) => ({
+        sessionId,
+        kind: sessionId.startsWith('workspace') ? 'workspace' : 'project',
+        projectId: sessionId.startsWith('workspace') ? null : 'project-test',
+        cwd: '/tmp/project-test',
+        status: 'idle',
+        live: true,
+        transcriptPath: '/tmp/agent-session-test.jsonl',
+        modelProvider: 'faux',
+        modelId: 'faux-1',
+        agentDefinition: { id: agentDefinition.id, name: agentDefinition.id }
+      }),
       getGlobalSkills: async () => [],
       setGlobalSkillEnabled: async () => [],
       getState: async ({ sessionId }) => ({
