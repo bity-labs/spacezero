@@ -76,8 +76,8 @@ export function parseAgentDefinitionMarkdown({
     })
   }
 
-  const model = readOptionalString(values, 'model')
-  const thinking = readOptionalString(values, 'thinking')
+  const model = readOptionalString(values, 'model', diagnostics)
+  const thinking = readOptionalString(values, 'thinking', diagnostics)
   let tools: string[] | undefined
   let spawns: AgentDefinitionSpawns
 
@@ -211,8 +211,24 @@ function readRequiredString(values: Record<string, unknown>, key: string): strin
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function readOptionalString(values: Record<string, unknown>, key: string): string | undefined {
-  return readRequiredString(values, key)
+function readOptionalString(
+  values: Record<string, unknown>,
+  key: string,
+  diagnostics: AgentDefinitionDiagnostic[]
+): string | undefined {
+  const value = values[key]
+  if (value === undefined) return undefined
+
+  if (typeof value !== 'string') {
+    diagnostics.push({
+      severity: 'error',
+      code: 'agentDefinitions.invalidFieldType',
+      message: `Frontmatter field "${key}" must be a string.`
+    })
+    return undefined
+  }
+
+  return value.trim() ? value.trim() : undefined
 }
 
 function readOptionalList(values: Record<string, unknown>, key: string): string[] | undefined {
