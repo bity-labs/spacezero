@@ -3,7 +3,11 @@ import { useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import type { AiChatMessage } from '@renderer/components/ai-chat'
 
 import type { AgentSessionProjectionEvent } from '../../../shared/agent-session-projection.model'
-import type { AgentSessionId, AgentSessionState } from '../../../shared/agent-protocol'
+import type {
+  AgentDefinitionReference,
+  AgentSessionId,
+  AgentSessionState
+} from '../../../shared/agent-protocol'
 import {
   createAgentSessionProjectionState,
   projectAgentSessionMessages,
@@ -20,6 +24,9 @@ export type UseAgentSessionResult = {
   runtimeReadiness: 'loading' | 'ready' | 'error'
   restoreError: string | undefined
   retryRestore: () => void
+  applyDefinitionToFreshSession: (
+    agentDefinition: AgentDefinitionReference
+  ) => Promise<AgentSessionState>
   prompt: (message: string) => Promise<void>
   abort: () => Promise<void>
   resolveToolConfirmation: (callId: string, approved: boolean) => Promise<void>
@@ -83,6 +90,18 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     })
   }, [sessionId])
 
+  const applyDefinitionToFreshSession = useCallback(
+    async (agentDefinition: AgentDefinitionReference) => {
+      const nextSessionState = await window.spacezero.agent.applyDefinitionToFreshSession({
+        sessionId,
+        agentDefinition
+      })
+      dispatch({ type: 'session-state-loaded', sessionState: nextSessionState })
+      return nextSessionState
+    },
+    [sessionId]
+  )
+
   const prompt = useCallback(
     async (message: string) => {
       const text = message.trim()
@@ -129,6 +148,7 @@ export function useAgentSession(sessionId: AgentSessionId): UseAgentSessionResul
     runtimeReadiness: effectiveState.runtimeReadiness,
     restoreError: effectiveState.restoreError,
     retryRestore: () => setRestoreAttempt((attempt) => attempt + 1),
+    applyDefinitionToFreshSession,
     prompt,
     abort,
     resolveToolConfirmation: (callId, approved) =>
