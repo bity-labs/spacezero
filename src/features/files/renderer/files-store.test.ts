@@ -44,6 +44,43 @@ describe('Files renderer state', () => {
     })
   })
 
+
+  it('defaults lossless Markdown and MDX tabs to rich mode and keeps lossy documents in source mode', () => {
+    const store = useFilesStore.getState()
+
+    expect(store.beginOpenTab('session-1', 'README.md', 'preview', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('README.md', '# Safe'), 1)
+    expect(store.beginOpenTab('session-1', 'docs/page.mdx', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('docs/page.mdx', '# Page'), 2)
+    expect(store.beginOpenTab('session-1', 'docs/lossy.mdx', 'permanent', 3)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('docs/lossy.mdx', `import X from './x'\n\n# Page`), 3)
+
+    expect(useFilesStore.getState().contexts['session-1'].tabs).toMatchObject([
+      { relativePath: 'README.md', editorMode: 'rich' },
+      { relativePath: 'docs/page.mdx', editorMode: 'rich' },
+      { relativePath: 'docs/lossy.mdx', editorMode: 'source' }
+    ])
+  })
+
+  it('stores editor mode with the tab without sharing it across Project Sessions', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'README.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('README.md', '# One'), 1)
+    expect(store.beginOpenTab('session-2', 'README.md', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-2', textDocument('README.md', '# Two'), 2)
+
+    store.setEditorMode('session-1', 'README.md', 'source')
+
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      editorMode: 'source'
+    })
+    expect(useFilesStore.getState().contexts['session-2'].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      editorMode: 'rich'
+    })
+  })
+
   it('replaces one clean preview tab when browsing files', () => {
     const store = useFilesStore.getState()
 
