@@ -10,6 +10,7 @@ import { createProjectSessionRequestSchema } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getTerminalService } from '../../terminal/main/terminal.runtime'
 import { createSessionCleanupService } from './session-cleanup.service'
 import { createSessionsService } from './sessions.service'
 
@@ -23,7 +24,9 @@ const sessionCleanupService = createSessionCleanupService({
     remove: (request) => getManagedWorktreeService().remove(request)
   },
   deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
-  removeTranscript: (path) => rm(path, { force: true })
+  removeTranscript: (path) => rm(path, { force: true }),
+  closeTerminalsForSession: (sessionId) =>
+    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId })
 })
 
 export function registerSessionsIpc(): void {

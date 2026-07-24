@@ -5,7 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
-import type { TerminalContext, TerminalEvent } from '../../shared'
+import type { TerminalContext, TerminalEvent, TerminalOutputEvent } from '../../shared'
 
 type TerminalToolProps = {
   context: TerminalContext
@@ -13,12 +13,19 @@ type TerminalToolProps = {
 
 type TerminalStatus = 'starting' | 'running' | 'empty' | 'failed'
 
+type SubscriptionState = {
+  terminalId: string
+  phase: 'subscribing' | 'running'
+  buffer: TerminalEvent[]
+}
+
 export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalIdRef = useRef<string | null>(null)
-  const lastSequenceRef = useRef(0)
+  const subscriptionRef = useRef<SubscriptionState | null>(null)
+  const lastSequenceByTerminalRef = useRef(new Map<string, number>())
   const terminalContext = useMemo<TerminalContext>(
     () => ({ kind: 'project-session', sessionId: context.sessionId }),
     [context.sessionId]
@@ -43,17 +50,26 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     return { cols: proposed.cols, rows: proposed.rows }
   }, [])
 
-  const applyTerminalEvent = useCallback((event: TerminalEvent): void => {
-    if (event.type === 'output') {
-      if (event.sequence <= lastSequenceRef.current) return
-      lastSequenceRef.current = event.sequence
-      xtermRef.current?.write(event.data)
-      return
-    }
-    terminalIdRef.current = null
-    setTerminalId(null)
-    setStatus('empty')
+  const applyOutputEvent = useCallback((event: TerminalOutputEvent): void => {
+    const lastSequence = lastSequenceByTerminalRef.current.get(event.terminalId) ?? 0
+    if (event.sequence <= lastSequence) return
+    lastSequenceByTerminalRef.current.set(event.terminalId, event.sequence)
+    xtermRef.current?.write(event.data)
   }, [])
+
+  const applyTerminalEvent = useCallback(
+    (event: TerminalEvent): void => {
+      if (event.type === 'output') {
+        applyOutputEvent(event)
+        return
+      }
+      terminalIdRef.current = null
+      subscriptionRef.current = null
+      setTerminalId(null)
+      setStatus('empty')
+    },
+    [applyOutputEvent]
+  )
 
   const resizeTerminal = useCallback(async (): Promise<void> => {
     const dimensions = fitTerminal()
@@ -86,26 +102,66 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       })
     })
 
+    const removeEventListener = window.spacezero.terminal.onEvent((event) => {
+      if (event.terminalId !== terminalIdRef.current) return
+      const subscription = subscriptionRef.current
+      if (subscription?.terminalId === event.terminalId && subscription.phase === 'subscribing') {
+        subscription.buffer.push(event)
+        return
+      }
+      applyTerminalEvent(event)
+    })
+
     async function createAndSubscribe(): Promise<void> {
       try {
         const dimensions = fitTerminal()
         const created = await window.spacezero.terminal.create({
           context: terminalContext,
           cols: dimensions?.cols,
-          rows: dimensions?.rows
+          rows: dimensions?.rows,
+          forceNew: autoCreateToken > 0
         })
         if (cancelled) return
-        terminalIdRef.current = created.terminalId
-        setTerminalId(created.terminalId)
+        if (created.status === 'empty') {
+          terminalIdRef.current = null
+          subscriptionRef.current = null
+          setTerminalId(null)
+          setStatus('empty')
+          return
+        }
+
+        const createdTerminalId = created.terminalId
+        if (terminalIdRef.current !== createdTerminalId) {
+          lastSequenceByTerminalRef.current.set(createdTerminalId, 0)
+        }
+        terminalIdRef.current = createdTerminalId
+        setTerminalId(createdTerminalId)
+        subscriptionRef.current = {
+          terminalId: createdTerminalId,
+          phase: 'subscribing',
+          buffer: []
+        }
+
         const subscription = await window.spacezero.terminal.subscribe({
-          terminalId: created.terminalId,
-          context: terminalContext
+          terminalId: createdTerminalId,
+          context: terminalContext,
+          afterSequence: lastSequenceByTerminalRef.current.get(createdTerminalId) ?? 0
         })
         if (cancelled) return
-        for (const event of subscription.events) applyTerminalEvent(event)
-        lastSequenceRef.current = subscription.nextSequence - 1
-        setStatus('running')
-        void resizeTerminal()
+        const buffered = subscriptionRef.current?.buffer ?? []
+        subscriptionRef.current = { terminalId: createdTerminalId, phase: 'running', buffer: [] }
+        for (const event of orderTerminalEvents([...subscription.events, ...buffered])) {
+          applyTerminalEvent(event)
+        }
+        const lastSequence = lastSequenceByTerminalRef.current.get(createdTerminalId) ?? 0
+        lastSequenceByTerminalRef.current.set(
+          createdTerminalId,
+          Math.max(lastSequence, subscription.nextSequence - 1)
+        )
+        if (terminalIdRef.current === createdTerminalId) {
+          setStatus('running')
+          void resizeTerminal()
+        }
       } catch (caught) {
         if (cancelled) return
         setStatus('failed')
@@ -114,11 +170,6 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     }
 
     void createAndSubscribe()
-
-    const removeEventListener = window.spacezero.terminal.onEvent((event) => {
-      if (event.terminalId !== terminalIdRef.current) return
-      applyTerminalEvent(event)
-    })
 
     const observer = new ResizeObserver(() => {
       void resizeTerminal()
@@ -138,6 +189,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         })
       }
       terminalIdRef.current = null
+      subscriptionRef.current = null
       xterm.dispose()
       xtermRef.current = null
       fitAddonRef.current = null
@@ -149,6 +201,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     if (!window.confirm('Close this live terminal and terminate its shell?')) return
     await window.spacezero.terminal.close({ terminalId, context: terminalContext })
     terminalIdRef.current = null
+    subscriptionRef.current = null
     setTerminalId(null)
     setStatus('empty')
   }
@@ -192,4 +245,12 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       )}
     </section>
   )
+}
+
+function orderTerminalEvents(events: TerminalEvent[]): TerminalEvent[] {
+  return [...events].sort((left, right) => eventSequence(left) - eventSequence(right))
+}
+
+function eventSequence(event: TerminalEvent): number {
+  return event.type === 'output' ? event.sequence : Number.MAX_SAFE_INTEGER
 }

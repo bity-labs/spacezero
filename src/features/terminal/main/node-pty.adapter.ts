@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { chmod } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -43,7 +44,7 @@ function toPtyProcess(pty: IPty): PtyProcess {
   return {
     write: (data) => pty.write(data),
     resize: (cols, rows) => pty.resize(cols, rows),
-    kill: () => pty.kill(),
+    kill: () => terminatePtyProcessTree(pty),
     onData: (listener) => {
       const disposable = pty.onData(listener)
       return () => disposable.dispose()
@@ -53,4 +54,76 @@ function toPtyProcess(pty: IPty): PtyProcess {
       return () => disposable.dispose()
     }
   }
+}
+
+function terminatePtyProcessTree(pty: IPty): void {
+  if (process.platform === 'win32') {
+    pty.kill()
+    return
+  }
+
+  const pid = pty.pid
+  if (!Number.isSafeInteger(pid) || pid <= 1 || pid === process.pid) {
+    pty.kill()
+    return
+  }
+
+  const descendants = collectDescendantPids(pid)
+  signalUnixProcessTree(pid, descendants, 'SIGTERM')
+  pty.kill()
+
+  const timer = setTimeout(() => {
+    signalUnixProcessTree(pid, descendants, 'SIGKILL')
+  }, 2_000)
+  timer.unref()
+}
+
+function signalUnixProcessTree(
+  rootPid: number,
+  descendants: number[],
+  signal: NodeJS.Signals
+): void {
+  for (const childPid of [...descendants].reverse()) {
+    signalProcess(childPid, signal)
+  }
+
+  if (!signalProcess(-rootPid, signal)) {
+    signalProcess(rootPid, signal)
+  }
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals): boolean {
+  try {
+    process.kill(pid, signal)
+    return true
+  } catch (error) {
+    return isMissingProcessGroup(error)
+  }
+}
+
+function collectDescendantPids(pid: number): number[] {
+  let output: string
+  try {
+    output = execFileSync('pgrep', ['-P', String(pid)], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+  } catch {
+    return []
+  }
+
+  const directChildren = output
+    .split('\n')
+    .map((value) => Number(value.trim()))
+    .filter((value) => Number.isSafeInteger(value) && value > 1 && value !== process.pid)
+  return directChildren.flatMap((childPid) => [childPid, ...collectDescendantPids(childPid)])
+}
+
+function isMissingProcessGroup(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ESRCH'
+  )
 }

@@ -60,7 +60,7 @@ describe('Terminal service', () => {
       request: { context, cols: 120, rows: 40 }
     })
 
-    expect(first).toEqual({ terminalId: 'terminal-1' })
+    expect(first).toEqual({ status: 'running', terminalId: 'terminal-1' })
     expect(second).toEqual(first)
     expect(adapter.spawn).toHaveBeenCalledTimes(1)
     expect(adapter.spawn).toHaveBeenCalledWith({
@@ -84,12 +84,77 @@ describe('Terminal service', () => {
     expect(ptys).toHaveLength(1)
   })
 
+  it('serializes concurrent creates for the same window/context into one PTY', async () => {
+    let resolveSpawn: ((pty: FakePty) => void) | undefined
+    const ptys: FakePty[] = []
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            resolveSpawn = (pty) => {
+              ptys.push(pty)
+              resolve(pty)
+            }
+          })
+      )
+    }
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: adapter,
+      createId: () => 'terminal-concurrent',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+
+    const first = service.create({ ownerWindowId: 1, request: { context } })
+    const second = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(adapter.spawn).toHaveBeenCalledTimes(1))
+    resolveSpawn?.(new FakePty(80, 24))
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { status: 'running', terminalId: 'terminal-concurrent' },
+      { status: 'running', terminalId: 'terminal-concurrent' }
+    ])
+    expect(adapter.spawn).toHaveBeenCalledTimes(1)
+    expect(ptys).toHaveLength(1)
+  })
+
+  it('retains an explicit empty state after close or hidden natural exit until forced to create', async () => {
+    const { adapter, ptys, service } = createHarness()
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+
+    await service.close({ ownerWindowId: 1, request: { terminalId, context } })
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      status: 'empty',
+      terminalId: null
+    })
+    expect(adapter.spawn).toHaveBeenCalledTimes(1)
+
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-2' })
+    ptys[1]?.emitExit(0)
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      status: 'empty',
+      terminalId: null
+    })
+    expect(adapter.spawn).toHaveBeenCalledTimes(2)
+  })
+
   it('forwards input unchanged, resizes valid PTYs, and rejects forged window or context ownership', async () => {
     const { ptys, service } = createHarness()
-    const { terminalId } = await service.create({
+    const created = await service.create({
       ownerWindowId: 1,
       request: { context, cols: 80, rows: 24 }
     })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
 
     await service.writeInput({
       ownerWindowId: 1,
@@ -117,7 +182,9 @@ describe('Terminal service', () => {
 
   it('retains bounded output and replays only events after the subscriber cursor', async () => {
     const { events, ptys, service } = createHarness()
-    const { terminalId } = await service.create({ ownerWindowId: 1, request: { context } })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
 
     await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
     ptys[0]?.emitData('first\n')
@@ -159,7 +226,9 @@ describe('Terminal service', () => {
       maxRetainedLines: 2,
       maxRetainedBytes: 12
     })
-    const { terminalId } = await service.create({ ownerWindowId: 1, request: { context } })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
     const pty = ptys[0]
 
     pty.emitData('one\n')
@@ -169,14 +238,49 @@ describe('Terminal service', () => {
 
     const replay = await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
     expect(replay.events).toEqual([
-      { type: 'output', terminalId, sequence: 4, data: '0123456789abcdef' }
+      { type: 'output', terminalId, sequence: 4, data: '456789abcdef' }
     ])
     expect(replay.oldestSequence).toBe(4)
   })
 
+  it('trims a single oversized chunk to the retained line limit', async () => {
+    const ptys: FakePty[] = []
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: {
+        spawn: vi.fn(async () => {
+          const pty = new FakePty(80, 24)
+          ptys.push(pty)
+          return pty
+        })
+      },
+      createId: () => 'terminal-line-evict',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn(),
+      maxRetainedLines: 2,
+      maxRetainedBytes: 100
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+
+    ptys[0]?.emitData('one\ntwo\nthree\n')
+
+    const replay = await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+    expect(replay.events).toEqual([
+      { type: 'output', terminalId, sequence: 1, data: 'two\nthree\n' }
+    ])
+  })
+
   it('closes the PTY on user close and removes it after natural shell exit', async () => {
     const { events, ptys, service } = createHarness()
-    const { terminalId } = await service.create({ ownerWindowId: 1, request: { context } })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
     await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
 
     await service.close({ ownerWindowId: 1, request: { terminalId, context } })
@@ -186,7 +290,8 @@ describe('Terminal service', () => {
       service.writeInput({ ownerWindowId: 1, request: { terminalId, context, data: 'again' } })
     ).rejects.toThrow('terminal.notFound')
 
-    const next = await service.create({ ownerWindowId: 1, request: { context } })
+    const next = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (next.status !== 'running') throw new Error('expected running terminal')
     await service.subscribe({ ownerWindowId: 1, request: { terminalId: next.terminalId, context } })
     ptys[1]?.emitExit(0)
 
@@ -202,6 +307,42 @@ describe('Terminal service', () => {
         request: { terminalId: next.terminalId, context, cols: 80, rows: 24 }
       })
     ).rejects.toThrow('terminal.notFound')
+  })
+
+  it('rejects input and resize for a terminal whose owning Session was deleted', async () => {
+    let storedSession: typeof session | undefined = session
+    const ptys: FakePty[] = []
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => storedSession),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: {
+        spawn: vi.fn(async () => {
+          const pty = new FakePty(80, 24)
+          ptys.push(pty)
+          return pty
+        })
+      },
+      createId: () => 'terminal-stale-owner',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+
+    storedSession = undefined
+
+    await expect(
+      service.writeInput({ ownerWindowId: 1, request: { terminalId, context, data: 'again' } })
+    ).rejects.toThrow('terminal.projectSessionNotFound')
+    await expect(
+      service.resize({ ownerWindowId: 1, request: { terminalId, context, cols: 80, rows: 24 } })
+    ).rejects.toThrow('terminal.projectSessionNotFound')
+    expect(ptys[0]?.writes).toEqual([])
+    expect(ptys[0]?.resizes).toEqual([])
   })
 
   it('surfaces shell launch failures without substituting another shell', async () => {

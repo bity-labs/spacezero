@@ -1,5 +1,6 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -18,6 +19,31 @@ async function launchApp(userDataPath?: string): Promise<ElectronApplication> {
     executablePath: electronPath,
     args: [`--user-data-dir=${dataPath}`, join(process.cwd(), 'out/main/index.js')]
   })
+}
+
+async function launchPackagedApp(userDataPath: string): Promise<ElectronApplication> {
+  const executablePath = resolvePackagedExecutablePath()
+  test.skip(!executablePath, 'Packaged app artifact is required for the terminal smoke')
+  return electron.launch({
+    executablePath: executablePath!,
+    args: [`--user-data-dir=${userDataPath}`]
+  })
+}
+
+function resolvePackagedExecutablePath(): string | undefined {
+  if (process.env.SPACEZERO_PACKAGED_APP_PATH) return process.env.SPACEZERO_PACKAGED_APP_PATH
+
+  const candidates =
+    process.platform === 'darwin'
+      ? [
+          join(process.cwd(), 'dist', `mac-${process.arch}`, 'Space Zero.app', 'Contents', 'MacOS', 'Space Zero'),
+          join(process.cwd(), 'dist', 'mac', 'Space Zero.app', 'Contents', 'MacOS', 'Space Zero')
+        ]
+      : process.platform === 'win32'
+        ? [join(process.cwd(), 'dist', 'win-unpacked', 'Space Zero.exe')]
+        : [join(process.cwd(), 'dist', 'linux-unpacked', 'spacezero')]
+
+  return candidates.find((candidate) => existsSync(candidate))
 }
 
 test.afterEach(async () => {
@@ -334,6 +360,8 @@ test('opens a Project Session text file in bundled Monaco without network loadin
 })
 
 test('creates a real Project Session PTY through the packaged terminal IPC bridge', async () => {
+  test.skip(process.platform === 'win32', 'Packaged PTY termination smoke is Unix-only for v0')
+
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-terminal-e2e-'))
   const projectPath = join(temporaryDirectory, 'project')
   const userDataPath = join(temporaryDirectory, 'user-data')
@@ -341,6 +369,7 @@ test('creates a real Project Session PTY through the packaged terminal IPC bridg
   const sessionId = 'session-terminal-e2e'
   const worktreePath = join(temporaryDirectory, 'worktrees', projectId, sessionId)
   const branch = `spacezero/session-${sessionId}`
+  let electronApp: ElectronApplication | undefined
 
   try {
     await mkdir(projectPath, { recursive: true })
@@ -359,14 +388,16 @@ test('creates a real Project Session PTY through the packaged terminal IPC bridg
       cwd: projectPath
     })
 
-    const electronApp = await launchApp(userDataPath)
+    electronApp = await launchPackagedApp(userDataPath)
     const window = await electronApp.firstWindow()
+    const isPackaged = await electronApp.evaluate(({ app }) => app.isPackaged)
+    expect(isPackaged).toBe(true)
 
     await electronApp.evaluate(
       ({ app }, { projectId, projectPath, sessionId, worktreePath, branch, baseRevision }) => {
         const { createRequire } = process.getBuiltinModule('node:module')
         const { join } = process.getBuiltinModule('node:path')
-        const require = createRequire(`${process.cwd()}/package.json`)
+        const require = createRequire(`${app.getAppPath()}/package.json`)
         const Database = require('better-sqlite3')
         const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
         const timestamp = Date.now()
@@ -406,55 +437,83 @@ test('creates a real Project Session PTY through the packaged terminal IPC bridg
       { projectId, projectPath, sessionId, worktreePath, branch, baseRevision }
     )
 
-    const command =
-      process.platform === 'win32'
-        ? 'Write-Output "SPACEZERO_TERMINAL_E2E:$PWD"\r'
-        : 'printf "SPACEZERO_TERMINAL_E2E:%s\\n" "$PWD"\r'
-
-    const output = await window.evaluate(
-      async ({ sessionId, command, worktreePath }) => {
+    const result = await window.evaluate(
+      async ({ sessionId, worktreePath }) => {
         const context = { kind: 'project-session' as const, sessionId }
         let output = ''
-        const waitForMarker = new Promise<string>((resolve, reject) => {
+        let childPid: number | null = null
+        const waitForMarker = new Promise<{ output: string; childPid: number }>((resolve, reject) => {
           const timeout = window.setTimeout(() => {
             unsubscribe()
             reject(new Error(`Timed out waiting for terminal output: ${output}`))
-          }, 10_000)
+          }, 15_000)
           const unsubscribe = window.spacezero.terminal.onEvent((event) => {
             if (event.type !== 'output') return
             output += event.data
-            if (output.includes('SPACEZERO_TERMINAL_E2E:') && output.includes(worktreePath)) {
+            const match = output.match(/SPACEZERO_CHILD:(\d+)/)
+            if (
+              output.includes('SPACEZERO_TERMINAL_E2E') &&
+              output.includes(worktreePath) &&
+              /(^|\r?\n)30 100(\r?\n|$)/.test(output) &&
+              match
+            ) {
+              childPid = Number(match[1])
               window.clearTimeout(timeout)
               unsubscribe()
-              resolve(output)
+              resolve({ output, childPid })
             }
           })
         })
-        const { terminalId } = await window.spacezero.terminal.create({
+        const created = await window.spacezero.terminal.create({
           context,
           cols: 80,
-          rows: 24
+          rows: 24,
+          forceNew: true
         })
+        if (created.status !== 'running') throw new Error('Expected a running terminal')
+        const { terminalId } = created
         const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
         for (const event of replay.events) {
           if (event.type === 'output') output += event.data
         }
         await window.spacezero.terminal.resize({ terminalId, context, cols: 100, rows: 30 })
-        await window.spacezero.terminal.writeInput({ terminalId, context, data: command })
+        await window.spacezero.terminal.writeInput({
+          terminalId,
+          context,
+          data: 'echo SPACEZERO_TERMINAL_E2E; pwd; stty size; sleep 60 & echo SPACEZERO_CHILD:$!\r'
+        })
         const observed = await waitForMarker
         await window.spacezero.terminal.close({ terminalId, context })
         return observed
       },
-      { sessionId, command, worktreePath }
+      { sessionId, worktreePath }
     )
 
-    expect(output).toContain('SPACEZERO_TERMINAL_E2E:')
-    expect(output).toContain(worktreePath)
-    await electronApp.close()
+    expect(result.output).toContain('SPACEZERO_TERMINAL_E2E')
+    expect(result.output).toContain(worktreePath)
+    expect(result.output).toMatch(/(^|\r?\n)30 100(\r?\n|$)/)
+    await expect
+      .poll(async () => isProcessAlive(result.childPid), { timeout: 5_000 })
+      .toBe(false)
   } finally {
+    await electronApp?.close().catch(() => undefined)
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
 })
+
+async function isProcessAlive(pid: number): Promise<boolean> {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return !(
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ESRCH'
+    )
+  }
+}
 
 test('opens a configured Knowledge Base as a persistent managed chat', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-kb-e2e-'))

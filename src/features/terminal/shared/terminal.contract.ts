@@ -16,11 +16,18 @@ export type TerminalCreateRequest = {
   context: TerminalContext
   cols?: number
   rows?: number
+  forceNew?: boolean
 }
 
-export type TerminalCreateResult = {
-  terminalId: TerminalId
-}
+export type TerminalCreateResult =
+  | {
+      status: 'running'
+      terminalId: TerminalId
+    }
+  | {
+      status: 'empty'
+      terminalId: null
+    }
 
 export type TerminalSubscribeRequest = {
   terminalId: TerminalId

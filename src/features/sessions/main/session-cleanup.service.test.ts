@@ -56,6 +56,39 @@ describe('Session cleanup service', () => {
     expect(removeTranscript).not.toHaveBeenCalled()
   })
 
+  it('stops owning terminals before destructive Session worktree cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => {
+        events.push('transcript')
+      },
+      closeTerminalsForSession: () => {
+        events.push('terminal')
+      }
+    })
+
+    await service.deleteSession('session-1')
+
+    expect(events).toEqual(['terminal', 'utility', 'worktree', 'metadata', 'transcript'])
+  })
+
   it('deletes durable metadata only after managed resources are removed', async () => {
     const session = createStoredSession()
     const events: string[] = []
@@ -111,13 +144,20 @@ describe('Session cleanup service', () => {
         }
       },
       deleteUtilitySession: async () => undefined,
-      removeTranscript: async () => undefined
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: (sessionId) => {
+        deletedSessionIds.push(`terminal:${sessionId}`)
+      }
     })
 
     await expect(service.deleteProjectSessions('project-1')).rejects.toThrow(
       'session.worktreeRemoveFailed'
     )
-    expect(deletedSessionIds).toEqual(['legacy-session'])
+    expect(deletedSessionIds).toEqual([
+      'terminal:legacy-session',
+      'legacy-session',
+      'terminal:session-1'
+    ])
   })
 
   it('rejects partial worktree metadata instead of deleting the Session row', async () => {

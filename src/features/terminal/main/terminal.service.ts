@@ -111,6 +111,8 @@ export function createTerminalService({
   maxRetainedBytes?: number
 }) {
   const terminals = new Map<string, TerminalRecord>()
+  const emptyContexts = new Set<string>()
+  const inFlightCreates = new Map<string, Promise<TerminalCreateResult>>()
 
   async function create({
     ownerWindowId,
@@ -120,8 +122,31 @@ export function createTerminalService({
     request: TerminalCreateRequest
   }): Promise<TerminalCreateResult> {
     const existing = findExistingTerminal(ownerWindowId, request.context)
-    if (existing) return { terminalId: existing.id }
+    if (existing) return { status: 'running', terminalId: existing.id }
 
+    const key = contextKey(ownerWindowId, request.context)
+    if (!request.forceNew && emptyContexts.has(key)) {
+      await assertContextOwnerActive(request.context)
+      return { status: 'empty', terminalId: null }
+    }
+
+    const inFlight = inFlightCreates.get(key)
+    if (inFlight) return inFlight
+
+    const createPromise = createFreshTerminal({ ownerWindowId, request }).finally(() => {
+      inFlightCreates.delete(key)
+    })
+    inFlightCreates.set(key, createPromise)
+    return createPromise
+  }
+
+  async function createFreshTerminal({
+    ownerWindowId,
+    request
+  }: {
+    ownerWindowId: number
+    request: TerminalCreateRequest
+  }): Promise<TerminalCreateResult> {
     const cwd = await resolveProjectSessionWorktree(request.context.sessionId)
     const shell = resolveShell()
     const id = createId()
@@ -156,7 +181,8 @@ export function createTerminalService({
       process.onExit((event) => removeExitedTerminal(record, event))
     )
     terminals.set(id, record)
-    return { terminalId: id }
+    emptyContexts.delete(contextKey(ownerWindowId, request.context))
+    return { status: 'running', terminalId: id }
   }
 
   async function subscribe({
@@ -166,7 +192,7 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalSubscribeRequest
   }): Promise<TerminalSubscribeResult> {
-    const terminal = requireTerminal(ownerWindowId, request.terminalId, request.context)
+    const terminal = await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
     terminal.subscribed = true
     const afterSequence = request.afterSequence ?? 0
     const events: TerminalEvent[] = terminal.output.chunks
@@ -192,7 +218,7 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalUnsubscribeRequest
   }): Promise<void> {
-    const terminal = requireTerminal(ownerWindowId, request.terminalId, request.context)
+    const terminal = await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
     terminal.subscribed = false
   }
 
@@ -203,7 +229,9 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalWriteInputRequest
   }): Promise<void> {
-    requireTerminal(ownerWindowId, request.terminalId, request.context).pty.write(request.data)
+    ;(await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)).pty.write(
+      request.data
+    )
   }
 
   async function resize({
@@ -213,7 +241,7 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalResizeRequest
   }): Promise<void> {
-    requireTerminal(ownerWindowId, request.terminalId, request.context).pty.resize(
+    ;(await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)).pty.resize(
       request.cols,
       request.rows
     )
@@ -227,14 +255,14 @@ export function createTerminalService({
     request: TerminalCloseRequest
   }): Promise<void> {
     const terminal = requireTerminal(ownerWindowId, request.terminalId, request.context)
-    deleteTerminal(terminal)
+    deleteTerminal(terminal, { markEmpty: true })
     terminal.pty.kill()
   }
 
   function closeAllForWindow(ownerWindowId: number): void {
     for (const terminal of [...terminals.values()]) {
       if (terminal.ownerWindowId === ownerWindowId) {
-        deleteTerminal(terminal)
+        deleteTerminal(terminal, { markEmpty: false })
         terminal.pty.kill()
       }
     }
@@ -242,8 +270,17 @@ export function createTerminalService({
 
   function closeAll(): void {
     for (const terminal of [...terminals.values()]) {
-      deleteTerminal(terminal)
+      deleteTerminal(terminal, { markEmpty: false })
       terminal.pty.kill()
+    }
+  }
+
+  function closeAllForContext(context: TerminalCreateRequest['context']): void {
+    for (const terminal of [...terminals.values()]) {
+      if (sameContext(terminal.context, context)) {
+        deleteTerminal(terminal, { markEmpty: true })
+        terminal.pty.kill()
+      }
     }
   }
 
@@ -297,6 +334,20 @@ export function createTerminalService({
     return terminal
   }
 
+  async function requireLiveTerminal(
+    ownerWindowId: number,
+    terminalId: string,
+    context: TerminalCreateRequest['context']
+  ): Promise<TerminalRecord> {
+    const terminal = requireTerminal(ownerWindowId, terminalId, context)
+    await assertContextOwnerActive(terminal.context)
+    return terminal
+  }
+
+  async function assertContextOwnerActive(context: TerminalCreateRequest['context']): Promise<void> {
+    await resolveProjectSessionWorktree(context.sessionId)
+  }
+
   function retainAndEmit(terminal: TerminalRecord, data: string): void {
     const chunk = {
       sequence: terminal.output.nextSequence++,
@@ -329,6 +380,20 @@ export function createTerminalService({
       output.totalBytes -= removed.bytes
       output.totalLines -= removed.lines
     }
+
+    const oldest = output.chunks[0]
+    if (!oldest) return
+    if (output.totalLines <= maxRetainedLines && output.totalBytes <= maxRetainedBytes) return
+
+    const trimmedData = trimOldestDataToLimits(oldest.data, {
+      maxBytes: maxRetainedBytes,
+      maxLines: maxRetainedLines
+    })
+    oldest.data = trimmedData
+    oldest.bytes = Buffer.byteLength(trimmedData, 'utf8')
+    oldest.lines = countLines(trimmedData)
+    output.totalBytes = oldest.bytes
+    output.totalLines = oldest.lines
   }
 
   function removeExitedTerminal(
@@ -336,7 +401,7 @@ export function createTerminalService({
     event: { exitCode: number | null; signal?: number | string | null }
   ): void {
     if (!terminals.has(terminal.id)) return
-    deleteTerminal(terminal)
+    deleteTerminal(terminal, { markEmpty: true })
     emitToWindow(terminal.ownerWindowId, {
       type: 'exit',
       terminalId: terminal.id,
@@ -345,8 +410,9 @@ export function createTerminalService({
     })
   }
 
-  function deleteTerminal(terminal: TerminalRecord): void {
+  function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
     terminals.delete(terminal.id)
+    if (options.markEmpty) emptyContexts.add(contextKey(terminal.ownerWindowId, terminal.context))
     for (const dispose of terminal.dispose.splice(0)) dispose()
   }
 
@@ -358,6 +424,7 @@ export function createTerminalService({
     resize,
     close,
     closeAllForWindow,
+    closeAllForContext,
     closeAll
   }
 }
@@ -369,11 +436,40 @@ export function resolveDefaultShell(): TerminalShell {
   return { executable, args: [] }
 }
 
+function contextKey(ownerWindowId: number, context: TerminalCreateRequest['context']): string {
+  return `${ownerWindowId}:${context.kind}:${context.sessionId}`
+}
+
 function sameContext(
   left: TerminalCreateRequest['context'],
   right: TerminalCreateRequest['context']
 ): boolean {
   return left.kind === right.kind && left.sessionId === right.sessionId
+}
+
+function trimOldestDataToLimits(
+  data: string,
+  limits: { maxBytes: number; maxLines: number }
+): string {
+  let trimmed = data
+  while (countLines(trimmed) > limits.maxLines) {
+    const newlineIndex = trimmed.indexOf('\n')
+    if (newlineIndex < 0) break
+    trimmed = trimmed.slice(newlineIndex + 1)
+  }
+
+  if (Buffer.byteLength(trimmed, 'utf8') > limits.maxBytes) {
+    const bytes = Buffer.from(trimmed, 'utf8')
+    trimmed = bytes.subarray(bytes.length - limits.maxBytes).toString('utf8')
+  }
+
+  while (countLines(trimmed) > limits.maxLines) {
+    const newlineIndex = trimmed.indexOf('\n')
+    if (newlineIndex < 0) break
+    trimmed = trimmed.slice(newlineIndex + 1)
+  }
+
+  return trimmed
 }
 
 function countLines(data: string): number {
