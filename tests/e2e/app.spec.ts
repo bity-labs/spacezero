@@ -182,9 +182,16 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   const projectPath = join(temporaryDirectory, 'project')
   const userDataPath = join(temporaryDirectory, 'user-data')
   const markdownPath = join(projectPath, 'README.md')
+  const notesPath = join(projectPath, 'NOTES.md')
   const sourcePath = join(projectPath, 'package.json')
   await mkdir(projectPath, { recursive: true })
-  await writeFile(markdownPath, '# Bundled editor\n')
+  await writeFile(
+    markdownPath,
+    ['# Bundled editor', ...Array.from({ length: 80 }, (_, index) => `Line ${index + 1}`)].join(
+      '\n\n'
+    )
+  )
+  await writeFile(notesPath, '# Second note\n')
   await writeFile(sourcePath, '{"name":"files-e2e"}\n')
 
   const electronApp = await launchApp(userDataPath)
@@ -283,6 +290,34 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await window.getByText('README.md').click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toBeVisible()
   await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
+  const richEditorMetrics = await window.locator('.rich-markdown-editor').evaluate((editor) => {
+    const wrapper = editor.parentElement
+    const content = editor.querySelector('.rich-markdown-editor__content')
+    return {
+      wrapperHeight: wrapper?.getBoundingClientRect().height ?? 0,
+      editorHeight: editor.getBoundingClientRect().height,
+      contentClientHeight: content?.clientHeight ?? 0,
+      contentScrollHeight: content?.scrollHeight ?? 0,
+      contentOverflowY: content ? window.getComputedStyle(content).overflowY : ''
+    }
+  })
+  expect(richEditorMetrics.editorHeight).toBeGreaterThan(richEditorMetrics.wrapperHeight - 4)
+  expect(richEditorMetrics.contentScrollHeight).toBeGreaterThan(
+    richEditorMetrics.contentClientHeight
+  )
+  expect(richEditorMetrics.contentOverflowY).toBe('auto')
+
+  await window.getByRole('button', { name: 'Pin preview' }).click()
+  await window.getByText('NOTES.md').click()
+  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
+    'Second note'
+  )
+  await window.getByRole('button', { name: 'Pin preview' }).click()
+  await window.getByRole('tab', { name: 'README.md' }).click()
+  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
+    'Bundled editor'
+  )
+  await expect(window.getByRole('button', { name: 'Undo' })).toBeDisabled()
 
   const externalMonacoRequests = await window.evaluate(() =>
     performance

@@ -111,10 +111,14 @@ export function RichMarkdownEditor({
   useEffect(() => {
     if (!editor || editor.isDestroyed || editor.getMarkdown() === body) return
 
-    editor.commands.setContent(body, {
-      contentType: 'markdown',
-      emitUpdate: false
-    })
+    editor
+      .chain()
+      .setMeta('addToHistory', false)
+      .setContent(body, {
+        contentType: 'markdown',
+        emitUpdate: false
+      })
+      .run()
   }, [body, editor])
 
   const toolbarState = useEditorState({
