@@ -255,6 +255,71 @@ describe('createProjectAgentSession', () => {
     )
   })
 
+  it('resolves an Agent Definition reference before creating a project utility session', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          agentDefinition: { id: 'reviewer', name: 'Reviewer' },
+          modelProvider: 'faux',
+          modelId: 'faux-1',
+          thinkingLevel: 'high'
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository()
+
+    await createManagedProjectAgentSession(
+      {
+        projectId: 'project-1',
+        agentDefinition: { id: 'reviewer' }
+      },
+      {
+        repository,
+        utilityHost,
+        worktrees: createTestWorktrees(),
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        resolveAgentDefinition: async (reference) => {
+          expect(reference).toEqual({ id: 'reviewer' })
+          return {
+            id: 'reviewer',
+            name: 'Reviewer',
+            body: 'Review code carefully.',
+            model: { providerId: 'faux', modelId: 'faux-1' },
+            thinkingLevel: 'high',
+            tools: ['read', 'workspace.getStatus']
+          }
+        }
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+        thinkingLevel: 'high',
+        agentDefinition: {
+          id: 'reviewer',
+          name: 'Reviewer',
+          body: 'Review code carefully.',
+          model: { providerId: 'faux', modelId: 'faux-1' },
+          thinkingLevel: 'high',
+          tools: ['read', 'workspace.getStatus']
+        }
+      })
+    )
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'reviewer',
+        name: 'Reviewer',
+        body: 'Review code carefully.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high',
+        tools: ['read', 'workspace.getStatus']
+      })
+    })
+  })
+
   it('passes project skill paths to a trusted project session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),
@@ -953,6 +1018,77 @@ describe('restoreAgentSessionState', () => {
     expect(utilityHost.createSession).not.toHaveBeenCalled()
   })
 
+  it('restores the immutable applied Agent Definition snapshot after app relaunch', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'low',
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'read-only',
+        name: 'Read Only',
+        body: 'Only inspect files. Do not modify project files.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high',
+        tools: ['read']
+      })
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () =>
+        createState({
+          agentDefinition: { id: 'read-only', name: 'Read Only' },
+          modelProvider: 'openai',
+          modelId: 'gpt-5',
+          thinkingLevel: 'low'
+        })
+      )
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost
+        }
+      )
+    ).resolves.toMatchObject({
+      agentDefinition: { id: 'read-only', name: 'Read Only' },
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'low'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+        thinkingLevel: 'low',
+        agentDefinition: {
+          id: 'read-only',
+          name: 'Read Only',
+          body: 'Only inspect files. Do not modify project files.',
+          model: { providerId: 'openai', modelId: 'gpt-5' },
+          thinkingLevel: 'low',
+          tools: ['read']
+        }
+      })
+    )
+  })
+
   it('recreates a stored project session from its transcript after app relaunch', async () => {
     const storedSession: StoredSession = {
       id: 'session-1',
@@ -1028,6 +1164,47 @@ describe('createWorkspaceAgentSession', () => {
       title: 'Knowledge Base Chat',
       managedContext: 'knowledge-base'
     })
+  })
+
+  it('resolves an Agent Definition reference before creating a workspace utility session', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions',
+          agentDefinition: { id: 'scout', name: 'Scout' }
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createWorkspaceAgentSession({
+      repository: createRepository(),
+      utilityHost,
+      createSessionId: () => 'workspace-session-1',
+      readModelDefaults,
+      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      agentDefinition: { id: 'scout' },
+      resolveAgentDefinition: async () => ({
+        id: 'scout',
+        name: 'Scout',
+        body: 'Scout the workspace.',
+        tools: ['workspace.getStatus']
+      })
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'workspace',
+        agentDefinition: {
+          id: 'scout',
+          name: 'Scout',
+          body: 'Scout the workspace.',
+          tools: ['workspace.getStatus']
+        }
+      })
+    )
   })
 
   it('creates a utility session with app-owned cwd and persists projectId null', async () => {

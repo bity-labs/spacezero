@@ -211,6 +211,12 @@ describe('createSessionsService', () => {
         path: '/SpaceZero/worktrees/project-1/agent-session-1',
         branch: 'spacezero/session-agent-session-1',
         baseRevision: 'abc123'
+      },
+      agentDefinitionSnapshot: {
+        id: 'read-only',
+        name: 'Read Only',
+        body: 'Only inspect files.',
+        tools: ['read']
       }
     })
 
@@ -224,7 +230,15 @@ describe('createSessionsService', () => {
     })
     expect(session).not.toHaveProperty('transcriptPath')
     await expect(repository.listProjectSessions()).resolves.toEqual([
-      expect.objectContaining({ transcriptPath: '/agent/sessions/session.jsonl' })
+      expect.objectContaining({
+        transcriptPath: '/agent/sessions/session.jsonl',
+        agentDefinitionSnapshot: JSON.stringify({
+          id: 'read-only',
+          name: 'Read Only',
+          body: 'Only inspect files.',
+          tools: ['read']
+        })
+      })
     ])
   })
 
