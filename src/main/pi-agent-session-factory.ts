@@ -65,6 +65,7 @@ export type PiAgentSessionFactoryOptions = {
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
   onSkillDiagnostics?: (diagnostics: ResourceDiagnostic[]) => void
   configureFauxProvider?: (provider: ReturnType<typeof fauxProvider>) => void
+  beforeCreateAgentSession?: (request: CreateAgentSessionRequest) => void | Promise<void>
 }
 
 export type PiAgentRuntime = {
@@ -88,7 +89,8 @@ export function createPiAgentRuntime({
   agentDir,
   executeWorkspaceTool,
   onSkillDiagnostics = logAgentSkillDiagnostics,
-  configureFauxProvider
+  configureFauxProvider,
+  beforeCreateAgentSession
 }: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
@@ -175,6 +177,7 @@ export function createPiAgentRuntime({
         childSessionId: request.sessionId
       })
     }
+    const activeDelegations = createActiveDelegations()
     const workspaceToolProxies = createWorkspaceToolProxies({
       sessionId: request.sessionId,
       parentSessionId: request.parentSessionId,
@@ -184,6 +187,7 @@ export function createPiAgentRuntime({
     const delegationTools = createDelegationTools({
       parentRequest: request,
       definitions: request.delegationDefinitions ?? [],
+      activeDelegations,
       createSession
     })
     const customTools = [...workspaceToolProxies, ...delegationTools]
@@ -196,6 +200,8 @@ export function createPiAgentRuntime({
     })
     const model = request.agentDefinition?.model ?? request.defaultModel
     const thinkingLevel = request.agentDefinition?.thinkingLevel ?? request.thinkingLevel
+
+    await beforeCreateAgentSession?.(request)
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
@@ -221,7 +227,8 @@ export function createPiAgentRuntime({
       initialThinkingLevel: thinkingLevel,
       skillPaths: request.skillPaths,
       agentDefinition: request.agentDefinition,
-      toolNames
+      toolNames,
+      activeDelegations
     })
   }
 
@@ -549,13 +556,104 @@ function selectToolNames({
   return selectedTools
 }
 
+type DelegationStatus = 'completed' | 'error' | 'aborted'
+
+type DelegationResult = {
+  status: DelegationStatus
+  output: string
+  childSessionId?: string
+  transcriptPath?: string
+  parentSessionId: string
+}
+
+type ActiveDelegationEntry = {
+  childSession?: CreatedPiAgentSession
+  cascadeReason?: 'aborted'
+}
+
+type ActiveDelegations = {
+  readonly cascadeReason: 'aborted' | undefined
+  begin: (childSessionId: string) => void
+  register: (childSessionId: string, childSession: CreatedPiAgentSession) => void
+  isAborted: (childSessionId: string) => boolean
+  unregister: (childSessionId: string) => void
+  abortAll: () => void
+  abortAndDisposeAll: () => void
+}
+
+function createActiveDelegations(): ActiveDelegations {
+  const entries = new Map<string, ActiveDelegationEntry>()
+  let cascadeReason: 'aborted' | undefined
+  let disposeOnCascade = false
+
+  function abortChild(childSession: CreatedPiAgentSession): void {
+    void childSession.abort().catch(() => undefined)
+  }
+
+  return {
+    get cascadeReason() {
+      return cascadeReason
+    },
+    begin: (childSessionId) => {
+      entries.set(childSessionId, { cascadeReason })
+    },
+    register: (childSessionId, childSession) => {
+      const entry = entries.get(childSessionId) ?? { cascadeReason }
+      entry.childSession = childSession
+      if (cascadeReason) entry.cascadeReason = cascadeReason
+      entries.set(childSessionId, entry)
+      if (entry.cascadeReason) {
+        abortChild(childSession)
+        if (disposeOnCascade) childSession.dispose()
+      }
+    },
+    isAborted: (childSessionId) => entries.get(childSessionId)?.cascadeReason === 'aborted',
+    unregister: (childSessionId) => {
+      entries.delete(childSessionId)
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+      }
+    },
+    abortAll: () => {
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+        return
+      }
+      cascadeReason = 'aborted'
+      for (const entry of entries.values()) {
+        entry.cascadeReason = 'aborted'
+        if (entry.childSession) abortChild(entry.childSession)
+      }
+    },
+    abortAndDisposeAll: () => {
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+        return
+      }
+      cascadeReason = 'aborted'
+      disposeOnCascade = true
+      for (const entry of entries.values()) {
+        entry.cascadeReason = 'aborted'
+        if (!entry.childSession) continue
+        abortChild(entry.childSession)
+        entry.childSession.dispose()
+      }
+    }
+  }
+}
+
 function createDelegationTools({
   parentRequest,
   definitions,
+  activeDelegations,
   createSession
 }: {
   parentRequest: CreateAgentSessionRequest
   definitions: DelegationAgentDefinition[]
+  activeDelegations: ActiveDelegations
   createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
 }): ToolDefinition[] {
   if (definitions.length === 0) return []
@@ -581,7 +679,13 @@ function createDelegationTools({
         additionalProperties: false
       },
       execute: async (_callId, input) => {
-        const result = await runDelegatedAgent({ parentRequest, definitions, input, createSession })
+        const result = await runDelegatedAgent({
+          parentRequest,
+          definitions,
+          activeDelegations,
+          input,
+          createSession
+        })
         return {
           content: [
             {
@@ -600,20 +704,16 @@ function createDelegationTools({
 async function runDelegatedAgent({
   parentRequest,
   definitions,
+  activeDelegations,
   input,
   createSession
 }: {
   parentRequest: CreateAgentSessionRequest
   definitions: DelegationAgentDefinition[]
+  activeDelegations: ActiveDelegations
   input: unknown
   createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
-}): Promise<{
-  status: 'completed' | 'error'
-  output: string
-  childSessionId?: string
-  transcriptPath?: string
-  parentSessionId: string
-}> {
+}): Promise<DelegationResult> {
   const parsedInput = parseDelegationInput(input)
   if (!parsedInput.ok) {
     return createDelegationError(parentRequest.sessionId, parsedInput.error)
@@ -636,6 +736,8 @@ async function runDelegatedAgent({
   const childSessionId = `subagent-${randomUUID()}`
   let childSession: CreatedPiAgentSession | undefined
 
+  activeDelegations.begin(childSessionId)
+
   try {
     childSession = await createSession({
       sessionId: childSessionId,
@@ -657,7 +759,24 @@ async function runDelegatedAgent({
         ...(definition.tools ? { tools: definition.tools } : {})
       }
     })
+    activeDelegations.register(childSessionId, childSession)
+    if (activeDelegations.isAborted(childSessionId)) {
+      return createDelegationAborted(
+        parentRequest.sessionId,
+        childSessionId,
+        childSession.sessionFile
+      )
+    }
+
     await childSession.prompt(parsedInput.task)
+
+    if (activeDelegations.isAborted(childSessionId)) {
+      return createDelegationAborted(
+        parentRequest.sessionId,
+        childSessionId,
+        childSession.sessionFile
+      )
+    }
 
     const finalAssistantResult = getFinalAssistantResult(childSession.getTranscriptSnapshot())
     return {
@@ -668,6 +787,13 @@ async function runDelegatedAgent({
       parentSessionId: parentRequest.sessionId
     }
   } catch (error) {
+    if (activeDelegations.isAborted(childSessionId)) {
+      return createDelegationAborted(
+        parentRequest.sessionId,
+        childSessionId,
+        childSession?.sessionFile
+      )
+    }
     return {
       status: 'error',
       output: error instanceof Error ? error.message : String(error),
@@ -675,6 +801,7 @@ async function runDelegatedAgent({
       parentSessionId: parentRequest.sessionId
     }
   } finally {
+    activeDelegations.unregister(childSessionId)
     childSession?.dispose()
   }
 }
@@ -691,8 +818,22 @@ function parseDelegationInput(
   return { ok: true, definition, task }
 }
 
-function createDelegationError(parentSessionId: string, output: string) {
-  return { status: 'error' as const, output, parentSessionId }
+function createDelegationError(parentSessionId: string, output: string): DelegationResult {
+  return { status: 'error', output, parentSessionId }
+}
+
+function createDelegationAborted(
+  parentSessionId: string,
+  childSessionId: string,
+  transcriptPath: string | undefined
+): DelegationResult {
+  return {
+    status: 'aborted',
+    output: '',
+    childSessionId,
+    ...(transcriptPath ? { transcriptPath } : {}),
+    parentSessionId
+  }
 }
 
 function createDelegationCatalogPrompt(definitions: DelegationAgentDefinition[]): string {
@@ -727,7 +868,7 @@ function isAssistantTranscriptMessage(
 }
 
 function getFinalAssistantResult(transcript: AgentTranscriptMessage[]): {
-  status: 'completed' | 'error'
+  status: Exclude<DelegationStatus, 'aborted'>
   output: string
 } {
   const finalAssistant = [...transcript].reverse().find(isAssistantTranscriptMessage)
@@ -762,7 +903,8 @@ function adaptAgentSession({
   initialThinkingLevel,
   skillPaths,
   agentDefinition,
-  toolNames
+  toolNames,
+  activeDelegations
 }: {
   session: AgentSession
   modelRegistry: ModelRegistry
@@ -770,6 +912,7 @@ function adaptAgentSession({
   skillPaths?: AgentSkillPath[]
   agentDefinition?: CreateAgentSessionRequest['agentDefinition']
   toolNames: string[]
+  activeDelegations: ActiveDelegations
 }): CreatedPiAgentSession {
   let preferredThinkingLevel =
     initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
@@ -806,13 +949,19 @@ function adaptAgentSession({
       session.setThinkingLevel(level)
     },
     prompt: (message) => session.prompt(message),
-    abort: () => session.abort(),
+    abort: async () => {
+      activeDelegations.abortAll()
+      await session.abort()
+    },
     subscribe: (listener) =>
       session.subscribe((event) => {
         const streamingEvent = toAgentStreamingEvent(session.sessionId, event)
         if (streamingEvent) listener(streamingEvent)
       }),
-    dispose: () => session.dispose(),
+    dispose: () => {
+      activeDelegations.abortAndDisposeAll()
+      session.dispose()
+    },
     getTranscriptSnapshot: () =>
       toTranscriptSnapshot(session.messages, session.state.streamingMessage)
   }
