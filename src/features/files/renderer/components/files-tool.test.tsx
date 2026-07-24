@@ -413,6 +413,77 @@ describe('Files Tool', () => {
     expect(await screen.findByDisplayValue('settled')).toBeInTheDocument()
   })
 
+  it('ignores stale pre-unmount open results after remounting, closing, and reopening the same file', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'retry.txt', relativePath: 'retry.txt', kind: 'file' as const }
+    ])
+    const pendingOpens: Array<{
+      promise: Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>
+      resolve: (document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>) => void
+    }> = []
+    const openDocument = vi.fn(() => {
+      let resolveOpen!: (
+        document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>
+      ) => void
+      const promise = new Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>(
+        (resolve) => {
+          resolveOpen = resolve
+        }
+      )
+      pendingOpens.push({ promise, resolve: resolveOpen })
+      return promise
+    })
+    window.spacezero.files.openDocument = openDocument
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('retry.txt'))
+    expect(await screen.findByText('Opening file…')).toBeInTheDocument()
+
+    view.unmount()
+    render(<FilesTool sessionId="session-1" />)
+    expect(await screen.findByText('Opening file…')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Close retry.txt' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'retry.txt' }))
+    expect(await screen.findByText('Opening file…')).toBeInTheDocument()
+    expect(openDocument).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      pendingOpens[0]?.resolve({
+        name: 'retry.txt',
+        relativePath: 'retry.txt',
+        contentKind: 'text' as const,
+        size: 5,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-old',
+        content: 'old open',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      await pendingOpens[0]?.promise
+    })
+
+    expect(screen.queryByDisplayValue('old open')).not.toBeInTheDocument()
+    expect(screen.getByText('Opening file…')).toBeInTheDocument()
+
+    await act(async () => {
+      pendingOpens[1]?.resolve({
+        name: 'retry.txt',
+        relativePath: 'retry.txt',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-new',
+        content: 'new open',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      await pendingOpens[1]?.promise
+    })
+
+    expect(await screen.findByDisplayValue('new open')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('old open')).not.toBeInTheDocument()
+  })
+
   it('keeps dirty buffers in memory across unmounts without autosaving', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }

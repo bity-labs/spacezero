@@ -39,6 +39,13 @@ const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
 const EXPLORER_RESIZE_STEP = 20
 
+let nextOpenRequestId = 0
+
+function createOpenRequestId(): number {
+  nextOpenRequestId += 1
+  return nextOpenRequestId
+}
+
 export function FilesTool({ sessionId }: { sessionId: string }): React.JSX.Element {
   return <FilesToolSession key={sessionId} sessionId={sessionId} />
 }
@@ -66,7 +73,6 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
-  const openRequestRef = useRef(0)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
 
@@ -143,8 +149,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
 
   const openFile = useCallback(
     async (relativePath: string, intent: FilesOpenTabIntent): Promise<void> => {
-      const requestId = openRequestRef.current + 1
-      openRequestRef.current = requestId
+      const requestId = createOpenRequestId()
       const shouldFetch = beginOpenTab(sessionId, relativePath, intent, requestId)
       if (!shouldFetch) return
       try {
