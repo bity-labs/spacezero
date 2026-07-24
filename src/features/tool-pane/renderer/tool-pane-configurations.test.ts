@@ -50,11 +50,12 @@ describe('Tool Pane contextual configurations', () => {
     ])
     expect(knowledgeBase.tools[0]).toMatchObject({ id: 'files', available: true })
     expect(knowledgeBase.tools[0]?.render).toBeTypeOf('function')
-    expect(workspace.tools).toSatisfy((tools: typeof project.tools) =>
-      tools.every((tool) => !tool.available)
-    )
-    expect(knowledgeBase.tools.slice(1)).toSatisfy((tools: typeof project.tools) =>
-      tools.every((tool) => !tool.available)
-    )
+    expect(workspace.tools[0]).toMatchObject({ id: 'browser', available: false })
+    expect(workspace.tools[1]).toMatchObject({ id: 'terminal', available: true })
+    expect(workspace.tools[1]?.render).toBeTypeOf('function')
+    expect(knowledgeBase.tools[1]).toMatchObject({ id: 'git', available: false })
+    expect(knowledgeBase.tools[2]).toMatchObject({ id: 'browser', available: false })
+    expect(knowledgeBase.tools[3]).toMatchObject({ id: 'terminal', available: true })
+    expect(knowledgeBase.tools[3]?.render).toBeTypeOf('function')
   })
 })

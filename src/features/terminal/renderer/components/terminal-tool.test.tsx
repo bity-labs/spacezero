@@ -6,11 +6,13 @@ import { TerminalTool } from './terminal-tool'
 import type { TerminalEvent, TerminalSubscribeResult } from '../../shared'
 
 let lastTerminal: FakeXTerm | null = null
+let allTerminals: FakeXTerm[] = []
 let terminalEventListener: ((event: TerminalEvent) => void) | null = null
 
 vi.mock('@xterm/xterm', () => ({
   Terminal: vi.fn().mockImplementation(function Terminal() {
     lastTerminal = new FakeXTerm()
+    allTerminals.push(lastTerminal)
     return lastTerminal
   })
 }))
@@ -29,6 +31,7 @@ const context = { kind: 'project-session' as const, sessionId: 'session-1' }
 describe('TerminalTool', () => {
   beforeEach(() => {
     lastTerminal = null
+    allTerminals = []
     terminalEventListener = null
   })
 
@@ -89,13 +92,194 @@ describe('TerminalTool', () => {
     expect(lastTerminal?.write).toHaveBeenCalledWith('done\r\n')
   })
 
+  it('uses the owning workspace-session or knowledge-base context without rewriting it to a project session', async () => {
+    const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
+    window.spacezero.terminal = {
+      create,
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const workspaceContext = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
+    const mounted = render(<TerminalTool context={workspaceContext} />)
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ context: workspaceContext }))
+    )
+
+    mounted.unmount()
+    const knowledgeBaseContext = { kind: 'knowledge-base' as const }
+    render(<TerminalTool context={knowledgeBaseContext} />)
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith(
+        expect.objectContaining({ context: knowledgeBaseContext })
+      )
+    )
+  })
+
+  it('does not recreate or resubscribe when rerendered with an equivalent terminal context', async () => {
+    const removeEventListener = vi.fn()
+    const unsubscribe = vi.fn(async () => undefined)
+    window.spacezero.terminal = {
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe,
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => removeEventListener)
+    }
+
+    const mounted = render(
+      <TerminalTool context={{ kind: 'project-session', sessionId: 'same' }} />
+    )
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1))
+    const firstPresentation = lastTerminal
+
+    mounted.rerender(<TerminalTool context={{ kind: 'project-session', sessionId: 'same' }} />)
+    await Promise.resolve()
+
+    expect(window.spacezero.terminal.create).toHaveBeenCalledTimes(1)
+    expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1)
+    expect(window.spacezero.terminal.onEvent).toHaveBeenCalledTimes(1)
+    expect(unsubscribe).not.toHaveBeenCalled()
+    expect(removeEventListener).not.toHaveBeenCalled()
+    expect(firstPresentation?.dispose).not.toHaveBeenCalled()
+    expect(allTerminals).toHaveLength(1)
+  })
+
+  it('recreates presentation and subscription only when the semantic terminal context changes', async () => {
+    window.spacezero.terminal = {
+      create: vi.fn(async ({ context: requestedContext }) => ({
+        status: 'running' as const,
+        terminalId:
+          requestedContext.kind === 'knowledge-base'
+            ? 'terminal-knowledge-base'
+            : `terminal-${requestedContext.kind}-${requestedContext.sessionId}`
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const mounted = render(
+      <TerminalTool context={{ kind: 'workspace-session', sessionId: 'one' }} />
+    )
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1))
+    const firstPresentation = lastTerminal
+
+    mounted.rerender(<TerminalTool context={{ kind: 'workspace-session', sessionId: 'two' }} />)
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(2))
+
+    expect(window.spacezero.terminal.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ context: { kind: 'workspace-session', sessionId: 'one' } })
+    )
+    expect(window.spacezero.terminal.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ context: { kind: 'workspace-session', sessionId: 'two' } })
+    )
+    expect(window.spacezero.terminal.unsubscribe).toHaveBeenCalledWith({
+      terminalId: 'terminal-workspace-session-one',
+      context: { kind: 'workspace-session', sessionId: 'one' }
+    })
+    expect(firstPresentation?.dispose).toHaveBeenCalled()
+    expect(allTerminals).toHaveLength(2)
+  })
+
+  it('switches among two Project Sessions, two Workspace Sessions, and Knowledge Base without mixing presentations', async () => {
+    const contexts = [
+      { kind: 'project-session' as const, sessionId: 'project-1' },
+      { kind: 'project-session' as const, sessionId: 'project-2' },
+      { kind: 'workspace-session' as const, sessionId: 'workspace-1' },
+      { kind: 'workspace-session' as const, sessionId: 'workspace-2' },
+      { kind: 'knowledge-base' as const }
+    ]
+    window.spacezero.terminal = {
+      create: vi.fn(async ({ context: requestedContext }) => ({
+        status: 'running' as const,
+        terminalId:
+          requestedContext.kind === 'knowledge-base'
+            ? 'terminal-knowledge-base'
+            : `terminal-${requestedContext.kind}-${requestedContext.sessionId}`
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [
+          {
+            type: 'output' as const,
+            terminalId,
+            sequence: 1,
+            data: `${terminalId} output\r\n`
+          }
+        ],
+        oldestSequence: 1,
+        nextSequence: 2
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const mounted = render(<TerminalTool context={contexts[0]} />)
+    for (let index = 0; index < contexts.length; index += 1) {
+      if (index > 0) mounted.rerender(<TerminalTool context={contexts[index]!} />)
+      await waitFor(() =>
+        expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(index + 1)
+      )
+      const expectedTerminalId =
+        contexts[index]!.kind === 'knowledge-base'
+          ? 'terminal-knowledge-base'
+          : `terminal-${contexts[index]!.kind}-${contexts[index]!.sessionId}`
+      expect(lastTerminal?.write).toHaveBeenCalledWith(`${expectedTerminalId} output\r\n`)
+    }
+
+    expect(window.spacezero.terminal.create).toHaveBeenCalledTimes(5)
+    expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(5)
+    expect(allTerminals).toHaveLength(5)
+    expect(allTerminals.map((terminal) => terminal.write.mock.calls.flat())).toEqual(
+      contexts.map((terminalContext) => {
+        const expectedTerminalId =
+          terminalContext.kind === 'knowledge-base'
+            ? 'terminal-knowledge-base'
+            : `terminal-${terminalContext.kind}-${terminalContext.sessionId}`
+        return [`${expectedTerminalId} output\r\n`]
+      })
+    )
+  })
+
   it('merges subscribe replay and live output in sequence order without gaps or duplicates', async () => {
-    let resolveSubscribe: ((value: {
-      terminalId: string
-      events: TerminalEvent[]
-      oldestSequence: number
-      nextSequence: number
-    }) => void) | null = null
+    let resolveSubscribe:
+      | ((value: {
+          terminalId: string
+          events: TerminalEvent[]
+          oldestSequence: number
+          nextSequence: number
+        }) => void)
+      | null = null
     window.spacezero.terminal = {
       create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(

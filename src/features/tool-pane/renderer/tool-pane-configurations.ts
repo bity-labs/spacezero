@@ -77,7 +77,23 @@ export function createWorkspaceSessionToolPaneConfiguration(session: {
     contextKey: sessionContextKey(session.id),
     capabilities: { kind: 'workspace-session', sessionId: session.id },
     defaultToolId: 'browser',
-    tools: [toolRegistry.browser, toolRegistry.terminal]
+    tools: [
+      toolRegistry.browser,
+      {
+        ...toolRegistry.terminal,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'workspace-session'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(TerminalToolLoading) },
+                createElement(TerminalTool, {
+                  context: { kind: 'workspace-session', sessionId: capabilities.sessionId }
+                })
+              )
+            : null
+      }
+    ]
   }
 }
 
@@ -109,7 +125,18 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
       },
       toolRegistry.git,
       toolRegistry.browser,
-      toolRegistry.terminal
+      {
+        ...toolRegistry.terminal,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'knowledge-base'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(TerminalToolLoading) },
+                createElement(TerminalTool, { context: { kind: 'knowledge-base' } })
+              )
+            : null
+      }
     ]
   }
 }
