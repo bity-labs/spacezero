@@ -20,6 +20,7 @@ import type {
   AgentSkillDiscovery,
   AgentSkillPath
 } from '../features/agent-workspace/shared/agent-skill.model'
+import type { AgentDefinitionSpawns } from '../features/agents/shared/agent-definition.model'
 
 export type AgentSessionId = string
 
@@ -45,6 +46,7 @@ export type ResolvedAgentDefinition = AppliedAgentDefinition & {
   model?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
   tools?: string[]
+  spawns?: AgentDefinitionSpawns
 }
 
 export type DelegationAgentDefinition = ResolvedAgentDefinition & {
