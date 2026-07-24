@@ -108,4 +108,33 @@ describe('node-pty process-tree termination', () => {
     expect(signals).toContainEqual({ pid: -10, signal: 'SIGKILL' })
     expect(resolved).toBe(true)
   })
+
+  it('rechecks process-tree state after a failed termination attempt', async () => {
+    vi.useFakeTimers()
+    let groupAlive = true
+    const terminator = createUnixProcessTreeTerminator({
+      rootPid: 10,
+      killPty: vi.fn(),
+      onExit: () => () => undefined,
+      collectDescendants: () => [],
+      signal: (pid, signal) => {
+        if (signal === 0) return pid === -10 && groupAlive
+        return true
+      },
+      fallbackDelayMs: 1,
+      pollIntervalMs: 1,
+      terminationTimeoutMs: 2
+    })
+
+    const firstTermination = terminator.terminate()
+    const firstTerminationExpectation = expect(firstTermination).rejects.toThrow(
+      'terminal.processTreeTerminationFailed'
+    )
+    await vi.advanceTimersByTimeAsync(3)
+    await firstTerminationExpectation
+
+    groupAlive = false
+    await expect(terminator.terminate()).resolves.toBeUndefined()
+    vi.useRealTimers()
+  })
 })
