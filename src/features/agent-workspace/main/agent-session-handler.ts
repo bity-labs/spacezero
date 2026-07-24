@@ -21,10 +21,15 @@ import type {
 import type {
   AgentDefinitionReference,
   AgentSessionKind,
-  AgentSessionState
+  AgentSessionState,
+  ResolvedAgentDefinition
 } from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
 import { getDisabledGlobalSkillPaths } from './agent-skill-settings.service'
+import {
+  defaultModelSettingSchema,
+  thinkingLevelSchema
+} from '../../../shared/model-settings'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 import {
   resolveAgentDefinitionForSession,
@@ -34,6 +39,17 @@ import {
 const agentDefinitionReferenceSchema = z.object({
   id: z.string().trim().min(1)
 })
+
+const agentDefinitionSnapshotSchema = z
+  .object({
+    id: z.string().trim().min(1),
+    name: z.string().trim().min(1),
+    body: z.string(),
+    model: defaultModelSettingSchema.optional(),
+    thinkingLevel: thinkingLevelSchema.optional(),
+    tools: z.array(z.string().trim().min(1)).optional()
+  })
+  .strict()
 
 export const createSessionRequestSchema = z.object({
   projectId: z.string().trim().min(1),
@@ -169,6 +185,7 @@ export async function createManagedProjectAgentSession(
       startPoint: request.startPoint
     })
     let state: AgentSessionState | undefined
+    let agentDefinitionSnapshot: ResolvedAgentDefinition | undefined
     const persistSession = () =>
       createSessionsService({ repository }).createProjectAgentSession({
         id: sessionId,
@@ -179,7 +196,8 @@ export async function createManagedProjectAgentSession(
         transcriptPath: state?.transcriptPath,
         modelProvider: state?.modelProvider,
         modelId: state?.modelId,
-        thinkingLevel: state?.thinkingLevel
+        thinkingLevel: state?.thinkingLevel,
+        agentDefinitionSnapshot
       })
 
     try {
@@ -196,7 +214,7 @@ export async function createManagedProjectAgentSession(
         'project',
         projectTrusted
       )
-      const agentDefinition = request.agentDefinition
+      agentDefinitionSnapshot = request.agentDefinition
         ? await resolveAgentDefinition(request.agentDefinition)
         : undefined
       state = await utilityHost.createSession({
@@ -213,7 +231,7 @@ export async function createManagedProjectAgentSession(
           : {}),
         defaultModel: modelDefaults.defaultModel,
         thinkingLevel: modelDefaults.defaultThinking,
-        ...(agentDefinition ? { agentDefinition } : {})
+        ...(agentDefinitionSnapshot ? { agentDefinition: agentDefinitionSnapshot } : {})
       })
 
       const session = await persistSession()
@@ -356,6 +374,7 @@ async function restoreAgentSessionStateOnce(
       ...(skillPaths ? { skillPaths } : {}),
       ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
       ...(sourceContext ? { systemPromptContext: sourceContext } : {}),
+      ...createStoredAgentDefinitionRequest(storedSession),
       ...(storedSession.modelProvider && storedSession.modelId
         ? {
             defaultModel: {
@@ -371,6 +390,40 @@ async function restoreAgentSessionStateOnce(
       return utilityHost.getState(request)
     }
     throw error
+  }
+}
+
+function createStoredAgentDefinitionRequest(
+  storedSession: StoredSession
+): { agentDefinition?: ResolvedAgentDefinition } {
+  const snapshot = parseStoredAgentDefinitionSnapshot(storedSession)
+  if (!snapshot) return {}
+
+  return {
+    agentDefinition: {
+      ...snapshot,
+      ...(storedSession.modelProvider && storedSession.modelId
+        ? {
+            model: {
+              providerId: storedSession.modelProvider,
+              modelId: storedSession.modelId
+            }
+          }
+        : {}),
+      ...(storedSession.thinkingLevel ? { thinkingLevel: storedSession.thinkingLevel } : {})
+    }
+  }
+}
+
+function parseStoredAgentDefinitionSnapshot(
+  storedSession: StoredSession
+): ResolvedAgentDefinition | undefined {
+  if (!storedSession.agentDefinitionSnapshot) return undefined
+
+  try {
+    return agentDefinitionSnapshotSchema.parse(JSON.parse(storedSession.agentDefinitionSnapshot))
+  } catch (error) {
+    throw new Error('agentDefinitions.snapshotInvalid', { cause: error })
   }
 }
 
@@ -418,7 +471,8 @@ export async function createWorkspaceAgentSession({
       modelId: state.modelId,
       thinkingLevel: state.thinkingLevel,
       title,
-      managedContext
+      managedContext,
+      agentDefinitionSnapshot: agentDefinition
     })
   } catch (error) {
     await utilityHost.deleteSession({ sessionId }).catch(() => undefined)

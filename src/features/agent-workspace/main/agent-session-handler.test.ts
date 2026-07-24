@@ -267,6 +267,7 @@ describe('createProjectAgentSession', () => {
       ),
       deleteSession: vi.fn(async () => undefined)
     }
+    const repository = createRepository()
 
     await createManagedProjectAgentSession(
       {
@@ -274,7 +275,7 @@ describe('createProjectAgentSession', () => {
         agentDefinition: { id: 'reviewer' }
       },
       {
-        repository: createRepository(),
+        repository,
         utilityHost,
         worktrees: createTestWorktrees(),
         createSessionId: () => 'session-1',
@@ -307,6 +308,16 @@ describe('createProjectAgentSession', () => {
         }
       })
     )
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'reviewer',
+        name: 'Reviewer',
+        body: 'Review code carefully.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high',
+        tools: ['read', 'workspace.getStatus']
+      })
+    })
   })
 
   it('passes project skill paths to a trusted project session', async () => {
@@ -1005,6 +1016,77 @@ describe('restoreAgentSessionState', () => {
       )
     ).rejects.toThrow('session.worktreeMissing')
     expect(utilityHost.createSession).not.toHaveBeenCalled()
+  })
+
+  it('restores the immutable applied Agent Definition snapshot after app relaunch', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'low',
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'read-only',
+        name: 'Read Only',
+        body: 'Only inspect files. Do not modify project files.',
+        model: { providerId: 'faux', modelId: 'faux-1' },
+        thinkingLevel: 'high',
+        tools: ['read']
+      })
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () =>
+        createState({
+          agentDefinition: { id: 'read-only', name: 'Read Only' },
+          modelProvider: 'openai',
+          modelId: 'gpt-5',
+          thinkingLevel: 'low'
+        })
+      )
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost
+        }
+      )
+    ).resolves.toMatchObject({
+      agentDefinition: { id: 'read-only', name: 'Read Only' },
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'low'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        defaultModel: { providerId: 'openai', modelId: 'gpt-5' },
+        thinkingLevel: 'low',
+        agentDefinition: {
+          id: 'read-only',
+          name: 'Read Only',
+          body: 'Only inspect files. Do not modify project files.',
+          model: { providerId: 'openai', modelId: 'gpt-5' },
+          thinkingLevel: 'low',
+          tools: ['read']
+        }
+      })
+    )
   })
 
   it('recreates a stored project session from its transcript after app relaunch', async () => {

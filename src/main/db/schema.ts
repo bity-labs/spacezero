@@ -43,7 +43,8 @@ export const sessions = sqliteTable('sessions', {
   sourceUrl: text('source_url'),
   sourceTitle: text('source_title'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
-  managedContext: text('managed_context', { enum: ['knowledge-base'] })
+  managedContext: text('managed_context', { enum: ['knowledge-base'] }),
+  agentDefinitionSnapshot: text('agent_definition_snapshot')
 })
 
 export const appSettings = sqliteTable('app_settings', {
