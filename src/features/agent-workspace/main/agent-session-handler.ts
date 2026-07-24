@@ -10,7 +10,7 @@ import {
   withProjectLifecycleLock as runWithProjectLifecycleLock,
   type ProjectLifecycleLock
 } from '../../projects/main/project-lifecycle-lock'
-import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
+import type { Clock, SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
 import type { ProjectSession, SessionGitHubSource, WorkspaceSession } from '../../sessions/shared'
@@ -23,14 +23,12 @@ import type {
   AgentSessionKind,
   AgentSessionState,
   DelegationAgentDefinition,
+  ApplyAgentDefinitionToFreshSessionRequest,
   ResolvedAgentDefinition
 } from '../../../shared/agent-protocol'
 import type { AgentSkillPath } from '../shared/agent-skill.model'
 import { getDisabledGlobalSkillPaths } from './agent-skill-settings.service'
-import {
-  defaultModelSettingSchema,
-  thinkingLevelSchema
-} from '../../../shared/model-settings'
+import { defaultModelSettingSchema, thinkingLevelSchema } from '../../../shared/model-settings'
 import { getModelDefaults } from '../../settings/main/model-defaults-settings.service'
 import {
   resolveAgentDefinitionForSession,
@@ -58,6 +56,11 @@ export const createSessionRequestSchema = z.object({
   projectId: z.string().trim().min(1),
   cwd: z.string().trim().min(1),
   agentDefinition: agentDefinitionReferenceSchema.optional()
+})
+
+const applyAgentDefinitionToFreshSessionSchema = z.object({
+  sessionId: z.string().trim().min(1),
+  agentDefinition: agentDefinitionReferenceSchema
 })
 
 type ReadProjectTrust = (projectId: string, projectPath: string) => Promise<boolean>
@@ -110,6 +113,16 @@ export type RestoreAgentSessionHandlerDependencies = {
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
   resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
+}
+
+export type ApplyAgentDefinitionToFreshSessionDependencies = Omit<
+  RestoreAgentSessionHandlerDependencies,
+  'utilityHost'
+> & {
+  utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession' | 'getState'>
+  readModelDefaults?: typeof getModelDefaults
+  resolveAgentDefinition?: ResolveAgentDefinitionForSession
+  now?: Clock
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
@@ -287,6 +300,149 @@ export async function createManagedProjectAgentSession(
   })
 }
 
+export async function applyAgentDefinitionToFreshSession(
+  input: unknown,
+  {
+    repository,
+    utilityHost,
+    worktrees = unavailableStoredWorktrees,
+    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
+    readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
+    readProjectTrust = denyProjectTrustWithoutPersistedDecision,
+    resolveSkillPaths,
+    readModelDefaults = getModelDefaults,
+    resolveAgentDefinition = resolveAgentDefinitionForSession,
+    now = () => new Date()
+  }: ApplyAgentDefinitionToFreshSessionDependencies
+): Promise<AgentSessionState> {
+  const request = applyAgentDefinitionToFreshSessionSchema.parse(
+    input
+  ) satisfies ApplyAgentDefinitionToFreshSessionRequest
+  const storedSession = await repository.findSessionById(request.sessionId)
+  if (!storedSession || storedSession.archivedAt) throw new Error('agent.sessionNotFound')
+
+  const currentState = await restoreAgentSessionState(
+    { sessionId: request.sessionId },
+    {
+      repository,
+      utilityHost,
+      worktrees,
+      getWorkspaceSessionCwd,
+      getKnowledgeBaseStatus,
+      readDisabledGlobalSkillPaths,
+      readProjectTrust,
+      resolveSkillPaths
+    }
+  )
+  if (
+    currentState.status !== 'idle' ||
+    currentState.agentDefinition ||
+    storedSession.agentDefinitionSnapshot ||
+    (currentState.transcriptSnapshot?.length ?? 0) > 0
+  ) {
+    throw new Error('agentDefinitions.sessionNotFresh')
+  }
+
+  const agentDefinition = await resolveAgentDefinition(request.agentDefinition)
+  const modelDefaults = await readModelDefaults()
+  const project = storedSession.projectId
+    ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
+    : undefined
+  const cwd = project
+    ? await resolveStoredProjectSessionCwd(storedSession, project, worktrees)
+    : resolve(getWorkspaceSessionCwd())
+  const knowledgeBasePath = project
+    ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
+    : null
+  const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
+  const projectTrusted = project ? await readProjectTrust(project.id, resolve(project.path)) : false
+  const skillPaths = await resolveSessionSkillPaths(
+    resolveSkillPaths,
+    cwd,
+    storedSession.projectId ? 'project' : 'workspace',
+    projectTrusted
+  )
+  const sourceContext = createStoredSourceContext(storedSession)
+
+  if (!project) await mkdir(cwd, { recursive: true })
+
+  const baseCreateRequest = {
+    sessionId: storedSession.id,
+    kind: storedSession.projectId ? ('project' as const) : ('workspace' as const),
+    projectId: storedSession.projectId,
+    cwd,
+    transcriptPath: storedSession.transcriptPath ?? currentState.transcriptPath ?? undefined,
+    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    ...(project
+      ? {
+          appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)]
+        }
+      : {}),
+    ...(skillPaths ? { skillPaths } : {}),
+    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+    ...(sourceContext ? { systemPromptContext: sourceContext } : {}),
+    ...(storedSession.modelProvider && storedSession.modelId
+      ? {
+          defaultModel: {
+            providerId: storedSession.modelProvider,
+            modelId: storedSession.modelId
+          }
+        }
+      : {
+          defaultModel: modelDefaults.defaultModel
+        }),
+    thinkingLevel: storedSession.thinkingLevel ?? modelDefaults.defaultThinking
+  }
+
+  await utilityHost.deleteSession({ sessionId: request.sessionId })
+  let definitionSessionCreated = false
+  try {
+    const nextState = await utilityHost.createSession({
+      ...baseCreateRequest,
+      agentDefinition
+    })
+    definitionSessionCreated = true
+    await repository.update({
+      ...storedSession,
+      transcriptPath: nextState.transcriptPath,
+      modelProvider: nextState.modelProvider,
+      modelId: nextState.modelId,
+      thinkingLevel: nextState.thinkingLevel,
+      agentDefinitionSnapshot: JSON.stringify(agentDefinition),
+      updatedAt: now()
+    })
+    return nextState
+  } catch (error) {
+    const rollbackFailures: unknown[] = []
+
+    if (definitionSessionCreated) {
+      try {
+        await utilityHost.deleteSession({ sessionId: request.sessionId })
+      } catch (rollbackError) {
+        rollbackFailures.push(rollbackError)
+      }
+    }
+
+    try {
+      await utilityHost.createSession(baseCreateRequest)
+    } catch (rollbackError) {
+      rollbackFailures.push(rollbackError)
+    }
+
+    if (rollbackFailures.length > 0) {
+      const rollbackError = new Error('agentDefinitions.applyRollbackFailed', { cause: error })
+      Object.defineProperty(rollbackError, 'rollbackFailures', {
+        value: rollbackFailures,
+        enumerable: false
+      })
+      throw rollbackError
+    }
+
+    throw error
+  }
+}
+
 export async function restoreAgentSessionState(
   input: unknown,
   {
@@ -410,9 +566,9 @@ async function restoreAgentSessionStateOnce(
   }
 }
 
-function createStoredAgentDefinitionRequest(
-  storedSession: StoredSession
-): { agentDefinition?: ResolvedAgentDefinition } {
+function createStoredAgentDefinitionRequest(storedSession: StoredSession): {
+  agentDefinition?: ResolvedAgentDefinition
+} {
   const snapshot = parseStoredAgentDefinitionSnapshot(storedSession)
   if (!snapshot) return {}
 

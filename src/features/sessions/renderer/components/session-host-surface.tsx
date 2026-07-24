@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
-import type { AgentSessionState } from '../../../../shared/agent-protocol'
+import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { type AiChatMessage, type AiChatToolCallPart } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
@@ -37,7 +37,15 @@ export function ProjectSessionHostSurface({
       error={agentSession.lastError ?? null}
       sessionState={agentSession.sessionState}
       placeholder={`Message ${project.name} / ${session.title}…`}
-      onSubmit={(text) => void agentSession.prompt(text)}
+      onSubmit={async (text, options) => {
+        if (
+          options?.agentDefinition &&
+          isFreshAgentSession(agentSession.messages, agentSession.sessionState)
+        ) {
+          await agentSession.applyDefinitionToFreshSession(options.agentDefinition)
+        }
+        await agentSession.prompt(text)
+      }}
       onAbort={() => void agentSession.abort()}
       onToolConfirmationResolve={(callId, approved) =>
         void agentSession.resolveToolConfirmation(callId, approved)
@@ -73,8 +81,8 @@ export function WorkspaceSessionHostSurface({
             </AlertDescription>
           </Alert>
           <p className="text-sm text-muted-foreground">
-            Retry when the agent runtime is available. Chat remains unavailable until the Session
-            is restored.
+            Retry when the agent runtime is available. Chat remains unavailable until the Session is
+            restored.
           </p>
           <Button className="self-end" onClick={agentSession.retryRestore}>
             Retry
@@ -92,7 +100,15 @@ export function WorkspaceSessionHostSurface({
       error={agentSession.lastError ?? null}
       sessionState={agentSession.sessionState}
       placeholder={placeholder}
-      onSubmit={(text) => void agentSession.prompt(text)}
+      onSubmit={async (text, options) => {
+        if (
+          options?.agentDefinition &&
+          isFreshAgentSession(agentSession.messages, agentSession.sessionState)
+        ) {
+          await agentSession.applyDefinitionToFreshSession(options.agentDefinition)
+        }
+        await agentSession.prompt(text)
+      }}
       onAbort={() => void agentSession.abort()}
       onToolConfirmationResolve={(callId, approved) =>
         void agentSession.resolveToolConfirmation(callId, approved)
@@ -109,7 +125,10 @@ type SessionHostFrameProps = {
   error?: string | null
   sessionState?: AgentSessionState
   placeholder: string
-  onSubmit?: (text: string) => void
+  onSubmit?: (
+    text: string,
+    options?: { agentDefinition?: AgentDefinitionReference }
+  ) => void | Promise<void>
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
@@ -128,15 +147,35 @@ function SessionHostFrame({
   emptyState
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
+  const [submissionError, setSubmissionError] = useState<string | undefined>(undefined)
+  const handleSubmit = useCallback(
+    async (text: string, options?: { agentDefinition?: AgentDefinitionReference }) => {
+      setSubmissionError(undefined)
+
+      try {
+        await onSubmit?.(text, options)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setSubmissionError(
+          options?.agentDefinition
+            ? `Unable to apply Agent Definition: ${message}`
+            : `Unable to submit prompt: ${message}`
+        )
+        throw error
+      }
+    },
+    [onSubmit]
+  )
+  const alertMessage = submissionError ?? (error ? `Agent prompt failed: ${error}` : undefined)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
-      {error ? (
+      {alertMessage ? (
         <div
           className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
           role="alert"
         >
-          Agent prompt failed: {error}
+          {alertMessage}
         </div>
       ) : null}
       <AgentChat
@@ -149,12 +188,19 @@ function SessionHostFrame({
         }
         contentClassName="w-full px-6 pb-48 pt-12"
         placeholder={placeholder}
-        onSubmit={onSubmit}
+        onSubmit={handleSubmit}
         onAbort={onAbort}
         onToolConfirmationResolve={onToolConfirmationResolve}
       />
     </div>
   )
+}
+
+function isFreshAgentSession(
+  messages: AiChatMessage[],
+  sessionState: AgentSessionState | undefined
+): boolean {
+  return !sessionState?.agentDefinition && messages.length === 0
 }
 
 function useToolExecutionMessages(

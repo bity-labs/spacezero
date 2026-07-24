@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
+import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
@@ -47,7 +48,9 @@ describe('ProjectSessionHostSurface', () => {
     await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'hello')
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Agent prompt failed: agent unavailable')
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Agent prompt failed: agent unavailable'
+    )
   })
 
   it('uses configured model and thinking defaults when session state has no override', async () => {
@@ -172,6 +175,287 @@ describe('ProjectSessionHostSurface', () => {
       expect(setThinkingLevel).toHaveBeenCalledWith({ sessionId: 'session-1', level: 'high' })
     )
     expect(await screen.findByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
+  })
+
+  it('lists Agent Definitions in a fresh session picker', async () => {
+    const user = userEvent.setup()
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+
+    expect(screen.getByRole('option', { name: /Reviewer/ })).toBeInTheDocument()
+    expect(screen.getByText('Review code changes.')).toBeInTheDocument()
+  })
+
+  it('applies the selected Agent Definition before the first prompt', async () => {
+    const user = userEvent.setup()
+    const applyDefinitionToFreshSession = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'high' as const,
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+    }))
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+    window.spacezero.agent.applyDefinitionToFreshSession = applyDefinitionToFreshSession
+    window.spacezero.agent.prompt = prompt
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+    await user.click(screen.getByRole('option', { name: /Reviewer/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'review this')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(applyDefinitionToFreshSession).toHaveBeenCalledWith({
+        sessionId: 'session-1',
+        agentDefinition: { id: 'reviewer' }
+      })
+    )
+    expect(prompt).toHaveBeenCalledWith({ sessionId: 'session-1', message: 'review this' })
+    expect(applyDefinitionToFreshSession.mock.invocationCallOrder[0]).toBeLessThan(
+      prompt.mock.invocationCallOrder[0]
+    )
+  })
+
+  it('surfaces Agent Definition application failures without losing the submitted prompt', async () => {
+    const user = userEvent.setup()
+    const applyDefinitionToFreshSession = vi.fn(async () => {
+      throw new Error('model is not authenticated')
+    })
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+    window.spacezero.agent.applyDefinitionToFreshSession = applyDefinitionToFreshSession
+    window.spacezero.agent.prompt = prompt
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+    await user.click(screen.getByRole('option', { name: /Reviewer/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'review this')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unable to apply Agent Definition: model is not authenticated'
+    )
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveValue('review this')
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('keeps post-definition model and thinking edits authoritative over fresh local overrides', async () => {
+    const user = userEvent.setup()
+    let runtimeState: AgentSessionState = {
+      sessionId: 'session-1',
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    }
+    const applyDefinitionToFreshSession = vi.fn(async ({ sessionId }) => {
+      runtimeState = {
+        ...runtimeState,
+        sessionId,
+        modelProvider: 'faux',
+        modelId: 'faux-1',
+        thinkingLevel: 'low',
+        agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+      }
+      return runtimeState
+    })
+    window.spacezero.agent.getState = async () => runtimeState
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4'
+      },
+      {
+        providerId: 'openai',
+        providerLabel: 'OpenAI',
+        modelId: 'gpt-5',
+        modelLabel: 'GPT-5'
+      },
+      {
+        providerId: 'faux',
+        providerLabel: 'Faux',
+        modelId: 'faux-1',
+        modelLabel: 'Faux 1'
+      }
+    ]
+    window.spacezero.agent.setModel = vi.fn(async ({ provider, modelId }) => {
+      runtimeState = { ...runtimeState, modelProvider: provider, modelId }
+      return runtimeState
+    })
+    window.spacezero.agent.setThinkingLevel = vi.fn(async ({ level }) => {
+      runtimeState = { ...runtimeState, thinkingLevel: level }
+      return runtimeState
+    })
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+    window.spacezero.agent.applyDefinitionToFreshSession = applyDefinitionToFreshSession
+    window.spacezero.agent.prompt = vi.fn(async () => undefined)
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await user.click(await screen.findByRole('button', { name: /Claude Sonnet 4/ }))
+    await user.click(await screen.findByText('GPT-5'))
+    await user.click(await screen.findByRole('button', { name: 'Thinking: Medium' }))
+    expect(await screen.findByRole('button', { name: /GPT-5/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Thinking: High' })).toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Agent Definition: None' }))
+    await user.click(screen.getByRole('option', { name: /Reviewer/ }))
+    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'review this')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(applyDefinitionToFreshSession).toHaveBeenCalled())
+    expect(await screen.findByRole('button', { name: /Faux 1/ })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Thinking: Low' })).toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Thinking: Low' }))
+    expect(await screen.findByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Faux 1/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Faux 1/ }))
+    await user.click(await screen.findByText('GPT-5'))
+    expect(await screen.findByRole('button', { name: /GPT-5/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
+  })
+
+  it('locks the picker and renders the active Agent Definition chip from session state', async () => {
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'high',
+      agentDefinition: { id: 'reviewer', name: 'Reviewer' },
+      transcriptSnapshot: [
+        {
+          role: 'user',
+          timestamp: 100,
+          content: [{ type: 'text', text: 'review this' }]
+        }
+      ]
+    })
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(await screen.findByText('Reviewer')).toBeInTheDocument()
+    expect(screen.getByText('Agent Definition')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent Definition:/ })).not.toBeInTheDocument()
+  })
+
+  it('locks the picker for sessions with messages even without an active Agent Definition', async () => {
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'high',
+      transcriptSnapshot: [
+        {
+          role: 'user',
+          timestamp: 100,
+          content: [{ type: 'text', text: 'review this' }]
+        }
+      ]
+    })
+    window.spacezero.agents.getGlobalDefinitions = async () => [
+      {
+        id: 'reviewer',
+        scope: 'bundled',
+        path: 'bundled:reviewer',
+        status: 'valid',
+        diagnostics: [],
+        name: 'Reviewer',
+        description: 'Review code changes.',
+        body: 'Review carefully.'
+      }
+    ]
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(await screen.findByText('review this')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent Definition:/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Agent Definition')).not.toBeInTheDocument()
   })
 
   it('keeps the chat input visible for empty Workspace Sessions without fake placeholder messages', async () => {

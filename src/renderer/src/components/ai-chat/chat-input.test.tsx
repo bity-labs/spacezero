@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { ChatInput } from './chat-input'
 
 describe('ChatInput', () => {
-  it('submits entered text with Enter and clears the input', () => {
+  it('submits entered text with Enter and clears the input', async () => {
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)
 
@@ -17,7 +17,7 @@ describe('ChatInput', () => {
       files: [],
       modelId: undefined
     })
-    expect(input).toHaveValue('')
+    await waitFor(() => expect(input).toHaveValue(''))
   })
 
   it('keeps a newline on Shift+Enter without submitting', () => {
@@ -246,6 +246,67 @@ describe('ChatInput', () => {
     })
   })
 
+  it('lists Agent Definitions in the fresh-session picker and submits the selected definition', async () => {
+    const handleSubmit = vi.fn()
+    render(
+      <ChatInput
+        agentDefinitions={[
+          {
+            id: 'reviewer',
+            name: 'Reviewer',
+            description: 'Review code changes.',
+            scope: 'bundled'
+          },
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Research the codebase.',
+            scope: 'user'
+          }
+        ]}
+        onAgentDefinitionChange={vi.fn()}
+        onSubmit={handleSubmit}
+      />
+    )
+
+    await userEvent.click(screen.getByRole('button', { name: 'Agent Definition: None' }))
+    await userEvent.click(screen.getByRole('option', { name: /Reviewer/ }))
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'review this' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(handleSubmit).toHaveBeenCalledWith({
+      text: 'review this',
+      files: [],
+      modelId: undefined,
+      agentDefinitionId: 'reviewer'
+    })
+  })
+
+  it('renders a read-only active Agent Definition chip after the picker locks', () => {
+    render(
+      <ChatInput
+        agentDefinitions={[
+          {
+            id: 'reviewer',
+            name: 'Reviewer',
+            description: 'Review code changes.',
+            scope: 'bundled'
+          }
+        ]}
+        agentDefinitionLocked={true}
+        activeAgentDefinition={{ id: 'reviewer', name: 'Reviewer' }}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    expect(screen.getByText('Reviewer')).toBeInTheDocument()
+    expect(screen.getByText('Agent Definition')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Agent Definition:/ })).not.toBeInTheDocument()
+  })
+
   it('disables input and renders a stop button while a turn is running', () => {
     const handleSubmit = vi.fn()
     const handleAbort = vi.fn()
@@ -363,9 +424,7 @@ describe('ChatInput', () => {
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
 
     fireEvent.change(input, { target: { value: 'Review @kb/Design' } })
-    fireEvent.click(
-      await screen.findByRole('option', { name: '@kb/Design Notes/README.md' })
-    )
+    fireEvent.click(await screen.findByRole('option', { name: '@kb/Design Notes/README.md' }))
 
     expect(input).toHaveValue('Review @kb/Design%20Notes/README.md ')
     fireEvent.keyDown(input, { key: 'Enter' })
