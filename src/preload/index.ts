@@ -131,7 +131,10 @@ const api: SpaceZeroAPI = {
     delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.delete, request)
   },
   terminal: {
+    listTabs: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.listTabs, request),
     create: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.create, request),
+    selectTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.selectTab, request),
+    reorderTabs: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.reorderTabs, request),
     subscribe: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.subscribe, request),
     unsubscribe: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.unsubscribe, request),
     writeInput: (request) => ipcRenderer.invoke(IPC_CHANNELS.terminal.writeInput, request),

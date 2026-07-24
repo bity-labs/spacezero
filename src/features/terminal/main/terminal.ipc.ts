@@ -4,14 +4,20 @@ import {
   TERMINAL_IPC_CHANNELS,
   terminalCloseRequestSchema,
   terminalCreateRequestSchema,
+  terminalListTabsRequestSchema,
+  terminalReorderTabsRequestSchema,
   terminalResizeRequestSchema,
+  terminalSelectTabRequestSchema,
   terminalSubscribeRequestSchema,
   terminalUnsubscribeRequestSchema,
   terminalWriteInputRequestSchema,
   type TerminalAPI,
   type TerminalCloseRequest,
   type TerminalCreateRequest,
+  type TerminalListTabsRequest,
+  type TerminalReorderTabsRequest,
   type TerminalResizeRequest,
+  type TerminalSelectTabRequest,
   type TerminalSubscribeRequest,
   type TerminalUnsubscribeRequest,
   type TerminalWriteInputRequest
@@ -19,10 +25,22 @@ import {
 import { getTerminalService } from './terminal.runtime'
 
 type TerminalService = {
+  listTabs: (input: {
+    ownerWindowId: number
+    request: TerminalListTabsRequest
+  }) => ReturnType<TerminalAPI['listTabs']>
   create: (input: {
     ownerWindowId: number
     request: TerminalCreateRequest
   }) => ReturnType<TerminalAPI['create']>
+  selectTab: (input: {
+    ownerWindowId: number
+    request: TerminalSelectTabRequest
+  }) => ReturnType<TerminalAPI['selectTab']>
+  reorderTabs: (input: {
+    ownerWindowId: number
+    request: TerminalReorderTabsRequest
+  }) => ReturnType<TerminalAPI['reorderTabs']>
   subscribe: (input: {
     ownerWindowId: number
     request: TerminalSubscribeRequest
@@ -50,7 +68,10 @@ type TerminalService = {
 type TerminalIpcEvent = Pick<IpcMainInvokeEvent, 'sender'>
 
 export function createTerminalHandlers(service: TerminalService): {
+  listTabs: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['listTabs']>
   create: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['create']>
+  selectTab: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['selectTab']>
+  reorderTabs: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['reorderTabs']>
   subscribe: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['subscribe']>
   unsubscribe: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['unsubscribe']>
   writeInput: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['writeInput']>
@@ -58,10 +79,25 @@ export function createTerminalHandlers(service: TerminalService): {
   close: (event: TerminalIpcEvent, input: unknown) => ReturnType<TerminalAPI['close']>
 } {
   return {
+    listTabs: (event, input) =>
+      service.listTabs({
+        ownerWindowId: getOwnerWindowId(event),
+        request: terminalListTabsRequestSchema.parse(input)
+      }),
     create: (event, input) =>
       service.create({
         ownerWindowId: getOwnerWindowId(event),
         request: terminalCreateRequestSchema.parse(input)
+      }),
+    selectTab: (event, input) =>
+      service.selectTab({
+        ownerWindowId: getOwnerWindowId(event),
+        request: terminalSelectTabRequestSchema.parse(input)
+      }),
+    reorderTabs: (event, input) =>
+      service.reorderTabs({
+        ownerWindowId: getOwnerWindowId(event),
+        request: terminalReorderTabsRequestSchema.parse(input)
       }),
     subscribe: (event, input) =>
       service.subscribe({
@@ -94,7 +130,10 @@ export function createTerminalHandlers(service: TerminalService): {
 export function registerTerminalIpc(): void {
   const service = getTerminalService()
   const handlers = createTerminalHandlers(service)
+  ipcMain.handle(TERMINAL_IPC_CHANNELS.listTabs, handlers.listTabs)
   ipcMain.handle(TERMINAL_IPC_CHANNELS.create, handlers.create)
+  ipcMain.handle(TERMINAL_IPC_CHANNELS.selectTab, handlers.selectTab)
+  ipcMain.handle(TERMINAL_IPC_CHANNELS.reorderTabs, handlers.reorderTabs)
   ipcMain.handle(TERMINAL_IPC_CHANNELS.subscribe, handlers.subscribe)
   ipcMain.handle(TERMINAL_IPC_CHANNELS.unsubscribe, handlers.unsubscribe)
   ipcMain.handle(TERMINAL_IPC_CHANNELS.writeInput, handlers.writeInput)

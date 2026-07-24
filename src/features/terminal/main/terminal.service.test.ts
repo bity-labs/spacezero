@@ -100,7 +100,7 @@ describe('Terminal service', () => {
       request: { context, cols: 120, rows: 40 }
     })
 
-    expect(first).toEqual({ status: 'running', terminalId: 'terminal-1' })
+    expect(first).toMatchObject({ status: 'running', terminalId: 'terminal-1' })
     expect(second).toEqual(first)
     expect(adapter.spawn).toHaveBeenCalledTimes(1)
     expect(adapter.spawn).toHaveBeenCalledWith({
@@ -129,10 +129,10 @@ describe('Terminal service', () => {
 
     await expect(
       service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
-    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-1' })
+    ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-1' })
     await expect(
       service.create({ ownerWindowId: 1, request: { context: knowledgeBaseContext } })
-    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-2' })
+    ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-2' })
 
     expect(adapter.spawn).toHaveBeenNthCalledWith(
       1,
@@ -263,8 +263,8 @@ describe('Terminal service', () => {
     resolveSpawn?.(new FakePty(80, 24))
 
     await expect(Promise.all([first, second])).resolves.toEqual([
-      { status: 'running', terminalId: 'terminal-concurrent' },
-      { status: 'running', terminalId: 'terminal-concurrent' }
+      expect.objectContaining({ status: 'running', terminalId: 'terminal-concurrent' }),
+      expect.objectContaining({ status: 'running', terminalId: 'terminal-concurrent' })
     ])
     expect(adapter.spawn).toHaveBeenCalledTimes(1)
     expect(ptys).toHaveLength(1)
@@ -277,7 +277,7 @@ describe('Terminal service', () => {
     const { terminalId } = created
 
     await service.close({ ownerWindowId: 1, request: { terminalId, context } })
-    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toMatchObject({
       status: 'empty',
       terminalId: null
     })
@@ -285,13 +285,129 @@ describe('Terminal service', () => {
 
     await expect(
       service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
-    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-2' })
+    ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-2' })
     ptys[1]?.emitExit(0)
-    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toMatchObject({
       status: 'empty',
       terminalId: null
     })
     expect(adapter.spawn).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates, selects, and reorders multiple tabs without imposing a per-context limit', async () => {
+    const { ptys, service } = createHarness()
+
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    const third = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running' || third.status !== 'running') {
+      throw new Error('expected running terminals')
+    }
+
+    expect(ptys).toHaveLength(3)
+    expect(third.tabs?.map((tab) => tab.terminalId)).toEqual([
+      first.terminalId,
+      second.terminalId,
+      third.terminalId
+    ])
+    expect(third.activeTerminalId).toBe(third.terminalId)
+
+    await expect(
+      service.selectTab({
+        ownerWindowId: 1,
+        request: { terminalId: first.terminalId, context }
+      })
+    ).resolves.toMatchObject({ activeTerminalId: first.terminalId })
+
+    await expect(
+      service.reorderTabs({
+        ownerWindowId: 1,
+        request: { context, terminalIds: [third.terminalId, first.terminalId, second.terminalId] }
+      })
+    ).resolves.toMatchObject({
+      activeTerminalId: first.terminalId,
+      tabs: [
+        { terminalId: third.terminalId, title: 'zsh' },
+        { terminalId: first.terminalId, title: 'zsh' },
+        { terminalId: second.terminalId, title: 'zsh' }
+      ]
+    })
+  })
+
+  it('rejects duplicate or incomplete reorder payloads without changing reachable tabs', async () => {
+    const { service } = createHarness()
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+
+    await expect(
+      service.reorderTabs({
+        ownerWindowId: 1,
+        request: { context, terminalIds: [first.terminalId, first.terminalId] }
+      })
+    ).rejects.toThrow('terminal.notFound')
+    await expect(
+      service.reorderTabs({
+        ownerWindowId: 1,
+        request: { context, terminalIds: [first.terminalId] }
+      })
+    ).rejects.toThrow('terminal.notFound')
+
+    await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      activeTerminalId: second.terminalId,
+      tabs: [
+        { terminalId: first.terminalId, title: 'zsh' },
+        { terminalId: second.terminalId, title: 'zsh' }
+      ]
+    })
+  })
+
+  it('keeps inactive tab output running in the background and resizes only the selected tab', async () => {
+    const { ptys, service } = createHarness()
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+
+    await service.selectTab({ ownerWindowId: 1, request: { terminalId: first.terminalId, context } })
+    await service.subscribe({ ownerWindowId: 1, request: { terminalId: first.terminalId, context } })
+    await service.unsubscribe({ ownerWindowId: 1, request: { terminalId: first.terminalId, context } })
+    ptys[0]?.emitData('background one\n')
+    ptys[1]?.emitData('background two\n')
+
+    const replay = await service.subscribe({
+      ownerWindowId: 1,
+      request: { terminalId: first.terminalId, context }
+    })
+    await service.resize({ ownerWindowId: 1, request: { terminalId: first.terminalId, context, cols: 120, rows: 40 } })
+
+    expect(replay.events).toEqual([
+      { type: 'output', terminalId: first.terminalId, sequence: 1, data: 'background one\n' }
+    ])
+    expect(ptys[0]?.resizes).toEqual([{ cols: 120, rows: 40 }])
+    expect(ptys[1]?.resizes).toEqual([])
+  })
+
+  it('closes one tab without terminating sibling tabs and leaves the final close in the empty state', async () => {
+    const { ptys, service } = createHarness()
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+
+    await service.close({ ownerWindowId: 1, request: { terminalId: first.terminalId, context } })
+    expect(ptys.map((pty) => pty.killed)).toEqual([true, false])
+    await expect(
+      service.listTabs({ ownerWindowId: 1, request: { context } })
+    ).resolves.toMatchObject({
+      activeTerminalId: second.terminalId,
+      tabs: [{ terminalId: second.terminalId, title: 'zsh' }]
+    })
+
+    ptys[1]?.emitExit(0)
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toMatchObject({
+      status: 'empty',
+      terminalId: null,
+      tabs: []
+    })
   })
 
   it('forwards input unchanged, resizes valid PTYs, and rejects forged window or context ownership', async () => {
@@ -485,7 +601,7 @@ describe('Terminal service', () => {
     const { repository, service } = createHarness()
     await expect(
       service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
-    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-1' })
+    ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-1' })
 
     repository.findSessionById.mockResolvedValueOnce(undefined)
 
@@ -585,6 +701,55 @@ describe('Terminal service', () => {
     await expect(service.create({ ownerWindowId: 1, request: { context } })).rejects.toThrow(
       'terminal.contextDeleting'
     )
+  })
+
+  it('awaits and terminates every concurrent forced create during context deletion', async () => {
+    const resolvers: Array<(pty: FakePty) => void> = []
+    const ptys: FakePty[] = []
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            resolvers.push((pty) => {
+              ptys.push(pty)
+              resolve(pty)
+            })
+          })
+      )
+    }
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => `terminal-forced-${resolvers.length}`,
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+
+    const first = service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    const second = service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    await vi.waitFor(() => expect(adapter.spawn).toHaveBeenCalledTimes(2))
+    let cleanupResolved = false
+    const cleanup = service.closeAllForContext(context).then(() => {
+      cleanupResolved = true
+    })
+
+    resolvers[0]?.(new FakePty(80, 24))
+    await expect(first).rejects.toThrow('terminal.contextDeleting')
+    await Promise.resolve()
+    expect(cleanupResolved).toBe(false)
+    resolvers[1]?.(new FakePty(80, 24))
+    await expect(second).rejects.toThrow('terminal.contextDeleting')
+    await cleanup
+    expect(ptys.map((pty) => pty.killed)).toEqual([true, true])
+    expect(cleanupResolved).toBe(true)
   })
 
   it('kills and rejects an in-flight workspace-session create when that Session is deleted', async () => {
