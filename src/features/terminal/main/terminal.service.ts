@@ -16,17 +16,27 @@ export type TerminalRepository = {
   findSessionById: (sessionId: string) => Promise<
     | {
         id: string
+        kind?: 'project' | 'workspace'
         projectId: string | null
         worktreePath?: string | null
         worktreeBranch?: string | null
         worktreeBaseRevision?: string | null
         archivedAt?: Date | null
+        managedContext?: 'knowledge-base' | null
       }
     | undefined
   >
   findProjectById: (
     projectId: string
   ) => Promise<{ id: string; path: string; archivedAt?: Date | null } | undefined>
+}
+
+export type TerminalStorageSettingsProvider = {
+  getSpaceZeroHome: () => Promise<string>
+}
+
+export type TerminalKnowledgeBaseRootProvider = {
+  getVerifiedRoot: () => Promise<string>
 }
 
 export type TerminalWorktreeValidator = {
@@ -106,6 +116,8 @@ const DEFAULT_MAX_RETAINED_BYTES = 5 * 1024 * 1024
 export function createTerminalService({
   repository,
   worktrees,
+  storageSettings,
+  knowledgeBaseRoot,
   pty,
   createId = randomUUID,
   resolveShell = resolveDefaultShell,
@@ -115,6 +127,8 @@ export function createTerminalService({
 }: {
   repository: TerminalRepository
   worktrees: TerminalWorktreeValidator
+  storageSettings: TerminalStorageSettingsProvider
+  knowledgeBaseRoot: TerminalKnowledgeBaseRootProvider
   pty: TerminalPtyAdapter
   createId?: () => string
   resolveShell?: () => TerminalShell
@@ -165,7 +179,7 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalCreateRequest
   }): Promise<TerminalCreateResult> {
-    const cwd = await resolveProjectSessionWorktree(request.context.sessionId)
+    const cwd = await resolveInitialCwd(request.context)
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
     const shell = resolveShell()
@@ -381,8 +395,24 @@ export function createTerminalService({
     return terminal
   }
 
+  async function resolveInitialCwd(context: TerminalCreateRequest['context']): Promise<string> {
+    if (context.kind === 'project-session') return resolveProjectSessionWorktree(context.sessionId)
+    if (context.kind === 'workspace-session') return resolveWorkspaceSessionRoot(context.sessionId)
+    return knowledgeBaseRoot.getVerifiedRoot()
+  }
+
+  async function resolveWorkspaceSessionRoot(sessionId: string): Promise<string> {
+    const session = await repository.findSessionById(sessionId)
+    if (!session || session.archivedAt) throw new Error('terminal.workspaceSessionNotFound')
+    if (session.kind && session.kind !== 'workspace') throw new Error('terminal.workspaceSessionNotFound')
+    if (session.projectId !== null || session.managedContext) {
+      throw new Error('terminal.workspaceSessionNotFound')
+    }
+    return storageSettings.getSpaceZeroHome()
+  }
+
   async function assertContextOwnerActive(context: TerminalCreateRequest['context']): Promise<void> {
-    await resolveProjectSessionWorktree(context.sessionId)
+    await resolveInitialCwd(context)
   }
 
   function retainAndEmit(terminal: TerminalRecord, data: string): void {
@@ -540,10 +570,15 @@ export function resolveDefaultShell(): TerminalShell {
 }
 
 function contextKey(ownerWindowId: number, context: TerminalCreateRequest['context']): string {
-  return `${ownerWindowId}:${context.kind}:${context.sessionId}`
+  return `${ownerWindowId}:${terminalContextIdentity(context)}`
 }
 
 function deletionContextKey(context: TerminalCreateRequest['context']): string {
+  return terminalContextIdentity(context)
+}
+
+function terminalContextIdentity(context: TerminalCreateRequest['context']): string {
+  if (context.kind === 'knowledge-base') return context.kind
   return `${context.kind}:${context.sessionId}`
 }
 
@@ -551,7 +586,7 @@ function sameContext(
   left: TerminalCreateRequest['context'],
   right: TerminalCreateRequest['context']
 ): boolean {
-  return left.kind === right.kind && left.sessionId === right.sessionId
+  return terminalContextIdentity(left) === terminalContextIdentity(right)
 }
 
 function trimOldestDataToLimits(

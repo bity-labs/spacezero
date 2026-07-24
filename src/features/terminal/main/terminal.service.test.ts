@@ -14,6 +14,18 @@ const session = {
   archivedAt: null
 }
 const context = { kind: 'project-session' as const, sessionId: session.id }
+const workspaceSession = {
+  id: 'workspace-session-1',
+  kind: 'workspace' as const,
+  projectId: null,
+  archivedAt: null,
+  managedContext: null
+}
+const workspaceContext = {
+  kind: 'workspace-session' as const,
+  sessionId: workspaceSession.id
+}
+const knowledgeBaseContext = { kind: 'knowledge-base' as const }
 
 function createHarness() {
   const ptys: FakePty[] = []
@@ -25,9 +37,11 @@ function createHarness() {
     })
   }
   const repository = {
-    findSessionById: vi.fn(async (sessionId: string) =>
-      sessionId === session.id ? session : undefined
-    ),
+    findSessionById: vi.fn(async (sessionId: string) => {
+      if (sessionId === session.id) return session
+      if (sessionId === workspaceSession.id) return workspaceSession
+      return undefined
+    }),
     findProjectById: vi.fn(async (projectId: string) =>
       projectId === project.id ? project : undefined
     )
@@ -39,6 +53,8 @@ function createHarness() {
   const service = createTerminalService({
     repository,
     worktrees,
+    storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+    knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
     pty: adapter,
     createId: () => `terminal-${ptys.length + 1}`,
     resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
@@ -84,6 +100,116 @@ describe('Terminal service', () => {
     expect(ptys).toHaveLength(1)
   })
 
+  it('launches workspace-session and knowledge-base PTYs from their main-resolved roots', async () => {
+    const { adapter, ptys, service, worktrees } = createHarness()
+
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
+    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-1' })
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context: knowledgeBaseContext } })
+    ).resolves.toEqual({ status: 'running', terminalId: 'terminal-2' })
+
+    expect(adapter.spawn).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ cwd: '/home/builder/SpaceZero' })
+    )
+    expect(adapter.spawn).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cwd: '/home/builder/SpaceZero/knowledge-base' })
+    )
+    expect(worktrees.validate).not.toHaveBeenCalled()
+    expect(ptys).toHaveLength(2)
+  })
+
+  it('keeps terminal identity, PTY, output, and events isolated by stable context identity', async () => {
+    const { events, ptys, service } = createHarness()
+    const projectTerminal = await service.create({ ownerWindowId: 1, request: { context } })
+    const workspaceTerminal = await service.create({
+      ownerWindowId: 1,
+      request: { context: workspaceContext }
+    })
+    const knowledgeBaseTerminal = await service.create({
+      ownerWindowId: 1,
+      request: { context: knowledgeBaseContext }
+    })
+    if (
+      projectTerminal.status !== 'running' ||
+      workspaceTerminal.status !== 'running' ||
+      knowledgeBaseTerminal.status !== 'running'
+    ) {
+      throw new Error('expected running terminals')
+    }
+
+    await service.subscribe({
+      ownerWindowId: 1,
+      request: { terminalId: projectTerminal.terminalId, context }
+    })
+    await service.subscribe({
+      ownerWindowId: 1,
+      request: { terminalId: workspaceTerminal.terminalId, context: workspaceContext }
+    })
+    await service.subscribe({
+      ownerWindowId: 1,
+      request: { terminalId: knowledgeBaseTerminal.terminalId, context: knowledgeBaseContext }
+    })
+    ptys[0]?.emitData('project\n')
+    ptys[1]?.emitData('workspace\n')
+    ptys[2]?.emitData('knowledge\n')
+
+    expect(events).toEqual([
+      { type: 'output', terminalId: projectTerminal.terminalId, sequence: 1, data: 'project\n' },
+      {
+        type: 'output',
+        terminalId: workspaceTerminal.terminalId,
+        sequence: 1,
+        data: 'workspace\n'
+      },
+      {
+        type: 'output',
+        terminalId: knowledgeBaseTerminal.terminalId,
+        sequence: 1,
+        data: 'knowledge\n'
+      }
+    ])
+    await expect(
+      service.writeInput({
+        ownerWindowId: 1,
+        request: {
+          terminalId: workspaceTerminal.terminalId,
+          context,
+          data: 'forged'
+        }
+      })
+    ).rejects.toThrow('terminal.notFound')
+  })
+
+  it('rejects missing or forged workspace and knowledge-base roots before spawning a PTY', async () => {
+    const { adapter, repository, service } = createHarness()
+    repository.findSessionById.mockResolvedValueOnce(undefined)
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
+    ).rejects.toThrow('terminal.workspaceSessionNotFound')
+
+    const failingKnowledgeService = createTerminalService({
+      repository,
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => {
+          throw new Error('Knowledge Base is not configured.')
+        })
+      },
+      pty: adapter,
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    await expect(
+      failingKnowledgeService.create({ ownerWindowId: 1, request: { context: knowledgeBaseContext } })
+    ).rejects.toThrow('Knowledge Base is not configured.')
+    expect(adapter.spawn).not.toHaveBeenCalled()
+  })
+
   it('serializes concurrent creates for the same window/context into one PTY', async () => {
     let resolveSpawn: ((pty: FakePty) => void) | undefined
     const ptys: FakePty[] = []
@@ -104,6 +230,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: adapter,
       createId: () => 'terminal-concurrent',
       resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
@@ -213,6 +341,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: {
         spawn: vi.fn(async () => {
           const pty = new FakePty(80, 24)
@@ -251,6 +381,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: {
         spawn: vi.fn(async () => {
           const pty = new FakePty(80, 24)
@@ -346,6 +478,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: adapter,
       createId: () => 'terminal-raced-create',
       resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
@@ -373,6 +507,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: {
         spawn: vi.fn(async () => {
           const pty = new DeferredKillPty(80, 24)
@@ -420,6 +556,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: adapter,
       createId: () => 'terminal-raced-create-kill-fails',
       resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
@@ -442,6 +580,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: {
         spawn: vi.fn(async () => {
           const pty = new FailsOnceKillPty(80, 24)
@@ -512,6 +652,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: {
         spawn: vi.fn(async () => {
           const pty = new FakePty(80, 24)
@@ -552,6 +694,8 @@ describe('Terminal service', () => {
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: { getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base') },
       pty: adapter,
       resolveShell: () => ({ executable: '/missing-shell', args: [] }),
       emitToWindow: vi.fn()
