@@ -79,7 +79,13 @@ export type TerminalExitEvent = {
   signal?: number | string | null
 }
 
-export type TerminalEvent = TerminalOutputEvent | TerminalExitEvent
+export type TerminalTabUpdatedEvent = {
+  type: 'tab-updated'
+  terminalId: TerminalId
+  title: string
+}
+
+export type TerminalEvent = TerminalOutputEvent | TerminalExitEvent | TerminalTabUpdatedEvent
 
 export type TerminalSubscribeResult = {
   terminalId: TerminalId
