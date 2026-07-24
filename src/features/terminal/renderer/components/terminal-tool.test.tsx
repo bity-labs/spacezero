@@ -89,6 +89,33 @@ describe('TerminalTool', () => {
     expect(lastTerminal?.write).toHaveBeenCalledWith('done\r\n')
   })
 
+  it('uses the owning workspace-session or knowledge-base context without rewriting it to a project session', async () => {
+    const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
+    window.spacezero.terminal = {
+      create,
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const workspaceContext = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
+    const mounted = render(<TerminalTool context={workspaceContext} />)
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ context: workspaceContext })))
+
+    mounted.unmount()
+    const knowledgeBaseContext = { kind: 'knowledge-base' as const }
+    render(<TerminalTool context={knowledgeBaseContext} />)
+    await waitFor(() => expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ context: knowledgeBaseContext })))
+  })
+
   it('merges subscribe replay and live output in sequence order without gaps or duplicates', async () => {
     let resolveSubscribe: ((value: {
       terminalId: string

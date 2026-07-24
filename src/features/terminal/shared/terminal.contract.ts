@@ -8,7 +8,10 @@ export const TERMINAL_IPC_CHANNELS = {
   event: 'terminal:event'
 } as const
 
-export type TerminalContext = { kind: 'project-session'; sessionId: string }
+export type TerminalContext =
+  | { kind: 'project-session'; sessionId: string }
+  | { kind: 'workspace-session'; sessionId: string }
+  | { kind: 'knowledge-base' }
 
 export type TerminalId = string
 

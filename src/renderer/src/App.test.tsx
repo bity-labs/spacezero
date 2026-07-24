@@ -188,7 +188,7 @@ describe('App', () => {
     expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
   })
 
-  it('enables only Files in the Tool Switcher for a configured Knowledge Base', async () => {
+  it('enables Files and Terminal in the Tool Switcher for a configured Knowledge Base', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -208,7 +208,8 @@ describe('App', () => {
       'vertical'
     )
     expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
-    for (const label of ['Git', 'Browser', 'Terminal']) {
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
+    for (const label of ['Git', 'Browser']) {
       expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
   })
@@ -828,10 +829,10 @@ describe('App', () => {
       'vertical'
     )
     expect(screen.getByRole('button', { name: 'Browser — Coming soon' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Terminal — Coming soon' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: /Files/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Git —/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
   })
 
   it('opens a global Workspace Session without selecting a project', async () => {
