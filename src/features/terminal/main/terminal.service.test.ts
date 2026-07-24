@@ -334,6 +334,34 @@ describe('Terminal service', () => {
     })
   })
 
+  it('rejects duplicate or incomplete reorder payloads without changing reachable tabs', async () => {
+    const { service } = createHarness()
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+
+    await expect(
+      service.reorderTabs({
+        ownerWindowId: 1,
+        request: { context, terminalIds: [first.terminalId, first.terminalId] }
+      })
+    ).rejects.toThrow('terminal.notFound')
+    await expect(
+      service.reorderTabs({
+        ownerWindowId: 1,
+        request: { context, terminalIds: [first.terminalId] }
+      })
+    ).rejects.toThrow('terminal.notFound')
+
+    await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      activeTerminalId: second.terminalId,
+      tabs: [
+        { terminalId: first.terminalId, title: 'zsh' },
+        { terminalId: second.terminalId, title: 'zsh' }
+      ]
+    })
+  })
+
   it('keeps inactive tab output running in the background and resizes only the selected tab', async () => {
     const { ptys, service } = createHarness()
     const first = await service.create({ ownerWindowId: 1, request: { context } })
@@ -673,6 +701,55 @@ describe('Terminal service', () => {
     await expect(service.create({ ownerWindowId: 1, request: { context } })).rejects.toThrow(
       'terminal.contextDeleting'
     )
+  })
+
+  it('awaits and terminates every concurrent forced create during context deletion', async () => {
+    const resolvers: Array<(pty: FakePty) => void> = []
+    const ptys: FakePty[] = []
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            resolvers.push((pty) => {
+              ptys.push(pty)
+              resolve(pty)
+            })
+          })
+      )
+    }
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => `terminal-forced-${resolvers.length}`,
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+
+    const first = service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    const second = service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    await vi.waitFor(() => expect(adapter.spawn).toHaveBeenCalledTimes(2))
+    let cleanupResolved = false
+    const cleanup = service.closeAllForContext(context).then(() => {
+      cleanupResolved = true
+    })
+
+    resolvers[0]?.(new FakePty(80, 24))
+    await expect(first).rejects.toThrow('terminal.contextDeleting')
+    await Promise.resolve()
+    expect(cleanupResolved).toBe(false)
+    resolvers[1]?.(new FakePty(80, 24))
+    await expect(second).rejects.toThrow('terminal.contextDeleting')
+    await cleanup
+    expect(ptys.map((pty) => pty.killed)).toEqual([true, true])
+    expect(cleanupResolved).toBe(true)
   })
 
   it('kills and rejects an in-flight workspace-session create when that Session is deleted', async () => {

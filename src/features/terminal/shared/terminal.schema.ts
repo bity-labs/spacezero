@@ -57,6 +57,14 @@ export const terminalReorderTabsRequestSchema = z
     terminalIds: z.array(terminalIdSchema).min(1)
   })
   .strict()
+  .superRefine((request, context) => {
+    if (new Set(request.terminalIds).size === request.terminalIds.length) return
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['terminalIds'],
+      message: 'Terminal ids must be unique'
+    })
+  })
 
 export const terminalSubscribeRequestSchema = z
   .object({
