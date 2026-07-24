@@ -330,8 +330,8 @@ describe('Files Tool', () => {
     expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
   })
 
-  it('keeps list-indented MDX in source mode and saves it without rich serialization', async () => {
-    const mdxContent = '- item\n    <Component />'
+  it('keeps tab-padded list-indented MDX in source mode and saves it without rich serialization', async () => {
+    const mdxContent = '-\titem\n    <Component />'
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'page.mdx', relativePath: 'docs/page.mdx', kind: 'file' as const }
     ])
