@@ -314,7 +314,7 @@ describe('createKnowledgeBaseFilesService', () => {
     )
   })
 
-  it('autosaves text with optimistic revision checks', async () => {
+  it('saves text with optimistic revision checks', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
       configurationRepository: configuredRepository(rootPath)
@@ -372,7 +372,7 @@ describe('createKnowledgeBaseFilesService', () => {
     )
   })
 
-  it('does not overwrite external changes when an autosave revision is stale', async () => {
+  it('does not overwrite external changes when a save revision is stale', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
       configurationRepository: configuredRepository(rootPath)

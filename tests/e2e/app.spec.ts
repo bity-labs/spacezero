@@ -364,10 +364,17 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       'aria-orientation',
       'vertical'
     )
-    for (const label of ['Files', 'Git', 'Browser', 'Terminal']) {
+    await expect(window.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
+    for (const label of ['Git', 'Browser', 'Terminal']) {
       await expect(window.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
-    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeDisabled()
+    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
+    await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+    await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
+    await expect(window.getByText('AGENTS.md')).toBeVisible()
+    await window.getByText('AGENTS.md').click()
+    await expect(window.getByRole('button', { name: 'Rich' })).toBeVisible()
+    await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
 
     const previousSessionId = await window.evaluate(() =>
       window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
@@ -386,7 +393,12 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
-      'vertical'
+      'horizontal'
+    )
+    await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
+    await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
     )
 
     await electronApp.close()
@@ -395,6 +407,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
     await expect
       .poll(() =>
         window.evaluate(() =>

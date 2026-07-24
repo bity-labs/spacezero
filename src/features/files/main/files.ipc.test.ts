@@ -11,18 +11,29 @@ import {
 } from './files.ipc'
 import { openFilesDocument } from './files-document.adapter'
 
+const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
+const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
+
 describe('Files IPC', () => {
-  it('validates renderer input before listing a Session directory', async () => {
+  it('validates renderer input before listing a context directory', async () => {
     const listDirectory = vi.fn(async () => [])
     const handle = createListFilesDirectoryHandler({ listDirectory })
 
-    await expect(handle({ sessionId: 'session-1', relativePath: 'src' })).resolves.toEqual([])
-    expect(listDirectory).toHaveBeenCalledWith({ sessionId: 'session-1', relativePath: 'src' })
+    await expect(handle({ context: projectContext, relativePath: 'src' })).resolves.toEqual([])
+    await expect(handle({ context: knowledgeBaseContext, relativePath: '' })).resolves.toEqual([])
+    expect(listDirectory).toHaveBeenNthCalledWith(1, {
+      context: projectContext,
+      relativePath: 'src'
+    })
+    expect(listDirectory).toHaveBeenNthCalledWith(2, {
+      context: knowledgeBaseContext,
+      relativePath: ''
+    })
 
     await expect(
-      handle({ sessionId: 'session-1', relativePath: '../outside', rootPath: '/tmp' })
+      handle({ context: projectContext, relativePath: '../outside', rootPath: '/tmp' })
     ).rejects.toThrow()
-    expect(listDirectory).toHaveBeenCalledTimes(1)
+    expect(listDirectory).toHaveBeenCalledTimes(2)
   })
 
   it('does not expose absolute adapter paths in IPC-visible document errors', async () => {
@@ -32,18 +43,18 @@ describe('Files IPC', () => {
         openDocument: ({ relativePath }) => openFilesDocument(rootPath, relativePath)
       })
 
-      await expect(handle({ sessionId: 'session-1', relativePath: 'missing.txt' })).rejects.toThrow(
-        'files.notFound'
-      )
       await expect(
-        handle({ sessionId: 'session-1', relativePath: 'missing.txt' })
+        handle({ context: projectContext, relativePath: 'missing.txt' })
+      ).rejects.toThrow('files.notFound')
+      await expect(
+        handle({ context: projectContext, relativePath: 'missing.txt' })
       ).rejects.not.toThrow(rootPath)
     } finally {
       await rm(rootPath, { recursive: true, force: true })
     }
   })
 
-  it('validates renderer input before opening or saving a Session document', async () => {
+  it('validates renderer input before opening or saving a context document', async () => {
     const document = {
       name: 'README.md',
       relativePath: 'README.md',
@@ -60,13 +71,13 @@ describe('Files IPC', () => {
 
     await expect(
       createOpenFilesDocumentHandler({ openDocument })({
-        sessionId: 'session-1',
+        context: knowledgeBaseContext,
         relativePath: 'README.md'
       })
     ).resolves.toEqual(document)
     await expect(
       createSaveFilesDocumentHandler({ saveDocument })({
-        sessionId: 'session-1',
+        context: knowledgeBaseContext,
         relativePath: 'README.md',
         content: 'hello again',
         expectedRevision: 'revision-1'
@@ -75,14 +86,14 @@ describe('Files IPC', () => {
 
     await expect(
       createOpenFilesDocumentHandler({ openDocument })({
-        sessionId: 'session-1',
+        context: knowledgeBaseContext,
         relativePath: '.git/config',
         rootPath: '/tmp'
       })
     ).rejects.toThrow()
     await expect(
       createSaveFilesDocumentHandler({ saveDocument })({
-        sessionId: 'session-1',
+        context: knowledgeBaseContext,
         relativePath: 'README.md',
         content: 'hello',
         expectedRevision: ''
