@@ -14,6 +14,7 @@ test-results
 
 # Local files
 .worktrees/
+.pi-subagents/
 .env
 .env.*
 resources/github-app.json
