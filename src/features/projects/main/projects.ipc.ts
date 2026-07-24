@@ -34,8 +34,8 @@ const sessionCleanupService = createSessionCleanupService({
   },
   deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
   removeTranscript: (path) => rm(path, { force: true }),
-  closeTerminalsForSession: (sessionId) =>
-    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId })
+  closeTerminalsForSession: (session) =>
+    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId: session.id })
 })
 
 export function registerProjectsIpc(): void {
