@@ -24,7 +24,10 @@ export type AgentChatProps = {
   emptyState?: ReactNode
   className?: string
   contentClassName?: string
-  onSubmit?: (text: string, options?: { agentDefinition?: AgentDefinitionReference }) => void
+  onSubmit?: (
+    text: string,
+    options?: { agentDefinition?: AgentDefinitionReference }
+  ) => void | Promise<void>
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
 }
@@ -72,12 +75,12 @@ export function AgentChat({
       thinkingLevel={modelControls.thinkingLevel}
       onModelChange={modelControls.setModel}
       onThinkingChange={modelControls.setThinkingLevel}
-      onSubmit={({ text, agentDefinitionId }) =>
-        onSubmit?.(
+      onSubmit={async ({ text, agentDefinitionId }) => {
+        await onSubmit?.(
           text,
           agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
         )
-      }
+      }}
       onAbort={onAbort}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
@@ -179,7 +182,13 @@ function useAgentDefinitionControls(
 function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessionState) {
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [modelDefaults, setModelDefaults] = useState<ModelDefaults | undefined>(undefined)
-  const [localSessionState, setLocalSessionState] = useState<AgentSessionState | undefined>()
+  const [localSessionState, setLocalSessionState] = useState<
+    | {
+        sourceSessionState: AgentSessionState | undefined
+        value: AgentSessionState
+      }
+    | undefined
+  >()
   const [selectedModelOverride, setSelectedModelOverride] = useState<
     { sessionId: string; value: string } | undefined
   >(undefined)
@@ -214,8 +223,10 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     }
   }, [])
 
-  const effectiveSessionState =
-    localSessionState?.sessionId === sessionId ? localSessionState : sessionState
+  const localSessionStateIsCurrent =
+    localSessionState?.value.sessionId === sessionId &&
+    localSessionState.sourceSessionState === sessionState
+  const effectiveSessionState = localSessionStateIsCurrent ? localSessionState.value : sessionState
   const models = useMemo(() => availableModels.map(toChatInputModel), [availableModels])
   const sessionModelId =
     effectiveSessionState?.modelProvider && effectiveSessionState.modelId
@@ -225,12 +236,14 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
     ? encodeModelId(modelDefaults.defaultModel.providerId, modelDefaults.defaultModel.modelId)
     : undefined
   const selectedModelId =
-    selectedModelOverride?.sessionId === sessionId
+    selectedModelOverride?.sessionId === sessionId && localSessionStateIsCurrent
       ? selectedModelOverride.value
       : (sessionModelId ?? defaultModelId)
-  const thinkingLevel = ((thinkingLevelOverride?.sessionId === sessionId
-    ? thinkingLevelOverride.value
-    : undefined) ??
+  const localThinkingLevelOverride =
+    thinkingLevelOverride?.sessionId === sessionId && localSessionStateIsCurrent
+      ? thinkingLevelOverride.value
+      : undefined
+  const thinkingLevel = (localThinkingLevelOverride ??
     effectiveSessionState?.thinkingLevel ??
     modelDefaults?.defaultThinking ??
     'medium') as AiChatThinkingLevel
@@ -244,14 +257,14 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
       provider: model.provider,
       modelId: model.modelId
     })
-    setLocalSessionState(nextSessionState)
+    setLocalSessionState({ sourceSessionState: sessionState, value: nextSessionState })
     setSelectedModelOverride({ sessionId, value: encodedModelId })
     setError(undefined)
   }
 
   async function setThinkingLevel(level: AiChatThinkingLevel): Promise<void> {
     const nextSessionState = await window.spacezero.agent.setThinkingLevel({ sessionId, level })
-    setLocalSessionState(nextSessionState)
+    setLocalSessionState({ sourceSessionState: sessionState, value: nextSessionState })
     setThinkingLevelOverride({ sessionId, value: level })
     setError(undefined)
   }

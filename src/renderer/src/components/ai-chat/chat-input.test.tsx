@@ -1,10 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { ChatInput } from './chat-input'
 
 describe('ChatInput', () => {
-  it('submits entered text with Enter and clears the input', () => {
+  it('submits entered text with Enter and clears the input', async () => {
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)
 
@@ -17,7 +17,7 @@ describe('ChatInput', () => {
       files: [],
       modelId: undefined
     })
-    expect(input).toHaveValue('')
+    await waitFor(() => expect(input).toHaveValue(''))
   })
 
   it('keeps a newline on Shift+Enter without submitting', () => {

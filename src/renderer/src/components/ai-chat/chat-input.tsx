@@ -83,7 +83,7 @@ export type ChatInputProps = {
   onAgentDefinitionPickerOpen?: () => void
   onModelChange?: (modelId: string) => void
   onThinkingChange?: (level: AiChatThinkingLevel) => void
-  onSubmit: (input: ChatInputSubmit) => void
+  onSubmit: (input: ChatInputSubmit) => void | Promise<void>
   onAbort?: () => void
   className?: string
 }
@@ -198,16 +198,20 @@ export function ChatInput({
     onAgentDefinitionChange?.(definitionId)
   }
 
-  const handleSubmit = ({ text, files }: { text: string; files: PromptInputFile[] }) => {
-    setInputValue('')
-    setActiveSkillIndex(0)
-    setSkillMenuDismissed(false)
-    onSubmit({
-      text,
-      files: files.map((item) => item.file),
-      modelId: activeModelId,
-      ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
-    })
+  const handleSubmit = async ({ text, files }: { text: string; files: PromptInputFile[] }) => {
+    try {
+      await onSubmit({
+        text,
+        files: files.map((item) => item.file),
+        modelId: activeModelId,
+        ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
+      })
+      setInputValue('')
+      setActiveSkillIndex(0)
+      setSkillMenuDismissed(false)
+    } catch {
+      // Keep the submitted prompt visible; the caller owns surfacing the failure.
+    }
   }
 
   const handleSkillKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -370,7 +374,12 @@ export function ChatInput({
                             data-checked={definition.id === activeAgentDefinitionId}
                             onSelect={() => handleAgentDefinitionChange(definition.id)}
                           >
-                            <ModelSelectorName>{definition.name}</ModelSelectorName>
+                            <div className="min-w-0 flex-1 text-left">
+                              <ModelSelectorName>{definition.name}</ModelSelectorName>
+                              <p className="truncate text-xs text-muted-foreground">
+                                {definition.description}
+                              </p>
+                            </div>
                             <span className="ml-auto shrink-0 text-[10px] uppercase text-muted-foreground">
                               {definition.scope}
                             </span>
