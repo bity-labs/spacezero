@@ -134,6 +134,9 @@ importers:
       tailwind-merge:
         specifier: latest
         version: 3.6.0
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
       zod:
         specifier: latest
         version: 4.4.3

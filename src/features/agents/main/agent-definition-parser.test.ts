@@ -133,6 +133,26 @@ Body.
     })
   })
 
+  it('parses folded scalar frontmatter values as valid YAML', () => {
+    const parsed = parseAgentDefinitionMarkdown({
+      ...baseInput,
+      markdown: `---
+name: Reviewer
+description: >-
+  Reviews code changes
+  with context.
+---
+Body.
+`
+    })
+
+    expect(parsed).toMatchObject({
+      status: 'valid',
+      description: 'Reviews code changes with context.',
+      diagnostics: []
+    })
+  })
+
   it('ignores unknown fields with a soft diagnostic', () => {
     const parsed = parseAgentDefinitionMarkdown({
       ...baseInput,
@@ -155,6 +175,30 @@ Body.
     ])
   })
 
+  it('ignores nested unknown fields with a soft diagnostic', () => {
+    const parsed = parseAgentDefinitionMarkdown({
+      ...baseInput,
+      markdown: `---
+name: Reviewer
+description: Reviews code changes.
+metadata:
+  routing:
+    priority: high
+---
+Body.
+`
+    })
+
+    expect(parsed.status).toBe('valid')
+    expect(parsed.diagnostics).toEqual([
+      {
+        severity: 'warning',
+        code: 'agentDefinitions.unknownField',
+        message: 'Unknown frontmatter field "metadata" was ignored.'
+      }
+    ])
+  })
+
   it.each(['output', 'blocking'])(
     'rejects reserved %s field with an explicit diagnostic',
     (field) => {
@@ -163,18 +207,22 @@ Body.
         markdown: `---
 name: Reviewer
 description: Reviews code changes.
-${field}: true
+${field}:
+  schema:
+    type: object
 ---
 Body.
 `
       })
 
       expect(parsed.status).toBe('invalid')
-      expect(parsed.diagnostics).toContainEqual({
-        severity: 'error',
-        code: 'agentDefinitions.reservedFieldNotSupported',
-        message: `Frontmatter field "${field}" is reserved and not yet supported.`
-      })
+      expect(parsed.diagnostics).toEqual([
+        {
+          severity: 'error',
+          code: 'agentDefinitions.reservedFieldNotSupported',
+          message: `Frontmatter field "${field}" is reserved and not yet supported.`
+        }
+      ])
     }
   )
 })
