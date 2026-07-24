@@ -434,6 +434,36 @@ describe('Terminal service', () => {
     await expect(Promise.all([create, cleanup])).rejects.toThrow('terminal.killFailed')
   })
 
+  it('retries a failed shutdown before context deletion can complete', async () => {
+    const ptys: FailsOnceKillPty[] = []
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: {
+        spawn: vi.fn(async () => {
+          const pty = new FailsOnceKillPty(80, 24)
+          ptys.push(pty)
+          return pty
+        })
+      },
+      createId: () => 'terminal-retry-kill',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+
+    await expect(service.closeAllForContext(context)).rejects.toThrow('terminal.killFailed')
+    expect(ptys[0]?.killAttempts).toBe(1)
+
+    await service.closeAllForContext(context)
+    expect(ptys[0]?.killAttempts).toBe(2)
+    await expect(service.closeAllForContext(context)).resolves.toBeUndefined()
+  })
+
   it('preserves input and resize invocation order while older operations are pending', async () => {
     const { ptys, service } = createHarness()
     const created = await service.create({ ownerWindowId: 1, request: { context } })
@@ -600,5 +630,15 @@ class RejectingKillPty extends FakePty {
   override async kill(): Promise<void> {
     this.killed = true
     throw new Error('terminal.killFailed')
+  }
+}
+
+class FailsOnceKillPty extends FakePty {
+  killAttempts = 0
+
+  override async kill(): Promise<void> {
+    this.killAttempts += 1
+    this.killed = true
+    if (this.killAttempts === 1) throw new Error('terminal.killFailed')
   }
 }
