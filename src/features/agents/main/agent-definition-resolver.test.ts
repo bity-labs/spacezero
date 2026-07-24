@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AgentDefinitionCatalogEntry } from '../shared'
-import { resolveAgentDefinitionForSession } from './agent-definition-resolver'
+import {
+  resolveAgentDefinitionForSession,
+  resolveAgentDefinitionsForDelegation
+} from './agent-definition-resolver'
 
 function validDefinition(overrides: Partial<AgentDefinitionCatalogEntry> = {}): AgentDefinitionCatalogEntry {
   return {
@@ -56,6 +59,33 @@ describe('resolveAgentDefinitionForSession', () => {
         }
       )
     ).rejects.toThrow('agentDefinitions.definitionNotFound')
+  })
+
+  it('resolves active definitions for delegation without letting one malformed entry disable the catalog', async () => {
+    await expect(
+      resolveAgentDefinitionsForDelegation({
+        resolveSources: async () => [],
+        discoverDefinitions: async () => [
+          validDefinition({
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches code.',
+            body: 'Scout code.',
+            tools: ['read', 'grep']
+          }),
+          validDefinition({ id: 'bad-model', model: 'missing-separator' }),
+          validDefinition({ id: 'shadowed', shadowedBy: 'spacezero' })
+        ]
+      })
+    ).resolves.toEqual([
+      {
+        id: 'scout',
+        name: 'Scout',
+        description: 'Researches code.',
+        body: 'Scout code.',
+        tools: ['read', 'grep']
+      }
+    ])
   })
 
   it('rejects malformed model and thinking values at use time', async () => {

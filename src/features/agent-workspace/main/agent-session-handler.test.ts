@@ -134,18 +134,23 @@ describe('createProjectAgentSession', () => {
       )
     ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/worktrees/session-1' })
 
-    expect(utilityHost.createSession).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      kind: 'project',
-      projectId: 'project-1',
-      cwd: '/worktrees/session-1',
-      workspaceTools: expect.arrayContaining([
-        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ]),
-      appendSystemPrompt: [expect.stringContaining('not configured')],
-      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
-      thinkingLevel: 'high'
-    })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        cwd: '/worktrees/session-1',
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+        ]),
+        appendSystemPrompt: [expect.stringContaining('not configured')],
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+        thinkingLevel: 'high',
+        delegationDefinitions: expect.arrayContaining([
+          expect.objectContaining({ id: 'scout', name: 'Scout' })
+        ])
+      })
+    )
   })
 
   it('injects durable project Knowledge Base guidance and the linked folder path', async () => {
@@ -477,18 +482,23 @@ describe('createProjectAgentSession', () => {
       )
     ).rejects.toThrow('db write failed')
 
-    expect(utilityHost.createSession).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      kind: 'project',
-      projectId: 'project-1',
-      cwd: '/worktrees/session-1',
-      workspaceTools: expect.arrayContaining([
-        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ]),
-      appendSystemPrompt: [expect.stringContaining('not configured')],
-      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
-      thinkingLevel: 'high'
-    })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        cwd: '/worktrees/session-1',
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+        ]),
+        appendSystemPrompt: [expect.stringContaining('not configured')],
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+        thinkingLevel: 'high',
+        delegationDefinitions: expect.arrayContaining([
+          expect.objectContaining({ id: 'scout', name: 'Scout' })
+        ])
+      })
+    )
     expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'session-1' })
     expect(worktrees.remove).toHaveBeenCalledWith({
       projectPath: '/repo',
@@ -1120,18 +1130,23 @@ describe('restoreAgentSessionState', () => {
       )
     ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/repo' })
 
-    expect(utilityHost.createSession).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      kind: 'project',
-      projectId: 'project-1',
-      cwd: '/repo',
-      transcriptPath: '/agent/sessions/session-1.jsonl',
-      workspaceTools: expect.arrayContaining([
-        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
-      ]),
-      appendSystemPrompt: [expect.stringContaining('not configured')],
-      thinkingLevel: undefined
-    })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        cwd: '/repo',
+        transcriptPath: '/agent/sessions/session-1.jsonl',
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+        ]),
+        appendSystemPrompt: [expect.stringContaining('not configured')],
+        thinkingLevel: undefined,
+        delegationDefinitions: expect.arrayContaining([
+          expect.objectContaining({ id: 'scout', name: 'Scout' })
+        ])
+      })
+    )
   })
 })
 
@@ -1235,25 +1250,30 @@ describe('createWorkspaceAgentSession', () => {
       status: 'idle'
     })
 
-    expect(utilityHost.createSession).toHaveBeenCalledWith({
-      sessionId: 'workspace-session-1',
-      kind: 'workspace',
-      projectId: null,
-      cwd: '/tmp/spacezero-workspace-sessions',
-      workspaceTools: expect.arrayContaining([
-        expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
-        expect.objectContaining({
-          name: 'knowledgeBase.readDocument',
-          safetyLevel: 'read'
-        }),
-        expect.objectContaining({
-          name: 'knowledgeBase.saveDocument',
-          safetyLevel: 'write'
-        })
-      ]),
-      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
-      thinkingLevel: 'high'
-    })
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'workspace-session-1',
+        kind: 'workspace',
+        projectId: null,
+        cwd: '/tmp/spacezero-workspace-sessions',
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
+          expect.objectContaining({
+            name: 'knowledgeBase.readDocument',
+            safetyLevel: 'read'
+          }),
+          expect.objectContaining({
+            name: 'knowledgeBase.saveDocument',
+            safetyLevel: 'write'
+          })
+        ]),
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+        thinkingLevel: 'high',
+        delegationDefinitions: expect.arrayContaining([
+          expect.objectContaining({ id: 'scout', name: 'Scout' })
+        ])
+      })
+    )
     await expect(repository.listWorkspaceSessions()).resolves.toEqual([
       expect.objectContaining({ id: 'workspace-session-1', projectId: null })
     ])
