@@ -1,4 +1,4 @@
-.knowledge-base-rich-editor {
+.rich-markdown-editor {
   display: flex;
   min-height: 0;
   flex: 1;
@@ -9,12 +9,12 @@
   background: var(--background);
 }
 
-.knowledge-base-rich-editor:focus-within {
+.rich-markdown-editor:focus-within {
   border-color: var(--ring);
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring) 30%, transparent);
 }
 
-.knowledge-base-rich-editor__toolbar {
+.rich-markdown-editor__toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -29,11 +29,11 @@
   scrollbar-width: none;
 }
 
-.knowledge-base-rich-editor__toolbar::-webkit-scrollbar {
+.rich-markdown-editor__toolbar::-webkit-scrollbar {
   display: none;
 }
 
-.knowledge-base-rich-editor__error {
+.rich-markdown-editor__error {
   border-bottom: 1px solid var(--border);
   background: color-mix(in oklch, var(--destructive) 8%, transparent);
   color: var(--destructive);
@@ -41,7 +41,7 @@
   font-size: 0.75rem;
 }
 
-.knowledge-base-rich-editor__link-panel {
+.rich-markdown-editor__link-panel {
   position: relative;
   z-index: 9;
   border-bottom: 1px solid var(--border);
@@ -49,30 +49,30 @@
   padding: 0.65rem;
 }
 
-.knowledge-base-rich-editor__link-form {
+.rich-markdown-editor__link-form {
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.knowledge-base-rich-editor__link-form input {
+.rich-markdown-editor__link-form input {
   min-width: 12rem;
   flex: 1;
 }
 
-.knowledge-base-rich-editor__link-error {
+.rich-markdown-editor__link-error {
   margin-top: 0.4rem;
   color: var(--destructive);
   font-size: 0.75rem;
 }
 
-.knowledge-base-rich-editor__content {
+.rich-markdown-editor__content {
   min-height: 0;
   flex: 1;
   overflow: auto;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror {
+.rich-markdown-editor__content .tiptap.ProseMirror {
   min-height: 100%;
   max-width: 760px;
   margin: 0 auto;
@@ -82,86 +82,86 @@
   outline: none;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror > * + * {
+.rich-markdown-editor__content .tiptap.ProseMirror > * + * {
   margin-top: 0.85rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h1,
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h2,
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h3,
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h4 {
+.rich-markdown-editor__content .tiptap.ProseMirror h1,
+.rich-markdown-editor__content .tiptap.ProseMirror h2,
+.rich-markdown-editor__content .tiptap.ProseMirror h3,
+.rich-markdown-editor__content .tiptap.ProseMirror h4 {
   color: var(--foreground);
   font-weight: 650;
   line-height: 1.25;
   text-wrap: balance;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h1 {
+.rich-markdown-editor__content .tiptap.ProseMirror h1 {
   margin-top: 1.5rem;
   font-size: 2rem;
   letter-spacing: -0.035em;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h2 {
+.rich-markdown-editor__content .tiptap.ProseMirror h2 {
   margin-top: 1.35rem;
   font-size: 1.5rem;
   letter-spacing: -0.025em;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h3 {
+.rich-markdown-editor__content .tiptap.ProseMirror h3 {
   margin-top: 1.15rem;
   font-size: 1.25rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror h4 {
+.rich-markdown-editor__content .tiptap.ProseMirror h4 {
   margin-top: 1rem;
   font-size: 1.05rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror ul,
-.knowledge-base-rich-editor__content .tiptap.ProseMirror ol {
+.rich-markdown-editor__content .tiptap.ProseMirror ul,
+.rich-markdown-editor__content .tiptap.ProseMirror ol {
   padding-left: 1.5rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror ul {
+.rich-markdown-editor__content .tiptap.ProseMirror ul {
   list-style: disc;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror ol {
+.rich-markdown-editor__content .tiptap.ProseMirror ol {
   list-style: decimal;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror li + li {
+.rich-markdown-editor__content .tiptap.ProseMirror li + li {
   margin-top: 0.25rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror ul[data-type='taskList'] {
+.rich-markdown-editor__content .tiptap.ProseMirror ul[data-type='taskList'] {
   list-style: none;
   padding-left: 0;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror li[data-type='taskItem'] {
+.rich-markdown-editor__content .tiptap.ProseMirror li[data-type='taskItem'] {
   display: flex;
   align-items: flex-start;
   gap: 0.6rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror li[data-type='taskItem'] > label {
+.rich-markdown-editor__content .tiptap.ProseMirror li[data-type='taskItem'] > label {
   margin-top: 0.3rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror li[data-type='taskItem'] > div {
+.rich-markdown-editor__content .tiptap.ProseMirror li[data-type='taskItem'] > div {
   min-width: 0;
   flex: 1;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror blockquote {
+.rich-markdown-editor__content .tiptap.ProseMirror blockquote {
   border-left: 3px solid var(--border);
   color: var(--muted-foreground);
   padding-left: 1rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror code {
+.rich-markdown-editor__content .tiptap.ProseMirror code {
   border-radius: 0.3rem;
   background: var(--muted);
   padding: 0.15rem 0.35rem;
@@ -169,7 +169,7 @@
   font-size: 0.875em;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror pre {
+.rich-markdown-editor__content .tiptap.ProseMirror pre {
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -177,39 +177,39 @@
   padding: 1rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror pre code {
+.rich-markdown-editor__content .tiptap.ProseMirror pre code {
   background: transparent;
   padding: 0;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror a {
+.rich-markdown-editor__content .tiptap.ProseMirror a {
   color: var(--foreground);
   text-decoration: underline;
   text-decoration-color: var(--muted-foreground);
   text-underline-offset: 0.2em;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror mark {
+.rich-markdown-editor__content .tiptap.ProseMirror mark {
   border-radius: 0.2rem;
   background: color-mix(in oklch, var(--chart-1) 45%, transparent);
   color: inherit;
   padding: 0.05rem 0.15rem;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror img {
+.rich-markdown-editor__content .tiptap.ProseMirror img {
   max-width: 100%;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror table {
+.rich-markdown-editor__content .tiptap.ProseMirror table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror th,
-.knowledge-base-rich-editor__content .tiptap.ProseMirror td {
+.rich-markdown-editor__content .tiptap.ProseMirror th,
+.rich-markdown-editor__content .tiptap.ProseMirror td {
   position: relative;
   min-width: 5rem;
   border: 1px solid var(--border);
@@ -217,13 +217,13 @@
   vertical-align: top;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror th {
+.rich-markdown-editor__content .tiptap.ProseMirror th {
   background: var(--muted);
   font-weight: 600;
   text-align: left;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror .selectedCell::after {
+.rich-markdown-editor__content .tiptap.ProseMirror .selectedCell::after {
   position: absolute;
   inset: 0;
   background: color-mix(in oklch, var(--chart-1) 20%, transparent);
@@ -231,22 +231,22 @@
   pointer-events: none;
 }
 
-.knowledge-base-rich-editor__content .tiptap.ProseMirror hr {
+.rich-markdown-editor__content .tiptap.ProseMirror hr {
   margin: 1.75rem 0;
   border: 0;
   border-top: 1px solid var(--border);
 }
 
 @media (max-width: 640px) {
-  .knowledge-base-rich-editor__link-form {
+  .rich-markdown-editor__link-form {
     flex-wrap: wrap;
   }
 
-  .knowledge-base-rich-editor__link-form input {
+  .rich-markdown-editor__link-form input {
     flex-basis: 100%;
   }
 
-  .knowledge-base-rich-editor__content .tiptap.ProseMirror {
+  .rich-markdown-editor__content .tiptap.ProseMirror {
     padding: 1.25rem 1.25rem 30vh;
   }
 }

@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
+
 import type { FilesDocument, FilesTextDocument } from '../shared'
 
 export type FilesSaveRequestSnapshot = {
@@ -8,6 +10,8 @@ export type FilesSaveRequestSnapshot = {
   content: string
   expectedRevision: string
 }
+
+export type FilesEditorMode = 'rich' | 'source'
 
 type FilesTabBase = {
   relativePath: string
@@ -27,6 +31,7 @@ export type FilesTabState =
         saveStatus: 'idle' | 'saving' | 'error'
         error?: string
         saveRequest?: FilesSaveRequestSnapshot
+        editorMode: FilesEditorMode
       })
   | (Exclude<FilesDocument, FilesTextDocument> & FilesTabBase & { status: 'metadata' })
 
@@ -74,6 +79,7 @@ type FilesStore = {
     targetPath: string,
     dropPosition: FilesTabDropPosition
   ) => void
+  setEditorMode: (sessionId: string, relativePath: string, mode: FilesEditorMode) => void
   updateDraft: (sessionId: string, draft: string) => void
   markSaving: (sessionId: string, request: FilesSaveRequestSnapshot) => void
   markSaveFailed: (sessionId: string, message: string, request: FilesSaveRequestSnapshot) => void
@@ -216,6 +222,17 @@ const useFilesStore = create<FilesStore>()(
           tabs.splice(insertIndex, 0, source)
           return updateContext(state, sessionId, { tabs })
         }),
+      setEditorMode: (sessionId, relativePath, editorMode) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              tab.relativePath === relativePath && tab.status === 'ready'
+                ? { ...tab, editorMode }
+                : tab
+            )
+          })
+        }),
       updateDraft: (sessionId, draft) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
@@ -271,6 +288,7 @@ const useFilesStore = create<FilesStore>()(
               dirty: draft !== document.content,
               preview: false,
               saveStatus: 'idle',
+              editorMode: activeDocument.editorMode,
               error: undefined,
               saveRequest: undefined
             }
@@ -337,7 +355,8 @@ export function toReadyDocument(
     draft: document.content,
     dirty: false,
     saveStatus: 'idle',
-    saveRequest: undefined
+    saveRequest: undefined,
+    editorMode: getDefaultEditorMode(document.relativePath, document.content)
   }
 }
 
@@ -449,6 +468,20 @@ function selectTabAfterClose(
 ): string | null {
   if (context.activeTabPath !== closedPath) return context.activeTabPath
   return tabs[closedIndex]?.relativePath ?? tabs[closedIndex - 1]?.relativePath ?? null
+}
+
+function getDefaultEditorMode(relativePath: string, content: string): FilesEditorMode {
+  if (!isMarkdownDocumentPath(relativePath)) return 'source'
+  return getRichMarkdownLimitation(content, { isMdx: isMdxPath(relativePath) }) ? 'source' : 'rich'
+}
+
+export function isMarkdownDocumentPath(relativePath: string): boolean {
+  const lowerPath = relativePath.toLowerCase()
+  return lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx')
+}
+
+export function isMdxPath(relativePath: string): boolean {
+  return relativePath.toLowerCase().endsWith('.mdx')
 }
 
 function pathName(relativePath: string): string {
