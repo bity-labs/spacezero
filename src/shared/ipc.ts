@@ -23,10 +23,7 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
 } from '../features/knowledge-base/shared/knowledge-base.contract'
-import {
-  FILES_IPC_CHANNELS,
-  type FilesAPI
-} from '../features/files/shared/files.contract'
+import { FILES_IPC_CHANNELS, type FilesAPI } from '../features/files/shared/files.contract'
 import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
   CreateEmptyProjectRequest,
@@ -79,6 +76,10 @@ import type {
   AgentGlobalSkill,
   SetGlobalAgentSkillEnabledRequest
 } from '../features/agent-workspace/shared/agent-skill.model'
+import type {
+  AgentDefinitionCatalogEntry,
+  OpenAgentDefinitionsFolderRequest
+} from '../features/agents/shared'
 
 export const IPC_CHANNELS = {
   app: {
@@ -145,6 +146,10 @@ export const IPC_CHANNELS = {
     createProjectSession: 'sessions:createProjectSession',
     archive: 'sessions:archive',
     delete: 'sessions:delete'
+  },
+  agents: {
+    getGlobalDefinitions: 'agents:getGlobalDefinitions',
+    openDefinitionsFolder: 'agents:openDefinitionsFolder'
   },
   agent: {
     ping: 'agent:ping',
@@ -281,6 +286,10 @@ export type SpaceZeroAPI = {
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     archive: (request: { sessionId: string }) => Promise<void>
     delete: (request: { sessionId: string }) => Promise<void>
+  }
+  agents: {
+    getGlobalDefinitions: () => Promise<AgentDefinitionCatalogEntry[]>
+    openDefinitionsFolder: (request: OpenAgentDefinitionsFolderRequest) => Promise<void>
   }
   agent: {
     ping: () => Promise<AgentPingResponse>

@@ -44,6 +44,11 @@ const api: SpaceZeroAPI = {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.getStatus),
     complete: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.complete)
   },
+  agents: {
+    getGlobalDefinitions: () => ipcRenderer.invoke(IPC_CHANNELS.agents.getGlobalDefinitions),
+    openDefinitionsFolder: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.agents.openDefinitionsFolder, request)
+  },
   github: {
     getConnection: () => ipcRenderer.invoke(IPC_CHANNELS.github.getConnection),
     refreshConnection: () => ipcRenderer.invoke(IPC_CHANNELS.github.refreshConnection),
