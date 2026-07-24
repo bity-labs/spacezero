@@ -550,7 +550,8 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       'vertical'
     )
     await expect(window.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
-    for (const label of ['Git', 'Browser', 'Terminal']) {
+    await expect(window.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled()
+    for (const label of ['Git', 'Browser']) {
       await expect(window.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
     }
     await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()

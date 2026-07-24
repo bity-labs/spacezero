@@ -20,7 +20,7 @@ export function createSessionCleanupService({
   worktrees: Pick<ManagedWorktreeService, 'remove'>
   deleteUtilitySession: (request: { sessionId: string }) => Promise<void>
   removeTranscript: (path: string) => Promise<void>
-  closeTerminalsForSession?: (sessionId: string) => Promise<void>
+  closeTerminalsForSession?: (session: StoredSession) => Promise<void>
 }) {
   async function deleteSession(sessionId: string): Promise<void> {
     const session = await repository.findSessionById(sessionId.trim())
@@ -44,7 +44,7 @@ export function createSessionCleanupService({
     session: StoredSession,
     project: StoredProject
   ): Promise<void> {
-    await closeTerminalsForSession(session.id)
+    await closeTerminalsForSession(session)
     await deleteUtilitySession({ sessionId: session.id })
 
     const worktree = readStoredWorktree(session)

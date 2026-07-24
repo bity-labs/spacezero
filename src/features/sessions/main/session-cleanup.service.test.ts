@@ -79,7 +79,8 @@ describe('Session cleanup service', () => {
       removeTranscript: async () => {
         events.push('transcript')
       },
-      closeTerminalsForSession: async () => {
+      closeTerminalsForSession: async (storedSession) => {
+        expect(storedSession).toBe(session)
         events.push('terminal')
       }
     })
@@ -126,7 +127,13 @@ describe('Session cleanup service', () => {
     releaseTerminals?.()
     await deletion
 
-    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
+    expect(events).toEqual([
+      'terminal-start',
+      'terminal-finished',
+      'utility',
+      'worktree',
+      'metadata'
+    ])
   })
 
   it('awaits terminal shutdown for each Session before Project deletion continues', async () => {
@@ -166,7 +173,13 @@ describe('Session cleanup service', () => {
     releaseTerminals?.()
     await deletion
 
-    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
+    expect(events).toEqual([
+      'terminal-start',
+      'terminal-finished',
+      'utility',
+      'worktree',
+      'metadata'
+    ])
   })
 
   it('propagates terminal shutdown failure before destructive Session cleanup', async () => {
@@ -287,8 +300,8 @@ describe('Session cleanup service', () => {
       },
       deleteUtilitySession: async () => undefined,
       removeTranscript: async () => undefined,
-      closeTerminalsForSession: async (sessionId) => {
-        deletedSessionIds.push(`terminal:${sessionId}`)
+      closeTerminalsForSession: async (session) => {
+        deletedSessionIds.push(`terminal:${session.id}`)
       }
     })
 

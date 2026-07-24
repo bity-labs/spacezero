@@ -7,12 +7,19 @@ export const TERMINAL_MAX_COLS = 500
 export const TERMINAL_MIN_ROWS = 1
 export const TERMINAL_MAX_ROWS = 300
 
-const terminalContextSchema = z
-  .object({
-    kind: z.literal('project-session'),
-    sessionId: z.string().trim().min(1).max(256)
-  })
-  .strict()
+const sessionTerminalContextSchema = (kind: 'project-session' | 'workspace-session') =>
+  z
+    .object({
+      kind: z.literal(kind),
+      sessionId: z.string().trim().min(1).max(256)
+    })
+    .strict()
+
+const terminalContextSchema = z.discriminatedUnion('kind', [
+  sessionTerminalContextSchema('project-session'),
+  sessionTerminalContextSchema('workspace-session'),
+  z.object({ kind: z.literal('knowledge-base') }).strict()
+])
 
 const terminalIdSchema = z.string().trim().min(1).max(256)
 
