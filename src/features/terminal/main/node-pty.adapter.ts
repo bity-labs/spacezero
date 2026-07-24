@@ -80,49 +80,82 @@ export function createUnixProcessTreeTerminator({
   onExit,
   collectDescendants = collectDescendantPids,
   signal = signalProcess,
-  fallbackDelayMs = 2_000
+  fallbackDelayMs = 2_000,
+  pollIntervalMs = 50,
+  terminationTimeoutMs = 10_000
 }: {
   rootPid: number
   killPty: () => void
   onExit: (listener: () => void) => () => void
   collectDescendants?: (pid: number) => number[]
-  signal?: (pid: number, signal: NodeJS.Signals) => boolean
+  signal?: (pid: number, signal: NodeJS.Signals | 0) => boolean
   fallbackDelayMs?: number
+  pollIntervalMs?: number
+  terminationTimeoutMs?: number
 }): { terminate: () => Promise<void> } {
-  let exited = false
+  let rootExited = false
   let terminatePromise: Promise<void> | undefined
-  let resolveTerminated: (() => void) | undefined
-  let fallbackTimer: NodeJS.Timeout | undefined
   const disposeExit = onExit(() => {
-    exited = true
-    if (fallbackTimer) clearTimeout(fallbackTimer)
-    resolveTerminated?.()
+    rootExited = true
     disposeExit()
   })
 
   return {
     terminate: () => {
-      if (exited) return Promise.resolve()
-      terminatePromise ??= new Promise<void>((resolve) => {
-        resolveTerminated = resolve
-        if (!Number.isSafeInteger(rootPid) || rootPid <= 1 || rootPid === process.pid) {
-          killPty()
-          return
-        }
-
-        signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGTERM', signal)
-        killPty()
-
-        fallbackTimer = setTimeout(() => {
-          fallbackTimer = undefined
-          if (!exited) {
-            signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGKILL', signal)
-          }
-        }, fallbackDelayMs)
-        fallbackTimer.unref()
+      terminatePromise ??= terminateUnixProcessTree({
+        rootPid,
+        killPty,
+        collectDescendants,
+        signal,
+        fallbackDelayMs,
+        pollIntervalMs,
+        terminationTimeoutMs,
+        hasRootExited: () => rootExited
       })
       return terminatePromise
     }
+  }
+}
+
+async function terminateUnixProcessTree({
+  rootPid,
+  killPty,
+  collectDescendants,
+  signal,
+  fallbackDelayMs,
+  pollIntervalMs,
+  terminationTimeoutMs,
+  hasRootExited
+}: {
+  rootPid: number
+  killPty: () => void
+  collectDescendants: (pid: number) => number[]
+  signal: (pid: number, signal: NodeJS.Signals | 0) => boolean
+  fallbackDelayMs: number
+  pollIntervalMs: number
+  terminationTimeoutMs: number
+  hasRootExited: () => boolean
+}): Promise<void> {
+  if (!Number.isSafeInteger(rootPid) || rootPid <= 1 || rootPid === process.pid) {
+    killPty()
+    return
+  }
+
+  signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGTERM', signal)
+  killPty()
+
+  let elapsedMs = 0
+  let forced = false
+  while (isOwnedProcessTreeAlive(rootPid, collectDescendants, signal, hasRootExited)) {
+    if (!forced && elapsedMs >= fallbackDelayMs) {
+      signalUnixProcessTree(rootPid, collectDescendants(rootPid), 'SIGKILL', signal)
+      forced = true
+    }
+    if (elapsedMs >= terminationTimeoutMs) {
+      throw new Error('terminal.processTreeTerminationFailed')
+    }
+    await delay(pollIntervalMs)
+    elapsedMs += pollIntervalMs
   }
 }
 
@@ -130,7 +163,7 @@ function signalUnixProcessTree(
   rootPid: number,
   descendants: number[],
   signal: NodeJS.Signals,
-  signalPid: (pid: number, signal: NodeJS.Signals) => boolean = signalProcess
+  signalPid: (pid: number, signal: NodeJS.Signals | 0) => boolean = signalProcess
 ): void {
   for (const childPid of [...descendants].reverse()) {
     signalPid(childPid, signal)
@@ -141,13 +174,31 @@ function signalUnixProcessTree(
   }
 }
 
-function signalProcess(pid: number, signal: NodeJS.Signals): boolean {
+function isOwnedProcessTreeAlive(
+  rootPid: number,
+  collectDescendants: (pid: number) => number[],
+  signalPid: (pid: number, signal: NodeJS.Signals | 0) => boolean,
+  hasRootExited: () => boolean
+): boolean {
+  if (signalPid(-rootPid, 0)) return true
+  if (!hasRootExited() && signalPid(rootPid, 0)) return true
+  return collectDescendants(rootPid).some((pid) => signalPid(pid, 0))
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals | 0): boolean {
   try {
     process.kill(pid, signal)
     return true
   } catch (error) {
-    return isMissingProcessGroup(error)
+    return !isMissingProcessGroup(error)
   }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
 }
 
 function collectDescendantPids(pid: number): number[] {

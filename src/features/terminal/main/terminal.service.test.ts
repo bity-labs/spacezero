@@ -365,6 +365,75 @@ describe('Terminal service', () => {
     )
   })
 
+  it('waits for an already-started close before context deletion resolves', async () => {
+    const ptys: DeferredKillPty[] = []
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: {
+        spawn: vi.fn(async () => {
+          const pty = new DeferredKillPty(80, 24)
+          ptys.push(pty)
+          return pty
+        })
+      },
+      createId: () => 'terminal-close-delete-race',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+
+    const close = service.close({
+      ownerWindowId: 1,
+      request: { terminalId: created.terminalId, context }
+    })
+    await vi.waitFor(() => expect(ptys[0]?.killStarted).toBe(true))
+    let cleanupResolved = false
+    const cleanup = service.closeAllForContext(context).then(() => {
+      cleanupResolved = true
+    })
+
+    await Promise.resolve()
+    expect(cleanupResolved).toBe(false)
+    ptys[0]?.resolveKill()
+    await Promise.all([close, cleanup])
+    expect(cleanupResolved).toBe(true)
+  })
+
+  it('propagates a raced-create termination failure during context deletion', async () => {
+    let resolveSpawn: ((pty: PtyProcess) => void) | undefined
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            resolveSpawn = resolve
+          })
+      )
+    }
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: adapter,
+      createId: () => 'terminal-raced-create-kill-fails',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+
+    const create = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(adapter.spawn).toHaveBeenCalledTimes(1))
+    const cleanup = service.closeAllForContext(context)
+    resolveSpawn?.(new RejectingKillPty(80, 24))
+
+    await expect(Promise.all([create, cleanup])).rejects.toThrow('terminal.killFailed')
+  })
+
   it('preserves input and resize invocation order while older operations are pending', async () => {
     const { ptys, service } = createHarness()
     const created = await service.create({ ownerWindowId: 1, request: { context } })
@@ -507,5 +576,29 @@ class FakePty extends EventEmitter implements PtyProcess {
 
   emitExit(exitCode: number | null, signal: number | string | null = null): void {
     this.emit('exit', { exitCode, signal })
+  }
+}
+
+class DeferredKillPty extends FakePty {
+  killStarted = false
+  private resolveKillPromise: (() => void) | undefined
+
+  override async kill(): Promise<void> {
+    this.killStarted = true
+    this.killed = true
+    await new Promise<void>((resolve) => {
+      this.resolveKillPromise = resolve
+    })
+  }
+
+  resolveKill(): void {
+    this.resolveKillPromise?.()
+  }
+}
+
+class RejectingKillPty extends FakePty {
+  override async kill(): Promise<void> {
+    this.killed = true
+    throw new Error('terminal.killFailed')
   }
 }

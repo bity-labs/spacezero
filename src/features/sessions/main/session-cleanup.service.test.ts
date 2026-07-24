@@ -169,6 +169,68 @@ describe('Session cleanup service', () => {
     expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
   })
 
+  it('propagates terminal shutdown failure before destructive Session cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+        throw new Error('terminal.killFailed')
+      }
+    })
+
+    await expect(service.deleteSession('session-1')).rejects.toThrow('terminal.killFailed')
+    expect(events).toEqual(['terminal'])
+  })
+
+  it('propagates terminal shutdown failure before destructive Project cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => undefined,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+        throw new Error('terminal.killFailed')
+      }
+    })
+
+    await expect(service.deleteProjectSessions('project-1')).rejects.toThrow('terminal.killFailed')
+    expect(events).toEqual(['terminal'])
+  })
+
   it('deletes durable metadata only after managed resources are removed', async () => {
     const session = createStoredSession()
     const events: string[] = []
