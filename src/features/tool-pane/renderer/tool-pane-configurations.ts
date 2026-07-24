@@ -10,6 +10,11 @@ const FilesTool = lazy(async () => {
   return { default: module.FilesTool }
 })
 
+const TerminalTool = lazy(async () => {
+  const module = await import('../../terminal/renderer/components/terminal-tool')
+  return { default: module.TerminalTool }
+})
+
 const toolRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
   git: { id: 'git', label: 'Git', available: false, icon: GitBranch },
@@ -47,7 +52,20 @@ export function createProjectSessionToolPaneConfiguration(session: {
       },
       toolRegistry.git,
       toolRegistry.browser,
-      toolRegistry.terminal
+      {
+        ...toolRegistry.terminal,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-session'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(TerminalToolLoading) },
+                createElement(TerminalTool, {
+                  context: { kind: 'project-session', sessionId: capabilities.sessionId }
+                })
+              )
+            : null
+      }
     ]
   }
 }
@@ -94,6 +112,14 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
       toolRegistry.terminal
     ]
   }
+}
+
+function TerminalToolLoading(): React.JSX.Element {
+  return createElement(
+    'div',
+    { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
+    'Loading Terminal…'
+  )
 }
 
 function FilesToolLoading(): React.JSX.Element {

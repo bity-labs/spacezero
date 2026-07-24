@@ -27,6 +27,8 @@ describe('Tool Pane contextual configurations', () => {
     expect(project.tools.map((tool) => tool.id)).toEqual(['files', 'git', 'browser', 'terminal'])
     expect(project.tools[0]).toMatchObject({ id: 'files', available: true })
     expect(project.tools[0]?.render).toBeTypeOf('function')
+    expect(project.tools[3]).toMatchObject({ id: 'terminal', available: true })
+    expect(project.tools[3]?.render).toBeTypeOf('function')
 
     expect(workspace).toMatchObject({
       contextKey: 'session:workspace-session-1',
