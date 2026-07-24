@@ -60,22 +60,61 @@ vi.mock('../lib/monaco-environment', () => ({
   configureFilesMonacoEnvironment: vi.fn()
 }))
 
+vi.mock('@renderer/components/rich-markdown-editor', async () => {
+  const React = await vi.importActual<typeof import('react')>('react')
 
-vi.mock('@renderer/components/rich-markdown-editor', () => ({
-  RichMarkdownEditor: ({
-    markdown,
-    onChange
-  }: {
-    markdown: string
-    onChange: (value: string) => void
-  }) => (
-    <textarea
-      aria-label="Rich Markdown editor"
-      value={markdown}
-      onChange={(event) => onChange(event.currentTarget.value)}
-    />
-  )
-}))
+  return {
+    RichMarkdownEditor: ({
+      documentRelativePath,
+      markdown,
+      onChange
+    }: {
+      documentRelativePath: string
+      markdown: string
+      onChange: (value: string) => void
+    }) => {
+      const [content, setContent] = React.useState(markdown)
+      const [history, setHistory] = React.useState<string[]>([])
+
+      React.useEffect(() => {
+        setContent((currentContent) => {
+          if (currentContent === markdown) return currentContent
+          setHistory((currentHistory) => [...currentHistory, currentContent])
+          return markdown
+        })
+      }, [markdown])
+
+      const undo = (): void => {
+        setHistory((currentHistory) => {
+          const previousContent = currentHistory.at(-1)
+          if (previousContent === undefined) return currentHistory
+
+          setContent(previousContent)
+          onChange(previousContent)
+          return currentHistory.slice(0, -1)
+        })
+      }
+
+      return (
+        <div className="rich-markdown-editor" data-document-relative-path={documentRelativePath}>
+          <button type="button" aria-label="Undo" disabled={history.length === 0} onClick={undo}>
+            Undo
+          </button>
+          <textarea
+            aria-label="Rich Markdown editor"
+            value={content}
+            onChange={(event) => {
+              const nextContent = event.currentTarget.value
+              setHistory((currentHistory) => [...currentHistory, content])
+              setContent(nextContent)
+              onChange(nextContent)
+            }}
+          />
+        </div>
+      )
+    }
+  }
+})
 
 import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
@@ -204,7 +243,6 @@ describe('Files Tool', () => {
     expect(screen.queryByRole('button', { name: 'Expand linked-src' })).not.toBeInTheDocument()
   })
 
-
   it('opens Markdown in rich mode by default and shares one dirty buffer across rich and source modes', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
@@ -252,7 +290,9 @@ describe('Files Tool', () => {
     fireEvent.change(sourceEditor, { target: { value: '## Source draft' } })
     fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
 
-    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('## Source draft')
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
+      '## Source draft'
+    )
     fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
 
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
@@ -290,6 +330,57 @@ describe('Files Tool', () => {
     expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
   })
 
+  it('keeps list-indented MDX in source mode and saves it without rich serialization', async () => {
+    const mdxContent = '- item\n    <Component />'
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'page.mdx', relativePath: 'docs/page.mdx', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'page.mdx',
+      relativePath: 'docs/page.mdx',
+      contentKind: 'text' as const,
+      size: mdxContent.length,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: mdxContent,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn(async ({ content }: { content: string }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'page.mdx',
+        relativePath: 'docs/page.mdx',
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('page.mdx'))
+
+    const sourceEditor = await screen.findByLabelText('Monaco editor')
+    expect(sourceEditor).toHaveAttribute('data-language', 'mdx')
+    expect(sourceEditor).toHaveDisplayValue(mdxContent)
+    expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
+    expect(screen.getByText(/rich mode cannot preserve/i)).toBeInTheDocument()
+    fireEvent.keyDown(sourceEditor, { key: 's', metaKey: true })
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(saveDocument).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      relativePath: 'docs/page.mdx',
+      content: mdxContent,
+      expectedRevision: 'revision-1'
+    })
+  })
+
   it('defaults lossless MDX to rich mode while preserving editor mode per Project Session context', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'page.mdx', relativePath: 'docs/page.mdx', kind: 'file' as const }
@@ -318,6 +409,68 @@ describe('Files Tool', () => {
 
     view.rerender(<FilesTool sessionId="session-1" />)
     expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# session-1')
+  })
+
+  it('isolates rich editor history when switching between Markdown tabs', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.md', relativePath: 'one.md', kind: 'file' as const },
+      { name: 'two.md', relativePath: 'two.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: relativePath.length,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: relativePath === 'one.md' ? '# One' : '# Two',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('one.md'))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# One')
+    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+    fireEvent.click(screen.getByText('two.md'))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Two')
+    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+
+    fireEvent.click(screen.getByRole('tab', { name: 'one.md' }))
+
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# One')
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+  })
+
+  it('hosts the rich editor in a bounded full-height flex container for internal scrolling', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 1200,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: Array.from({ length: 40 }, (_, index) => `Line ${index + 1}`).join('\n'),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+
+    const richEditor = await screen.findByLabelText('Rich Markdown editor')
+    const richEditorRoot = richEditor.closest('.rich-markdown-editor')
+    expect(richEditorRoot).toBeInTheDocument()
+    expect(richEditorRoot?.parentElement).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'flex-1',
+      'overflow-hidden'
+    )
   })
 
   it('opens a text file in Monaco with context-scoped model identity and explicit save', async () => {
@@ -450,11 +603,9 @@ describe('Files Tool', () => {
     fireEvent.dragStart(threeTabWrapper)
     fireEvent.dragOver(oneTabWrapper)
     fireEvent.drop(oneTabWrapper)
-    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
-      'three.txt',
-      'one.txt',
-      'two.txt'
-    ])
+    expect(
+      useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)
+    ).toEqual(['three.txt', 'one.txt', 'two.txt'])
 
     fireEvent.click(screen.getByRole('tab', { name: 'two.txt' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close two.txt' }))
@@ -638,7 +789,9 @@ describe('Files Tool', () => {
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), { target: { value: 'draft' } })
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'draft' }
+    })
     view.unmount()
     render(<FilesTool sessionId="session-1" />)
 

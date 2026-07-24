@@ -64,6 +64,7 @@ export function getRichMarkdownLimitation(
 
 function maskMarkdownCode(markdown: string): string {
   let fence: { character: string; length: number } | null = null
+  let listContexts: Array<{ markerIndent: number; contentIndent: number; codeIndent: number }> = []
 
   return markdown
     .split('\n')
@@ -82,11 +83,76 @@ function maskMarkdownCode(markdown: string): string {
         return ''
       }
 
-      if (/^(?: {4}|\t)/.test(line)) return ''
+      if (/^\s*$/.test(line)) return line
+
+      const indent = countLeadingIndentColumns(line)
+      const listItem = parseMarkdownListItem(line, listContexts.at(-1))
+      if (listItem) {
+        listContexts = listContexts.filter(
+          (context) => context.markerIndent < listItem.markerIndent
+        )
+        listContexts.push(listItem)
+      } else {
+        listContexts = listContexts.filter((context) => indent >= context.contentIndent)
+      }
+
+      if (isIndentedCodeLine(line, indent, listContexts.at(-1))) return ''
 
       return maskInlineCode(line)
     })
     .join('\n')
+}
+
+function countLeadingIndentColumns(line: string): number {
+  let columns = 0
+
+  for (const character of line) {
+    if (character === ' ') {
+      columns += 1
+      continue
+    }
+    if (character === '\t') {
+      columns += 4 - (columns % 4)
+      continue
+    }
+    break
+  }
+
+  return columns
+}
+
+function parseMarkdownListItem(
+  line: string,
+  activeListContext: { codeIndent: number } | undefined
+): { markerIndent: number; contentIndent: number; codeIndent: number } | null {
+  const match = line.match(/^( *)(?:[-+*]|\d{1,9}[.)])([\t ]+|$)/)
+  if (!match) return null
+
+  const markerIndent = match[1].length
+  if (!activeListContext && markerIndent > 3) return null
+  if (activeListContext && markerIndent >= activeListContext.codeIndent) return null
+
+  const markerEnd = match[0].length - match[2].length
+  const followingPadding = countLeadingIndentColumns(match[2])
+  const contentIndent =
+    markerEnd + (followingPadding > 0 && followingPadding < 5 ? followingPadding : 1)
+
+  return {
+    markerIndent,
+    contentIndent,
+    codeIndent: contentIndent + 4
+  }
+}
+
+function isIndentedCodeLine(
+  line: string,
+  indent: number,
+  activeListContext: { codeIndent: number } | undefined
+): boolean {
+  if (/^\t/.test(line)) return !activeListContext || indent >= activeListContext.codeIndent
+  if (!/^ {4}/.test(line)) return false
+
+  return activeListContext ? indent >= activeListContext.codeIndent : true
 }
 
 function maskInlineCode(line: string): string {
