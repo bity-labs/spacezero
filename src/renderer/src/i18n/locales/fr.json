@@ -328,6 +328,31 @@
         "makeDefault": "Définir par défaut",
         "defaultBadge": "Par défaut"
       }
+    },
+    "agents": {
+      "sectionTitle": "Définitions globales des agents",
+      "description": "Consultez les personas d’agents globaux réutilisables découverts dans les portées Space Zero, utilisateur et intégrée.",
+      "globalOnlyNote": "Les paramètres globaux ne parcourent pas les définitions de projet et n’héritent d’aucune session de projet.",
+      "loading": "Chargement des définitions d’agents…",
+      "empty": "Aucune définition d’agent trouvée.",
+      "emptyScope": "Aucune définition d’agent dans cette portée.",
+      "rescan": "Réanalyser",
+      "openFolder": "Ouvrir le dossier agents",
+      "openingFolder": "Ouverture…",
+      "invalid": "Invalide",
+      "shadowedBy": "Masquée par {{scope}}",
+      "path": "Chemin : {{path}}",
+      "error": "Impossible de charger les définitions d’agents.",
+      "scopes": {
+        "spacezero": "Space Zero",
+        "user": "Utilisateur",
+        "bundled": "Intégrées"
+      },
+      "scopeDescriptions": {
+        "spacezero": "Définitions du dossier agents du dossier Space Zero.",
+        "user": "Définitions de ~/.agents/agents.",
+        "bundled": "Définitions par défaut en lecture seule fournies avec Space Zero."
+      }
     }
   }
 }

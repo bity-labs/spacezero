@@ -177,6 +177,10 @@ beforeEach(async () => {
       getStatus: async () => ({ completed: true }),
       complete: async () => ({ completed: true })
     },
+    agents: {
+      getGlobalDefinitions: async () => [],
+      openDefinitionsFolder: async () => undefined
+    },
     github: {
       getConnection: async () => ({ status: 'disconnected' }),
       refreshConnection: async () => ({ status: 'disconnected' }),

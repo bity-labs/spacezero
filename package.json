@@ -68,6 +68,7 @@
     "react-i18next": "^17.0.8",
     "streamdown": "^2.5.0",
     "tailwind-merge": "latest",
+    "yaml": "2.9.0",
     "zod": "latest",
     "zustand": "^5.0.14"
   },
