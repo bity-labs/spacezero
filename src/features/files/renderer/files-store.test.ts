@@ -136,19 +136,43 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('reorders tabs and deterministically selects neighbors when clean tabs close', () => {
+  it('reorders tabs forward, backward, and to the final position', () => {
     const store = useFilesStore.getState()
     for (const [index, path] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
       expect(store.beginOpenTab('session-1', path, 'permanent', index + 1)).toBe(true)
       store.finishOpenTab('session-1', textDocument(path), index + 1)
     }
 
-    store.reorderTabs('session-1', 'three.txt', 'one.txt')
+    store.reorderTabs('session-1', 'one.txt', 'two.txt', 'after')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'two.txt',
+      'one.txt',
+      'three.txt'
+    ])
+
+    store.reorderTabs('session-1', 'three.txt', 'two.txt', 'before')
     expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
       'three.txt',
-      'one.txt',
-      'two.txt'
+      'two.txt',
+      'one.txt'
     ])
+
+    store.reorderTabs('session-1', 'three.txt', 'one.txt', 'after')
+    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
+      'two.txt',
+      'one.txt',
+      'three.txt'
+    ])
+  })
+
+  it('deterministically selects neighbors when clean tabs close', () => {
+    const store = useFilesStore.getState()
+    for (const [index, path] of ['one.txt', 'two.txt', 'three.txt'].entries()) {
+      expect(store.beginOpenTab('session-1', path, 'permanent', index + 1)).toBe(true)
+      store.finishOpenTab('session-1', textDocument(path), index + 1)
+    }
+
+    store.reorderTabs('session-1', 'three.txt', 'one.txt', 'before')
 
     store.activateTab('session-1', 'one.txt')
     store.closeTab('session-1', 'one.txt')
@@ -223,7 +247,33 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('ignores save results and failures for a different active document', () => {
+  it('settles a saved tab after switching to another active document', () => {
+    const store = useFilesStore.getState()
+    const request = {
+      relativePath: 'src/one.ts',
+      content: 'first draft',
+      expectedRevision: 'src/one.ts-revision'
+    }
+    expect(store.beginOpenTab('session-1', 'src/one.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/one.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
+    store.markSaving('session-1', request)
+    expect(store.beginOpenTab('session-1', 'src/two.ts', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/two.ts', 'two saved'), 2)
+    store.updateDraft('session-1', 'two draft')
+
+    store.markSaved('session-1', textDocument('src/one.ts', 'first draft'), request)
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'src/two.ts',
+      tabs: [
+        { relativePath: 'src/one.ts', draft: 'first draft', dirty: false, saveStatus: 'idle' },
+        { relativePath: 'src/two.ts', draft: 'two draft' }
+      ]
+    })
+  })
+
+  it('settles a failed save after switching to another active document', () => {
     const store = useFilesStore.getState()
     const request = {
       relativePath: 'src/one.ts',
@@ -239,12 +289,17 @@ describe('Files renderer state', () => {
     store.updateDraft('session-1', 'two draft')
 
     store.markSaveFailed('session-1', 'failed old save', request)
-    store.markSaved('session-1', textDocument('src/one.ts', 'first draft'), request)
 
     expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
       activeTabPath: 'src/two.ts',
       tabs: [
-        { relativePath: 'src/one.ts', draft: 'first draft', saveStatus: 'saving' },
+        {
+          relativePath: 'src/one.ts',
+          draft: 'first draft',
+          dirty: true,
+          saveStatus: 'error',
+          error: 'failed old save'
+        },
         { relativePath: 'src/two.ts', draft: 'two draft' }
       ]
     })

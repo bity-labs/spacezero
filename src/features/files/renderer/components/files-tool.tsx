@@ -8,6 +8,7 @@ import {
   getActiveFilesTab,
   useFilesStore,
   type FilesOpenTabIntent,
+  type FilesTabDropPosition,
   type FilesTabState
 } from '../files-store'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
@@ -148,10 +149,8 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
       if (!shouldFetch) return
       try {
         const document = await window.spacezero.files.openDocument({ sessionId, relativePath })
-        if (activeSessionRef.current !== sessionId) return
         finishOpenTab(sessionId, document, requestId)
       } catch (error) {
-        if (activeSessionRef.current !== sessionId) return
         failOpenTab(sessionId, relativePath, documentErrorMessage(error), requestId)
       }
     },
@@ -385,7 +384,12 @@ function FilesTabStrip({
   tabs: FilesTabState[]
   onActivate: (sessionId: string, relativePath: string) => void
   onClose: (sessionId: string, relativePath: string) => void
-  onReorder: (sessionId: string, sourcePath: string, targetPath: string) => void
+  onReorder: (
+    sessionId: string,
+    sourcePath: string,
+    targetPath: string,
+    dropPosition: FilesTabDropPosition
+  ) => void
 }): React.JSX.Element | null {
   const activeTabRef = useRef<HTMLButtonElement | null>(null)
   const draggedPathRef = useRef<string | null>(null)
@@ -418,7 +422,9 @@ function FilesTabStrip({
               event.preventDefault()
               const sourcePath = draggedPathRef.current
               draggedPathRef.current = null
-              if (sourcePath) onReorder(sessionId, sourcePath, tab.relativePath)
+              if (sourcePath) {
+                onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
+              }
             }}
           >
             <button
@@ -448,6 +454,11 @@ function FilesTabStrip({
       })}
     </div>
   )
+}
+
+function tabDropPosition(event: React.DragEvent<HTMLElement>): FilesTabDropPosition {
+  const bounds = event.currentTarget.getBoundingClientRect()
+  return event.clientX > bounds.left + bounds.width / 2 ? 'after' : 'before'
 }
 
 function FilesEditorPanel({

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const monacoMock = vi.hoisted(() => ({
@@ -369,6 +369,48 @@ describe('Files Tool', () => {
       'data-model-path',
       'spacezero-files://session-1/shared.txt'
     )
+  })
+
+  it('settles a delayed open after Files unmounts and remounts', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'delayed.txt', relativePath: 'delayed.txt', kind: 'file' as const }
+    ])
+    let resolveOpen:
+      | ((document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>) => void)
+      | undefined
+    const openResult = new Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>(
+      (resolve) => {
+        resolveOpen = resolve
+      }
+    )
+    const openDocument = vi.fn(async () => openResult)
+    window.spacezero.files.openDocument = openDocument
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('delayed.txt'))
+    expect(await screen.findByText('Opening file…')).toBeInTheDocument()
+
+    view.unmount()
+    render(<FilesTool sessionId="session-1" />)
+    expect(await screen.findByText('Opening file…')).toBeInTheDocument()
+    expect(openDocument).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveOpen?.({
+        name: 'delayed.txt',
+        relativePath: 'delayed.txt',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-1',
+        content: 'settled',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      await openResult
+    })
+
+    expect(await screen.findByDisplayValue('settled')).toBeInTheDocument()
   })
 
   it('keeps dirty buffers in memory across unmounts without autosaving', async () => {
