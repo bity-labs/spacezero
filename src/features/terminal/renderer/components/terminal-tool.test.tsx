@@ -705,6 +705,16 @@ describe('TerminalTool', () => {
 
     expect(await screen.findByRole('tab', { name: 'Select terminal tab api', selected: true })).toBeVisible()
     expect(screen.getAllByRole('tab', { name: 'Select terminal tab api' })).toHaveLength(2)
+    act(() =>
+      terminalEventListener?.({
+        type: 'output',
+        terminalId: 'terminal-1',
+        sequence: 1,
+        data: '\u001B]0;malicious shell title\u0007'
+      })
+    )
+    expect(screen.getAllByRole('tab', { name: 'Select terminal tab api' })).toHaveLength(2)
+
     act(() => terminalEventListener?.({ type: 'tab-updated', terminalId: 'terminal-1', title: 'web' }))
 
     await screen.findByRole('tab', { name: 'Select terminal tab web', selected: true })

@@ -84,6 +84,11 @@ export type TerminalShell = {
   env?: NodeJS.ProcessEnv
 }
 
+const OSC7_PREFIX = `${String.fromCharCode(27)}]7;`
+const BEL = String.fromCharCode(7)
+const ST = `${String.fromCharCode(27)}\\`
+const MAX_PARTIAL_CWD_REPORT_BYTES = 4096
+
 type TerminalRecord = {
   id: string
   ownerWindowId: number
@@ -93,6 +98,7 @@ type TerminalRecord = {
   title: string
   currentWorkingDirectory: string | null
   latestCwdReportOrdinal: number
+  cwdReportBuffer: string
   output: RetainedOutput
   subscribed: boolean
   subscriptionGeneration: number
@@ -247,6 +253,7 @@ export function createTerminalService({
       title: cwdTitle(cwd, shellTitle),
       currentWorkingDirectory: cwd,
       latestCwdReportOrdinal: 0,
+      cwdReportBuffer: '',
       output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
       subscribed: false,
       subscriptionGeneration: 0,
@@ -538,7 +545,7 @@ export function createTerminalService({
   }
 
   function retainAndEmit(terminal: TerminalRecord, data: string): void {
-    for (const cwd of parseCwdReports(data)) {
+    for (const cwd of parseCwdReports(terminal, data)) {
       void applyCwdReport(terminal, cwd)
     }
 
@@ -791,15 +798,34 @@ async function withBashCwdIntegration(shell: TerminalShell): Promise<TerminalShe
 
 async function withZshCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
   const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-zsh-'))
+  const originalZdotdirWasSet = process.env.ZDOTDIR ? '1' : '0'
+  const originalZdotdir = process.env.ZDOTDIR || process.env.HOME || ''
   await writeFile(
-    join(dir, '.zshrc'),
-    'if [ -r "${SPACEZERO_ORIGINAL_ZDOTDIR:-$HOME}/.zshrc" ]; then source "${SPACEZERO_ORIGINAL_ZDOTDIR:-$HOME}/.zshrc"; fi\nautoload -Uz add-zsh-hook\n__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "${HOST:-localhost}" "$PWD"; }\nadd-zsh-hook precmd __spacezero_cwd_report\nadd-zsh-hook chpwd __spacezero_cwd_report\n',
+    join(dir, '.zshenv'),
+    `if [ "\${SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET:-0}" = "1" ]; then
+  export ZDOTDIR="\${SPACEZERO_ORIGINAL_ZDOTDIR}"
+else
+  unset ZDOTDIR
+fi
+__spacezero_original_zdotdir="\${ZDOTDIR:-$HOME}"
+if [ -r "\${__spacezero_original_zdotdir}/.zshenv" ]; then
+  source "\${__spacezero_original_zdotdir}/.zshenv"
+fi
+__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "\${HOST:-localhost}" "$PWD"; }
+typeset -ga precmd_functions chpwd_functions
+precmd_functions+=(__spacezero_cwd_report)
+chpwd_functions+=(__spacezero_cwd_report)
+`,
     'utf8'
   )
   return {
     ...shell,
     args: [...shell.args],
-    env: { SPACEZERO_ORIGINAL_ZDOTDIR: process.env.ZDOTDIR || process.env.HOME, ZDOTDIR: dir }
+    env: {
+      SPACEZERO_ORIGINAL_ZDOTDIR: originalZdotdir,
+      SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET: originalZdotdirWasSet,
+      ZDOTDIR: dir
+    }
   }
 }
 
@@ -832,22 +858,46 @@ function cwdTitle(cwd: string | null, fallback: string): string {
   return basename(cwd) || fallback
 }
 
-function parseCwdReports(data: string): string[] {
+function parseCwdReports(terminal: TerminalRecord, data: string): string[] {
   const reports: string[] = []
+  const stream = `${terminal.cwdReportBuffer}${data}`
+  terminal.cwdReportBuffer = ''
+
   let searchFrom = 0
-  while (searchFrom < data.length) {
-    const start = data.indexOf(`${String.fromCharCode(27)}]7;`, searchFrom)
-    if (start < 0) break
-    const payloadStart = start + 4
-    const belEnd = data.indexOf(String.fromCharCode(7), payloadStart)
-    const stEnd = data.indexOf(`${String.fromCharCode(27)}\\`, payloadStart)
+  while (searchFrom < stream.length) {
+    const start = stream.indexOf(OSC7_PREFIX, searchFrom)
+    if (start < 0) {
+      terminal.cwdReportBuffer = partialOsc7Prefix(stream.slice(searchFrom))
+      break
+    }
+
+    const payloadStart = start + OSC7_PREFIX.length
+    const belEnd = stream.indexOf(BEL, payloadStart)
+    const stEnd = stream.indexOf(ST, payloadStart)
     const end = belEnd < 0 ? stEnd : stEnd < 0 ? belEnd : Math.min(belEnd, stEnd)
-    if (end < 0) break
-    const cwd = parseCwdReportPayload(data.slice(payloadStart, end))
-    if (cwd) reports.push(cwd)
-    searchFrom = end + (end === stEnd ? 2 : 1)
+    if (end < 0) {
+      const partial = stream.slice(start)
+      terminal.cwdReportBuffer = Buffer.byteLength(partial, 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES ? partial : ''
+      break
+    }
+
+    if (Buffer.byteLength(stream.slice(payloadStart, end), 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES) {
+      const cwd = parseCwdReportPayload(stream.slice(payloadStart, end))
+      if (cwd) reports.push(cwd)
+    }
+    searchFrom = end + (end === stEnd ? ST.length : BEL.length)
   }
+
   return reports
+}
+
+function partialOsc7Prefix(data: string): string {
+  const maxLength = Math.min(data.length, OSC7_PREFIX.length - 1)
+  for (let length = maxLength; length > 0; length -= 1) {
+    const suffix = data.slice(-length)
+    if (OSC7_PREFIX.startsWith(suffix)) return suffix
+  }
+  return ''
 }
 
 function parseCwdReportPayload(payload: string): string | null {
