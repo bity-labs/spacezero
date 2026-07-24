@@ -3,7 +3,12 @@ import type {
   AgentToolConfirmationRequest,
   ResolveAgentToolConfirmationRequest
 } from './agent-session-projection.model'
-import type { AgentPingResponse, AgentSessionState, AgentUtilityEvent } from './agent-protocol'
+import type {
+  AgentDefinitionReference,
+  AgentPingResponse,
+  AgentSessionState,
+  AgentUtilityEvent
+} from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type {
@@ -293,8 +298,14 @@ export type SpaceZeroAPI = {
   }
   agent: {
     ping: () => Promise<AgentPingResponse>
-    createSession: (request: { projectId: string; cwd: string }) => Promise<AgentSessionState>
-    createWorkspaceSession: () => Promise<WorkspaceSession>
+    createSession: (request: {
+      projectId: string
+      cwd: string
+      agentDefinition?: AgentDefinitionReference
+    }) => Promise<AgentSessionState>
+    createWorkspaceSession: (request?: {
+      agentDefinition?: AgentDefinitionReference
+    }) => Promise<WorkspaceSession>
     getGlobalSkills: () => Promise<AgentGlobalSkill[]>
     setGlobalSkillEnabled: (
       request: SetGlobalAgentSkillEnabledRequest

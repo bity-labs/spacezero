@@ -110,6 +110,10 @@ export function createPiAgentRuntime({
 
   async function createSession(request: CreateAgentSessionRequest): Promise<CreatedPiAgentSession> {
     const settingsManager = SettingsManager.inMemory()
+    const appendSystemPrompt = [
+      ...(request.appendSystemPrompt ?? []),
+      ...(request.agentDefinition ? [request.agentDefinition.body] : [])
+    ]
     const disabledGlobalSkillPaths = new Set(
       (request.disabledGlobalSkillPaths ?? []).map((path) => resolve(path))
     )
@@ -135,7 +139,7 @@ export function createPiAgentRuntime({
       noPromptTemplates: true,
       noThemes: true,
       noContextFiles: true,
-      appendSystemPrompt: request.appendSystemPrompt
+      appendSystemPrompt
     })
     await resourceLoader.reload()
     reportSkillDiagnostics(resourceLoader.getSkills().diagnostics, onSkillDiagnostics)
@@ -149,24 +153,25 @@ export function createPiAgentRuntime({
       descriptors: request.workspaceTools ?? [],
       executeWorkspaceTool
     })
+    const toolNames = selectToolNames({
+      kind: request.kind,
+      workspaceTools: request.workspaceTools ?? [],
+      customTools,
+      allowedTools: request.agentDefinition?.tools
+    })
+    const model = request.agentDefinition?.model ?? request.defaultModel
+    const thinkingLevel = request.agentDefinition?.thinkingLevel ?? request.thinkingLevel
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
       agentDir,
-      model: request.defaultModel
-        ? findConfiguredModel(
-            modelRegistry,
-            request.defaultModel.providerId,
-            request.defaultModel.modelId
-          )
+      model: model
+        ? findConfiguredModel(modelRegistry, model.providerId, model.modelId)
         : (findInitialModel(modelRegistry) ??
           modelRegistry.find(FAUX_PROVIDER_ID, FAUX_MODEL_ID) ??
           faux.getModel()),
-      thinkingLevel: request.thinkingLevel,
-      tools: [
-        ...(request.kind === 'workspace' ? [] : PROJECT_TOOL_NAMES),
-        ...customTools.map((tool) => tool.name)
-      ],
+      thinkingLevel,
+      tools: toolNames,
       customTools,
       sessionManager,
       authStorage,
@@ -175,7 +180,14 @@ export function createPiAgentRuntime({
       resourceLoader
     })
 
-    return adaptAgentSession(session, modelRegistry, request.thinkingLevel, request.skillPaths)
+    return adaptAgentSession({
+      session,
+      modelRegistry,
+      initialThinkingLevel: thinkingLevel,
+      skillPaths: request.skillPaths,
+      agentDefinition: request.agentDefinition,
+      toolNames
+    })
   }
 
   return {
@@ -458,6 +470,39 @@ function createWorkspaceToolProxies({
   )
 }
 
+function selectToolNames({
+  kind,
+  workspaceTools,
+  customTools,
+  allowedTools
+}: {
+  kind: CreateAgentSessionRequest['kind']
+  workspaceTools: WorkspaceToolAgentDescriptor[]
+  customTools: ToolDefinition[]
+  allowedTools: string[] | undefined
+}): string[] {
+  const projectTools = kind === 'workspace' ? [] : PROJECT_TOOL_NAMES
+  const workspaceToolNames = workspaceTools.map((descriptor, index) => ({
+    originalName: descriptor.name,
+    piName: customTools[index]?.name
+  }))
+
+  if (!allowedTools) {
+    return [...projectTools, ...workspaceToolNames.flatMap((tool) => (tool.piName ? [tool.piName] : []))]
+  }
+
+  const allowed = new Set(allowedTools)
+  const selectedTools = [
+    ...projectTools.filter((toolName) => allowed.has(toolName)),
+    ...workspaceToolNames.flatMap((tool) =>
+      tool.piName && allowed.has(tool.originalName) ? [tool.piName] : []
+    )
+  ]
+
+  if (selectedTools.length === 0) throw new Error('agentDefinition.emptyToolAllowlist')
+  return selectedTools
+}
+
 /** Pi providers accept only alphanumeric, underscore, and dash tool names. */
 export function toPiToolName(name: string, index = 0): string {
   const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '_')
@@ -466,12 +511,21 @@ export function toPiToolName(name: string, index = 0): string {
   return `${withFallback.slice(0, 64 - suffix.length)}${suffix}`
 }
 
-function adaptAgentSession(
-  session: AgentSession,
-  modelRegistry: ModelRegistry,
-  initialThinkingLevel?: ThinkingLevel,
+function adaptAgentSession({
+  session,
+  modelRegistry,
+  initialThinkingLevel,
+  skillPaths,
+  agentDefinition,
+  toolNames
+}: {
+  session: AgentSession
+  modelRegistry: ModelRegistry
+  initialThinkingLevel?: ThinkingLevel
   skillPaths?: AgentSkillPath[]
-): CreatedPiAgentSession {
+  agentDefinition?: CreateAgentSessionRequest['agentDefinition']
+  toolNames: string[]
+}): CreatedPiAgentSession {
   let preferredThinkingLevel =
     initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
 
@@ -493,6 +547,10 @@ function adaptAgentSession(
     get systemPrompt() {
       return session.systemPrompt
     },
+    ...(agentDefinition
+      ? { agentDefinition: { id: agentDefinition.id, name: agentDefinition.name } }
+      : {}),
+    toolNames,
     skills: toAgentSkillDescriptors(session.resourceLoader.getSkills().skills, skillPaths),
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))

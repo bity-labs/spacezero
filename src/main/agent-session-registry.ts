@@ -4,6 +4,7 @@ import type {
   AbortAgentSessionRequest,
   AgentSessionState,
   AgentStreamingEvent,
+  AppliedAgentDefinition,
   CreateAgentSessionRequest,
   DeleteAgentSessionRequest,
   GetAgentSessionStateRequest,
@@ -30,6 +31,8 @@ export type CreatedPiAgentSession = {
   modelId: string
   thinkingLevel: ThinkingLevel | undefined
   systemPrompt?: string
+  agentDefinition?: AppliedAgentDefinition
+  toolNames?: string[]
   skills?: AgentSkillDescriptor[]
   setModel: (request: { provider: string; modelId: string }) => Promise<void>
   setThinkingLevel: (level: ThinkingLevel) => Promise<void> | void
@@ -65,6 +68,7 @@ type RegisteredAgentSession = {
   systemPromptContext: string | undefined
   skillPaths: AgentSkillPath[] | undefined
   disabledGlobalSkillPaths: string[] | undefined
+  agentDefinition: CreateAgentSessionRequest['agentDefinition'] | undefined
   piSession: CreatedPiAgentSession
   unsubscribe: () => void
   lastAccessedAt: number
@@ -83,6 +87,7 @@ type DormantAgentSession = {
   modelProvider: string | undefined
   modelId: string | undefined
   thinkingLevel: ThinkingLevel | undefined
+  agentDefinition: CreateAgentSessionRequest['agentDefinition'] | undefined
   skills?: AgentSkillDescriptor[]
   lastAccessedAt: number
 }
@@ -96,6 +101,27 @@ type AgentSessionRegistryOptions = {
 }
 
 const DEFAULT_MAX_LIVE_SESSIONS = 4
+
+function createDormantAgentDefinitionRequest(
+  dormantSession: DormantAgentSession
+): Pick<CreateAgentSessionRequest, 'agentDefinition'> {
+  if (!dormantSession.agentDefinition) return {}
+
+  return {
+    agentDefinition: {
+      ...dormantSession.agentDefinition,
+      ...(dormantSession.modelProvider && dormantSession.modelId
+        ? {
+            model: {
+              providerId: dormantSession.modelProvider,
+              modelId: dormantSession.modelId
+            }
+          }
+        : {}),
+      ...(dormantSession.thinkingLevel ? { thinkingLevel: dormantSession.thinkingLevel } : {})
+    }
+  }
+}
 
 export class AgentSessionRegistry {
   private readonly sessions = new Map<string, RegisteredAgentSession>()
@@ -163,6 +189,7 @@ export class AgentSessionRegistry {
           systemPromptContext: normalizedRequest.systemPromptContext,
           skillPaths: normalizedRequest.skillPaths,
           disabledGlobalSkillPaths: normalizedRequest.disabledGlobalSkillPaths,
+          agentDefinition: normalizedRequest.agentDefinition,
           piSession,
           unsubscribe,
           lastAccessedAt: this.now()
@@ -326,7 +353,8 @@ export class AgentSessionRegistry {
           }
         : {}),
       ...(request.defaultModel ? { defaultModel: request.defaultModel } : {}),
-      ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {})
+      ...(request.thinkingLevel ? { thinkingLevel: request.thinkingLevel } : {}),
+      ...(request.agentDefinition ? { agentDefinition: request.agentDefinition } : {})
     }
   }
 
@@ -376,6 +404,7 @@ export class AgentSessionRegistry {
       ...(dormantSession.disabledGlobalSkillPaths
         ? { disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths }
         : {}),
+      ...createDormantAgentDefinitionRequest(dormantSession),
       ...(dormantSession.modelProvider && dormantSession.modelId
         ? {
             defaultModel: {
@@ -401,6 +430,7 @@ export class AgentSessionRegistry {
       systemPromptContext: dormantSession.systemPromptContext,
       skillPaths: dormantSession.skillPaths,
       disabledGlobalSkillPaths: dormantSession.disabledGlobalSkillPaths,
+      agentDefinition: dormantSession.agentDefinition,
       piSession,
       unsubscribe: piSession.subscribe((event) => this.forwardStreamingEvent(sessionId, event)),
       lastAccessedAt: this.now()
@@ -465,6 +495,7 @@ export class AgentSessionRegistry {
       systemPromptContext: session.systemPromptContext,
       skillPaths: session.skillPaths,
       disabledGlobalSkillPaths: session.disabledGlobalSkillPaths,
+      agentDefinition: session.agentDefinition,
       transcriptPath: session.piSession.sessionFile,
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
@@ -499,6 +530,9 @@ export class AgentSessionRegistry {
       modelProvider: session.piSession.modelProvider,
       modelId: session.piSession.modelId,
       thinkingLevel: session.piSession.thinkingLevel,
+      ...(session.piSession.agentDefinition
+        ? { agentDefinition: session.piSession.agentDefinition }
+        : {}),
       ...(session.piSession.skills ? { skills: session.piSession.skills } : {}),
       ...(transcriptSnapshot.length > 0 ? { transcriptSnapshot } : {})
     }
@@ -516,6 +550,9 @@ export class AgentSessionRegistry {
       modelProvider: session.modelProvider,
       modelId: session.modelId,
       thinkingLevel: session.thinkingLevel,
+      ...(session.agentDefinition
+        ? { agentDefinition: { id: session.agentDefinition.id, name: session.agentDefinition.name } }
+        : {}),
       ...(session.skills ? { skills: session.skills } : {})
     }
   }

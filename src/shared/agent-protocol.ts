@@ -35,6 +35,22 @@ export type AgentPingResponse = {
 
 export type AgentSessionKind = 'project' | 'workspace'
 
+export type AppliedAgentDefinition = {
+  id: string
+  name: string
+}
+
+export type ResolvedAgentDefinition = AppliedAgentDefinition & {
+  body: string
+  model?: DefaultModelSetting
+  thinkingLevel?: ThinkingLevel
+  tools?: string[]
+}
+
+export type AgentDefinitionReference = {
+  id: string
+}
+
 export type CreateAgentSessionRequest = {
   sessionId: AgentSessionId
   kind?: AgentSessionKind
@@ -47,6 +63,8 @@ export type CreateAgentSessionRequest = {
   disabledGlobalSkillPaths?: string[]
   defaultModel?: DefaultModelSetting
   thinkingLevel?: ThinkingLevel
+  /** Resolved Agent Definition configuration for persona-mode session creation. */
+  agentDefinition?: ResolvedAgentDefinition
   /** Runtime-only context appended to the system prompt for a linked Session source. */
   systemPromptContext?: string
 }
@@ -105,6 +123,7 @@ export type AgentSessionState = {
   modelProvider: string | undefined
   modelId: string | undefined
   thinkingLevel?: ThinkingLevel
+  agentDefinition?: AppliedAgentDefinition
   skills?: AgentSkillDescriptor[]
   transcriptSnapshot?: AgentTranscriptMessage[]
 }
