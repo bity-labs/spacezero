@@ -43,8 +43,8 @@ type TerminalService = {
     ownerWindowId: number
     request: TerminalCloseRequest
   }) => ReturnType<TerminalAPI['close']>
-  closeAllForWindow?: (windowId: number) => void
-  closeAll?: () => void
+  closeAllForWindow?: (windowId: number) => Promise<void>
+  closeAll?: () => Promise<void>
 }
 
 type TerminalIpcEvent = Pick<IpcMainInvokeEvent, 'sender'>
@@ -102,9 +102,13 @@ export function registerTerminalIpc(): void {
   ipcMain.handle(TERMINAL_IPC_CHANNELS.close, handlers.close)
 
   app.on('browser-window-created', (_event, window) => {
-    window.on('closed', () => service.closeAllForWindow?.(window.id))
+    window.on('closed', () => {
+      void service.closeAllForWindow?.(window.id)
+    })
   })
-  app.once('before-quit', () => service.closeAll?.())
+  app.once('before-quit', () => {
+    void service.closeAll?.()
+  })
 }
 
 function getOwnerWindowId(event: TerminalIpcEvent): number {

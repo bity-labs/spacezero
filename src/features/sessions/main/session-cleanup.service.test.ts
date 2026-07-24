@@ -79,7 +79,7 @@ describe('Session cleanup service', () => {
       removeTranscript: async () => {
         events.push('transcript')
       },
-      closeTerminalsForSession: () => {
+      closeTerminalsForSession: async () => {
         events.push('terminal')
       }
     })
@@ -87,6 +87,86 @@ describe('Session cleanup service', () => {
     await service.deleteSession('session-1')
 
     expect(events).toEqual(['terminal', 'utility', 'worktree', 'metadata', 'transcript'])
+  })
+
+  it('awaits terminal shutdown before destructive Session worktree cleanup', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    let releaseTerminals: (() => void) | undefined
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal-start')
+        await new Promise<void>((resolve) => {
+          releaseTerminals = resolve
+        })
+        events.push('terminal-finished')
+      }
+    })
+
+    const deletion = service.deleteSession('session-1')
+    await vi.waitFor(() => expect(events).toEqual(['terminal-start']))
+    expect(releaseTerminals).toBeDefined()
+    releaseTerminals?.()
+    await deletion
+
+    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
+  })
+
+  it('awaits terminal shutdown for each Session before Project deletion continues', async () => {
+    const session = createStoredSession()
+    const events: string[] = []
+    let releaseTerminals: (() => void) | undefined
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => undefined,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => {
+          events.push('metadata')
+        }
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal-start')
+        await new Promise<void>((resolve) => {
+          releaseTerminals = resolve
+        })
+        events.push('terminal-finished')
+      }
+    })
+
+    const deletion = service.deleteProjectSessions('project-1')
+    await vi.waitFor(() => expect(events).toEqual(['terminal-start']))
+    expect(releaseTerminals).toBeDefined()
+    releaseTerminals?.()
+    await deletion
+
+    expect(events).toEqual(['terminal-start', 'terminal-finished', 'utility', 'worktree', 'metadata'])
   })
 
   it('deletes durable metadata only after managed resources are removed', async () => {
@@ -145,7 +225,7 @@ describe('Session cleanup service', () => {
       },
       deleteUtilitySession: async () => undefined,
       removeTranscript: async () => undefined,
-      closeTerminalsForSession: (sessionId) => {
+      closeTerminalsForSession: async (sessionId) => {
         deletedSessionIds.push(`terminal:${sessionId}`)
       }
     })

@@ -309,12 +309,107 @@ describe('Terminal service', () => {
     ).rejects.toThrow('terminal.notFound')
   })
 
-  it('rejects input and resize for a terminal whose owning Session was deleted', async () => {
-    let storedSession: typeof session | undefined = session
+  it('rejects operations once the owning context is being deleted', async () => {
+    const { ptys, service } = createHarness()
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+
+    await service.closeAllForContext(context)
+
+    await expect(
+      service.writeInput({ ownerWindowId: 1, request: { terminalId, context, data: 'again' } })
+    ).rejects.toThrow('terminal.notFound')
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    ).rejects.toThrow('terminal.contextDeleting')
+    expect(ptys[0]?.killed).toBe(true)
+  })
+
+  it('kills and rejects an in-flight create that completes after context deletion starts', async () => {
+    let resolveSpawn: ((pty: FakePty) => void) | undefined
+    const ptys: FakePty[] = []
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(
+        () =>
+          new Promise<PtyProcess>((resolve) => {
+            resolveSpawn = (pty) => {
+              ptys.push(pty)
+              resolve(pty)
+            }
+          })
+      )
+    }
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      pty: adapter,
+      createId: () => 'terminal-raced-create',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+
+    const create = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(adapter.spawn).toHaveBeenCalledTimes(1))
+    const cleanup = service.closeAllForContext(context)
+    resolveSpawn?.(new FakePty(80, 24))
+
+    await expect(create).rejects.toThrow('terminal.contextDeleting')
+    await cleanup
+    expect(ptys[0]?.killed).toBe(true)
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).rejects.toThrow(
+      'terminal.contextDeleting'
+    )
+  })
+
+  it('preserves input and resize invocation order while older operations are pending', async () => {
+    const { ptys, service } = createHarness()
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+
+    const first = service.writeInput({
+      ownerWindowId: 1,
+      request: { terminalId, context, data: 'first' }
+    })
+    const second = service.writeInput({
+      ownerWindowId: 1,
+      request: { terminalId, context, data: 'second' }
+    })
+    const resize = service.resize({
+      ownerWindowId: 1,
+      request: { terminalId, context, cols: 120, rows: 40 }
+    })
+
+    await Promise.all([second, resize, first])
+
+    expect(ptys[0]?.writes).toEqual(['first', 'second'])
+    expect(ptys[0]?.resizes).toEqual([{ cols: 120, rows: 40 }])
+  })
+
+  it('does not let an older unsubscribe disable a newer subscription', async () => {
+    const { events, ptys, service } = createHarness()
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const { terminalId } = created
+    await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+
+    const staleUnsubscribe = service.unsubscribe({ ownerWindowId: 1, request: { terminalId, context } })
+    const newerSubscribe = service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+    await Promise.all([newerSubscribe, staleUnsubscribe])
+    ptys[0]?.emitData('live\n')
+
+    expect(events).toContainEqual({ type: 'output', terminalId, sequence: 1, data: 'live\n' })
+  })
+
+  it('trims a single multibyte chunk without exceeding the hard byte limit', async () => {
     const ptys: FakePty[] = []
     const service = createTerminalService({
       repository: {
-        findSessionById: vi.fn(async () => storedSession),
+        findSessionById: vi.fn(async () => session),
         findProjectById: vi.fn(async () => project)
       },
       worktrees: { validate: vi.fn(async () => true) },
@@ -325,24 +420,25 @@ describe('Terminal service', () => {
           return pty
         })
       },
-      createId: () => 'terminal-stale-owner',
+      createId: () => 'terminal-multibyte-evict',
       resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
-      emitToWindow: vi.fn()
+      emitToWindow: vi.fn(),
+      maxRetainedLines: 10_000,
+      maxRetainedBytes: 10
     })
     const created = await service.create({ ownerWindowId: 1, request: { context } })
     if (created.status !== 'running') throw new Error('expected running terminal')
     const { terminalId } = created
 
-    storedSession = undefined
+    ptys[0]?.emitData(`abcdefghi${'€'.repeat(3)}`)
 
-    await expect(
-      service.writeInput({ ownerWindowId: 1, request: { terminalId, context, data: 'again' } })
-    ).rejects.toThrow('terminal.projectSessionNotFound')
-    await expect(
-      service.resize({ ownerWindowId: 1, request: { terminalId, context, cols: 80, rows: 24 } })
-    ).rejects.toThrow('terminal.projectSessionNotFound')
-    expect(ptys[0]?.writes).toEqual([])
-    expect(ptys[0]?.resizes).toEqual([])
+    const replay = await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+    const retained = replay.events
+      .filter((event) => event.type === 'output')
+      .map((event) => event.data)
+      .join('')
+    expect(Buffer.byteLength(retained, 'utf8')).toBeLessThanOrEqual(10)
+    expect(retained).not.toContain('�')
   })
 
   it('surfaces shell launch failures without substituting another shell', async () => {
@@ -389,7 +485,7 @@ class FakePty extends EventEmitter implements PtyProcess {
     this.resizes.push({ cols, rows })
   }
 
-  kill(): void {
+  async kill(): Promise<void> {
     this.killed = true
   }
 

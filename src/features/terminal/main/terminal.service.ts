@@ -41,7 +41,7 @@ export type TerminalWorktreeValidator = {
 export type PtyProcess = {
   write: (data: string) => void
   resize: (cols: number, rows: number) => void
-  kill: () => void
+  kill: () => Promise<void>
   onData: (listener: (data: string) => void) => () => void
   onExit: (
     listener: (event: { exitCode: number | null; signal?: number | string | null }) => void
@@ -71,7 +71,14 @@ type TerminalRecord = {
   pty: PtyProcess
   output: RetainedOutput
   subscribed: boolean
+  subscriptionGeneration: number
+  operationQueue: Promise<void>
   dispose: Array<() => void>
+}
+
+type InFlightCreate = {
+  context: TerminalCreateRequest['context']
+  promise: Promise<TerminalCreateResult>
 }
 
 type RetainedOutputChunk = {
@@ -112,7 +119,10 @@ export function createTerminalService({
 }) {
   const terminals = new Map<string, TerminalRecord>()
   const emptyContexts = new Set<string>()
-  const inFlightCreates = new Map<string, Promise<TerminalCreateResult>>()
+  const deletingContexts = new Set<string>()
+  const inFlightCreates = new Map<string, InFlightCreate>()
+  const isContextDeleting = (context: TerminalCreateRequest['context']) =>
+    deletingContexts.has(deletionContextKey(context))
 
   async function create({
     ownerWindowId,
@@ -121,6 +131,8 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalCreateRequest
   }): Promise<TerminalCreateResult> {
+    if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
+
     const existing = findExistingTerminal(ownerWindowId, request.context)
     if (existing) return { status: 'running', terminalId: existing.id }
 
@@ -131,12 +143,12 @@ export function createTerminalService({
     }
 
     const inFlight = inFlightCreates.get(key)
-    if (inFlight) return inFlight
+    if (inFlight) return inFlight.promise
 
     const createPromise = createFreshTerminal({ ownerWindowId, request }).finally(() => {
       inFlightCreates.delete(key)
     })
-    inFlightCreates.set(key, createPromise)
+    inFlightCreates.set(key, { context: request.context, promise: createPromise })
     return createPromise
   }
 
@@ -148,6 +160,8 @@ export function createTerminalService({
     request: TerminalCreateRequest
   }): Promise<TerminalCreateResult> {
     const cwd = await resolveProjectSessionWorktree(request.context.sessionId)
+    if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
+
     const shell = resolveShell()
     const id = createId()
     let process: PtyProcess
@@ -167,6 +181,11 @@ export function createTerminalService({
       )
     }
 
+    if (isContextDeleting(request.context)) {
+      await process.kill()
+      throw new Error('terminal.contextDeleting')
+    }
+
     const record: TerminalRecord = {
       id,
       ownerWindowId,
@@ -174,6 +193,8 @@ export function createTerminalService({
       pty: process,
       output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
       subscribed: false,
+      subscriptionGeneration: 0,
+      operationQueue: Promise.resolve(),
       dispose: []
     }
     record.dispose.push(
@@ -192,23 +213,26 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalSubscribeRequest
   }): Promise<TerminalSubscribeResult> {
-    const terminal = await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
-    terminal.subscribed = true
-    const afterSequence = request.afterSequence ?? 0
-    const events: TerminalEvent[] = terminal.output.chunks
-      .filter((chunk) => chunk.sequence > afterSequence)
-      .map((chunk) => ({
-        type: 'output' as const,
+    const terminal = requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
+    terminal.subscriptionGeneration += 1
+    return enqueueTerminalOperation(terminal, () => {
+      terminal.subscribed = true
+      const afterSequence = request.afterSequence ?? 0
+      const events: TerminalEvent[] = terminal.output.chunks
+        .filter((chunk) => chunk.sequence > afterSequence)
+        .map((chunk) => ({
+          type: 'output' as const,
+          terminalId: terminal.id,
+          sequence: chunk.sequence,
+          data: chunk.data
+        }))
+      return {
         terminalId: terminal.id,
-        sequence: chunk.sequence,
-        data: chunk.data
-      }))
-    return {
-      terminalId: terminal.id,
-      events,
-      oldestSequence: terminal.output.chunks[0]?.sequence ?? terminal.output.nextSequence,
-      nextSequence: terminal.output.nextSequence
-    }
+        events,
+        oldestSequence: terminal.output.chunks[0]?.sequence ?? terminal.output.nextSequence,
+        nextSequence: terminal.output.nextSequence
+      }
+    })
   }
 
   async function unsubscribe({
@@ -218,8 +242,11 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalUnsubscribeRequest
   }): Promise<void> {
-    const terminal = await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
-    terminal.subscribed = false
+    const terminal = requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
+    const generationAtInvocation = terminal.subscriptionGeneration
+    return enqueueTerminalOperation(terminal, () => {
+      if (terminal.subscriptionGeneration === generationAtInvocation) terminal.subscribed = false
+    })
   }
 
   async function writeInput({
@@ -229,9 +256,8 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalWriteInputRequest
   }): Promise<void> {
-    ;(await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)).pty.write(
-      request.data
-    )
+    const terminal = requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
+    return enqueueTerminalOperation(terminal, () => terminal.pty.write(request.data))
   }
 
   async function resize({
@@ -241,10 +267,8 @@ export function createTerminalService({
     ownerWindowId: number
     request: TerminalResizeRequest
   }): Promise<void> {
-    ;(await requireLiveTerminal(ownerWindowId, request.terminalId, request.context)).pty.resize(
-      request.cols,
-      request.rows
-    )
+    const terminal = requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
+    return enqueueTerminalOperation(terminal, () => terminal.pty.resize(request.cols, request.rows))
   }
 
   async function close({
@@ -256,32 +280,32 @@ export function createTerminalService({
   }): Promise<void> {
     const terminal = requireTerminal(ownerWindowId, request.terminalId, request.context)
     deleteTerminal(terminal, { markEmpty: true })
-    terminal.pty.kill()
+    await terminal.pty.kill()
   }
 
-  function closeAllForWindow(ownerWindowId: number): void {
-    for (const terminal of [...terminals.values()]) {
-      if (terminal.ownerWindowId === ownerWindowId) {
-        deleteTerminal(terminal, { markEmpty: false })
-        terminal.pty.kill()
-      }
-    }
+  async function closeAllForWindow(ownerWindowId: number): Promise<void> {
+    const kills = [...terminals.values()]
+      .filter((terminal) => terminal.ownerWindowId === ownerWindowId)
+      .map((terminal) => closeTerminalRecord(terminal, { markEmpty: false }))
+    await Promise.all(kills)
   }
 
-  function closeAll(): void {
-    for (const terminal of [...terminals.values()]) {
-      deleteTerminal(terminal, { markEmpty: false })
-      terminal.pty.kill()
-    }
+  async function closeAll(): Promise<void> {
+    const kills = [...terminals.values()].map((terminal) =>
+      closeTerminalRecord(terminal, { markEmpty: false })
+    )
+    await Promise.all(kills)
   }
 
-  function closeAllForContext(context: TerminalCreateRequest['context']): void {
-    for (const terminal of [...terminals.values()]) {
-      if (sameContext(terminal.context, context)) {
-        deleteTerminal(terminal, { markEmpty: true })
-        terminal.pty.kill()
-      }
-    }
+  async function closeAllForContext(context: TerminalCreateRequest['context']): Promise<void> {
+    deletingContexts.add(deletionContextKey(context))
+    const inFlight = [...inFlightCreates.values()]
+      .filter((create) => sameContext(create.context, context))
+      .map((create) => create.promise.catch(() => undefined))
+    const kills = [...terminals.values()]
+      .filter((terminal) => sameContext(terminal.context, context))
+      .map((terminal) => closeTerminalRecord(terminal, { markEmpty: true }))
+    await Promise.all([...inFlight, ...kills])
   }
 
   async function resolveProjectSessionWorktree(sessionId: string): Promise<string> {
@@ -334,13 +358,13 @@ export function createTerminalService({
     return terminal
   }
 
-  async function requireLiveTerminal(
+  function requireLiveTerminal(
     ownerWindowId: number,
     terminalId: string,
     context: TerminalCreateRequest['context']
-  ): Promise<TerminalRecord> {
+  ): TerminalRecord {
     const terminal = requireTerminal(ownerWindowId, terminalId, context)
-    await assertContextOwnerActive(terminal.context)
+    if (isContextDeleting(terminal.context)) throw new Error('terminal.contextDeleting')
     return terminal
   }
 
@@ -410,10 +434,36 @@ export function createTerminalService({
     })
   }
 
+  async function closeTerminalRecord(
+    terminal: TerminalRecord,
+    options: { markEmpty: boolean }
+  ): Promise<void> {
+    deleteTerminal(terminal, options)
+    await terminal.pty.kill()
+  }
+
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
     terminals.delete(terminal.id)
     if (options.markEmpty) emptyContexts.add(contextKey(terminal.ownerWindowId, terminal.context))
     for (const dispose of terminal.dispose.splice(0)) dispose()
+  }
+
+  function enqueueTerminalOperation<T>(
+    terminal: TerminalRecord,
+    operation: () => T | Promise<T>
+  ): Promise<T> {
+    const run = terminal.operationQueue
+      .catch(() => undefined)
+      .then(async () => {
+        if (!terminals.has(terminal.id)) throw new Error('terminal.notFound')
+        if (isContextDeleting(terminal.context)) throw new Error('terminal.contextDeleting')
+        return operation()
+      })
+    terminal.operationQueue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
   }
 
   return {
@@ -440,6 +490,10 @@ function contextKey(ownerWindowId: number, context: TerminalCreateRequest['conte
   return `${ownerWindowId}:${context.kind}:${context.sessionId}`
 }
 
+function deletionContextKey(context: TerminalCreateRequest['context']): string {
+  return `${context.kind}:${context.sessionId}`
+}
+
 function sameContext(
   left: TerminalCreateRequest['context'],
   right: TerminalCreateRequest['context']
@@ -459,8 +513,7 @@ function trimOldestDataToLimits(
   }
 
   if (Buffer.byteLength(trimmed, 'utf8') > limits.maxBytes) {
-    const bytes = Buffer.from(trimmed, 'utf8')
-    trimmed = bytes.subarray(bytes.length - limits.maxBytes).toString('utf8')
+    trimmed = trimToUtf8ByteLimit(trimmed, limits.maxBytes)
   }
 
   while (countLines(trimmed) > limits.maxLines) {
@@ -470,6 +523,16 @@ function trimOldestDataToLimits(
   }
 
   return trimmed
+}
+
+function trimToUtf8ByteLimit(data: string, maxBytes: number): string {
+  if (maxBytes <= 0) return ''
+  const bytes = Buffer.from(data, 'utf8')
+  let start = Math.max(0, bytes.length - maxBytes)
+  while (start < bytes.length && (bytes[start] & 0b1100_0000) === 0b1000_0000) {
+    start += 1
+  }
+  return bytes.subarray(start).toString('utf8')
 }
 
 function countLines(data: string): number {
