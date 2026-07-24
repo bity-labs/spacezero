@@ -181,9 +181,11 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-files-e2e-'))
   const projectPath = join(temporaryDirectory, 'project')
   const userDataPath = join(temporaryDirectory, 'user-data')
-  const documentPath = join(projectPath, 'README.md')
+  const markdownPath = join(projectPath, 'README.md')
+  const sourcePath = join(projectPath, 'package.json')
   await mkdir(projectPath, { recursive: true })
-  await writeFile(documentPath, '# Bundled editor\n')
+  await writeFile(markdownPath, '# Bundled editor\n')
+  await writeFile(sourcePath, '{"name":"files-e2e"}\n')
 
   const electronApp = await launchApp(userDataPath)
   userDataDirectories.push(temporaryDirectory)
@@ -274,9 +276,13 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await window.getByRole('button', { name: 'Files E2E' }).click()
   await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
   await expect(window.getByRole('tree', { name: 'Project files' })).toBeVisible()
-  await window.getByText('README.md').click()
+  await window.getByText('package.json').click()
   await expect(window.locator('.monaco-editor')).toBeVisible()
   await expect(window.getByText('Saved')).toBeVisible()
+
+  await window.getByText('README.md').click()
+  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toBeVisible()
+  await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
 
   const externalMonacoRequests = await window.evaluate(() =>
     performance

@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
+import { RichMarkdownEditor } from '@renderer/components/rich-markdown-editor'
+import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
 import type { FilesEntry } from '../../shared'
 import {
   createDefaultFilesContext,
   getActiveFilesTab,
+  isMarkdownDocumentPath,
+  isMdxPath,
   useFilesStore,
+  type FilesEditorMode,
   type FilesOpenTabIntent,
   type FilesTabDropPosition,
   type FilesTabState
@@ -63,6 +68,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
   const promoteTab = useFilesStore((state) => state.promoteTab)
   const closeTab = useFilesStore((state) => state.closeTab)
   const reorderTabs = useFilesStore((state) => state.reorderTabs)
+  const setEditorMode = useFilesStore((state) => state.setEditorMode)
   const updateDraft = useFilesStore((state) => state.updateDraft)
   const markSaving = useFilesStore((state) => state.markSaving)
   const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
@@ -370,6 +376,7 @@ function FilesToolSession({ sessionId }: { sessionId: string }): React.JSX.Eleme
           onChange={(draft) => updateDraft(sessionId, draft)}
           onPin={(relativePath) => promoteTab(sessionId, relativePath)}
           onSave={saveActiveDocument}
+          onSetEditorMode={(relativePath, mode) => setEditorMode(sessionId, relativePath, mode)}
         />
       </div>
     </section>
@@ -471,28 +478,16 @@ function FilesEditorPanel({
   sessionId,
   onChange,
   onPin,
-  onSave
+  onSave,
+  onSetEditorMode
 }: {
   document: FilesTabState | null
   sessionId: string
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
+  onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
-  const onSaveRef = useRef(onSave)
-  useEffect(() => {
-    onSaveRef.current = onSave
-  }, [onSave])
-  const editorOptions = useMemo(
-    () => ({ minimap: { enabled: false }, scrollBeyondLastLine: false }),
-    []
-  )
-  const handleEditorMount = useCallback<FilesMonacoEditorMount>((editor, monaco) => {
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void onSaveRef.current()
-    })
-  }, [])
-
   if (!document) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
@@ -519,7 +514,54 @@ function FilesEditorPanel({
     )
   }
 
+  return (
+    <FilesReadyEditorPanel
+      document={document}
+      sessionId={sessionId}
+      onChange={onChange}
+      onPin={onPin}
+      onSave={onSave}
+      onSetEditorMode={onSetEditorMode}
+    />
+  )
+}
+
+function FilesReadyEditorPanel({
+  document,
+  sessionId,
+  onChange,
+  onPin,
+  onSave,
+  onSetEditorMode
+}: {
+  document: Extract<FilesTabState, { status: 'ready' }>
+  sessionId: string
+  onChange: (draft: string) => void
+  onPin: (relativePath: string) => void
+  onSave: () => void | Promise<void>
+  onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
+}): React.JSX.Element {
+  const onSaveRef = useRef(onSave)
+  useEffect(() => {
+    onSaveRef.current = onSave
+  }, [onSave])
+  const editorOptions = useMemo(
+    () => ({ minimap: { enabled: false }, scrollBeyondLastLine: false }),
+    []
+  )
+  const handleEditorMount = useCallback<FilesMonacoEditorMount>((editor, monaco) => {
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      void onSaveRef.current()
+    })
+  }, [])
+  const supportsRichMode = isMarkdownDocumentPath(document.relativePath)
+  const richModeLimitation = supportsRichMode
+    ? getRichMarkdownLimitation(document.draft, { isMdx: isMdxPath(document.relativePath) })
+    : null
+  const activeMode: FilesEditorMode =
+    supportsRichMode && !richModeLimitation && document.editorMode === 'rich' ? 'rich' : 'source'
   const language = getFilesEditorLanguage(document.relativePath)
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
@@ -529,6 +571,28 @@ function FilesEditorPanel({
           {document.dirty ? <span className="ml-2 text-amber-600">Unsaved changes</span> : null}
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
+          {supportsRichMode ? (
+            <div className="flex items-center rounded-md border p-0.5" aria-label="Editor mode">
+              <button
+                aria-pressed={activeMode === 'rich'}
+                className={`rounded px-2 py-0.5 text-foreground disabled:opacity-50 ${activeMode === 'rich' ? 'bg-muted' : 'hover:bg-accent'}`}
+                disabled={Boolean(richModeLimitation)}
+                title={richModeLimitation ?? 'Use rich Markdown editing'}
+                type="button"
+                onClick={() => onSetEditorMode(document.relativePath, 'rich')}
+              >
+                Rich
+              </button>
+              <button
+                aria-pressed={activeMode === 'source'}
+                className={`rounded px-2 py-0.5 text-foreground ${activeMode === 'source' ? 'bg-muted' : 'hover:bg-accent'}`}
+                type="button"
+                onClick={() => onSetEditorMode(document.relativePath, 'source')}
+              >
+                Source
+              </button>
+            </div>
+          ) : null}
           {document.saveStatus === 'saving' ? <span>Saving…</span> : null}
           {!document.dirty && document.saveStatus !== 'saving' ? <span>Saved</span> : null}
           {document.preview ? (
@@ -555,17 +619,30 @@ function FilesEditorPanel({
           {document.error}
         </div>
       ) : null}
+      {richModeLimitation ? (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
+          {richModeLimitation}
+        </div>
+      ) : null}
       <div className="min-h-0 flex-1">
-        <FilesMonacoEditor
-          height="100%"
-          language={language}
-          options={editorOptions}
-          path={createFilesMonacoModelPath(sessionId, document.relativePath)}
-          theme="vs-dark"
-          value={document.draft}
-          onChange={(value) => onChange(value ?? '')}
-          onMount={handleEditorMount}
-        />
+        {activeMode === 'rich' ? (
+          <RichMarkdownEditor
+            documentRelativePath={document.relativePath}
+            markdown={document.draft}
+            onChange={onChange}
+          />
+        ) : (
+          <FilesMonacoEditor
+            height="100%"
+            language={language}
+            options={editorOptions}
+            path={createFilesMonacoModelPath(sessionId, document.relativePath)}
+            theme="vs-dark"
+            value={document.draft}
+            onChange={(value) => onChange(value ?? '')}
+            onMount={handleEditorMount}
+          />
+        )}
       </div>
     </div>
   )
