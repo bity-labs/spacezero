@@ -135,6 +135,8 @@ const api: SpaceZeroAPI = {
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
     createWorkspaceSession: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agent.createWorkspaceSession, request),
+    applyDefinitionToFreshSession: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.agent.applyDefinitionToFreshSession, request),
     getGlobalSkills: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getGlobalSkills),
     setGlobalSkillEnabled: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agent.setGlobalSkillEnabled, request),

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
-import type { AgentSessionState } from '../../../../shared/agent-protocol'
+import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { type AiChatMessage, type AiChatToolCallPart } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
@@ -37,7 +37,17 @@ export function ProjectSessionHostSurface({
       error={agentSession.lastError ?? null}
       sessionState={agentSession.sessionState}
       placeholder={`Message ${project.name} / ${session.title}…`}
-      onSubmit={(text) => void agentSession.prompt(text)}
+      onSubmit={(text, options) => {
+        void (async () => {
+          if (
+            options?.agentDefinition &&
+            isFreshAgentSession(agentSession.messages, agentSession.sessionState)
+          ) {
+            await agentSession.applyDefinitionToFreshSession(options.agentDefinition)
+          }
+          await agentSession.prompt(text)
+        })()
+      }}
       onAbort={() => void agentSession.abort()}
       onToolConfirmationResolve={(callId, approved) =>
         void agentSession.resolveToolConfirmation(callId, approved)
@@ -73,8 +83,8 @@ export function WorkspaceSessionHostSurface({
             </AlertDescription>
           </Alert>
           <p className="text-sm text-muted-foreground">
-            Retry when the agent runtime is available. Chat remains unavailable until the Session
-            is restored.
+            Retry when the agent runtime is available. Chat remains unavailable until the Session is
+            restored.
           </p>
           <Button className="self-end" onClick={agentSession.retryRestore}>
             Retry
@@ -92,7 +102,17 @@ export function WorkspaceSessionHostSurface({
       error={agentSession.lastError ?? null}
       sessionState={agentSession.sessionState}
       placeholder={placeholder}
-      onSubmit={(text) => void agentSession.prompt(text)}
+      onSubmit={(text, options) => {
+        void (async () => {
+          if (
+            options?.agentDefinition &&
+            isFreshAgentSession(agentSession.messages, agentSession.sessionState)
+          ) {
+            await agentSession.applyDefinitionToFreshSession(options.agentDefinition)
+          }
+          await agentSession.prompt(text)
+        })()
+      }}
       onAbort={() => void agentSession.abort()}
       onToolConfirmationResolve={(callId, approved) =>
         void agentSession.resolveToolConfirmation(callId, approved)
@@ -109,7 +129,7 @@ type SessionHostFrameProps = {
   error?: string | null
   sessionState?: AgentSessionState
   placeholder: string
-  onSubmit?: (text: string) => void
+  onSubmit?: (text: string, options?: { agentDefinition?: AgentDefinitionReference }) => void
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
@@ -155,6 +175,13 @@ function SessionHostFrame({
       />
     </div>
   )
+}
+
+function isFreshAgentSession(
+  messages: AiChatMessage[],
+  sessionState: AgentSessionState | undefined
+): boolean {
+  return !sessionState?.agentDefinition && messages.length === 0
 }
 
 function useToolExecutionMessages(

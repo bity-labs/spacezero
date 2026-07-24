@@ -15,6 +15,8 @@ export type {
 } from './ai-chat.types'
 export {
   ChatInput,
+  type ChatInputActiveAgentDefinition,
+  type ChatInputAgentDefinition,
   type ChatInputModel,
   type ChatInputProps,
   type ChatInputSkill
@@ -32,10 +34,7 @@ export {
   type ThinkingSelectorProps
 } from './thinking-selector'
 export { ToolCallBlock, type ToolCallBlockProps } from './tool-call-block'
-export {
-  ToolConfirmationCard,
-  type ToolConfirmationCardProps
-} from './tool-confirmation-card'
+export { ToolConfirmationCard, type ToolConfirmationCardProps } from './tool-confirmation-card'
 export {
   applyTranscriptEvent,
   type AiChatAssistantCompleteEvent,
