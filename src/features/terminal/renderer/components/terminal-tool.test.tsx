@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { TerminalTool } from './terminal-tool'
-import type { TerminalEvent } from '../../shared'
+import type { TerminalEvent, TerminalSubscribeResult } from '../../shared'
 
 let lastTerminal: FakeXTerm | null = null
 let terminalEventListener: ((event: TerminalEvent) => void) | null = null
@@ -33,7 +33,7 @@ describe('TerminalTool', () => {
   })
 
   it('lazily creates and subscribes to one Project Session terminal, replays output, and forwards keyboard input unchanged', async () => {
-    const create = vi.fn(async () => ({ terminalId: 'terminal-1' }))
+    const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
     const subscribe = vi.fn(async () => ({
       terminalId: 'terminal-1',
       events: [
@@ -62,7 +62,7 @@ describe('TerminalTool', () => {
 
     await waitFor(() => expect(screen.getByRole('region', { name: 'Terminal' })).toBeVisible())
     await waitFor(() => expect(subscribe).toHaveBeenCalled())
-    expect(create).toHaveBeenCalledWith({ context, cols: 100, rows: 30 })
+    expect(create).toHaveBeenCalledWith({ context, cols: 100, rows: 30, forceNew: false })
     expect(lastTerminal?.write).toHaveBeenCalledWith('hello\r\n')
     expect(resize).toHaveBeenCalledWith({
       terminalId: 'terminal-1',
@@ -89,12 +89,151 @@ describe('TerminalTool', () => {
     expect(lastTerminal?.write).toHaveBeenCalledWith('done\r\n')
   })
 
+  it('merges subscribe replay and live output in sequence order without gaps or duplicates', async () => {
+    let resolveSubscribe: ((value: {
+      terminalId: string
+      events: TerminalEvent[]
+      oldestSequence: number
+      nextSequence: number
+    }) => void) | null = null
+    window.spacezero.terminal = {
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      subscribe: vi.fn(
+        () =>
+          new Promise<TerminalSubscribeResult>((resolve) => {
+            resolveSubscribe = resolve
+          })
+      ),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalled())
+    act(() =>
+      terminalEventListener?.({
+        type: 'output',
+        terminalId: 'terminal-1',
+        sequence: 2,
+        data: 'second\r\n'
+      })
+    )
+    await act(async () => {
+      resolveSubscribe?.({
+        terminalId: 'terminal-1',
+        events: [
+          { type: 'output', terminalId: 'terminal-1', sequence: 1, data: 'first\r\n' },
+          { type: 'output', terminalId: 'terminal-1', sequence: 2, data: 'second\r\n' }
+        ],
+        oldestSequence: 1,
+        nextSequence: 3
+      })
+    })
+
+    expect(lastTerminal?.write).toHaveBeenNthCalledWith(1, 'first\r\n')
+    expect(lastTerminal?.write).toHaveBeenNthCalledWith(2, 'second\r\n')
+    expect(lastTerminal?.write).toHaveBeenCalledTimes(2)
+  })
+
+  it('resets replay sequencing when a replacement terminal starts at sequence one', async () => {
+    const user = userEvent.setup()
+    let createCount = 0
+    window.confirm = vi.fn(() => true)
+    window.spacezero.terminal = {
+      create: vi.fn(async () => {
+        createCount += 1
+        return { status: 'running' as const, terminalId: `terminal-${createCount}` }
+      }),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [
+          {
+            type: 'output' as const,
+            terminalId,
+            sequence: terminalId === 'terminal-1' ? 10 : 1,
+            data: `${terminalId} output\r\n`
+          }
+        ],
+        oldestSequence: 1,
+        nextSequence: terminalId === 'terminal-1' ? 11 : 2
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await screen.findByRole('button', { name: 'Close Terminal' })
+    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-1 output\r\n')
+    await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
+    await user.click(await screen.findByRole('button', { name: 'New Terminal' }))
+    await screen.findByRole('button', { name: 'Close Terminal' })
+
+    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n')
+    expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
+      context,
+      cols: 100,
+      rows: 30,
+      forceNew: true
+    })
+  })
+
+  it('shows the durable empty state on remount without starting a replacement shell', async () => {
+    const create = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'running' as const, terminalId: 'terminal-1' })
+      .mockResolvedValueOnce({ status: 'empty' as const, terminalId: null })
+    const close = vi.fn(async () => undefined)
+    window.confirm = vi.fn(() => true)
+    window.spacezero.terminal = {
+      create,
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    const mounted = render(<TerminalTool context={context} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Close Terminal' }))
+    expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
+    mounted.unmount()
+    render(<TerminalTool context={context} />)
+
+    expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenLastCalledWith({ context, cols: 100, rows: 30, forceNew: false })
+  })
+
   it('asks before closing a live terminal and returns to the New Terminal state on close or exit', async () => {
     const user = userEvent.setup()
     const close = vi.fn(async () => undefined)
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
-      create: vi.fn(async () => ({ terminalId: 'terminal-1' })),
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
         events: [],

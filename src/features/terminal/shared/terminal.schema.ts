@@ -26,7 +26,8 @@ export const terminalCreateRequestSchema = z
       .default(TERMINAL_DEFAULT_COLS),
     rows: terminalDimensionSchema(TERMINAL_MIN_ROWS, TERMINAL_MAX_ROWS)
       .optional()
-      .default(TERMINAL_DEFAULT_ROWS)
+      .default(TERMINAL_DEFAULT_ROWS),
+    forceNew: z.boolean().optional().default(false)
   })
   .strict()
 

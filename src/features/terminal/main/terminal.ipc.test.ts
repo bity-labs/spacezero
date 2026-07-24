@@ -16,7 +16,7 @@ const event = { sender: {} } as never
 describe('Terminal IPC boundary', () => {
   it('validates create, input, resize, subscription, and close requests before calling main services', async () => {
     const service = {
-      create: vi.fn(async () => ({ terminalId: 'terminal-1' })),
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
       subscribe: vi.fn(async () => ({
         terminalId: 'terminal-1',
         events: [],
@@ -31,6 +31,7 @@ describe('Terminal IPC boundary', () => {
     const handlers = createTerminalHandlers(service)
 
     await expect(handlers.create(event, { context, cols: 80, rows: 24 })).resolves.toEqual({
+      status: 'running',
       terminalId: 'terminal-1'
     })
     await expect(
@@ -51,7 +52,7 @@ describe('Terminal IPC boundary', () => {
 
     expect(service.create).toHaveBeenCalledWith({
       ownerWindowId: 7,
-      request: { context, cols: 80, rows: 24 }
+      request: { context, cols: 80, rows: 24, forceNew: false }
     })
     expect(service.writeInput).toHaveBeenCalledWith({
       ownerWindowId: 7,

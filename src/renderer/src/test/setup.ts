@@ -416,7 +416,7 @@ beforeEach(async () => {
       delete: async () => undefined
     },
     terminal: {
-      create: async () => ({ terminalId: 'terminal-test' }),
+      create: async () => ({ status: 'running', terminalId: 'terminal-test' }),
       subscribe: async () => ({
         terminalId: 'terminal-test',
         events: [],
