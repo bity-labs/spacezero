@@ -672,6 +672,67 @@ describe('TerminalTool', () => {
     expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context })
   })
 
+  it('renders folder-based labels from main snapshots and updates them from validated cwd events without using shell titles', async () => {
+    const tabs = [
+      { terminalId: 'terminal-1', title: 'api' },
+      { terminalId: 'terminal-2', title: 'api' }
+    ]
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs,
+        activeTerminalId: 'terminal-1'
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    render(<TerminalTool context={context} />)
+
+    expect(await screen.findByRole('tab', { name: 'Select terminal tab api', selected: true })).toBeVisible()
+    expect(screen.getAllByRole('tab', { name: 'Select terminal tab api' })).toHaveLength(2)
+    act(() => terminalEventListener?.({ type: 'tab-updated', terminalId: 'terminal-1', title: 'web' }))
+
+    await screen.findByRole('tab', { name: 'Select terminal tab web', selected: true })
+    expect(screen.getByRole('tab', { name: 'Select terminal tab api', selected: false })).toBeVisible()
+  })
+
+  it('falls back to the shell name supplied by main when no usable cwd label exists', async () => {
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1'
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({ terminalId, events: [], oldestSequence: 1, nextSequence: 1 })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await screen.findByRole('tab', { name: 'Select terminal tab zsh', selected: true })
+  })
+
   it('removes inactive natural exits without changing the active tab while a sibling remains', async () => {
     const tabs = [
       { terminalId: 'terminal-1', title: 'one' },

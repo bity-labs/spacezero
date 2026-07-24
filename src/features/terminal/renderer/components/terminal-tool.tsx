@@ -81,6 +81,14 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         applyOutputEvent(event)
         return
       }
+      if (event.type === 'tab-updated') {
+        setTabs((currentTabs) =>
+          currentTabs.map((tab) =>
+            tab.terminalId === event.terminalId ? { ...tab, title: event.title } : tab
+          )
+        )
+        return
+      }
       const exitedTerminalId = event.terminalId
       setTabs((currentTabs) => {
         if (!currentTabs.some((tab) => tab.terminalId === exitedTerminalId)) return currentTabs
