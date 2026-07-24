@@ -1,3 +1,5 @@
+import { isMap, parseDocument } from 'yaml'
+
 import type {
   AgentDefinitionCatalogEntry,
   AgentDefinitionDiagnostic,
@@ -161,37 +163,18 @@ function extractFrontmatter(
 function parseFrontmatter(
   source: string
 ):
-  | { ok: true; values: Record<string, string | string[]> }
+  | { ok: true; values: Record<string, unknown> }
   | { ok: false; diagnostic: AgentDefinitionDiagnostic } {
-  const values: Record<string, string | string[]> = {}
-  const lines = source.split('\n')
-
   try {
-    for (let index = 0; index < lines.length; index += 1) {
-      const rawLine = lines[index]
-      const trimmedLine = rawLine.trim()
-      if (!trimmedLine || trimmedLine.startsWith('#')) continue
+    const document = parseDocument(source)
 
-      const keyValueMatch = rawLine.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*:(.*)$/)
-      if (!keyValueMatch) throw new Error('invalid line')
+    if (document.errors.length > 0) throw new Error('invalid YAML')
 
-      const [, key, rawValue] = keyValueMatch
-      const value = rawValue.trim()
+    if (document.contents === null) return { ok: true, values: {} }
+    if (!isMap(document.contents)) throw new Error('frontmatter must be a mapping')
 
-      if (!value) {
-        const items: string[] = []
-        while (index + 1 < lines.length) {
-          const nextLine = lines[index + 1]
-          const listItemMatch = nextLine.match(/^\s*-\s*(.*)$/)
-          if (!listItemMatch) break
-          items.push(parseScalar(listItemMatch[1].trim()))
-          index += 1
-        }
-        values[key] = items
-      } else {
-        values[key] = parseValue(value)
-      }
-    }
+    const values = document.toJS() as unknown
+    if (!isRecord(values)) throw new Error('frontmatter must be a mapping')
 
     return { ok: true, values }
   } catch {
@@ -206,15 +189,8 @@ function parseFrontmatter(
   }
 }
 
-function parseValue(value: string): string | string[] {
-  if (value.startsWith('[')) {
-    if (!value.endsWith(']')) throw new Error('unterminated array')
-    const innerValue = value.slice(1, -1).trim()
-    if (!innerValue) return []
-    return splitCsv(innerValue).map(parseScalar).filter(Boolean)
-  }
-
-  return parseScalar(value)
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function parseScalar(value: string): string {
@@ -230,45 +206,53 @@ function parseScalar(value: string): string {
   return trimmedValue
 }
 
-function readRequiredString(
-  values: Record<string, string | string[]>,
-  key: string
-): string | undefined {
+function readRequiredString(values: Record<string, unknown>, key: string): string | undefined {
   const value = values[key]
   return typeof value === 'string' && value.trim() ? value.trim() : undefined
 }
 
-function readOptionalString(
-  values: Record<string, string | string[]>,
-  key: string
-): string | undefined {
+function readOptionalString(values: Record<string, unknown>, key: string): string | undefined {
   return readRequiredString(values, key)
 }
 
-function readOptionalList(
-  values: Record<string, string | string[]>,
-  key: string
-): string[] | undefined {
+function readOptionalList(values: Record<string, unknown>, key: string): string[] | undefined {
   const value = values[key]
   if (value === undefined) return undefined
-  if (Array.isArray(value)) return value.map((item) => item.trim()).filter(Boolean)
+  if (Array.isArray(value)) {
+    if (!value.every((item): item is string => typeof item === 'string')) {
+      throw new Error('list items must be strings')
+    }
+    return value.map((item) => item.trim()).filter(Boolean)
+  }
+  if (typeof value !== 'string') throw new Error('list must be a string or string array')
   return splitCsv(value)
     .map((item) => parseScalar(item).trim())
     .filter(Boolean)
 }
 
-function parseSpawns(value: string | string[] | undefined): AgentDefinitionSpawns {
+function parseSpawns(value: unknown): AgentDefinitionSpawns {
   if (value === undefined) return { type: 'none' }
 
   const spawns = Array.isArray(value)
-    ? value.map((item) => item.trim()).filter(Boolean)
-    : splitCsv(value)
-        .map((item) => parseScalar(item).trim())
-        .filter(Boolean)
+    ? readStringArray(value)
+    : typeof value === 'string'
+      ? splitCsv(value)
+          .map((item) => parseScalar(item).trim())
+          .filter(Boolean)
+      : undefined
+
+  if (!spawns) throw new Error('spawns must be a string or string array')
 
   if (spawns.length === 1 && spawns[0] === '*') return { type: 'any' }
   if (spawns.length === 0) return { type: 'none' }
   return { type: 'list', definitions: spawns }
+}
+
+function readStringArray(value: unknown[]): string[] {
+  if (!value.every((item): item is string => typeof item === 'string')) {
+    throw new Error('list items must be strings')
+  }
+  return value.map((item) => item.trim()).filter(Boolean)
 }
 
 function splitCsv(value: string): string[] {
