@@ -26,7 +26,12 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const terminalIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<SubscriptionState | null>(null)
   const lastSequenceByTerminalRef = useRef(new Map<string, number>())
-  const terminalContext = useMemo<TerminalContext>(() => context, [context])
+  const terminalContextKind = context.kind
+  const terminalContextSessionId = 'sessionId' in context ? context.sessionId : undefined
+  const terminalContext = useMemo<TerminalContext>(() => {
+    if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
+    return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
+  }, [terminalContextKind, terminalContextSessionId])
   const [terminalId, setTerminalId] = useState<string | null>(null)
   const [status, setStatus] = useState<TerminalStatus>('starting')
   const [error, setError] = useState<string | null>(null)

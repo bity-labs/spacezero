@@ -154,7 +154,11 @@ export function createTerminalService({
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
     const existing = findExistingTerminal(ownerWindowId, request.context)
-    if (existing) return { status: 'running', terminalId: existing.id }
+    if (existing) {
+      await assertContextOwnerActive(request.context)
+      if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
+      return { status: 'running', terminalId: existing.id }
+    }
 
     const key = contextKey(ownerWindowId, request.context)
     if (!request.forceNew && emptyContexts.has(key)) {
@@ -404,14 +408,17 @@ export function createTerminalService({
   async function resolveWorkspaceSessionRoot(sessionId: string): Promise<string> {
     const session = await repository.findSessionById(sessionId)
     if (!session || session.archivedAt) throw new Error('terminal.workspaceSessionNotFound')
-    if (session.kind && session.kind !== 'workspace') throw new Error('terminal.workspaceSessionNotFound')
+    if (session.kind && session.kind !== 'workspace')
+      throw new Error('terminal.workspaceSessionNotFound')
     if (session.projectId !== null || session.managedContext) {
       throw new Error('terminal.workspaceSessionNotFound')
     }
     return storageSettings.getSpaceZeroHome()
   }
 
-  async function assertContextOwnerActive(context: TerminalCreateRequest['context']): Promise<void> {
+  async function assertContextOwnerActive(
+    context: TerminalCreateRequest['context']
+  ): Promise<void> {
     await resolveInitialCwd(context)
   }
 

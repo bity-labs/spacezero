@@ -25,8 +25,19 @@ const sessionCleanupService = createSessionCleanupService({
   },
   deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
   removeTranscript: (path) => rm(path, { force: true }),
-  closeTerminalsForSession: (sessionId) =>
-    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId })
+  closeTerminalsForSession: (session) => {
+    if (session.managedContext === 'knowledge-base') return Promise.resolve()
+    if (session.projectId) {
+      return getTerminalService().closeAllForContext({
+        kind: 'project-session',
+        sessionId: session.id
+      })
+    }
+    return getTerminalService().closeAllForContext({
+      kind: 'workspace-session',
+      sessionId: session.id
+    })
+  }
 })
 
 export function registerSessionsIpc(): void {
