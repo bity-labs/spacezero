@@ -416,7 +416,24 @@ beforeEach(async () => {
       delete: async () => undefined
     },
     terminal: {
-      create: async () => ({ status: 'running', terminalId: 'terminal-test' }),
+      listTabs: async () => ({
+        tabs: [{ terminalId: 'terminal-test', title: 'Shell' }],
+        activeTerminalId: 'terminal-test'
+      }),
+      create: async () => ({
+        status: 'running',
+        terminalId: 'terminal-test',
+        tabs: [{ terminalId: 'terminal-test', title: 'Shell' }],
+        activeTerminalId: 'terminal-test'
+      }),
+      selectTab: async () => ({
+        tabs: [{ terminalId: 'terminal-test', title: 'Shell' }],
+        activeTerminalId: 'terminal-test'
+      }),
+      reorderTabs: async () => ({
+        tabs: [{ terminalId: 'terminal-test', title: 'Shell' }],
+        activeTerminalId: 'terminal-test'
+      }),
       subscribe: async () => ({
         terminalId: 'terminal-test',
         events: [],

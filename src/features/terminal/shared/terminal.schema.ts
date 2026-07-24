@@ -25,6 +25,12 @@ const terminalIdSchema = z.string().trim().min(1).max(256)
 
 const terminalDimensionSchema = (min: number, max: number) => z.number().int().min(min).max(max)
 
+export const terminalListTabsRequestSchema = z
+  .object({
+    context: terminalContextSchema
+  })
+  .strict()
+
 export const terminalCreateRequestSchema = z
   .object({
     context: terminalContextSchema,
@@ -37,6 +43,28 @@ export const terminalCreateRequestSchema = z
     forceNew: z.boolean().optional().default(false)
   })
   .strict()
+
+export const terminalSelectTabRequestSchema = z
+  .object({
+    terminalId: terminalIdSchema,
+    context: terminalContextSchema
+  })
+  .strict()
+
+export const terminalReorderTabsRequestSchema = z
+  .object({
+    context: terminalContextSchema,
+    terminalIds: z.array(terminalIdSchema).min(1)
+  })
+  .strict()
+  .superRefine((request, context) => {
+    if (new Set(request.terminalIds).size === request.terminalIds.length) return
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['terminalIds'],
+      message: 'Terminal ids must be unique'
+    })
+  })
 
 export const terminalSubscribeRequestSchema = z
   .object({

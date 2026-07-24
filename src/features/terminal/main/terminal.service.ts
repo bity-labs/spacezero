@@ -5,9 +5,13 @@ import type {
   TerminalCreateRequest,
   TerminalCreateResult,
   TerminalEvent,
+  TerminalListTabsRequest,
   TerminalResizeRequest,
+  TerminalReorderTabsRequest,
+  TerminalSelectTabRequest,
   TerminalSubscribeRequest,
   TerminalSubscribeResult,
+  TerminalTabsSnapshot,
   TerminalUnsubscribeRequest,
   TerminalWriteInputRequest
 } from '../shared'
@@ -79,11 +83,17 @@ type TerminalRecord = {
   ownerWindowId: number
   context: TerminalCreateRequest['context']
   pty: PtyProcess
+  title: string
   output: RetainedOutput
   subscribed: boolean
   subscriptionGeneration: number
   operationQueue: Promise<void>
   dispose: Array<() => void>
+}
+
+type TerminalContextState = {
+  terminalIds: string[]
+  activeTerminalId: string | null
 }
 
 type InFlightCreate = {
@@ -137,9 +147,11 @@ export function createTerminalService({
   maxRetainedBytes?: number
 }) {
   const terminals = new Map<string, TerminalRecord>()
+  const contexts = new Map<string, TerminalContextState>()
   const emptyContexts = new Set<string>()
   const deletingContexts = new Set<string>()
   const inFlightCreates = new Map<string, InFlightCreate>()
+  const createPromisesByContext = new Map<string, Set<Promise<TerminalCreateResult>>>()
   const shutdownsByContext = new Map<string, Set<TrackedShutdown>>()
   const isContextDeleting = (context: TerminalCreateRequest['context']) =>
     deletingContexts.has(deletionContextKey(context))
@@ -153,23 +165,27 @@ export function createTerminalService({
   }): Promise<TerminalCreateResult> {
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
-    const existing = findExistingTerminal(ownerWindowId, request.context)
-    if (existing) {
+    const key = contextKey(ownerWindowId, request.context)
+    const existing = getActiveTerminal(ownerWindowId, request.context)
+    if (existing && !request.forceNew) {
       await assertContextOwnerActive(request.context)
       if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
-      return { status: 'running', terminalId: existing.id }
+      return { status: 'running', terminalId: existing.id, ...snapshot(ownerWindowId, request.context) }
     }
 
-    const key = contextKey(ownerWindowId, request.context)
     if (!request.forceNew && emptyContexts.has(key)) {
       await assertContextOwnerActive(request.context)
-      return { status: 'empty', terminalId: null }
+      return { status: 'empty', terminalId: null, ...snapshot(ownerWindowId, request.context) }
+    }
+
+    if (request.forceNew) {
+      return trackCreate(request.context, createFreshTerminal({ ownerWindowId, request }))
     }
 
     const inFlight = inFlightCreates.get(key)
     if (inFlight) return inFlight.promise
 
-    const createPromise = createFreshTerminal({ ownerWindowId, request }).finally(() => {
+    const createPromise = trackCreate(request.context, createFreshTerminal({ ownerWindowId, request })).finally(() => {
       inFlightCreates.delete(key)
     })
     inFlightCreates.set(key, { context: request.context, promise: createPromise })
@@ -215,6 +231,7 @@ export function createTerminalService({
       ownerWindowId,
       context: request.context,
       pty: process,
+      title: shellName(shell.executable),
       output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
       subscribed: false,
       subscriptionGeneration: 0,
@@ -226,8 +243,57 @@ export function createTerminalService({
       process.onExit((event) => removeExitedTerminal(record, event))
     )
     terminals.set(id, record)
+    setActiveTerminal(ownerWindowId, request.context, id)
     emptyContexts.delete(contextKey(ownerWindowId, request.context))
-    return { status: 'running', terminalId: id }
+    return { status: 'running', terminalId: id, ...snapshot(ownerWindowId, request.context) }
+  }
+
+  async function listTabs({
+    ownerWindowId,
+    request
+  }: {
+    ownerWindowId: number
+    request: TerminalListTabsRequest
+  }): Promise<TerminalTabsSnapshot> {
+    await assertContextOwnerActive(request.context)
+    return snapshot(ownerWindowId, request.context)
+  }
+
+  async function selectTab({
+    ownerWindowId,
+    request
+  }: {
+    ownerWindowId: number
+    request: TerminalSelectTabRequest
+  }): Promise<TerminalTabsSnapshot> {
+    const terminal = requireLiveTerminal(ownerWindowId, request.terminalId, request.context)
+    setActiveTerminal(ownerWindowId, request.context, terminal.id)
+    return snapshot(ownerWindowId, request.context)
+  }
+
+  async function reorderTabs({
+    ownerWindowId,
+    request
+  }: {
+    ownerWindowId: number
+    request: TerminalReorderTabsRequest
+  }): Promise<TerminalTabsSnapshot> {
+    const key = contextKey(ownerWindowId, request.context)
+    const state = contexts.get(key)
+    if (!state || state.terminalIds.length === 0) throw new Error('terminal.notFound')
+    const currentIds = new Set(state.terminalIds)
+    if (
+      request.terminalIds.length !== state.terminalIds.length ||
+      new Set(request.terminalIds).size !== state.terminalIds.length ||
+      request.terminalIds.some((id) => !currentIds.has(id))
+    ) {
+      throw new Error('terminal.notFound')
+    }
+    state.terminalIds = [...request.terminalIds]
+    if (!state.activeTerminalId || !currentIds.has(state.activeTerminalId)) {
+      state.activeTerminalId = state.terminalIds[0] ?? null
+    }
+    return snapshot(ownerWindowId, request.context)
   }
 
   async function subscribe({
@@ -324,9 +390,9 @@ export function createTerminalService({
     deletingContexts.add(deletionContextKey(context))
 
     while (true) {
-      const inFlight = [...inFlightCreates.values()]
-        .filter((create) => sameContext(create.context, context))
-        .map((create) => swallowContextDeleting(create.promise))
+      const inFlight = [...(createPromisesByContext.get(deletionContextKey(context)) ?? [])].map(
+        (promise) => swallowContextDeleting(promise)
+      )
       const kills = [...terminals.values()]
         .filter((terminal) => sameContext(terminal.context, context))
         .map((terminal) => closeTerminalRecord(terminal, { markEmpty: true }))
@@ -363,14 +429,48 @@ export function createTerminalService({
     return worktree.path
   }
 
-  function findExistingTerminal(
+  function getActiveTerminal(
     ownerWindowId: number,
     context: TerminalCreateRequest['context']
   ): TerminalRecord | undefined {
-    return [...terminals.values()].find(
-      (terminal) =>
-        terminal.ownerWindowId === ownerWindowId && sameContext(terminal.context, context)
-    )
+    const state = contexts.get(contextKey(ownerWindowId, context))
+    const activeId = state?.activeTerminalId ?? state?.terminalIds[0]
+    if (!activeId) return undefined
+    const terminal = terminals.get(activeId)
+    if (!terminal || terminal.ownerWindowId !== ownerWindowId || !sameContext(terminal.context, context)) {
+      return undefined
+    }
+    return terminal
+  }
+
+  function setActiveTerminal(
+    ownerWindowId: number,
+    context: TerminalCreateRequest['context'],
+    terminalId: string
+  ): void {
+    const key = contextKey(ownerWindowId, context)
+    const state = contexts.get(key) ?? { terminalIds: [], activeTerminalId: null }
+    if (!state.terminalIds.includes(terminalId)) state.terminalIds.push(terminalId)
+    state.activeTerminalId = terminalId
+    contexts.set(key, state)
+  }
+
+  function snapshot(
+    ownerWindowId: number,
+    context: TerminalCreateRequest['context']
+  ): TerminalTabsSnapshot {
+    const state = contexts.get(contextKey(ownerWindowId, context))
+    const terminalIds = state?.terminalIds.filter((id) => terminals.has(id)) ?? []
+    return {
+      tabs: terminalIds.map((id) => {
+        const terminal = terminals.get(id)
+        if (!terminal) throw new Error('terminal.notFound')
+        return { terminalId: id, title: terminal.title }
+      }),
+      activeTerminalId: terminalIds.includes(state?.activeTerminalId ?? '')
+        ? (state?.activeTerminalId ?? null)
+        : (terminalIds[0] ?? null)
+    }
   }
 
   function requireTerminal(
@@ -494,8 +594,34 @@ export function createTerminalService({
 
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
     terminals.delete(terminal.id)
-    if (options.markEmpty) emptyContexts.add(contextKey(terminal.ownerWindowId, terminal.context))
+    const key = contextKey(terminal.ownerWindowId, terminal.context)
+    const state = contexts.get(key)
+    if (state) {
+      state.terminalIds = state.terminalIds.filter((id) => id !== terminal.id)
+      if (state.activeTerminalId === terminal.id) state.activeTerminalId = state.terminalIds[0] ?? null
+      if (state.terminalIds.length === 0) contexts.delete(key)
+    }
+    if (options.markEmpty && (state?.terminalIds.length ?? 0) === 0) emptyContexts.add(key)
     for (const dispose of terminal.dispose.splice(0)) dispose()
+  }
+
+  function trackCreate(
+    context: TerminalCreateRequest['context'],
+    createPromise: Promise<TerminalCreateResult>
+  ): Promise<TerminalCreateResult> {
+    const key = deletionContextKey(context)
+    let creates = createPromisesByContext.get(key)
+    if (!creates) {
+      creates = new Set()
+      createPromisesByContext.set(key, creates)
+    }
+    creates.add(createPromise)
+    const untrack = () => {
+      creates?.delete(createPromise)
+      if (creates?.size === 0) createPromisesByContext.delete(key)
+    }
+    createPromise.then(untrack, untrack)
+    return createPromise
   }
 
   function trackContextShutdown(
@@ -557,7 +683,10 @@ export function createTerminalService({
   }
 
   return {
+    listTabs,
     create,
+    selectTab,
+    reorderTabs,
     subscribe,
     unsubscribe,
     writeInput,
@@ -594,6 +723,10 @@ function sameContext(
   right: TerminalCreateRequest['context']
 ): boolean {
   return terminalContextIdentity(left) === terminalContextIdentity(right)
+}
+
+function shellName(executable: string): string {
+  return executable.split(/[\\/]/).filter(Boolean).at(-1) || 'Shell'
 }
 
 function trimOldestDataToLimits(
