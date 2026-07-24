@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
+import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
@@ -283,22 +284,10 @@ describe('ProjectSessionHostSurface', () => {
     expect(prompt).not.toHaveBeenCalled()
   })
 
-  it('shows definition model and thinking after applying a definition over fresh local overrides', async () => {
+  it('keeps post-definition model and thinking edits authoritative over fresh local overrides', async () => {
     const user = userEvent.setup()
-    const applyDefinitionToFreshSession = vi.fn(async ({ sessionId }) => ({
-      sessionId,
-      projectId: 'project-1',
-      cwd: project.path,
-      status: 'idle' as const,
-      live: true,
-      transcriptPath: '/tmp/session-1.jsonl',
-      modelProvider: 'faux',
-      modelId: 'faux-1',
-      thinkingLevel: 'low' as const,
-      agentDefinition: { id: 'reviewer', name: 'Reviewer' }
-    }))
-    window.spacezero.agent.getState = async ({ sessionId }) => ({
-      sessionId,
+    let runtimeState: AgentSessionState = {
+      sessionId: 'session-1',
       projectId: 'project-1',
       cwd: project.path,
       status: 'idle',
@@ -307,7 +296,19 @@ describe('ProjectSessionHostSurface', () => {
       modelProvider: 'anthropic',
       modelId: 'claude-sonnet-4',
       thinkingLevel: 'medium'
+    }
+    const applyDefinitionToFreshSession = vi.fn(async ({ sessionId }) => {
+      runtimeState = {
+        ...runtimeState,
+        sessionId,
+        modelProvider: 'faux',
+        modelId: 'faux-1',
+        thinkingLevel: 'low',
+        agentDefinition: { id: 'reviewer', name: 'Reviewer' }
+      }
+      return runtimeState
     })
+    window.spacezero.agent.getState = async () => runtimeState
     window.spacezero.agent.getAvailableModels = async () => [
       {
         providerId: 'anthropic',
@@ -328,28 +329,14 @@ describe('ProjectSessionHostSurface', () => {
         modelLabel: 'Faux 1'
       }
     ]
-    window.spacezero.agent.setModel = vi.fn(async ({ sessionId, provider, modelId }) => ({
-      sessionId,
-      projectId: 'project-1',
-      cwd: project.path,
-      status: 'idle' as const,
-      live: true,
-      transcriptPath: '/tmp/session-1.jsonl',
-      modelProvider: provider,
-      modelId,
-      thinkingLevel: 'medium' as const
-    }))
-    window.spacezero.agent.setThinkingLevel = vi.fn(async ({ sessionId, level }) => ({
-      sessionId,
-      projectId: 'project-1',
-      cwd: project.path,
-      status: 'idle' as const,
-      live: true,
-      transcriptPath: '/tmp/session-1.jsonl',
-      modelProvider: 'openai',
-      modelId: 'gpt-5',
-      thinkingLevel: level
-    }))
+    window.spacezero.agent.setModel = vi.fn(async ({ provider, modelId }) => {
+      runtimeState = { ...runtimeState, modelProvider: provider, modelId }
+      return runtimeState
+    })
+    window.spacezero.agent.setThinkingLevel = vi.fn(async ({ level }) => {
+      runtimeState = { ...runtimeState, thinkingLevel: level }
+      return runtimeState
+    })
     window.spacezero.agents.getGlobalDefinitions = async () => [
       {
         id: 'reviewer',
@@ -381,6 +368,15 @@ describe('ProjectSessionHostSurface', () => {
     await waitFor(() => expect(applyDefinitionToFreshSession).toHaveBeenCalled())
     expect(await screen.findByRole('button', { name: /Faux 1/ })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Thinking: Low' })).toBeInTheDocument()
+
+    await user.click(await screen.findByRole('button', { name: 'Thinking: Low' }))
+    expect(await screen.findByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Faux 1/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Faux 1/ }))
+    await user.click(await screen.findByText('GPT-5'))
+    expect(await screen.findByRole('button', { name: /GPT-5/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Thinking: Medium' })).toBeInTheDocument()
   })
 
   it('locks the picker and renders the active Agent Definition chip from session state', async () => {

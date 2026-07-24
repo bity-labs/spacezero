@@ -189,12 +189,6 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
       }
     | undefined
   >()
-  const [selectedModelOverride, setSelectedModelOverride] = useState<
-    { sessionId: string; value: string } | undefined
-  >(undefined)
-  const [thinkingLevelOverride, setThinkingLevelOverride] = useState<
-    { sessionId: string; value: AiChatThinkingLevel } | undefined
-  >(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
 
   useEffect(() => {
@@ -235,16 +229,8 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
   const defaultModelId = modelDefaults?.defaultModel
     ? encodeModelId(modelDefaults.defaultModel.providerId, modelDefaults.defaultModel.modelId)
     : undefined
-  const selectedModelId =
-    selectedModelOverride?.sessionId === sessionId && localSessionStateIsCurrent
-      ? selectedModelOverride.value
-      : (sessionModelId ?? defaultModelId)
-  const localThinkingLevelOverride =
-    thinkingLevelOverride?.sessionId === sessionId && localSessionStateIsCurrent
-      ? thinkingLevelOverride.value
-      : undefined
-  const thinkingLevel = (localThinkingLevelOverride ??
-    effectiveSessionState?.thinkingLevel ??
+  const selectedModelId = sessionModelId ?? defaultModelId
+  const thinkingLevel = (effectiveSessionState?.thinkingLevel ??
     modelDefaults?.defaultThinking ??
     'medium') as AiChatThinkingLevel
 
@@ -258,14 +244,12 @@ function useAgentChatModelControls(sessionId: string, sessionState?: AgentSessio
       modelId: model.modelId
     })
     setLocalSessionState({ sourceSessionState: sessionState, value: nextSessionState })
-    setSelectedModelOverride({ sessionId, value: encodedModelId })
     setError(undefined)
   }
 
   async function setThinkingLevel(level: AiChatThinkingLevel): Promise<void> {
     const nextSessionState = await window.spacezero.agent.setThinkingLevel({ sessionId, level })
     setLocalSessionState({ sourceSessionState: sessionState, value: nextSessionState })
-    setThinkingLevelOverride({ sessionId, value: level })
     setError(undefined)
   }
 
