@@ -41,6 +41,17 @@ const agentDefinitionReferenceSchema = z.object({
   id: z.string().trim().min(1)
 })
 
+const agentDefinitionSpawnsSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('none') }).strict(),
+  z.object({ type: z.literal('any') }).strict(),
+  z
+    .object({
+      type: z.literal('list'),
+      definitions: z.array(z.string().trim().min(1))
+    })
+    .strict()
+])
+
 const agentDefinitionSnapshotSchema = z
   .object({
     id: z.string().trim().min(1),
@@ -48,7 +59,8 @@ const agentDefinitionSnapshotSchema = z
     body: z.string(),
     model: defaultModelSettingSchema.optional(),
     thinkingLevel: thinkingLevelSchema.optional(),
-    tools: z.array(z.string().trim().min(1)).optional()
+    tools: z.array(z.string().trim().min(1)).optional(),
+    spawns: agentDefinitionSpawnsSchema.optional()
   })
   .strict()
 
