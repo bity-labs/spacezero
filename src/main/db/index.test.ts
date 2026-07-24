@@ -58,5 +58,8 @@ describe('database migrations', () => {
     )
     expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN source_number INTEGER')
     expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN managed_context TEXT')
+    expect(statements.join('\n')).toContain(
+      'ALTER TABLE sessions ADD COLUMN agent_definition_snapshot TEXT'
+    )
   })
 })
