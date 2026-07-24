@@ -35,6 +35,16 @@ function findToolResult(
   )
 }
 
+function findToolResults(
+  transcript: AgentTranscriptMessage[],
+  toolName: string
+): ToolResultSnapshot[] {
+  return transcript.filter(
+    (message): message is ToolResultSnapshot =>
+      message.role === 'toolResult' && message.toolName === toolName
+  )
+}
+
 function readToolResultText(toolResult: ToolResultSnapshot | undefined): string | undefined {
   return toolResult?.content.find((part) => part.type === 'text')?.text
 }
@@ -1176,6 +1186,87 @@ describe('createPiAgentSessionFactory', () => {
     }
   })
 
+  it('does not prompt a delegated child that finishes construction after parent abort', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-create-abort-'))
+
+    try {
+      const childConstructionStarted = createDeferred<void>()
+      const releaseChildConstruction = createDeferred<void>()
+      let childPromptStarted = false
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        beforeCreateAgentSession: async (request) => {
+          if (!request.parentSessionId) return
+          childConstructionStarted.resolve()
+          await releaseChildConstruction.promise
+        },
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Do not start after abort.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            async (context) => {
+              if (
+                JSON.stringify(context).includes('You are a delegated Space Zero subagent run.')
+              ) {
+                childPromptStarted = true
+              }
+              return fauxAssistantMessage([fauxText('Parent observed aborted child.')])
+            }
+          ])
+        }
+      })
+      const session = await createPiSession({
+        sessionId: 'parent-abort-during-create',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      try {
+        const promptPromise = session.prompt('Delegate then abort during child construction.')
+        await expectSettled(
+          childConstructionStarted.promise,
+          'delegated child construction to start'
+        )
+
+        const abortPromise = session.abort()
+        releaseChildConstruction.resolve()
+        await expectSettled(abortPromise, 'parent abort during child construction')
+        await expectSettled(promptPromise, 'parent prompt to settle after construction abort')
+
+        expect(childPromptStarted).toBe(false)
+        const toolResult = findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        expect(readToolResultText(toolResult)).toBe(
+          JSON.stringify({ status: 'aborted', output: '' })
+        )
+        expect(toolResult?.details).toMatchObject({
+          status: 'aborted',
+          output: '',
+          parentSessionId: 'parent-abort-during-create',
+          childSessionId: expect.stringMatching(/^subagent-/)
+        })
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
   it('disposes an in-flight delegated child when the parent session is deleted from the registry', async () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-parent-delete-'))
 
@@ -1231,6 +1322,187 @@ describe('createPiAgentSessionFactory', () => {
       releaseChild.resolve()
       await expectSettled(promptPromise, 'parent prompt to settle after delete cascade')
       await expect(registry.listSessions()).resolves.toEqual([])
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('returns aborted for every concurrently active delegated child when the parent session is deleted', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-parallel-delete-'))
+
+    try {
+      const childStartedSignals: Array<AbortSignal | undefined> = []
+      const bothChildrenStarted = createDeferred<void>()
+      const releaseChildren = createDeferred<void>()
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Wait as child one.'
+                }),
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Wait as child two.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            async (_context, options) => {
+              childStartedSignals.push(options?.signal)
+              if (childStartedSignals.length === 2) bothChildrenStarted.resolve()
+              await waitForAbortOrRelease(options?.signal, releaseChildren.promise)
+              return fauxAssistantMessage([fauxText('Child one should abort.')])
+            },
+            async (_context, options) => {
+              childStartedSignals.push(options?.signal)
+              if (childStartedSignals.length === 2) bothChildrenStarted.resolve()
+              await waitForAbortOrRelease(options?.signal, releaseChildren.promise)
+              return fauxAssistantMessage([fauxText('Child two should abort.')])
+            },
+            fauxAssistantMessage([fauxText('Parent observed aborted children.')])
+          ])
+        }
+      })
+      let parentSession: { getTranscriptSnapshot: () => AgentTranscriptMessage[] } | undefined
+      const registry = new AgentSessionRegistry({
+        createPiSession: async (request) => {
+          const createdSession = await createPiSession(request)
+          if (!request.parentSessionId) parentSession = createdSession
+          return createdSession
+        }
+      })
+      await registry.createSession({
+        sessionId: 'parent-parallel-delete-cascade',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      const promptPromise = registry.prompt({
+        sessionId: 'parent-parallel-delete-cascade',
+        message: 'Delegate to two children then delete.'
+      })
+      await expectSettled(bothChildrenStarted.promise, 'both delegated children to start')
+
+      await registry.deleteSession({ sessionId: 'parent-parallel-delete-cascade' })
+      expect(childStartedSignals.map((signal) => signal?.aborted)).toEqual([true, true])
+      releaseChildren.resolve()
+      await expectSettled(promptPromise, 'parent prompt to settle after parallel delete cascade')
+      const results = findToolResults(
+        parentSession?.getTranscriptSnapshot() ?? [],
+        'agents_delegate_0'
+      )
+      expect(results.map((result) => readToolResultDetails(result).status)).toEqual([
+        'aborted',
+        'aborted'
+      ])
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps a completed delegated sibling completed when parent deletion aborts another child', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-completed-sibling-'))
+
+    try {
+      const secondChildStarted = createDeferred<AbortSignal | undefined>()
+      const releaseSecondChild = createDeferred<void>()
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Complete before deletion.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            fauxAssistantMessage([fauxText('Already complete.')]),
+            fauxAssistantMessage([fauxText('Parent observed completed child.')]),
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'scout',
+                  task: 'Wait for deletion.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            async (_context, options) => {
+              secondChildStarted.resolve(options?.signal)
+              await waitForAbortOrRelease(options?.signal, releaseSecondChild.promise)
+              return fauxAssistantMessage([fauxText('Second child should abort.')])
+            }
+          ])
+        }
+      })
+      let parentSession: { getTranscriptSnapshot: () => AgentTranscriptMessage[] } | undefined
+      const registry = new AgentSessionRegistry({
+        createPiSession: async (request) => {
+          const createdSession = await createPiSession(request)
+          if (!request.parentSessionId) parentSession = createdSession
+          return createdSession
+        }
+      })
+      await registry.createSession({
+        sessionId: 'parent-completed-sibling-delete',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches the codebase.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      await registry.prompt({
+        sessionId: 'parent-completed-sibling-delete',
+        message: 'Delegate to the fast child.'
+      })
+      expect(
+        findToolResults(parentSession?.getTranscriptSnapshot() ?? [], 'agents_delegate_0').map(
+          (result) => readToolResultDetails(result).status
+        )
+      ).toEqual(['completed'])
+
+      const promptPromise = registry.prompt({
+        sessionId: 'parent-completed-sibling-delete',
+        message: 'Delegate to the slow child then delete.'
+      })
+      const secondChildSignal = await expectSettled(
+        secondChildStarted.promise,
+        'second delegated child to start'
+      )
+
+      await registry.deleteSession({ sessionId: 'parent-completed-sibling-delete' })
+      expect(secondChildSignal?.aborted).toBe(true)
+      releaseSecondChild.resolve()
+      await expectSettled(promptPromise, 'parent prompt to settle after completed sibling delete')
+      const results = findToolResults(
+        parentSession?.getTranscriptSnapshot() ?? [],
+        'agents_delegate_0'
+      )
+      expect(results.map((result) => readToolResultDetails(result).status)).toEqual([
+        'completed',
+        'aborted'
+      ])
     } finally {
       rmSync(tempDir, { recursive: true, force: true })
     }

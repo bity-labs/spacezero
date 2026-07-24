@@ -65,6 +65,7 @@ export type PiAgentSessionFactoryOptions = {
   executeWorkspaceTool?: (request: ExecuteWorkspaceToolRequest) => Promise<WorkspaceToolResult>
   onSkillDiagnostics?: (diagnostics: ResourceDiagnostic[]) => void
   configureFauxProvider?: (provider: ReturnType<typeof fauxProvider>) => void
+  beforeCreateAgentSession?: (request: CreateAgentSessionRequest) => void | Promise<void>
 }
 
 export type PiAgentRuntime = {
@@ -88,7 +89,8 @@ export function createPiAgentRuntime({
   agentDir,
   executeWorkspaceTool,
   onSkillDiagnostics = logAgentSkillDiagnostics,
-  configureFauxProvider
+  configureFauxProvider,
+  beforeCreateAgentSession
 }: PiAgentSessionFactoryOptions): PiAgentRuntime {
   mkdirSync(agentDir, { recursive: true })
   mkdirSync(join(agentDir, 'sessions'), { recursive: true })
@@ -198,6 +200,8 @@ export function createPiAgentRuntime({
     })
     const model = request.agentDefinition?.model ?? request.defaultModel
     const thinkingLevel = request.agentDefinition?.thinkingLevel ?? request.thinkingLevel
+
+    await beforeCreateAgentSession?.(request)
 
     const { session } = await createAgentSession({
       cwd: request.cwd,
@@ -562,17 +566,25 @@ type DelegationResult = {
   parentSessionId: string
 }
 
+type ActiveDelegationEntry = {
+  childSession?: CreatedPiAgentSession
+  cascadeReason?: 'aborted'
+}
+
 type ActiveDelegations = {
   readonly cascadeReason: 'aborted' | undefined
+  begin: (childSessionId: string) => void
   register: (childSessionId: string, childSession: CreatedPiAgentSession) => void
+  isAborted: (childSessionId: string) => boolean
   unregister: (childSessionId: string) => void
   abortAll: () => void
   abortAndDisposeAll: () => void
 }
 
 function createActiveDelegations(): ActiveDelegations {
-  const children = new Map<string, CreatedPiAgentSession>()
+  const entries = new Map<string, ActiveDelegationEntry>()
   let cascadeReason: 'aborted' | undefined
+  let disposeOnCascade = false
 
   function abortChild(childSession: CreatedPiAgentSession): void {
     void childSession.abort().catch(() => undefined)
@@ -582,31 +594,43 @@ function createActiveDelegations(): ActiveDelegations {
     get cascadeReason() {
       return cascadeReason
     },
-    register: (childSessionId, childSession) => {
-      if (cascadeReason) {
-        abortChild(childSession)
-        return
-      }
-      children.set(childSessionId, childSession)
+    begin: (childSessionId) => {
+      entries.set(childSessionId, { cascadeReason })
     },
+    register: (childSessionId, childSession) => {
+      const entry = entries.get(childSessionId) ?? { cascadeReason }
+      entry.childSession = childSession
+      if (cascadeReason) entry.cascadeReason = cascadeReason
+      entries.set(childSessionId, entry)
+      if (entry.cascadeReason) {
+        abortChild(childSession)
+        if (disposeOnCascade) childSession.dispose()
+      }
+    },
+    isAborted: (childSessionId) => entries.get(childSessionId)?.cascadeReason === 'aborted',
     unregister: (childSessionId) => {
-      children.delete(childSessionId)
-      if (children.size === 0) cascadeReason = undefined
+      entries.delete(childSessionId)
+      if (entries.size === 0) {
+        cascadeReason = undefined
+        disposeOnCascade = false
+      }
     },
     abortAll: () => {
-      if (children.size === 0) return
       cascadeReason = 'aborted'
-      for (const childSession of children.values()) {
-        abortChild(childSession)
+      for (const entry of entries.values()) {
+        entry.cascadeReason = 'aborted'
+        if (entry.childSession) abortChild(entry.childSession)
       }
     },
     abortAndDisposeAll: () => {
       cascadeReason = 'aborted'
-      for (const childSession of children.values()) {
-        abortChild(childSession)
-        childSession.dispose()
+      disposeOnCascade = true
+      for (const entry of entries.values()) {
+        entry.cascadeReason = 'aborted'
+        if (!entry.childSession) continue
+        abortChild(entry.childSession)
+        entry.childSession.dispose()
       }
-      children.clear()
     }
   }
 }
@@ -702,6 +726,8 @@ async function runDelegatedAgent({
   const childSessionId = `subagent-${randomUUID()}`
   let childSession: CreatedPiAgentSession | undefined
 
+  activeDelegations.begin(childSessionId)
+
   try {
     childSession = await createSession({
       sessionId: childSessionId,
@@ -724,7 +750,7 @@ async function runDelegatedAgent({
       }
     })
     activeDelegations.register(childSessionId, childSession)
-    if (activeDelegations.cascadeReason) {
+    if (activeDelegations.isAborted(childSessionId)) {
       return createDelegationAborted(
         parentRequest.sessionId,
         childSessionId,
@@ -734,7 +760,7 @@ async function runDelegatedAgent({
 
     await childSession.prompt(parsedInput.task)
 
-    if (activeDelegations.cascadeReason) {
+    if (activeDelegations.isAborted(childSessionId)) {
       return createDelegationAborted(
         parentRequest.sessionId,
         childSessionId,
@@ -751,7 +777,7 @@ async function runDelegatedAgent({
       parentSessionId: parentRequest.sessionId
     }
   } catch (error) {
-    if (activeDelegations.cascadeReason) {
+    if (activeDelegations.isAborted(childSessionId)) {
       return createDelegationAborted(
         parentRequest.sessionId,
         childSessionId,
