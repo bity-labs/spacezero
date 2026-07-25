@@ -1,4 +1,4 @@
-import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -46,6 +46,24 @@ export const sessions = sqliteTable('sessions', {
   managedContext: text('managed_context', { enum: ['knowledge-base'] }),
   agentDefinitionSnapshot: text('agent_definition_snapshot')
 })
+
+export const terminalTabs = sqliteTable(
+  'terminal_tabs',
+  {
+    contextKey: text('context_key').notNull(),
+    contextKind: text('context_kind', {
+      enum: ['project-session', 'workspace-session', 'knowledge-base']
+    }).notNull(),
+    contextSessionId: text('context_session_id'),
+    tabId: text('tab_id').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    title: text('title').notNull(),
+    active: integer('active').notNull(),
+    cwd: text('cwd').notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  },
+  (table) => [primaryKey({ columns: [table.contextKey, table.tabId] })]
+)
 
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
