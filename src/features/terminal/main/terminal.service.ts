@@ -882,7 +882,10 @@ function parseCwdReports(terminal: TerminalRecord, data: string): string[] {
     }
     if (end < 0) {
       const partial = stream.slice(start)
-      terminal.cwdReportBuffer = Buffer.byteLength(partial, 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES ? partial : ''
+      terminal.cwdReportBuffer =
+        Buffer.byteLength(partial, 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES
+          ? partial
+          : partialOsc7Prefix(partial)
       break
     }
 

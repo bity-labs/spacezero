@@ -1052,6 +1052,30 @@ describe('Terminal service', () => {
     }
   })
 
+  it('resynchronizes an at-limit malformed OSC 7 buffer when the replacement prefix is split across PTY chunks', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-stream-split-'))
+    try {
+      const { events, ptys, service } = createHarness()
+      const created = await service.create({ ownerWindowId: 1, request: { context } })
+      if (created.status !== 'running') throw new Error('expected running terminal')
+      const { terminalId } = created
+      await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+
+      ptys[0]?.emitData(`\u001B]7;${'x'.repeat(4092)}`)
+      ptys[0]?.emitData('\u001B]')
+      ptys[0]?.emitData(`7;file://localhost${cwd}\u0007`)
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({
+          type: 'tab-updated',
+          terminalId,
+          title: cwd.split('/').at(-1)
+        })
+      )
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('ignores malformed, stale, inaccessible, and cross-context cwd reports without changing the last valid label', async () => {
     const validCwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-valid-'))
     try {
