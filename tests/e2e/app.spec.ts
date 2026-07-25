@@ -691,7 +691,25 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
     const terminalReturn = await readTerminalReturn()
     expect(terminalReturn).toContain('SPACEZERO_TERMINAL_RETURN')
     expect(terminalReturn).toMatch(/(^|\r?\n)\d+ \d+(\r?\n|$)/)
+
+    await window.evaluate(async ({ terminalId, sessionId }) => {
+      await window.spacezero.terminal.close({
+        terminalId,
+        context: { kind: 'workspace-session', sessionId }
+      })
+    }, { terminalId: handoff.terminalId, sessionId })
+    await expect.poll(async () => isProcessAlive(handoff.serverPid), { timeout: 5_000 }).toBe(false)
   } finally {
+    const window = electronApp?.windows()[0]
+    if (window) {
+      await window.evaluate(async ({ sessionId }) => {
+        const context = { kind: 'workspace-session' as const, sessionId }
+        const { tabs } = await window.spacezero.terminal.listTabs({ context })
+        await Promise.all(
+          tabs.map(({ terminalId }) => window.spacezero.terminal.close({ terminalId, context }))
+        )
+      }, { sessionId }).catch(() => undefined)
+    }
     await electronApp?.close().catch(() => undefined)
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
