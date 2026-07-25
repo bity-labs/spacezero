@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -9,6 +9,9 @@ import { createManagedWorktreeAdapter } from './managed-worktree.adapter'
 
 const execFileAsync = promisify(execFile)
 const temporaryPaths: string[] = []
+
+// macOS temp dirs live under the /var symlink; production code canonicalizes real paths.
+const mkdtempRealpath = async (prefix: string) => realpath(await mkdtemp(join(tmpdir(), prefix)))
 
 async function runRealGit(request: {
   args: string[]
@@ -65,7 +68,7 @@ afterEach(async () => {
 
 describe('managed worktree adapter', () => {
   it('creates a branch-backed worktree from the base repository HEAD', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-test-')
     temporaryPaths.push(root)
     const destination = join(root, 'managed', 'session-1')
     const requests: Array<{ args: string[] }> = []
@@ -104,7 +107,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('fetches a Pull Request ref with ephemeral askpass credentials and no token in argv', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-test-')
     temporaryPaths.push(root)
     const destination = join(root, 'managed', 'session-pr-1')
     const requests: Array<{
@@ -160,7 +163,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('isolates token-bearing Git from malicious local Project configuration', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-security-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-security-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     await createGitRepository(projectPath)
@@ -234,7 +237,7 @@ describe('managed worktree adapter', () => {
   it.skipIf(process.platform === 'win32')(
     'prevents a malicious local remote helper from reading the Pull Request fetch credential',
     async () => {
-      const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-local-config-test-'))
+      const root = await mkdtempRealpath('spacezero-worktree-local-config-test-')
       temporaryPaths.push(root)
       const projectPath = join(root, 'project')
       await createGitRepository(projectPath)
@@ -311,7 +314,7 @@ describe('managed worktree adapter', () => {
   )
 
   it('resolves concurrent Pull Request fetches from isolated temporary refs', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-test-')
     temporaryPaths.push(root)
     const secondFetchCompleted = deferred()
     const isolatedRevisions = new Map<string, string>()
@@ -397,7 +400,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('authenticates a registered managed worktree but rejects the base checkout and an unrelated repository', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-identity-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-identity-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     const baseRevision = await createGitRepository(projectPath)
@@ -436,7 +439,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('rejects a repository without a commit before creating a worktree', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-empty-repository-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-empty-repository-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     await mkdir(projectPath, { recursive: true })
@@ -455,7 +458,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('rejects a repository subdirectory before creating a worktree', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-root-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-root-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     await createGitRepository(projectPath)
@@ -475,7 +478,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('does not delete a verified worktree directory when Git cleanup fails', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-remove-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-remove-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     const baseRevision = await createGitRepository(projectPath)
@@ -504,7 +507,7 @@ describe('managed worktree adapter', () => {
   })
 
   it('attempts reverse-order worktree and branch cleanup when creation fails', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-worktree-test-'))
+    const root = await mkdtempRealpath('spacezero-worktree-test-')
     temporaryPaths.push(root)
     const destination = join(root, 'managed', 'session-1')
     const requests: Array<{ args: string[]; allowFailure?: boolean }> = []
