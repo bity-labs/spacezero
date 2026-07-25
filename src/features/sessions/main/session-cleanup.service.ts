@@ -24,13 +24,29 @@ export function createSessionCleanupService({
   closeTerminalsForSession?: (session: StoredSession) => Promise<void>
   closeBrowsersForSession?: (session: StoredSession) => void
 }) {
+  const deleteOperationsBySession = new Map<string, Promise<void>>()
+
   async function deleteSession(sessionId: string): Promise<void> {
-    const session = await repository.findSessionById(sessionId.trim())
-    if (!session) throw new Error('Session not found')
-    const project = session.projectId
-      ? await repository.findProjectById(session.projectId)
-      : undefined
-    await deleteStoredSession(session, project)
+    const normalizedSessionId = sessionId.trim()
+    const pending = deleteOperationsBySession.get(normalizedSessionId)
+    if (pending) return pending
+
+    const operation = (async () => {
+      const session = await repository.findSessionById(normalizedSessionId)
+      if (!session) throw new Error('Session not found')
+      const project = session.projectId
+        ? await repository.findProjectById(session.projectId)
+        : undefined
+      await deleteStoredSession(session, project)
+    })()
+    deleteOperationsBySession.set(normalizedSessionId, operation)
+    try {
+      await operation
+    } finally {
+      if (deleteOperationsBySession.get(normalizedSessionId) === operation) {
+        deleteOperationsBySession.delete(normalizedSessionId)
+      }
+    }
   }
 
   async function deleteProjectSessions(projectId: string): Promise<void> {
