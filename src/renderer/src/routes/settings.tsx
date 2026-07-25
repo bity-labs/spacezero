@@ -21,6 +21,7 @@ import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model
 import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
+import type { TerminalSettings } from '@shared/terminal-settings'
 import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
 import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
@@ -341,6 +342,8 @@ function GeneralSettingsSection({
       <div className="space-y-8">
         <StorageSettingsSection />
 
+        <TerminalSafetySettingsSection />
+
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -435,6 +438,76 @@ function GeneralSettingsSection({
         </SettingsSection>
       </div>
     </>
+  )
+}
+
+function TerminalSafetySettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const [terminalSettings, setTerminalSettings] = useState<TerminalSettings | null>(null)
+  const [isChanging, setIsChanging] = useState(false)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let isCurrent = true
+
+    window.spacezero.settings
+      .getTerminalSettings()
+      .then((settings) => {
+        if (!isCurrent) return
+        setTerminalSettings(settings)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setError(true)
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [])
+
+  async function updateConfirmBeforeClosingLiveTerminals(nextValue: boolean): Promise<void> {
+    if (!terminalSettings || isChanging) return
+    setIsChanging(true)
+    setError(false)
+    try {
+      const updated = await window.spacezero.settings.updateTerminalSettings({
+        confirmBeforeClosingLiveTerminals: nextValue
+      })
+      setTerminalSettings(updated)
+    } catch {
+      setError(true)
+    } finally {
+      setIsChanging(false)
+    }
+  }
+
+  return (
+    <SettingsSection title={t('settings.terminal.sectionTitle')}>
+      <SettingsRow
+        title={t('settings.terminal.confirmBeforeClosingLiveTerminals.label')}
+        description={t('settings.terminal.confirmBeforeClosingLiveTerminals.description')}
+      >
+        <Switch
+          aria-label={t('settings.terminal.confirmBeforeClosingLiveTerminals.label')}
+          checked={terminalSettings?.confirmBeforeClosingLiveTerminals ?? true}
+          disabled={!terminalSettings || isChanging}
+          onCheckedChange={(checked) =>
+            void updateConfirmBeforeClosingLiveTerminals(Boolean(checked))
+          }
+        />
+      </SettingsRow>
+      {!terminalSettings ? (
+        <p className="px-4 pb-3 text-sm text-muted-foreground">
+          {t('settings.terminal.loading')}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="px-4 pb-3 text-sm text-destructive">
+          {t('settings.terminal.saveError')}
+        </p>
+      ) : null}
+    </SettingsSection>
   )
 }
 

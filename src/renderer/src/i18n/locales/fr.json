@@ -214,6 +214,15 @@
         "defaultBrowser": "Navigateur par défaut"
       }
     },
+    "terminal": {
+      "sectionTitle": "Sécurité du terminal",
+      "loading": "Chargement des réglages du terminal…",
+      "saveError": "Impossible de mettre à jour les réglages de sécurité du terminal.",
+      "confirmBeforeClosingLiveTerminals": {
+        "label": "Confirmer avant de terminer les terminaux actifs",
+        "description": "Demander avant de fermer des onglets de terminal actifs, de quitter l’app ou de supprimer des contextes avec des shells en cours."
+      }
+    },
     "preferences": {
       "sectionTitle": "Préférences"
     },

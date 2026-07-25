@@ -137,6 +137,7 @@ type TerminalRecord = {
   subscriptionGeneration: number
   operationQueue: Promise<void>
   dispose: Array<() => void>
+  serviceShutdown?: { markEmpty: boolean }
 }
 
 type TerminalContextState = {
@@ -205,6 +206,7 @@ export function createTerminalService({
   const inFlightCreates = new Map<string, InFlightCreate>()
   const createPromisesByContext = new Map<string, Set<Promise<TerminalCreateResult>>>()
   const shutdownsByContext = new Map<string, Set<TrackedShutdown>>()
+  const terminalShutdownsById = new Map<string, { key: string; shutdown: TrackedShutdown }>()
   const persistenceQueueByContext = new Map<string, Promise<void>>()
   const isContextDeleting = (context: TerminalCreateRequest['context']) =>
     deletingContexts.has(deletionContextKey(context))
@@ -565,9 +567,16 @@ export function createTerminalService({
     await Promise.all(kills)
   }
 
+  function countLiveTerminals(): number {
+    return terminals.size
+  }
+
+  function countLiveTerminalsForContext(context: TerminalCreateRequest['context']): number {
+    return [...terminals.values()].filter((terminal) => sameContext(terminal.context, context)).length
+  }
+
   async function closeAllForContext(context: TerminalCreateRequest['context']): Promise<void> {
     deletingContexts.add(deletionContextKey(context))
-    await enqueuePersistence(context, () => tabsRepository.deleteContext(context))
 
     while (true) {
       const inFlight = [...(createPromisesByContext.get(deletionContextKey(context)) ?? [])].map(
@@ -580,7 +589,10 @@ export function createTerminalService({
         (shutdown) => runTrackedShutdown(deletionContextKey(context), shutdown)
       )
 
-      if (inFlight.length === 0 && kills.length === 0 && shutdowns.length === 0) return
+      if (inFlight.length === 0 && kills.length === 0 && shutdowns.length === 0) {
+        await enqueuePersistence(context, () => tabsRepository.deleteContext(context))
+        return
+      }
       await Promise.all([...inFlight, ...kills, ...shutdowns])
     }
   }
@@ -803,8 +815,10 @@ export function createTerminalService({
     event: { exitCode: number | null; signal?: number | string | null }
   ): void {
     if (!terminals.has(terminal.id)) return
-    deleteTerminal(terminal, { markEmpty: true })
-    void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
+    const shutdown = terminal.serviceShutdown
+    const markEmpty = shutdown?.markEmpty ?? true
+    deleteTerminal(terminal, { markEmpty })
+    void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: markEmpty })
     emitToWindow(terminal.ownerWindowId, {
       type: 'exit',
       terminalId: terminal.id,
@@ -817,9 +831,15 @@ export function createTerminalService({
     terminal: TerminalRecord,
     options: { markEmpty: boolean }
   ): Promise<void> {
+    terminal.serviceShutdown = options
+    try {
+      await trackTerminalShutdown(terminal)
+    } finally {
+      terminal.serviceShutdown = undefined
+    }
+    terminalShutdownsById.delete(terminal.id)
     deleteTerminal(terminal, options)
     if (options.markEmpty) await persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
-    await trackContextShutdown(terminal.context, () => terminal.pty.kill())
   }
 
   async function persistAfterTerminalRemoval(
@@ -940,19 +960,34 @@ export function createTerminalService({
     return createPromise
   }
 
+  function trackTerminalShutdown(terminal: TerminalRecord): Promise<void> {
+    const key = deletionContextKey(terminal.context)
+    let tracked = terminalShutdownsById.get(terminal.id)
+    if (!tracked) {
+      tracked = { key, shutdown: { run: () => terminal.pty.kill() } }
+      terminalShutdownsById.set(terminal.id, tracked)
+      addTrackedShutdown(key, tracked.shutdown)
+    }
+    return runTrackedShutdown(tracked.key, tracked.shutdown)
+  }
+
   function trackContextShutdown(
     context: TerminalCreateRequest['context'],
     shutdown: () => Promise<void>
   ): Promise<void> {
     const key = deletionContextKey(context)
+    const tracked: TrackedShutdown = { run: shutdown }
+    addTrackedShutdown(key, tracked)
+    return runTrackedShutdown(key, tracked)
+  }
+
+  function addTrackedShutdown(key: string, tracked: TrackedShutdown): void {
     let shutdowns = shutdownsByContext.get(key)
     if (!shutdowns) {
       shutdowns = new Set()
       shutdownsByContext.set(key, shutdowns)
     }
-    const tracked: TrackedShutdown = { run: shutdown }
     shutdowns.add(tracked)
-    return runTrackedShutdown(key, tracked)
   }
 
   function runTrackedShutdown(key: string, shutdown: TrackedShutdown): Promise<void> {
@@ -1058,7 +1093,9 @@ export function createTerminalService({
     close,
     closeAllForWindow,
     closeAllForContext,
-    closeAll
+    closeAll,
+    countLiveTerminals,
+    countLiveTerminalsForContext
   }
 }
 

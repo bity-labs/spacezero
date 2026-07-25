@@ -214,6 +214,15 @@
         "defaultBrowser": "Default browser"
       }
     },
+    "terminal": {
+      "sectionTitle": "Terminal Safety",
+      "loading": "Loading terminal settings…",
+      "saveError": "Could not update terminal safety settings.",
+      "confirmBeforeClosingLiveTerminals": {
+        "label": "Confirm before terminating live terminals",
+        "description": "Ask before closing live terminal tabs, quitting the app, or deleting contexts with running shells."
+      }
+    },
     "preferences": {
       "sectionTitle": "Preferences"
     },
