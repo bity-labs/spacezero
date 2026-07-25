@@ -10,6 +10,7 @@ import type {
   BrowserCreateTabRequest,
   BrowserEvent,
   BrowserNavigateRequest,
+  BrowserOpenUrlInDefaultBrowserRequest,
   BrowserPresentationRequest,
   BrowserReorderTabsRequest,
   BrowserSelectTabRequest,
@@ -153,7 +154,11 @@ export class BrowserService {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
     if (!tab.url) throw new Error('Browser tab has no page to open.')
-    const url = normalizeExternalBrowserUrl(tab.url)
+    await this.openUrlInDefaultBrowser({ url: tab.url })
+  }
+
+  async openUrlInDefaultBrowser(request: BrowserOpenUrlInDefaultBrowserRequest): Promise<void> {
+    const url = normalizeExternalBrowserUrl(request.url)
     if (!this.externalOpener) throw new Error('Default browser opening is not available.')
     await this.externalOpener.openExternal(url)
   }
@@ -268,7 +273,8 @@ export class BrowserService {
         continue
       }
       context.tabs = remainingTabs
-      if (closedTabIds.has(context.activeTabId)) context.activeTabId = remainingTabs[0]?.id ?? context.activeTabId
+      if (closedTabIds.has(context.activeTabId))
+        context.activeTabId = remainingTabs[0]?.id ?? context.activeTabId
       this.publishState(context)
     }
   }
@@ -286,7 +292,11 @@ export class BrowserService {
     this.publishState(found.context)
   }
 
-  markNavigationCommitted(tabId: string, url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
+  markNavigationCommitted(
+    tabId: string,
+    url: string,
+    history?: { canGoBack: boolean; canGoForward: boolean }
+  ): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
     if (found.tab.url !== url) {
@@ -341,7 +351,10 @@ export class BrowserService {
     this.publishState(found.context)
   }
 
-  handleNativeCommand(tabId: string, commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]): void {
+  handleNativeCommand(
+    tabId: string,
+    commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]
+  ): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
     switch (commandId) {
@@ -417,7 +430,9 @@ export class BrowserService {
     return tab
   }
 
-  private findTabWithContext(tabId: string): { context: BrowserContextState; tab: BrowserTab } | undefined {
+  private findTabWithContext(
+    tabId: string
+  ): { context: BrowserContextState; tab: BrowserTab } | undefined {
     for (const context of this.contexts.values()) {
       const tab = context.tabs.find((candidate) => candidate.id === tabId)
       if (tab) return { context, tab }
@@ -469,7 +484,12 @@ export class BrowserService {
         const currentSessionId = await this.contextRepository.getCurrentKnowledgeBaseSessionId()
         if (!currentSessionId) throw new Error('Browser context is not authorized.')
         const session = await this.contextRepository.findSessionById(currentSessionId)
-        if (!session || session.archivedAt || session.projectId || session.managedContext !== 'knowledge-base') {
+        if (
+          !session ||
+          session.archivedAt ||
+          session.projectId ||
+          session.managedContext !== 'knowledge-base'
+        ) {
           throw new Error('Browser context is not authorized.')
         }
         return expectedKey
@@ -518,7 +538,8 @@ export function normalizeExternalBrowserUrl(input: string): string {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
   }
-  if (!url.hostname) throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
+  if (!url.hostname)
+    throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
   return url.toString()
 }
 
@@ -538,7 +559,11 @@ function normalizeExplicitHttpUrl(input: string): string {
 }
 
 function hasExplicitScheme(input: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(input) && !isBareLoopbackWithPort(input) && !isBareWebAddressWithPort(input)
+  return (
+    /^[a-z][a-z\d+.-]*:/i.test(input) &&
+    !isBareLoopbackWithPort(input) &&
+    !isBareWebAddressWithPort(input)
+  )
 }
 
 function isLoopbackAddress(input: string): boolean {

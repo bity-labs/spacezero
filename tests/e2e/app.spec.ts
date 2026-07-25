@@ -516,6 +516,187 @@ async function isProcessAlive(pid: number): Promise<boolean> {
   }
 }
 
+test('keeps a local server PTY alive through Terminal-to-Browser handoff and return', async () => {
+  test.skip(process.platform === 'win32', 'PTY handoff regression is Unix-only for v0')
+
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-terminal-browser-e2e-'))
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const sessionId = 'session-terminal-browser-e2e'
+  let electronApp: ElectronApplication | undefined
+
+  try {
+    electronApp = await launchApp(userDataPath)
+    const window = await electronApp.firstWindow()
+    await electronApp.evaluate(({ app, BrowserWindow }, { sessionId }) => {
+      const { createRequire } = process.getBuiltinModule('node:module')
+      const { join } = process.getBuiltinModule('node:path')
+      const require = createRequire(`${app.getAppPath()}/package.json`)
+      const Database = require('better-sqlite3')
+      const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+      const timestamp = Date.now()
+      database
+        .prepare(
+          `INSERT INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(sessionId, null, 'Terminal Browser E2E', 'idle', timestamp, timestamp, null)
+      database.close()
+      BrowserWindow.getAllWindows()[0]?.webContents.reload()
+    }, { sessionId })
+
+    await window.getByRole('button', { name: 'Skip' }).click()
+    await window.getByRole('button', { name: 'Terminal Browser E2E' }).click()
+    await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
+    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
+
+    const handoff = await window.evaluate(async ({ sessionId }) => {
+      const context = { kind: 'workspace-session' as const, sessionId }
+      const terminalState = await window.spacezero.terminal.create({
+        context,
+        cols: 80,
+        rows: 24,
+        forceNew: false
+      })
+      if (terminalState.status !== 'running' || !terminalState.terminalId) {
+        throw new Error('Expected a running terminal')
+      }
+      let output = ''
+      const terminalId = terminalState.terminalId
+      const waitForUrl = new Promise<{
+        terminalId: string
+        serverUrl: string
+        serverPid: number
+        output: string
+      }>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          unsubscribe()
+          reject(new Error(`Timed out waiting for server URL: ${output}`))
+        }, 20_000)
+        const unsubscribe = window.spacezero.terminal.onEvent((event) => {
+          if (event.type !== 'output' || event.terminalId !== terminalId) return
+          output += event.data
+          const urlMatch = output.match(/(http:\/\/127\.0\.0\.1:\d+\/alive)/)
+          const pidMatch = output.match(/SPACEZERO_SERVER_PID:(\d+)/)
+          if (urlMatch && pidMatch) {
+            window.clearTimeout(timeout)
+            unsubscribe()
+            resolve({
+              terminalId,
+              serverUrl: urlMatch[1]!,
+              serverPid: Number(pidMatch[1]),
+              output
+            })
+          }
+        })
+      })
+      await window.spacezero.terminal.resize({ terminalId, context, cols: 100, rows: 30 })
+      await window.spacezero.terminal.writeInput({
+        terminalId,
+        context,
+        data: `node -e "const http=require('http'); const server=http.createServer((_req,res)=>res.end('SPACEZERO_SERVER_ALIVE')); server.listen(0,'127.0.0.1',()=>console.log('http://127.0.0.1:'+server.address().port+'/alive')); setInterval(()=>{}, 1000)" & echo SPACEZERO_SERVER_PID:$!\r`
+      })
+      return waitForUrl
+    }, { sessionId })
+
+    await expect.poll(async () =>
+      window.evaluate(({ serverUrl }) =>
+        Array.from(document.querySelectorAll('.xterm-rows > div')).some((row) =>
+          row.textContent?.includes(serverUrl)
+        )
+      , { serverUrl: handoff.serverUrl })
+    ).toBe(true)
+
+    const viewportBox = await window.locator('.xterm-viewport').boundingBox()
+    if (!viewportBox) throw new Error('Terminal viewport was not found')
+    await window.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2)
+    await window.mouse.wheel(0, 10_000)
+    const viewportBeforeHandoff = await window.locator('.xterm-viewport').evaluate((viewport) => ({
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight
+    }))
+    expect(viewportBeforeHandoff.clientHeight).toBeGreaterThan(0)
+
+    const terminalLinkPoint = await window.evaluate(({ serverUrl }) => {
+      const row = Array.from(document.querySelectorAll('.xterm-rows > div')).find((candidate) =>
+        candidate.textContent?.includes(serverUrl)
+      )
+      if (!row) throw new Error(`Rendered Terminal Link was not found for ${serverUrl}`)
+      const text = row.textContent ?? ''
+      const rect = row.getBoundingClientRect()
+      const columnWidth = rect.width / Math.max(text.length, 1)
+      return {
+        x: rect.left + columnWidth * (text.indexOf(serverUrl) + 0.5),
+        y: rect.top + rect.height / 2
+      }
+    }, { serverUrl: handoff.serverUrl })
+    const terminalLinkModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
+    await window.keyboard.down(terminalLinkModifier)
+    try {
+      await window.mouse.move(terminalLinkPoint.x, terminalLinkPoint.y)
+      await window.waitForTimeout(300)
+      await window.mouse.click(terminalLinkPoint.x, terminalLinkPoint.y)
+    } finally {
+      await window.keyboard.up(terminalLinkModifier)
+    }
+    await expect(window.getByRole('region', { name: 'Browser' })).toBeVisible()
+    await expect.poll(async () =>
+      electronApp!.evaluate(({ webContents }, { serverUrl }) =>
+        webContents.getAllWebContents().some((contents) => contents.getURL() === serverUrl)
+      , { serverUrl: handoff.serverUrl })
+    ).toBe(true)
+    const browserBody = await electronApp.evaluate(async ({ webContents }, { serverUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === serverUrl)
+      if (!contents) throw new Error('Embedded Browser server tab was not found')
+      return contents.executeJavaScript('document.body.textContent')
+    }, { serverUrl: handoff.serverUrl })
+    expect(browserBody).toContain('SPACEZERO_SERVER_ALIVE')
+    expect(await isProcessAlive(handoff.serverPid)).toBe(true)
+
+    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
+    await expect.poll(async () =>
+      window.locator('.xterm-viewport').evaluate((viewport) => viewport.scrollHeight)
+    ).toBe(viewportBeforeHandoff.scrollHeight)
+    const viewportAfterReturn = await window.locator('.xterm-viewport').evaluate((viewport) => ({
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight
+    }))
+    expect(viewportAfterReturn.scrollHeight).toBe(viewportBeforeHandoff.scrollHeight)
+    expect(viewportAfterReturn.clientHeight).toBe(viewportBeforeHandoff.clientHeight)
+    expect(viewportAfterReturn.scrollTop).toBe(viewportBeforeHandoff.scrollTop)
+    await window.evaluate(async ({ terminalId, sessionId }) => {
+      const context = { kind: 'workspace-session' as const, sessionId }
+      await window.spacezero.terminal.writeInput({
+        terminalId,
+        context,
+        data: 'echo SPACEZERO_TERMINAL_RETURN; stty size\r'
+      })
+    }, { terminalId: handoff.terminalId, sessionId })
+    const readTerminalReturn = async (): Promise<string> =>
+      window.evaluate(async ({ terminalId, sessionId }) => {
+        const context = { kind: 'workspace-session' as const, sessionId }
+        const tabs = await window.spacezero.terminal.listTabs({ context })
+        const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
+        const output = replay.events
+          .filter((event) => event.type === 'output')
+          .map((event) => event.data)
+          .join('')
+        if (tabs.activeTerminalId !== terminalId) return ''
+        return output
+      }, { terminalId: handoff.terminalId, sessionId })
+    await expect.poll(readTerminalReturn).toMatch(/SPACEZERO_TERMINAL_RETURN[\s\S]*(^|\r?\n)\d+ \d+(\r?\n|$)/)
+    const terminalReturn = await readTerminalReturn()
+    expect(terminalReturn).toContain('SPACEZERO_TERMINAL_RETURN')
+    expect(terminalReturn).toMatch(/(^|\r?\n)\d+ \d+(\r?\n|$)/)
+  } finally {
+    await electronApp?.close().catch(() => undefined)
+    await rm(temporaryDirectory, { recursive: true, force: true })
+  }
+})
+
 test('opens a configured Knowledge Base as a persistent managed chat', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-kb-e2e-'))
   const knowledgeBasePath = join(temporaryDirectory, 'SpaceZero', 'knowledge-base')

@@ -8,8 +8,12 @@ import {
 } from './browser.service'
 
 class FakeBrowserViewAdapter implements BrowserViewAdapter {
-  readonly created: Array<{ id: string; partition: string; preferences: Record<string, unknown> }> = []
-  readonly shown: Array<{ id: string; bounds: { x: number; y: number; width: number; height: number } }> = []
+  readonly created: Array<{ id: string; partition: string; preferences: Record<string, unknown> }> =
+    []
+  readonly shown: Array<{
+    id: string
+    bounds: { x: number; y: number; width: number; height: number }
+  }> = []
   readonly hidden: string[] = []
   readonly destroyed: string[] = []
   readonly loaded: Array<{ id: string; url: string }> = []
@@ -18,7 +22,10 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
   readonly reloaded: string[] = []
   readonly stopped: string[] = []
 
-  createView(tabId: string, options: { partition: string; preferences: Record<string, unknown> }): void {
+  createView(
+    tabId: string,
+    options: { partition: string; preferences: Record<string, unknown> }
+  ): void {
     this.created.push({ id: tabId, partition: options.partition, preferences: options.preferences })
   }
 
@@ -55,15 +62,19 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
   }
 }
 
-function createContextRepository(overrides: Partial<BrowserContextRepository> = {}): BrowserContextRepository {
+function createContextRepository(
+  overrides: Partial<BrowserContextRepository> = {}
+): BrowserContextRepository {
   return {
     findSessionById: async (sessionId) => {
       if (sessionId === 'project-session-1') return { id: sessionId, projectId: 'project-1' }
       if (sessionId === 'workspace-1') return { id: sessionId, projectId: null }
-      if (sessionId === 'kb-session-1') return { id: sessionId, projectId: null, managedContext: 'knowledge-base' }
+      if (sessionId === 'kb-session-1')
+        return { id: sessionId, projectId: null, managedContext: 'knowledge-base' }
       return undefined
     },
-    findProjectById: async (projectId) => (projectId === 'project-1' ? { id: projectId } : undefined),
+    findProjectById: async (projectId) =>
+      projectId === 'project-1' ? { id: projectId } : undefined,
     getCurrentKnowledgeBaseSessionId: async () => 'kb-session-1',
     ...overrides
   }
@@ -71,7 +82,11 @@ function createContextRepository(overrides: Partial<BrowserContextRepository> = 
 
 const projectContext = {
   contextKey: 'session:project-session-1',
-  context: { kind: 'project-session' as const, projectId: 'project-1', sessionId: 'project-session-1' }
+  context: {
+    kind: 'project-session' as const,
+    projectId: 'project-1',
+    sessionId: 'project-session-1'
+  }
 }
 
 const workspaceContext = {
@@ -93,9 +108,15 @@ describe('normalizeBrowserUrl', () => {
     expect(normalizeBrowserUrl('[::1]:8080')).toEqual('http://[::1]:8080/')
     expect(normalizeBrowserUrl('example.com')).toEqual('https://example.com/')
     expect(normalizeBrowserUrl('www.example.com/docs')).toEqual('https://www.example.com/docs')
-    expect(normalizeBrowserUrl('sub.example.co.uk:8443/path?q=1')).toEqual('https://sub.example.co.uk:8443/path?q=1')
-    expect(normalizeBrowserUrl('space zero browser')).toEqual('https://www.google.com/search?q=space%20zero%20browser')
-    expect(normalizeBrowserUrl('what is a+b?')).toEqual('https://www.google.com/search?q=what%20is%20a%2Bb%3F')
+    expect(normalizeBrowserUrl('sub.example.co.uk:8443/path?q=1')).toEqual(
+      'https://sub.example.co.uk:8443/path?q=1'
+    )
+    expect(normalizeBrowserUrl('space zero browser')).toEqual(
+      'https://www.google.com/search?q=space%20zero%20browser'
+    )
+    expect(normalizeBrowserUrl('what is a+b?')).toEqual(
+      'https://www.google.com/search?q=what%20is%20a%2Bb%3F'
+    )
     expect(() => normalizeBrowserUrl('file:///etc/passwd')).toThrow(/Only HTTP and HTTPS/)
     expect(() => normalizeBrowserUrl('spacezero://settings')).toThrow(/Only HTTP and HTTPS/)
     expect(() => normalizeBrowserUrl('http://')).toThrow(/valid HTTP/)
@@ -145,12 +166,17 @@ describe('BrowserService', () => {
       adapter,
       createContextRepository({
         findSessionById: async (sessionId) =>
-          sessionId === 'archived-session' ? { id: sessionId, projectId: null, archivedAt: new Date() } : undefined
+          sessionId === 'archived-session'
+            ? { id: sessionId, projectId: null, archivedAt: new Date() }
+            : undefined
       })
     )
 
     await expect(
-      service.getState({ contextKey: 'session:missing', context: { kind: 'workspace-session', sessionId: 'missing' } })
+      service.getState({
+        contextKey: 'session:missing',
+        context: { kind: 'workspace-session', sessionId: 'missing' }
+      })
     ).rejects.toThrow(/Browser context is not authorized/)
     await expect(
       service.getState({
@@ -180,7 +206,11 @@ describe('BrowserService', () => {
     await expect(
       service.getState({
         contextKey: 'session:project-session-1',
-        context: { kind: 'project-session', projectId: 'other-project', sessionId: 'project-session-1' }
+        context: {
+          kind: 'project-session',
+          projectId: 'other-project',
+          sessionId: 'project-session-1'
+        }
       })
     ).rejects.toThrow(/Browser context is not authorized/)
     expect(adapter.created).toEqual([])
@@ -190,10 +220,14 @@ describe('BrowserService', () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(
       adapter,
-      createContextRepository({ findProjectById: async () => ({ id: 'project-1', archivedAt: new Date() }) })
+      createContextRepository({
+        findProjectById: async () => ({ id: 'project-1', archivedAt: new Date() })
+      })
     )
 
-    await expect(service.getState(projectContext)).rejects.toThrow(/Browser context is not authorized/)
+    await expect(service.getState(projectContext)).rejects.toThrow(
+      /Browser context is not authorized/
+    )
     expect(adapter.created).toEqual([])
   })
 
@@ -201,7 +235,9 @@ describe('BrowserService', () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(adapter, createContextRepository())
 
-    await expect(service.getState(knowledgeBaseContext)).resolves.toMatchObject({ contextKey: 'knowledge-base' })
+    await expect(service.getState(knowledgeBaseContext)).resolves.toMatchObject({
+      contextKey: 'knowledge-base'
+    })
 
     const rejectingService = new BrowserService(
       new FakeBrowserViewAdapter(),
@@ -217,7 +253,11 @@ describe('BrowserService', () => {
     const service = new BrowserService(adapter, createContextRepository())
     const blank = await service.getState(projectContext)
 
-    const state = await service.navigate({ ...projectContext, tabId: 'forged-tab-id', input: 'localhost:4173' })
+    const state = await service.navigate({
+      ...projectContext,
+      tabId: 'forged-tab-id',
+      input: 'localhost:4173'
+    })
 
     expect(state.activeTabId).toBe(blank.activeTabId)
     expect(state.tabs[0]?.url).toBe('http://localhost:4173/')
@@ -268,7 +308,10 @@ describe('BrowserService', () => {
     service.markTitleChanged(state.activeTabId, 'Example')
     service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
 
-    let current = await service.navigate({ ...workspaceContext, input: 'https://untitled.example/' })
+    let current = await service.navigate({
+      ...workspaceContext,
+      input: 'https://untitled.example/'
+    })
     expect(current.tabs[0]).toMatchObject({
       url: 'https://untitled.example/',
       title: null,
@@ -350,7 +393,13 @@ describe('BrowserService', () => {
     ])
     expect(events[events.length - 1]).toMatchObject({
       state: {
-        tabs: [expect.objectContaining({ url: 'https://example.com/docs', title: 'Example Docs', isLoading: false })]
+        tabs: [
+          expect.objectContaining({
+            url: 'https://example.com/docs',
+            title: 'Example Docs',
+            isLoading: false
+          })
+        ]
       }
     })
   })
@@ -387,6 +436,35 @@ describe('BrowserService', () => {
     expect(opened).toEqual(['https://example.com/docs'])
   })
 
+  it('opens explicit Terminal Link fallback URLs externally through the same validated narrow opener', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const opened: string[] = []
+    const service = new BrowserService(adapter, createContextRepository(), {
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+
+    await service.openUrlInDefaultBrowser({ url: 'http://localhost:5173/path' })
+
+    expect(opened).toEqual(['http://localhost:5173/path'])
+  })
+
+  it('rejects invalid schemes from Terminal Link fallback before external opening', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const opened: string[] = []
+    const service = new BrowserService(adapter, createContextRepository(), {
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+
+    await expect(service.openUrlInDefaultBrowser({ url: 'file:///etc/passwd' })).rejects.toThrow(
+      /Only HTTP and HTTPS/
+    )
+    expect(opened).toEqual([])
+  })
+
   it('rejects malformed active URLs before external opening', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const opened: string[] = []
@@ -398,7 +476,9 @@ describe('BrowserService', () => {
     const state = await service.getState(workspaceContext)
     service.markNavigationCommitted(state.activeTabId, 'file:///etc/passwd')
 
-    await expect(service.openInDefaultBrowser(workspaceContext)).rejects.toThrow(/Only HTTP and HTTPS/)
+    await expect(service.openInDefaultBrowser(workspaceContext)).rejects.toThrow(
+      /Only HTTP and HTTPS/
+    )
     expect(opened).toEqual([])
   })
 
@@ -407,9 +487,15 @@ describe('BrowserService', () => {
     const service = new BrowserService(adapter, createContextRepository())
     const project = await service.navigate({ ...projectContext, input: 'https://project.example/' })
 
-    const withSecondTab = await service.createTab({ ...projectContext, input: 'https://docs.example/' })
+    const withSecondTab = await service.createTab({
+      ...projectContext,
+      input: 'https://docs.example/'
+    })
 
-    expect(withSecondTab.tabs.map((tab) => tab.url)).toEqual(['https://project.example/', 'https://docs.example/'])
+    expect(withSecondTab.tabs.map((tab) => tab.url)).toEqual([
+      'https://project.example/',
+      'https://docs.example/'
+    ])
     expect(withSecondTab.activeTabId).not.toBe(project.activeTabId)
     expect(adapter.loaded).toEqual([
       { id: project.activeTabId, url: 'https://project.example/' },
@@ -425,7 +511,10 @@ describe('BrowserService', () => {
       ...projectContext,
       tabIds: [withSecondTab.activeTabId, project.activeTabId]
     })
-    expect(reordered.tabs.map((tab) => tab.id)).toEqual([withSecondTab.activeTabId, project.activeTabId])
+    expect(reordered.tabs.map((tab) => tab.id)).toEqual([
+      withSecondTab.activeTabId,
+      project.activeTabId
+    ])
     expect(reordered.activeTabId).toBe(withSecondTab.activeTabId)
 
     const selected = await service.selectTab({ ...projectContext, tabId: project.activeTabId })
@@ -497,7 +586,10 @@ describe('BrowserService', () => {
       bounds: { x: 10, y: 20, width: 640, height: 480 },
       shortcutBindings: []
     })
-    const second = await service.createTab({ ...workspaceContext, input: 'https://second.example/' })
+    const second = await service.createTab({
+      ...workspaceContext,
+      input: 'https://second.example/'
+    })
     const tabIds = second.tabs.map((tab) => tab.id)
 
     await service.hide(workspaceContext)
