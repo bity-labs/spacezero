@@ -153,4 +153,23 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(fakes.createdViews[0]?.webContents.closed).toBe(true)
   })
+
+  it('destroys hidden native resources and clears service tabs when the owner window closes', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    const service = { removeNativeClosedTabs: vi.fn() }
+    fakes.senderToWindow.set(sender, window)
+    adapter.setService(service as never)
+
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, sender as never)
+    adapter.hideView('tab-1')
+
+    window.emit('closed')
+
+    expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
+    expect(fakes.createdViews[0]?.webContents.closed).toBe(true)
+    expect(service.removeNativeClosedTabs).toHaveBeenCalledWith(['tab-1'])
+  })
 })

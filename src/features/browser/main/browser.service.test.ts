@@ -227,4 +227,23 @@ describe('BrowserService', () => {
 
     expect(adapter.destroyed).toEqual([state.activeTabId])
   })
+
+  it('recreates context state after native window cleanup removes hidden tabs', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.getState(workspaceContext)
+
+    service.removeNativeClosedTabs([state.activeTabId])
+    const reopened = await service.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 }
+    })
+
+    expect(reopened.activeTabId).not.toBe(state.activeTabId)
+    expect(reopened.tabs).toHaveLength(1)
+    expect(adapter.created.map((tab) => tab.id)).toEqual([state.activeTabId, reopened.activeTabId])
+    expect(adapter.shown).toEqual([
+      { id: reopened.activeTabId, bounds: { x: 10, y: 20, width: 640, height: 480 } }
+    ])
+  })
 })
