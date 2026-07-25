@@ -9,9 +9,12 @@ import {
 } from '../features/agent-workspace/main/agent-utility-process'
 import { disposeBrowserIpcResources } from '../features/browser/main'
 import { getKnowledgeBaseSyncScheduler } from '../features/knowledge-base/main'
+import { shouldProceedWithLiveTerminalTermination } from '../features/terminal/main/terminal-confirmation.service'
+import { getTerminalService } from '../features/terminal/main/terminal.runtime'
 import { closeDatabase, getDatabase } from './db'
 import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
+import { createLiveTerminalLastWindowCloseHandler } from './live-terminal-window-close'
 import {
   findSpaceZeroOAuthUrl,
   registerSpaceZeroProtocol,
@@ -19,6 +22,9 @@ import {
 } from './protocol'
 
 log.initialize()
+
+let terminalQuitInProgress = false
+let terminalQuitConfirmed = false
 
 registerSpaceZeroProtocol()
 
@@ -83,8 +89,23 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('dev.spacezero.app')
 
+  const handleLastWindowClose = createLiveTerminalLastWindowCloseHandler({
+    getWindowCount: () => BrowserWindow.getAllWindows().length,
+    getTerminalService,
+    confirmQuit: (count) => shouldProceedWithLiveTerminalTermination({ count, purpose: 'quit' }),
+    isQuitInProgress: () => terminalQuitInProgress,
+    setQuitInProgress: (inProgress) => {
+      terminalQuitInProgress = inProgress
+    },
+    setQuitConfirmed: () => {
+      terminalQuitConfirmed = true
+    },
+    logError: (error) => log.error('Terminal shutdown before last window close failed', error)
+  })
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    window.on('close', (event) => handleLastWindowClose(window, event))
   })
 
   registerIpcHandlers()
@@ -106,7 +127,34 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  if (!terminalQuitConfirmed) {
+    const terminalService = getTerminalService()
+    const liveCount = terminalService.countLiveTerminals()
+    if (liveCount > 0) {
+      event.preventDefault()
+      if (terminalQuitInProgress) return
+      terminalQuitInProgress = true
+      void (async () => {
+        try {
+          const confirmed = await shouldProceedWithLiveTerminalTermination({
+            count: liveCount,
+            purpose: 'quit'
+          })
+          if (!confirmed) return
+          await terminalService.closeAll()
+          terminalQuitConfirmed = true
+          app.quit()
+        } catch (error) {
+          log.error('Terminal shutdown before quit failed', error)
+        } finally {
+          terminalQuitInProgress = false
+        }
+      })()
+      return
+    }
+  }
+
   getKnowledgeBaseSyncScheduler().stop()
   disposeBrowserIpcResources()
   stopAgentUtilityProcessHost()

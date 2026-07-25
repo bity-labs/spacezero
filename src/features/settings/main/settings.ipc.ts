@@ -4,6 +4,7 @@ import { languagePreferenceSchema } from '../../../shared/i18n'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { addApiKeyRequestSchema, providerRequestSchema } from '../../../shared/model-auth'
 import { updateModelDefaultsRequestSchema } from '../../../shared/model-settings'
+import { terminalSettingsSchema } from '../../../shared/terminal-settings'
 import { themePreferenceSchema } from '../../../shared/theme'
 import { getLanguageSettings, updateLanguagePreference } from './language-settings.service'
 import { getModelDefaults, updateModelDefaults } from './model-defaults-settings.service'
@@ -18,6 +19,7 @@ import {
 } from './model-auth-settings.service'
 import { getThemeSettings, updateThemePreference } from './theme-settings.service'
 import { chooseSpaceZeroHome, getStorageSettings } from './storage-settings.service'
+import { getTerminalSettings, updateTerminalSettings } from './terminal-settings.service'
 
 export function registerSettingsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.settings.getLanguageSettings, () => getLanguageSettings())
@@ -57,6 +59,18 @@ export function registerSettingsIpc(): void {
     }
 
     return updateModelDefaults(parsedRequest.data)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settings.getTerminalSettings, () => getTerminalSettings())
+
+  ipcMain.handle(IPC_CHANNELS.settings.updateTerminalSettings, (_event, request: unknown) => {
+    const parsedRequest = terminalSettingsSchema.safeParse(request)
+
+    if (!parsedRequest.success) {
+      throw new Error('settings.invalidTerminalSettingsRequest')
+    }
+
+    return updateTerminalSettings(parsedRequest.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getModelAuthSettings, () => getModelAuthSettings())
