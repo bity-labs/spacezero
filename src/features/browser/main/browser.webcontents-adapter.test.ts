@@ -80,6 +80,18 @@ const fakes = vi.hoisted(() => {
     lastPreventDefault: (() => void) | null = null
     url = 'https://example.com/'
     windowOpenHandler: ((details: unknown) => unknown) | null = null
+    readonly debugger = {
+      attached: false,
+      listeners: [] as Array<(event: unknown, method: string, params: unknown) => void>,
+      isAttached: () => this.debugger.attached,
+      attach: () => {
+        this.debugger.attached = true
+      },
+      sendCommand: vi.fn().mockResolvedValue(undefined),
+      on: (_event: 'message', listener: (event: unknown, method: string, params: unknown) => void) => {
+        this.debugger.listeners.push(listener)
+      }
+    }
 
     setWindowOpenHandler(handler: (details: unknown) => unknown): void {
       this.windowOpenHandler = handler
@@ -123,6 +135,9 @@ const fakes = vi.hoisted(() => {
       this.lastPreventDefault = event.preventDefault
       this.emit('before-input-event', event as never, input as never)
     }
+    emitWindowOpenGesture(url: string, userGesture: boolean): void {
+      for (const listener of this.debugger.listeners) listener({}, 'Page.windowOpen', { url, userGesture })
+    }
   }
 
   class FakeWebContentsView {
@@ -140,6 +155,7 @@ const fakes = vi.hoisted(() => {
 
   class FakeBrowserWindow extends FakeEmitter {
     readonly contentView = new FakeContentView()
+    readonly webContents = new FakeWebContents()
     closed = false
 
     constructor(readonly id: number) {
@@ -263,6 +279,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.setService(service as never)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
 
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://docs.example/path', true)
     const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
       url: 'https://docs.example/path',
       disposition: 'foreground-tab',
@@ -271,19 +288,20 @@ describe('ElectronBrowserViewAdapter', () => {
     })
 
     expect(decision).toEqual({ action: 'deny' })
-    await vi.waitFor(() => expect(service.openNativeRequestedTab).toHaveBeenCalledWith('tab-1', 'https://docs.example/path'))
+    expect(service.openNativeRequestedTab).toHaveBeenCalledWith('tab-1', 'https://docs.example/path')
   })
 
-  it('blocks script-created web popups without an eligible user gesture', () => {
+  it('blocks script-created web popups without a request-scoped transient user gesture', () => {
     const adapter = new ElectronBrowserViewAdapter()
     const service = { openNativeRequestedTab: vi.fn() }
     adapter.setService(service as never)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
 
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://ads.example/popup', false)
     const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
       url: 'https://ads.example/popup',
-      disposition: 'default',
-      frameName: '',
+      disposition: 'foreground-tab',
+      frameName: '_blank',
       features: ''
     })
 
@@ -291,10 +309,26 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(service.openNativeRequestedTab).not.toHaveBeenCalled()
   })
 
+  it('blocks named authentication popups fired without a request-scoped user gesture', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://login.example/oauth', false)
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'https://login.example/oauth',
+      disposition: 'new-window',
+      frameName: 'oauth-popup',
+      features: 'width=500,height=700'
+    })
+
+    expect(decision).toEqual({ action: 'deny' })
+  })
+
   it('allows constrained authentication child windows with the Browser profile and closes them with the parent tab', () => {
     const adapter = new ElectronBrowserViewAdapter()
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
 
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://login.example/oauth', true)
     const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
       url: 'https://login.example/oauth',
       disposition: 'new-window',
@@ -320,6 +354,7 @@ describe('ElectronBrowserViewAdapter', () => {
 
     adapter.destroyView('tab-1')
 
+    expect(child.webContents.windowOpenHandler?.({ url: 'https://login.example/descendant' })).toEqual({ action: 'deny' })
     expect(child.closed).toBe(true)
   })
 
@@ -362,6 +397,8 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(
       fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:cancel@example.com' })
     ).toEqual({ action: 'deny' })
+    expect(showMessageBox).toHaveBeenCalledTimes(1)
+    showMessageBox.mockClear()
     expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'file:///etc/passwd' })).toEqual({
       action: 'deny'
     })
@@ -371,8 +408,18 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(
       fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x@y.test?body=file%3A%2F%2Fetc%2Fpasswd' })
     ).toEqual({ action: 'deny' })
+    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x%' })).toEqual({ action: 'deny' })
+    expect(
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:builder@example.com?subject=%' })
+    ).toEqual({ action: 'deny' })
+    const preventDefault = vi.fn()
+    expect(() =>
+      fakes.createdViews[0]?.webContents.emit('will-navigate', { preventDefault } as never, 'mailto:x#%' as never)
+    ).not.toThrow()
+    expect(preventDefault).toHaveBeenCalled()
 
     await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(showMessageBox).not.toHaveBeenCalled()
     expect(openExternal).not.toHaveBeenCalled()
   })
 
