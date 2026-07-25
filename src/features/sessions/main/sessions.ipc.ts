@@ -1,5 +1,4 @@
 import { ipcMain } from 'electron'
-import { rm } from 'node:fs/promises'
 import { z } from 'zod'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
@@ -11,37 +10,13 @@ import { createProjectSessionRequestSchema } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
-import { runWithLiveTerminalConfirmation } from '../../terminal/main/terminal-confirmation.service'
-import { getTerminalService } from '../../terminal/main/terminal.runtime'
-import { createSessionCleanupService } from './session-cleanup.service'
+import { getSessionCleanupService } from './session-cleanup.runtime'
 import { createSessionsService } from './sessions.service'
 
 const sessionIdRequestSchema = z.object({ sessionId: z.string().trim().min(1) })
 
 const sessionsRepository = createSessionsRepository()
 const sessionsService = createSessionsService({ repository: sessionsRepository })
-const sessionCleanupService = createSessionCleanupService({
-  repository: sessionsRepository,
-  worktrees: {
-    remove: (request) => getManagedWorktreeService().remove(request)
-  },
-  deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
-  removeTranscript: (path) => rm(path, { force: true }),
-  closeTerminalsForSession: async (session) => {
-    if (session.managedContext === 'knowledge-base') return
-    const context = session.projectId
-      ? ({ kind: 'project-session', sessionId: session.id } as const)
-      : ({ kind: 'workspace-session', sessionId: session.id } as const)
-    const service = getTerminalService()
-    await runWithLiveTerminalConfirmation({
-      operationKey: `delete-session:${session.id}`,
-      purpose: 'delete-context',
-      countLiveTerminals: () => service.countLiveTerminalsForContext(context) ?? 0,
-      run: () => service.closeAllForContext(context)
-    })
-  },
-  closeBrowsersForSession: (session) => closeBrowserContextForSession(session)
-})
 
 function closeBrowserContextForSession(session: { id: string; projectId: string | null; managedContext?: 'knowledge-base' | null }): void {
   if (session.managedContext === 'knowledge-base') {
@@ -80,6 +55,6 @@ export function registerSessionsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.sessions.delete, async (_event, input: unknown) => {
     const { sessionId } = sessionIdRequestSchema.parse(input)
-    await sessionCleanupService.deleteSession(sessionId)
+    await getSessionCleanupService().deleteSession(sessionId)
   })
 }
