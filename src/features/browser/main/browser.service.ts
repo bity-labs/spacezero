@@ -10,6 +10,7 @@ import type {
   BrowserEvent,
   BrowserNavigateRequest,
   BrowserPresentationRequest,
+  BrowserShortcutBinding,
   BrowserState,
   BrowserTab,
   BrowserTabRequest
@@ -29,7 +30,12 @@ export type BrowserViewAdapter = {
     tabId: string,
     options: { partition: string; preferences: Record<string, unknown> }
   ) => void
-  showView: (tabId: string, bounds: BrowserBounds, sender?: WebContents) => void
+  showView: (
+    tabId: string,
+    bounds: BrowserBounds,
+    shortcutBindings: BrowserShortcutBinding[],
+    sender?: WebContents
+  ) => void
   hideView: (tabId: string) => void
   destroyView: (tabId: string) => void
   loadUrl: (tabId: string, url: string) => void
@@ -151,7 +157,7 @@ export class BrowserService {
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
-    this.adapter.showView(tab.id, request.bounds, sender)
+    this.adapter.showView(tab.id, request.bounds, request.shortcutBindings, sender)
     return toBrowserState(context)
   }
 

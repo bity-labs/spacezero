@@ -60,8 +60,14 @@ export type BrowserNavigateRequest = BrowserTabRequest & {
   input: string
 }
 
+export type BrowserShortcutBinding = {
+  commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]
+  keybinding: { normalized: string }
+}
+
 export type BrowserPresentationRequest = BrowserTabRequest & {
   bounds: BrowserBounds
+  shortcutBindings: BrowserShortcutBinding[]
 }
 
 export type BrowserCloseTabRequest = BrowserContextRequest & {

@@ -5,7 +5,7 @@ import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-p
 import { useKeyboardShortcutsManager, useRegisterKeyboardShortcuts } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from '@renderer/components/ui/button'
 
-import { BROWSER_COMMAND_IDS, type BrowserContext, type BrowserState } from '../../shared'
+import { BROWSER_COMMAND_IDS, type BrowserContext, type BrowserShortcutBinding, type BrowserState } from '../../shared'
 
 const browserShortcutDefinitions = [
   {
@@ -31,6 +31,15 @@ const browserShortcutDefinitions = [
   }
 ] as const
 
+function getBrowserNativeShortcutBindings(
+  shortcutManager: ReturnType<typeof useKeyboardShortcutsManager>
+): BrowserShortcutBinding[] {
+  return browserShortcutDefinitions.map((definition) => ({
+    commandId: definition.commandId,
+    keybinding: shortcutManager.resolveKeybinding(definition)
+  }))
+}
+
 export function BrowserTool({
   contextKey,
   context
@@ -43,6 +52,7 @@ export function BrowserTool({
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
   const [state, setState] = useState<BrowserState | null>(null)
+  const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
   const [address, setAddress] = useState('')
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const isEditingAddressRef = useRef(false)
@@ -165,6 +175,11 @@ export function BrowserTool({
   useRegisterAppCommands(commands)
   useRegisterKeyboardShortcuts(browserShortcutDefinitions)
 
+  useEffect(
+    () => shortcutManager.onBindingsChanged(() => setShortcutBindingsVersion((version) => version + 1)),
+    [shortcutManager]
+  )
+
   useEffect(() => {
     let cancelled = false
     void window.spacezero.browser
@@ -222,7 +237,8 @@ export function BrowserTool({
             y: Math.round(rect.y),
             width: Math.round(rect.width),
             height: Math.round(rect.height)
-          }
+          },
+          shortcutBindings: getBrowserNativeShortcutBindings(shortcutManager)
         })
         .catch((reason: unknown) => setError(toErrorMessage(reason)))
     }
@@ -236,7 +252,7 @@ export function BrowserTool({
       window.removeEventListener('resize', syncBounds)
       void window.spacezero.browser.hide({ contextKey, context })
     }
-  }, [activeTabId, context, contextKey])
+  }, [activeTabId, context, contextKey, shortcutBindingsVersion, shortcutManager])
 
   async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()

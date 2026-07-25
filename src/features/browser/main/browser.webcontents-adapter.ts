@@ -1,6 +1,6 @@
 import { BrowserWindow, WebContentsView, type Input, type WebContents } from 'electron'
 
-import { BROWSER_COMMAND_IDS, type BrowserBounds } from '../shared'
+import { type BrowserBounds, type BrowserShortcutBinding } from '../shared'
 import {
   BROWSER_PARTITION,
   BROWSER_WEB_PREFERENCES,
@@ -12,6 +12,7 @@ type BrowserViewRecord = {
   view: WebContentsView
   ownerWindow: BrowserWindow | null
   attachedWindow: BrowserWindow | null
+  shortcutBindings: BrowserShortcutBinding[]
 }
 
 export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
@@ -40,7 +41,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     })
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     view.webContents.on('before-input-event', (event, input) => {
-      const commandId = browserCommandForInput(input)
+      const commandId = browserCommandForInput(input, this.views.get(tabId)?.shortcutBindings ?? [])
       if (!commandId) return
       event.preventDefault()
       this.service?.handleNativeCommand(tabId, commandId)
@@ -62,12 +63,18 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
-    this.views.set(tabId, { view, ownerWindow: null, attachedWindow: null })
+    this.views.set(tabId, { view, ownerWindow: null, attachedWindow: null, shortcutBindings: [] })
   }
 
-  showView(tabId: string, bounds: BrowserBounds, sender?: WebContents): void {
+  showView(
+    tabId: string,
+    bounds: BrowserBounds,
+    shortcutBindings: BrowserShortcutBinding[],
+    sender?: WebContents
+  ): void {
     const record = this.views.get(tabId)
     if (!record || !sender) return
+    record.shortcutBindings = shortcutBindings
     const window = BrowserWindow.fromWebContents(sender)
     if (!window) return
 
@@ -166,27 +173,38 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   }
 }
 
-function browserCommandForInput(input: Input): (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS] | null {
+function browserCommandForInput(
+  input: Input,
+  shortcutBindings: BrowserShortcutBinding[]
+): BrowserShortcutBinding['commandId'] | null {
   if (input.type !== 'keyDown' || input.isAutoRepeat) return null
-  const key = input.key.toLowerCase()
-  const isMac = process.platform === 'darwin'
 
-  if ((isMac ? input.meta && !input.control : input.control && !input.meta) && !input.alt && !input.shift && key === 'l') {
-    return BROWSER_COMMAND_IDS.focusAddress
+  for (const shortcutBinding of shortcutBindings) {
+    if (inputMatchesKeybinding(input, shortcutBinding.keybinding.normalized)) return shortcutBinding.commandId
   }
-
-  if ((isMac ? input.meta && !input.control : input.control && !input.meta) && !input.alt && !input.shift && key === 'r') {
-    return BROWSER_COMMAND_IDS.reload
-  }
-
-  if (isMac) {
-    if (input.meta && !input.control && !input.alt && !input.shift && key === '[') return BROWSER_COMMAND_IDS.back
-    if (input.meta && !input.control && !input.alt && !input.shift && key === ']') return BROWSER_COMMAND_IDS.forward
-    return null
-  }
-
-  if (input.alt && !input.control && !input.meta && !input.shift && key === 'arrowleft') return BROWSER_COMMAND_IDS.back
-  if (input.alt && !input.control && !input.meta && !input.shift && key === 'arrowright') return BROWSER_COMMAND_IDS.forward
 
   return null
+}
+
+function inputMatchesKeybinding(input: Input, normalized: string): boolean {
+  const tokens = normalized.toLowerCase().split('+').map((token) => token.trim())
+  const key = tokens.pop()
+  if (!key || input.key.toLowerCase() !== key) return false
+
+  const modifiers = new Set(tokens)
+  if ([...modifiers].some((modifier) => !['mod', 'ctrl', 'alt', 'shift'].includes(modifier))) return false
+  const wantsMod = modifiers.has('mod')
+  const wantsCtrl = modifiers.has('ctrl')
+  const wantsAlt = modifiers.has('alt')
+  const wantsShift = modifiers.has('shift')
+  const isMac = process.platform === 'darwin'
+
+  if (isMac) {
+    if (input.meta !== wantsMod) return false
+    if (input.control !== wantsCtrl) return false
+  } else if (input.control !== (wantsMod || wantsCtrl)) {
+    return false
+  }
+
+  return input.alt === wantsAlt && input.shift === wantsShift
 }
