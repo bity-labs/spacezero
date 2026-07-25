@@ -63,6 +63,7 @@ type TerminalService = {
   }) => ReturnType<TerminalAPI['close']>
   closeAllForWindow?: (windowId: number) => Promise<void>
   closeAll?: () => Promise<void>
+  countLiveTerminals?: () => number
 }
 
 type TerminalIpcEvent = Pick<IpcMainInvokeEvent, 'sender'>
@@ -144,9 +145,6 @@ export function registerTerminalIpc(): void {
     window.on('closed', () => {
       void service.closeAllForWindow?.(window.id)
     })
-  })
-  app.once('before-quit', () => {
-    void service.closeAll?.()
   })
 }
 
