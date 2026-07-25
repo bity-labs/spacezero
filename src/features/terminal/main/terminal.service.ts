@@ -44,6 +44,10 @@ export type TerminalRepository = {
 export type TerminalTabsRepository = {
   listByContext: (context: TerminalCreateRequest['context']) => Promise<PersistedTerminalTab[]>
   upsert: (tab: PersistedTerminalTab) => Promise<void>
+  replaceContext: (
+    context: TerminalCreateRequest['context'],
+    tabs: PersistedTerminalTab[]
+  ) => Promise<void>
   updateOrderAndActive: (
     context: TerminalCreateRequest['context'],
     orderedTabIds: string[],
@@ -201,6 +205,7 @@ export function createTerminalService({
   const inFlightCreates = new Map<string, InFlightCreate>()
   const createPromisesByContext = new Map<string, Set<Promise<TerminalCreateResult>>>()
   const shutdownsByContext = new Map<string, Set<TrackedShutdown>>()
+  const persistenceQueueByContext = new Map<string, Promise<void>>()
   const isContextDeleting = (context: TerminalCreateRequest['context']) =>
     deletingContexts.has(deletionContextKey(context))
 
@@ -410,10 +415,8 @@ export function createTerminalService({
       try {
         await rollbackRestoredTerminals({
           key,
-          ownerWindowId,
           context: request.context,
-          restoredRecords,
-          persistedTabs
+          restoredRecords
         })
       } catch {
         // Rollback cleanup is best-effort; surface the original restoration failure.
@@ -564,7 +567,7 @@ export function createTerminalService({
 
   async function closeAllForContext(context: TerminalCreateRequest['context']): Promise<void> {
     deletingContexts.add(deletionContextKey(context))
-    await tabsRepository.deleteContext(context)
+    await enqueuePersistence(context, () => tabsRepository.deleteContext(context))
 
     while (true) {
       const inFlight = [...(createPromisesByContext.get(deletionContextKey(context)) ?? [])].map(
@@ -751,11 +754,13 @@ export function createTerminalService({
     const nextTitle = cwdTitle(reportedCwd, terminal.shellTitle)
     const previousTitle = terminal.title
     terminal.title = nextTitle
-    void tabsRepository.updateCwdAndTitle(
-      terminal.context,
-      terminal.restorationTabId,
-      reportedCwd,
-      nextTitle
+    void enqueuePersistence(terminal.context, () =>
+      tabsRepository.updateCwdAndTitle(
+        terminal.context,
+        terminal.restorationTabId,
+        reportedCwd,
+        nextTitle
+      )
     )
     if (nextTitle === previousTitle) return
     if (terminal.subscribed) {
@@ -822,7 +827,9 @@ export function createTerminalService({
     options: { deleteRestorationTab: boolean }
   ): Promise<void> {
     if (options.deleteRestorationTab) {
-      await tabsRepository.deleteTab(terminal.context, terminal.restorationTabId)
+      await enqueuePersistence(terminal.context, () =>
+        tabsRepository.deleteTab(terminal.context, terminal.restorationTabId)
+      )
     }
     if (contexts.has(contextKey(terminal.ownerWindowId, terminal.context))) {
       await persistContext(terminal.ownerWindowId, terminal.context)
@@ -831,16 +838,12 @@ export function createTerminalService({
 
   async function rollbackRestoredTerminals({
     key,
-    ownerWindowId,
     context,
-    restoredRecords,
-    persistedTabs
+    restoredRecords
   }: {
     key: string
-    ownerWindowId: number
     context: TerminalCreateRequest['context']
     restoredRecords: TerminalRecord[]
-    persistedTabs: PersistedTerminalTab[]
   }): Promise<void> {
     const restoredIds = new Set(restoredRecords.map((record) => record.id))
     const state = contexts.get(key)
@@ -863,16 +866,45 @@ export function createTerminalService({
     }
     try {
       if (state && state.terminalIds.length > 0) {
-        // Remove every row owned by the failed restore attempt, including tabs
-        // whose spawn never completed, then persist the surviving tabs exactly.
-        for (const persisted of persistedTabs) {
-          await tabsRepository.deleteTab(context, persisted.tabId)
-        }
-        await persistContext(ownerWindowId, context)
+        // Snapshot the surviving tabs now so the rollback write stays exact even
+        // if shutdown or close mutates the context before the write runs.
+        const activeTerminalId = state.activeTerminalId
+        const survivors = state.terminalIds
+          .map((id) => terminals.get(id))
+          .filter((terminal): terminal is TerminalRecord => Boolean(terminal))
+        await enqueuePersistence(context, async () => {
+          const replacement: PersistedTerminalTab[] = []
+          for (const [order, survivor] of survivors.entries()) {
+            replacement.push({
+              tabId: survivor.restorationTabId,
+              context,
+              order,
+              title: survivor.title,
+              active: survivor.id === activeTerminalId,
+              cwd: survivor.currentWorkingDirectory ?? (await resolveInitialCwd(context))
+            })
+          }
+          await tabsRepository.replaceContext(context, replacement)
+        })
       }
     } finally {
       await Promise.all(restoredRecords.map((record) => record.pty.kill()))
     }
+  }
+
+  function enqueuePersistence(
+    context: TerminalCreateRequest['context'],
+    operation: () => Promise<void>
+  ): Promise<void> {
+    const key = deletionContextKey(context)
+    const previous = persistenceQueueByContext.get(key) ?? Promise.resolve()
+    const run = previous.catch(() => undefined).then(operation)
+    const tail = run.catch(() => undefined)
+    persistenceQueueByContext.set(key, tail)
+    void tail.then(() => {
+      if (persistenceQueueByContext.get(key) === tail) persistenceQueueByContext.delete(key)
+    })
+    return run
   }
 
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
@@ -952,26 +984,34 @@ export function createTerminalService({
     ownerWindowId: number,
     context: TerminalCreateRequest['context']
   ): Promise<void> {
-    const state = contexts.get(contextKey(ownerWindowId, context))
-    if (!state) return
-    await tabsRepository.updateOrderAndActive(
-      context,
-      state.terminalIds.map((id) => requireTerminal(ownerWindowId, id, context).restorationTabId),
-      state.activeTerminalId
-        ? requireTerminal(ownerWindowId, state.activeTerminalId, context).restorationTabId
-        : null
-    )
-    for (const [index, terminalId] of state.terminalIds.entries()) {
-      const terminal = requireTerminal(ownerWindowId, terminalId, context)
-      await tabsRepository.upsert({
-        tabId: terminal.restorationTabId,
+    await enqueuePersistence(context, async () => {
+      const state = contexts.get(contextKey(ownerWindowId, context))
+      if (!state) return
+      const liveTerminals = state.terminalIds
+        .map((id) => terminals.get(id))
+        .filter(
+          (terminal): terminal is TerminalRecord =>
+            Boolean(terminal) &&
+            terminal!.ownerWindowId === ownerWindowId &&
+            sameContext(terminal!.context, context)
+        )
+      await tabsRepository.updateOrderAndActive(
         context,
-        order: index,
-        title: terminal.title,
-        active: state.activeTerminalId === terminalId,
-        cwd: terminal.currentWorkingDirectory ?? (await resolveInitialCwd(context))
-      })
-    }
+        liveTerminals.map((terminal) => terminal.restorationTabId),
+        liveTerminals.find((terminal) => terminal.id === state.activeTerminalId)
+          ?.restorationTabId ?? null
+      )
+      for (const [index, terminal] of liveTerminals.entries()) {
+        await tabsRepository.upsert({
+          tabId: terminal.restorationTabId,
+          context,
+          order: index,
+          title: terminal.title,
+          active: state.activeTerminalId === terminal.id,
+          cwd: terminal.currentWorkingDirectory ?? (await resolveInitialCwd(context))
+        })
+      }
+    })
   }
 
   async function resolveRestoredCwd(
@@ -1259,6 +1299,11 @@ function createMemoryTerminalTabsRepository(): TerminalTabsRepository {
     },
     async upsert(tab) {
       tabs.set(keyFor(tab.context, tab.tabId), { ...tab })
+    },
+    async replaceContext(context, replacementTabs) {
+      for (const tab of [...tabs.values()])
+        if (sameContext(tab.context, context)) tabs.delete(keyFor(tab.context, tab.tabId))
+      for (const tab of replacementTabs) tabs.set(keyFor(tab.context, tab.tabId), { ...tab })
     },
     async updateOrderAndActive(context, orderedTabIds, activeTabId) {
       for (const [order, tabId] of orderedTabIds.entries()) {

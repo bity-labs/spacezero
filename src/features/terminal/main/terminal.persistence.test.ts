@@ -281,18 +281,14 @@ describe('Terminal tab restoration persistence', () => {
         return freshPty
       })
     })
-    const updateOrderAndActive = tabsRepository.updateOrderAndActive
-    let failRollbackPersistence = false
-    tabsRepository.updateOrderAndActive = vi.fn(async (targetContext, orderedTabIds, activeTabId) => {
-      if (failRollbackPersistence) throw new Error('rollback persistence failed')
-      return updateOrderAndActive(targetContext, orderedTabIds, activeTabId)
+    tabsRepository.replaceContext = vi.fn(async () => {
+      throw new Error('rollback persistence failed')
     })
 
     const restoring = service.create({ ownerWindowId: 1, request: { context } })
     await vi.waitFor(() => expect(spawnAttempts).toBe(2))
 
     await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
-    failRollbackPersistence = true
     rejectSecondRestore(new Error('spawn failed'))
     await expect(restoring).rejects.toThrow('spawn failed')
 
@@ -302,6 +298,84 @@ describe('Terminal tab restoration persistence', () => {
       tabs: [{ terminalId: 'id-3', title: 'session-1' }],
       activeTerminalId: 'id-3'
     })
+  })
+
+  it('keeps persisted state exact when a forced create persists across a restore rollback', async () => {
+    const tabsRepository = createFakeTabsRepository([
+      {
+        tabId: 'persisted-tab-1',
+        context,
+        order: 0,
+        title: 'one',
+        active: false,
+        cwd: session.worktreePath
+      },
+      {
+        tabId: 'persisted-tab-2',
+        context,
+        order: 1,
+        title: 'two',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
+    const restoredPty = new FakePty(session.worktreePath)
+    const freshPty = new FakePty(session.worktreePath)
+    let rejectSecondRestore!: (error: Error) => void
+    let spawnAttempts = 0
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async () => {
+        spawnAttempts += 1
+        if (spawnAttempts === 1) return restoredPty
+        if (spawnAttempts === 2) {
+          return new Promise<PtyProcess>((_, reject) => {
+            rejectSecondRestore = reject
+          })
+        }
+        return freshPty
+      })
+    })
+    const updateOrderAndActive = tabsRepository.updateOrderAndActive
+    let releasePersist!: () => void
+    let persistHeld = false
+    tabsRepository.updateOrderAndActive = vi.fn(async (targetContext, orderedTabIds, activeTabId) => {
+      if (!persistHeld) {
+        persistHeld = true
+        await new Promise<void>((resolve) => {
+          releasePersist = resolve
+        })
+      }
+      return updateOrderAndActive(targetContext, orderedTabIds, activeTabId)
+    })
+
+    const restoring = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(spawnAttempts).toBe(2))
+
+    const forced = service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    await vi.waitFor(() => expect(persistHeld).toBe(true))
+
+    rejectSecondRestore(new Error('spawn failed'))
+    releasePersist()
+    await expect(restoring).rejects.toThrow('spawn failed')
+    await forced
+
+    expect(restoredPty.killed).toBe(true)
+    expect(freshPty.killed).toBe(false)
+    await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      activeTerminalId: 'id-3'
+    })
+    expect(tabsRepository.rows).toEqual([
+      {
+        tabId: 'id-4',
+        context,
+        order: 0,
+        title: 'session-1',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
   })
 
   it('persists remaining order and active tab when the active tab is closed', async () => {
@@ -387,6 +461,12 @@ function createFakeTabsRepository(
       )
       if (index >= 0) rows[index] = { ...tab }
       else rows.push({ ...tab })
+    },
+    async replaceContext(context, replacementTabs) {
+      for (let index = rows.length - 1; index >= 0; index -= 1) {
+        if (sameContext(rows[index]!.context, context)) rows.splice(index, 1)
+      }
+      rows.push(...replacementTabs.map((tab) => ({ ...tab })))
     },
     async updateOrderAndActive(context, orderedTabIds, activeTabId) {
       for (const [order, tabId] of orderedTabIds.entries()) {
