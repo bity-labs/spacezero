@@ -5,12 +5,24 @@ import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-p
 import { useKeyboardShortcutsManager, useRegisterKeyboardShortcuts } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from '@renderer/components/ui/button'
 
-import { BROWSER_COMMAND_IDS, type BrowserContext, type BrowserShortcutBinding, type BrowserState } from '../../shared'
+import { BROWSER_COMMAND_IDS, type BrowserContext, type BrowserShortcutBinding, type BrowserState, type BrowserTab } from '../../shared'
 
 const browserShortcutDefinitions = [
   {
     commandId: BROWSER_COMMAND_IDS.focusAddress,
     defaultKeybinding: { normalized: 'mod+l' },
+    when: (ctx: { browserFocused: boolean }) => ctx.browserFocused,
+    allowInTextInput: true
+  },
+  {
+    commandId: BROWSER_COMMAND_IDS.newTab,
+    defaultKeybinding: { normalized: 'mod+t' },
+    when: (ctx: { browserFocused: boolean }) => ctx.browserFocused,
+    allowInTextInput: true
+  },
+  {
+    commandId: BROWSER_COMMAND_IDS.closeActiveTab,
+    defaultKeybinding: { normalized: 'mod+w' },
     when: (ctx: { browserFocused: boolean }) => ctx.browserFocused,
     allowInTextInput: true
   },
@@ -57,6 +69,8 @@ export function BrowserTool({
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const tabStripRef = useRef<HTMLDivElement>(null)
+  const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
   const activeTabId = activeTab?.id
   const activeTabUrl = activeTab?.url ?? ''
@@ -136,6 +150,75 @@ export function BrowserTool({
     }
   }, [activeTabUrl, tabRequest])
 
+  const createBlankTab = useCallback(async (): Promise<void> => {
+    setError(null)
+    try {
+      const nextState = await window.spacezero.browser.createTab({ contextKey, context })
+      setState(nextState)
+      setAddress('')
+      isEditingAddressRef.current = false
+      setIsEditingAddress(false)
+      requestAnimationFrame(() => focusAddressField())
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }, [context, contextKey, focusAddressField])
+
+  const selectTab = useCallback(
+    async (tabId: string): Promise<void> => {
+      setError(null)
+      try {
+        const nextState = await window.spacezero.browser.selectTab({ contextKey, context, tabId })
+        setState(nextState)
+      } catch (reason) {
+        setError(toErrorMessage(reason))
+      }
+    },
+    [context, contextKey]
+  )
+
+  const closeTab = useCallback(
+    async (tabId: string): Promise<void> => {
+      setError(null)
+      try {
+        const nextState = await window.spacezero.browser.closeTab({ contextKey, context, tabId })
+        setState(nextState)
+        const nextActiveTab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
+        if (!nextActiveTab?.url) requestAnimationFrame(() => focusAddressField())
+      } catch (reason) {
+        setError(toErrorMessage(reason))
+      }
+    },
+    [context, contextKey, focusAddressField]
+  )
+
+  const closeActiveTab = useCallback(async (): Promise<void> => {
+    if (!activeTabId) return
+    await closeTab(activeTabId)
+  }, [activeTabId, closeTab])
+
+  const reorderTabs = useCallback(
+    async (sourceTabId: string, targetTabId: string): Promise<void> => {
+      if (!state || sourceTabId === targetTabId) return
+      const sourceIndex = state.tabs.findIndex((tab) => tab.id === sourceTabId)
+      const targetIndex = state.tabs.findIndex((tab) => tab.id === targetTabId)
+      if (sourceIndex < 0 || targetIndex < 0) return
+      const nextTabs = [...state.tabs]
+      const [movedTab] = nextTabs.splice(sourceIndex, 1)
+      if (!movedTab) return
+      nextTabs.splice(targetIndex, 0, movedTab)
+      const optimisticState = { ...state, tabs: nextTabs }
+      setState(optimisticState)
+      try {
+        setState(await window.spacezero.browser.reorderTabs({ contextKey, context, tabIds: nextTabs.map((tab) => tab.id) }))
+      } catch (reason) {
+        setState(state)
+        setError(toErrorMessage(reason))
+      }
+    },
+    [context, contextKey, state]
+  )
+
   const retry = useCallback(async (): Promise<void> => {
     if (!activeTabUrl) return
     await navigateToInput(activeTabUrl)
@@ -149,6 +232,20 @@ export function BrowserTool({
         category: 'Browser',
         keywords: ['url', 'location', 'address'],
         handler: focusAddressField
+      },
+      {
+        id: BROWSER_COMMAND_IDS.newTab,
+        title: 'New Browser tab',
+        category: 'Browser',
+        keywords: ['open', 'tab'],
+        handler: createBlankTab
+      },
+      {
+        id: BROWSER_COMMAND_IDS.closeActiveTab,
+        title: 'Close Browser tab',
+        category: 'Browser',
+        keywords: ['close', 'tab'],
+        handler: closeActiveTab
       },
       {
         id: BROWSER_COMMAND_IDS.reload,
@@ -170,7 +267,7 @@ export function BrowserTool({
         handler: goForward
       }
     ],
-    [focusAddressField, goBack, goForward, reloadOrStop]
+    [closeActiveTab, createBlankTab, focusAddressField, goBack, goForward, reloadOrStop]
   )
   useRegisterAppCommands(commands)
   useRegisterKeyboardShortcuts(browserShortcutDefinitions)
@@ -206,6 +303,11 @@ export function BrowserTool({
   }, [activeTabUrl, isEditingAddress])
 
   useEffect(() => {
+    const activeElement = tabStripRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
+    activeElement?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [activeTabId])
+
+  useEffect(() => {
     return window.spacezero.browser.onEvent((event) => {
       if (event.contextKey !== contextKey) return
       if (event.type === 'state-changed') {
@@ -215,8 +317,10 @@ export function BrowserTool({
         return
       }
       if (event.commandId === BROWSER_COMMAND_IDS.focusAddress) focusAddressField()
+      if (event.commandId === BROWSER_COMMAND_IDS.newTab) void createBlankTab()
+      if (event.commandId === BROWSER_COMMAND_IDS.closeActiveTab) void closeActiveTab()
     })
-  }, [contextKey, focusAddressField, isEditingAddress])
+  }, [closeActiveTab, contextKey, createBlankTab, focusAddressField, isEditingAddress])
 
   useLayoutEffect(() => {
     const surface = surfaceRef.current
@@ -273,6 +377,66 @@ export function BrowserTool({
         }
       }}
     >
+      <div
+        ref={tabStripRef}
+        aria-label="Browser tabs"
+        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1"
+        role="tablist"
+      >
+        {state?.tabs.map((tab) => {
+          const selected = tab.id === activeTabId
+          return (
+            <div
+              key={tab.id}
+              aria-selected={selected}
+              className={`flex min-w-32 max-w-56 shrink-0 items-center gap-2 rounded-md border px-2 py-1 text-sm ${
+                selected ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground'
+              }`}
+              draggable
+              role="tab"
+              tabIndex={selected ? 0 : -1}
+              onClick={() => void selectTab(tab.id)}
+              onDragOver={(event) => event.preventDefault()}
+              onDragStart={(event) => {
+                setDraggedTabId(tab.id)
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', tab.id)
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const sourceTabId = draggedTabId ?? event.dataTransfer.getData('text/plain')
+                setDraggedTabId(null)
+                void reorderTabs(sourceTabId, tab.id)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  void selectTab(tab.id)
+                }
+              }}
+            >
+              {tab.faviconUrl ? <img alt="" className="size-4 shrink-0" src={tab.faviconUrl} /> : null}
+              <span className="truncate">{tabLabel(tab)}</span>
+              <Button
+                aria-label={`Close ${tabLabel(tab)}`}
+                className="h-6 px-2"
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void closeTab(tab.id)
+                }}
+              >
+                ×
+              </Button>
+            </div>
+          )
+        })}
+        <Button aria-label="New tab" size="sm" type="button" variant="outline" onClick={() => void createBlankTab()}>
+          +
+        </Button>
+      </div>
       <form className="flex shrink-0 items-center gap-2 border-b p-2" onSubmit={submitNavigation}>
         <Button
           aria-label="Back"
@@ -350,6 +514,17 @@ export function BrowserTool({
       <div ref={surfaceRef} aria-label="Browser page surface" className="min-h-0 flex-1" />
     </section>
   )
+}
+
+function tabLabel(tab: BrowserTab): string {
+  if (tab.title?.trim()) return tab.title
+  if (!tab.url) return 'New tab'
+  try {
+    const url = new URL(tab.url)
+    return url.hostname || url.toString()
+  } catch {
+    return tab.url
+  }
 }
 
 function toErrorMessage(reason: unknown): string {
