@@ -446,6 +446,61 @@ beforeEach(async () => {
       close: async () => undefined,
       onEvent: () => () => undefined
     },
+    browser: {
+      getState: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            error: null
+          }
+        ]
+      }),
+      navigate: async ({ contextKey, input }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: input,
+            title: null,
+            isLoading: true,
+            error: null
+          }
+        ]
+      }),
+      show: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            error: null
+          }
+        ]
+      }),
+      hide: async () => undefined,
+      closeTab: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            error: null
+          }
+        ]
+      })
+    },
     agent: {
       ping: async () => ({
         sessionId: 'agent-ping',
