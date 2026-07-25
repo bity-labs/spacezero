@@ -61,6 +61,35 @@ describe('BrowserSecurityPolicy permissions', () => {
     })
   })
 
+  it('checks only exact prior in-memory grants without prompting', async () => {
+    const prompt = vi.fn().mockResolvedValue('allow')
+    const policy = new BrowserSecurityPolicy(prompt, vi.fn())
+
+    expect(
+      policy.checkPermission({ requestingUrl: 'https://example.com', permission: 'notifications' })
+    ).toBe(false)
+    await policy.requestPermission({ requestingUrl: 'https://example.com/path', permission: 'notifications' })
+    expect(
+      policy.checkPermission({ requestingUrl: 'https://example.com/other', permission: 'notifications' })
+    ).toBe(true)
+    expect(
+      policy.checkPermission({ requestingUrl: 'https://example.com', permission: 'geolocation' })
+    ).toBe(false)
+    expect(
+      policy.checkPermission({ requestingUrl: 'https://other.example', permission: 'notifications' })
+    ).toBe(false)
+    expect(
+      policy.checkPermission({
+        requestingUrl: 'https://example.com',
+        permission: 'notifications',
+        isBackground: true
+      })
+    ).toBe(false)
+    expect(policy.checkPermission({ requestingUrl: 'not a url', permission: 'notifications' })).toBe(false)
+
+    expect(prompt).toHaveBeenCalledTimes(1)
+  })
+
   it('expires permission grants when temporary decisions are reset', async () => {
     const prompt = vi.fn().mockResolvedValue('allow')
     const policy = new BrowserSecurityPolicy(prompt, vi.fn())
@@ -148,6 +177,18 @@ describe('BrowserSecurityPolicy certificates', () => {
     ).resolves.toBe(false)
     await expect(
       policy.requestCertificateException({ url: 'https://localhost.example.com/', error: 'bad cert' })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({ url: 'https://127.1/', error: 'bad cert' })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({ url: 'https://2130706433/', error: 'bad cert' })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({ url: 'https://0x7f000001/', error: 'bad cert' })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({ url: 'https://[0:0:0:0:0:0:0:1]/', error: 'bad cert' })
     ).resolves.toBe(false)
     await expect(
       policy.requestCertificateException({ url: 'not a url', error: 'bad cert' })

@@ -42,7 +42,7 @@ export type BrowserViewAdapter = {
   ) => void
   hideView: (tabId: string) => void
   destroyView: (tabId: string) => void
-  loadUrl: (tabId: string, url: string) => void
+  loadUrl: (tabId: string, url: string, originalInput?: string) => void
   goBack: (tabId: string) => void
   goForward: (tabId: string) => void
   reload: (tabId: string) => void
@@ -103,7 +103,7 @@ export class BrowserService {
     clearPageMetadata(tab)
     tab.error = null
     tab.isLoading = true
-    this.adapter.loadUrl(tab.id, url)
+    this.adapter.loadUrl(tab.id, url, request.input)
     return this.publishState(context)
   }
 
@@ -190,7 +190,7 @@ export class BrowserService {
       clearPageMetadata(tab)
       tab.error = null
       tab.isLoading = true
-      this.adapter.loadUrl(tab.id, url)
+      this.adapter.loadUrl(tab.id, url, request.input)
     }
     return this.publishState(context)
   }

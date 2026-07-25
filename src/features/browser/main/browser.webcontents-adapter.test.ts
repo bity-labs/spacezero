@@ -35,6 +35,12 @@ const fakes = vi.hoisted(() => {
 
   const senderToWindow = new Map<unknown, FakeBrowserWindow>()
   const createdViews: FakeWebContentsView[] = []
+  const permissionCheckHandlers: Array<(
+    webContents: FakeWebContents | null,
+    permission: string,
+    requestingOrigin: string,
+    details: { requestingUrl?: string; securityOrigin?: string; mediaType?: 'video' | 'audio' | 'unknown' }
+  ) => boolean> = []
   const permissionHandlers: Array<(
     webContents: FakeWebContents,
     permission: string,
@@ -137,6 +143,7 @@ const fakes = vi.hoisted(() => {
   return {
     senderToWindow,
     createdViews,
+    permissionCheckHandlers,
     permissionHandlers,
     certificateHandlers,
     FakeWebContentsView,
@@ -160,6 +167,7 @@ vi.mock('electron', () => ({
   },
   session: {
     fromPartition: () => ({
+      setPermissionCheckHandler: (handler: never) => fakes.permissionCheckHandlers.push(handler),
       setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler)
     })
   },
@@ -186,6 +194,7 @@ describe('ElectronBrowserViewAdapter', () => {
   beforeEach(() => {
     fakes.senderToWindow.clear()
     fakes.createdViews.length = 0
+    fakes.permissionCheckHandlers.length = 0
     fakes.permissionHandlers.length = 0
     fakes.certificateHandlers.length = 0
   })
@@ -348,7 +357,8 @@ describe('ElectronBrowserViewAdapter', () => {
 
   it('denies background permission requests and prompts only for visible Browser contents', async () => {
     const policy = {
-      requestPermission: vi.fn().mockResolvedValue(true),
+      checkPermission: vi.fn().mockReturnValue(false),
+      requestPermission: vi.fn((request: { isBackground?: boolean }) => Promise.resolve(!request.isBackground)),
       requestCertificateException: vi.fn()
     }
     const adapter = new ElectronBrowserViewAdapter(policy as never)
@@ -367,7 +377,12 @@ describe('ElectronBrowserViewAdapter', () => {
       { requestingUrl: 'https://example.com/' }
     )
     await vi.waitFor(() => expect(backgroundDecision).toBe(false))
-    expect(policy.requestPermission).not.toHaveBeenCalled()
+    expect(policy.requestPermission).toHaveBeenCalledWith({
+      requestingUrl: 'https://example.com/',
+      permission: 'notifications',
+      details: { mediaTypes: undefined },
+      isBackground: true
+    })
 
     adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
     let visibleDecision: boolean | null = null
@@ -389,13 +404,92 @@ describe('ElectronBrowserViewAdapter', () => {
     })
   })
 
+  it('denies permission checks unless Browser contents have a visible exact grant', () => {
+    const policy = {
+      checkPermission: vi.fn((request: { isBackground?: boolean }) => !request.isBackground),
+      requestPermission: vi.fn(),
+      requestCertificateException: vi.fn()
+    }
+    const adapter = new ElectronBrowserViewAdapter(policy as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    expect(
+      fakes.permissionCheckHandlers[0]?.(null, 'notifications', 'https://example.com', {
+        requestingUrl: 'https://example.com/'
+      })
+    ).toBe(false)
+    expect(
+      fakes.permissionCheckHandlers[0]?.(fakes.createdViews[0].webContents, 'notifications', 'https://example.com', {
+        requestingUrl: 'https://example.com/'
+      })
+    ).toBe(false)
+    expect(policy.checkPermission).toHaveBeenLastCalledWith({
+      requestingUrl: 'https://example.com/',
+      permission: 'notifications',
+      details: { mediaTypes: undefined },
+      isBackground: true
+    })
+
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    expect(
+      fakes.permissionCheckHandlers[0]?.(fakes.createdViews[0].webContents, 'media', 'https://example.com', {
+        requestingUrl: 'https://example.com/',
+        mediaType: 'video'
+      })
+    ).toBe(true)
+    expect(policy.checkPermission).toHaveBeenLastCalledWith({
+      requestingUrl: 'https://example.com/',
+      permission: 'media',
+      details: { mediaTypes: ['video'] },
+      isBackground: false
+    })
+  })
+
+  it('denies permission requests after a visible Browser view is hidden again', async () => {
+    const policy = {
+      checkPermission: vi.fn().mockReturnValue(false),
+      requestPermission: vi.fn().mockResolvedValue(false),
+      requestCertificateException: vi.fn()
+    }
+    const adapter = new ElectronBrowserViewAdapter(policy as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.hideView('tab-1')
+
+    let decision: boolean | null = null
+    fakes.permissionHandlers[0]?.(
+      fakes.createdViews[0].webContents,
+      'notifications',
+      (allowed) => {
+        decision = allowed
+      },
+      { requestingUrl: 'https://example.com/' }
+    )
+
+    await vi.waitFor(() => expect(decision).toBe(false))
+    expect(policy.requestPermission).toHaveBeenCalledWith({
+      requestingUrl: 'https://example.com/',
+      permission: 'notifications',
+      details: { mediaTypes: undefined },
+      isBackground: true
+    })
+  })
+
   it('handles certificate errors only for Browser web contents', async () => {
     const policy = {
+      checkPermission: vi.fn(),
       requestPermission: vi.fn(),
       requestCertificateException: vi.fn().mockResolvedValue(true)
     }
     const adapter = new ElectronBrowserViewAdapter(policy as never)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    fakes.createdViews[0].webContents.url = 'https://localhost:3443/'
     const preventDefault = vi.fn()
     let decision: boolean | null = null
 

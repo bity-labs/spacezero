@@ -31,7 +31,7 @@ const SUPPORTED_PERMISSION_CAPABILITIES = new Set([
   'midi-sysex'
 ])
 
-const EXACT_LOOPBACK_CERTIFICATE_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+const EXACT_LOOPBACK_CERTIFICATE_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]'])
 
 export class BrowserSecurityPolicy {
   private readonly permissionGrants = new Set<string>()
@@ -42,31 +42,44 @@ export class BrowserSecurityPolicy {
     private readonly certificatePrompt: BrowserCertificatePrompt
   ) {}
 
-  async requestPermission(request: {
+  checkPermission(request: {
     requestingUrl?: string
     permission: string
     details?: { mediaTypes?: string[] }
     isBackground?: boolean
-  }): Promise<boolean> {
+  }): boolean {
     if (request.isBackground) return false
     const origin = safeOrigin(request.requestingUrl)
     if (!origin) return false
     const capability = permissionCapability(request.permission, request.details)
     if (!capability || !SUPPORTED_PERMISSION_CAPABILITIES.has(capability)) return false
 
-    const key = scopedDecisionKey(origin, capability)
-    if (this.permissionGrants.has(key)) return true
+    return this.permissionGrants.has(scopedDecisionKey(origin, capability))
+  }
+
+  async requestPermission(request: {
+    requestingUrl?: string
+    permission: string
+    details?: { mediaTypes?: string[] }
+    isBackground?: boolean
+  }): Promise<boolean> {
+    if (this.checkPermission(request)) return true
+    if (request.isBackground) return false
+    const origin = safeOrigin(request.requestingUrl)
+    if (!origin) return false
+    const capability = permissionCapability(request.permission, request.details)
+    if (!capability || !SUPPORTED_PERMISSION_CAPABILITIES.has(capability)) return false
 
     const decision = await this.permissionPrompt({ origin, capability })
     if (decision !== 'allow') return false
-    this.permissionGrants.add(key)
+    this.permissionGrants.add(scopedDecisionKey(origin, capability))
     return true
   }
 
   async requestCertificateException(request: { url: string; error: string }): Promise<boolean> {
     const parsed = safeUrl(request.url)
     if (!parsed) return false
-    if (!isExactLoopbackCertificateHost(parsed.hostname)) return false
+    if (!isExactLoopbackCertificateHost(originalCertificateHost(request.url))) return false
 
     const origin = parsed.origin
     const key = scopedDecisionKey(origin, request.error)
@@ -115,8 +128,8 @@ export function permissionCapability(
   }
 }
 
-export function isExactLoopbackCertificateHost(hostname: string): boolean {
-  return EXACT_LOOPBACK_CERTIFICATE_HOSTS.has(hostname.toLowerCase())
+export function isExactLoopbackCertificateHost(hostname: string | null): boolean {
+  return hostname !== null && EXACT_LOOPBACK_CERTIFICATE_HOSTS.has(hostname.toLowerCase())
 }
 
 function scopedDecisionKey(origin: string, capability: string): string {
@@ -136,4 +149,21 @@ function safeUrl(input: string | undefined): URL | null {
   } catch {
     return null
   }
+}
+
+function originalCertificateHost(input: string): string | null {
+  const authority = input.match(/^https:\/\/([^/?#]*)/i)?.[1]
+  if (!authority || authority.includes('@')) return null
+  if (authority.startsWith('[')) {
+    const end = authority.indexOf(']')
+    if (end === -1) return null
+    const host = authority.slice(0, end + 1)
+    const rest = authority.slice(end + 1)
+    if (rest !== '' && !/^:\d+$/.test(rest)) return null
+    return host
+  }
+  const parts = authority.split(':')
+  if (parts.length > 2) return null
+  if (parts[1] !== undefined && !/^\d+$/.test(parts[1])) return null
+  return parts[0] || null
 }
