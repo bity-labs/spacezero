@@ -798,8 +798,8 @@ async function withBashCwdIntegration(shell: TerminalShell): Promise<TerminalShe
 
 async function withZshCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
   const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-zsh-'))
-  const originalZdotdirWasSet = process.env.ZDOTDIR ? '1' : '0'
-  const originalZdotdir = process.env.ZDOTDIR || process.env.HOME || ''
+  const originalZdotdirWasSet = Object.hasOwn(process.env, 'ZDOTDIR') ? '1' : '0'
+  const originalZdotdir = process.env.ZDOTDIR ?? ''
   await writeFile(
     join(dir, '.zshenv'),
     `if [ "\${SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET:-0}" = "1" ]; then
@@ -807,7 +807,7 @@ async function withZshCwdIntegration(shell: TerminalShell): Promise<TerminalShel
 else
   unset ZDOTDIR
 fi
-__spacezero_original_zdotdir="\${ZDOTDIR:-$HOME}"
+__spacezero_original_zdotdir="\${ZDOTDIR-$HOME}"
 if [ -r "\${__spacezero_original_zdotdir}/.zshenv" ]; then
   source "\${__spacezero_original_zdotdir}/.zshenv"
 fi
@@ -875,6 +875,11 @@ function parseCwdReports(terminal: TerminalRecord, data: string): string[] {
     const belEnd = stream.indexOf(BEL, payloadStart)
     const stEnd = stream.indexOf(ST, payloadStart)
     const end = belEnd < 0 ? stEnd : stEnd < 0 ? belEnd : Math.min(belEnd, stEnd)
+    const nestedStart = stream.indexOf(OSC7_PREFIX, payloadStart)
+    if (nestedStart >= 0 && (end < 0 || nestedStart < end)) {
+      searchFrom = nestedStart
+      continue
+    }
     if (end < 0) {
       const partial = stream.slice(start)
       terminal.cwdReportBuffer = Buffer.byteLength(partial, 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES ? partial : ''

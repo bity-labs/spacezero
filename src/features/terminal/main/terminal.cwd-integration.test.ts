@@ -107,24 +107,76 @@ describe('Terminal cwd shell integration with a real PTY', () => {
     })
   })
 
-  it.runIf(zsh)('preserves zsh .zshenv/.zshrc startup and reports cwd changes', async () => {
+  it.runIf(zsh)('preserves zsh home startup when ZDOTDIR is unset and reports cwd changes', async () => {
     const home = await createTempDir('spacezero-terminal-zsh-home-')
     await writeFile(join(home, '.zshenv'), 'export SPACEZERO_ZSHENV_MARKER=env-ok\n', 'utf8')
     await writeFile(join(home, '.zshrc'), 'export SPACEZERO_ZSHRC_MARKER=rc-ok\n', 'utf8')
     vi.stubEnv('HOME', home)
-    vi.stubEnv('ZDOTDIR', '')
+    const previousZdotdir = process.env.ZDOTDIR
+    delete process.env.ZDOTDIR
+
+    try {
+      const events = await exerciseCwdReporting({
+        shell: zsh!,
+        command: (nextCwd) =>
+          `print -r -- "MARKERS:$${'{'}SPACEZERO_ZSHENV_MARKER:-missing${'}'}:$${'{'}SPACEZERO_ZSHRC_MARKER:-missing${'}'}:$${'{'}+ZDOTDIR${'}'}:$${'{'}ZDOTDIR:-unset${'}'}"\ncd ${shellQuote(nextCwd)}\n`
+      })
+
+      const output = events
+        .filter((event) => event.type === 'output')
+        .map((event) => event.data)
+        .join('')
+      expect(output).toContain('MARKERS:env-ok:rc-ok:0:unset')
+    } finally {
+      if (previousZdotdir === undefined) {
+        delete process.env.ZDOTDIR
+      } else {
+        process.env.ZDOTDIR = previousZdotdir
+      }
+    }
+  })
+
+  it.runIf(zsh)('preserves custom zsh ZDOTDIR startup and reports cwd changes', async () => {
+    const home = await createTempDir('spacezero-terminal-zsh-home-')
+    const zdotdir = await createTempDir('spacezero-terminal-zdotdir-')
+    await writeFile(join(home, '.zshenv'), 'export SPACEZERO_ZSHENV_MARKER=home-env\n', 'utf8')
+    await writeFile(join(zdotdir, '.zshenv'), 'export SPACEZERO_ZSHENV_MARKER=custom-env\n', 'utf8')
+    await writeFile(join(zdotdir, '.zshrc'), 'export SPACEZERO_ZSHRC_MARKER=custom-rc\n', 'utf8')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('ZDOTDIR', zdotdir)
 
     const events = await exerciseCwdReporting({
       shell: zsh!,
       command: (nextCwd) =>
-        `print -r -- "MARKERS:$SPACEZERO_ZSHENV_MARKER:$SPACEZERO_ZSHRC_MARKER:$${'{'}ZDOTDIR:-unset${'}'}"\ncd ${shellQuote(nextCwd)}\n`
+        `print -r -- "MARKERS:$${'{'}SPACEZERO_ZSHENV_MARKER:-missing${'}'}:$${'{'}SPACEZERO_ZSHRC_MARKER:-missing${'}'}:$${'{'}+ZDOTDIR${'}'}:$ZDOTDIR"\ncd ${shellQuote(nextCwd)}\n`
     })
 
     const output = events
       .filter((event) => event.type === 'output')
       .map((event) => event.data)
       .join('')
-    expect(output).toContain('MARKERS:env-ok:rc-ok:unset')
+    expect(output).toContain(`MARKERS:custom-env:custom-rc:1:${zdotdir}`)
+    expect(output).not.toContain('home-env')
+  })
+
+  it.runIf(zsh)('preserves explicitly empty zsh ZDOTDIR without falling back to home startup', async () => {
+    const home = await createTempDir('spacezero-terminal-zsh-home-')
+    await writeFile(join(home, '.zshenv'), 'export SPACEZERO_ZSHENV_MARKER=home-env\n', 'utf8')
+    await writeFile(join(home, '.zshrc'), 'export SPACEZERO_ZSHRC_MARKER=home-rc\n', 'utf8')
+    vi.stubEnv('HOME', home)
+    vi.stubEnv('ZDOTDIR', '')
+
+    const events = await exerciseCwdReporting({
+      shell: zsh!,
+      command: (nextCwd) =>
+        `print -r -- "MARKERS:$${'{'}SPACEZERO_ZSHENV_MARKER:-missing${'}'}:$${'{'}SPACEZERO_ZSHRC_MARKER:-missing${'}'}:$${'{'}+ZDOTDIR${'}'}:<$ZDOTDIR>"\ncd ${shellQuote(nextCwd)}\n`
+    })
+
+    const output = events
+      .filter((event) => event.type === 'output')
+      .map((event) => event.data)
+      .join('')
+    expect(output).toContain('MARKERS:missing:missing:1:<>')
   })
 
   it.runIf(fish)('reports cwd changes from fish', async () => {
