@@ -1378,6 +1378,59 @@ describe('restoreAgentSessionState', () => {
     )
   })
 
+  it('restores a newly persisted Agent Definition snapshot with its spawns policy intact', async () => {
+    const storedSession: StoredSession = {
+      id: 'session-1',
+      projectId: 'project-1',
+      title: 'Session 1',
+      status: 'idle',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      transcriptPath: '/agent/sessions/session-1.jsonl',
+      agentDefinitionSnapshot: JSON.stringify({
+        id: 'coordinator',
+        name: 'Coordinator',
+        body: 'Coordinate delegated work.',
+        tools: ['read'],
+        spawns: { type: 'list', definitions: ['scout', 'reviewer'] }
+      })
+    }
+    const utilityHost = {
+      getState: vi.fn(async () => {
+        throw new Error('agent.sessionNotFound')
+      }),
+      createSession: vi.fn(async () =>
+        createState({ agentDefinition: { id: 'coordinator', name: 'Coordinator' } })
+      )
+    }
+
+    await expect(
+      restoreAgentSessionState(
+        { sessionId: 'session-1' },
+        {
+          repository: createRepository({
+            async findSessionById() {
+              return storedSession
+            }
+          }),
+          utilityHost
+        }
+      )
+    ).resolves.toMatchObject({ agentDefinition: { id: 'coordinator', name: 'Coordinator' } })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentDefinition: {
+          id: 'coordinator',
+          name: 'Coordinator',
+          body: 'Coordinate delegated work.',
+          tools: ['read'],
+          spawns: { type: 'list', definitions: ['scout', 'reviewer'] }
+        }
+      })
+    )
+  })
+
   it('recreates a stored project session from its transcript after app relaunch', async () => {
     const storedSession: StoredSession = {
       id: 'session-1',
