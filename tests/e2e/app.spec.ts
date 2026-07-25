@@ -1,6 +1,7 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
+import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -1091,11 +1092,283 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 })
 
+test('enforces Browser permission and certificate policy through real Electron handlers', async () => {
+  const httpServer = await startBrowserFixtureServer()
+  const httpAddress = httpServer.address()
+  if (!httpAddress || typeof httpAddress === 'string') throw new Error('Browser HTTP fixture server did not bind.')
+  const httpUrl = `http://127.0.0.1:${httpAddress.port}/browser-fixture`
+
+  const certificateDirectory = await mkdtemp(join(tmpdir(), 'spacezero-browser-cert-e2e-'))
+  const httpsServer = await startHttpsBrowserFixtureServer(certificateDirectory)
+  const httpsAddress = httpsServer.address()
+  if (!httpsAddress || typeof httpsAddress === 'string') throw new Error('Browser HTTPS fixture server did not bind.')
+  const exactLoopbackHttpsUrl = `https://localhost:${httpsAddress.port}/browser-fixture`
+  const aliasLoopbackHttpsUrl = `https://127.1:${httpsAddress.port}/browser-fixture`
+  const redirectToAliasHttpsUrl = `https://localhost:${httpsAddress.port}/redirect-to-lookalike`
+
+  const electronApp = await launchApp()
+  const window = await electronApp.firstWindow()
+
+  try {
+    await electronApp.evaluate(({ app, ipcMain, BrowserWindow, dialog }) => {
+      const { createRequire } = process.getBuiltinModule('node:module')
+      const { join } = process.getBuiltinModule('node:path')
+      const require = createRequire(`${app.getAppPath()}/package.json`)
+      const Database = require('better-sqlite3')
+      const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+      const timestamp = Date.now()
+      database
+        .prepare(
+          `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('browser-permissions-e2e', null, 'Browser Permissions E2E', 'idle', timestamp, timestamp, null)
+      database.close()
+
+      for (const channel of [
+        'onboarding:getStatus',
+        'onboarding:complete',
+        'sessions:listProjectSessions',
+        'sessions:listWorkspaceSessions',
+        'projects:list',
+        'agent:getState'
+      ]) {
+        ipcMain.removeHandler(channel)
+      }
+      ipcMain.handle('onboarding:getStatus', () => ({ completed: true }))
+      ipcMain.handle('onboarding:complete', () => ({ completed: true }))
+      ipcMain.handle('projects:list', () => [])
+      ipcMain.handle('sessions:listProjectSessions', () => [])
+      ipcMain.handle('sessions:listWorkspaceSessions', () => [
+        {
+          id: 'browser-permissions-e2e',
+          kind: 'workspace',
+          title: 'Browser Permissions E2E',
+          status: 'idle',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString()
+        }
+      ])
+      ipcMain.handle('agent:getState', () => ({
+        sessionId: 'browser-permissions-e2e',
+        kind: 'workspace',
+        status: 'idle',
+        title: 'Browser Permissions E2E',
+        messages: [],
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }))
+      const originalShowMessageBox = dialog.showMessageBox.bind(dialog)
+      let promptCount = 0
+      dialog.showMessageBox = async (...args) => {
+        promptCount += 1
+        const options = args.at(-1) as { title?: string } | undefined
+        if (options?.title?.includes('permission') || options?.title?.includes('certificate')) {
+          return { response: 0, checkboxChecked: false }
+        }
+        return originalShowMessageBox(...args)
+      }
+      const certificateErrorUrls: string[] = []
+      app.on('certificate-error', (_event, _webContents, url) => {
+        certificateErrorUrls.push(url)
+      })
+      ;(globalThis as {
+        __spacezeroBrowserPromptCount?: () => number
+        __spacezeroBrowserCertificateErrorUrls?: () => string[]
+      }).__spacezeroBrowserPromptCount = () => promptCount
+      ;(globalThis as {
+        __spacezeroBrowserPromptCount?: () => number
+        __spacezeroBrowserCertificateErrorUrls?: () => string[]
+      }).__spacezeroBrowserCertificateErrorUrls = () => [...certificateErrorUrls]
+      BrowserWindow.getAllWindows()[0]?.webContents.reload()
+    })
+
+    await window.getByRole('button', { name: /Browser Permissions E2E/ }).click()
+    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await window.getByLabel('Browser URL').fill(httpUrl)
+    await window.getByRole('button', { name: 'Go' }).click()
+    await expect.poll(async () =>
+      electronApp.evaluate(({ webContents }, { httpUrl }) =>
+        webContents.getAllWebContents().some((contents) => contents.getURL() === httpUrl)
+      , { httpUrl })
+    ).toBe(true)
+
+    const visiblePermission = await electronApp.evaluate(async ({ webContents }, { httpUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === httpUrl)
+      if (!contents) throw new Error('Permission fixture webContents was not found.')
+      return contents.executeJavaScript('Notification.requestPermission()')
+    }, { httpUrl })
+    expect(visiblePermission).toBe('granted')
+    await expect.poll(async () =>
+      electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
+    ).toBe(1)
+    const unsupportedPermission = await electronApp.evaluate(async ({ webContents }, { httpUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === httpUrl)
+      if (!contents) throw new Error('Permission fixture webContents was not found.')
+      return contents.executeJavaScript(`navigator.permissions
+        .query({ name: 'window-management' })
+        .then((permission) => permission.state)
+        .catch((error) => error.name)`)
+    }, { httpUrl })
+    expect(unsupportedPermission).not.toBe('granted')
+    await expect.poll(async () =>
+      electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
+    ).toBe(1)
+
+    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    const hiddenPermission = await electronApp.evaluate(async ({ webContents }, { httpUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === httpUrl)
+      if (!contents) throw new Error('Hidden permission fixture webContents was not found.')
+      return contents.executeJavaScript('Notification.requestPermission()')
+    }, { httpUrl })
+    expect(hiddenPermission).toBe('denied')
+
+    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await window.evaluate(async ({ url }) => {
+      await window.spacezero.browser.createTab({
+        contextKey: 'session:browser-permissions-e2e',
+        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        input: url
+      })
+    }, { url: exactLoopbackHttpsUrl })
+    await expect.poll(async () =>
+      electronApp.evaluate(({ webContents }, { url }) =>
+        webContents.getAllWebContents().some((contents) => contents.getURL() === url)
+      , { url: exactLoopbackHttpsUrl })
+    ).toBe(true)
+    const exactCertificateBody = await electronApp.evaluate(async ({ webContents }, { url }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === url)
+      if (!contents) throw new Error('Exact-loopback HTTPS fixture webContents was not found.')
+      return contents.executeJavaScript('document.body.textContent')
+    }, { url: exactLoopbackHttpsUrl })
+    expect(exactCertificateBody).toContain('Browser fixture')
+
+    const promptsAfterExactCertificate = await electronApp.evaluate(() =>
+      (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0
+    )
+    expect(promptsAfterExactCertificate).toBe(2)
+
+    await window.evaluate(async ({ url }) => {
+      await window.spacezero.browser.createTab({
+        contextKey: 'session:browser-permissions-e2e',
+        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        input: url
+      })
+    }, { url: redirectToAliasHttpsUrl })
+    await expect.poll(async () =>
+      electronApp.evaluate(() =>
+        (globalThis as { __spacezeroBrowserCertificateErrorUrls?: () => string[] })
+          .__spacezeroBrowserCertificateErrorUrls?.()
+          .some((url) => url.includes('127.1') || url.includes('127.0.0.1')) ?? false
+      )
+    ).toBe(true)
+    const redirectedAliasCertificateBody = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      const browserView = mainWindow.contentView.children.at(-1)
+      if (!browserView) throw new Error('Redirected certificate fixture webContents was not found.')
+      return browserView.webContents.executeJavaScript('document.body.textContent').catch(() => '')
+    })
+    expect(redirectedAliasCertificateBody).not.toContain('Browser fixture')
+    await expect.poll(async () =>
+      electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
+    ).toBe(promptsAfterExactCertificate)
+
+    await window.evaluate(async ({ url }) => {
+      await window.spacezero.browser.createTab({
+        contextKey: 'session:browser-permissions-e2e',
+        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        input: url
+      })
+    }, { url: aliasLoopbackHttpsUrl })
+    await expect.poll(async () =>
+      electronApp.evaluate(() =>
+        (globalThis as { __spacezeroBrowserCertificateErrorUrls?: () => string[] })
+          .__spacezeroBrowserCertificateErrorUrls?.()
+          .some((url) => url.includes('127.1') || url.includes('127.0.0.1')) ?? false
+      )
+    ).toBe(true)
+    const aliasCertificateBody = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      const browserView = mainWindow.contentView.children.at(-1)
+      if (!browserView) throw new Error('Alias certificate fixture webContents was not found.')
+      return browserView.webContents.executeJavaScript('document.body.textContent').catch(() => '')
+    })
+    expect(aliasCertificateBody).not.toContain('Browser fixture')
+    await expect.poll(async () =>
+      electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
+    ).toBe(promptsAfterExactCertificate)
+
+    const browserDefaults = await electronApp.evaluate(({ session, webContents }, { urls }) =>
+      urls.map((url) => {
+        const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === url)
+        if (!contents) throw new Error(`Browser webContents was not found for ${url}`)
+        const preferences = contents.getLastWebPreferences()
+        return {
+          usesDedicatedProfile: contents.session === session.fromPartition('persist:spacezero-browser'),
+          sandbox: preferences.sandbox,
+          contextIsolation: preferences.contextIsolation,
+          nodeIntegration: preferences.nodeIntegration
+        }
+      })
+    , { urls: [httpUrl, exactLoopbackHttpsUrl] })
+    expect(browserDefaults).toEqual([
+      { usesDedicatedProfile: true, sandbox: true, contextIsolation: true, nodeIntegration: false },
+      { usesDedicatedProfile: true, sandbox: true, contextIsolation: true, nodeIntegration: false }
+    ])
+  } finally {
+    await electronApp.close().catch(() => undefined)
+    await new Promise<void>((resolve, reject) => httpServer.close((error) => (error ? reject(error) : resolve())))
+    await new Promise<void>((resolve, reject) => httpsServer.close((error) => (error ? reject(error) : resolve())))
+    await rm(certificateDirectory, { recursive: true, force: true })
+  }
+})
+
 async function startBrowserFixtureServer(): Promise<Server> {
   const server = createServer((_request, response) => {
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     response.end('<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>')
   })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  return server
+}
+
+async function startHttpsBrowserFixtureServer(directory: string): Promise<HttpsServer> {
+  const keyPath = join(directory, 'localhost.key')
+  const certPath = join(directory, 'localhost.crt')
+  await execFileAsync('openssl', [
+    'req',
+    '-x509',
+    '-newkey',
+    'rsa:2048',
+    '-nodes',
+    '-keyout',
+    keyPath,
+    '-out',
+    certPath,
+    '-subj',
+    '/CN=localhost',
+    '-addext',
+    'subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1',
+    '-days',
+    '1'
+  ])
+  const { readFile } = await import('node:fs/promises')
+  const server = createHttpsServer(
+    { key: await readFile(keyPath), cert: await readFile(certPath) },
+    (request, response) => {
+      if (request.url?.startsWith('/redirect-to-lookalike')) {
+        const port = request.headers.host?.split(':').at(-1)
+        response.writeHead(302, { location: `https://127.1:${port}/browser-fixture` })
+        response.end()
+        return
+      }
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+      response.end('<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>')
+    }
+  )
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
     server.listen(0, '127.0.0.1', () => resolve())
