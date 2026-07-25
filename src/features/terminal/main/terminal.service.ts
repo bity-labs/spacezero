@@ -407,7 +407,17 @@ export function createTerminalService({
         diagnostics
       }
     } catch (error) {
-      await rollbackRestoredTerminals(key, restoredRecords)
+      try {
+        await rollbackRestoredTerminals({
+          key,
+          ownerWindowId,
+          context: request.context,
+          restoredRecords,
+          persistedTabs
+        })
+      } catch {
+        // Rollback cleanup is best-effort; surface the original restoration failure.
+      }
       throw error
     }
   }
@@ -819,10 +829,19 @@ export function createTerminalService({
     }
   }
 
-  async function rollbackRestoredTerminals(
-    key: string,
+  async function rollbackRestoredTerminals({
+    key,
+    ownerWindowId,
+    context,
+    restoredRecords,
+    persistedTabs
+  }: {
+    key: string
+    ownerWindowId: number
+    context: TerminalCreateRequest['context']
     restoredRecords: TerminalRecord[]
-  ): Promise<void> {
+    persistedTabs: PersistedTerminalTab[]
+  }): Promise<void> {
     const restoredIds = new Set(restoredRecords.map((record) => record.id))
     const state = contexts.get(key)
     if (state) {
@@ -842,11 +861,18 @@ export function createTerminalService({
       terminals.delete(record.id)
       for (const dispose of record.dispose.splice(0)) dispose()
     }
-    if (state && state.terminalIds.length > 0 && restoredRecords.length > 0) {
-      const [{ ownerWindowId, context }] = restoredRecords
-      await persistContext(ownerWindowId, context)
+    try {
+      if (state && state.terminalIds.length > 0) {
+        // Remove every row owned by the failed restore attempt, including tabs
+        // whose spawn never completed, then persist the surviving tabs exactly.
+        for (const persisted of persistedTabs) {
+          await tabsRepository.deleteTab(context, persisted.tabId)
+        }
+        await persistContext(ownerWindowId, context)
+      }
+    } finally {
+      await Promise.all(restoredRecords.map((record) => record.pty.kill()))
     }
-    await Promise.all(restoredRecords.map((record) => record.pty.kill()))
   }
 
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {

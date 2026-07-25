@@ -233,6 +233,75 @@ describe('Terminal tab restoration persistence', () => {
     })
     expect(restoredPty.killed).toBe(true)
     expect(freshPty.killed).toBe(false)
+    expect(tabsRepository.rows).toEqual([
+      {
+        tabId: 'id-4',
+        context,
+        order: 0,
+        title: 'session-1',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
+  })
+
+  it('kills restored terminals and preserves the spawn failure when rollback persistence fails', async () => {
+    const tabsRepository = createFakeTabsRepository([
+      {
+        tabId: 'persisted-tab-1',
+        context,
+        order: 0,
+        title: 'one',
+        active: false,
+        cwd: session.worktreePath
+      },
+      {
+        tabId: 'persisted-tab-2',
+        context,
+        order: 1,
+        title: 'two',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
+    const restoredPty = new FakePty(session.worktreePath)
+    const freshPty = new FakePty(session.worktreePath)
+    let rejectSecondRestore!: (error: Error) => void
+    let spawnAttempts = 0
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async () => {
+        spawnAttempts += 1
+        if (spawnAttempts === 1) return restoredPty
+        if (spawnAttempts === 2) {
+          return new Promise<PtyProcess>((_, reject) => {
+            rejectSecondRestore = reject
+          })
+        }
+        return freshPty
+      })
+    })
+    const updateOrderAndActive = tabsRepository.updateOrderAndActive
+    let failRollbackPersistence = false
+    tabsRepository.updateOrderAndActive = vi.fn(async (targetContext, orderedTabIds, activeTabId) => {
+      if (failRollbackPersistence) throw new Error('rollback persistence failed')
+      return updateOrderAndActive(targetContext, orderedTabIds, activeTabId)
+    })
+
+    const restoring = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(spawnAttempts).toBe(2))
+
+    await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    failRollbackPersistence = true
+    rejectSecondRestore(new Error('spawn failed'))
+    await expect(restoring).rejects.toThrow('spawn failed')
+
+    expect(restoredPty.killed).toBe(true)
+    expect(freshPty.killed).toBe(false)
+    await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      activeTerminalId: 'id-3'
+    })
   })
 
   it('persists remaining order and active tab when the active tab is closed', async () => {
