@@ -351,6 +351,20 @@ export class BrowserService {
     this.publishState(found.context)
   }
 
+  openNativeRequestedTab(parentTabId: string, url: string): BrowserState | undefined {
+    const found = this.findTabWithContext(parentTabId)
+    if (!found) return undefined
+    const tab = this.createBlankTab()
+    found.context.tabs.push(tab)
+    found.context.activeTabId = tab.id
+    tab.url = url
+    clearPageMetadata(tab)
+    tab.error = null
+    tab.isLoading = true
+    this.adapter.loadUrl(tab.id, url, url)
+    return this.publishState(found.context)
+  }
+
   handleNativeCommand(
     tabId: string,
     commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]

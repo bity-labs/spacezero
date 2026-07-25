@@ -79,8 +79,23 @@ const fakes = vi.hoisted(() => {
     stopped = false
     lastPreventDefault: (() => void) | null = null
     url = 'https://example.com/'
+    windowOpenHandler: ((details: unknown) => unknown) | null = null
+    readonly debugger = {
+      attached: false,
+      listeners: [] as Array<(event: unknown, method: string, params: unknown) => void>,
+      isAttached: () => this.debugger.attached,
+      attach: () => {
+        this.debugger.attached = true
+      },
+      sendCommand: vi.fn().mockResolvedValue(undefined),
+      on: (_event: 'message', listener: (event: unknown, method: string, params: unknown) => void) => {
+        this.debugger.listeners.push(listener)
+      }
+    }
 
-    setWindowOpenHandler(): void {}
+    setWindowOpenHandler(handler: (details: unknown) => unknown): void {
+      this.windowOpenHandler = handler
+    }
     getURL(): string {
       return this.url
     }
@@ -93,6 +108,9 @@ const fakes = vi.hoisted(() => {
     }
     async loadURL(url: string): Promise<void> {
       this.loadedUrl = url
+    }
+    async executeJavaScript(): Promise<boolean> {
+      return true
     }
     canGoBack(): boolean {
       return true
@@ -117,6 +135,9 @@ const fakes = vi.hoisted(() => {
       this.lastPreventDefault = event.preventDefault
       this.emit('before-input-event', event as never, input as never)
     }
+    emitWindowOpenGesture(url: string, userGesture: boolean): void {
+      for (const listener of this.debugger.listeners) listener({}, 'Page.windowOpen', { url, userGesture })
+    }
   }
 
   class FakeWebContentsView {
@@ -134,9 +155,20 @@ const fakes = vi.hoisted(() => {
 
   class FakeBrowserWindow extends FakeEmitter {
     readonly contentView = new FakeContentView()
+    readonly webContents = new FakeWebContents()
+    closed = false
 
     constructor(readonly id: number) {
       super()
+    }
+
+    isDestroyed(): boolean {
+      return this.closed
+    }
+
+    close(): void {
+      this.closed = true
+      this.emit('closed')
     }
   }
 
@@ -151,6 +183,9 @@ const fakes = vi.hoisted(() => {
   }
 })
 
+const openExternal = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const showMessageBox = vi.hoisted(() => vi.fn().mockResolvedValue({ response: 1 }))
+
 vi.mock('electron', () => ({
   app: {
     isReady: () => true,
@@ -163,7 +198,10 @@ vi.mock('electron', () => ({
     fromWebContents: (sender: unknown) => fakes.senderToWindow.get(sender) ?? null
   },
   dialog: {
-    showMessageBox: vi.fn().mockResolvedValue({ response: 1 })
+    showMessageBox
+  },
+  shell: {
+    openExternal
   },
   session: {
     fromPartition: () => ({
@@ -197,6 +235,9 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.permissionCheckHandlers.length = 0
     fakes.permissionHandlers.length = 0
     fakes.certificateHandlers.length = 0
+    openExternal.mockClear()
+    showMessageBox.mockClear()
+    showMessageBox.mockResolvedValue({ response: 1 })
   })
 
   it('shows one active Browser view per owner window', () => {
@@ -230,6 +271,156 @@ describe('ElectronBrowserViewAdapter', () => {
 
     expect(windowA.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(windowB.contentView.added).toEqual([fakes.createdViews[0]])
+  })
+
+  it('routes user-initiated target blank web requests into a same-context tab without creating a window', async () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { openNativeRequestedTab: vi.fn() }
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://docs.example/path', true)
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'https://docs.example/path',
+      disposition: 'foreground-tab',
+      frameName: '_blank',
+      features: ''
+    })
+
+    expect(decision).toEqual({ action: 'deny' })
+    expect(service.openNativeRequestedTab).toHaveBeenCalledWith('tab-1', 'https://docs.example/path')
+  })
+
+  it('blocks script-created web popups without a request-scoped transient user gesture', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { openNativeRequestedTab: vi.fn() }
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://ads.example/popup', false)
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'https://ads.example/popup',
+      disposition: 'foreground-tab',
+      frameName: '_blank',
+      features: ''
+    })
+
+    expect(decision).toEqual({ action: 'deny' })
+    expect(service.openNativeRequestedTab).not.toHaveBeenCalled()
+  })
+
+  it('blocks named authentication popups fired without a request-scoped user gesture', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://login.example/oauth', false)
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'https://login.example/oauth',
+      disposition: 'new-window',
+      frameName: 'oauth-popup',
+      features: 'width=500,height=700'
+    })
+
+    expect(decision).toEqual({ action: 'deny' })
+  })
+
+  it('allows constrained authentication child windows with the Browser profile and closes them with the parent tab', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitWindowOpenGesture('https://login.example/oauth', true)
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'https://login.example/oauth',
+      disposition: 'new-window',
+      frameName: 'oauth-popup',
+      features: 'width=500,height=700'
+    })
+    const child = new fakes.FakeBrowserWindow(22)
+    fakes.createdViews[0]?.webContents.emit('did-create-window', child as never, {} as never)
+
+    expect(decision).toMatchObject({
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        show: true,
+        webPreferences: {
+          sandbox: true,
+          contextIsolation: true,
+          nodeIntegration: false,
+          webviewTag: false,
+          partition: 'persist:spacezero-browser'
+        }
+      }
+    })
+
+    adapter.destroyView('tab-1')
+
+    expect(child.webContents.windowOpenHandler?.({ url: 'https://login.example/descendant' })).toEqual({ action: 'deny' })
+    expect(child.closed).toBe(true)
+  })
+
+  it('confirms supported external protocols before handing them to the operating system', async () => {
+    showMessageBox.mockResolvedValueOnce({ response: 0 })
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    const decision = fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+      url: 'mailto:builder@example.com?subject=Hello',
+      disposition: 'foreground-tab'
+    })
+
+    expect(decision).toEqual({ action: 'deny' })
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith('mailto:builder@example.com?subject=Hello'))
+    expect(showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Open mailto link?',
+        detail: 'mailto:builder@example.com?subject=Hello'
+      })
+    )
+  })
+
+  it('confirms supported top-level external protocol navigations without loading them in Browser', async () => {
+    showMessageBox.mockResolvedValueOnce({ response: 0 })
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    const preventDefault = vi.fn()
+
+    fakes.createdViews[0]?.webContents.emit('will-navigate', { preventDefault } as never, 'mailto:builder@example.com' as never)
+
+    expect(preventDefault).toHaveBeenCalled()
+    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith('mailto:builder@example.com'))
+  })
+
+  it('denies canceled, malformed, unsupported, and nested unsafe external protocols', async () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    expect(
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:cancel@example.com' })
+    ).toEqual({ action: 'deny' })
+    expect(showMessageBox).toHaveBeenCalledTimes(1)
+    showMessageBox.mockClear()
+    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'file:///etc/passwd' })).toEqual({
+      action: 'deny'
+    })
+    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'not a url' })).toEqual({
+      action: 'deny'
+    })
+    expect(
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x@y.test?body=file%3A%2F%2Fetc%2Fpasswd' })
+    ).toEqual({ action: 'deny' })
+    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x%' })).toEqual({ action: 'deny' })
+    expect(
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:builder@example.com?subject=%' })
+    ).toEqual({ action: 'deny' })
+    const preventDefault = vi.fn()
+    expect(() =>
+      fakes.createdViews[0]?.webContents.emit('will-navigate', { preventDefault } as never, 'mailto:x#%' as never)
+    ).not.toThrow()
+    expect(preventDefault).toHaveBeenCalled()
+
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(showMessageBox).not.toHaveBeenCalled()
+    expect(openExternal).not.toHaveBeenCalled()
   })
 
   it('destroys attached native resources when the owner window closes', () => {
