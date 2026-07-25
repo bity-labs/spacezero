@@ -2,6 +2,7 @@ import { registerAgentIpc } from '../../features/agent-workspace/main/agent.ipc'
 import { registerAgentsIpc } from '../../features/agents/main/agents.ipc'
 import { registerBrowserIpc } from '../../features/browser/main/browser.ipc'
 import { registerFilesIpc } from '../../features/files/main/files.ipc'
+import { registerGitIpc } from '../../features/git/main/git.ipc'
 import { registerGitHubIpc } from '../../features/github/main/github.ipc'
 import { registerKnowledgeBaseIpc } from '../../features/knowledge-base/main/knowledge-base.ipc'
 import { registerOnboardingIpc } from '../../features/onboarding/main/onboarding.ipc'
@@ -23,6 +24,7 @@ export function registerIpcHandlers(): void {
   registerAgentsIpc()
   registerDbIpc()
   registerFilesIpc()
+  registerGitIpc()
   registerGitHubIpc()
   registerKnowledgeBaseIpc()
   registerOnboardingIpc()

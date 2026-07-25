@@ -15,6 +15,10 @@ const api: SpaceZeroAPI = {
     openDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.openDocument, request),
     saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request)
   },
+  git: {
+    getProjectSessionReview: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.git.getProjectSessionReview, request)
+  },
   knowledgeBase: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
     getCurrentSession: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getCurrentSession),
