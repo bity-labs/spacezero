@@ -7,9 +7,12 @@ import type {
   BrowserCloseTabRequest,
   BrowserContext,
   BrowserContextRequest,
+  BrowserCreateTabRequest,
   BrowserEvent,
   BrowserNavigateRequest,
   BrowserPresentationRequest,
+  BrowserReorderTabsRequest,
+  BrowserSelectTabRequest,
   BrowserShortcutBinding,
   BrowserState,
   BrowserTab,
@@ -96,6 +99,7 @@ export class BrowserService {
     const tab = this.resolveTab(context, request.tabId)
     const url = normalizeBrowserUrl(request.input)
     tab.url = url
+    clearPageMetadata(tab)
     tab.error = null
     tab.isLoading = true
     this.adapter.loadUrl(tab.id, url)
@@ -157,6 +161,9 @@ export class BrowserService {
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
+    for (const otherTab of context.tabs) {
+      if (otherTab.id !== tab.id) this.adapter.hideView(otherTab.id)
+    }
     this.adapter.showView(tab.id, request.bounds, request.shortcutBindings, sender)
     return toBrowserState(context)
   }
@@ -167,15 +174,64 @@ export class BrowserService {
     for (const tab of context?.tabs ?? []) this.adapter.hideView(tab.id)
   }
 
-  async closeTab(request: BrowserCloseTabRequest): Promise<BrowserState> {
+  async createTab(request: BrowserCreateTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.createBlankTab()
+    context.tabs.push(tab)
+    context.activeTabId = tab.id
+    if (request.input) {
+      const url = normalizeBrowserUrl(request.input)
+      tab.url = url
+      clearPageMetadata(tab)
+      tab.error = null
+      tab.isLoading = true
+      this.adapter.loadUrl(tab.id, url)
+    }
+    return this.publishState(context)
+  }
+
+  async selectTab(request: BrowserSelectTabRequest): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = context.tabs.find((candidate) => candidate.id === request.tabId)
+    if (!tab) throw new Error('Browser tab is not authorized for this context.')
+    context.activeTabId = tab.id
+    return this.publishState(context)
+  }
+
+  async closeTab(request: BrowserCloseTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const closingIndex = context.tabs.findIndex((candidate) => candidate.id === request.tabId)
+    const tab = context.tabs[closingIndex]
     if (tab) {
       this.adapter.destroyView(tab.id)
       context.tabs = context.tabs.filter((candidate) => candidate.id !== request.tabId)
+      if (context.activeTabId === request.tabId) {
+        const nextTab = context.tabs[Math.min(closingIndex, context.tabs.length - 1)]
+        context.activeTabId = nextTab?.id ?? context.activeTabId
+      }
     }
-    if (context.tabs.length === 0) context.tabs.push(this.createBlankTab())
-    context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
+    if (context.tabs.length === 0) {
+      const blank = this.createBlankTab()
+      context.tabs.push(blank)
+      context.activeTabId = blank.id
+    } else if (!context.tabs.some((candidate) => candidate.id === context.activeTabId)) {
+      context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
+    }
+    return this.publishState(context)
+  }
+
+  async reorderTabs(request: BrowserReorderTabsRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const requestedIds = new Set(request.tabIds)
+    if (requestedIds.size !== request.tabIds.length || requestedIds.size !== context.tabs.length) {
+      throw new Error('Browser tab order must contain each context tab exactly once.')
+    }
+    const tabsById = new Map(context.tabs.map((tab) => [tab.id, tab]))
+    const reorderedTabs = request.tabIds.map((tabId) => tabsById.get(tabId))
+    if (reorderedTabs.some((tab) => !tab)) {
+      throw new Error('Browser tab order must contain each context tab exactly once.')
+    }
+    context.tabs = reorderedTabs as BrowserTab[]
     return this.publishState(context)
   }
 
@@ -233,7 +289,12 @@ export class BrowserService {
   markNavigationCommitted(tabId: string, url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    found.tab.url = url
+    if (found.tab.url !== url) {
+      found.tab.url = url
+      clearPageMetadata(found.tab)
+    } else {
+      found.tab.url = url
+    }
     found.tab.error = null
     if (history) {
       found.tab.canGoBack = history.canGoBack
@@ -245,6 +306,7 @@ export class BrowserService {
   markNavigationFailed(tabId: string, error: string): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
+    clearPageMetadata(found.tab)
     found.tab.error = error
     found.tab.isLoading = false
     this.publishState(found.context)
@@ -268,7 +330,14 @@ export class BrowserService {
   markTitleChanged(tabId: string, title: string): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    found.tab.title = title || found.tab.url
+    found.tab.title = title || fallbackTitleForUrl(found.tab.url)
+    this.publishState(found.context)
+  }
+
+  markFaviconChanged(tabId: string, faviconUrls: string[]): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.faviconUrl = faviconUrls[0] ?? null
     this.publishState(found.context)
   }
 
@@ -277,6 +346,8 @@ export class BrowserService {
     if (!found) return
     switch (commandId) {
       case BROWSER_COMMAND_IDS.focusAddress:
+      case BROWSER_COMMAND_IDS.newTab:
+      case BROWSER_COMMAND_IDS.closeActiveTab:
         this.publishCommand(found.context, commandId)
         return
       case BROWSER_COMMAND_IDS.reload:
@@ -326,6 +397,7 @@ export class BrowserService {
       id: `browser-tab-${nanoid()}`,
       url: null,
       title: null,
+      faviconUrl: null,
       isLoading: false,
       canGoBack: false,
       canGoForward: false,
@@ -504,6 +576,21 @@ function isRecognizableWebAddress(input: string): boolean {
 
 function googleSearchUrl(input: string): string {
   return `https://www.google.com/search?q=${encodeURIComponent(input)}`
+}
+
+function fallbackTitleForUrl(url: string | null): string | null {
+  if (!url) return null
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname || parsed.toString()
+  } catch {
+    return url
+  }
+}
+
+function clearPageMetadata(tab: BrowserTab): void {
+  tab.title = null
+  tab.faviconUrl = null
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {

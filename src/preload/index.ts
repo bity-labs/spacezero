@@ -159,7 +159,10 @@ const api: SpaceZeroAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.browser.openInDefaultBrowser, request),
     show: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.show, request),
     hide: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.hide, request),
+    createTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.createTab, request),
+    selectTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.selectTab, request),
     closeTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.closeTab, request),
+    reorderTabs: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.reorderTabs, request),
     onEvent: (listener) => {
       const handler = (_event: IpcRendererEvent, payload: unknown): void => {
         listener(payload as Parameters<typeof listener>[0])

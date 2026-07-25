@@ -36,6 +36,8 @@ export const browserNavigateRequestSchema = z.object({
 const browserShortcutBindingSchema = z.object({
   commandId: z.enum([
     BROWSER_COMMAND_IDS.focusAddress,
+    BROWSER_COMMAND_IDS.newTab,
+    BROWSER_COMMAND_IDS.closeActiveTab,
     BROWSER_COMMAND_IDS.reload,
     BROWSER_COMMAND_IDS.back,
     BROWSER_COMMAND_IDS.forward
@@ -50,7 +52,22 @@ export const browserPresentationRequestSchema = z.object({
   shortcutBindings: z.array(browserShortcutBindingSchema).max(16)
 })
 
+export const browserCreateTabRequestSchema = z.object({
+  ...contextRequestFields,
+  input: z.string().min(1).max(4096).optional()
+})
+
+export const browserSelectTabRequestSchema = z.object({
+  ...contextRequestFields,
+  tabId: z.string().min(1)
+})
+
 export const browserCloseTabRequestSchema = z.object({
   ...contextRequestFields,
   tabId: z.string().min(1)
+})
+
+export const browserReorderTabsRequestSchema = z.object({
+  ...contextRequestFields,
+  tabIds: z.array(z.string().min(1)).min(1).max(100)
 })
