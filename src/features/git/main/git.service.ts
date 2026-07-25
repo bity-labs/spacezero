@@ -11,6 +11,8 @@ import type { SessionsRepository, StoredSession } from '../../sessions/main/sess
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_BYTES = 256 * 1024
+const MAX_GIT_OUTPUT_BYTES = MAX_DIFF_BYTES * 2
+const MAX_ERROR_MESSAGE_BYTES = 4 * 1024
 const MAX_UNTRACKED_BYTES = 128 * 1024
 
 export type GitService = ReturnType<typeof createGitService>
@@ -84,14 +86,14 @@ export function createGitService({
           createFileDiff({ cwd: worktree.path, status, filter, runGit, fileSystem, pathFlavor })
         )
       )
-      const sorted = files.sort(compareFileDiffs)
+      const sorted = files.filter((file): file is GitFileDiff => file !== null).sort(compareFileDiffs)
       return sorted.length === 0
         ? { status: 'clean', branch, upstream, files: [] }
         : { status: 'ok', branch, upstream, files: sorted }
     } catch (error) {
       return {
         status: 'git-error',
-        message: error instanceof Error ? error.message : 'Git query failed.'
+        message: boundedErrorMessage(error instanceof Error ? error.message : 'Git query failed.')
       }
     }
   }
@@ -175,7 +177,7 @@ async function createFileDiff({
   runGit: GitRunner
   fileSystem: UntrackedFileSystem
   pathFlavor: PathFlavor
-}): Promise<GitFileDiff> {
+}): Promise<GitFileDiff | null> {
   const kind = getChangeKind(status, filter)
   if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem, pathFlavor)
 
@@ -186,9 +188,22 @@ async function createFileDiff({
     allowFailure: true
   })
   if (diff.exitCode !== 0) {
-    throw new Error(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+    if (isLikelyOversizedDiff(diff)) {
+      return {
+        path: status.path,
+        oldPath: status.oldPath,
+        kind,
+        binary: false,
+        large: true,
+        diff: null
+      }
+    }
+    throw new Error(
+      boundedErrorMessage(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+    )
   }
   const content = diff.stdout
+  if (filter === 'uncommitted' && content.length === 0) return null
   const binary = content.includes('GIT binary patch') || content.includes('Binary files ')
   const large = Buffer.byteLength(content, 'utf8') > MAX_DIFF_BYTES
   return {
@@ -257,6 +272,17 @@ async function createUntrackedDiff(
   }
 }
 
+function isLikelyOversizedDiff(diff: Awaited<ReturnType<GitRunner>>): boolean {
+  return Buffer.byteLength(diff.stdout, 'utf8') >= MAX_DIFF_BYTES
+}
+
+function boundedErrorMessage(message: string): string {
+  const bytes = Buffer.from(message, 'utf8')
+  if (bytes.byteLength <= MAX_ERROR_MESSAGE_BYTES) return message
+  const ellipsis = Buffer.from('…', 'utf8')
+  return `${bytes.subarray(0, MAX_ERROR_MESSAGE_BYTES - ellipsis.byteLength).toString('utf8')}…`
+}
+
 function isPathInsideDirectory(path: string, directory: string, pathFlavor: PathFlavor): boolean {
   const relativePath = pathFlavor.relative(directory, path)
   return (
@@ -323,7 +349,7 @@ async function runGitCli({
     const { stdout, stderr } = await execFileAsync('git', args, {
       cwd,
       encoding: 'utf8',
-      maxBuffer: MAX_DIFF_BYTES * 2
+      maxBuffer: MAX_GIT_OUTPUT_BYTES
     })
     return { stdout, stderr, exitCode: 0 }
   } catch (error) {
@@ -333,7 +359,7 @@ async function runGitCli({
       exitCode: getExecCode(error)
     }
     if (allowFailure) return result
-    throw new Error(result.stderr.trim() || result.stdout.trim() || 'Git command failed.', {
+    throw new Error(boundedErrorMessage(result.stderr.trim() || result.stdout.trim() || 'Git command failed.'), {
       cause: error
     })
   }
