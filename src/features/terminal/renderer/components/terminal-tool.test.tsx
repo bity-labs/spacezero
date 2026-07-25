@@ -224,6 +224,67 @@ describe('TerminalTool', () => {
     expect(allTerminals).toHaveLength(2)
   })
 
+  it('never builds a presentation for a terminal outside the current context while switching', async () => {
+    let resolveSecondCreate!: (result: {
+      status: 'running'
+      terminalId: string
+    }) => void
+    let createCalls = 0
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async ({ context: requestedContext }) => {
+        createCalls += 1
+        if (createCalls === 2) {
+          return new Promise<{ status: 'running'; terminalId: string }>((resolve) => {
+            resolveSecondCreate = resolve
+          })
+        }
+        return {
+          status: 'running' as const,
+          terminalId: `terminal-${requestedContext.kind}-${requestedContext.sessionId}`
+        }
+      }),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const firstContext = { kind: 'workspace-session' as const, sessionId: 'one' }
+    const secondContext = { kind: 'workspace-session' as const, sessionId: 'two' }
+    const mounted = render(<TerminalTool context={firstContext} />)
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1))
+    const firstPresentation = lastTerminal
+
+    mounted.rerender(<TerminalTool context={secondContext} />)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(allTerminals).toHaveLength(1)
+    expect(firstPresentation?.dispose).toHaveBeenCalled()
+    expect(window.spacezero.terminal.subscribe).not.toHaveBeenCalledWith(
+      expect.objectContaining({ terminalId: 'terminal-workspace-session-one', context: secondContext })
+    )
+
+    await act(async () => {
+      resolveSecondCreate({ status: 'running', terminalId: 'terminal-workspace-session-two' })
+    })
+    await waitFor(() =>
+      expect(window.spacezero.terminal.subscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ terminalId: 'terminal-workspace-session-two', context: secondContext })
+      )
+    )
+    expect(allTerminals).toHaveLength(2)
+  })
+
   it('switches among two Project Sessions, two Workspace Sessions, and Knowledge Base without mixing presentations', async () => {
     const contexts = [
       { kind: 'project-session' as const, sessionId: 'project-1' },
@@ -462,7 +523,9 @@ describe('TerminalTool', () => {
     await user.click(await screen.findByRole('button', { name: 'New Terminal' }))
     await screen.findByRole('button', { name: 'Close Terminal' })
 
-    expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n', expect.any(Function))
+    await waitFor(() =>
+      expect(lastTerminal?.write).toHaveBeenCalledWith('terminal-2 output\r\n', expect.any(Function))
+    )
     expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
       context,
       cols: undefined,
@@ -705,6 +768,7 @@ describe('TerminalTool', () => {
 
     expect(await screen.findByRole('tab', { name: 'Select terminal tab api', selected: true })).toBeVisible()
     expect(screen.getAllByRole('tab', { name: 'Select terminal tab api' })).toHaveLength(2)
+    await waitFor(() => expect(window.spacezero.terminal.onEvent).toHaveBeenCalled())
     act(() =>
       terminalEventListener?.({
         type: 'output',
@@ -719,6 +783,39 @@ describe('TerminalTool', () => {
 
     await screen.findByRole('tab', { name: 'Select terminal tab web', selected: true })
     expect(screen.getByRole('tab', { name: 'Select terminal tab api', selected: false })).toBeVisible()
+  })
+
+  it('renders restored cwd fallback diagnostics from the create result', async () => {
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1',
+        diagnostics: [
+          {
+            type: 'cwd-fallback' as const,
+            terminalId: 'terminal-1',
+            savedCwd: '/missing',
+            cwd: '/repo',
+            message: 'Restored terminal cwd was unavailable; using /repo.'
+          }
+        ]
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({ terminalId, events: [], oldestSequence: 1, nextSequence: 1 })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Restored terminal cwd was unavailable; using /repo.'
+    )
   })
 
   it('falls back to the shell name supplied by main when no usable cwd label exists', async () => {
@@ -860,6 +957,7 @@ describe('TerminalTool', () => {
     render(<TerminalTool context={context} />)
 
     await screen.findByRole('tab', { name: 'Select terminal tab one', selected: true })
+    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalled())
     lastTerminal!.buffer.active.viewportY = 12
     await userEvent.click(screen.getByRole('tab', { name: 'Select terminal tab two' }))
 

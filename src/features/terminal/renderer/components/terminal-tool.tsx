@@ -5,7 +5,14 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
-import type { TerminalContext, TerminalEvent, TerminalOutputEvent, TerminalTab, TerminalUnsubscribeRequest } from '../../shared'
+import type {
+  TerminalContext,
+  TerminalDiagnostic,
+  TerminalEvent,
+  TerminalOutputEvent,
+  TerminalTab,
+  TerminalUnsubscribeRequest
+} from '../../shared'
 
 type TerminalToolProps = {
   context: TerminalContext
@@ -40,14 +47,32 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const terminalContextKey = useMemo(() => terminalContextIdentity(terminalContext), [terminalContext])
   const viewportByTerminal = getViewportStore(terminalContextKey)
   const [tabs, setTabs] = useState<TerminalTab[]>([])
-  const [terminalId, setTerminalId] = useState<string | null>(null)
+  const [activeTerminal, setActiveTerminal] = useState<{
+    terminalId: string
+    contextKey: string
+  } | null>(null)
+  const terminalId = activeTerminal?.terminalId ?? null
   const [status, setStatus] = useState<TerminalStatus>('starting')
   const [error, setError] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<TerminalDiagnostic[]>([])
   const [autoCreateToken, setAutoCreateToken] = useState(0)
+
+  const updateActiveTerminal = useCallback(
+    (nextTerminalId: string | null): void => {
+      terminalIdRef.current = nextTerminalId
+      setActiveTerminal((current) => {
+        if (nextTerminalId === null) return null
+        if (current?.terminalId === nextTerminalId) return current
+        return { terminalId: nextTerminalId, contextKey: terminalContextKey }
+      })
+    },
+    [terminalContextKey]
+  )
 
   const startTerminal = useCallback(() => {
     forceCreateRequestedRef.current = true
     setError(null)
+    setDiagnostics([])
     setStatus('starting')
     setAutoCreateToken((value) => value + 1)
   }, [])
@@ -95,14 +120,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         const wasActive = terminalIdRef.current === exitedTerminalId
         const nextTabs = currentTabs.filter((tab) => tab.terminalId !== exitedTerminalId)
         const nextActive = wasActive ? (nextTabs[0]?.terminalId ?? null) : terminalIdRef.current
-        terminalIdRef.current = nextActive
-        setTerminalId(nextActive)
+        updateActiveTerminal(nextActive)
         setStatus(nextActive ? 'running' : 'empty')
         if (wasActive) subscriptionRef.current = null
         return nextTabs
       })
     },
-    [applyOutputEvent]
+    [applyOutputEvent, updateActiveTerminal]
   )
 
   const resizeTerminal = useCallback(async (): Promise<void> => {
@@ -126,11 +150,11 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     queueMicrotask(() => {
       if (cancelled) return
       setError(null)
+      setDiagnostics([])
       if (contextChanged || !forceNew) {
         setStatus('starting')
         setTabs([])
-        setTerminalId(null)
-        terminalIdRef.current = null
+        updateActiveTerminal(null)
       }
     })
 
@@ -147,8 +171,8 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         const createdTabs = created.tabs ?? (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
         const activeTerminalId = created.activeTerminalId ?? created.terminalId
         setTabs(createdTabs)
-        terminalIdRef.current = activeTerminalId
-        setTerminalId(activeTerminalId)
+        setDiagnostics(created.diagnostics ?? [])
+        updateActiveTerminal(activeTerminalId)
         setStatus(created.status === 'empty' ? 'empty' : 'running')
       } catch (caught) {
         if (cancelled) return
@@ -162,10 +186,11 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     return () => {
       cancelled = true
     }
-  }, [autoCreateToken, fitTerminal, terminalContext, terminalContextKey])
+  }, [autoCreateToken, fitTerminal, terminalContext, terminalContextKey, updateActiveTerminal])
 
   useEffect(() => {
-    if (!terminalId) return
+    if (!activeTerminal || activeTerminal.contextKey !== terminalContextKey) return
+    const terminalId = activeTerminal.terminalId
 
     let cancelled = false
     const xterm = new XTerm({ cursorBlink: true, convertEol: true, scrollback: 10_000 })
@@ -258,7 +283,15 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       xtermRef.current = null
       fitAddonRef.current = null
     }
-  }, [applyReplayOutputEvent, applyTerminalEvent, resizeTerminal, terminalContext, terminalId, viewportByTerminal])
+  }, [
+    activeTerminal,
+    applyReplayOutputEvent,
+    applyTerminalEvent,
+    resizeTerminal,
+    terminalContext,
+    terminalContextKey,
+    viewportByTerminal
+  ])
 
   async function selectTerminal(nextTerminalId: string): Promise<void> {
     if (nextTerminalId === terminalId) return
@@ -267,8 +300,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       context: terminalContext
     })
     setTabs(snapshot.tabs)
-    terminalIdRef.current = snapshot.activeTerminalId
-    setTerminalId(snapshot.activeTerminalId)
+    updateActiveTerminal(snapshot.activeTerminalId)
   }
 
   async function closeTerminal(idToClose: string): Promise<void> {
@@ -277,8 +309,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     setTabs((currentTabs) => {
       const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
       const nextActive = idToClose === terminalId ? (nextTabs[0]?.terminalId ?? null) : terminalId
-      terminalIdRef.current = nextActive
-      setTerminalId(nextActive)
+      updateActiveTerminal(nextActive)
       setStatus(nextActive ? 'running' : 'empty')
       return nextTabs
     })
@@ -368,6 +399,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       ) : (
         <div className="relative min-h-0 flex-1 overflow-hidden p-2">
           <div ref={containerRef} aria-label="Terminal output" className="h-full" />
+          {diagnostics.length > 0 ? (
+            <div role="status" className="absolute inset-x-4 top-4 rounded-md border bg-background/95 p-2 text-xs text-muted-foreground shadow-sm">
+              {diagnostics.map((diagnostic) => (
+                <p key={`${diagnostic.type}:${diagnostic.terminalId}`}>{diagnostic.message}</p>
+              ))}
+            </div>
+          ) : null}
           {status === 'starting' ? (
             <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
               Starting terminal…
