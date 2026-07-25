@@ -32,15 +32,20 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
       }
     })
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.on('did-start-navigation', () => this.service?.markNavigationStarted(tabId))
+    view.webContents.on('did-start-loading', () => this.service?.markNavigationStarted(tabId))
+    view.webContents.on('did-stop-loading', () => this.service?.markNavigationStopped(tabId))
     view.webContents.on('did-navigate', (_event, url) =>
-      this.service?.markNavigationCommitted(tabId, url)
+      this.service?.markNavigationCommitted(tabId, url, this.historyState(tabId))
     )
     view.webContents.on('did-navigate-in-page', (_event, url) =>
-      this.service?.markNavigationCommitted(tabId, url)
+      this.service?.markNavigationCommitted(tabId, url, this.historyState(tabId))
     )
-    view.webContents.on('did-fail-load', (_event, _code, description) =>
-      this.service?.markNavigationFailed(tabId, description)
-    )
+    view.webContents.on('did-fail-load', (_event, _code, description, validatedUrl, isMainFrame) => {
+      if (!isMainFrame) return
+      this.service?.markNavigationFailed(tabId, `${description}${validatedUrl ? `: ${validatedUrl}` : ''}`)
+      this.service?.markHistoryChanged(tabId, this.historyState(tabId))
+    })
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
@@ -87,6 +92,38 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     const record = this.views.get(tabId)
     if (!record) return
     void record.view.webContents.loadURL(url)
+  }
+
+  goBack(tabId: string): void {
+    const record = this.views.get(tabId)
+    if (!record?.view.webContents.canGoBack()) return
+    record.view.webContents.goBack()
+  }
+
+  goForward(tabId: string): void {
+    const record = this.views.get(tabId)
+    if (!record?.view.webContents.canGoForward()) return
+    record.view.webContents.goForward()
+  }
+
+  reload(tabId: string): void {
+    const record = this.views.get(tabId)
+    if (!record) return
+    record.view.webContents.reload()
+  }
+
+  stop(tabId: string): void {
+    const record = this.views.get(tabId)
+    if (!record) return
+    record.view.webContents.stop()
+  }
+
+  private historyState(tabId: string): { canGoBack: boolean; canGoForward: boolean } {
+    const webContents = this.views.get(tabId)?.view.webContents
+    return {
+      canGoBack: webContents?.canGoBack() ?? false,
+      canGoForward: webContents?.canGoForward() ?? false
+    }
   }
 
   private detachRecord(tabId: string, record: BrowserViewRecord): void {

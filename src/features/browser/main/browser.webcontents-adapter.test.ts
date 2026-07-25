@@ -53,6 +53,10 @@ const fakes = vi.hoisted(() => {
     closed = false
     destroyed = false
     loadedUrl: string | null = null
+    wentBack = false
+    wentForward = false
+    reloaded = false
+    stopped = false
 
     setWindowOpenHandler(): void {}
     isDestroyed(): boolean {
@@ -64,6 +68,24 @@ const fakes = vi.hoisted(() => {
     }
     async loadURL(url: string): Promise<void> {
       this.loadedUrl = url
+    }
+    canGoBack(): boolean {
+      return true
+    }
+    canGoForward(): boolean {
+      return true
+    }
+    goBack(): void {
+      this.wentBack = true
+    }
+    goForward(): void {
+      this.wentForward = true
+    }
+    reload(): void {
+      this.reloaded = true
+    }
+    stop(): void {
+      this.stopped = true
     }
   }
 
