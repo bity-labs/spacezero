@@ -10,6 +10,7 @@ import {
 
 type BrowserViewRecord = {
   view: WebContentsView
+  ownerWindow: BrowserWindow | null
   attachedWindow: BrowserWindow | null
 }
 
@@ -43,7 +44,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
-    this.views.set(tabId, { view, attachedWindow: null })
+    this.views.set(tabId, { view, ownerWindow: null, attachedWindow: null })
   }
 
   showView(tabId: string, bounds: BrowserBounds, sender?: WebContents): void {
@@ -56,6 +57,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     if (previouslyActiveTabId && previouslyActiveTabId !== tabId) this.hideView(previouslyActiveTabId)
 
     if (record.attachedWindow && record.attachedWindow !== window) this.detachRecord(tabId, record)
+    if (record.ownerWindow !== window) record.ownerWindow = window
     if (record.attachedWindow !== window) {
       window.contentView.addChildView(record.view)
       record.attachedWindow = window
@@ -102,10 +104,13 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   }
 
   private destroyViewsForWindow(window: BrowserWindow): void {
+    const destroyedTabIds: string[] = []
     for (const [tabId, record] of [...this.views.entries()]) {
-      if (record.attachedWindow !== window) continue
+      if (record.ownerWindow !== window) continue
       this.destroyView(tabId)
+      destroyedTabIds.push(tabId)
     }
+    if (destroyedTabIds.length > 0) this.service?.removeNativeClosedTabs(destroyedTabIds)
     this.activeTabByWindowId.delete(window.id)
     this.observedWindowIds.delete(window.id)
   }

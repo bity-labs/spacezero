@@ -129,6 +129,20 @@ export class BrowserService {
     this.destroyContext({ kind: 'knowledge-base' })
   }
 
+  removeNativeClosedTabs(tabIds: string[]): void {
+    const closedTabIds = new Set(tabIds)
+    for (const [contextKey, context] of this.contexts.entries()) {
+      const remainingTabs = context.tabs.filter((tab) => !closedTabIds.has(tab.id))
+      if (remainingTabs.length === context.tabs.length) continue
+      if (remainingTabs.length === 0) {
+        this.contexts.delete(contextKey)
+        continue
+      }
+      context.tabs = remainingTabs
+      if (closedTabIds.has(context.activeTabId)) context.activeTabId = remainingTabs[0]?.id ?? context.activeTabId
+    }
+  }
+
   markNavigationCommitted(tabId: string, url: string): void {
     const tab = this.findTab(tabId)
     if (!tab) return
