@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const monacoMock = vi.hoisted(() => ({
@@ -921,6 +921,194 @@ describe('Files Tool', () => {
     fireEvent.click(screen.getByRole('tab', { name: /●\s*one\.txt/ }))
     expect(screen.getByDisplayValue('one.txt draft')).toBeInTheDocument()
     expect(openDocument).toHaveBeenCalledTimes(2)
+  })
+
+  it('saves every dirty tab in the active context and reports mixed Save All outcomes per file', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
+      { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `${relativePath} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async ({ relativePath, content }) => {
+      if (relativePath === 'two.txt') throw new Error('disk full')
+      return {
+        status: 'saved' as const,
+        document: {
+          name: relativePath,
+          relativePath,
+          contentKind: 'text' as const,
+          size: content.length,
+          modifiedAt: new Date(1).toISOString(),
+          revision: `${relativePath}-saved-revision`,
+          content,
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      }
+    })
+
+    render(<FilesTool sessionId="session-save-all" />)
+    fireEvent.click(await screen.findByText('one.txt'))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+      target: { value: 'one draft' }
+    })
+    fireEvent.click(screen.getByText('two.txt'))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+      target: { value: 'two draft' }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save All' }))
+
+    await waitFor(() => expect(window.spacezero.files.saveDocument).toHaveBeenCalledTimes(2))
+    expect(window.spacezero.files.saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-save-all' },
+      relativePath: 'one.txt',
+      content: 'one draft',
+      expectedRevision: 'one.txt-revision'
+    })
+    expect(window.spacezero.files.saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-save-all' },
+      relativePath: 'two.txt',
+      content: 'two draft',
+      expectedRevision: 'two.txt-revision'
+    })
+    expect(await screen.findByText('Couldn’t save this file. Your changes are still in memory.')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /one\.txt/ })).not.toHaveTextContent('●')
+    expect(screen.getByRole('tab', { name: /●\s*two\.txt/ })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('two draft')).toBeInTheDocument()
+  })
+
+  it('keeps Save All isolated to the currently mounted Files context', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ context }) => {
+      const contextKey = requestContextKey({ context, relativePath: '' })
+      return {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 5,
+        modifiedAt: new Date(0).toISOString(),
+        revision: `${contextKey}-revision`,
+        content: `${contextKey} saved`,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    })
+    window.spacezero.files.saveDocument = vi.fn(async ({ context, relativePath, content }) => {
+      const contextKey = requestContextKey({ context, relativePath })
+      return {
+        status: 'saved' as const,
+        document: {
+          name: relativePath,
+          relativePath,
+          contentKind: 'text' as const,
+          size: content.length,
+          modifiedAt: new Date(1).toISOString(),
+          revision: `${contextKey}-saved-revision`,
+          content,
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      }
+    })
+
+    const view = render(<FilesTool sessionId="session-one" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'session one draft' }
+    })
+
+    view.rerender(<FilesTool sessionId="session-two" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'session two draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save All' }))
+
+    await waitFor(() => expect(window.spacezero.files.saveDocument).toHaveBeenCalledTimes(1))
+    expect(window.spacezero.files.saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-two' },
+      relativePath: 'README.md',
+      content: 'session two draft',
+      expectedRevision: 'session-two-revision'
+    })
+
+    view.rerender(<FilesTool sessionId="session-one" />)
+    expect(await screen.findByDisplayValue('session one draft')).toBeInTheDocument()
+  })
+
+  it('requires Save, Discard, or Cancel before closing dirty tabs', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('save failed'))
+      .mockResolvedValueOnce({
+        status: 'saved' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 5,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'revision-2',
+          content: 'draft',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+
+    render(<FilesTool sessionId="session-close-dirty" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('Save changes to README.md?')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Couldn’t save this file. Your changes are still in memory.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /README\.md/ })).not.toBeInTheDocument())
+
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'discard me' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    await waitFor(() => expect(screen.queryByRole('tab', { name: /README\.md/ })).not.toBeInTheDocument())
   })
 
   it('keeps the dirty buffer and shows actionable feedback when save conflicts or fails', async () => {

@@ -73,6 +73,7 @@ type FilesStore = {
   activateTab: (sessionId: string, relativePath: string) => void
   promoteTab: (sessionId: string, relativePath: string) => void
   closeTab: (sessionId: string, relativePath: string) => void
+  discardAndCloseTab: (sessionId: string, relativePath: string) => void
   reorderTabs: (
     sessionId: string,
     sourcePath: string,
@@ -193,20 +194,9 @@ const useFilesStore = create<FilesStore>()(
           })
         }),
       closeTab: (sessionId, relativePath) =>
-        set((state) => {
-          const context = state.contexts[sessionId] ?? createDefaultContext()
-          const tabIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
-          if (tabIndex < 0) return state
-          const tab = context.tabs[tabIndex]
-          if (tab.status === 'ready' && tab.dirty) return state
-          const tabs = context.tabs.filter((candidate) => candidate.relativePath !== relativePath)
-          const activeTabPath = selectTabAfterClose(context, tabs, tabIndex, relativePath)
-          return updateContext(state, sessionId, {
-            tabs,
-            activeTabPath,
-            selectedPath: activeTabPath ?? context.selectedPath
-          })
-        }),
+        set((state) => closeTabIfAllowed(state, sessionId, relativePath, false)),
+      discardAndCloseTab: (sessionId, relativePath) =>
+        set((state) => closeTabIfAllowed(state, sessionId, relativePath, true)),
       reorderTabs: (sessionId, sourcePath, targetPath, dropPosition) =>
         set((state) => {
           if (sourcePath === targetPath) return state
@@ -249,16 +239,15 @@ const useFilesStore = create<FilesStore>()(
         }),
       markSaving: (sessionId, request) =>
         set((state) =>
-          updateActiveReadyTab(state, sessionId, (activeDocument) => {
+          updateMatchingReadyTab(state, sessionId, request.relativePath, (document) => {
             if (
-              activeDocument.relativePath !== request.relativePath ||
-              activeDocument.draft !== request.content ||
-              activeDocument.revision !== request.expectedRevision
+              document.draft !== request.content ||
+              document.revision !== request.expectedRevision
             ) {
-              return activeDocument
+              return document
             }
             return {
-              ...activeDocument,
+              ...document,
               preview: false,
               saveStatus: 'saving',
               error: undefined,
@@ -385,6 +374,25 @@ function updateActiveReadyTab(
   })
 }
 
+function updateMatchingReadyTab(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  relativePath: string,
+  update: (
+    document: Extract<FilesTabState, { status: 'ready' }>
+  ) => Extract<FilesTabState, { status: 'ready' }>
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const matchingDocument = context.tabs.find(
+    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+      tab.status === 'ready' && tab.relativePath === relativePath
+  )
+  if (!matchingDocument) return state
+  return updateContext(state, sessionId, {
+    tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
+  })
+}
+
 function updateMatchingSaveRequest(
   state: Pick<FilesStore, 'contexts'>,
   sessionId: string,
@@ -393,15 +401,9 @@ function updateMatchingSaveRequest(
     document: Extract<FilesTabState, { status: 'ready' }>
   ) => Extract<FilesTabState, { status: 'ready' }>
 ): Pick<FilesStore, 'contexts'> {
-  const context = state.contexts[sessionId] ?? createDefaultContext()
-  const matchingDocument = context.tabs.find(
-    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
-      tab.status === 'ready' && matchesSaveRequest(tab, request)
+  return updateMatchingReadyTab(state, sessionId, request.relativePath, (document) =>
+    matchesSaveRequest(document, request) ? update(document) : document
   )
-  if (!matchingDocument) return state
-  return updateContext(state, sessionId, {
-    tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
-  })
 }
 
 function matchesSaveRequest(
@@ -458,6 +460,26 @@ function toTabDocument(document: FilesDocument, preview: boolean): FilesTabState
 
 function canReplacePreviewTab(tab: FilesTabState): boolean {
   return tab.preview && !(tab.status === 'ready' && tab.dirty)
+}
+
+function closeTabIfAllowed(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  relativePath: string,
+  allowDirty: boolean
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const tabIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
+  if (tabIndex < 0) return state
+  const tab = context.tabs[tabIndex]
+  if (!allowDirty && tab.status === 'ready' && tab.dirty) return state
+  const tabs = context.tabs.filter((candidate) => candidate.relativePath !== relativePath)
+  const activeTabPath = selectTabAfterClose(context, tabs, tabIndex, relativePath)
+  return updateContext(state, sessionId, {
+    tabs,
+    activeTabPath,
+    selectedPath: activeTabPath ?? context.selectedPath
+  })
 }
 
 function selectTabAfterClose(

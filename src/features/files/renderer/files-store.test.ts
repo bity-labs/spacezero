@@ -284,6 +284,30 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('marks an inactive dirty tab as saving so Save All can settle per-file outcomes', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'src/one.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/one.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'first draft')
+    expect(store.beginOpenTab('session-1', 'src/two.ts', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/two.ts', 'two saved'), 2)
+    store.updateDraft('session-1', 'two draft')
+
+    store.markSaving('session-1', {
+      relativePath: 'src/one.ts',
+      content: 'first draft',
+      expectedRevision: 'src/one.ts-revision'
+    })
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'src/two.ts',
+      tabs: [
+        { relativePath: 'src/one.ts', saveStatus: 'saving', preview: false },
+        { relativePath: 'src/two.ts', saveStatus: 'idle' }
+      ]
+    })
+  })
+
   it('settles a saved tab after switching to another active document', () => {
     const store = useFilesStore.getState()
     const request = {
