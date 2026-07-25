@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { lstat, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -58,7 +58,7 @@ export function createGitService({
       const branch = await getBranch(worktree.path, runGit)
       const upstream = await getUpstream(worktree.path, runGit)
       const statuses = parsePorcelainStatus(
-        (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z'] })).stdout
+        (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
       )
       const files = await Promise.all(
         statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit }))
@@ -107,6 +107,9 @@ async function getUpstream(cwd: string, runGit: GitRunner): Promise<GitUpstreamS
     args: ['rev-list', '--left-right', '--count', 'HEAD...@{u}'],
     allowFailure: true
   })
+  if (counts.exitCode !== 0) {
+    throw new Error(counts.stderr.trim() || counts.stdout.trim() || 'Git upstream count query failed.')
+  }
   const [ahead = '0', behind = '0'] = counts.stdout.trim().split(/\s+/)
   return { kind: 'tracked', name, ahead: Number(ahead) || 0, behind: Number(behind) || 0 }
 }
@@ -149,11 +152,15 @@ async function createFileDiff({
   const kind = getChangeKind(status)
   if (kind === 'untracked') return createUntrackedDiff(cwd, status.path)
 
+  const pathspecs = status.oldPath ? [status.oldPath, status.path] : [status.path]
   const diff = await runGit({
     cwd,
-    args: ['diff', '--no-ext-diff', '--find-renames', '--binary', 'HEAD', '--', status.path],
+    args: ['diff', '--no-ext-diff', '--find-renames=1%', '--binary', 'HEAD', '--', ...pathspecs],
     allowFailure: true
   })
+  if (diff.exitCode !== 0) {
+    throw new Error(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+  }
   const content = diff.stdout
   const binary = content.includes('GIT binary patch') || content.includes('Binary files ')
   const large = Buffer.byteLength(content, 'utf8') > MAX_DIFF_BYTES
@@ -169,7 +176,12 @@ async function createFileDiff({
 
 async function createUntrackedDiff(cwd: string, path: string): Promise<GitFileDiff> {
   try {
-    const bytes = await readFile(join(cwd, path))
+    const absolutePath = join(cwd, path)
+    const stats = await lstat(absolutePath)
+    if (stats.isSymbolicLink() || !stats.isFile()) {
+      return { path, kind: 'untracked', binary: false, large: false, diff: null }
+    }
+    const bytes = await readFile(absolutePath)
     const binary = bytes.includes(0)
     const large = bytes.byteLength > MAX_UNTRACKED_BYTES
     if (binary || large) return { path, kind: 'untracked', binary, large, diff: null }
