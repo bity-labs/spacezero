@@ -517,15 +517,70 @@ function registerTerminalLinkProvider(
 
   return xterm.registerLinkProvider({
     provideLinks: (bufferLineNumber, callback) => {
-      const line = xterm.buffer.active.getLine(bufferLineNumber)?.translateToString(true) ?? ''
-      callback(findTerminalLinks(line, bufferLineNumber, onOpenLink))
+      const logicalLine = readWrappedLogicalLine(xterm, bufferLineNumber)
+      callback(findTerminalLinks(logicalLine, onOpenLink))
     }
   })
 }
 
+type TerminalCellPosition = { x: number; y: number }
+type TerminalLogicalLine = {
+  text: string
+  cellsByStringIndex: TerminalCellPosition[]
+}
+
+function readWrappedLogicalLine(xterm: XTerm, bufferLineNumber: number): TerminalLogicalLine {
+  const buffer = xterm.buffer.active
+  let firstLineNumber = bufferLineNumber
+  while (firstLineNumber > 0 && buffer.getLine(firstLineNumber)?.isWrapped) {
+    firstLineNumber -= 1
+  }
+
+  let lastLineNumber = bufferLineNumber
+  while (buffer.getLine(lastLineNumber + 1)?.isWrapped) {
+    lastLineNumber += 1
+  }
+
+  const pieces: string[] = []
+  const cellsByStringIndex: TerminalCellPosition[] = []
+  for (let lineNumber = firstLineNumber; lineNumber <= lastLineNumber; lineNumber += 1) {
+    appendPhysicalLine(xterm, lineNumber, pieces, cellsByStringIndex)
+  }
+
+  let text = pieces.join('')
+  while (text.endsWith(' ')) {
+    text = text.slice(0, -1)
+    cellsByStringIndex.pop()
+  }
+
+  return { text, cellsByStringIndex }
+}
+
+function appendPhysicalLine(
+  xterm: XTerm,
+  lineNumber: number,
+  pieces: string[],
+  cellsByStringIndex: TerminalCellPosition[]
+): void {
+  const line = xterm.buffer.active.getLine(lineNumber)
+  if (!line) return
+
+  const maxColumn = Math.min(line.length, xterm.cols)
+  for (let column = 0; column < maxColumn; column += 1) {
+    const cell = line.getCell(column)
+    if (!cell) continue
+    if (cell.getWidth() === 0) continue
+
+    const chars = cell.getChars() || ' '
+    pieces.push(chars)
+    for (let index = 0; index < chars.length; index += 1) {
+      cellsByStringIndex.push({ x: column + 1, y: lineNumber })
+    }
+  }
+}
+
 function findTerminalLinks(
-  line: string,
-  bufferLineNumber: number,
+  logicalLine: TerminalLogicalLine,
   onOpenLink: (url: string) => Promise<void>
 ): Array<{
   text: string
@@ -537,17 +592,19 @@ function findTerminalLinks(
     range: { start: { x: number; y: number }; end: { x: number; y: number } }
     activate: (event: MouseEvent, text: string) => void
   }> = []
-  for (const match of line.matchAll(/https?:\/\/[^\s<>'"]+/gi)) {
+  for (const match of logicalLine.text.matchAll(/https?:\/\/[^\s<>'"]+/gi)) {
     const raw = match[0]
     const url = trimTerminalLink(raw)
     if (!isValidTerminalLink(url)) continue
     const startIndex = match.index ?? 0
+    const endIndex = startIndex + url.length - 1
+    const start = logicalLine.cellsByStringIndex[startIndex]
+    const end = logicalLine.cellsByStringIndex[endIndex]
+    if (!start || !end) continue
+
     links.push({
       text: url,
-      range: {
-        start: { x: startIndex + 1, y: bufferLineNumber },
-        end: { x: startIndex + url.length, y: bufferLineNumber }
-      },
+      range: { start, end },
       activate: (event, text) => {
         if (!isModifierClick(event)) return
         void onOpenLink(text)
