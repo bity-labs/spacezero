@@ -210,6 +210,40 @@ describe('GitService', () => {
     })
   })
 
+  it('preserves unresolved conflicts in uncommitted when the worktree matches HEAD', async () => {
+    const root = await createTempDir('spacezero-git-conflict-head-worktree-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await writeFile(join(base, 'f.txt'), 'base\n')
+    await git(['-C', base, 'add', 'f.txt'])
+    await git(['-C', base, 'commit', '-m', 'add conflict fixture'])
+    await git(['-C', base, 'checkout', '-b', 'other'])
+    await writeFile(join(base, 'f.txt'), 'other\n')
+    await git(['-C', base, 'commit', '-am', 'other change'])
+    await git(['-C', base, 'checkout', 'main'])
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'f.txt'), 'session\n')
+    await git(['-C', worktree, 'commit', '-am', 'session change'])
+    await git(['-C', worktree, 'merge', 'other'], true)
+    await writeFile(join(worktree, 'f.txt'), await git(['-C', worktree, 'show', 'HEAD:f.txt']))
+
+    expect(await git(['-C', worktree, 'status', '--porcelain=v1'])).toBe('UU f.txt\n')
+    expect(await git(['-C', worktree, 'diff', '--no-ext-diff', '--find-renames=1%', '--binary', 'HEAD', '--', 'f.txt'])).toBe('')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1', 'uncommitted')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files).toHaveLength(1)
+    expect(review.files[0]).toMatchObject({ path: 'f.txt', kind: 'conflicted' })
+  })
+
   it('reports deleted, binary, and excessively large changes as bounded summaries', async () => {
     const root = await createTempDir('spacezero-git-bounded-states-')
     const base = join(root, 'base')
