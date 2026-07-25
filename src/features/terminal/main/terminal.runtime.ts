@@ -21,6 +21,7 @@ export function getTerminalService(): ReturnType<typeof createTerminalService> {
     },
     knowledgeBaseRoot: getKnowledgeBaseRootProvider(),
     pty: createNodePtyAdapter(),
+    enableShellIntegration: true,
     emitToWindow(windowId, event) {
       BrowserWindow.fromId(windowId)?.webContents.send(TERMINAL_IPC_CHANNELS.event, event)
     }

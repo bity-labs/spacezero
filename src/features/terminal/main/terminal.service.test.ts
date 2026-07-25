@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -327,9 +330,9 @@ describe('Terminal service', () => {
     ).resolves.toMatchObject({
       activeTerminalId: first.terminalId,
       tabs: [
-        { terminalId: third.terminalId, title: 'zsh' },
-        { terminalId: first.terminalId, title: 'zsh' },
-        { terminalId: second.terminalId, title: 'zsh' }
+        { terminalId: third.terminalId, title: 'session-1' },
+        { terminalId: first.terminalId, title: 'session-1' },
+        { terminalId: second.terminalId, title: 'session-1' }
       ]
     })
   })
@@ -356,8 +359,8 @@ describe('Terminal service', () => {
     await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
       activeTerminalId: second.terminalId,
       tabs: [
-        { terminalId: first.terminalId, title: 'zsh' },
-        { terminalId: second.terminalId, title: 'zsh' }
+        { terminalId: first.terminalId, title: 'session-1' },
+        { terminalId: second.terminalId, title: 'session-1' }
       ]
     })
   })
@@ -399,7 +402,7 @@ describe('Terminal service', () => {
       service.listTabs({ ownerWindowId: 1, request: { context } })
     ).resolves.toMatchObject({
       activeTerminalId: second.terminalId,
-      tabs: [{ terminalId: second.terminalId, title: 'zsh' }]
+      tabs: [{ terminalId: second.terminalId, title: 'session-1' }]
     })
 
     ptys[1]?.emitExit(0)
@@ -987,6 +990,202 @@ describe('Terminal service', () => {
       .join('')
     expect(Buffer.byteLength(retained, 'utf8')).toBeLessThanOrEqual(10)
     expect(retained).not.toContain('�')
+  })
+
+  it('updates tab labels from validated OSC 7 cwd reports, including outside-root directories', async () => {
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'spacezero-terminal-outside-'))
+    try {
+      const { events, ptys, service } = createHarness()
+      const created = await service.create({ ownerWindowId: 1, request: { context } })
+      if (created.status !== 'running') throw new Error('expected running terminal')
+      const { terminalId } = created
+      await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+
+      ptys[0]?.emitData(`\u001B]7;file://localhost${outsideRoot}\u0007`)
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({ type: 'tab-updated', terminalId, title: outsideRoot.split('/').at(-1) })
+      )
+
+      await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+        tabs: [{ terminalId, title: outsideRoot.split('/').at(-1) }],
+        activeTerminalId: terminalId
+      })
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('parses OSC 7 cwd reports across PTY chunks and coalesced sequences with bounded malformed reset', async () => {
+    const firstCwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-stream-first-'))
+    const secondCwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-stream-second-'))
+    try {
+      const { events, ptys, service } = createHarness()
+      const created = await service.create({ ownerWindowId: 1, request: { context } })
+      if (created.status !== 'running') throw new Error('expected running terminal')
+      const { terminalId } = created
+      await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+
+      ptys[0]?.emitData('\u001B]7;file://localhost')
+      ptys[0]?.emitData(`${firstCwd}\u0007`)
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({
+          type: 'tab-updated',
+          terminalId,
+          title: firstCwd.split('/').at(-1)
+        })
+      )
+
+      ptys[0]?.emitData(`\u001B]7;${'x'.repeat(4092)}`)
+      ptys[0]?.emitData(
+        `\u001B]7;file://localhost${secondCwd}\u0007\u001B]7;not-a-file-url\u0007`
+      )
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({
+          type: 'tab-updated',
+          terminalId,
+          title: secondCwd.split('/').at(-1)
+        })
+      )
+    } finally {
+      await rm(firstCwd, { recursive: true, force: true })
+      await rm(secondCwd, { recursive: true, force: true })
+    }
+  })
+
+  it('resynchronizes an at-limit malformed OSC 7 buffer when the replacement prefix is split across PTY chunks', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-stream-split-'))
+    try {
+      const { events, ptys, service } = createHarness()
+      const created = await service.create({ ownerWindowId: 1, request: { context } })
+      if (created.status !== 'running') throw new Error('expected running terminal')
+      const { terminalId } = created
+      await service.subscribe({ ownerWindowId: 1, request: { terminalId, context } })
+
+      ptys[0]?.emitData(`\u001B]7;${'x'.repeat(4092)}`)
+      ptys[0]?.emitData('\u001B]')
+      ptys[0]?.emitData(`7;file://localhost${cwd}\u0007`)
+      await vi.waitFor(() =>
+        expect(events).toContainEqual({
+          type: 'tab-updated',
+          terminalId,
+          title: cwd.split('/').at(-1)
+        })
+      )
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
+  it('ignores malformed, stale, inaccessible, and cross-context cwd reports without changing the last valid label', async () => {
+    const validCwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-valid-'))
+    try {
+      const { ptys, service } = createHarness()
+      const first = await service.create({ ownerWindowId: 1, request: { context } })
+      const second = await service.create({ ownerWindowId: 1, request: { context: secondProjectContext } })
+      if (first.status !== 'running' || second.status !== 'running') throw new Error('expected running terminals')
+
+      ptys[0]?.emitData('\u001B]7;not-a-file-url\u0007')
+      ptys[0]?.emitData('\u001B]7;file://localhost/no/such/spacezero/path\u0007')
+      ptys[1]?.emitData(`\u001B]7;file://localhost${validCwd}\u0007`)
+      await vi.waitFor(async () =>
+        expect(await service.listTabs({ ownerWindowId: 1, request: { context: secondProjectContext } })).toEqual({
+          tabs: [{ terminalId: second.terminalId, title: validCwd.split('/').at(-1) }],
+          activeTerminalId: second.terminalId
+        })
+      )
+
+      await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+        tabs: [{ terminalId: first.terminalId, title: 'session-1' }],
+        activeTerminalId: first.terminalId
+      })
+    } finally {
+      await rm(validCwd, { recursive: true, force: true })
+    }
+  })
+
+  it('adds cwd shell integration only for supported shells when enabled', async () => {
+    const { adapter, service } = createHarness()
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => 'terminal-integrated',
+      resolveShell: () => ({ executable: '/bin/bash', args: [] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    await integratedService.create({ ownerWindowId: 1, request: { context } })
+
+    expect(adapter.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ shell: '/bin/bash', args: expect.arrayContaining(['--rcfile']) })
+    )
+    expect(service).toBeDefined()
+  })
+
+  it.each([
+    ['/bin/zsh', []],
+    ['/usr/bin/fish', ['--init-command']],
+    ['C:/Program Files/PowerShell/7/pwsh.exe', ['-NoExit', '-Command']],
+    ['C:/Windows/System32/WindowsPowerShell/v1.0/powershell.exe', ['-NoExit', '-Command']]
+  ])('adds cwd shell integration for supported adapter %s', async (executable, expectedArgs) => {
+    const { adapter } = createHarness()
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => `terminal-integrated-${executable}`,
+      resolveShell: () => ({ executable, args: ['--user-arg'] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    await integratedService.create({ ownerWindowId: 1, request: { context } })
+
+    const spawnRequest = vi.mocked(adapter.spawn).mock.calls.at(-1)?.[0]
+    expect(spawnRequest?.shell).toBe(executable)
+    for (const arg of expectedArgs) expect(spawnRequest?.args).toContain(arg)
+    expect(spawnRequest?.args).toContain('--user-arg')
+  })
+
+  it('leaves unsupported shell launch requests unchanged when cwd integration is enabled', async () => {
+    const { adapter } = createHarness()
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => 'terminal-unsupported-shell',
+      resolveShell: () => ({ executable: '/bin/ksh', args: ['-l'] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    await integratedService.create({ ownerWindowId: 1, request: { context } })
+
+    expect(adapter.spawn).toHaveBeenCalledWith(
+      expect.objectContaining({ shell: '/bin/ksh', args: ['-l'] })
+    )
   })
 
   it('surfaces shell launch failures without substituting another shell', async () => {
