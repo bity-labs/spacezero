@@ -149,7 +149,7 @@ describe('TerminalTool', () => {
     await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
     lastTerminal!.setLines(['server: http://localhost:5173/ and https://example.com/docs.'])
     let links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
       links = provided
     })
 
@@ -158,7 +158,7 @@ describe('TerminalTool', () => {
       'https://example.com/docs'
     ])
     expect(links[0]).toMatchObject({
-      range: { start: { x: 9, y: 0 }, end: { x: 30, y: 0 } }
+      range: { start: { x: 9, y: 1 }, end: { x: 30, y: 1 } }
     })
     await act(async () => {
       links[0]!.activate(new MouseEvent('click'), links[0]!.text)
@@ -226,26 +226,26 @@ describe('TerminalTool', () => {
       text: string
       range: { start: { x: number; y: number }; end: { x: number; y: number } }
     }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
       firstRowLinks = provided
     })
     let wrappedRowLinks: Array<{
       text: string
       range: { start: { x: number; y: number }; end: { x: number; y: number } }
     }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(2, (provided) => {
       wrappedRowLinks = provided
     })
 
     expect(firstRowLinks).toHaveLength(1)
     expect(firstRowLinks[0]).toMatchObject({
       text: 'http://example.test/ok',
-      range: { start: { x: 4, y: 0 }, end: { x: 12, y: 1 } }
+      range: { start: { x: 4, y: 1 }, end: { x: 12, y: 2 } }
     })
     expect(wrappedRowLinks).toMatchObject([
       {
         text: 'http://example.test/ok',
-        range: { start: { x: 4, y: 0 }, end: { x: 12, y: 1 } }
+        range: { start: { x: 4, y: 1 }, end: { x: 12, y: 2 } }
       }
     ])
   })
@@ -272,7 +272,7 @@ describe('TerminalTool', () => {
     await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
     lastTerminal!.setLines(['Open https://example.com/fallback'])
     let links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
       links = provided
     })
 
