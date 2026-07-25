@@ -1035,7 +1035,7 @@ describe('Terminal service', () => {
         })
       )
 
-      ptys[0]?.emitData(`\u001B]7;${'x'.repeat(5000)}`)
+      ptys[0]?.emitData(`\u001B]7;${'x'.repeat(4092)}`)
       ptys[0]?.emitData(
         `\u001B]7;file://localhost${secondCwd}\u0007\u001B]7;not-a-file-url\u0007`
       )
