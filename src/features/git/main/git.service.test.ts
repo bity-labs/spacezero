@@ -125,15 +125,15 @@ describe('GitService', () => {
       sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
       managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
       fileSystem: {
-        async lstat(path) {
-          const stats = await lstat(path)
+        lstat,
+        async open(path, flags) {
           if (path === racedPath) {
             await rm(racedPath)
             await symlink(secret, racedPath)
           }
-          return stats
+          return open(path, flags)
         },
-        open
+        realpath
       }
     })
 
@@ -144,6 +144,45 @@ describe('GitService', () => {
     const raced = review.files.find((file) => file.path === 'race.txt')
     expect(raced).toMatchObject({ kind: 'untracked', diff: null })
     expect(JSON.stringify(raced)).not.toContain('outside-worktree-race-secret')
+  })
+
+  it('fails closed when an untracked file parent is swapped to an external symlink before open', async () => {
+    const root = await createTempDir('spacezero-git-parent-symlink-race-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    const external = join(root, 'external')
+    const racedParent = join(worktree, 'new-dir')
+    const racedPath = join(racedParent, 'note.txt')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await mkdir(racedParent, { recursive: true })
+    await mkdir(external, { recursive: true })
+    await writeFile(racedPath, 'safe initial content\n')
+    await writeFile(join(external, 'note.txt'), 'outside-worktree-parent-race-secret\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      fileSystem: {
+        lstat,
+        async open(path, flags) {
+          if (path === racedPath) {
+            await rm(racedParent, { recursive: true, force: true })
+            await symlink(external, racedParent)
+          }
+          return open(path, flags)
+        },
+        realpath
+      }
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const raced = review.files.find((file) => file.path === 'new-dir/note.txt')
+    expect(raced).toMatchObject({ kind: 'untracked', diff: null })
+    expect(JSON.stringify(raced)).not.toContain('outside-worktree-parent-race-secret')
   })
 
   it('preserves old and new paths for a pure rename diff', async () => {
