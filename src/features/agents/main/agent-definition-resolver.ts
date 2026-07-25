@@ -60,7 +60,8 @@ function toResolvedAgentDefinition(
     body: resolved.body,
     ...(resolved.model ? { model: resolved.model } : {}),
     ...(resolved.thinkingLevel ? { thinkingLevel: resolved.thinkingLevel } : {}),
-    ...(resolved.tools ? { tools: resolved.tools } : {})
+    ...(resolved.tools ? { tools: resolved.tools } : {}),
+    ...(resolved.spawns ? { spawns: resolved.spawns } : {})
   }
 }
 
@@ -99,7 +100,8 @@ function toBaseResolvedAgentDefinition(
     body: definition.body,
     ...(definition.model ? { model: parseDefinitionModel(definition.model) } : {}),
     ...(definition.thinking ? { thinkingLevel: parseThinkingLevel(definition.thinking) } : {}),
-    ...(definition.tools ? { tools: definition.tools } : {})
+    ...(definition.tools ? { tools: definition.tools } : {}),
+    ...(definition.spawns ? { spawns: definition.spawns } : {})
   }
 }
 
