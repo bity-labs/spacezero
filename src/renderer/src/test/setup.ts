@@ -792,6 +792,10 @@ beforeEach(async () => {
       updateChatLinkSettings: async (request) => ({
         openChatLinksIn: request.openChatLinksIn
       }),
+      getGitActionSettings: async () => ({ primaryGitAction: 'commit-and-push' }),
+      updateGitActionSettings: async (request) => ({
+        primaryGitAction: request.primaryGitAction
+      }),
       getTerminalSettings: async () => ({ confirmBeforeClosingLiveTerminals: true }),
       updateTerminalSettings: async (request) => ({
         confirmBeforeClosingLiveTerminals: request.confirmBeforeClosingLiveTerminals
