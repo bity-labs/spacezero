@@ -13,6 +13,10 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
   readonly hidden: string[] = []
   readonly destroyed: string[] = []
   readonly loaded: Array<{ id: string; url: string }> = []
+  readonly back: string[] = []
+  readonly forward: string[] = []
+  readonly reloaded: string[] = []
+  readonly stopped: string[] = []
 
   createView(tabId: string, options: { partition: string; preferences: Record<string, unknown> }): void {
     this.created.push({ id: tabId, partition: options.partition, preferences: options.preferences })
@@ -32,6 +36,22 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
 
   loadUrl(tabId: string, url: string): void {
     this.loaded.push({ id: tabId, url })
+  }
+
+  goBack(tabId: string): void {
+    this.back.push(tabId)
+  }
+
+  goForward(tabId: string): void {
+    this.forward.push(tabId)
+  }
+
+  reload(tabId: string): void {
+    this.reloaded.push(tabId)
+  }
+
+  stop(tabId: string): void {
+    this.stopped.push(tabId)
   }
 }
 
@@ -71,8 +91,11 @@ describe('normalizeBrowserUrl', () => {
     expect(normalizeBrowserUrl('localhost:5173')).toEqual('http://localhost:5173/')
     expect(normalizeBrowserUrl('127.0.0.1:3000')).toEqual('http://127.0.0.1:3000/')
     expect(normalizeBrowserUrl('[::1]:8080')).toEqual('http://[::1]:8080/')
-    expect(() => normalizeBrowserUrl('file:///etc/passwd')).toThrow(/Only HTTP, HTTPS, and loopback URLs/)
-    expect(() => normalizeBrowserUrl('spacezero://settings')).toThrow(/Only HTTP, HTTPS, and loopback URLs/)
+    expect(normalizeBrowserUrl('space zero browser')).toEqual('https://www.google.com/search?q=space%20zero%20browser')
+    expect(normalizeBrowserUrl('what is a+b?')).toEqual('https://www.google.com/search?q=what%20is%20a%2Bb%3F')
+    expect(() => normalizeBrowserUrl('file:///etc/passwd')).toThrow(/Only HTTP and HTTPS/)
+    expect(() => normalizeBrowserUrl('spacezero://settings')).toThrow(/Only HTTP and HTTPS/)
+    expect(() => normalizeBrowserUrl('http://')).toThrow(/valid HTTP/)
   })
 })
 
@@ -195,7 +218,96 @@ describe('BrowserService', () => {
 
     expect(state.activeTabId).toBe(blank.activeTabId)
     expect(state.tabs[0]?.url).toBe('http://localhost:4173/')
+    expect(state.tabs[0]?.isLoading).toBe(true)
     expect(adapter.loaded).toEqual([{ id: blank.activeTabId, url: 'http://localhost:4173/' }])
+  })
+
+  it('routes search terms to encoded Google Search navigation', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const blank = await service.getState(workspaceContext)
+
+    const state = await service.navigate({ ...workspaceContext, input: 'space zero browser' })
+
+    expect(state.tabs[0]?.url).toBe('https://www.google.com/search?q=space%20zero%20browser')
+    expect(adapter.loaded).toEqual([
+      { id: blank.activeTabId, url: 'https://www.google.com/search?q=space%20zero%20browser' }
+    ])
+  })
+
+  it('updates loading, history, and failed navigation state without clearing the failed URL', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.navigate({ ...workspaceContext, input: 'https://down.example/' })
+
+    service.markNavigationCommitted(state.activeTabId, 'https://example.com/', {
+      canGoBack: true,
+      canGoForward: false
+    })
+    let current = await service.getState(workspaceContext)
+    expect(current.tabs[0]).toMatchObject({
+      url: 'https://example.com/',
+      isLoading: false,
+      canGoBack: true,
+      canGoForward: false,
+      error: null
+    })
+
+    await service.navigate({ ...workspaceContext, input: 'https://down.example/' })
+    service.markNavigationFailed(state.activeTabId, 'Host unavailable')
+    current = await service.getState(workspaceContext)
+    expect(current.tabs[0]).toMatchObject({
+      url: 'https://down.example/',
+      isLoading: false,
+      error: 'Host unavailable'
+    })
+  })
+
+  it('controls back, forward, reload, and stop through main-owned native operations', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.navigate({ ...workspaceContext, input: 'https://example.com/' })
+    service.markHistoryChanged(state.activeTabId, { canGoBack: true, canGoForward: true })
+
+    await service.goBack(workspaceContext)
+    await service.goForward(workspaceContext)
+    await service.reload(workspaceContext)
+    await service.stop(workspaceContext)
+
+    expect(adapter.back).toEqual([state.activeTabId])
+    expect(adapter.forward).toEqual([state.activeTabId])
+    expect(adapter.reloaded).toEqual([state.activeTabId])
+    expect(adapter.stopped).toEqual([state.activeTabId])
+  })
+
+  it('opens the active HTTP page externally through a validated narrow opener', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const opened: string[] = []
+    const service = new BrowserService(adapter, createContextRepository(), {
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+    await service.navigate({ ...workspaceContext, input: 'https://example.com/docs' })
+
+    await service.openInDefaultBrowser(workspaceContext)
+
+    expect(opened).toEqual(['https://example.com/docs'])
+  })
+
+  it('rejects malformed active URLs before external opening', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const opened: string[] = []
+    const service = new BrowserService(adapter, createContextRepository(), {
+      openExternal: async (url) => {
+        opened.push(url)
+      }
+    })
+    const state = await service.getState(workspaceContext)
+    service.markNavigationCommitted(state.activeTabId, 'file:///etc/passwd')
+
+    await expect(service.openInDefaultBrowser(workspaceContext)).rejects.toThrow(/Only HTTP and HTTPS/)
+    expect(opened).toEqual([])
   })
 
   it('hides and cleans up native content by context lifecycle', async () => {

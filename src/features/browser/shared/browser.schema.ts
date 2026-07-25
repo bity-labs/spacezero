@@ -20,6 +20,11 @@ export const browserBoundsSchema = z.object({
   height: z.number().int().finite().min(1).max(10000)
 })
 
+export const browserTabRequestSchema = z.object({
+  ...contextRequestFields,
+  tabId: z.string().min(1).optional()
+})
+
 export const browserNavigateRequestSchema = z.object({
   ...contextRequestFields,
   tabId: z.string().min(1).optional(),

@@ -9,7 +9,8 @@ import type {
   BrowserNavigateRequest,
   BrowserPresentationRequest,
   BrowserState,
-  BrowserTab
+  BrowserTab,
+  BrowserTabRequest
 } from '../shared'
 
 export const BROWSER_PARTITION = 'persist:spacezero-browser'
@@ -30,6 +31,14 @@ export type BrowserViewAdapter = {
   hideView: (tabId: string) => void
   destroyView: (tabId: string) => void
   loadUrl: (tabId: string, url: string) => void
+  goBack: (tabId: string) => void
+  goForward: (tabId: string) => void
+  reload: (tabId: string) => void
+  stop: (tabId: string) => void
+}
+
+export type BrowserExternalOpener = {
+  openExternal: (url: string) => Promise<void>
 }
 
 export type BrowserContextRepository = {
@@ -63,7 +72,8 @@ export class BrowserService {
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
-    private readonly contextRepository?: BrowserContextRepository
+    private readonly contextRepository?: BrowserContextRepository,
+    private readonly externalOpener?: BrowserExternalOpener
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -79,6 +89,58 @@ export class BrowserService {
     tab.isLoading = true
     this.adapter.loadUrl(tab.id, url)
     return toBrowserState(context)
+  }
+
+  async goBack(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.canGoBack) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.goBack(tab.id)
+    }
+    return toBrowserState(context)
+  }
+
+  async goForward(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.canGoForward) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.goForward(tab.id)
+    }
+    return toBrowserState(context)
+  }
+
+  async reload(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.url) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.reload(tab.id)
+    }
+    return toBrowserState(context)
+  }
+
+  async stop(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.isLoading) {
+      this.adapter.stop(tab.id)
+      tab.isLoading = false
+    }
+    return toBrowserState(context)
+  }
+
+  async openInDefaultBrowser(request: BrowserTabRequest): Promise<void> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (!tab.url) throw new Error('Browser tab has no page to open.')
+    const url = normalizeExternalBrowserUrl(tab.url)
+    if (!this.externalOpener) throw new Error('Default browser opening is not available.')
+    await this.externalOpener.openExternal(url)
   }
 
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
@@ -143,12 +205,23 @@ export class BrowserService {
     }
   }
 
-  markNavigationCommitted(tabId: string, url: string): void {
+  markNavigationStarted(tabId: string): void {
+    const tab = this.findTab(tabId)
+    if (!tab) return
+    tab.isLoading = true
+    tab.error = null
+  }
+
+  markNavigationCommitted(tabId: string, url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
     const tab = this.findTab(tabId)
     if (!tab) return
     tab.url = url
     tab.error = null
     tab.isLoading = false
+    if (history) {
+      tab.canGoBack = history.canGoBack
+      tab.canGoForward = history.canGoForward
+    }
   }
 
   markNavigationFailed(tabId: string, error: string): void {
@@ -156,6 +229,19 @@ export class BrowserService {
     if (!tab) return
     tab.error = error
     tab.isLoading = false
+  }
+
+  markNavigationStopped(tabId: string): void {
+    const tab = this.findTab(tabId)
+    if (!tab) return
+    tab.isLoading = false
+  }
+
+  markHistoryChanged(tabId: string, history: { canGoBack: boolean; canGoForward: boolean }): void {
+    const tab = this.findTab(tabId)
+    if (!tab) return
+    tab.canGoBack = history.canGoBack
+    tab.canGoForward = history.canGoForward
   }
 
   markTitleChanged(tabId: string, title: string): void {
@@ -188,6 +274,8 @@ export class BrowserService {
       url: null,
       title: null,
       isLoading: false,
+      canGoBack: false,
+      canGoForward: false,
       error: null
     }
     this.adapter.createView(tab.id, {
@@ -266,16 +354,38 @@ export function browserContextKey(context: BrowserContext): string {
 
 export function normalizeBrowserUrl(input: string): string {
   const trimmed = input.trim()
-  const candidate = hasExplicitScheme(trimmed) ? trimmed : withImplicitHttpScheme(trimmed)
+  if (!trimmed) throw new Error('Enter a URL or search terms.')
+
+  if (hasExplicitScheme(trimmed)) {
+    return normalizeExplicitHttpUrl(trimmed)
+  }
+
+  if (isLoopbackAddress(trimmed)) {
+    return normalizeExplicitHttpUrl(`http://${trimmed}`)
+  }
+
+  return googleSearchUrl(trimmed)
+}
+
+export function normalizeExternalBrowserUrl(input: string): string {
+  const url = new URL(input)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
+  }
+  if (!url.hostname) throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
+  return url.toString()
+}
+
+function normalizeExplicitHttpUrl(input: string): string {
   let url: URL
   try {
-    url = new URL(candidate)
+    url = new URL(input)
   } catch {
     throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Only HTTP, HTTPS, and loopback URLs can be loaded in Browser.')
+    throw new Error('Only HTTP and HTTPS pages can be loaded in Browser.')
   }
   if (!url.hostname) throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
   return url.toString()
@@ -285,20 +395,21 @@ function hasExplicitScheme(input: string): boolean {
   return /^[a-z][a-z\d+.-]*:/i.test(input) && !isBareLoopbackWithPort(input)
 }
 
-function withImplicitHttpScheme(input: string): string {
-  if (
+function isLoopbackAddress(input: string): boolean {
+  return (
     input.startsWith('localhost') ||
     input.startsWith('127.') ||
     input.startsWith('[::1]') ||
     input === '::1'
-  ) {
-    return `http://${input}`
-  }
-  throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
+  )
 }
 
 function isBareLoopbackWithPort(input: string): boolean {
   return /^(?:localhost|127\.\d+\.\d+\.\d+|\[::1\]):\d+/i.test(input)
+}
+
+function googleSearchUrl(input: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(input)}`
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {

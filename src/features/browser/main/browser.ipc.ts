@@ -1,11 +1,12 @@
-import { ipcMain } from 'electron'
+import { ipcMain, shell } from 'electron'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   browserCloseTabRequestSchema,
   browserContextRequestSchema,
   browserNavigateRequestSchema,
-  browserPresentationRequestSchema
+  browserPresentationRequestSchema,
+  browserTabRequestSchema
 } from '../shared'
 import { createKnowledgeBaseChatRepository } from '../../knowledge-base/main/knowledge-base-chat.repository'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
@@ -19,6 +20,8 @@ const browserService = new BrowserService(browserViewAdapter, {
   findSessionById: (sessionId) => sessionsRepository.findSessionById(sessionId),
   findProjectById: (projectId) => sessionsRepository.findProjectById(projectId),
   getCurrentKnowledgeBaseSessionId: () => knowledgeBaseChatRepository.getCurrentSessionId()
+}, {
+  openExternal: (url) => shell.openExternal(url)
 })
 browserViewAdapter.setService(browserService)
 
@@ -32,6 +35,21 @@ export function registerBrowserIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.browser.navigate, (_event, request: unknown) =>
     browserService.navigate(browserNavigateRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.goBack, (_event, request: unknown) =>
+    browserService.goBack(browserTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.goForward, (_event, request: unknown) =>
+    browserService.goForward(browserTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.reload, (_event, request: unknown) =>
+    browserService.reload(browserTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.stop, (_event, request: unknown) =>
+    browserService.stop(browserTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.openInDefaultBrowser, (_event, request: unknown) =>
+    browserService.openInDefaultBrowser(browserTabRequestSchema.parse(request))
   )
   ipcMain.handle(IPC_CHANNELS.browser.show, (event, request: unknown) =>
     browserService.show(browserPresentationRequestSchema.parse(request), event.sender)
