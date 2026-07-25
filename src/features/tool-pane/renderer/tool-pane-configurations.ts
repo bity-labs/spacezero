@@ -1,9 +1,12 @@
 import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
+import type { BrowserContext } from '../../browser/shared'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
+import type { TerminalContext } from '../../terminal/shared'
 import type { ToolDescriptor, ToolPaneConfiguration } from './tool-pane-shell'
+import { useToolPaneStore } from './tool-pane-store'
 
 const FilesTool = lazy(async () => {
   const module = await import('../../files/renderer/components/files-tool')
@@ -65,8 +68,14 @@ export function createProjectSessionToolPaneConfiguration(session: {
             ? createElement(
                 Suspense,
                 { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalTool, {
-                  context: { kind: 'project-session', sessionId: capabilities.sessionId }
+                createElement(TerminalWithBrowserHandoff, {
+                  terminalContext: { kind: 'project-session', sessionId: capabilities.sessionId },
+                  browserContextKey: sessionContextKey(capabilities.sessionId),
+                  browserContext: {
+                    kind: 'project-session',
+                    projectId: capabilities.projectId,
+                    sessionId: capabilities.sessionId
+                  }
                 })
               )
             : null
@@ -92,8 +101,10 @@ export function createWorkspaceSessionToolPaneConfiguration(session: {
             ? createElement(
                 Suspense,
                 { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalTool, {
-                  context: { kind: 'workspace-session', sessionId: capabilities.sessionId }
+                createElement(TerminalWithBrowserHandoff, {
+                  terminalContext: { kind: 'workspace-session', sessionId: capabilities.sessionId },
+                  browserContextKey: sessionContextKey(capabilities.sessionId),
+                  browserContext: { kind: 'workspace-session', sessionId: capabilities.sessionId }
                 })
               )
             : null
@@ -138,7 +149,11 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
             ? createElement(
                 Suspense,
                 { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalTool, { context: { kind: 'knowledge-base' } })
+                createElement(TerminalWithBrowserHandoff, {
+                  terminalContext: { kind: 'knowledge-base' },
+                  browserContextKey: 'knowledge-base',
+                  browserContext: { kind: 'knowledge-base' }
+                })
               )
             : null
       }
@@ -157,6 +172,25 @@ function createBrowserToolDescriptor(): ToolDescriptor {
         createElement(BrowserTool, { contextKey, context: capabilities })
       )
   }
+}
+
+function TerminalWithBrowserHandoff({
+  terminalContext,
+  browserContextKey,
+  browserContext
+}: {
+  terminalContext: TerminalContext
+  browserContextKey: string
+  browserContext: BrowserContext
+}): React.JSX.Element {
+  return createElement(TerminalTool, {
+    context: terminalContext,
+    browserHandoff: {
+      contextKey: browserContextKey,
+      context: browserContext,
+      openBrowserTool: () => useToolPaneStore.getState().openTool(browserContextKey, 'browser')
+    }
+  })
 }
 
 function TerminalToolLoading(): React.JSX.Element {

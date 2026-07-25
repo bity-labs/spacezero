@@ -560,6 +560,7 @@ beforeEach(async () => {
         ]
       }),
       openInDefaultBrowser: async () => undefined,
+      openUrlInDefaultBrowser: async () => undefined,
       hide: async () => undefined,
       createTab: async ({ contextKey }) => ({
         contextKey,

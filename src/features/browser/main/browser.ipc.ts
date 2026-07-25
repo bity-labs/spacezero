@@ -6,6 +6,7 @@ import {
   browserContextRequestSchema,
   browserCreateTabRequestSchema,
   browserNavigateRequestSchema,
+  browserOpenUrlInDefaultBrowserRequestSchema,
   browserPresentationRequestSchema,
   browserReorderTabsRequestSchema,
   browserSelectTabRequestSchema,
@@ -19,13 +20,17 @@ import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
 const sessionsRepository = createSessionsRepository()
 const knowledgeBaseChatRepository = createKnowledgeBaseChatRepository()
 const browserViewAdapter = new ElectronBrowserViewAdapter()
-const browserService = new BrowserService(browserViewAdapter, {
-  findSessionById: (sessionId) => sessionsRepository.findSessionById(sessionId),
-  findProjectById: (projectId) => sessionsRepository.findProjectById(projectId),
-  getCurrentKnowledgeBaseSessionId: () => knowledgeBaseChatRepository.getCurrentSessionId()
-}, {
-  openExternal: (url) => shell.openExternal(url)
-})
+const browserService = new BrowserService(
+  browserViewAdapter,
+  {
+    findSessionById: (sessionId) => sessionsRepository.findSessionById(sessionId),
+    findProjectById: (projectId) => sessionsRepository.findProjectById(projectId),
+    getCurrentKnowledgeBaseSessionId: () => knowledgeBaseChatRepository.getCurrentSessionId()
+  },
+  {
+    openExternal: (url) => shell.openExternal(url)
+  }
+)
 browserViewAdapter.setService(browserService)
 
 export function getBrowserService(): BrowserService {
@@ -35,7 +40,8 @@ export function getBrowserService(): BrowserService {
 export function registerBrowserIpc(): void {
   browserService.onEvent((event) => {
     for (const window of browserViewAdapter.getOwnerWindows()) {
-      if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.browser.event, event)
+      if (!window.webContents.isDestroyed())
+        window.webContents.send(IPC_CHANNELS.browser.event, event)
     }
   })
 
@@ -59,6 +65,11 @@ export function registerBrowserIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.browser.openInDefaultBrowser, (_event, request: unknown) =>
     browserService.openInDefaultBrowser(browserTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.openUrlInDefaultBrowser, (_event, request: unknown) =>
+    browserService.openUrlInDefaultBrowser(
+      browserOpenUrlInDefaultBrowserRequestSchema.parse(request)
+    )
   )
   ipcMain.handle(IPC_CHANNELS.browser.show, (event, request: unknown) =>
     browserService.show(browserPresentationRequestSchema.parse(request), event.sender)

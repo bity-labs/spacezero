@@ -157,6 +157,8 @@ const api: SpaceZeroAPI = {
     stop: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.stop, request),
     openInDefaultBrowser: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.browser.openInDefaultBrowser, request),
+    openUrlInDefaultBrowser: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.browser.openUrlInDefaultBrowser, request),
     show: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.show, request),
     hide: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.hide, request),
     createTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.createTab, request),
