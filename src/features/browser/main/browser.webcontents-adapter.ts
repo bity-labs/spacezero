@@ -1,4 +1,5 @@
-import { BrowserWindow, WebContentsView, type Input, type WebContents } from 'electron'
+import * as electron from 'electron'
+import { type BrowserWindow, type Input, type WebContents } from 'electron'
 
 import { type BrowserBounds, type BrowserShortcutBinding } from '../shared'
 import {
@@ -7,9 +8,10 @@ import {
   type BrowserService,
   type BrowserViewAdapter
 } from './browser.service'
+import { BrowserSecurityPolicy } from './browser.security-policy'
 
 type BrowserViewRecord = {
-  view: WebContentsView
+  view: electron.WebContentsView
   ownerWindow: BrowserWindow | null
   attachedWindow: BrowserWindow | null
   shortcutBindings: BrowserShortcutBinding[]
@@ -19,7 +21,14 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   private readonly views = new Map<string, BrowserViewRecord>()
   private readonly activeTabByWindowId = new Map<number, string>()
   private readonly observedWindowIds = new Set<number>()
+  private readonly securityPolicy: BrowserSecurityPolicy
   private service: BrowserService | null = null
+
+  constructor(securityPolicy?: BrowserSecurityPolicy) {
+    this.securityPolicy = securityPolicy ?? createNativeBrowserSecurityPolicy(() => this.activeOwnerWindow())
+    this.installPermissionPolicy()
+    this.installCertificatePolicy()
+  }
 
   setService(service: BrowserService): void {
     this.service = service
@@ -33,7 +42,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   }
 
   createView(tabId: string, _options?: { partition: string; preferences: Record<string, unknown> }): void {
-    const view = new WebContentsView({
+    const view = new electron.WebContentsView({
       webPreferences: {
         ...BROWSER_WEB_PREFERENCES,
         partition: BROWSER_PARTITION
@@ -78,7 +87,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     const record = this.views.get(tabId)
     if (!record || !sender) return
     record.shortcutBindings = shortcutBindings
-    const window = BrowserWindow.fromWebContents(sender)
+    const window = electron.BrowserWindow.fromWebContents(sender)
     if (!window) return
 
     const previouslyActiveTabId = this.activeTabByWindowId.get(window.id)
@@ -141,12 +150,62 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     record.view.webContents.stop()
   }
 
+  private installPermissionPolicy(): void {
+    if (!('session' in electron) || !('app' in electron)) return
+    const install = (): void => {
+      electron.session.fromPartition(BROWSER_PARTITION).setPermissionRequestHandler(
+        (webContents, permission, callback, details) => {
+          const record = this.recordForWebContents(webContents)
+          if (!record?.ownerWindow) {
+            callback(false)
+            return
+          }
+          void this.securityPolicy
+            .requestPermission({
+              requestingUrl: details.requestingUrl || webContents.getURL(),
+              permission,
+              details: { mediaTypes: 'mediaTypes' in details ? details.mediaTypes : undefined },
+              isBackground: false
+            })
+            .then(callback, () => callback(false))
+        }
+      )
+    }
+    if (electron.app.isReady()) install()
+    else void electron.app.whenReady().then(install)
+  }
+
+  private installCertificatePolicy(): void {
+    if (!('app' in electron)) return
+    electron.app.on('certificate-error', (event, webContents, url, error, _certificate, callback) => {
+      if (!this.recordForWebContents(webContents)) return
+      event.preventDefault()
+      void this.securityPolicy
+        .requestCertificateException({ url, error })
+        .then(callback, () => callback(false))
+    })
+  }
+
   private historyState(tabId: string): { canGoBack: boolean; canGoForward: boolean } {
     const webContents = this.views.get(tabId)?.view.webContents
     return {
       canGoBack: webContents?.canGoBack() ?? false,
       canGoForward: webContents?.canGoForward() ?? false
     }
+  }
+
+  private recordForWebContents(webContents: WebContents): BrowserViewRecord | null {
+    for (const record of this.views.values()) {
+      if (record.view.webContents === webContents) return record
+    }
+    return null
+  }
+
+  private activeOwnerWindow(): BrowserWindow | null {
+    for (const record of this.views.values()) {
+      if (record.ownerWindow) return record.ownerWindow
+    }
+    return null
   }
 
   private detachRecord(tabId: string, record: BrowserViewRecord): void {
@@ -174,6 +233,45 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     this.activeTabByWindowId.delete(window.id)
     this.observedWindowIds.delete(window.id)
   }
+}
+
+function createNativeBrowserSecurityPolicy(ownerWindow: () => BrowserWindow | null): BrowserSecurityPolicy {
+  return new BrowserSecurityPolicy(
+    async ({ origin, capability }) => {
+      const options = {
+        type: 'question' as const,
+        buttons: ['Allow for this app run', 'Deny'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'Allow website permission?',
+        message: `Allow ${origin} to use ${capability}?`,
+        detail: 'This decision applies only to this origin and capability until Space Zero exits.'
+      }
+      const window = ownerWindow()
+      const result = window
+        ? await electron.dialog.showMessageBox(window, options)
+        : await electron.dialog.showMessageBox(options)
+      return result.response === 0 ? 'allow' : 'deny'
+    },
+    async ({ origin, error }) => {
+      const options = {
+        type: 'warning' as const,
+        buttons: ['Proceed for this app run', 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true,
+        title: 'Proceed past local certificate warning?',
+        message: `The local site ${origin} has an invalid certificate.`,
+        detail: `${error}\n\nProceed only if you trust this local development server. This exception expires when Space Zero exits.`
+      }
+      const window = ownerWindow()
+      const result = window
+        ? await electron.dialog.showMessageBox(window, options)
+        : await electron.dialog.showMessageBox(options)
+      return result.response === 0 ? 'proceed' : 'cancel'
+    }
+  )
 }
 
 function browserCommandForInput(

@@ -35,6 +35,20 @@ const fakes = vi.hoisted(() => {
 
   const senderToWindow = new Map<unknown, FakeBrowserWindow>()
   const createdViews: FakeWebContentsView[] = []
+  const permissionHandlers: Array<(
+    webContents: FakeWebContents,
+    permission: string,
+    callback: (allowed: boolean) => void,
+    details: { requestingUrl?: string; mediaTypes?: string[] }
+  ) => void> = []
+  const certificateHandlers: Array<(
+    event: { preventDefault: () => void },
+    webContents: FakeWebContents,
+    url: string,
+    error: string,
+    certificate: unknown,
+    callback: (allowed: boolean) => void
+  ) => void> = []
 
   class FakeContentView {
     readonly added: FakeWebContentsView[] = []
@@ -58,8 +72,12 @@ const fakes = vi.hoisted(() => {
     reloaded = false
     stopped = false
     lastPreventDefault: (() => void) | null = null
+    url = 'https://example.com/'
 
     setWindowOpenHandler(): void {}
+    getURL(): string {
+      return this.url
+    }
     isDestroyed(): boolean {
       return this.destroyed
     }
@@ -116,12 +134,34 @@ const fakes = vi.hoisted(() => {
     }
   }
 
-  return { senderToWindow, createdViews, FakeWebContentsView, FakeBrowserWindow }
+  return {
+    senderToWindow,
+    createdViews,
+    permissionHandlers,
+    certificateHandlers,
+    FakeWebContentsView,
+    FakeBrowserWindow
+  }
 })
 
 vi.mock('electron', () => ({
+  app: {
+    isReady: () => true,
+    whenReady: () => Promise.resolve(),
+    on: (event: string, listener: never) => {
+      if (event === 'certificate-error') fakes.certificateHandlers.push(listener)
+    }
+  },
   BrowserWindow: {
     fromWebContents: (sender: unknown) => fakes.senderToWindow.get(sender) ?? null
+  },
+  dialog: {
+    showMessageBox: vi.fn().mockResolvedValue({ response: 1 })
+  },
+  session: {
+    fromPartition: () => ({
+      setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler)
+    })
   },
   WebContentsView: fakes.FakeWebContentsView
 }))
@@ -146,6 +186,8 @@ describe('ElectronBrowserViewAdapter', () => {
   beforeEach(() => {
     fakes.senderToWindow.clear()
     fakes.createdViews.length = 0
+    fakes.permissionHandlers.length = 0
+    fakes.certificateHandlers.length = 0
   })
 
   it('shows one active Browser view per owner window', () => {
@@ -302,5 +344,88 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(fakes.createdViews[0]?.webContents.closed).toBe(true)
     expect(service.removeNativeClosedTabs).toHaveBeenCalledWith(['tab-1'])
+  })
+
+  it('denies background permission requests and prompts only for visible Browser contents', async () => {
+    const policy = {
+      requestPermission: vi.fn().mockResolvedValue(true),
+      requestCertificateException: vi.fn()
+    }
+    const adapter = new ElectronBrowserViewAdapter(policy as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    let backgroundDecision: boolean | null = null
+    fakes.permissionHandlers[0]?.(
+      fakes.createdViews[0].webContents,
+      'notifications',
+      (allowed) => {
+        backgroundDecision = allowed
+      },
+      { requestingUrl: 'https://example.com/' }
+    )
+    await vi.waitFor(() => expect(backgroundDecision).toBe(false))
+    expect(policy.requestPermission).not.toHaveBeenCalled()
+
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    let visibleDecision: boolean | null = null
+    fakes.permissionHandlers[0]?.(
+      fakes.createdViews[0].webContents,
+      'notifications',
+      (allowed) => {
+        visibleDecision = allowed
+      },
+      { requestingUrl: 'https://example.com/' }
+    )
+
+    await vi.waitFor(() => expect(visibleDecision).toBe(true))
+    expect(policy.requestPermission).toHaveBeenCalledWith({
+      requestingUrl: 'https://example.com/',
+      permission: 'notifications',
+      details: { mediaTypes: undefined },
+      isBackground: false
+    })
+  })
+
+  it('handles certificate errors only for Browser web contents', async () => {
+    const policy = {
+      requestPermission: vi.fn(),
+      requestCertificateException: vi.fn().mockResolvedValue(true)
+    }
+    const adapter = new ElectronBrowserViewAdapter(policy as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    const preventDefault = vi.fn()
+    let decision: boolean | null = null
+
+    fakes.certificateHandlers[0]?.(
+      { preventDefault },
+      fakes.createdViews[0].webContents,
+      'https://localhost:3443/',
+      'bad cert',
+      {},
+      (allowed) => {
+        decision = allowed
+      }
+    )
+
+    await vi.waitFor(() => expect(decision).toBe(true))
+    expect(preventDefault).toHaveBeenCalled()
+    expect(policy.requestCertificateException).toHaveBeenCalledWith({
+      url: 'https://localhost:3443/',
+      error: 'bad cert'
+    })
+
+    const nonBrowserPreventDefault = vi.fn()
+    fakes.certificateHandlers[0]?.(
+      { preventDefault: nonBrowserPreventDefault },
+      {} as never,
+      'https://localhost:3443/',
+      'bad cert',
+      {},
+      vi.fn()
+    )
+    expect(nonBrowserPreventDefault).not.toHaveBeenCalled()
   })
 })
