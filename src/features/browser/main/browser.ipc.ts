@@ -30,6 +30,12 @@ export function getBrowserService(): BrowserService {
 }
 
 export function registerBrowserIpc(): void {
+  browserService.onEvent((event) => {
+    for (const window of browserViewAdapter.getOwnerWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send(IPC_CHANNELS.browser.event, event)
+    }
+  })
+
   ipcMain.handle(IPC_CHANNELS.browser.getState, (_event, request: unknown) =>
     browserService.getState(browserContextRequestSchema.parse(request))
   )

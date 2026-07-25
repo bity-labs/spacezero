@@ -568,7 +568,8 @@ beforeEach(async () => {
             error: null
           }
         ]
-      })
+      }),
+      onEvent: () => () => undefined
     },
     agent: {
       ping: async () => ({

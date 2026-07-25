@@ -8,7 +8,8 @@ export const BROWSER_IPC_CHANNELS = {
   openInDefaultBrowser: 'browser:openInDefaultBrowser',
   show: 'browser:show',
   hide: 'browser:hide',
-  closeTab: 'browser:closeTab'
+  closeTab: 'browser:closeTab',
+  event: 'browser:event'
 } as const
 
 export const BROWSER_COMMAND_IDS = {
@@ -67,6 +68,20 @@ export type BrowserCloseTabRequest = BrowserContextRequest & {
   tabId: string
 }
 
+export type BrowserStateChangedEvent = {
+  type: 'state-changed'
+  contextKey: string
+  state: BrowserState
+}
+
+export type BrowserCommandRequestedEvent = {
+  type: 'command-requested'
+  contextKey: string
+  commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]
+}
+
+export type BrowserEvent = BrowserStateChangedEvent | BrowserCommandRequestedEvent
+
 export type BrowserAPI = {
   getState: (request: BrowserContextRequest) => Promise<BrowserState>
   navigate: (request: BrowserNavigateRequest) => Promise<BrowserState>
@@ -78,4 +93,5 @@ export type BrowserAPI = {
   show: (request: BrowserPresentationRequest) => Promise<BrowserState>
   hide: (request: BrowserContextRequest) => Promise<void>
   closeTab: (request: BrowserCloseTabRequest) => Promise<BrowserState>
+  onEvent: (listener: (event: BrowserEvent) => void) => () => void
 }

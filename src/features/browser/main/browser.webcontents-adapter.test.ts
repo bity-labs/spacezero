@@ -57,6 +57,7 @@ const fakes = vi.hoisted(() => {
     wentForward = false
     reloaded = false
     stopped = false
+    lastPreventDefault: (() => void) | null = null
 
     setWindowOpenHandler(): void {}
     isDestroyed(): boolean {
@@ -86,6 +87,11 @@ const fakes = vi.hoisted(() => {
     }
     stop(): void {
       this.stopped = true
+    }
+    emitBeforeInput(input: unknown): void {
+      const event = { preventDefault: vi.fn() }
+      this.lastPreventDefault = event.preventDefault
+      this.emit('before-input-event', event as never, input as never)
     }
   }
 
@@ -174,6 +180,49 @@ describe('ElectronBrowserViewAdapter', () => {
 
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(fakes.createdViews[0]?.webContents.closed).toBe(true)
+  })
+
+  it('routes focused page Browser shortcuts through the main command capability', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { handleNativeCommand: vi.fn() }
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'r',
+      control: process.platform !== 'darwin',
+      meta: process.platform === 'darwin',
+      alt: false,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(fakes.createdViews[0]?.webContents.lastPreventDefault).toHaveBeenCalled()
+    expect(service.handleNativeCommand).toHaveBeenCalledWith('tab-1', 'browser.reload')
+  })
+
+  it('does not steal embedded page text-input cursor shortcuts on macOS', () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { handleNativeCommand: vi.fn() }
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'ArrowLeft',
+      control: false,
+      meta: false,
+      alt: true,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(fakes.createdViews[0]?.webContents.lastPreventDefault).not.toHaveBeenCalled()
+    expect(service.handleNativeCommand).not.toHaveBeenCalled()
+    Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
   })
 
   it('destroys hidden native resources and clears service tabs when the owner window closes', () => {

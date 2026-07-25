@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
+import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-parser'
 import { useKeyboardShortcutsManager, useRegisterKeyboardShortcuts } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from '@renderer/components/ui/button'
 
@@ -20,12 +21,12 @@ const browserShortcutDefinitions = [
   },
   {
     commandId: BROWSER_COMMAND_IDS.back,
-    defaultKeybinding: { normalized: 'alt+arrowleft' },
+    defaultKeybinding: { normalized: isMacPlatform() ? 'mod+[' : 'alt+arrowleft' },
     when: (ctx: { browserFocused: boolean }) => ctx.browserFocused
   },
   {
     commandId: BROWSER_COMMAND_IDS.forward,
-    defaultKeybinding: { normalized: 'alt+arrowright' },
+    defaultKeybinding: { normalized: isMacPlatform() ? 'mod+]' : 'alt+arrowright' },
     when: (ctx: { browserFocused: boolean }) => ctx.browserFocused
   }
 ] as const
@@ -44,6 +45,7 @@ export function BrowserTool({
   const [state, setState] = useState<BrowserState | null>(null)
   const [address, setAddress] = useState('')
   const [isEditingAddress, setIsEditingAddress] = useState(false)
+  const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
   const activeTabId = activeTab?.id
@@ -72,6 +74,7 @@ export function BrowserTool({
         setState(nextState)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? input)
+        isEditingAddressRef.current = false
         setIsEditingAddress(false)
       } catch (reason) {
         setError(toErrorMessage(reason))
@@ -171,6 +174,7 @@ export function BrowserTool({
         setState(nextState)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? '')
+        isEditingAddressRef.current = false
         inputRef.current?.focus()
       })
       .catch((reason: unknown) => setError(toErrorMessage(reason)))
@@ -183,8 +187,21 @@ export function BrowserTool({
   }, [context, contextKey, focusAddressField, shortcutManager])
 
   useEffect(() => {
-    if (!isEditingAddress && document.activeElement !== inputRef.current) setAddress(activeTabUrl)
+    if (!isEditingAddressRef.current) setAddress(activeTabUrl)
   }, [activeTabUrl, isEditingAddress])
+
+  useEffect(() => {
+    return window.spacezero.browser.onEvent((event) => {
+      if (event.contextKey !== contextKey) return
+      if (event.type === 'state-changed') {
+        setState(event.state)
+        const tab = event.state.tabs.find((candidate) => candidate.id === event.state.activeTabId)
+        if (!isEditingAddressRef.current) setAddress(tab?.url ?? '')
+        return
+      }
+      if (event.commandId === BROWSER_COMMAND_IDS.focusAddress) focusAddressField()
+    })
+  }, [contextKey, focusAddressField, isEditingAddress])
 
   useLayoutEffect(() => {
     const surface = surfaceRef.current
@@ -207,7 +224,6 @@ export function BrowserTool({
             height: Math.round(rect.height)
           }
         })
-        .then(setState)
         .catch((reason: unknown) => setError(toErrorMessage(reason)))
     }
 
@@ -279,10 +295,10 @@ export function BrowserTool({
           placeholder="Enter a URL or search terms"
           value={address}
           onChange={(event) => {
+            isEditingAddressRef.current = true
             setIsEditingAddress(true)
             setAddress(event.target.value)
           }}
-          onFocus={() => setIsEditingAddress(true)}
         />
         <Button size="sm" type="submit">
           Go

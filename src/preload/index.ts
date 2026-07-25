@@ -159,7 +159,14 @@ const api: SpaceZeroAPI = {
       ipcRenderer.invoke(IPC_CHANNELS.browser.openInDefaultBrowser, request),
     show: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.show, request),
     hide: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.hide, request),
-    closeTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.closeTab, request)
+    closeTab: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.closeTab, request),
+    onEvent: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.browser.event, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.browser.event, handler)
+    }
   },
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
