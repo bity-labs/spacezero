@@ -134,6 +134,64 @@ describe('Terminal tab restoration persistence', () => {
     expect(tabsRepository.rows).toHaveLength(0)
   })
 
+  it('preserves restoration records when app shutdown kill emits exit before resolving', async () => {
+    const tabsRepository = createFakeTabsRepository()
+    let releaseKill: (() => void) | undefined
+    const pty = new FakePty(session.worktreePath)
+    pty.kill = vi.fn(async () => {
+      pty.emitExit(0)
+      await new Promise<void>((resolve) => {
+        releaseKill = resolve
+      })
+    })
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async () => pty)
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected tab')
+    expect(tabsRepository.rows).toHaveLength(1)
+
+    const close = service.closeAll()
+    await vi.waitFor(() => expect(pty.kill).toHaveBeenCalled())
+    expect(tabsRepository.rows).toHaveLength(1)
+    releaseKill?.()
+    await close
+    expect(tabsRepository.rows).toHaveLength(1)
+
+    const restored = await createHarness({ tabsRepository }).service.create({
+      ownerWindowId: 2,
+      request: { context }
+    })
+    expect(restored.status).toBe('running')
+    expect(restored.tabs).toHaveLength(1)
+  })
+
+  it('removes restoration records when explicit close kill emits exit before resolving', async () => {
+    const tabsRepository = createFakeTabsRepository()
+    let releaseKill: (() => void) | undefined
+    const pty = new FakePty(session.worktreePath)
+    pty.kill = vi.fn(async () => {
+      pty.emitExit(0)
+      await new Promise<void>((resolve) => {
+        releaseKill = resolve
+      })
+    })
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async () => pty)
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected tab')
+
+    const close = service.close({ ownerWindowId: 1, request: { context, terminalId: created.terminalId } })
+    await vi.waitFor(() => expect(pty.kill).toHaveBeenCalled())
+    await vi.waitFor(() => expect(tabsRepository.rows).toHaveLength(0))
+    releaseKill?.()
+    await close
+    expect(tabsRepository.rows).toHaveLength(0)
+  })
+
   it('rolls back restored terminals when a later tab fails to spawn', async () => {
     const tabsRepository = createFakeTabsRepository([
       {

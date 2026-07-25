@@ -36,8 +36,16 @@ const sessionCleanupService = createSessionCleanupService({
   },
   deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
   removeTranscript: (path) => rm(path, { force: true }),
-  closeTerminalsForSession: (session) =>
-    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId: session.id }),
+  closeTerminalsForSession: (session) => {
+    const context = { kind: 'project-session' as const, sessionId: session.id }
+    const service = getTerminalService()
+    return runWithLiveTerminalConfirmation({
+      operationKey: `delete-session:${session.id}`,
+      purpose: 'delete-context',
+      countLiveTerminals: () => service.countLiveTerminalsForContext(context) ?? 0,
+      run: () => service.closeAllForContext(context)
+    })
+  },
   closeBrowsersForSession: (session) => getBrowserService().destroySessionContext(session.id)
 })
 
@@ -61,23 +69,6 @@ export function registerProjectsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
-    await runWithLiveTerminalConfirmation({
-      operationKey: `delete-project:${projectId}`,
-      purpose: 'delete-context',
-      countLiveTerminals: async () => {
-        const sessions = await sessionsRepository.listByProjectIdIncludingArchived(projectId)
-        const terminalService = getTerminalService()
-        return sessions.reduce(
-          (count, session) =>
-            count +
-            (terminalService.countLiveTerminalsForContext({
-              kind: 'project-session',
-              sessionId: session.id
-            }) ?? 0),
-          0
-        )
-      },
-      run: () => deleteProjectLifecycle(projectId, { sessionCleanupService, projectsService })
-    })
+    await deleteProjectLifecycle(projectId, { sessionCleanupService, projectsService })
   })
 }

@@ -137,6 +137,7 @@ type TerminalRecord = {
   subscriptionGeneration: number
   operationQueue: Promise<void>
   dispose: Array<() => void>
+  serviceShutdown?: { markEmpty: boolean }
 }
 
 type TerminalContextState = {
@@ -814,8 +815,10 @@ export function createTerminalService({
     event: { exitCode: number | null; signal?: number | string | null }
   ): void {
     if (!terminals.has(terminal.id)) return
-    deleteTerminal(terminal, { markEmpty: true })
-    void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
+    const shutdown = terminal.serviceShutdown
+    const markEmpty = shutdown?.markEmpty ?? true
+    deleteTerminal(terminal, { markEmpty })
+    void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: markEmpty })
     emitToWindow(terminal.ownerWindowId, {
       type: 'exit',
       terminalId: terminal.id,
@@ -828,7 +831,12 @@ export function createTerminalService({
     terminal: TerminalRecord,
     options: { markEmpty: boolean }
   ): Promise<void> {
-    await trackTerminalShutdown(terminal)
+    terminal.serviceShutdown = options
+    try {
+      await trackTerminalShutdown(terminal)
+    } finally {
+      terminal.serviceShutdown = undefined
+    }
     terminalShutdownsById.delete(terminal.id)
     deleteTerminal(terminal, options)
     if (options.markEmpty) await persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
