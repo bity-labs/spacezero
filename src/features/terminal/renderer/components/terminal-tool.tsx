@@ -304,7 +304,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   }
 
   async function closeTerminal(idToClose: string): Promise<void> {
-    if (!window.confirm('Close this live terminal and terminate its shell?')) return
+    const settings = await window.spacezero.settings.getTerminalSettings()
+    if (
+      settings.confirmBeforeClosingLiveTerminals &&
+      !window.confirm('Close this live terminal and terminate its shell?')
+    ) {
+      return
+    }
     await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
     setTabs((currentTabs) => {
       const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)

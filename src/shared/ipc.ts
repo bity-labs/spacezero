@@ -78,6 +78,7 @@ import type {
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 import type { StorageSettings } from './storage-settings'
+import type { TerminalSettings, UpdateTerminalSettingsRequest } from './terminal-settings'
 import type {
   AgentGlobalSkill,
   SetGlobalAgentSkillEnabledRequest
@@ -199,7 +200,9 @@ export const IPC_CHANNELS = {
     getStorageSettings: 'settings:getStorageSettings',
     chooseSpaceZeroHome: 'settings:chooseSpaceZeroHome',
     getModelDefaults: 'settings:getModelDefaults',
-    updateModelDefaults: 'settings:updateModelDefaults'
+    updateModelDefaults: 'settings:updateModelDefaults',
+    getTerminalSettings: 'settings:getTerminalSettings',
+    updateTerminalSettings: 'settings:updateTerminalSettings'
   }
 } as const
 
@@ -355,5 +358,7 @@ export type SpaceZeroAPI = {
     chooseSpaceZeroHome: () => Promise<StorageSettings | null>
     getModelDefaults: () => Promise<ModelDefaults>
     updateModelDefaults: (request: UpdateModelDefaultsRequest) => Promise<ModelDefaults>
+    getTerminalSettings: () => Promise<TerminalSettings>
+    updateTerminalSettings: (request: UpdateTerminalSettingsRequest) => Promise<TerminalSettings>
   }
 }

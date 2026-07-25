@@ -714,6 +714,10 @@ beforeEach(async () => {
       updateModelDefaults: async (request) => ({
         defaultThinking: request.defaultThinking ?? 'medium',
         defaultModel: request.defaultModel
+      }),
+      getTerminalSettings: async () => ({ confirmBeforeClosingLiveTerminals: true }),
+      updateTerminalSettings: async (request) => ({
+        confirmBeforeClosingLiveTerminals: request.confirmBeforeClosingLiveTerminals
       })
     }
   }
