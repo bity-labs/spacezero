@@ -823,10 +823,28 @@ export function createTerminalService({
     key: string,
     restoredRecords: TerminalRecord[]
   ): Promise<void> {
-    contexts.delete(key)
+    const restoredIds = new Set(restoredRecords.map((record) => record.id))
+    const state = contexts.get(key)
+    if (state) {
+      state.terminalIds = state.terminalIds.filter(
+        (id) => !restoredIds.has(id) && terminals.has(id)
+      )
+      if (
+        state.activeTerminalId === null ||
+        restoredIds.has(state.activeTerminalId) ||
+        !state.terminalIds.includes(state.activeTerminalId)
+      ) {
+        state.activeTerminalId = state.terminalIds[0] ?? null
+      }
+      if (state.terminalIds.length === 0) contexts.delete(key)
+    }
     for (const record of restoredRecords) {
       terminals.delete(record.id)
       for (const dispose of record.dispose.splice(0)) dispose()
+    }
+    if (state && state.terminalIds.length > 0 && restoredRecords.length > 0) {
+      const [{ ownerWindowId, context }] = restoredRecords
+      await persistContext(ownerWindowId, context)
     }
     await Promise.all(restoredRecords.map((record) => record.pty.kill()))
   }
