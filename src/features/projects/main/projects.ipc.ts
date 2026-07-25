@@ -10,6 +10,7 @@ import { createSessionsRepository } from '../../sessions/main/sessions.repositor
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { createSessionCleanupService } from '../../sessions/main/session-cleanup.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import { shouldProceedWithLiveTerminalTermination } from '../../terminal/main/terminal-confirmation.service'
 import { getTerminalService } from '../../terminal/main/terminal.runtime'
 import { createEmptyProjectRequestSchema, updateProjectRequestSchema } from '../shared'
 import { archiveProjectLifecycle, deleteProjectLifecycle } from './project-lifecycle-orchestration'
@@ -60,6 +61,22 @@ export function registerProjectsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
+    const sessions = await sessionsRepository.listByProjectIdIncludingArchived(projectId)
+    const terminalService = getTerminalService()
+    const liveCount = sessions.reduce(
+      (count, session) =>
+        count +
+        (terminalService.countLiveTerminalsForContext({
+          kind: 'project-session',
+          sessionId: session.id
+        }) ?? 0),
+      0
+    )
+    const confirmed = await shouldProceedWithLiveTerminalTermination({
+      count: liveCount,
+      purpose: 'delete-context'
+    })
+    if (!confirmed) throw new Error('terminal.confirmationCancelled')
     await deleteProjectLifecycle(projectId, { sessionCleanupService, projectsService })
   })
 }

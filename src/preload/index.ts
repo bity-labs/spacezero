@@ -234,7 +234,10 @@ const api: SpaceZeroAPI = {
     chooseSpaceZeroHome: () => ipcRenderer.invoke(IPC_CHANNELS.settings.chooseSpaceZeroHome),
     getModelDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getModelDefaults),
     updateModelDefaults: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.settings.updateModelDefaults, request)
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateModelDefaults, request),
+    getTerminalSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getTerminalSettings),
+    updateTerminalSettings: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateTerminalSettings, request)
   }
 }
 

@@ -565,6 +565,14 @@ export function createTerminalService({
     await Promise.all(kills)
   }
 
+  function countLiveTerminals(): number {
+    return terminals.size
+  }
+
+  function countLiveTerminalsForContext(context: TerminalCreateRequest['context']): number {
+    return [...terminals.values()].filter((terminal) => sameContext(terminal.context, context)).length
+  }
+
   async function closeAllForContext(context: TerminalCreateRequest['context']): Promise<void> {
     deletingContexts.add(deletionContextKey(context))
     await enqueuePersistence(context, () => tabsRepository.deleteContext(context))
@@ -1058,7 +1066,9 @@ export function createTerminalService({
     close,
     closeAllForWindow,
     closeAllForContext,
-    closeAll
+    closeAll,
+    countLiveTerminals,
+    countLiveTerminalsForContext
   }
 }
 

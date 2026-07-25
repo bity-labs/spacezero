@@ -610,6 +610,65 @@ describe('TerminalTool', () => {
     expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
   })
 
+  it('skips close confirmation when terminal safety preference is disabled', async () => {
+    const user = userEvent.setup()
+    const close = vi.fn(async () => undefined)
+    window.confirm = vi.fn(() => true)
+    window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+      confirmBeforeClosingLiveTerminals: false
+    }))
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Close Terminal' }))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(close).toHaveBeenCalledWith({ terminalId: 'terminal-1', context })
+  })
+
+  it('leaves a live terminal intact when close confirmation is cancelled', async () => {
+    const user = userEvent.setup()
+    const close = vi.fn(async () => undefined)
+    window.confirm = vi.fn(() => false)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Close Terminal' }))
+
+    expect(close).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Close Terminal' })).toBeVisible()
+  })
+
   it('ignores stale-terminal unsubscribe races after close and natural exit', async () => {
     const user = userEvent.setup()
     const unsubscribe = vi.fn(async () => {

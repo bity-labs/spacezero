@@ -1,5 +1,8 @@
 import { ipcMain } from 'electron'
 
+import { shouldProceedWithLiveTerminalTermination } from '../../terminal/main/terminal-confirmation.service'
+import { getTerminalService } from '../../terminal/main/terminal.runtime'
+
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   addKnowledgeBaseRemoteRequestSchema,
@@ -30,6 +33,14 @@ export function registerKnowledgeBaseIpc(): void {
     getKnowledgeBaseChatService().startNewChat()
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
+    const terminalService = getTerminalService()
+    const context = { kind: 'knowledge-base' as const }
+    const confirmed = await shouldProceedWithLiveTerminalTermination({
+      count: terminalService.countLiveTerminalsForContext(context),
+      purpose: 'delete-context'
+    })
+    if (!confirmed) throw new Error('terminal.confirmationCancelled')
+    await terminalService.closeAllForContext(context)
     await getKnowledgeBaseProjectsService().clearProjectLinks()
     return getKnowledgeBaseService().reset()
   })
