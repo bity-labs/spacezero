@@ -269,23 +269,26 @@ export class BrowserService {
     return this.publishState(context)
   }
 
+  closeContext(context: BrowserContext): void {
+    this.closeContextKey(browserContextKey(context))
+  }
+
+  closeSessionContext(sessionId: string): void {
+    this.closeContextKey(`session:${sessionId}`)
+  }
+
+  closeKnowledgeBaseContext(): void {
+    this.closeContextKey(browserContextKey({ kind: 'knowledge-base' }))
+  }
+
   async destroyContext(context: BrowserContext): Promise<void> {
-    const contextKey = browserContextKey(context)
-    const state = this.contexts.get(contextKey)
-    if (state) {
-      for (const tab of state.tabs) this.adapter.destroyView(tab.id)
-      this.contexts.delete(contextKey)
-    }
+    this.closeContext(context)
     await this.tabsRepository?.deleteContext(context)
   }
 
   async destroySessionContext(sessionId: string): Promise<void> {
     const contextKey = `session:${sessionId}`
-    const state = this.contexts.get(contextKey)
-    if (state) {
-      for (const tab of state.tabs) this.adapter.destroyView(tab.id)
-      this.contexts.delete(state.contextKey)
-    }
+    this.closeContextKey(contextKey)
     await this.tabsRepository?.deleteContextKey(contextKey)
   }
 
@@ -445,10 +448,17 @@ export class BrowserService {
     contextKey: string
   ): Promise<BrowserContextState> {
     const persistedTabs = (await this.tabsRepository?.listByContext(context)) ?? []
-    const validTabs = persistedTabs.filter((tab) => tab.context && tab.tabId)
+    const validTabs = persistedTabs.flatMap((tab) => {
+      if (!tab.context || !tab.tabId) return []
+      const url = normalizePersistedBrowserUrl(tab.url)
+      if (url === undefined) return []
+      return [{ ...tab, url }]
+    })
     if (validTabs.length === 0) {
       const tab = this.createBlankTab()
-      return { context, contextKey, activeTabId: tab.id, tabs: [tab] }
+      const state = { context, contextKey, activeTabId: tab.id, tabs: [tab] }
+      await this.persistContext(state)
+      return state
     }
 
     const tabs = validTabs.map((tab) => this.createRestoredTab(tab.tabId, tab.url))
@@ -488,6 +498,13 @@ export class BrowserService {
       preferences: BROWSER_WEB_PREFERENCES
     })
     return tab
+  }
+
+  private closeContextKey(contextKey: string): void {
+    const state = this.contexts.get(contextKey)
+    if (!state) return
+    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    this.contexts.delete(contextKey)
   }
 
   private loadRestoredTabIfNeeded(tab: BrowserRuntimeTab): boolean {
@@ -629,6 +646,15 @@ export function normalizeExternalBrowserUrl(input: string): string {
   if (!url.hostname)
     throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
   return url.toString()
+}
+
+function normalizePersistedBrowserUrl(input: string | null): string | null | undefined {
+  if (input === null) return null
+  try {
+    return normalizeExternalBrowserUrl(input)
+  } catch {
+    return undefined
+  }
 }
 
 function normalizeExplicitHttpUrl(input: string): string {

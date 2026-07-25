@@ -93,6 +93,8 @@ async function setupSessionsIpcHarness({
   }))
   vi.doMock('../../browser/main/browser.ipc', () => ({
     getBrowserService: () => ({
+      closeSessionContext: vi.fn(),
+      closeKnowledgeBaseContext: vi.fn(),
       destroySessionContext: vi.fn(async () => undefined),
       destroyKnowledgeBaseContext: vi.fn(async () => undefined)
     })
