@@ -15,6 +15,7 @@ type BrowserViewRecord = {
   ownerWindow: BrowserWindow | null
   attachedWindow: BrowserWindow | null
   shortcutBindings: BrowserShortcutBinding[]
+  requestedUrl: string | null
 }
 
 export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
@@ -75,7 +76,13 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-favicon-updated', (_event, favicons) =>
       this.service?.markFaviconChanged(tabId, favicons)
     )
-    this.views.set(tabId, { view, ownerWindow: null, attachedWindow: null, shortcutBindings: [] })
+    this.views.set(tabId, {
+      view,
+      ownerWindow: null,
+      attachedWindow: null,
+      shortcutBindings: [],
+      requestedUrl: null
+    })
   }
 
   showView(
@@ -120,9 +127,10 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     this.views.delete(tabId)
   }
 
-  loadUrl(tabId: string, url: string): void {
+  loadUrl(tabId: string, url: string, originalInput?: string): void {
     const record = this.views.get(tabId)
     if (!record) return
+    record.requestedUrl = originalInput?.trim() || url
     void record.view.webContents.loadURL(url)
   }
 
@@ -153,23 +161,33 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   private installPermissionPolicy(): void {
     if (!('session' in electron) || !('app' in electron)) return
     const install = (): void => {
-      electron.session.fromPartition(BROWSER_PARTITION).setPermissionRequestHandler(
-        (webContents, permission, callback, details) => {
-          const record = this.recordForWebContents(webContents)
-          if (!record?.ownerWindow) {
-            callback(false)
-            return
-          }
-          void this.securityPolicy
-            .requestPermission({
-              requestingUrl: details.requestingUrl || webContents.getURL(),
-              permission,
-              details: { mediaTypes: 'mediaTypes' in details ? details.mediaTypes : undefined },
-              isBackground: false
-            })
-            .then(callback, () => callback(false))
+      const browserSession = electron.session.fromPartition(BROWSER_PARTITION)
+      browserSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+        if (!webContents) return false
+        const record = this.recordForWebContents(webContents)
+        if (!record) return false
+        return this.securityPolicy.checkPermission({
+          requestingUrl: details.requestingUrl || details.securityOrigin || requestingOrigin || webContents.getURL(),
+          permission,
+          details: { mediaTypes: details.mediaType && details.mediaType !== 'unknown' ? [details.mediaType] : undefined },
+          isBackground: !this.isRecordVisible(record)
+        })
+      })
+      browserSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+        const record = this.recordForWebContents(webContents)
+        if (!record) {
+          callback(false)
+          return
         }
-      )
+        void this.securityPolicy
+          .requestPermission({
+            requestingUrl: details.requestingUrl || webContents.getURL(),
+            permission,
+            details: { mediaTypes: 'mediaTypes' in details ? details.mediaTypes : undefined },
+            isBackground: !this.isRecordVisible(record)
+          })
+          .then(callback, () => callback(false))
+      })
     }
     if (electron.app.isReady()) install()
     else void electron.app.whenReady().then(install)
@@ -178,10 +196,11 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   private installCertificatePolicy(): void {
     if (!('app' in electron)) return
     electron.app.on('certificate-error', (event, webContents, url, error, _certificate, callback) => {
-      if (!this.recordForWebContents(webContents)) return
+      const record = this.recordForWebContents(webContents)
+      if (!record) return
       event.preventDefault()
       void this.securityPolicy
-        .requestCertificateException({ url, error })
+        .requestCertificateException({ url: record.requestedUrl || webContents.getURL() || url, error })
         .then(callback, () => callback(false))
     })
   }
@@ -203,9 +222,13 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
 
   private activeOwnerWindow(): BrowserWindow | null {
     for (const record of this.views.values()) {
-      if (record.ownerWindow) return record.ownerWindow
+      if (record.attachedWindow) return record.attachedWindow
     }
     return null
+  }
+
+  private isRecordVisible(record: BrowserViewRecord): boolean {
+    return record.attachedWindow !== null
   }
 
   private detachRecord(tabId: string, record: BrowserViewRecord): void {
