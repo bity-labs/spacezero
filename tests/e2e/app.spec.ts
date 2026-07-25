@@ -1092,6 +1092,120 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 })
 
+test('restores Browser tabs lazily after restart with fresh runtime history', async () => {
+  const server = await startBrowserFixtureServer()
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Browser fixture server did not bind.')
+  const activeUrl = `http://127.0.0.1:${address.port}/browser-fixture?tab=active`
+  const inactiveUrl = `http://127.0.0.1:${address.port}/browser-fixture?tab=inactive`
+  const userDataPath = await mkdtemp(join(tmpdir(), 'spacezero-browser-restore-e2e-'))
+  userDataDirectories.push(userDataPath)
+
+  const firstLaunch = await launchApp(userDataPath)
+  await firstLaunch.firstWindow()
+  await firstLaunch.evaluate(({ app }) => {
+    const { createRequire } = process.getBuiltinModule('node:module')
+    const { join } = process.getBuiltinModule('node:path')
+    const require = createRequire(`${app.getAppPath()}/package.json`)
+    const Database = require('better-sqlite3')
+    const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+    const timestamp = Date.now()
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run('browser-restore-session', null, 'Browser Restore', 'idle', timestamp, timestamp, null)
+    database.close()
+  })
+  await firstLaunch.close()
+
+  const secondLaunch = await launchApp(userDataPath)
+  const window = await secondLaunch.firstWindow()
+  await secondLaunch.evaluate(
+    ({ app }, { activeUrl, inactiveUrl }) => {
+      const { createRequire } = process.getBuiltinModule('node:module')
+      const { join } = process.getBuiltinModule('node:path')
+      const require = createRequire(`${app.getAppPath()}/package.json`)
+      const Database = require('better-sqlite3')
+      const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+      const timestamp = Date.now()
+      const insert = database.prepare(
+        `INSERT OR REPLACE INTO browser_tabs (
+          context_key,
+          context_kind,
+          context_session_id,
+          context_project_id,
+          tab_id,
+          sort_order,
+          active,
+          url,
+          updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      insert.run('session:browser-restore-session', 'workspace-session', 'browser-restore-session', null, 'browser-tab-restore-inactive', 0, 0, inactiveUrl, timestamp)
+      insert.run('session:browser-restore-session', 'workspace-session', 'browser-restore-session', null, 'browser-tab-restore-active', 1, 1, activeUrl, timestamp)
+      insert.run('session:browser-restore-session', 'workspace-session', 'browser-restore-session', null, 'browser-tab-restore-blank', 2, 0, null, timestamp)
+      database.close()
+    },
+    { activeUrl, inactiveUrl }
+  )
+
+  const contextRequest = {
+    contextKey: 'session:browser-restore-session',
+    context: { kind: 'workspace-session' as const, sessionId: 'browser-restore-session' }
+  }
+
+  const restored = await window.evaluate((request) => window.spacezero.browser.getState(request), contextRequest)
+  expect(restored.tabs.map((tab) => ({ id: tab.id, url: tab.url }))).toEqual([
+    { id: 'browser-tab-restore-inactive', url: inactiveUrl },
+    { id: 'browser-tab-restore-active', url: activeUrl },
+    { id: 'browser-tab-restore-blank', url: null }
+  ])
+  expect(restored.activeTabId).toBe('browser-tab-restore-active')
+  await expect.poll(async () =>
+    secondLaunch.evaluate(({ webContents }, { activeUrl, inactiveUrl }) =>
+      webContents
+        .getAllWebContents()
+        .filter((contents) => [activeUrl, inactiveUrl].includes(contents.getURL())).length,
+    { activeUrl, inactiveUrl })
+  ).toBe(0)
+
+  await window.evaluate((request) =>
+    window.spacezero.browser.show({
+      ...request,
+      bounds: { x: 10, y: 10, width: 320, height: 240 },
+      shortcutBindings: []
+    }), contextRequest)
+  await expect.poll(async () =>
+    secondLaunch.evaluate(({ webContents }, { activeUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === activeUrl),
+    { activeUrl })
+  ).toBe(true)
+  await expect.poll(async () =>
+    secondLaunch.evaluate(({ webContents }, { inactiveUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === inactiveUrl),
+    { inactiveUrl })
+  ).toBe(false)
+
+  const activeHistory = await secondLaunch.evaluate(({ webContents }, { activeUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === activeUrl)
+    return { canGoBack: contents?.navigationHistory.canGoBack() ?? true }
+  }, { activeUrl })
+  expect(activeHistory.canGoBack).toBe(false)
+
+  await window.evaluate((request) =>
+    window.spacezero.browser.selectTab({ ...request, tabId: 'browser-tab-restore-inactive' }), contextRequest)
+  await expect.poll(async () =>
+    secondLaunch.evaluate(({ webContents }, { inactiveUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === inactiveUrl),
+    { inactiveUrl })
+  ).toBe(true)
+
+  await secondLaunch.close()
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+})
+
 test('enforces Browser permission and certificate policy through real Electron handlers', async () => {
   const httpServer = await startBrowserFixtureServer()
   const httpAddress = httpServer.address()

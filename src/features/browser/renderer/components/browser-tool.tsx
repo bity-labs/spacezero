@@ -2,10 +2,19 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
 import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-parser'
-import { useKeyboardShortcutsManager, useRegisterKeyboardShortcuts } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
+  useKeyboardShortcutsManager,
+  useRegisterKeyboardShortcuts
+} from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Button } from '@renderer/components/ui/button'
 
-import { BROWSER_COMMAND_IDS, type BrowserContext, type BrowserShortcutBinding, type BrowserState, type BrowserTab } from '../../shared'
+import {
+  BROWSER_COMMAND_IDS,
+  type BrowserContext,
+  type BrowserShortcutBinding,
+  type BrowserState,
+  type BrowserTab
+} from '../../shared'
 
 const browserShortcutDefinitions = [
   {
@@ -179,7 +188,9 @@ export function BrowserTool({
 
   const focusTab = useCallback((tabId: string): void => {
     requestAnimationFrame(() => {
-      tabStripRef.current?.querySelector<HTMLButtonElement>(`[data-browser-tab-id="${tabId}"]`)?.focus()
+      tabStripRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-browser-tab-id="${tabId}"]`)
+        ?.focus()
     })
   }, [])
 
@@ -217,7 +228,9 @@ export function BrowserTool({
       try {
         const nextState = await window.spacezero.browser.closeTab({ contextKey, context, tabId })
         setState(nextState)
-        const nextActiveTab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
+        const nextActiveTab = nextState.tabs.find(
+          (candidate) => candidate.id === nextState.activeTabId
+        )
         if (!nextActiveTab?.url) requestAnimationFrame(() => focusAddressField())
       } catch (reason) {
         setError(toErrorMessage(reason))
@@ -244,7 +257,13 @@ export function BrowserTool({
       const optimisticState = { ...state, tabs: nextTabs }
       setState(optimisticState)
       try {
-        setState(await window.spacezero.browser.reorderTabs({ contextKey, context, tabIds: nextTabs.map((tab) => tab.id) }))
+        setState(
+          await window.spacezero.browser.reorderTabs({
+            contextKey,
+            context,
+            tabIds: nextTabs.map((tab) => tab.id)
+          })
+        )
       } catch (reason) {
         setState(state)
         setError(toErrorMessage(reason))
@@ -307,7 +326,8 @@ export function BrowserTool({
   useRegisterKeyboardShortcuts(browserShortcutDefinitions)
 
   useEffect(
-    () => shortcutManager.onBindingsChanged(() => setShortcutBindingsVersion((version) => version + 1)),
+    () =>
+      shortcutManager.onBindingsChanged(() => setShortcutBindingsVersion((version) => version + 1)),
     [shortcutManager]
   )
 
@@ -382,15 +402,17 @@ export function BrowserTool({
     }
 
     syncBounds()
+    const animationFrame = window.requestAnimationFrame(syncBounds)
     const observer = new ResizeObserver(syncBounds)
     observer.observe(surfaceElement)
     window.addEventListener('resize', syncBounds)
     return () => {
+      window.cancelAnimationFrame(animationFrame)
       observer.disconnect()
       window.removeEventListener('resize', syncBounds)
       void window.spacezero.browser.hide({ contextKey, context })
     }
-  }, [activeTabId, context, contextKey, shortcutBindingsVersion, shortcutManager])
+  }, [activeTabId, activeTabUrl, context, contextKey, shortcutBindingsVersion, shortcutManager])
 
   async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
@@ -453,13 +475,20 @@ export function BrowserTool({
                     void selectTab(tab.id)
                     return
                   }
-                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+                  if (
+                    event.key === 'ArrowLeft' ||
+                    event.key === 'ArrowRight' ||
+                    event.key === 'Home' ||
+                    event.key === 'End'
+                  ) {
                     event.preventDefault()
                     selectTabByKeyboard(tab.id, event.key)
                   }
                 }}
               >
-                {tab.faviconUrl ? <img alt="" className="size-4 shrink-0" src={tab.faviconUrl} /> : null}
+                {tab.faviconUrl ? (
+                  <img alt="" className="size-4 shrink-0" src={tab.faviconUrl} />
+                ) : null}
                 <span className="truncate">{tabLabel(tab)}</span>
               </button>
               <Button
@@ -475,7 +504,13 @@ export function BrowserTool({
             </div>
           )
         })}
-        <Button aria-label="New tab" size="sm" type="button" variant="outline" onClick={() => void createBlankTab()}>
+        <Button
+          aria-label="New tab"
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => void createBlankTab()}
+        >
           +
         </Button>
       </div>

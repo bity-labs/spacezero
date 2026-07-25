@@ -65,6 +65,24 @@ export const terminalTabs = sqliteTable(
   (table) => [primaryKey({ columns: [table.contextKey, table.tabId] })]
 )
 
+export const browserTabs = sqliteTable(
+  'browser_tabs',
+  {
+    contextKey: text('context_key').notNull(),
+    contextKind: text('context_kind', {
+      enum: ['project-session', 'workspace-session', 'knowledge-base']
+    }).notNull(),
+    contextSessionId: text('context_session_id'),
+    contextProjectId: text('context_project_id'),
+    tabId: text('tab_id').notNull(),
+    sortOrder: integer('sort_order').notNull(),
+    active: integer('active').notNull(),
+    url: text('url'),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  },
+  (table) => [primaryKey({ columns: [table.contextKey, table.tabId] })]
+)
+
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
