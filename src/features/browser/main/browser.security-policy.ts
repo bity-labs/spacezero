@@ -76,16 +76,16 @@ export class BrowserSecurityPolicy {
     return true
   }
 
-  async requestCertificateException(request: { url: string; error: string }): Promise<boolean> {
-    const parsed = safeUrl(request.url)
-    if (!parsed) return false
-    if (!isExactLoopbackCertificateHost(originalCertificateHost(request.url))) return false
+  async requestCertificateException(request: { url: string; originalUrl?: string; error: string }): Promise<boolean> {
+    const actual = exactLoopbackCertificateUrl(request.url)
+    const preserved = exactLoopbackCertificateUrl(request.originalUrl ?? request.url)
+    if (!actual || !preserved || actual.origin !== preserved.origin) return false
 
-    const origin = parsed.origin
+    const origin = actual.origin
     const key = scopedDecisionKey(origin, request.error)
     if (this.certificateExceptions.has(key)) return true
 
-    const decision = await this.certificatePrompt({ origin, url: parsed.toString(), error: request.error })
+    const decision = await this.certificatePrompt({ origin, url: actual.toString(), error: request.error })
     if (decision !== 'proceed') return false
     this.certificateExceptions.add(key)
     return true
@@ -130,6 +130,13 @@ export function permissionCapability(
 
 export function isExactLoopbackCertificateHost(hostname: string | null): boolean {
   return hostname !== null && EXACT_LOOPBACK_CERTIFICATE_HOSTS.has(hostname.toLowerCase())
+}
+
+function exactLoopbackCertificateUrl(input: string | undefined): URL | null {
+  const url = safeUrl(input)
+  if (!url || url.protocol !== 'https:') return null
+  if (!isExactLoopbackCertificateHost(originalCertificateHost(input ?? ''))) return null
+  return url
 }
 
 function scopedDecisionKey(origin: string, capability: string): string {

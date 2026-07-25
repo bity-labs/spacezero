@@ -165,12 +165,33 @@ describe('BrowserSecurityPolicy certificates', () => {
     })
   })
 
-  it('blocks remote hosts, lookalike loopback hosts, malformed URLs, and cancellation', async () => {
+  it('blocks remote hosts, mismatched preserved authorities, lookalike loopback hosts, malformed URLs, and cancellation', async () => {
     const prompt = vi.fn().mockResolvedValue('cancel')
     const policy = new BrowserSecurityPolicy(vi.fn(), prompt)
 
     await expect(
       policy.requestCertificateException({ url: 'https://localhost:3443/', error: 'bad cert' })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({
+        url: 'https://example.com/',
+        originalUrl: 'https://localhost:3443/',
+        error: 'bad cert'
+      })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({
+        url: 'https://localhost:3443/',
+        originalUrl: 'https://127.0.0.1:3443/',
+        error: 'bad cert'
+      })
+    ).resolves.toBe(false)
+    await expect(
+      policy.requestCertificateException({
+        url: 'https://localhost:3443/',
+        originalUrl: 'https://127.1:3443/',
+        error: 'bad cert'
+      })
     ).resolves.toBe(false)
     await expect(
       policy.requestCertificateException({ url: 'https://example.com/', error: 'bad cert' })
