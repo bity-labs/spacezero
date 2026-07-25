@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { BrowserService, normalizeBrowserUrl, type BrowserViewAdapter } from './browser.service'
+import {
+  BrowserService,
+  normalizeBrowserUrl,
+  type BrowserContextRepository,
+  type BrowserViewAdapter
+} from './browser.service'
 
 class FakeBrowserViewAdapter implements BrowserViewAdapter {
   readonly created: Array<{ id: string; partition: string; preferences: Record<string, unknown> }> = []
@@ -30,9 +35,33 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
   }
 }
 
+function createContextRepository(overrides: Partial<BrowserContextRepository> = {}): BrowserContextRepository {
+  return {
+    findSessionById: async (sessionId) => {
+      if (sessionId === 'project-session-1') return { id: sessionId, projectId: 'project-1' }
+      if (sessionId === 'workspace-1') return { id: sessionId, projectId: null }
+      if (sessionId === 'kb-session-1') return { id: sessionId, projectId: null, managedContext: 'knowledge-base' }
+      return undefined
+    },
+    findProjectById: async (projectId) => (projectId === 'project-1' ? { id: projectId } : undefined),
+    getCurrentKnowledgeBaseSessionId: async () => 'kb-session-1',
+    ...overrides
+  }
+}
+
 const projectContext = {
   contextKey: 'session:project-session-1',
   context: { kind: 'project-session' as const, projectId: 'project-1', sessionId: 'project-session-1' }
+}
+
+const workspaceContext = {
+  contextKey: 'session:workspace-1',
+  context: { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
+}
+
+const knowledgeBaseContext = {
+  contextKey: 'knowledge-base',
+  context: { kind: 'knowledge-base' as const }
 }
 
 describe('normalizeBrowserUrl', () => {
@@ -48,11 +77,11 @@ describe('normalizeBrowserUrl', () => {
 })
 
 describe('BrowserService', () => {
-  it('creates one blank tab per authenticated context using the dedicated profile', () => {
+  it('creates one blank tab per authenticated context using the dedicated profile', async () => {
     const adapter = new FakeBrowserViewAdapter()
-    const service = new BrowserService(adapter)
+    const service = new BrowserService(adapter, createContextRepository())
 
-    const state = service.getState(projectContext)
+    const state = await service.getState(projectContext)
 
     expect(state.contextKey).toBe('session:project-session-1')
     expect(state.tabs).toHaveLength(1)
@@ -71,41 +100,114 @@ describe('BrowserService', () => {
     ])
   })
 
-  it('rejects forged context keys before creating native content', () => {
+  it('rejects forged context keys before creating native content', async () => {
     const adapter = new FakeBrowserViewAdapter()
-    const service = new BrowserService(adapter)
+    const service = new BrowserService(adapter, createContextRepository())
 
-    expect(() =>
+    await expect(
       service.getState({
         contextKey: 'session:other',
         context: { kind: 'workspace-session', sessionId: 'workspace-1' }
       })
-    ).toThrow(/Browser context is not authorized/)
+    ).rejects.toThrow(/Browser context is not authorized/)
     expect(adapter.created).toEqual([])
   })
 
-  it('loads validated URLs and never lets renderer choose a native content id', () => {
+  it('rejects missing and archived session contexts before creating native content', async () => {
     const adapter = new FakeBrowserViewAdapter()
-    const service = new BrowserService(adapter)
-    const blank = service.getState(projectContext)
+    const service = new BrowserService(
+      adapter,
+      createContextRepository({
+        findSessionById: async (sessionId) =>
+          sessionId === 'archived-session' ? { id: sessionId, projectId: null, archivedAt: new Date() } : undefined
+      })
+    )
 
-    const state = service.navigate({ ...projectContext, tabId: 'forged-tab-id', input: 'localhost:4173' })
+    await expect(
+      service.getState({ contextKey: 'session:missing', context: { kind: 'workspace-session', sessionId: 'missing' } })
+    ).rejects.toThrow(/Browser context is not authorized/)
+    await expect(
+      service.getState({
+        contextKey: 'session:archived-session',
+        context: { kind: 'workspace-session', sessionId: 'archived-session' }
+      })
+    ).rejects.toThrow(/Browser context is not authorized/)
+    expect(adapter.created).toEqual([])
+  })
+
+  it('rejects wrong-kind and mismatched-project session contexts', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+
+    await expect(
+      service.getState({
+        contextKey: 'session:project-session-1',
+        context: { kind: 'workspace-session', sessionId: 'project-session-1' }
+      })
+    ).rejects.toThrow(/Browser context is not authorized/)
+    await expect(
+      service.getState({
+        contextKey: 'session:workspace-1',
+        context: { kind: 'project-session', projectId: 'project-1', sessionId: 'workspace-1' }
+      })
+    ).rejects.toThrow(/Browser context is not authorized/)
+    await expect(
+      service.getState({
+        contextKey: 'session:project-session-1',
+        context: { kind: 'project-session', projectId: 'other-project', sessionId: 'project-session-1' }
+      })
+    ).rejects.toThrow(/Browser context is not authorized/)
+    expect(adapter.created).toEqual([])
+  })
+
+  it('rejects missing and archived projects for project-session contexts', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(
+      adapter,
+      createContextRepository({ findProjectById: async () => ({ id: 'project-1', archivedAt: new Date() }) })
+    )
+
+    await expect(service.getState(projectContext)).rejects.toThrow(/Browser context is not authorized/)
+    expect(adapter.created).toEqual([])
+  })
+
+  it('verifies the main-owned Knowledge Base context before creating native content', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+
+    await expect(service.getState(knowledgeBaseContext)).resolves.toMatchObject({ contextKey: 'knowledge-base' })
+
+    const rejectingService = new BrowserService(
+      new FakeBrowserViewAdapter(),
+      createContextRepository({ getCurrentKnowledgeBaseSessionId: async () => undefined })
+    )
+    await expect(rejectingService.getState(knowledgeBaseContext)).rejects.toThrow(
+      /Browser context is not authorized/
+    )
+  })
+
+  it('loads validated URLs and never lets renderer choose a native content id', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const blank = await service.getState(projectContext)
+
+    const state = await service.navigate({ ...projectContext, tabId: 'forged-tab-id', input: 'localhost:4173' })
 
     expect(state.activeTabId).toBe(blank.activeTabId)
     expect(state.tabs[0]?.url).toBe('http://localhost:4173/')
     expect(adapter.loaded).toEqual([{ id: blank.activeTabId, url: 'http://localhost:4173/' }])
   })
 
-  it('hides and cleans up native content by context lifecycle', () => {
+  it('hides and cleans up native content by context lifecycle', async () => {
     const adapter = new FakeBrowserViewAdapter()
-    const service = new BrowserService(adapter)
-    const state = service.show({
-      ...projectContext,
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.show({
+      ...workspaceContext,
       bounds: { x: 10, y: 20, width: 640, height: 480 }
     })
 
-    service.hide(projectContext)
-    const closed = service.closeTab({ ...projectContext, tabId: state.activeTabId })
+    await service.hide(workspaceContext)
+    const closed = await service.closeTab({ ...workspaceContext, tabId: state.activeTabId })
 
     expect(adapter.shown).toEqual([
       { id: state.activeTabId, bounds: { x: 10, y: 20, width: 640, height: 480 } }
@@ -114,5 +216,15 @@ describe('BrowserService', () => {
     expect(adapter.destroyed).toEqual([state.activeTabId])
     expect(closed.tabs).toHaveLength(1)
     expect(closed.tabs[0]?.url).toBeNull()
+  })
+
+  it('destroys all tabs when a context is deleted', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.getState(workspaceContext)
+
+    service.destroySessionContext('workspace-1')
+
+    expect(adapter.destroyed).toEqual([state.activeTabId])
   })
 })

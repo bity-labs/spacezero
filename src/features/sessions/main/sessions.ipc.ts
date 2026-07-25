@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { createManagedProjectAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import { getBrowserService } from '../../browser/main/browser.ipc'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
 import { createProjectSessionRequestSchema } from '../shared'
@@ -37,8 +38,17 @@ const sessionCleanupService = createSessionCleanupService({
       kind: 'workspace-session',
       sessionId: session.id
     })
-  }
+  },
+  closeBrowsersForSession: (session) => closeBrowserContextForSession(session)
 })
+
+function closeBrowserContextForSession(session: { id: string; projectId: string | null; managedContext?: 'knowledge-base' | null }): void {
+  if (session.managedContext === 'knowledge-base') {
+    getBrowserService().destroyKnowledgeBaseContext()
+    return
+  }
+  getBrowserService().destroySessionContext(session.id)
+}
 
 export function registerSessionsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.sessions.listProjectSessions, () =>
@@ -60,7 +70,9 @@ export function registerSessionsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.sessions.archive, async (_event, input: unknown) => {
     const { sessionId } = sessionIdRequestSchema.parse(input)
+    const session = await sessionsRepository.findSessionById(sessionId)
     await sessionsService.archiveSession(sessionId)
+    if (session) closeBrowserContextForSession(session)
     await getAgentUtilityProcessHost()
       .deleteSession({ sessionId })
       .catch(() => undefined)

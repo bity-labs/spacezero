@@ -4,6 +4,7 @@ import { z } from 'zod'
 
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getBrowserService } from '../../browser/main/browser.ipc'
 import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
@@ -35,7 +36,8 @@ const sessionCleanupService = createSessionCleanupService({
   deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
   removeTranscript: (path) => rm(path, { force: true }),
   closeTerminalsForSession: (session) =>
-    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId: session.id })
+    getTerminalService().closeAllForContext({ kind: 'project-session', sessionId: session.id }),
+  closeBrowsersForSession: (session) => getBrowserService().destroySessionContext(session.id)
 })
 
 export function registerProjectsIpc(): void {
@@ -52,7 +54,8 @@ export function registerProjectsIpc(): void {
     await archiveProjectLifecycle(projectId, {
       sessionsService,
       projectsService,
-      deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request)
+      deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
+      closeBrowsersForSession: (session) => getBrowserService().destroySessionContext(session.id)
     })
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {

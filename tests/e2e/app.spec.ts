@@ -616,7 +616,21 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   const electronApp = await launchApp()
   const window = await electronApp.firstWindow()
 
-  await electronApp.evaluate(({ ipcMain, BrowserWindow }) => {
+  await electronApp.evaluate(({ app, ipcMain, BrowserWindow }) => {
+    const { createRequire } = process.getBuiltinModule('node:module')
+    const { join } = process.getBuiltinModule('node:path')
+    const require = createRequire(`${app.getAppPath()}/package.json`)
+    const Database = require('better-sqlite3')
+    const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+    const timestamp = Date.now()
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run('browser-e2e-session', null, 'Browser E2E', 'idle', timestamp, timestamp)
+    database.close()
+
     for (const channel of [
       'onboarding:getStatus',
       'onboarding:complete',
@@ -656,27 +670,10 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await window.getByRole('button', { name: /Browser E2E/ }).click()
   await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
 
-  await window.evaluate(async ({ fixtureUrl }) => {
-    const api = (globalThis as unknown as {
-      spacezero: {
-        browser: {
-          getState: (request: unknown) => Promise<{ activeTabId: string }>
-          show: (request: unknown) => Promise<void>
-          navigate: (request: unknown) => Promise<void>
-        }
-      }
-    }).spacezero
-    const context = { kind: 'workspace-session', sessionId: 'browser-e2e-session' }
-    const contextKey = 'session:browser-e2e-session'
-    const state = await api.browser.getState({ contextKey, context })
-    await api.browser.show({
-      contextKey,
-      context,
-      tabId: state.activeTabId,
-      bounds: { x: 0, y: 120, width: 640, height: 360 }
-    })
-    await api.browser.navigate({ contextKey, context, tabId: state.activeTabId, input: fixtureUrl })
-  }, { fixtureUrl })
+  await window.getByRole('button', { name: 'Browser', exact: true }).click()
+  await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+  await window.getByLabel('Browser URL').fill(fixtureUrl)
+  await window.getByRole('button', { name: 'Go' }).click()
 
   await expect.poll(async () =>
     electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
@@ -684,11 +681,17 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     , { fixtureUrl })
   ).toBe(true)
 
-  const browserIsolation = await electronApp.evaluate(async ({ session, webContents }, { fixtureUrl }) => {
+  const browserIsolation = await electronApp.evaluate(async ({ BrowserWindow, session, webContents }, { fixtureUrl }) => {
     const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    const [mainWindow] = BrowserWindow.getAllWindows()
     if (!contents) throw new Error('Embedded browser webContents was not found.')
+    const attachedBounds = mainWindow.contentView.children
+      .find((child) => child.webContents === contents)
+      ?.getBounds()
     return {
       url: contents.getURL(),
+      attachedBounds,
+      title: await contents.executeJavaScript('document.querySelector("h1")?.textContent'),
       preferences: contents.getLastWebPreferences(),
       usesDedicatedProfile: contents.session === session.fromPartition('persist:spacezero-browser'),
       usesDefaultProfile: contents.session === session.defaultSession,
@@ -700,7 +703,15 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     }
   }, { fixtureUrl })
 
+  const surfaceBounds = await window.getByLabel('Browser page surface').boundingBox()
   expect(browserIsolation.url).toBe(fixtureUrl)
+  expect(browserIsolation.title).toBe('Browser fixture')
+  expect(browserIsolation.attachedBounds).toEqual({
+    x: Math.round(surfaceBounds?.x ?? 0),
+    y: Math.round(surfaceBounds?.y ?? 0),
+    width: Math.round(surfaceBounds?.width ?? 0),
+    height: Math.round(surfaceBounds?.height ?? 0)
+  })
   expect(browserIsolation.usesDedicatedProfile).toBe(true)
   expect(browserIsolation.usesDefaultProfile).toBe(false)
   expect(browserIsolation.preferences.sandbox).toBe(true)
@@ -709,6 +720,43 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     spacezero: 'undefined',
     electronRequire: 'undefined'
   })
+
+  await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(false)
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
+    , { fixtureUrl })
+  ).toBe(true)
+
+  await window.getByRole('button', { name: 'Browser', exact: true }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(true)
+
+  await window.getByRole('button', { name: 'Collapse Tool Pane' }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(false)
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
+    , { fixtureUrl })
+  ).toBe(true)
 
   await electronApp.close()
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
