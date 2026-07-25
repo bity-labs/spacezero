@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -1292,6 +1292,46 @@ describe('Terminal service', () => {
 
     await vi.waitFor(async () => expect(await pathExists(integrationDir)).toBe(false))
   })
+
+  it.each([
+    ['/bin/bash', 'bashrc'],
+    ['/bin/zsh', '.zshenv']
+  ])(
+    'removes a %s shell-integration directory when startup-file creation fails',
+    async (executable, startupFileName) => {
+      const { adapter } = createHarness()
+      let startupFile: string | undefined
+      const integratedService = createTerminalService({
+        repository: {
+          findSessionById: vi.fn(async () => session),
+          findProjectById: vi.fn(async () => project)
+        },
+        worktrees: { validate: vi.fn(async () => true) },
+        storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+        knowledgeBaseRoot: {
+          getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+        },
+        pty: adapter,
+        createId: () => `terminal-${executable}`,
+        resolveShell: () => ({ executable, args: [] }),
+        emitToWindow: vi.fn(),
+        enableShellIntegration: true,
+        writeShellIntegrationFile: vi.fn(async (file) => {
+          startupFile = file
+          throw new Error('ENOSPC')
+        })
+      })
+
+      await expect(
+        integratedService.create({ ownerWindowId: 1, request: { context } })
+      ).rejects.toThrow('ENOSPC')
+
+      expect(startupFile).toBeDefined()
+      expect(startupFile).toEqual(expect.stringContaining(startupFileName))
+      await expect(pathExists(dirname(startupFile!))).resolves.toBe(false)
+      expect(adapter.spawn).not.toHaveBeenCalled()
+    }
+  )
 
   it('removes a shell-integration directory when shell launch fails', async () => {
     let integrationDir: string | undefined
