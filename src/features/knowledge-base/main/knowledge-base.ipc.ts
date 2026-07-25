@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron'
 
-import { shouldProceedWithLiveTerminalTermination } from '../../terminal/main/terminal-confirmation.service'
+import { runWithLiveTerminalConfirmation } from '../../terminal/main/terminal-confirmation.service'
 import { getTerminalService } from '../../terminal/main/terminal.runtime'
 
 import {
@@ -35,14 +35,16 @@ export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
     const terminalService = getTerminalService()
     const context = { kind: 'knowledge-base' as const }
-    const confirmed = await shouldProceedWithLiveTerminalTermination({
-      count: terminalService.countLiveTerminalsForContext(context),
-      purpose: 'delete-context'
+    return runWithLiveTerminalConfirmation({
+      operationKey: 'reset-knowledge-base',
+      purpose: 'delete-context',
+      countLiveTerminals: () => terminalService.countLiveTerminalsForContext(context),
+      run: async () => {
+        await terminalService.closeAllForContext(context)
+        await getKnowledgeBaseProjectsService().clearProjectLinks()
+        return getKnowledgeBaseService().reset()
+      }
     })
-    if (!confirmed) throw new Error('terminal.confirmationCancelled')
-    await terminalService.closeAllForContext(context)
-    await getKnowledgeBaseProjectsService().clearProjectLinks()
-    return getKnowledgeBaseService().reset()
   })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.createNew, async () => {
     const status = await getKnowledgeBaseService().createNew()

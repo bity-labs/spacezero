@@ -4,6 +4,40 @@ import { getTerminalSettings } from '../../settings/main/terminal-settings.servi
 
 export type TerminalConfirmationPurpose = 'close-tab' | 'quit' | 'delete-context'
 
+const terminalTerminationOperations = new Map<string, Promise<unknown>>()
+
+export async function runWithLiveTerminalConfirmation<T>({
+  operationKey,
+  purpose,
+  countLiveTerminals,
+  run
+}: {
+  operationKey: string
+  purpose: TerminalConfirmationPurpose
+  countLiveTerminals: () => number | Promise<number>
+  run: () => Promise<T>
+}): Promise<T> {
+  const pending = terminalTerminationOperations.get(operationKey)
+  if (pending) return pending as Promise<T>
+
+  const operation = (async () => {
+    const confirmed = await shouldProceedWithLiveTerminalTermination({
+      count: await countLiveTerminals(),
+      purpose
+    })
+    if (!confirmed) throw new Error('terminal.confirmationCancelled')
+    return run()
+  })()
+  terminalTerminationOperations.set(operationKey, operation)
+  try {
+    return await operation
+  } finally {
+    if (terminalTerminationOperations.get(operationKey) === operation) {
+      terminalTerminationOperations.delete(operationKey)
+    }
+  }
+}
+
 export async function shouldProceedWithLiveTerminalTermination({
   count,
   purpose

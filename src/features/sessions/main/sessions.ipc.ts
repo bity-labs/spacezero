@@ -11,7 +11,7 @@ import { createProjectSessionRequestSchema } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
-import { shouldProceedWithLiveTerminalTermination } from '../../terminal/main/terminal-confirmation.service'
+import { runWithLiveTerminalConfirmation } from '../../terminal/main/terminal-confirmation.service'
 import { getTerminalService } from '../../terminal/main/terminal.runtime'
 import { createSessionCleanupService } from './session-cleanup.service'
 import { createSessionsService } from './sessions.service'
@@ -33,13 +33,12 @@ const sessionCleanupService = createSessionCleanupService({
       ? ({ kind: 'project-session', sessionId: session.id } as const)
       : ({ kind: 'workspace-session', sessionId: session.id } as const)
     const service = getTerminalService()
-    const liveCount = service.countLiveTerminalsForContext(context) ?? 0
-    const confirmed = await shouldProceedWithLiveTerminalTermination({
-      count: liveCount,
-      purpose: 'delete-context'
+    await runWithLiveTerminalConfirmation({
+      operationKey: `delete-session:${session.id}`,
+      purpose: 'delete-context',
+      countLiveTerminals: () => service.countLiveTerminalsForContext(context) ?? 0,
+      run: () => service.closeAllForContext(context)
     })
-    if (!confirmed) throw new Error('terminal.confirmationCancelled')
-    await service.closeAllForContext(context)
   },
   closeBrowsersForSession: (session) => closeBrowserContextForSession(session)
 })

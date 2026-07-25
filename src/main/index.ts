@@ -14,6 +14,7 @@ import { getTerminalService } from '../features/terminal/main/terminal.runtime'
 import { closeDatabase, getDatabase } from './db'
 import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
+import { createLiveTerminalLastWindowCloseHandler } from './live-terminal-window-close'
 import {
   findSpaceZeroOAuthUrl,
   registerSpaceZeroProtocol,
@@ -88,8 +89,23 @@ function createWindow(): void {
 app.whenReady().then(() => {
   electronApp.setAppUserModelId('dev.spacezero.app')
 
+  const handleLastWindowClose = createLiveTerminalLastWindowCloseHandler({
+    getWindowCount: () => BrowserWindow.getAllWindows().length,
+    getTerminalService,
+    confirmQuit: (count) => shouldProceedWithLiveTerminalTermination({ count, purpose: 'quit' }),
+    isQuitInProgress: () => terminalQuitInProgress,
+    setQuitInProgress: (inProgress) => {
+      terminalQuitInProgress = inProgress
+    },
+    setQuitConfirmed: () => {
+      terminalQuitConfirmed = true
+    },
+    logError: (error) => log.error('Terminal shutdown before last window close failed', error)
+  })
+
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    window.on('close', (event) => handleLastWindowClose(window, event))
   })
 
   registerIpcHandlers()
