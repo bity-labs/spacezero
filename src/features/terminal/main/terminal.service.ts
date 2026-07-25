@@ -1,4 +1,9 @@
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
+import { isAbsolute as isPosixAbsolute } from 'node:path/posix'
+import { isAbsolute as isWin32Absolute } from 'node:path/win32'
 
 import type {
   TerminalCloseRequest,
@@ -76,14 +81,24 @@ export type TerminalPtyAdapter = {
 export type TerminalShell = {
   executable: string
   args: string[]
+  env?: NodeJS.ProcessEnv
 }
+
+const OSC7_PREFIX = `${String.fromCharCode(27)}]7;`
+const BEL = String.fromCharCode(7)
+const ST = `${String.fromCharCode(27)}\\`
+const MAX_PARTIAL_CWD_REPORT_BYTES = 4096
 
 type TerminalRecord = {
   id: string
   ownerWindowId: number
   context: TerminalCreateRequest['context']
   pty: PtyProcess
+  shellTitle: string
   title: string
+  currentWorkingDirectory: string | null
+  latestCwdReportOrdinal: number
+  cwdReportBuffer: string
   output: RetainedOutput
   subscribed: boolean
   subscriptionGeneration: number
@@ -133,7 +148,8 @@ export function createTerminalService({
   resolveShell = resolveDefaultShell,
   emitToWindow,
   maxRetainedLines = DEFAULT_MAX_RETAINED_LINES,
-  maxRetainedBytes = DEFAULT_MAX_RETAINED_BYTES
+  maxRetainedBytes = DEFAULT_MAX_RETAINED_BYTES,
+  enableShellIntegration = false
 }: {
   repository: TerminalRepository
   worktrees: TerminalWorktreeValidator
@@ -145,6 +161,7 @@ export function createTerminalService({
   emitToWindow: (windowId: number, event: TerminalEvent) => void
   maxRetainedLines?: number
   maxRetainedBytes?: number
+  enableShellIntegration?: boolean
 }) {
   const terminals = new Map<string, TerminalRecord>()
   const contexts = new Map<string, TerminalContextState>()
@@ -202,7 +219,7 @@ export function createTerminalService({
     const cwd = await resolveInitialCwd(request.context)
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
-    const shell = resolveShell()
+    const shell = enableShellIntegration ? await withCwdShellIntegration(resolveShell()) : resolveShell()
     const id = createId()
     let process: PtyProcess
     try {
@@ -212,7 +229,7 @@ export function createTerminalService({
         cwd,
         cols: request.cols ?? 80,
         rows: request.rows ?? 24,
-        env: processEnv()
+        env: { ...processEnv(), ...shell.env }
       })
     } catch (error) {
       throw new Error(
@@ -226,12 +243,17 @@ export function createTerminalService({
       throw new Error('terminal.contextDeleting')
     }
 
+    const shellTitle = shellName(shell.executable)
     const record: TerminalRecord = {
       id,
       ownerWindowId,
       context: request.context,
       pty: process,
-      title: shellName(shell.executable),
+      shellTitle,
+      title: cwdTitle(cwd, shellTitle),
+      currentWorkingDirectory: cwd,
+      latestCwdReportOrdinal: 0,
+      cwdReportBuffer: '',
       output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
       subscribed: false,
       subscriptionGeneration: 0,
@@ -523,6 +545,10 @@ export function createTerminalService({
   }
 
   function retainAndEmit(terminal: TerminalRecord, data: string): void {
+    for (const cwd of parseCwdReports(terminal, data)) {
+      void applyCwdReport(terminal, cwd)
+    }
+
     const chunk = {
       sequence: terminal.output.nextSequence++,
       data,
@@ -540,6 +566,32 @@ export function createTerminalService({
         terminalId: terminal.id,
         sequence: chunk.sequence,
         data
+      })
+    }
+  }
+
+  async function applyCwdReport(terminal: TerminalRecord, reportedCwd: string): Promise<void> {
+    const reportOrdinal = terminal.latestCwdReportOrdinal + 1
+    terminal.latestCwdReportOrdinal = reportOrdinal
+    if (!isUsableCwdPath(reportedCwd)) return
+
+    let pathStat
+    try {
+      pathStat = await stat(reportedCwd)
+    } catch {
+      return
+    }
+    if (!pathStat.isDirectory() || terminal.latestCwdReportOrdinal !== reportOrdinal || !terminals.has(terminal.id)) return
+
+    terminal.currentWorkingDirectory = reportedCwd
+    const nextTitle = cwdTitle(reportedCwd, terminal.shellTitle)
+    if (nextTitle === terminal.title) return
+    terminal.title = nextTitle
+    if (terminal.subscribed) {
+      emitToWindow(terminal.ownerWindowId, {
+        type: 'tab-updated',
+        terminalId: terminal.id,
+        title: nextTitle
       })
     }
   }
@@ -705,6 +757,78 @@ export function resolveDefaultShell(): TerminalShell {
   return { executable, args: [] }
 }
 
+async function withCwdShellIntegration(shell: TerminalShell): Promise<TerminalShell> {
+  const name = shellName(shell.executable).toLowerCase()
+  if (name === 'bash') return withBashCwdIntegration(shell)
+  if (name === 'zsh') return withZshCwdIntegration(shell)
+  if (name === 'fish') {
+    return {
+      ...shell,
+      args: [
+        '--init-command',
+        'function __spacezero_cwd_report; printf "\\e]7;file://%s%s\\a" (hostname) "$PWD"; end; function __spacezero_cwd_report_on_pwd --on-variable PWD; __spacezero_cwd_report; end; __spacezero_cwd_report',
+        ...shell.args
+      ]
+    }
+  }
+  if (name === 'powershell.exe' || name === 'powershell' || name === 'pwsh.exe' || name === 'pwsh') {
+    return {
+      ...shell,
+      args: [
+        '-NoExit',
+        '-Command',
+        "$function:__spacezero_original_prompt = $function:prompt; function global:prompt { Write-Host -NoNewline (\"`e]7;file://localhost/{0}`a\" -f ((Get-Location).ProviderPath -replace '\\\\','/')); if ($function:__spacezero_original_prompt) { & $function:__spacezero_original_prompt } else { 'PS ' + (Get-Location) + '> ' } }",
+        ...shell.args
+      ]
+    }
+  }
+  return shell
+}
+
+async function withBashCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
+  const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-bash-'))
+  const rcfile = join(dir, 'bashrc')
+  await writeFile(
+    rcfile,
+    'if [ -r "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "${HOSTNAME:-localhost}" "$PWD"; }\nPROMPT_COMMAND="__spacezero_cwd_report${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\n',
+    'utf8'
+  )
+  return { ...shell, args: ['--rcfile', rcfile, ...shell.args] }
+}
+
+async function withZshCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
+  const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-zsh-'))
+  const originalZdotdirWasSet = Object.hasOwn(process.env, 'ZDOTDIR') ? '1' : '0'
+  const originalZdotdir = process.env.ZDOTDIR ?? ''
+  await writeFile(
+    join(dir, '.zshenv'),
+    `if [ "\${SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET:-0}" = "1" ]; then
+  export ZDOTDIR="\${SPACEZERO_ORIGINAL_ZDOTDIR}"
+else
+  unset ZDOTDIR
+fi
+__spacezero_original_zdotdir="\${ZDOTDIR-$HOME}"
+if [ -r "\${__spacezero_original_zdotdir}/.zshenv" ]; then
+  source "\${__spacezero_original_zdotdir}/.zshenv"
+fi
+__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "\${HOST:-localhost}" "$PWD"; }
+typeset -ga precmd_functions chpwd_functions
+precmd_functions+=(__spacezero_cwd_report)
+chpwd_functions+=(__spacezero_cwd_report)
+`,
+    'utf8'
+  )
+  return {
+    ...shell,
+    args: [...shell.args],
+    env: {
+      SPACEZERO_ORIGINAL_ZDOTDIR: originalZdotdir,
+      SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET: originalZdotdirWasSet,
+      ZDOTDIR: dir
+    }
+  }
+}
+
 function contextKey(ownerWindowId: number, context: TerminalCreateRequest['context']): string {
   return `${ownerWindowId}:${terminalContextIdentity(context)}`
 }
@@ -727,6 +851,83 @@ function sameContext(
 
 function shellName(executable: string): string {
   return executable.split(/[\\/]/).filter(Boolean).at(-1) || 'Shell'
+}
+
+function cwdTitle(cwd: string | null, fallback: string): string {
+  if (!cwd) return fallback
+  return basename(cwd) || fallback
+}
+
+function parseCwdReports(terminal: TerminalRecord, data: string): string[] {
+  const reports: string[] = []
+  const stream = `${terminal.cwdReportBuffer}${data}`
+  terminal.cwdReportBuffer = ''
+
+  let searchFrom = 0
+  while (searchFrom < stream.length) {
+    const start = stream.indexOf(OSC7_PREFIX, searchFrom)
+    if (start < 0) {
+      terminal.cwdReportBuffer = partialOsc7Prefix(stream.slice(searchFrom))
+      break
+    }
+
+    const payloadStart = start + OSC7_PREFIX.length
+    const belEnd = stream.indexOf(BEL, payloadStart)
+    const stEnd = stream.indexOf(ST, payloadStart)
+    const end = belEnd < 0 ? stEnd : stEnd < 0 ? belEnd : Math.min(belEnd, stEnd)
+    const nestedStart = stream.indexOf(OSC7_PREFIX, payloadStart)
+    if (nestedStart >= 0 && (end < 0 || nestedStart < end)) {
+      searchFrom = nestedStart
+      continue
+    }
+    if (end < 0) {
+      const partial = stream.slice(start)
+      terminal.cwdReportBuffer =
+        Buffer.byteLength(partial, 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES
+          ? partial
+          : partialOsc7Prefix(partial)
+      break
+    }
+
+    if (Buffer.byteLength(stream.slice(payloadStart, end), 'utf8') <= MAX_PARTIAL_CWD_REPORT_BYTES) {
+      const cwd = parseCwdReportPayload(stream.slice(payloadStart, end))
+      if (cwd) reports.push(cwd)
+    }
+    searchFrom = end + (end === stEnd ? ST.length : BEL.length)
+  }
+
+  return reports
+}
+
+function partialOsc7Prefix(data: string): string {
+  const maxLength = Math.min(data.length, OSC7_PREFIX.length - 1)
+  for (let length = maxLength; length > 0; length -= 1) {
+    const suffix = data.slice(-length)
+    if (OSC7_PREFIX.startsWith(suffix)) return suffix
+  }
+  return ''
+}
+
+function parseCwdReportPayload(payload: string): string | null {
+  if (!payload.startsWith('file://')) return null
+  let url: URL
+  try {
+    url = new URL(payload)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'file:') return null
+  try {
+    const pathname = decodeURIComponent(url.pathname)
+    if (/^\/[A-Za-z]:[\\/]/.test(pathname)) return pathname.slice(1)
+    return pathname
+  } catch {
+    return null
+  }
+}
+
+function isUsableCwdPath(cwd: string): boolean {
+  return cwd.length > 0 && (isPosixAbsolute(cwd) || isWin32Absolute(cwd))
 }
 
 function trimOldestDataToLimits(
