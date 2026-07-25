@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -28,6 +28,9 @@ import type { SessionsRepository, StoredSession } from './sessions.service'
 
 const execFileAsync = promisify(execFile)
 const temporaryPaths: string[] = []
+
+// macOS temp dirs live under the /var symlink; production code canonicalizes real paths.
+const mkdtempRealpath = async (prefix: string) => realpath(await mkdtemp(join(tmpdir(), prefix)))
 
 afterEach(async () => {
   await Promise.all(
@@ -217,7 +220,7 @@ const readModelDefaults = async () => ({
 
 describe('Project Session real Git flows', () => {
   it('creates a managed New session from a public Create empty Project flow', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-empty-project-session-test-'))
+    const root = await mkdtempRealpath('spacezero-empty-project-session-test-')
     temporaryPaths.push(root)
     const projectPath = await createProjectPathAdapter({
       getProjectsPath: async () => join(root, 'projects')
@@ -259,7 +262,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('normalizes a selected repository subdirectory before creating a real worktree', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-folder-project-session-test-'))
+    const root = await mkdtempRealpath('spacezero-folder-project-session-test-')
     temporaryPaths.push(root)
     const repositoryRoot = join(root, 'project')
     await createGitRepository(repositoryRoot)
@@ -301,7 +304,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('repairs an upgraded Project subdirectory before creating a real worktree', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-upgraded-subdirectory-test-'))
+    const root = await mkdtempRealpath('spacezero-upgraded-subdirectory-test-')
     temporaryPaths.push(root)
     const repositoryRoot = join(root, 'project')
     await createGitRepository(repositoryRoot)
@@ -346,7 +349,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('fails an upgraded plain-directory Project before creating a utility Session', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-upgraded-plain-project-test-'))
+    const root = await mkdtempRealpath('spacezero-upgraded-plain-project-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'plain-project')
     await mkdir(projectPath)
@@ -376,7 +379,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('keeps an existing managed Session recoverable when a Project path edit is attempted', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-project-path-edit-test-'))
+    const root = await mkdtempRealpath('spacezero-project-path-edit-test-')
     temporaryPaths.push(root)
     const originalProjectPath = join(root, 'project-a')
     const replacementProjectPath = join(root, 'project-b')
@@ -433,7 +436,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('serializes Project path edits against in-flight managed Session creation', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-project-path-race-test-'))
+    const root = await mkdtempRealpath('spacezero-project-path-race-test-')
     temporaryPaths.push(root)
     const originalProjectPath = join(root, 'project-a')
     const replacementProjectPath = join(root, 'project-b')
@@ -484,7 +487,7 @@ describe('Project Session real Git flows', () => {
   })
 
   it('retains recovery metadata across utility rollback and verified worktree cleanup failures', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'spacezero-session-recovery-test-'))
+    const root = await mkdtempRealpath('spacezero-session-recovery-test-')
     temporaryPaths.push(root)
     const projectPath = join(root, 'project')
     await createGitRepository(projectPath)

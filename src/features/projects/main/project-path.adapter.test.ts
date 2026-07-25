@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,9 +7,12 @@ import { describe, expect, it } from 'vitest'
 
 import { createProjectPathAdapter, normalizeExistingProjectPath } from './project-path.adapter'
 
+// macOS temp dirs live under the /var symlink; production code canonicalizes real paths.
+const mkdtempRealpathSync = (prefix: string) => realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+
 describe('createProjectPathAdapter', () => {
   it('creates new projects under the configured Space Zero projects path', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'spacezero-storage-'))
+    const root = mkdtempRealpathSync('spacezero-storage-')
     const projectsPath = join(root, 'projects')
     const adapter = createProjectPathAdapter({ getProjectsPath: async () => projectsPath })
 
@@ -34,7 +37,7 @@ describe('createProjectPathAdapter', () => {
 
 describe('normalizeExistingProjectPath', () => {
   it('normalizes a repository subdirectory to its top-level checkout', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-root-'))
+    const directory = mkdtempRealpathSync('spacezero-project-root-')
     const nestedDirectory = join(directory, 'packages', 'desktop')
     mkdirSync(nestedDirectory, { recursive: true })
     execFileSync('git', ['init', '-b', 'main', directory])
@@ -63,7 +66,7 @@ describe('normalizeExistingProjectPath', () => {
   })
 
   it('rejects a current folder registration that is not a Git repository', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-'))
+    const directory = mkdtempRealpathSync('spacezero-project-')
 
     try {
       expect(() => normalizeExistingProjectPath(` ${directory} `)).toThrow(
@@ -75,7 +78,7 @@ describe('normalizeExistingProjectPath', () => {
   })
 
   it('rejects a Git repository without a commit', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-no-head-'))
+    const directory = mkdtempRealpathSync('spacezero-project-no-head-')
     execFileSync('git', ['init', '-b', 'main', directory])
 
     try {
@@ -88,7 +91,7 @@ describe('normalizeExistingProjectPath', () => {
   })
 
   it('requires an absolute existing directory', () => {
-    const directory = mkdtempSync(join(tmpdir(), 'spacezero-project-'))
+    const directory = mkdtempRealpathSync('spacezero-project-')
     const file = join(directory, 'README.md')
     writeFileSync(file, '# Project')
 
