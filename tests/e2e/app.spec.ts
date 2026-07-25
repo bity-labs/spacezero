@@ -1104,6 +1104,7 @@ test('enforces Browser permission and certificate policy through real Electron h
   if (!httpsAddress || typeof httpsAddress === 'string') throw new Error('Browser HTTPS fixture server did not bind.')
   const exactLoopbackHttpsUrl = `https://localhost:${httpsAddress.port}/browser-fixture`
   const aliasLoopbackHttpsUrl = `https://127.1:${httpsAddress.port}/browser-fixture`
+  const redirectToAliasHttpsUrl = `https://localhost:${httpsAddress.port}/redirect-to-lookalike`
 
   const electronApp = await launchApp()
   const window = await electronApp.firstWindow()
@@ -1167,7 +1168,18 @@ test('enforces Browser permission and certificate policy through real Electron h
         }
         return originalShowMessageBox(...args)
       }
-      ;(globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount = () => promptCount
+      const certificateErrorUrls: string[] = []
+      app.on('certificate-error', (_event, _webContents, url) => {
+        certificateErrorUrls.push(url)
+      })
+      ;(globalThis as {
+        __spacezeroBrowserPromptCount?: () => number
+        __spacezeroBrowserCertificateErrorUrls?: () => string[]
+      }).__spacezeroBrowserPromptCount = () => promptCount
+      ;(globalThis as {
+        __spacezeroBrowserPromptCount?: () => number
+        __spacezeroBrowserCertificateErrorUrls?: () => string[]
+      }).__spacezeroBrowserCertificateErrorUrls = () => [...certificateErrorUrls]
       BrowserWindow.getAllWindows()[0]?.webContents.reload()
     })
 
@@ -1242,13 +1254,46 @@ test('enforces Browser permission and certificate policy through real Electron h
         context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
         input: url
       })
+    }, { url: redirectToAliasHttpsUrl })
+    await expect.poll(async () =>
+      electronApp.evaluate(() =>
+        (globalThis as { __spacezeroBrowserCertificateErrorUrls?: () => string[] })
+          .__spacezeroBrowserCertificateErrorUrls?.()
+          .some((url) => url.includes('127.1') || url.includes('127.0.0.1')) ?? false
+      )
+    ).toBe(true)
+    const redirectedAliasCertificateBody = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      const browserView = mainWindow.contentView.children.at(-1)
+      if (!browserView) throw new Error('Redirected certificate fixture webContents was not found.')
+      return browserView.webContents.executeJavaScript('document.body.textContent').catch(() => '')
+    })
+    expect(redirectedAliasCertificateBody).not.toContain('Browser fixture')
+    await expect.poll(async () =>
+      electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
+    ).toBe(promptsAfterExactCertificate)
+
+    await window.evaluate(async ({ url }) => {
+      await window.spacezero.browser.createTab({
+        contextKey: 'session:browser-permissions-e2e',
+        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        input: url
+      })
     }, { url: aliasLoopbackHttpsUrl })
-    await window.waitForTimeout(1_000)
-    const aliasCertificateResult = await electronApp.evaluate(async ({ webContents }, { url }) => {
-      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL().startsWith(url))
-      return contents ? contents.executeJavaScript('document.body.textContent').catch(() => '') : ''
-    }, { url: aliasLoopbackHttpsUrl })
-    expect(aliasCertificateResult).not.toContain('Browser fixture')
+    await expect.poll(async () =>
+      electronApp.evaluate(() =>
+        (globalThis as { __spacezeroBrowserCertificateErrorUrls?: () => string[] })
+          .__spacezeroBrowserCertificateErrorUrls?.()
+          .some((url) => url.includes('127.1') || url.includes('127.0.0.1')) ?? false
+      )
+    ).toBe(true)
+    const aliasCertificateBody = await electronApp.evaluate(async ({ BrowserWindow }) => {
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      const browserView = mainWindow.contentView.children.at(-1)
+      if (!browserView) throw new Error('Alias certificate fixture webContents was not found.')
+      return browserView.webContents.executeJavaScript('document.body.textContent').catch(() => '')
+    })
+    expect(aliasCertificateBody).not.toContain('Browser fixture')
     await expect.poll(async () =>
       electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
     ).toBe(promptsAfterExactCertificate)
@@ -1313,7 +1358,13 @@ async function startHttpsBrowserFixtureServer(directory: string): Promise<HttpsS
   const { readFile } = await import('node:fs/promises')
   const server = createHttpsServer(
     { key: await readFile(keyPath), cert: await readFile(certPath) },
-    (_request, response) => {
+    (request, response) => {
+      if (request.url?.startsWith('/redirect-to-lookalike')) {
+        const port = request.headers.host?.split(':').at(-1)
+        response.writeHead(302, { location: `https://127.1:${port}/browser-fixture` })
+        response.end()
+        return
+      }
       response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
       response.end('<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>')
     }

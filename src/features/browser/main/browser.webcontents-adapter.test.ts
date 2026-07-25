@@ -508,6 +508,7 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(preventDefault).toHaveBeenCalled()
     expect(policy.requestCertificateException).toHaveBeenCalledWith({
       url: 'https://localhost:3443/',
+      originalUrl: 'https://localhost:3443/',
       error: 'bad cert'
     })
 
@@ -521,5 +522,40 @@ describe('ElectronBrowserViewAdapter', () => {
       vi.fn()
     )
     expect(nonBrowserPreventDefault).not.toHaveBeenCalled()
+  })
+
+  it('denies certificate errors when Electron reports a target that differs from the preserved loopback authority', async () => {
+    const policy = {
+      checkPermission: vi.fn(),
+      requestPermission: vi.fn(),
+      requestCertificateException: vi.fn((request: { url: string; originalUrl?: string }) =>
+        Promise.resolve(request.url === request.originalUrl)
+      )
+    }
+    const adapter = new ElectronBrowserViewAdapter(policy as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.loadUrl('tab-1', 'https://localhost:3443/start', 'https://localhost:3443/start')
+    fakes.createdViews[0].webContents.url = 'https://remote.example.invalid/'
+    const preventDefault = vi.fn()
+    let decision: boolean | null = null
+
+    fakes.certificateHandlers[0]?.(
+      { preventDefault },
+      fakes.createdViews[0].webContents,
+      'https://remote.example.invalid/',
+      'bad cert',
+      {},
+      (allowed) => {
+        decision = allowed
+      }
+    )
+
+    await vi.waitFor(() => expect(decision).toBe(false))
+    expect(preventDefault).toHaveBeenCalled()
+    expect(policy.requestCertificateException).toHaveBeenCalledWith({
+      url: 'https://remote.example.invalid/',
+      originalUrl: 'https://localhost:3443/start',
+      error: 'bad cert'
+    })
   })
 })

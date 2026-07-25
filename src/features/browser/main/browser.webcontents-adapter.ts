@@ -200,7 +200,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
       if (!record) return
       event.preventDefault()
       void this.securityPolicy
-        .requestCertificateException({ url: record.requestedUrl || webContents.getURL() || url, error })
+        .requestCertificateException({ url, originalUrl: record.requestedUrl ?? webContents.getURL(), error })
         .then(callback, () => callback(false))
     })
   }
