@@ -940,6 +940,8 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   const newWindowTargetUrl = `http://127.0.0.1:${address.port}/new-window-target`
   const scriptedPopupPageUrl = `http://127.0.0.1:${address.port}/scripted-popup-page`
+  const delayedPopupPageUrl = `http://127.0.0.1:${address.port}/delayed-popup-page`
+  const namedScriptedPopupPageUrl = `http://127.0.0.1:${address.port}/named-scripted-popup-page`
   const scriptedPopupTargetUrl = `http://127.0.0.1:${address.port}/scripted-popup-target`
   const authPopupTargetUrl = `http://127.0.0.1:${address.port}/auth-popup-target`
   await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
@@ -978,6 +980,50 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     webContents.getAllWebContents().every((contents) => contents.getURL() !== scriptedPopupTargetUrl)
   , { scriptedPopupTargetUrl })
   expect(scriptedPopupBlocked).toBe(true)
+  await window.evaluate(async ({ namedScriptedPopupPageUrl }) => {
+    await window.spacezero.browser.createTab({
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      input: namedScriptedPopupPageUrl
+    })
+  }, { namedScriptedPopupPageUrl })
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { namedScriptedPopupPageUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === namedScriptedPopupPageUrl)
+    , { namedScriptedPopupPageUrl })
+  ).toBe(true)
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  expect(await electronApp.evaluate(({ webContents }, { scriptedPopupTargetUrl }) =>
+    webContents.getAllWebContents().every((contents) => contents.getURL() !== scriptedPopupTargetUrl)
+  , { scriptedPopupTargetUrl })).toBe(true)
+
+  await window.evaluate(async ({ delayedPopupPageUrl }) => {
+    await window.spacezero.browser.createTab({
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      input: delayedPopupPageUrl
+    })
+  }, { delayedPopupPageUrl })
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { delayedPopupPageUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === delayedPopupPageUrl)
+    , { delayedPopupPageUrl })
+  ).toBe(true)
+  await electronApp.evaluate(async ({ webContents }, { delayedPopupPageUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === delayedPopupPageUrl)
+    if (!contents) throw new Error('Embedded browser webContents was not found for delayed popup fixture.')
+    const point = await contents.executeJavaScript(`(() => {
+      const rect = document.querySelector('#delayed-popup').getBoundingClientRect()
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    contents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+    contents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  }, { delayedPopupPageUrl })
+  await new Promise((resolve) => setTimeout(resolve, 6600))
+  expect(await electronApp.evaluate(({ webContents }, { scriptedPopupTargetUrl }) =>
+    webContents.getAllWebContents().every((contents) => contents.getURL() !== scriptedPopupTargetUrl)
+  , { scriptedPopupTargetUrl })).toBe(true)
+
   await window.evaluate(async ({ fixtureUrl }) => {
     const state = await window.spacezero.browser.getState({
       contextKey: 'session:browser-e2e-session',
@@ -1023,6 +1069,15 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     preferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
     globals: { spacezero: 'undefined', electronRequire: 'undefined' }
   })
+  await electronApp.evaluate(async ({ webContents }, { authPopupTargetUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === authPopupTargetUrl)
+    if (!contents) throw new Error('Authentication popup webContents was not found for descendant popup check.')
+    await contents.executeJavaScript(`window.open('/scripted-popup-target', 'descendant-auth', 'width=320,height=240')`)
+  }, { authPopupTargetUrl })
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  expect(await electronApp.evaluate(({ webContents }, { scriptedPopupTargetUrl }) =>
+    webContents.getAllWebContents().every((contents) => contents.getURL() !== scriptedPopupTargetUrl)
+  , { scriptedPopupTargetUrl })).toBe(true)
   await electronApp.evaluate(async ({ webContents }, { authPopupTargetUrl }) => {
     const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === authPopupTargetUrl)
     if (!contents) throw new Error('Authentication popup webContents was not found to close.')
@@ -1430,6 +1485,14 @@ async function startBrowserFixtureServer(): Promise<Server> {
     }
     if (request.url?.startsWith('/scripted-popup-page')) {
       response.end(`<!doctype html><title>Scripted Popup Page</title><h1>Scripted popup page</h1><script>setTimeout(() => window.open('/scripted-popup-target', '_blank'), 50)</script>`)
+      return
+    }
+    if (request.url?.startsWith('/delayed-popup-page')) {
+      response.end(`<!doctype html><title>Delayed Popup Page</title><h1>Delayed popup page</h1><button id="delayed-popup" onclick="setTimeout(() => window.open('/scripted-popup-target', '_blank'), 6200)">Delayed popup</button>`)
+      return
+    }
+    if (request.url?.startsWith('/named-scripted-popup-page')) {
+      response.end(`<!doctype html><title>Named Scripted Popup Page</title><h1>Named scripted popup page</h1><script>window.open('/scripted-popup-target', 'spacezero-auth', 'width=480,height=640')</script>`)
       return
     }
     if (request.url?.startsWith('/scripted-popup-target')) {

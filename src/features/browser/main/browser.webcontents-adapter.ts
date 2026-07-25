@@ -10,7 +10,18 @@ import {
 } from './browser.service'
 import { BrowserSecurityPolicy } from './browser.security-policy'
 
-type BrowserChildWindow = BrowserWindow & { close?: () => void; destroy?: () => void; isDestroyed?: () => boolean }
+type BrowserChildWindow = BrowserWindow & {
+  webContents?: Pick<WebContents, 'setWindowOpenHandler'>
+  close?: () => void
+  destroy?: () => void
+  isDestroyed?: () => boolean
+}
+
+type PendingWindowOpenGesture = {
+  url: string
+  userGesture: boolean
+  observedAt: number
+}
 
 type BrowserViewRecord = {
   view: electron.WebContentsView
@@ -19,6 +30,7 @@ type BrowserViewRecord = {
   shortcutBindings: BrowserShortcutBinding[]
   requestedUrl: string | null
   childWindows: Set<BrowserChildWindow>
+  pendingWindowOpenGestures: PendingWindowOpenGesture[]
 }
 
 export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
@@ -52,6 +64,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
         partition: BROWSER_PARTITION
       }
     })
+    this.installWindowOpenGestureObserver(view.webContents)
     view.webContents.setWindowOpenHandler((details) => this.handleWindowOpen(tabId, details))
     view.webContents.on('before-input-event', (event, input) => {
       const commandId = browserCommandForInput(input, this.views.get(tabId)?.shortcutBindings ?? [])
@@ -89,7 +102,8 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
       attachedWindow: null,
       shortcutBindings: [],
       requestedUrl: null,
-      childWindows: new Set()
+      childWindows: new Set(),
+      pendingWindowOpenGestures: []
     })
   }
 
@@ -234,13 +248,12 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
 
     if (url.protocol === 'http:' || url.protocol === 'https:') {
       if (isEligibleSameContextTabRequest(details)) {
-        const record = this.views.get(tabId)
-        void this.hasActiveUserGesture(record).then((hasActiveUserGesture) => {
-          if (hasActiveUserGesture) this.service?.openNativeRequestedTab(tabId, url.toString())
-        })
+        if (this.consumeEligibleUserGesture(tabId, url.toString())) {
+          this.service?.openNativeRequestedTab(tabId, url.toString())
+        }
         return { action: 'deny' }
       }
-      if (isEligibleAuthenticationPopupRequest(details)) {
+      if (isEligibleAuthenticationPopupRequest(details) && this.consumeEligibleUserGesture(tabId, url.toString())) {
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
@@ -262,13 +275,43 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     return { action: 'deny' }
   }
 
-  private async hasActiveUserGesture(record: BrowserViewRecord | undefined): Promise<boolean> {
-    if (!record) return false
+  private installWindowOpenGestureObserver(webContents: WebContents): void {
     try {
-      return await record.view.webContents.executeJavaScript('navigator.userActivation.hasBeenActive === true')
+      if (!webContents.debugger.isAttached()) webContents.debugger.attach('1.3')
+      webContents.debugger.sendCommand('Page.enable').catch(() => undefined)
+      webContents.debugger.on('message', (_event, method, params: unknown) => {
+        if (method !== 'Page.windowOpen') return
+        const windowOpen = params as { url?: unknown; userGesture?: unknown }
+        if (typeof windowOpen.url !== 'string') return
+        const record = this.recordForWebContents(webContents)
+        if (!record) return
+        record.pendingWindowOpenGestures.push({
+          url: windowOpen.url,
+          userGesture: windowOpen.userGesture === true,
+          observedAt: Date.now()
+        })
+        this.prunePendingWindowOpenGestures(record)
+      })
     } catch {
-      return false
+      // Without a request-scoped Chromium signal, popup authorization must fail closed.
     }
+  }
+
+  private consumeEligibleUserGesture(tabId: string, url: string): boolean {
+    const record = this.views.get(tabId)
+    if (!record) return false
+    this.prunePendingWindowOpenGestures(record)
+    const index = record.pendingWindowOpenGestures.findIndex((gesture) => gesture.url === url)
+    if (index === -1) return false
+    const [gesture] = record.pendingWindowOpenGestures.splice(index, 1)
+    return gesture?.userGesture === true
+  }
+
+  private prunePendingWindowOpenGestures(record: BrowserViewRecord): void {
+    const oldestAllowedAt = Date.now() - 1000
+    record.pendingWindowOpenGestures = record.pendingWindowOpenGestures.filter(
+      (gesture) => gesture.observedAt >= oldestAllowedAt
+    )
   }
 
   private trackAuthenticationChildWindow(
@@ -281,6 +324,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
       closeBrowserWindow(childWindow)
       return
     }
+    childWindow.webContents?.setWindowOpenHandler(() => ({ action: 'deny' }))
     record.childWindows.add(childWindow)
     childWindow.once?.('closed', () => record.childWindows.delete(childWindow))
   }
@@ -416,8 +460,11 @@ function isSupportedExternalProtocolUrl(url: URL): boolean {
 }
 
 function containsUnsafeNestedProtocol(input: string): boolean {
-  const decoded = decodeURIComponent(input)
-  return /(?:file|spacezero|javascript|data|shell|ftp):/i.test(decoded)
+  try {
+    return /(?:file|spacezero|javascript|data|shell|ftp):/i.test(decodeURIComponent(input))
+  } catch {
+    return true
+  }
 }
 
 async function confirmAndOpenExternalProtocol(url: URL, ownerWindow: BrowserWindow | null): Promise<void> {
