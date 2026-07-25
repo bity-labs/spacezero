@@ -1,6 +1,6 @@
-import { BrowserWindow, WebContentsView, type WebContents } from 'electron'
+import { BrowserWindow, WebContentsView, type Input, type WebContents } from 'electron'
 
-import type { BrowserBounds } from '../shared'
+import { BROWSER_COMMAND_IDS, type BrowserBounds } from '../shared'
 import {
   BROWSER_PARTITION,
   BROWSER_WEB_PREFERENCES,
@@ -24,6 +24,13 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     this.service = service
   }
 
+  getOwnerWindows(): BrowserWindow[] {
+    const windows = [...this.views.values()]
+      .map((record) => record.ownerWindow)
+      .filter((window): window is BrowserWindow => window !== null)
+    return [...new Set(windows)]
+  }
+
   createView(tabId: string, _options?: { partition: string; preferences: Record<string, unknown> }): void {
     const view = new WebContentsView({
       webPreferences: {
@@ -32,6 +39,12 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
       }
     })
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.on('before-input-event', (event, input) => {
+      const commandId = browserCommandForInput(input)
+      if (!commandId) return
+      event.preventDefault()
+      this.service?.handleNativeCommand(tabId, commandId)
+    })
     view.webContents.on('did-start-navigation', () => this.service?.markNavigationStarted(tabId))
     view.webContents.on('did-start-loading', () => this.service?.markNavigationStarted(tabId))
     view.webContents.on('did-stop-loading', () => this.service?.markNavigationStopped(tabId))
@@ -151,4 +164,29 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     this.activeTabByWindowId.delete(window.id)
     this.observedWindowIds.delete(window.id)
   }
+}
+
+function browserCommandForInput(input: Input): (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS] | null {
+  if (input.type !== 'keyDown' || input.isAutoRepeat) return null
+  const key = input.key.toLowerCase()
+  const isMac = process.platform === 'darwin'
+
+  if ((isMac ? input.meta && !input.control : input.control && !input.meta) && !input.alt && !input.shift && key === 'l') {
+    return BROWSER_COMMAND_IDS.focusAddress
+  }
+
+  if ((isMac ? input.meta && !input.control : input.control && !input.meta) && !input.alt && !input.shift && key === 'r') {
+    return BROWSER_COMMAND_IDS.reload
+  }
+
+  if (isMac) {
+    if (input.meta && !input.control && !input.alt && !input.shift && key === '[') return BROWSER_COMMAND_IDS.back
+    if (input.meta && !input.control && !input.alt && !input.shift && key === ']') return BROWSER_COMMAND_IDS.forward
+    return null
+  }
+
+  if (input.alt && !input.control && !input.meta && !input.shift && key === 'arrowleft') return BROWSER_COMMAND_IDS.back
+  if (input.alt && !input.control && !input.meta && !input.shift && key === 'arrowright') return BROWSER_COMMAND_IDS.forward
+
+  return null
 }

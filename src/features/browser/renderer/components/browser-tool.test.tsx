@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import type { BrowserEvent } from '../../shared'
 import { BrowserTool } from './browser-tool'
 
 const context = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
@@ -37,6 +38,7 @@ function installBrowserApi(
       }
     ]
   }
+  const browserEventListeners: Array<(event: BrowserEvent) => void> = []
   const api = {
     getState: vi.fn(async () => state),
     navigate: vi.fn(async (request: { input: string }) => ({
@@ -56,7 +58,14 @@ function installBrowserApi(
     openInDefaultBrowser: vi.fn(async () => undefined),
     show: vi.fn(async () => state),
     hide: vi.fn(async () => undefined),
-    closeTab: vi.fn(async () => state)
+    closeTab: vi.fn(async () => state),
+    onEvent: vi.fn((listener: (event: BrowserEvent) => void) => {
+      browserEventListeners.push(listener)
+      return () => undefined
+    }),
+    emitBrowserEvent: (event: BrowserEvent) => {
+      browserEventListeners[browserEventListeners.length - 1]?.(event)
+    }
   }
   Object.defineProperty(window, 'spacezero', {
     configurable: true,
@@ -192,6 +201,82 @@ describe('BrowserTool', () => {
     await user.click(screen.getByRole('button', { name: 'Outside' }))
     await user.keyboard('{Control>}r{/Control}')
     expect(browser.reload).not.toHaveBeenCalled()
+  })
+
+  it('refreshes chrome state from context-scoped native Browser events', async () => {
+    const browser = installBrowserApi({ url: 'https://start.example/', isLoading: true })
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const input = await screen.findByLabelText('Browser URL')
+    expect(await screen.findByText('Loading…')).toBeInTheDocument()
+
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'state-changed',
+        contextKey,
+        state: {
+          contextKey,
+          activeTabId: 'browser-tab-1',
+          tabs: [
+            {
+              id: 'browser-tab-1',
+              url: 'https://settled.example/',
+              title: null,
+              isLoading: false,
+              canGoBack: true,
+              canGoForward: false,
+              error: null
+            }
+          ]
+        }
+      })
+    })
+
+    await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument())
+    await waitFor(() => expect(input).toHaveValue('https://settled.example/'))
+    expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled()
+
+    await user.clear(input)
+    await user.type(input, 'draft search')
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'state-changed',
+        contextKey,
+        state: {
+          contextKey,
+          activeTabId: 'browser-tab-1',
+          tabs: [
+            {
+              id: 'browser-tab-1',
+              url: 'https://other.example/',
+              title: null,
+              isLoading: false,
+              canGoBack: true,
+              canGoForward: false,
+              error: null
+            }
+          ]
+        }
+      })
+    })
+
+    expect(input).toHaveValue('draft search')
+  })
+
+  it('focuses the chrome address field from native Browser command events', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+
+    renderBrowserTool()
+
+    const input = await screen.findByLabelText('Browser URL')
+    input.blur()
+    act(() => {
+      browser.emitBrowserEvent({ type: 'command-requested', contextKey, commandId: 'browser.focusAddress' })
+    })
+
+    await waitFor(() => expect(input).toHaveFocus())
   })
 
   it('does not run reload shortcut while a text-input context owns the keystroke', async () => {

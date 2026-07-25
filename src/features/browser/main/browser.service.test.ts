@@ -91,6 +91,9 @@ describe('normalizeBrowserUrl', () => {
     expect(normalizeBrowserUrl('localhost:5173')).toEqual('http://localhost:5173/')
     expect(normalizeBrowserUrl('127.0.0.1:3000')).toEqual('http://127.0.0.1:3000/')
     expect(normalizeBrowserUrl('[::1]:8080')).toEqual('http://[::1]:8080/')
+    expect(normalizeBrowserUrl('example.com')).toEqual('https://example.com/')
+    expect(normalizeBrowserUrl('www.example.com/docs')).toEqual('https://www.example.com/docs')
+    expect(normalizeBrowserUrl('sub.example.co.uk:8443/path?q=1')).toEqual('https://sub.example.co.uk:8443/path?q=1')
     expect(normalizeBrowserUrl('space zero browser')).toEqual('https://www.google.com/search?q=space%20zero%20browser')
     expect(normalizeBrowserUrl('what is a+b?')).toEqual('https://www.google.com/search?q=what%20is%20a%2Bb%3F')
     expect(() => normalizeBrowserUrl('file:///etc/passwd')).toThrow(/Only HTTP and HTTPS/)
@@ -235,7 +238,7 @@ describe('BrowserService', () => {
     ])
   })
 
-  it('updates loading, history, and failed navigation state without clearing the failed URL', async () => {
+  it('keeps loading through commit until native loading settles', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(adapter, createContextRepository())
     const state = await service.navigate({ ...workspaceContext, input: 'https://down.example/' })
@@ -247,19 +250,56 @@ describe('BrowserService', () => {
     let current = await service.getState(workspaceContext)
     expect(current.tabs[0]).toMatchObject({
       url: 'https://example.com/',
-      isLoading: false,
+      isLoading: true,
       canGoBack: true,
       canGoForward: false,
       error: null
     })
 
-    await service.navigate({ ...workspaceContext, input: 'https://down.example/' })
-    service.markNavigationFailed(state.activeTabId, 'Host unavailable')
+    service.markNavigationStopped(state.activeTabId)
     current = await service.getState(workspaceContext)
+    expect(current.tabs[0]?.isLoading).toBe(false)
+  })
+
+  it('updates failed navigation state without clearing the failed URL', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.navigate({ ...workspaceContext, input: 'https://down.example/' })
+    service.markNavigationFailed(state.activeTabId, 'Host unavailable')
+    const current = await service.getState(workspaceContext)
     expect(current.tabs[0]).toMatchObject({
       url: 'https://down.example/',
       isLoading: false,
       error: 'Host unavailable'
+    })
+  })
+
+  it('publishes context-scoped state updates for asynchronous native lifecycle events', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const events: unknown[] = []
+    service.onEvent((event) => events.push(event))
+    const state = await service.navigate({ ...workspaceContext, input: 'https://example.com/' })
+    events.length = 0
+
+    service.markNavigationStarted(state.activeTabId)
+    service.markNavigationCommitted(state.activeTabId, 'https://example.com/docs', {
+      canGoBack: true,
+      canGoForward: false
+    })
+    service.markTitleChanged(state.activeTabId, 'Example Docs')
+    service.markNavigationStopped(state.activeTabId)
+
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'state-changed', contextKey: 'session:workspace-1' }),
+      expect.objectContaining({ type: 'state-changed', contextKey: 'session:workspace-1' }),
+      expect.objectContaining({ type: 'state-changed', contextKey: 'session:workspace-1' }),
+      expect.objectContaining({ type: 'state-changed', contextKey: 'session:workspace-1' })
+    ])
+    expect(events[events.length - 1]).toMatchObject({
+      state: {
+        tabs: [expect.objectContaining({ url: 'https://example.com/docs', title: 'Example Docs', isLoading: false })]
+      }
     })
   })
 
