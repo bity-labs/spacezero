@@ -4,8 +4,11 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   browserCloseTabRequestSchema,
   browserContextRequestSchema,
+  browserCreateTabRequestSchema,
   browserNavigateRequestSchema,
   browserPresentationRequestSchema,
+  browserReorderTabsRequestSchema,
+  browserSelectTabRequestSchema,
   browserTabRequestSchema
 } from '../shared'
 import { createKnowledgeBaseChatRepository } from '../../knowledge-base/main/knowledge-base-chat.repository'
@@ -63,8 +66,17 @@ export function registerBrowserIpc(): void {
   ipcMain.handle(IPC_CHANNELS.browser.hide, (_event, request: unknown) => {
     browserService.hide(browserContextRequestSchema.parse(request))
   })
+  ipcMain.handle(IPC_CHANNELS.browser.createTab, (_event, request: unknown) =>
+    browserService.createTab(browserCreateTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.selectTab, (_event, request: unknown) =>
+    browserService.selectTab(browserSelectTabRequestSchema.parse(request))
+  )
   ipcMain.handle(IPC_CHANNELS.browser.closeTab, (_event, request: unknown) =>
     browserService.closeTab(browserCloseTabRequestSchema.parse(request))
+  )
+  ipcMain.handle(IPC_CHANNELS.browser.reorderTabs, (_event, request: unknown) =>
+    browserService.reorderTabs(browserReorderTabsRequestSchema.parse(request))
   )
 }
 

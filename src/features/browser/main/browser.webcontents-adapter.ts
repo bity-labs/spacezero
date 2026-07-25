@@ -63,6 +63,9 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
+    view.webContents.on('page-favicon-updated', (_event, favicons) =>
+      this.service?.markFaviconChanged(tabId, favicons)
+    )
     this.views.set(tabId, { view, ownerWindow: null, attachedWindow: null, shortcutBindings: [] })
   }
 

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -12,53 +12,86 @@ const contextKey = 'session:workspace-1'
 
 type BrowserApi = ReturnType<typeof installBrowserApi>
 
-function installBrowserApi(
-  initialTab: Partial<{
-    url: string | null
-    title: string | null
-    isLoading: boolean
-    canGoBack: boolean
-    canGoForward: boolean
-    error: string | null
-  }> = {}
-) {
-  const state = {
+type TestTab = {
+  id: string
+  url: string | null
+  title: string | null
+  faviconUrl: string | null
+  isLoading: boolean
+  canGoBack: boolean
+  canGoForward: boolean
+  error: string | null
+}
+
+function makeTab(id: string, overrides: Partial<TestTab> = {}): TestTab {
+  return {
+    id,
+    url: null,
+    title: null,
+    faviconUrl: null,
+    isLoading: false,
+    canGoBack: false,
+    canGoForward: false,
+    error: null,
+    ...overrides
+  }
+}
+
+function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: TestTab[]) {
+  let state = {
     contextKey,
-    activeTabId: 'browser-tab-1',
-    tabs: [
-      {
-        id: 'browser-tab-1',
-        url: null,
-        title: null,
-        isLoading: false,
-        canGoBack: false,
-        canGoForward: false,
-        error: null,
-        ...initialTab
-      }
-    ]
+    activeTabId: initialTabs?.[0]?.id ?? 'browser-tab-1',
+    tabs: initialTabs ?? [makeTab('browser-tab-1', initialTab)]
   }
   const browserEventListeners: Array<(event: BrowserEvent) => void> = []
   const api = {
     getState: vi.fn(async () => state),
-    navigate: vi.fn(async (request: { input: string }) => ({
-      ...state,
-      tabs: [{ ...state.tabs[0], url: request.input.startsWith('http') ? request.input : `http://${request.input}/`, isLoading: true, error: null }]
-    })),
+    navigate: vi.fn(async (request: { tabId?: string; input: string }) => {
+      const tabId = request.tabId ?? state.activeTabId
+      state = {
+        ...state,
+        activeTabId: tabId,
+        tabs: state.tabs.map((tab) =>
+          tab.id === tabId
+            ? { ...tab, url: request.input.startsWith('http') ? request.input : `http://${request.input}/`, isLoading: true, error: null }
+            : tab
+        )
+      }
+      return state
+    }),
     goBack: vi.fn(async () => state),
     goForward: vi.fn(async () => state),
     reload: vi.fn(async () => ({
       ...state,
-      tabs: [{ ...state.tabs[0], isLoading: true }]
+      tabs: state.tabs.map((tab) => (tab.id === state.activeTabId ? { ...tab, isLoading: true } : tab))
     })),
     stop: vi.fn(async () => ({
       ...state,
-      tabs: [{ ...state.tabs[0], isLoading: false }]
+      tabs: state.tabs.map((tab) => (tab.id === state.activeTabId ? { ...tab, isLoading: false } : tab))
     })),
     openInDefaultBrowser: vi.fn(async () => undefined),
     show: vi.fn(async () => state),
     hide: vi.fn(async () => undefined),
-    closeTab: vi.fn(async () => state),
+    createTab: vi.fn(async () => {
+      const tab = makeTab(`browser-tab-${state.tabs.length + 1}`)
+      state = { ...state, activeTabId: tab.id, tabs: [...state.tabs, tab] }
+      return state
+    }),
+    selectTab: vi.fn(async (request: { tabId: string }) => {
+      state = { ...state, activeTabId: request.tabId }
+      return state
+    }),
+    closeTab: vi.fn(async (request: { tabId: string }) => {
+      const tabs = state.tabs.filter((tab) => tab.id !== request.tabId)
+      state = tabs.length
+        ? { ...state, activeTabId: tabs[0]?.id ?? state.activeTabId, tabs }
+        : { ...state, activeTabId: 'browser-tab-blank', tabs: [makeTab('browser-tab-blank')] }
+      return state
+    }),
+    reorderTabs: vi.fn(async (request: { tabIds: string[] }) => {
+      state = { ...state, tabs: request.tabIds.map((tabId) => state.tabs.find((tab) => tab.id === tabId) ?? makeTab(tabId)) }
+      return state
+    }),
     onEvent: vi.fn((listener: (event: BrowserEvent) => void) => {
       browserEventListeners.push(listener)
       return () => undefined
@@ -224,6 +257,7 @@ describe('BrowserTool', () => {
               id: 'browser-tab-1',
               url: 'https://settled.example/',
               title: null,
+              faviconUrl: null,
               isLoading: false,
               canGoBack: true,
               canGoForward: false,
@@ -252,6 +286,7 @@ describe('BrowserTool', () => {
               id: 'browser-tab-1',
               url: 'https://other.example/',
               title: null,
+              faviconUrl: null,
               isLoading: false,
               canGoBack: true,
               canGoForward: false,
@@ -263,6 +298,112 @@ describe('BrowserTool', () => {
     })
 
     expect(input).toHaveValue('draft search')
+  })
+
+  it('creates, selects, closes, and labels multiple normal tabs', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', { url: 'https://example.com/path', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' }),
+      makeTab('browser-tab-2', { url: 'https://docs.spacezero.dev/guide' })
+    ])
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    expect(await screen.findByRole('tab', { name: /Example/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /docs.spacezero.dev/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: /docs.spacezero.dev/ }))
+    expect(browser.selectTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' })
+
+    await user.click(screen.getByRole('button', { name: 'New tab' }))
+    expect(browser.createTab).toHaveBeenCalledWith({ contextKey, context })
+    expect(await screen.findByRole('tab', { name: /New tab/ })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Close New tab/ }))
+    expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
+  })
+
+  it('selects inactive tabs with roving tab keyboard navigation and keeps close controls separate', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
+      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' }),
+      makeTab('browser-tab-3', { title: 'Third', url: 'https://third.example/' })
+    ])
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const first = await screen.findByRole('tab', { name: 'First' })
+    expect(first).toHaveAttribute('tabIndex', '0')
+    expect(screen.getByRole('tab', { name: 'Second' })).toHaveAttribute('tabIndex', '-1')
+    expect(first).not.toContainElement(screen.getByRole('button', { name: 'Close First' }))
+
+    first.focus()
+    await user.keyboard('{ArrowRight}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-2' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Second' })).toHaveFocus())
+
+    await user.keyboard('{End}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
+    await user.keyboard('{Home}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-1' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'First' })).toHaveFocus())
+    await user.keyboard('{ArrowLeft}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
+  })
+
+  it('reorders tabs with drag and drop while preserving the active selection', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
+      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' })
+    ])
+
+    renderBrowserTool()
+
+    const first = await screen.findByRole('tab', { name: /First/ })
+    const second = screen.getByRole('tab', { name: /Second/ })
+    fireEvent.dragStart(first, {
+      dataTransfer: { effectAllowed: '', setData: vi.fn(), getData: vi.fn(() => 'browser-tab-1') }
+    })
+    fireEvent.drop(second, {
+      dataTransfer: { getData: vi.fn(() => 'browser-tab-1') }
+    })
+
+    await waitFor(() =>
+      expect(browser.reorderTabs).toHaveBeenCalledWith({
+        contextKey,
+        context,
+        tabIds: ['browser-tab-2', 'browser-tab-1']
+      })
+    )
+    expect(browser.selectTab).not.toHaveBeenCalled()
+  })
+
+  it('returns to a focused blank tab after closing the final tab', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    await user.click(await screen.findByRole('button', { name: /Close example.com/ }))
+
+    expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
+    expect(await screen.findByText('Enter a URL or search terms to open a secure Browser page.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Browser URL')).toHaveFocus())
+  })
+
+  it('runs focus-scoped mod+t and mod+w through stable Browser command identities', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    await user.click(await screen.findByRole('tab', { name: /example.com/ }))
+    await user.keyboard('{Control>}t{/Control}')
+    await waitFor(() => expect(browser.createTab).toHaveBeenCalledWith({ contextKey, context }))
+
+    await user.keyboard('{Control>}w{/Control}')
+    await waitFor(() => expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' }))
   })
 
   it('focuses the chrome address field from native Browser command events', async () => {

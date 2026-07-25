@@ -455,6 +455,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
@@ -470,6 +471,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: input,
             title: null,
+            faviconUrl: null,
             isLoading: true,
             canGoBack: false,
             canGoForward: false,
@@ -485,6 +487,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
@@ -500,6 +503,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
@@ -515,6 +519,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
@@ -530,6 +535,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: true,
             canGoBack: false,
             canGoForward: false,
@@ -545,6 +551,7 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
@@ -554,6 +561,48 @@ beforeEach(async () => {
       }),
       openInDefaultBrowser: async () => undefined,
       hide: async () => undefined,
+      createTab: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-new',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            faviconUrl: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          },
+          {
+            id: 'browser-tab-new',
+            url: null,
+            title: null,
+            faviconUrl: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
+      selectTab: async ({ contextKey, tabId }) => ({
+        contextKey,
+        activeTabId: tabId,
+        tabs: [
+          {
+            id: tabId,
+            url: null,
+            title: null,
+            faviconUrl: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
       closeTab: async ({ contextKey }) => ({
         contextKey,
         activeTabId: 'browser-tab-test',
@@ -562,12 +611,27 @@ beforeEach(async () => {
             id: 'browser-tab-test',
             url: null,
             title: null,
+            faviconUrl: null,
             isLoading: false,
             canGoBack: false,
             canGoForward: false,
             error: null
           }
         ]
+      }),
+      reorderTabs: async ({ contextKey, tabIds }) => ({
+        contextKey,
+        activeTabId: tabIds[0] ?? 'browser-tab-test',
+        tabs: tabIds.map((id) => ({
+          id,
+          url: null,
+          title: null,
+          faviconUrl: null,
+          isLoading: false,
+          canGoBack: false,
+          canGoForward: false,
+          error: null
+        }))
       }),
       onEvent: () => () => undefined
     },

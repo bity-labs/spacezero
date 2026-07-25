@@ -8,12 +8,17 @@ export const BROWSER_IPC_CHANNELS = {
   openInDefaultBrowser: 'browser:openInDefaultBrowser',
   show: 'browser:show',
   hide: 'browser:hide',
+  createTab: 'browser:createTab',
+  selectTab: 'browser:selectTab',
   closeTab: 'browser:closeTab',
+  reorderTabs: 'browser:reorderTabs',
   event: 'browser:event'
 } as const
 
 export const BROWSER_COMMAND_IDS = {
   focusAddress: 'browser.focusAddress',
+  newTab: 'browser.newTab',
+  closeActiveTab: 'browser.closeActiveTab',
   reload: 'browser.reload',
   back: 'browser.back',
   forward: 'browser.forward'
@@ -35,6 +40,7 @@ export type BrowserTab = {
   id: string
   url: string | null
   title: string | null
+  faviconUrl: string | null
   isLoading: boolean
   canGoBack: boolean
   canGoForward: boolean
@@ -70,8 +76,20 @@ export type BrowserPresentationRequest = BrowserTabRequest & {
   shortcutBindings: BrowserShortcutBinding[]
 }
 
+export type BrowserCreateTabRequest = BrowserContextRequest & {
+  input?: string
+}
+
+export type BrowserSelectTabRequest = BrowserContextRequest & {
+  tabId: string
+}
+
 export type BrowserCloseTabRequest = BrowserContextRequest & {
   tabId: string
+}
+
+export type BrowserReorderTabsRequest = BrowserContextRequest & {
+  tabIds: string[]
 }
 
 export type BrowserStateChangedEvent = {
@@ -98,6 +116,9 @@ export type BrowserAPI = {
   openInDefaultBrowser: (request: BrowserTabRequest) => Promise<void>
   show: (request: BrowserPresentationRequest) => Promise<BrowserState>
   hide: (request: BrowserContextRequest) => Promise<void>
+  createTab: (request: BrowserCreateTabRequest) => Promise<BrowserState>
+  selectTab: (request: BrowserSelectTabRequest) => Promise<BrowserState>
   closeTab: (request: BrowserCloseTabRequest) => Promise<BrowserState>
+  reorderTabs: (request: BrowserReorderTabsRequest) => Promise<BrowserState>
   onEvent: (listener: (event: BrowserEvent) => void) => () => void
 }
