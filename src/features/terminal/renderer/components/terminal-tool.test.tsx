@@ -147,9 +147,9 @@ describe('TerminalTool', () => {
     )
 
     await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
-    lastTerminal!.currentLine = 'server: http://localhost:5173/ and https://example.com/docs.'
+    lastTerminal!.setLines(['server: http://localhost:5173/ and https://example.com/docs.'])
     let links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
       links = provided
     })
 
@@ -157,6 +157,9 @@ describe('TerminalTool', () => {
       'http://localhost:5173/',
       'https://example.com/docs'
     ])
+    expect(links[0]).toMatchObject({
+      range: { start: { x: 9, y: 0 }, end: { x: 30, y: 0 } }
+    })
     await act(async () => {
       links[0]!.activate(new MouseEvent('click'), links[0]!.text)
       await Promise.resolve()
@@ -175,6 +178,76 @@ describe('TerminalTool', () => {
     })
     expect(openBrowserTool).toHaveBeenCalledTimes(1)
     expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
+  })
+
+  it('builds Terminal Links from complete wrapped logical lines with cell-aware ranges', async () => {
+    const createTab = vi.fn(async () => ({
+      contextKey: 'session:session-1',
+      activeTabId: 'browser-tab-1',
+      tabs: []
+    }))
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.browser.openUrlInDefaultBrowser = vi.fn(async () => undefined)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+      subscribe: vi.fn(async () => ({
+        terminalId: 'terminal-1',
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(
+      <TerminalTool
+        context={context}
+        browserHandoff={{
+          contextKey: 'session:session-1',
+          context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
+          openBrowserTool: vi.fn()
+        }}
+      />
+    )
+
+    await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
+    lastTerminal!.cols = 13
+    lastTerminal!.setLines([
+      { text: '界 http://exa', isWrapped: false },
+      { text: 'mple.test/ok', isWrapped: true }
+    ])
+
+    let firstRowLinks: Array<{
+      text: string
+      range: { start: { x: number; y: number }; end: { x: number; y: number } }
+    }> = []
+    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
+      firstRowLinks = provided
+    })
+    let wrappedRowLinks: Array<{
+      text: string
+      range: { start: { x: number; y: number }; end: { x: number; y: number } }
+    }> = []
+    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
+      wrappedRowLinks = provided
+    })
+
+    expect(firstRowLinks).toHaveLength(1)
+    expect(firstRowLinks[0]).toMatchObject({
+      text: 'http://example.test/ok',
+      range: { start: { x: 4, y: 0 }, end: { x: 12, y: 1 } }
+    })
+    expect(wrappedRowLinks).toMatchObject([
+      {
+        text: 'http://example.test/ok',
+        range: { start: { x: 4, y: 0 }, end: { x: 12, y: 1 } }
+      }
+    ])
   })
 
   it('offers explicit Copy URL and Open in default browser choices when Browser handoff is unavailable', async () => {
@@ -197,9 +270,9 @@ describe('TerminalTool', () => {
 
     render(<TerminalTool context={context} />)
     await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
-    lastTerminal!.currentLine = 'Open https://example.com/fallback'
+    lastTerminal!.setLines(['Open https://example.com/fallback'])
     let links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }> = []
-    lastTerminal!.linkProviders[0]!.provideLinks(1, (provided) => {
+    lastTerminal!.linkProviders[0]!.provideLinks(0, (provided) => {
       links = provided
     })
 
@@ -1269,33 +1342,50 @@ class FakeXTerm {
   readonly scrollToLine = vi.fn((line: number) => {
     this.buffer.active.viewportY = line
   })
+  cols = 100
+  private lines: FakeBufferLine[] = [new FakeBufferLine('')]
   readonly buffer = {
     active: {
       viewportY: 0,
-      getLine: (_lineNumber: number) => ({ translateToString: () => this.currentLine })
+      getLine: (lineNumber: number) => this.lines[lineNumber]
     }
   }
   readonly linkProviders: Array<{
     provideLinks: (
       line: number,
       callback: (
-        links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }>
+        links: Array<{
+          text: string
+          range: { start: { x: number; y: number }; end: { x: number; y: number } }
+          activate: (event: MouseEvent, text: string) => void
+        }>
       ) => void
     ) => void
   }> = []
-  currentLine = ''
   private dataListener: ((data: string) => void) | null = null
 
   registerLinkProvider(provider: {
     provideLinks: (
       line: number,
       callback: (
-        links: Array<{ text: string; activate: (event: MouseEvent, text: string) => void }>
+        links: Array<{
+          text: string
+          range: { start: { x: number; y: number }; end: { x: number; y: number } }
+          activate: (event: MouseEvent, text: string) => void
+        }>
       ) => void
     ) => void
   }): { dispose: () => void } {
     this.linkProviders.push(provider)
     return { dispose: vi.fn() }
+  }
+
+  setLines(lines: Array<string | { text: string; isWrapped: boolean }>): void {
+    this.lines = lines.map((line) =>
+      typeof line === 'string'
+        ? new FakeBufferLine(line, false, this.cols)
+        : new FakeBufferLine(line.text, line.isWrapped, this.cols)
+    )
   }
 
   onData(listener: (data: string) => void): { dispose: () => void } {
@@ -1305,5 +1395,39 @@ class FakeXTerm {
 
   emitData(data: string): void {
     this.dataListener?.(data)
+  }
+}
+
+class FakeBufferLine {
+  readonly length: number
+  private readonly cells: Array<{ chars: string; width: number }>
+
+  constructor(
+    private readonly text: string,
+    readonly isWrapped = false,
+    columns = 100
+  ) {
+    this.cells = []
+    for (const char of text) {
+      const width = char === '界' ? 2 : 1
+      this.cells.push({ chars: char, width })
+      if (width === 2) this.cells.push({ chars: '', width: 0 })
+    }
+    while (this.cells.length < columns) this.cells.push({ chars: '', width: 1 })
+    this.length = this.cells.length
+  }
+
+  getCell(column: number): { getChars: () => string; getWidth: () => number } | undefined {
+    const cell = this.cells[column]
+    if (!cell) return undefined
+    return {
+      getChars: () => cell.chars,
+      getWidth: () => cell.width
+    }
+  }
+
+  translateToString(trimRight = false): string {
+    const value = this.text
+    return trimRight ? value.trimEnd() : value
   }
 }

@@ -516,6 +516,168 @@ async function isProcessAlive(pid: number): Promise<boolean> {
   }
 }
 
+test('keeps a local server PTY alive through Terminal-to-Browser handoff and return', async () => {
+  test.skip(process.platform === 'win32', 'PTY handoff regression is Unix-only for v0')
+
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-terminal-browser-e2e-'))
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const sessionId = 'session-terminal-browser-e2e'
+  let electronApp: ElectronApplication | undefined
+
+  try {
+    electronApp = await launchApp(userDataPath)
+    const window = await electronApp.firstWindow()
+    await electronApp.evaluate(({ app, BrowserWindow }, { sessionId }) => {
+      const { createRequire } = process.getBuiltinModule('node:module')
+      const { join } = process.getBuiltinModule('node:path')
+      const require = createRequire(`${app.getAppPath()}/package.json`)
+      const Database = require('better-sqlite3')
+      const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+      const timestamp = Date.now()
+      database
+        .prepare(
+          `INSERT INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(sessionId, null, 'Terminal Browser E2E', 'idle', timestamp, timestamp, null)
+      database.close()
+      BrowserWindow.getAllWindows()[0]?.webContents.reload()
+    }, { sessionId })
+
+    await window.getByRole('button', { name: 'Skip' }).click()
+    await window.getByRole('button', { name: 'Terminal Browser E2E' }).click()
+    await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
+    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
+
+    const handoff = await window.evaluate(async ({ sessionId }) => {
+      const context = { kind: 'workspace-session' as const, sessionId }
+      const browserContext = { kind: 'workspace-session' as const, sessionId }
+      const contextKey = `session:${sessionId}`
+      let output = ''
+      let terminalId = ''
+      const waitForUrl = new Promise<{
+        terminalId: string
+        serverUrl: string
+        serverPid: number
+        output: string
+      }>((resolve, reject) => {
+        const timeout = window.setTimeout(() => {
+          unsubscribe()
+          reject(new Error(`Timed out waiting for server URL: ${output}`))
+        }, 20_000)
+        const unsubscribe = window.spacezero.terminal.onEvent((event) => {
+          if (event.type !== 'output') return
+          output += event.data
+          const urlMatch = output.match(/SPACEZERO_SERVER_URL:(http:\/\/127\.0\.0\.1:\d+\/alive)/)
+          const pidMatch = output.match(/SPACEZERO_SERVER_PID:(\d+)/)
+          if (urlMatch && pidMatch) {
+            window.clearTimeout(timeout)
+            unsubscribe()
+            resolve({
+              terminalId,
+              serverUrl: urlMatch[1]!,
+              serverPid: Number(pidMatch[1]),
+              output
+            })
+          }
+        })
+      })
+      const created = await window.spacezero.terminal.create({
+        context,
+        cols: 80,
+        rows: 24,
+        forceNew: true
+      })
+      if (created.status !== 'running') throw new Error('Expected a running terminal')
+      terminalId = created.terminalId
+      await window.spacezero.terminal.subscribe({ terminalId, context })
+      await window.spacezero.terminal.writeInput({
+        terminalId,
+        context,
+        data: `node -e "const http=require('http'); const server=http.createServer((_req,res)=>res.end('SPACEZERO_SERVER_ALIVE')); server.listen(0,'127.0.0.1',()=>console.log('SPACEZERO_SERVER_URL:http://127.0.0.1:'+server.address().port+'/alive')); setInterval(()=>{}, 1000)" & echo SPACEZERO_SERVER_PID:$!\r`
+      })
+      const observed = await waitForUrl
+      const tabState = await window.spacezero.browser.createTab({
+        contextKey,
+        context: browserContext,
+        input: observed.serverUrl
+      })
+      await window.spacezero.terminal.resize({ terminalId, context, cols: 100, rows: 30 })
+      await window.spacezero.terminal.writeInput({
+        terminalId,
+        context,
+        data: 'for i in $(seq 1 60); do echo SPACEZERO_SCROLL_$i; done; echo SPACEZERO_TERMINAL_RETURN; stty size\r'
+      })
+      return { ...observed, activeBrowserTabId: tabState.activeTabId }
+    }, { sessionId })
+
+    await expect.poll(async () =>
+      window.evaluate(async ({ terminalId, sessionId }) => {
+        const context = { kind: 'workspace-session' as const, sessionId }
+        const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
+        return replay.events
+          .filter((event) => event.type === 'output')
+          .map((event) => event.data)
+          .join('')
+      }, { terminalId: handoff.terminalId, sessionId })
+    ).toContain('SPACEZERO_SCROLL_60')
+
+    const viewportBeforeHandoff = await window.locator('.xterm-viewport').evaluate((viewport) => {
+      viewport.scrollTop = viewport.scrollHeight
+      return {
+        scrollTop: viewport.scrollTop,
+        scrollHeight: viewport.scrollHeight,
+        clientHeight: viewport.clientHeight
+      }
+    })
+    expect(viewportBeforeHandoff.clientHeight).toBeGreaterThan(0)
+
+    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await expect.poll(async () =>
+      electronApp!.evaluate(({ webContents }, { serverUrl }) =>
+        webContents.getAllWebContents().some((contents) => contents.getURL() === serverUrl)
+      , { serverUrl: handoff.serverUrl })
+    ).toBe(true)
+    const browserBody = await electronApp.evaluate(async ({ webContents }, { serverUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === serverUrl)
+      if (!contents) throw new Error('Embedded Browser server tab was not found')
+      return contents.executeJavaScript('document.body.textContent')
+    }, { serverUrl: handoff.serverUrl })
+    expect(browserBody).toContain('SPACEZERO_SERVER_ALIVE')
+    expect(await isProcessAlive(handoff.serverPid)).toBe(true)
+
+    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
+    const viewportAfterReturn = await window.locator('.xterm-viewport').evaluate((viewport) => ({
+      scrollTop: viewport.scrollTop,
+      scrollHeight: viewport.scrollHeight,
+      clientHeight: viewport.clientHeight
+    }))
+    expect(viewportAfterReturn.scrollHeight).toBe(viewportBeforeHandoff.scrollHeight)
+    expect(viewportAfterReturn.clientHeight).toBe(viewportBeforeHandoff.clientHeight)
+    expect(viewportAfterReturn.scrollTop).toBe(viewportBeforeHandoff.scrollTop)
+    const terminalReturn = await window.evaluate(async ({ terminalId, sessionId }) => {
+      const context = { kind: 'workspace-session' as const, sessionId }
+      const tabs = await window.spacezero.terminal.listTabs({ context })
+      const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
+      return {
+        activeTerminalId: tabs.activeTerminalId,
+        replay: replay.events
+          .filter((event) => event.type === 'output')
+          .map((event) => event.data)
+          .join('')
+      }
+    }, { terminalId: handoff.terminalId, sessionId })
+    expect(terminalReturn.activeTerminalId).toBe(handoff.terminalId)
+    expect(terminalReturn.replay).toContain('SPACEZERO_TERMINAL_RETURN')
+    expect(terminalReturn.replay).toMatch(/(^|\r?\n)30 100(\r?\n|$)/)
+  } finally {
+    await electronApp?.close().catch(() => undefined)
+    await rm(temporaryDirectory, { recursive: true, force: true })
+  }
+})
+
 test('opens a configured Knowledge Base as a persistent managed chat', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-kb-e2e-'))
   const knowledgeBasePath = join(temporaryDirectory, 'SpaceZero', 'knowledge-base')
