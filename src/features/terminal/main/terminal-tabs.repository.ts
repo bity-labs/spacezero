@@ -33,6 +33,15 @@ export function createTerminalTabsRepository(): TerminalTabsRepository {
         })
     },
 
+    async replaceContext(context, tabs) {
+      getDatabase().transaction((tx) => {
+        tx.delete(schema.terminalTabs).where(contextWhere(context)).run()
+        if (tabs.length > 0) {
+          tx.insert(schema.terminalTabs).values(tabs.map(tabToRow)).run()
+        }
+      })
+    },
+
     async updateOrderAndActive(context, orderedTabIds, activeTabId) {
       for (const [order, tabId] of orderedTabIds.entries()) {
         await getDatabase()
