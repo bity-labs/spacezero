@@ -90,6 +90,7 @@ import {
   TERMINAL_IPC_CHANNELS,
   type TerminalAPI
 } from '../features/terminal/shared/terminal.contract'
+import { BROWSER_IPC_CHANNELS, type BrowserAPI } from '../features/browser/shared/browser.contract'
 
 export const IPC_CHANNELS = {
   app: {
@@ -189,6 +190,7 @@ export const IPC_CHANNELS = {
     logoutOAuth: 'agent:logoutOAuth'
   },
   terminal: TERMINAL_IPC_CHANNELS,
+  browser: BROWSER_IPC_CHANNELS,
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
     updateLanguagePreference: 'settings:updateLanguagePreference',
@@ -343,6 +345,7 @@ export type SpaceZeroAPI = {
     logoutOAuth: (request: ProviderRequest) => Promise<void>
   }
   terminal: TerminalAPI
+  browser: BrowserAPI
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>

@@ -1,5 +1,6 @@
 import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
 import { execFile } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
@@ -550,10 +551,9 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       'vertical'
     )
     await expect(window.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
+    await expect(window.getByRole('button', { name: 'Browser', exact: true })).toBeEnabled()
     await expect(window.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled()
-    for (const label of ['Git', 'Browser']) {
-      await expect(window.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
-    }
+    await expect(window.getByRole('button', { name: 'Git — Coming soon' })).toBeDisabled()
     await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
     await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
     await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
@@ -606,3 +606,170 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
 })
+
+test('opens a sandboxed Browser Tool page through the dedicated embedded profile', async () => {
+  const server = await startBrowserFixtureServer()
+  const address = server.address()
+  if (!address || typeof address === 'string') throw new Error('Browser fixture server did not bind.')
+  const fixtureUrl = `http://127.0.0.1:${address.port}/browser-fixture`
+
+  const electronApp = await launchApp()
+  const window = await electronApp.firstWindow()
+
+  await electronApp.evaluate(({ app, ipcMain, BrowserWindow }) => {
+    const { createRequire } = process.getBuiltinModule('node:module')
+    const { join } = process.getBuiltinModule('node:path')
+    const require = createRequire(`${app.getAppPath()}/package.json`)
+    const Database = require('better-sqlite3')
+    const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
+    const timestamp = Date.now()
+    database
+      .prepare(
+        `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run('browser-e2e-session', null, 'Browser E2E', 'idle', timestamp, timestamp)
+    database.close()
+
+    for (const channel of [
+      'onboarding:getStatus',
+      'onboarding:complete',
+      'sessions:listProjectSessions',
+      'sessions:listWorkspaceSessions',
+      'projects:list',
+      'agent:getState'
+    ]) {
+      ipcMain.removeHandler(channel)
+    }
+    ipcMain.handle('onboarding:getStatus', () => ({ completed: true }))
+    ipcMain.handle('onboarding:complete', () => ({ completed: true }))
+    ipcMain.handle('projects:list', () => [])
+    ipcMain.handle('sessions:listProjectSessions', () => [])
+    ipcMain.handle('sessions:listWorkspaceSessions', () => [
+      {
+        id: 'browser-e2e-session',
+        kind: 'workspace',
+        title: 'Browser E2E',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ])
+    ipcMain.handle('agent:getState', () => ({
+      sessionId: 'browser-e2e-session',
+      kind: 'workspace',
+      status: 'idle',
+      title: 'Browser E2E',
+      messages: [],
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }))
+    BrowserWindow.getAllWindows()[0]?.webContents.reload()
+  })
+
+  await window.getByRole('button', { name: /Browser E2E/ }).click()
+  await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
+
+  await window.getByRole('button', { name: 'Browser', exact: true }).click()
+  await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+  await window.getByLabel('Browser URL').fill(fixtureUrl)
+  await window.getByRole('button', { name: 'Go' }).click()
+
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
+    , { fixtureUrl })
+  ).toBe(true)
+
+  const browserIsolation = await electronApp.evaluate(async ({ BrowserWindow, session, webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    const [mainWindow] = BrowserWindow.getAllWindows()
+    if (!contents) throw new Error('Embedded browser webContents was not found.')
+    const attachedBounds = mainWindow.contentView.children
+      .find((child) => child.webContents === contents)
+      ?.getBounds()
+    return {
+      url: contents.getURL(),
+      attachedBounds,
+      title: await contents.executeJavaScript('document.querySelector("h1")?.textContent'),
+      preferences: contents.getLastWebPreferences(),
+      usesDedicatedProfile: contents.session === session.fromPartition('persist:spacezero-browser'),
+      usesDefaultProfile: contents.session === session.defaultSession,
+      globals: await contents.executeJavaScript(`({
+        spacezero: typeof window.spacezero,
+        electronRequire: typeof window.require,
+        nodeProcess: typeof window.process
+      })`)
+    }
+  }, { fixtureUrl })
+
+  const surfaceBounds = await window.getByLabel('Browser page surface').boundingBox()
+  expect(browserIsolation.url).toBe(fixtureUrl)
+  expect(browserIsolation.title).toBe('Browser fixture')
+  expect(browserIsolation.attachedBounds).toEqual({
+    x: Math.round(surfaceBounds?.x ?? 0),
+    y: Math.round(surfaceBounds?.y ?? 0),
+    width: Math.round(surfaceBounds?.width ?? 0),
+    height: Math.round(surfaceBounds?.height ?? 0)
+  })
+  expect(browserIsolation.usesDedicatedProfile).toBe(true)
+  expect(browserIsolation.usesDefaultProfile).toBe(false)
+  expect(browserIsolation.preferences.sandbox).toBe(true)
+  expect(browserIsolation.preferences.nodeIntegration).toBe(false)
+  expect(browserIsolation.globals).toMatchObject({
+    spacezero: 'undefined',
+    electronRequire: 'undefined'
+  })
+
+  await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(false)
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
+    , { fixtureUrl })
+  ).toBe(true)
+
+  await window.getByRole('button', { name: 'Browser', exact: true }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(true)
+
+  await window.getByRole('button', { name: 'Collapse Tool Pane' }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return Boolean(contents && mainWindow.contentView.children.some((child) => child.webContents === contents))
+    }, { fixtureUrl })
+  ).toBe(false)
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
+    , { fixtureUrl })
+  ).toBe(true)
+
+  await electronApp.close()
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+})
+
+async function startBrowserFixtureServer(): Promise<Server> {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    response.end('<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>')
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  return server
+}

@@ -9,6 +9,7 @@ type ArchiveProjectLifecycleDependencies = {
   sessionsService: Pick<SessionsService, 'archiveProjectSessions'>
   projectsService: Pick<ProjectsService, 'archiveProject'>
   deleteUtilitySession: (request: { sessionId: string }) => Promise<void>
+  closeBrowsersForSession?: (session: { id: string }) => void
   withProjectLifecycleLock?: ProjectLifecycleLock
 }
 
@@ -24,6 +25,7 @@ export async function archiveProjectLifecycle(
     sessionsService,
     projectsService,
     deleteUtilitySession,
+    closeBrowsersForSession = () => undefined,
     withProjectLifecycleLock = runWithProjectLifecycleLock
   }: ArchiveProjectLifecycleDependencies
 ): Promise<void> {
@@ -31,6 +33,7 @@ export async function archiveProjectLifecycle(
   await withProjectLifecycleLock(normalizedProjectId, async () => {
     const sessions = await sessionsService.archiveProjectSessions(normalizedProjectId)
     await projectsService.archiveProject(normalizedProjectId)
+    for (const session of sessions) closeBrowsersForSession(session)
     await Promise.all(
       sessions.map((session) =>
         deleteUtilitySession({ sessionId: session.id }).catch(() => undefined)
