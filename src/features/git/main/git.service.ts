@@ -5,7 +5,7 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import type { GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
+import type { GitChangeFilter, GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
 import type { ManagedWorktreeService } from '../../sessions/main/managed-worktree.service'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 
@@ -44,7 +44,10 @@ export function createGitService({
   fileSystem?: UntrackedFileSystem
   pathFlavor?: PathFlavor
 }) {
-  async function getProjectSessionReview(sessionId: string): Promise<GitReviewState> {
+  async function getProjectSessionReview(
+    sessionId: string,
+    filter: GitChangeFilter = 'uncommitted'
+  ): Promise<GitReviewState> {
     const session = await sessionsRepository.findSessionById(sessionId)
     if (!session || !session.projectId) {
       return { status: 'missing-worktree', message: 'Project Session not found.' }
@@ -75,9 +78,11 @@ export function createGitService({
       const upstream = await getUpstream(worktree.path, runGit)
       const statuses = parsePorcelainStatus(
         (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
-      )
+      ).filter((status) => statusMatchesFilter(status, filter))
       const files = await Promise.all(
-        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit, fileSystem, pathFlavor }))
+        statuses.map((status) =>
+          createFileDiff({ cwd: worktree.path, status, filter, runGit, fileSystem, pathFlavor })
+        )
       )
       const sorted = files.sort(compareFileDiffs)
       return sorted.length === 0
@@ -159,23 +164,25 @@ function parsePorcelainStatus(output: string): PorcelainStatus[] {
 async function createFileDiff({
   cwd,
   status,
+  filter,
   runGit,
   fileSystem,
   pathFlavor
 }: {
   cwd: string
   status: PorcelainStatus
+  filter: GitChangeFilter
   runGit: GitRunner
   fileSystem: UntrackedFileSystem
   pathFlavor: PathFlavor
 }): Promise<GitFileDiff> {
-  const kind = getChangeKind(status)
+  const kind = getChangeKind(status, filter)
   if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem, pathFlavor)
 
   const pathspecs = status.oldPath ? [status.oldPath, status.path] : [status.path]
   const diff = await runGit({
     cwd,
-    args: ['diff', '--no-ext-diff', '--find-renames=1%', '--binary', 'HEAD', '--', ...pathspecs],
+    args: createDiffArgs(filter, pathspecs),
     allowFailure: true
   })
   if (diff.exitCode !== 0) {
@@ -261,15 +268,40 @@ function isPathInsideDirectory(path: string, directory: string, pathFlavor: Path
   )
 }
 
-function getChangeKind(status: PorcelainStatus): GitFileDiff['kind'] {
-  if (status.x === 'U' || status.y === 'U' || status.x === 'A' && status.y === 'A' || status.x === 'D' && status.y === 'D') {
-    return 'conflicted'
-  }
+function statusMatchesFilter(status: PorcelainStatus, filter: GitChangeFilter): boolean {
+  if (filter === 'uncommitted') return true
+  if (isUnmergedStatus(status)) return true
+  if (filter === 'staged') return status.x !== ' ' && status.x !== '?'
+  return status.y !== ' ' || status.x === '?'
+}
+
+function createDiffArgs(filter: GitChangeFilter, pathspecs: string[]): string[] {
+  const common = ['diff', '--no-ext-diff', '--find-renames=1%', '--binary']
+  if (filter === 'staged') return [...common, '--cached', 'HEAD', '--', ...pathspecs]
+  if (filter === 'unstaged') return [...common, '--', ...pathspecs]
+  return [...common, 'HEAD', '--', ...pathspecs]
+}
+
+function getChangeKind(status: PorcelainStatus, filter: GitChangeFilter): GitFileDiff['kind'] {
+  if (isUnmergedStatus(status)) return 'conflicted'
   if (status.x === '?' && status.y === '?') return 'untracked'
+  if (filter === 'unstaged') {
+    if (status.y === 'D') return 'deleted'
+    return 'modified'
+  }
   if (status.x === 'R') return 'renamed'
   if (status.x === 'A') return 'added'
   if (status.x === 'D' || status.y === 'D') return 'deleted'
   return 'modified'
+}
+
+function isUnmergedStatus(status: PorcelainStatus): boolean {
+  return (
+    status.x === 'U' ||
+    status.y === 'U' ||
+    status.x === 'A' && status.y === 'A' ||
+    status.x === 'D' && status.y === 'D'
+  )
 }
 
 function compareFileDiffs(left: GitFileDiff, right: GitFileDiff): number {

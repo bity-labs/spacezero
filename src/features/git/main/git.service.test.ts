@@ -61,6 +61,143 @@ describe('GitService', () => {
     })
   })
 
+  it('defaults to uncommitted and returns staged, unstaged, and untracked changes since HEAD', async () => {
+    const root = await createTempDir('spacezero-git-uncommitted-filter-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'README.md'), '# Test\n\nstaged\nunstaged\n')
+    await writeFile(join(worktree, 'staged-only.md'), 'staged file\n')
+    await writeFile(join(worktree, 'untracked.md'), 'untracked file\n')
+    await git(['-C', worktree, 'add', 'staged-only.md'])
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files.map((file) => file.path)).toEqual(['README.md', 'staged-only.md', 'untracked.md'])
+    expect(review.files.find((file) => file.path === 'README.md')?.diff).toContain('+unstaged')
+    expect(review.files.find((file) => file.path === 'staged-only.md')).toMatchObject({ kind: 'added' })
+    expect(review.files.find((file) => file.path === 'untracked.md')).toMatchObject({ kind: 'untracked' })
+  })
+
+  it('separates staged and unstaged patches for a partially staged file', async () => {
+    const root = await createTempDir('spacezero-git-partial-filter-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'README.md'), '# Test\n\nstaged line\n')
+    await git(['-C', worktree, 'add', 'README.md'])
+    await writeFile(join(worktree, 'README.md'), '# Test\n\nstaged line\nunstaged line\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const staged = await service.getProjectSessionReview('session-1', 'staged')
+    const unstaged = await service.getProjectSessionReview('session-1', 'unstaged')
+
+    expect(staged.status).toBe('ok')
+    expect(unstaged.status).toBe('ok')
+    if (staged.status !== 'ok' || unstaged.status !== 'ok') return
+    expect(staged.files.map((file) => file.path)).toEqual(['README.md'])
+    expect(unstaged.files.map((file) => file.path)).toEqual(['README.md'])
+    expect(staged.files[0]).toMatchObject({ kind: 'modified', diff: expect.stringContaining('+staged line') })
+    expect(staged.files[0].diff).not.toContain('+unstaged line')
+    expect(unstaged.files[0]).toMatchObject({ kind: 'modified', diff: expect.stringContaining('+unstaged line') })
+    expect(unstaged.files[0].diff).not.toContain('+staged line')
+  })
+
+  it('limits staged and unstaged filters to their matching changed files', async () => {
+    const root = await createTempDir('spacezero-git-staged-unstaged-filter-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'README.md'), '# Test\n\nworking tree only\n')
+    await writeFile(join(worktree, 'staged-only.md'), 'staged file\n')
+    await writeFile(join(worktree, 'untracked.md'), 'untracked file\n')
+    await git(['-C', worktree, 'add', 'staged-only.md'])
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const staged = await service.getProjectSessionReview('session-1', 'staged')
+    const unstaged = await service.getProjectSessionReview('session-1', 'unstaged')
+
+    expect(staged.status).toBe('ok')
+    expect(unstaged.status).toBe('ok')
+    if (staged.status !== 'ok' || unstaged.status !== 'ok') return
+    expect(staged.files.map((file) => file.path)).toEqual(['staged-only.md'])
+    expect(unstaged.files.map((file) => file.path)).toEqual(['README.md', 'untracked.md'])
+  })
+
+  it('reports deleted, binary, and excessively large changes as bounded summaries', async () => {
+    const root = await createTempDir('spacezero-git-bounded-states-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await writeFile(join(base, 'delete-me.txt'), 'delete me\n')
+    await writeFile(join(base, 'binary.bin'), Buffer.from([0, 1, 2, 3]))
+    await writeFile(join(base, 'large.txt'), `${'a'.repeat(140 * 1024)}\n`)
+    await git(['-C', base, 'add', 'delete-me.txt', 'binary.bin', 'large.txt'])
+    await git(['-C', base, 'commit', '-m', 'fixtures'])
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await rm(join(worktree, 'delete-me.txt'))
+    await writeFile(join(worktree, 'binary.bin'), Buffer.from([0, 1, 2, 3, 4]))
+    await writeFile(join(worktree, 'large.txt'), `${'b'.repeat(140 * 1024)}\n`)
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files.find((file) => file.path === 'delete-me.txt')).toMatchObject({ kind: 'deleted' })
+    expect(review.files.find((file) => file.path === 'binary.bin')).toMatchObject({ binary: true, diff: null })
+    expect(review.files.find((file) => file.path === 'large.txt')).toMatchObject({ large: true, diff: null })
+  })
+
+  it('returns conflicted files first with conflict state', async () => {
+    const root = await createTempDir('spacezero-git-conflicts-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'checkout', '-b', 'other'])
+    await writeFile(join(base, 'README.md'), '# Other\n')
+    await git(['-C', base, 'commit', '-am', 'other change'])
+    await git(['-C', base, 'checkout', 'main'])
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'README.md'), '# Session\n')
+    await git(['-C', worktree, 'commit', '-am', 'session change'])
+    await git(['-C', worktree, 'merge', 'other'], true)
+    await writeFile(join(worktree, 'z-after.txt'), 'after conflict\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files[0]).toMatchObject({ path: 'README.md', kind: 'conflicted' })
+  })
+
   it('returns nested untracked files individually with eligible text content', async () => {
     const root = await createTempDir('spacezero-git-nested-untracked-')
     const base = join(root, 'base')
@@ -379,9 +516,14 @@ async function createRepository(path: string): Promise<void> {
   await git(['-C', path, 'commit', '-m', 'initial'])
 }
 
-async function git(args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { encoding: 'utf8' })
-  return stdout
+async function git(args: string[], allowFailure = false): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync('git', args, { encoding: 'utf8' })
+    return stdout
+  } catch (error) {
+    if (allowFailure) return ''
+    throw error
+  }
 }
 
 function createStatsStub({

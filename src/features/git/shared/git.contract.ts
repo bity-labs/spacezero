@@ -8,6 +8,8 @@ export const GIT_IPC_CHANNELS = {
 
 export type GitReviewRequest = z.infer<typeof getProjectSessionGitReviewSchema>
 
+export type GitChangeFilter = 'uncommitted' | 'unstaged' | 'staged'
+
 export type GitUpstreamState =
   | { kind: 'none' }
   | { kind: 'tracked'; name: string; ahead: number; behind: number }
