@@ -5,12 +5,14 @@ import { lstat, open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import type { GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
+import type { GitChangeFilter, GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
 import type { ManagedWorktreeService } from '../../sessions/main/managed-worktree.service'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 
 const execFileAsync = promisify(execFile)
 const MAX_DIFF_BYTES = 256 * 1024
+const MAX_GIT_OUTPUT_BYTES = MAX_DIFF_BYTES * 2
+const MAX_ERROR_MESSAGE_BYTES = 4 * 1024
 const MAX_UNTRACKED_BYTES = 128 * 1024
 
 export type GitService = ReturnType<typeof createGitService>
@@ -44,7 +46,10 @@ export function createGitService({
   fileSystem?: UntrackedFileSystem
   pathFlavor?: PathFlavor
 }) {
-  async function getProjectSessionReview(sessionId: string): Promise<GitReviewState> {
+  async function getProjectSessionReview(
+    sessionId: string,
+    filter: GitChangeFilter = 'uncommitted'
+  ): Promise<GitReviewState> {
     const session = await sessionsRepository.findSessionById(sessionId)
     if (!session || !session.projectId) {
       return { status: 'missing-worktree', message: 'Project Session not found.' }
@@ -75,18 +80,20 @@ export function createGitService({
       const upstream = await getUpstream(worktree.path, runGit)
       const statuses = parsePorcelainStatus(
         (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
-      )
+      ).filter((status) => statusMatchesFilter(status, filter))
       const files = await Promise.all(
-        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit, fileSystem, pathFlavor }))
+        statuses.map((status) =>
+          createFileDiff({ cwd: worktree.path, status, filter, runGit, fileSystem, pathFlavor })
+        )
       )
-      const sorted = files.sort(compareFileDiffs)
+      const sorted = files.filter((file): file is GitFileDiff => file !== null).sort(compareFileDiffs)
       return sorted.length === 0
         ? { status: 'clean', branch, upstream, files: [] }
         : { status: 'ok', branch, upstream, files: sorted }
     } catch (error) {
       return {
         status: 'git-error',
-        message: error instanceof Error ? error.message : 'Git query failed.'
+        message: boundedErrorMessage(error instanceof Error ? error.message : 'Git query failed.')
       }
     }
   }
@@ -159,29 +166,44 @@ function parsePorcelainStatus(output: string): PorcelainStatus[] {
 async function createFileDiff({
   cwd,
   status,
+  filter,
   runGit,
   fileSystem,
   pathFlavor
 }: {
   cwd: string
   status: PorcelainStatus
+  filter: GitChangeFilter
   runGit: GitRunner
   fileSystem: UntrackedFileSystem
   pathFlavor: PathFlavor
-}): Promise<GitFileDiff> {
-  const kind = getChangeKind(status)
+}): Promise<GitFileDiff | null> {
+  const kind = getChangeKind(status, filter)
   if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem, pathFlavor)
 
   const pathspecs = status.oldPath ? [status.oldPath, status.path] : [status.path]
   const diff = await runGit({
     cwd,
-    args: ['diff', '--no-ext-diff', '--find-renames=1%', '--binary', 'HEAD', '--', ...pathspecs],
+    args: createDiffArgs(filter, pathspecs),
     allowFailure: true
   })
   if (diff.exitCode !== 0) {
-    throw new Error(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+    if (isLikelyOversizedDiff(diff)) {
+      return {
+        path: status.path,
+        oldPath: status.oldPath,
+        kind,
+        binary: false,
+        large: true,
+        diff: null
+      }
+    }
+    throw new Error(
+      boundedErrorMessage(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+    )
   }
   const content = diff.stdout
+  if (filter === 'uncommitted' && content.length === 0 && !isUnmergedStatus(status)) return null
   const binary = content.includes('GIT binary patch') || content.includes('Binary files ')
   const large = Buffer.byteLength(content, 'utf8') > MAX_DIFF_BYTES
   return {
@@ -250,6 +272,17 @@ async function createUntrackedDiff(
   }
 }
 
+function isLikelyOversizedDiff(diff: Awaited<ReturnType<GitRunner>>): boolean {
+  return Buffer.byteLength(diff.stdout, 'utf8') >= MAX_DIFF_BYTES
+}
+
+function boundedErrorMessage(message: string): string {
+  const bytes = Buffer.from(message, 'utf8')
+  if (bytes.byteLength <= MAX_ERROR_MESSAGE_BYTES) return message
+  const ellipsis = Buffer.from('…', 'utf8')
+  return `${bytes.subarray(0, MAX_ERROR_MESSAGE_BYTES - ellipsis.byteLength).toString('utf8')}…`
+}
+
 function isPathInsideDirectory(path: string, directory: string, pathFlavor: PathFlavor): boolean {
   const relativePath = pathFlavor.relative(directory, path)
   return (
@@ -261,15 +294,40 @@ function isPathInsideDirectory(path: string, directory: string, pathFlavor: Path
   )
 }
 
-function getChangeKind(status: PorcelainStatus): GitFileDiff['kind'] {
-  if (status.x === 'U' || status.y === 'U' || status.x === 'A' && status.y === 'A' || status.x === 'D' && status.y === 'D') {
-    return 'conflicted'
-  }
+function statusMatchesFilter(status: PorcelainStatus, filter: GitChangeFilter): boolean {
+  if (filter === 'uncommitted') return true
+  if (isUnmergedStatus(status)) return true
+  if (filter === 'staged') return status.x !== ' ' && status.x !== '?'
+  return status.y !== ' ' || status.x === '?'
+}
+
+function createDiffArgs(filter: GitChangeFilter, pathspecs: string[]): string[] {
+  const common = ['diff', '--no-ext-diff', '--find-renames=1%', '--binary']
+  if (filter === 'staged') return [...common, '--cached', 'HEAD', '--', ...pathspecs]
+  if (filter === 'unstaged') return [...common, '--', ...pathspecs]
+  return [...common, 'HEAD', '--', ...pathspecs]
+}
+
+function getChangeKind(status: PorcelainStatus, filter: GitChangeFilter): GitFileDiff['kind'] {
+  if (isUnmergedStatus(status)) return 'conflicted'
   if (status.x === '?' && status.y === '?') return 'untracked'
+  if (filter === 'unstaged') {
+    if (status.y === 'D') return 'deleted'
+    return 'modified'
+  }
   if (status.x === 'R') return 'renamed'
   if (status.x === 'A') return 'added'
   if (status.x === 'D' || status.y === 'D') return 'deleted'
   return 'modified'
+}
+
+function isUnmergedStatus(status: PorcelainStatus): boolean {
+  return (
+    status.x === 'U' ||
+    status.y === 'U' ||
+    status.x === 'A' && status.y === 'A' ||
+    status.x === 'D' && status.y === 'D'
+  )
 }
 
 function compareFileDiffs(left: GitFileDiff, right: GitFileDiff): number {
@@ -291,7 +349,7 @@ async function runGitCli({
     const { stdout, stderr } = await execFileAsync('git', args, {
       cwd,
       encoding: 'utf8',
-      maxBuffer: MAX_DIFF_BYTES * 2
+      maxBuffer: MAX_GIT_OUTPUT_BYTES
     })
     return { stdout, stderr, exitCode: 0 }
   } catch (error) {
@@ -301,7 +359,7 @@ async function runGitCli({
       exitCode: getExecCode(error)
     }
     if (allowFailure) return result
-    throw new Error(result.stderr.trim() || result.stdout.trim() || 'Git command failed.', {
+    throw new Error(boundedErrorMessage(result.stderr.trim() || result.stdout.trim() || 'Git command failed.'), {
       cause: error
     })
   }
