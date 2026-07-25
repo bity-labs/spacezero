@@ -69,6 +69,19 @@ export function migrateDatabase(database: Database.Database): void {
       PRIMARY KEY (context_key, tab_id)
     );
 
+    CREATE TABLE IF NOT EXISTS browser_tabs (
+      context_key TEXT NOT NULL,
+      context_kind TEXT NOT NULL,
+      context_session_id TEXT,
+      context_project_id TEXT,
+      tab_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      active INTEGER NOT NULL,
+      url TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (context_key, tab_id)
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
