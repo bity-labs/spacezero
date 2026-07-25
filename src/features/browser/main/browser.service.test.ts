@@ -525,6 +525,25 @@ describe('BrowserService', () => {
     expect(adapter.destroyed).toEqual([project.activeTabId])
   })
 
+  it('routes eligible native new-window web requests into a same-context Browser tab', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const project = await service.navigate({ ...projectContext, input: 'https://project.example/' })
+    const workspace = await service.navigate({ ...workspaceContext, input: 'https://workspace.example/' })
+
+    const routed = service.openNativeRequestedTab(project.activeTabId, 'https://auth.example/start')
+
+    expect(routed?.contextKey).toBe(project.contextKey)
+    expect(routed?.tabs.map((tab) => tab.url)).toEqual([
+      'https://project.example/',
+      'https://auth.example/start'
+    ])
+    expect(routed?.activeTabId).not.toBe(project.activeTabId)
+    expect(adapter.loaded).toContainEqual({ id: routed?.activeTabId, url: 'https://auth.example/start' })
+    expect((await service.getState(workspaceContext)).activeTabId).toBe(workspace.activeTabId)
+    expect(service.openNativeRequestedTab('browser-tab-forged', 'https://example.com/')).toBeUndefined()
+  })
+
   it('rejects reorder requests that omit, duplicate, or import tab ids', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(adapter, createContextRepository())

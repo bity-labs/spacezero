@@ -10,12 +10,15 @@ import {
 } from './browser.service'
 import { BrowserSecurityPolicy } from './browser.security-policy'
 
+type BrowserChildWindow = BrowserWindow & { close?: () => void; destroy?: () => void; isDestroyed?: () => boolean }
+
 type BrowserViewRecord = {
   view: electron.WebContentsView
   ownerWindow: BrowserWindow | null
   attachedWindow: BrowserWindow | null
   shortcutBindings: BrowserShortcutBinding[]
   requestedUrl: string | null
+  childWindows: Set<BrowserChildWindow>
 }
 
 export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
@@ -49,13 +52,14 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
         partition: BROWSER_PARTITION
       }
     })
-    view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    view.webContents.setWindowOpenHandler((details) => this.handleWindowOpen(tabId, details))
     view.webContents.on('before-input-event', (event, input) => {
       const commandId = browserCommandForInput(input, this.views.get(tabId)?.shortcutBindings ?? [])
       if (!commandId) return
       event.preventDefault()
       this.service?.handleNativeCommand(tabId, commandId)
     })
+    view.webContents.on('will-navigate', (event, url) => this.handleWillNavigate(tabId, event, url))
     view.webContents.on('did-start-navigation', () => this.service?.markNavigationStarted(tabId))
     view.webContents.on('did-start-loading', () => this.service?.markNavigationStarted(tabId))
     view.webContents.on('did-stop-loading', () => this.service?.markNavigationStopped(tabId))
@@ -76,12 +80,16 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-favicon-updated', (_event, favicons) =>
       this.service?.markFaviconChanged(tabId, favicons)
     )
+    view.webContents.on('did-create-window', (childWindow, details) =>
+      this.trackAuthenticationChildWindow(tabId, childWindow as BrowserChildWindow, details)
+    )
     this.views.set(tabId, {
       view,
       ownerWindow: null,
       attachedWindow: null,
       shortcutBindings: [],
-      requestedUrl: null
+      requestedUrl: null,
+      childWindows: new Set()
     })
   }
 
@@ -123,6 +131,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     const record = this.views.get(tabId)
     if (!record) return
     this.detachRecord(tabId, record)
+    this.closeChildWindows(record)
     if (!record.view.webContents.isDestroyed()) record.view.webContents.close()
     this.views.delete(tabId)
   }
@@ -203,6 +212,82 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
         .requestCertificateException({ url, originalUrl: record.requestedUrl ?? webContents.getURL(), error })
         .then(callback, () => callback(false))
     })
+  }
+
+  private handleWillNavigate(tabId: string, event: { preventDefault: () => void }, urlText: string): void {
+    const url = safeUrl(urlText)
+    if (!url) {
+      event.preventDefault()
+      return
+    }
+    if (url.protocol === 'http:' || url.protocol === 'https:') return
+
+    event.preventDefault()
+    if (isSupportedExternalProtocolUrl(url)) {
+      void confirmAndOpenExternalProtocol(url, this.views.get(tabId)?.ownerWindow ?? null)
+    }
+  }
+
+  private handleWindowOpen(tabId: string, details: ElectronWindowOpenDetails): ElectronWindowOpenDecision {
+    const url = safeUrl(details.url)
+    if (!url) return { action: 'deny' }
+
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+      if (isEligibleSameContextTabRequest(details)) {
+        const record = this.views.get(tabId)
+        void this.hasActiveUserGesture(record).then((hasActiveUserGesture) => {
+          if (hasActiveUserGesture) this.service?.openNativeRequestedTab(tabId, url.toString())
+        })
+        return { action: 'deny' }
+      }
+      if (isEligibleAuthenticationPopupRequest(details)) {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            parent: this.views.get(tabId)?.ownerWindow ?? undefined,
+            show: true,
+            webPreferences: {
+              ...BROWSER_WEB_PREFERENCES,
+              partition: BROWSER_PARTITION
+            }
+          }
+        }
+      }
+      return { action: 'deny' }
+    }
+
+    if (isSupportedExternalProtocolUrl(url)) {
+      void confirmAndOpenExternalProtocol(url, this.views.get(tabId)?.ownerWindow ?? null)
+    }
+    return { action: 'deny' }
+  }
+
+  private async hasActiveUserGesture(record: BrowserViewRecord | undefined): Promise<boolean> {
+    if (!record) return false
+    try {
+      return await record.view.webContents.executeJavaScript('navigator.userActivation.hasBeenActive === true')
+    } catch {
+      return false
+    }
+  }
+
+  private trackAuthenticationChildWindow(
+    tabId: string,
+    childWindow: BrowserChildWindow,
+    _details: unknown
+  ): void {
+    const record = this.views.get(tabId)
+    if (!record) {
+      closeBrowserWindow(childWindow)
+      return
+    }
+    record.childWindows.add(childWindow)
+    childWindow.once?.('closed', () => record.childWindows.delete(childWindow))
+  }
+
+  private closeChildWindows(record: BrowserViewRecord): void {
+    for (const childWindow of record.childWindows) closeBrowserWindow(childWindow)
+    record.childWindows.clear()
   }
 
   private historyState(tabId: string): { canGoBack: boolean; canGoForward: boolean } {
@@ -295,6 +380,68 @@ function createNativeBrowserSecurityPolicy(ownerWindow: () => BrowserWindow | nu
       return result.response === 0 ? 'proceed' : 'cancel'
     }
   )
+}
+
+type ElectronWindowOpenDetails = {
+  url: string
+  frameName?: string
+  features?: string
+  disposition?: string
+}
+
+type ElectronWindowOpenDecision =
+  | { action: 'deny' }
+  | { action: 'allow'; overrideBrowserWindowOptions?: Record<string, unknown> }
+
+function isEligibleSameContextTabRequest(details: ElectronWindowOpenDetails): boolean {
+  return details.disposition === 'foreground-tab' || details.disposition === 'background-tab'
+}
+
+function isEligibleAuthenticationPopupRequest(details: ElectronWindowOpenDetails): boolean {
+  if (details.disposition !== 'new-window') return false
+  return Boolean(details.frameName && details.frameName !== '_blank') && Boolean(details.features?.trim())
+}
+
+function safeUrl(input: string): URL | null {
+  try {
+    return new URL(input)
+  } catch {
+    return null
+  }
+}
+
+function isSupportedExternalProtocolUrl(url: URL): boolean {
+  if (url.protocol !== 'mailto:') return false
+  return !containsUnsafeNestedProtocol(url.toString())
+}
+
+function containsUnsafeNestedProtocol(input: string): boolean {
+  const decoded = decodeURIComponent(input)
+  return /(?:file|spacezero|javascript|data|shell|ftp):/i.test(decoded)
+}
+
+async function confirmAndOpenExternalProtocol(url: URL, ownerWindow: BrowserWindow | null): Promise<void> {
+  const options = {
+    type: 'question' as const,
+    buttons: ['Open', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: 'Open external application?',
+    message: `Open ${url.protocol.slice(0, -1)} link?`,
+    detail: url.toString()
+  }
+  const result = ownerWindow
+    ? await electron.dialog.showMessageBox(ownerWindow, options)
+    : await electron.dialog.showMessageBox(options)
+  if (result.response !== 0) return
+  await electron.shell.openExternal(url.toString())
+}
+
+function closeBrowserWindow(window: BrowserChildWindow): void {
+  if (window.isDestroyed?.()) return
+  if (window.close) window.close()
+  else window.destroy?.()
 }
 
 function browserCommandForInput(
