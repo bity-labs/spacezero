@@ -56,6 +56,19 @@ export function migrateDatabase(database: Database.Database): void {
       agent_definition_snapshot TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS terminal_tabs (
+      context_key TEXT NOT NULL,
+      context_kind TEXT NOT NULL,
+      context_session_id TEXT,
+      tab_id TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      active INTEGER NOT NULL,
+      cwd TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (context_key, tab_id)
+    );
+
     CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
