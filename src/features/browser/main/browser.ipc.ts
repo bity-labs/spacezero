@@ -7,12 +7,24 @@ import {
   browserNavigateRequestSchema,
   browserPresentationRequestSchema
 } from '../shared'
+import { createKnowledgeBaseChatRepository } from '../../knowledge-base/main/knowledge-base-chat.repository'
+import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { BrowserService } from './browser.service'
 import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
 
+const sessionsRepository = createSessionsRepository()
+const knowledgeBaseChatRepository = createKnowledgeBaseChatRepository()
 const browserViewAdapter = new ElectronBrowserViewAdapter()
-const browserService = new BrowserService(browserViewAdapter)
+const browserService = new BrowserService(browserViewAdapter, {
+  findSessionById: (sessionId) => sessionsRepository.findSessionById(sessionId),
+  findProjectById: (projectId) => sessionsRepository.findProjectById(projectId),
+  getCurrentKnowledgeBaseSessionId: () => knowledgeBaseChatRepository.getCurrentSessionId()
+})
 browserViewAdapter.setService(browserService)
+
+export function getBrowserService(): BrowserService {
+  return browserService
+}
 
 export function registerBrowserIpc(): void {
   ipcMain.handle(IPC_CHANNELS.browser.getState, (_event, request: unknown) =>

@@ -32,6 +32,26 @@ export type BrowserViewAdapter = {
   loadUrl: (tabId: string, url: string) => void
 }
 
+export type BrowserContextRepository = {
+  findSessionById: (sessionId: string) => Promise<
+    | {
+        id: string
+        projectId: string | null
+        archivedAt?: Date | null
+        managedContext?: 'knowledge-base' | null
+      }
+    | undefined
+  >
+  findProjectById: (projectId: string) => Promise<
+    | {
+        id: string
+        archivedAt?: Date | null
+      }
+    | undefined
+  >
+  getCurrentKnowledgeBaseSessionId: () => Promise<string | undefined>
+}
+
 type BrowserContextState = {
   contextKey: string
   activeTabId: string
@@ -41,14 +61,17 @@ type BrowserContextState = {
 export class BrowserService {
   private readonly contexts = new Map<string, BrowserContextState>()
 
-  constructor(private readonly adapter: BrowserViewAdapter) {}
+  constructor(
+    private readonly adapter: BrowserViewAdapter,
+    private readonly contextRepository?: BrowserContextRepository
+  ) {}
 
-  getState(request: BrowserContextRequest): BrowserState {
-    return toBrowserState(this.getOrCreateContext(request))
+  async getState(request: BrowserContextRequest): Promise<BrowserState> {
+    return toBrowserState(await this.getOrCreateContext(request))
   }
 
-  navigate(request: BrowserNavigateRequest): BrowserState {
-    const context = this.getOrCreateContext(request)
+  async navigate(request: BrowserNavigateRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
     const url = normalizeBrowserUrl(request.input)
     tab.url = url
@@ -58,20 +81,21 @@ export class BrowserService {
     return toBrowserState(context)
   }
 
-  show(request: BrowserPresentationRequest, sender?: WebContents): BrowserState {
-    const context = this.getOrCreateContext(request)
+  async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
     this.adapter.showView(tab.id, request.bounds, sender)
     return toBrowserState(context)
   }
 
-  hide(request: BrowserContextRequest): void {
-    const context = this.contexts.get(assertAuthorizedContext(request))
+  async hide(request: BrowserContextRequest): Promise<void> {
+    const contextKey = await this.assertAuthorizedContext(request)
+    const context = this.contexts.get(contextKey)
     for (const tab of context?.tabs ?? []) this.adapter.hideView(tab.id)
   }
 
-  closeTab(request: BrowserCloseTabRequest): BrowserState {
-    const context = this.getOrCreateContext(request)
+  async closeTab(request: BrowserCloseTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
     const tab = context.tabs.find((candidate) => candidate.id === request.tabId)
     if (tab) {
       this.adapter.destroyView(tab.id)
@@ -80,6 +104,29 @@ export class BrowserService {
     if (context.tabs.length === 0) context.tabs.push(this.createBlankTab())
     context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
     return toBrowserState(context)
+  }
+
+  destroyContext(context: BrowserContext): void {
+    const contextKey = browserContextKey(context)
+    const state = this.contexts.get(contextKey)
+    if (!state) return
+    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    this.contexts.delete(contextKey)
+  }
+
+  destroySessionContext(sessionId: string): void {
+    const state = this.contexts.get(`session:${sessionId}`)
+    if (!state) return
+    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    this.contexts.delete(state.contextKey)
+  }
+
+  destroyProjectSessionContext(sessionId: string, projectId: string): void {
+    this.destroyContext({ kind: 'project-session', projectId, sessionId })
+  }
+
+  destroyKnowledgeBaseContext(): void {
+    this.destroyContext({ kind: 'knowledge-base' })
   }
 
   markNavigationCommitted(tabId: string, url: string): void {
@@ -110,8 +157,8 @@ export class BrowserService {
     this.contexts.clear()
   }
 
-  private getOrCreateContext(request: BrowserContextRequest): BrowserContextState {
-    const contextKey = assertAuthorizedContext(request)
+  private async getOrCreateContext(request: BrowserContextRequest): Promise<BrowserContextState> {
+    const contextKey = await this.assertAuthorizedContext(request)
     let context = this.contexts.get(contextKey)
     if (!context) {
       const tab = this.createBlankTab()
@@ -149,6 +196,41 @@ export class BrowserService {
       if (tab) return tab
     }
     return undefined
+  }
+
+  private async assertAuthorizedContext(request: BrowserContextRequest): Promise<string> {
+    const expectedKey = browserContextKey(request.context)
+    if (request.contextKey !== expectedKey) throw new Error('Browser context is not authorized.')
+    if (!this.contextRepository) return expectedKey
+
+    switch (request.context.kind) {
+      case 'project-session': {
+        const session = await this.contextRepository.findSessionById(request.context.sessionId)
+        if (!session || session.archivedAt) throw new Error('Browser context is not authorized.')
+        if (session.managedContext || session.projectId !== request.context.projectId) {
+          throw new Error('Browser context is not authorized.')
+        }
+        const project = await this.contextRepository.findProjectById(request.context.projectId)
+        if (!project || project.archivedAt) throw new Error('Browser context is not authorized.')
+        return expectedKey
+      }
+      case 'workspace-session': {
+        const session = await this.contextRepository.findSessionById(request.context.sessionId)
+        if (!session || session.archivedAt || session.projectId || session.managedContext) {
+          throw new Error('Browser context is not authorized.')
+        }
+        return expectedKey
+      }
+      case 'knowledge-base': {
+        const currentSessionId = await this.contextRepository.getCurrentKnowledgeBaseSessionId()
+        if (!currentSessionId) throw new Error('Browser context is not authorized.')
+        const session = await this.contextRepository.findSessionById(currentSessionId)
+        if (!session || session.archivedAt || session.projectId || session.managedContext !== 'knowledge-base') {
+          throw new Error('Browser context is not authorized.')
+        }
+        return expectedKey
+      }
+    }
   }
 }
 
