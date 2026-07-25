@@ -61,5 +61,7 @@ describe('database migrations', () => {
     expect(statements.join('\n')).toContain(
       'ALTER TABLE sessions ADD COLUMN agent_definition_snapshot TEXT'
     )
+    expect(statements.join('\n')).toContain('CREATE TABLE IF NOT EXISTS terminal_tabs')
+    expect(statements.join('\n')).toContain('PRIMARY KEY (context_key, tab_id)')
   })
 })

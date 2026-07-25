@@ -6,6 +6,7 @@ import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.
 import { getStorageSettings } from '../../settings/main/storage-settings.service'
 import { TERMINAL_IPC_CHANNELS } from '../shared'
 import { createNodePtyAdapter } from './node-pty.adapter'
+import { createTerminalTabsRepository } from './terminal-tabs.repository'
 import { createTerminalService } from './terminal.service'
 
 let terminalService: ReturnType<typeof createTerminalService> | undefined
@@ -21,6 +22,7 @@ export function getTerminalService(): ReturnType<typeof createTerminalService> {
     },
     knowledgeBaseRoot: getKnowledgeBaseRootProvider(),
     pty: createNodePtyAdapter(),
+    tabsRepository: createTerminalTabsRepository(),
     enableShellIntegration: true,
     emitToWindow(windowId, event) {
       BrowserWindow.fromId(windowId)?.webContents.send(TERMINAL_IPC_CHANNELS.event, event)
