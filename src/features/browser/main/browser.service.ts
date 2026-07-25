@@ -1,15 +1,19 @@
 import type { WebContents } from 'electron'
 import { nanoid } from 'nanoid'
 
+import { BROWSER_COMMAND_IDS } from '../shared'
 import type {
   BrowserBounds,
   BrowserCloseTabRequest,
   BrowserContext,
   BrowserContextRequest,
+  BrowserEvent,
   BrowserNavigateRequest,
   BrowserPresentationRequest,
+  BrowserShortcutBinding,
   BrowserState,
-  BrowserTab
+  BrowserTab,
+  BrowserTabRequest
 } from '../shared'
 
 export const BROWSER_PARTITION = 'persist:spacezero-browser'
@@ -26,10 +30,23 @@ export type BrowserViewAdapter = {
     tabId: string,
     options: { partition: string; preferences: Record<string, unknown> }
   ) => void
-  showView: (tabId: string, bounds: BrowserBounds, sender?: WebContents) => void
+  showView: (
+    tabId: string,
+    bounds: BrowserBounds,
+    shortcutBindings: BrowserShortcutBinding[],
+    sender?: WebContents
+  ) => void
   hideView: (tabId: string) => void
   destroyView: (tabId: string) => void
   loadUrl: (tabId: string, url: string) => void
+  goBack: (tabId: string) => void
+  goForward: (tabId: string) => void
+  reload: (tabId: string) => void
+  stop: (tabId: string) => void
+}
+
+export type BrowserExternalOpener = {
+  openExternal: (url: string) => Promise<void>
 }
 
 export type BrowserContextRepository = {
@@ -58,12 +75,16 @@ type BrowserContextState = {
   tabs: BrowserTab[]
 }
 
+type BrowserEventListener = (event: BrowserEvent) => void
+
 export class BrowserService {
   private readonly contexts = new Map<string, BrowserContextState>()
+  private readonly listeners = new Set<BrowserEventListener>()
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
-    private readonly contextRepository?: BrowserContextRepository
+    private readonly contextRepository?: BrowserContextRepository,
+    private readonly externalOpener?: BrowserExternalOpener
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -78,13 +99,65 @@ export class BrowserService {
     tab.error = null
     tab.isLoading = true
     this.adapter.loadUrl(tab.id, url)
-    return toBrowserState(context)
+    return this.publishState(context)
+  }
+
+  async goBack(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.canGoBack) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.goBack(tab.id)
+    }
+    return this.publishState(context)
+  }
+
+  async goForward(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.canGoForward) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.goForward(tab.id)
+    }
+    return this.publishState(context)
+  }
+
+  async reload(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.url) {
+      tab.isLoading = true
+      tab.error = null
+      this.adapter.reload(tab.id)
+    }
+    return this.publishState(context)
+  }
+
+  async stop(request: BrowserTabRequest): Promise<BrowserState> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (tab.isLoading) {
+      this.adapter.stop(tab.id)
+      tab.isLoading = false
+    }
+    return this.publishState(context)
+  }
+
+  async openInDefaultBrowser(request: BrowserTabRequest): Promise<void> {
+    const context = await this.getOrCreateContext(request)
+    const tab = this.resolveTab(context, request.tabId)
+    if (!tab.url) throw new Error('Browser tab has no page to open.')
+    const url = normalizeExternalBrowserUrl(tab.url)
+    if (!this.externalOpener) throw new Error('Default browser opening is not available.')
+    await this.externalOpener.openExternal(url)
   }
 
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
-    this.adapter.showView(tab.id, request.bounds, sender)
+    this.adapter.showView(tab.id, request.bounds, request.shortcutBindings, sender)
     return toBrowserState(context)
   }
 
@@ -103,7 +176,7 @@ export class BrowserService {
     }
     if (context.tabs.length === 0) context.tabs.push(this.createBlankTab())
     context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
-    return toBrowserState(context)
+    return this.publishState(context)
   }
 
   destroyContext(context: BrowserContext): void {
@@ -140,28 +213,94 @@ export class BrowserService {
       }
       context.tabs = remainingTabs
       if (closedTabIds.has(context.activeTabId)) context.activeTabId = remainingTabs[0]?.id ?? context.activeTabId
+      this.publishState(context)
     }
   }
 
-  markNavigationCommitted(tabId: string, url: string): void {
-    const tab = this.findTab(tabId)
-    if (!tab) return
-    tab.url = url
-    tab.error = null
-    tab.isLoading = false
+  onEvent(listener: BrowserEventListener): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  markNavigationStarted(tabId: string): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.isLoading = true
+    found.tab.error = null
+    this.publishState(found.context)
+  }
+
+  markNavigationCommitted(tabId: string, url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.url = url
+    found.tab.error = null
+    if (history) {
+      found.tab.canGoBack = history.canGoBack
+      found.tab.canGoForward = history.canGoForward
+    }
+    this.publishState(found.context)
   }
 
   markNavigationFailed(tabId: string, error: string): void {
-    const tab = this.findTab(tabId)
-    if (!tab) return
-    tab.error = error
-    tab.isLoading = false
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.error = error
+    found.tab.isLoading = false
+    this.publishState(found.context)
+  }
+
+  markNavigationStopped(tabId: string): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.isLoading = false
+    this.publishState(found.context)
+  }
+
+  markHistoryChanged(tabId: string, history: { canGoBack: boolean; canGoForward: boolean }): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.canGoBack = history.canGoBack
+    found.tab.canGoForward = history.canGoForward
+    this.publishState(found.context)
   }
 
   markTitleChanged(tabId: string, title: string): void {
-    const tab = this.findTab(tabId)
-    if (!tab) return
-    tab.title = title || tab.url
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    found.tab.title = title || found.tab.url
+    this.publishState(found.context)
+  }
+
+  handleNativeCommand(tabId: string, commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]): void {
+    const found = this.findTabWithContext(tabId)
+    if (!found) return
+    switch (commandId) {
+      case BROWSER_COMMAND_IDS.focusAddress:
+        this.publishCommand(found.context, commandId)
+        return
+      case BROWSER_COMMAND_IDS.reload:
+        if (!found.tab.url) return
+        found.tab.isLoading = true
+        found.tab.error = null
+        this.adapter.reload(found.tab.id)
+        this.publishState(found.context)
+        return
+      case BROWSER_COMMAND_IDS.back:
+        if (!found.tab.canGoBack) return
+        found.tab.isLoading = true
+        found.tab.error = null
+        this.adapter.goBack(found.tab.id)
+        this.publishState(found.context)
+        return
+      case BROWSER_COMMAND_IDS.forward:
+        if (!found.tab.canGoForward) return
+        found.tab.isLoading = true
+        found.tab.error = null
+        this.adapter.goForward(found.tab.id)
+        this.publishState(found.context)
+        return
+    }
   }
 
   disposeAll(): void {
@@ -188,6 +327,8 @@ export class BrowserService {
       url: null,
       title: null,
       isLoading: false,
+      canGoBack: false,
+      canGoForward: false,
       error: null
     }
     this.adapter.createView(tab.id, {
@@ -204,12 +345,29 @@ export class BrowserService {
     return tab
   }
 
-  private findTab(tabId: string): BrowserTab | undefined {
+  private findTabWithContext(tabId: string): { context: BrowserContextState; tab: BrowserTab } | undefined {
     for (const context of this.contexts.values()) {
       const tab = context.tabs.find((candidate) => candidate.id === tabId)
-      if (tab) return tab
+      if (tab) return { context, tab }
     }
     return undefined
+  }
+
+  private publishState(context: BrowserContextState): BrowserState {
+    const state = toBrowserState(context)
+    this.publishEvent({ type: 'state-changed', contextKey: context.contextKey, state })
+    return state
+  }
+
+  private publishCommand(
+    context: BrowserContextState,
+    commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]
+  ): void {
+    this.publishEvent({ type: 'command-requested', contextKey: context.contextKey, commandId })
+  }
+
+  private publishEvent(event: BrowserEvent): void {
+    for (const listener of this.listeners) listener(event)
   }
 
   private async assertAuthorizedContext(request: BrowserContextRequest): Promise<string> {
@@ -266,39 +424,86 @@ export function browserContextKey(context: BrowserContext): string {
 
 export function normalizeBrowserUrl(input: string): string {
   const trimmed = input.trim()
-  const candidate = hasExplicitScheme(trimmed) ? trimmed : withImplicitHttpScheme(trimmed)
+  if (!trimmed) throw new Error('Enter a URL or search terms.')
+
+  if (hasExplicitScheme(trimmed)) {
+    return normalizeExplicitHttpUrl(trimmed)
+  }
+
+  if (isLoopbackAddress(trimmed)) {
+    return normalizeExplicitHttpUrl(`http://${trimmed}`)
+  }
+
+  if (isRecognizableWebAddress(trimmed)) {
+    return normalizeExplicitHttpUrl(`https://${trimmed}`)
+  }
+
+  return googleSearchUrl(trimmed)
+}
+
+export function normalizeExternalBrowserUrl(input: string): string {
+  const url = new URL(input)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
+  }
+  if (!url.hostname) throw new Error('Only HTTP and HTTPS pages can be opened in the default browser.')
+  return url.toString()
+}
+
+function normalizeExplicitHttpUrl(input: string): string {
   let url: URL
   try {
-    url = new URL(candidate)
+    url = new URL(input)
   } catch {
     throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
   }
 
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new Error('Only HTTP, HTTPS, and loopback URLs can be loaded in Browser.')
+    throw new Error('Only HTTP and HTTPS pages can be loaded in Browser.')
   }
   if (!url.hostname) throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
   return url.toString()
 }
 
 function hasExplicitScheme(input: string): boolean {
-  return /^[a-z][a-z\d+.-]*:/i.test(input) && !isBareLoopbackWithPort(input)
+  return /^[a-z][a-z\d+.-]*:/i.test(input) && !isBareLoopbackWithPort(input) && !isBareWebAddressWithPort(input)
 }
 
-function withImplicitHttpScheme(input: string): string {
-  if (
+function isLoopbackAddress(input: string): boolean {
+  return (
     input.startsWith('localhost') ||
     input.startsWith('127.') ||
     input.startsWith('[::1]') ||
     input === '::1'
-  ) {
-    return `http://${input}`
-  }
-  throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
+  )
 }
 
 function isBareLoopbackWithPort(input: string): boolean {
   return /^(?:localhost|127\.\d+\.\d+\.\d+|\[::1\]):\d+/i.test(input)
+}
+
+function isBareWebAddressWithPort(input: string): boolean {
+  const hostAndPort = input.split(/[/?#]/, 1)[0]
+  if (!hostAndPort || !/^.+:\d+$/.test(hostAndPort)) return false
+  return isRecognizableWebAddress(input)
+}
+
+function isRecognizableWebAddress(input: string): boolean {
+  if (/\s/.test(input)) return false
+  if (input.includes('@')) return false
+  const candidate = input.split(/[/?#]/, 1)[0]
+  if (!candidate || candidate.startsWith('.') || candidate.endsWith('.')) return false
+  const host = candidate.split(':', 1)[0]
+  if (!host || host.startsWith('-') || host.endsWith('-')) return false
+  const labels = host.split('.')
+  if (labels.length < 2) return false
+  const tld = labels[labels.length - 1]
+  if (!tld || !/^[a-z]{2,63}$/i.test(tld)) return false
+  return labels.every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label))
+}
+
+function googleSearchUrl(input: string): string {
+  return `https://www.google.com/search?q=${encodeURIComponent(input)}`
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {
