@@ -738,45 +738,89 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   const contextIsolationTargets = [
     {
+      name: 'workspace-original',
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      url: fixtureUrl
+    },
+    {
       name: 'project-1',
       contextKey: 'session:browser-project-session-1',
-      context: { kind: 'project-session', projectId: 'browser-project-1', sessionId: 'browser-project-session-1' }
+      context: { kind: 'project-session', projectId: 'browser-project-1', sessionId: 'browser-project-session-1' },
+      url: `${fixtureUrl}?context=project-1`
     },
     {
       name: 'project-2',
       contextKey: 'session:browser-project-session-2',
-      context: { kind: 'project-session', projectId: 'browser-project-2', sessionId: 'browser-project-session-2' }
+      context: { kind: 'project-session', projectId: 'browser-project-2', sessionId: 'browser-project-session-2' },
+      url: `${fixtureUrl}?context=project-2`
     },
     {
       name: 'workspace-2',
       contextKey: 'session:browser-workspace-2',
-      context: { kind: 'workspace-session', sessionId: 'browser-workspace-2' }
+      context: { kind: 'workspace-session', sessionId: 'browser-workspace-2' },
+      url: `${fixtureUrl}?context=workspace-2`
     },
     {
       name: 'knowledge-base',
       contextKey: 'knowledge-base',
-      context: { kind: 'knowledge-base' }
+      context: { kind: 'knowledge-base' },
+      url: `${fixtureUrl}?context=knowledge-base`
     }
   ]
-  const contextIsolationUrls = contextIsolationTargets.map((target) => `${fixtureUrl}?context=${target.name}`)
+  const contextIsolationCreateTargets = contextIsolationTargets.slice(1)
   await window.evaluate(
-    async ({ targets, urls }) => {
-      for (const [index, target] of targets.entries()) {
+    async ({ targets }) => {
+      for (const target of targets) {
         await window.spacezero.browser.createTab({
           contextKey: target.contextKey,
           context: target.context,
-          input: urls[index]
+          input: target.url
         })
       }
     },
-    { targets: contextIsolationTargets, urls: contextIsolationUrls }
+    { targets: contextIsolationCreateTargets }
   )
   await expect.poll(async () =>
     electronApp.evaluate(({ webContents }, { urls }) => {
       const liveUrls = new Set(webContents.getAllWebContents().map((contents) => contents.getURL()))
       return urls.every((url) => liveUrls.has(url))
-    }, { urls: contextIsolationUrls })
+    }, { urls: contextIsolationTargets.map((target) => target.url) })
   ).toBe(true)
+  const contextStates = await window.evaluate(async ({ targets }) =>
+    Promise.all(
+      targets.map(async (target) => ({
+        name: target.name,
+        url: target.url,
+        state: await window.spacezero.browser.getState({
+          contextKey: target.contextKey,
+          context: target.context
+        })
+      }))
+    )
+  , { targets: contextIsolationTargets })
+  expect(contextStates).toHaveLength(5)
+  const expectedContextTabs = contextStates.map(({ name, url, state }) => {
+    const expectedTabs = state.tabs.filter((tab) => tab.url === url)
+    expect(expectedTabs, `${name} should contain its own Browser tab`).toHaveLength(1)
+    for (const otherTarget of contextIsolationTargets.filter((target) => target.url !== url)) {
+      expect(
+        state.tabs.filter((tab) => tab.url === otherTarget.url),
+        `${name} should not contain ${otherTarget.name}'s Browser tab`
+      ).toHaveLength(0)
+    }
+    return { name, url, tabId: expectedTabs[0].id }
+  })
+  expect(new Set(expectedContextTabs.map((tab) => tab.tabId)).size).toBe(expectedContextTabs.length)
+  for (const { name, state } of contextStates) {
+    const foreignTabIds = expectedContextTabs
+      .filter((tab) => tab.name !== name)
+      .map((tab) => tab.tabId)
+    expect(
+      state.tabs.filter((tab) => foreignTabIds.includes(tab.id)),
+      `${name} should not contain another context's Browser tab id`
+    ).toHaveLength(0)
+  }
   const contextIsolationResults = await electronApp.evaluate(async ({ session, webContents }, { urls }) => {
     return Promise.all(
       urls.map(async (url) => {
@@ -794,8 +838,8 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
         }
       })
     )
-  }, { urls: contextIsolationUrls })
-  expect(contextIsolationResults).toHaveLength(4)
+  }, { urls: contextIsolationTargets.map((target) => target.url) })
+  expect(contextIsolationResults).toHaveLength(5)
   for (const result of contextIsolationResults) {
     expect(result.usesDedicatedProfile).toBe(true)
     expect(result.preferences.sandbox).toBe(true)
