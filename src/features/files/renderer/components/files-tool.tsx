@@ -46,6 +46,8 @@ type RootState =
 const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
 const EXPLORER_RESIZE_STEP = 20
+const saveConflictMessage =
+  'This file changed on disk. Reload from disk or review the external changes before saving.'
 
 let nextOpenRequestId = 0
 
@@ -105,6 +107,7 @@ function FilesToolSession({
   const activateTab = useFilesStore((state) => state.activateTab)
   const promoteTab = useFilesStore((state) => state.promoteTab)
   const closeTab = useFilesStore((state) => state.closeTab)
+  const discardAndCloseTab = useFilesStore((state) => state.discardAndCloseTab)
   const reorderTabs = useFilesStore((state) => state.reorderTabs)
   const setEditorMode = useFilesStore((state) => state.setEditorMode)
   const updateDraft = useFilesStore((state) => state.updateDraft)
@@ -113,6 +116,7 @@ function FilesToolSession({
   const markSaved = useFilesStore((state) => state.markSaved)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
   const [treeHeight, setTreeHeight] = useState(480)
+  const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
@@ -209,38 +213,88 @@ function FilesToolSession({
     [beginOpenTab, failOpenTab, finishOpenTab, ipcContext, sessionId]
   )
 
+  const saveDocumentSnapshot = useCallback(
+    async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
+      if (document.saveStatus === 'saving') return false
+      const saveRequest = {
+        relativePath: document.relativePath,
+        content: document.draft,
+        expectedRevision: document.revision
+      }
+      markSaving(sessionId, saveRequest)
+      try {
+        const result = await window.spacezero.files.saveDocument({
+          context: ipcContext,
+          ...saveRequest
+        })
+        if (result.status === 'conflict') {
+          markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          return false
+        }
+        markSaved(sessionId, result.document, saveRequest)
+        return true
+      } catch (error) {
+        markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+        return false
+      }
+    },
+    [ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
+  )
+
   const saveActiveDocument = useCallback(async (): Promise<void> => {
-    if (
-      !activeDocument ||
-      activeDocument.status !== 'ready' ||
-      activeDocument.saveStatus === 'saving'
-    ) {
-      return
-    }
-    const saveRequest = {
-      relativePath: activeDocument.relativePath,
-      content: activeDocument.draft,
-      expectedRevision: activeDocument.revision
-    }
-    markSaving(sessionId, saveRequest)
-    try {
-      const result = await window.spacezero.files.saveDocument({
-        context: ipcContext,
-        ...saveRequest
-      })
-      if (result.status === 'conflict') {
-        markSaveFailed(
-          sessionId,
-          'This file changed on disk. Reload from disk or review the external changes before saving.',
-          saveRequest
-        )
+    if (!activeDocument || activeDocument.status !== 'ready') return
+    await saveDocumentSnapshot(activeDocument)
+  }, [activeDocument, saveDocumentSnapshot])
+
+  const saveAllDirtyDocuments = useCallback(async (): Promise<void> => {
+    const dirtyDocuments = context.tabs.filter(
+      (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+        tab.status === 'ready' && tab.dirty && tab.saveStatus !== 'saving'
+    )
+    await Promise.all(dirtyDocuments.map((document) => saveDocumentSnapshot(document)))
+  }, [context.tabs, saveDocumentSnapshot])
+
+  const requestCloseTab = useCallback(
+    (targetSessionId: string, relativePath: string): void => {
+      const tab = useFilesStore
+        .getState()
+        .contexts[targetSessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
+      if (tab?.status === 'ready' && tab.dirty) {
+        setClosePromptPath(relativePath)
         return
       }
-      markSaved(sessionId, result.document, saveRequest)
-    } catch (error) {
-      markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+      closeTab(targetSessionId, relativePath)
+    },
+    [closeTab]
+  )
+
+  const saveAndClosePromptTab = useCallback(async (): Promise<void> => {
+    if (!closePromptPath) return
+    const tab = useFilesStore
+      .getState()
+      .contexts[sessionId]?.tabs.find(
+        (candidate): candidate is Extract<FilesTabState, { status: 'ready' }> =>
+          candidate.relativePath === closePromptPath && candidate.status === 'ready'
+      )
+    if (!tab) {
+      setClosePromptPath(null)
+      return
     }
-  }, [activeDocument, ipcContext, markSaveFailed, markSaved, markSaving, sessionId])
+    const saved = await saveDocumentSnapshot(tab)
+    const currentTab = useFilesStore
+      .getState()
+      .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === closePromptPath)
+    if (saved && !(currentTab?.status === 'ready' && currentTab.dirty)) {
+      closeTab(sessionId, closePromptPath)
+      setClosePromptPath(null)
+    }
+  }, [closePromptPath, closeTab, saveDocumentSnapshot, sessionId])
+
+  const discardAndClosePromptTab = useCallback((): void => {
+    if (!closePromptPath) return
+    discardAndCloseTab(sessionId, closePromptPath)
+    setClosePromptPath(null)
+  }, [closePromptPath, discardAndCloseTab, sessionId])
 
   useEffect(() => {
     activeSessionRef.current = sessionId
@@ -402,14 +456,15 @@ function FilesToolSession({
           />
         </>
       )}
-      <div className="flex min-w-0 flex-1 flex-col bg-background" onKeyDown={handleEditorKeyDown}>
+      <div className="relative flex min-w-0 flex-1 flex-col bg-background" onKeyDown={handleEditorKeyDown}>
         <FilesTabStrip
           activeTabPath={context.activeTabPath}
           sessionId={sessionId}
           tabs={context.tabs}
           onActivate={activateTab}
-          onClose={closeTab}
+          onClose={requestCloseTab}
           onReorder={reorderTabs}
+          onSaveAll={saveAllDirtyDocuments}
         />
         <FilesEditorPanel
           document={activeDocument}
@@ -420,8 +475,50 @@ function FilesToolSession({
           onSave={saveActiveDocument}
           onSetEditorMode={(relativePath, mode) => setEditorMode(sessionId, relativePath, mode)}
         />
+        {closePromptPath ? (
+          <DirtyTabCloseDialog
+            fileName={pathName(closePromptPath)}
+            onCancel={() => setClosePromptPath(null)}
+            onDiscard={discardAndClosePromptTab}
+            onSave={() => void saveAndClosePromptTab()}
+          />
+        ) : null}
       </div>
     </section>
+  )
+}
+
+function DirtyTabCloseDialog({
+  fileName,
+  onCancel,
+  onDiscard,
+  onSave
+}: {
+  fileName: string
+  onCancel: () => void
+  onDiscard: () => void
+  onSave: () => void
+}): React.JSX.Element {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 p-4">
+      <div aria-modal="true" className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-lg" role="dialog">
+        <h2 className="text-sm font-semibold">Save changes to {fileName}?</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          This tab has unsaved changes. Save, discard, or cancel before closing it.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onDiscard}>
+            Discard
+          </button>
+          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onSave}>
+            Save
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -431,7 +528,8 @@ function FilesTabStrip({
   tabs,
   onActivate,
   onClose,
-  onReorder
+  onReorder,
+  onSaveAll
 }: {
   activeTabPath: string | null
   sessionId: string
@@ -444,6 +542,7 @@ function FilesTabStrip({
     targetPath: string,
     dropPosition: FilesTabDropPosition
   ) => void
+  onSaveAll: () => void | Promise<void>
 }): React.JSX.Element | null {
   const activeTabRef = useRef<HTMLButtonElement | null>(null)
   const draggedPathRef = useRef<string | null>(null)
@@ -454,13 +553,16 @@ function FilesTabStrip({
 
   if (tabs.length === 0) return null
 
+  const dirtyCount = tabs.filter((tab) => tab.status === 'ready' && tab.dirty).length
+
   return (
-    <div
-      aria-label="Open files"
-      className="flex h-10 shrink-0 overflow-x-auto border-b bg-background"
-      role="tablist"
-    >
-      {tabs.map((tab) => {
+    <div className="flex h-10 shrink-0 border-b bg-background">
+      <div
+        aria-label="Open files"
+        className="flex min-w-0 flex-1 overflow-x-auto"
+        role="tablist"
+      >
+        {tabs.map((tab) => {
         const active = tab.relativePath === activeTabPath
         const dirty = tab.status === 'ready' && tab.dirty
         return (
@@ -496,7 +598,6 @@ function FilesTabStrip({
             <button
               aria-label={`Close ${tab.name}`}
               className="mr-1 rounded px-1 text-muted-foreground hover:bg-accent disabled:opacity-40"
-              disabled={dirty}
               title={dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`}
               type="button"
               onClick={() => onClose(sessionId, tab.relativePath)}
@@ -506,6 +607,15 @@ function FilesTabStrip({
           </div>
         )
       })}
+      </div>
+      <button
+        className="m-1 shrink-0 rounded-md border px-2 text-xs text-foreground hover:bg-accent disabled:opacity-50"
+        disabled={dirtyCount === 0}
+        type="button"
+        onClick={() => void onSaveAll()}
+      >
+        Save All
+      </button>
     </div>
   )
 }
@@ -866,6 +976,10 @@ function saveErrorMessage(error: unknown): string {
   if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
   if (code.includes('files.notEditableText')) return 'This file is not editable text.'
   return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function pathName(relativePath: string): string {
+  return relativePath.split('/').at(-1) ?? relativePath
 }
 
 function metadataMessage(contentKind: 'binary' | 'oversized'): string {
