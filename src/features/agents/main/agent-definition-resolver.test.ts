@@ -33,7 +33,8 @@ describe('resolveAgentDefinitionForSession', () => {
             validDefinition({
               model: 'faux/faux-1',
               thinking: 'high',
-              tools: ['read', 'grep', 'workspace.getStatus']
+              tools: ['read', 'grep', 'workspace.getStatus'],
+              spawns: { type: 'list', definitions: ['scout'] }
             })
           ]
         }
@@ -44,7 +45,8 @@ describe('resolveAgentDefinitionForSession', () => {
       body: 'Review code carefully.',
       model: { providerId: 'faux', modelId: 'faux-1' },
       thinkingLevel: 'high',
-      tools: ['read', 'grep', 'workspace.getStatus']
+      tools: ['read', 'grep', 'workspace.getStatus'],
+      spawns: { type: 'list', definitions: ['scout'] }
     })
   })
 
@@ -73,7 +75,8 @@ describe('resolveAgentDefinitionForSession', () => {
             name: 'Scout',
             description: 'Researches code.',
             body: 'Scout code.',
-            tools: ['read', 'grep']
+            tools: ['read', 'grep'],
+            spawns: { type: 'any' }
           }),
           validDefinition({ id: 'bad-model', model: 'missing-separator' }),
           validDefinition({ id: 'shadowed', shadowedBy: 'spacezero' })
@@ -85,7 +88,8 @@ describe('resolveAgentDefinitionForSession', () => {
         name: 'Scout',
         description: 'Researches code.',
         body: 'Scout code.',
-        tools: ['read', 'grep']
+        tools: ['read', 'grep'],
+        spawns: { type: 'any' }
       },
       {
         id: 'bad-model',

@@ -127,10 +127,15 @@ export function createPiAgentRuntime({
 
   async function createSession(request: CreateAgentSessionRequest): Promise<CreatedPiAgentSession> {
     const settingsManager = SettingsManager.inMemory()
+    const visibleDelegationDefinitions = request.delegationDefinitions ?? []
+    const allowedDelegationDefinitions = filterAllowedDelegationDefinitions({
+      request,
+      definitions: visibleDelegationDefinitions
+    })
     const appendSystemPrompt = [
       ...(request.appendSystemPrompt ?? []),
-      ...((request.delegationDefinitions?.length ?? 0) > 0
-        ? [createDelegationCatalogPrompt(request.delegationDefinitions ?? [])]
+      ...(allowedDelegationDefinitions.length > 0
+        ? [createDelegationCatalogPrompt(allowedDelegationDefinitions)]
         : []),
       ...(request.agentDefinition ? [request.agentDefinition.body] : [])
     ]
@@ -186,7 +191,8 @@ export function createPiAgentRuntime({
     })
     const delegationTools = createDelegationTools({
       parentRequest: request,
-      definitions: request.delegationDefinitions ?? [],
+      visibleDefinitions: visibleDelegationDefinitions,
+      allowedDefinitions: allowedDelegationDefinitions,
       activeDelegations,
       createSession
     })
@@ -556,6 +562,23 @@ function selectToolNames({
   return selectedTools
 }
 
+function filterAllowedDelegationDefinitions({
+  request,
+  definitions
+}: {
+  request: CreateAgentSessionRequest
+  definitions: DelegationAgentDefinition[]
+}): DelegationAgentDefinition[] {
+  if (!request.parentSessionId) return definitions
+
+  const spawns = request.agentDefinition?.spawns
+  if (!spawns || spawns.type === 'none') return []
+  if (spawns.type === 'any') return definitions
+
+  const allowedIds = new Set(spawns.definitions)
+  return definitions.filter((definition) => allowedIds.has(definition.id))
+}
+
 type DelegationStatus = 'completed' | 'error' | 'aborted'
 
 type DelegationResult = {
@@ -647,16 +670,18 @@ function createActiveDelegations(): ActiveDelegations {
 
 function createDelegationTools({
   parentRequest,
-  definitions,
+  visibleDefinitions,
+  allowedDefinitions,
   activeDelegations,
   createSession
 }: {
   parentRequest: CreateAgentSessionRequest
-  definitions: DelegationAgentDefinition[]
+  visibleDefinitions: DelegationAgentDefinition[]
+  allowedDefinitions: DelegationAgentDefinition[]
   activeDelegations: ActiveDelegations
   createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
 }): ToolDefinition[] {
-  if (definitions.length === 0) return []
+  if (allowedDefinitions.length === 0) return []
 
   return [
     defineTool({
@@ -681,7 +706,8 @@ function createDelegationTools({
       execute: async (_callId, input) => {
         const result = await runDelegatedAgent({
           parentRequest,
-          definitions,
+          visibleDefinitions,
+          allowedDefinitions,
           activeDelegations,
           input,
           createSession
@@ -703,13 +729,15 @@ function createDelegationTools({
 
 async function runDelegatedAgent({
   parentRequest,
-  definitions,
+  visibleDefinitions,
+  allowedDefinitions,
   activeDelegations,
   input,
   createSession
 }: {
   parentRequest: CreateAgentSessionRequest
-  definitions: DelegationAgentDefinition[]
+  visibleDefinitions: DelegationAgentDefinition[]
+  allowedDefinitions: DelegationAgentDefinition[]
   activeDelegations: ActiveDelegations
   input: unknown
   createSession: (request: CreateAgentSessionRequest) => Promise<CreatedPiAgentSession>
@@ -719,8 +747,15 @@ async function runDelegatedAgent({
     return createDelegationError(parentRequest.sessionId, parsedInput.error)
   }
 
-  const definition = definitions.find((entry) => entry.id === parsedInput.definition)
+  const definition = allowedDefinitions.find((entry) => entry.id === parsedInput.definition)
   if (!definition) {
+    if (visibleDefinitions.some((entry) => entry.id === parsedInput.definition)) {
+      return createDelegationError(
+        parentRequest.sessionId,
+        `Agent Definition ${parsedInput.definition} is not allowed by this subagent's spawns policy.`
+      )
+    }
+
     return createDelegationError(
       parentRequest.sessionId,
       `Unknown Agent Definition: ${parsedInput.definition}`
@@ -756,8 +791,10 @@ async function runDelegatedAgent({
         body: createSubagentSystemPrompt(definition),
         ...(definition.model ? { model: definition.model } : {}),
         ...(definition.thinkingLevel ? { thinkingLevel: definition.thinkingLevel } : {}),
-        ...(definition.tools ? { tools: definition.tools } : {})
-      }
+        ...(definition.tools ? { tools: definition.tools } : {}),
+        ...(definition.spawns ? { spawns: definition.spawns } : {})
+      },
+      delegationDefinitions: visibleDefinitions
     })
     activeDelegations.register(childSessionId, childSession)
     if (activeDelegations.isAborted(childSessionId)) {

@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync
@@ -928,6 +929,193 @@ describe('createPiAgentSessionFactory', () => {
         expect(childToolNames).toEqual([expect.arrayContaining(['read', 'grep'])])
         expect(childToolNames[0]).not.toContain('agents_delegate_0')
         expect(childMessageCounts).toEqual([1])
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('filters a child delegation catalog to its spawns list and returns a structured policy error outside it', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-spawns-list-'))
+
+    try {
+      const childSystemPrompts: string[] = []
+      const childToolNames: string[][] = []
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'coordinator',
+                  task: 'Coordinate nested work.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            (context) => {
+              childSystemPrompts.push(context.systemPrompt ?? '')
+              childToolNames.push((context.tools ?? []).map((tool) => tool.name))
+              return fauxAssistantMessage(
+                [
+                  fauxToolCall('agents_delegate_0', {
+                    definition: 'reviewer',
+                    task: 'Review even though the policy disallows it.'
+                  })
+                ],
+                { stopReason: 'toolUse' }
+              )
+            },
+            fauxAssistantMessage([fauxText('Coordinator saw the policy error.')]),
+            fauxAssistantMessage([fauxText('Parent received coordinator output.')])
+          ])
+        }
+      })
+
+      const session = await createPiSession({
+        sessionId: 'parent-spawns-list',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'coordinator',
+            name: 'Coordinator',
+            description: 'Coordinates nested work.',
+            body: 'Coordinate.',
+            spawns: { type: 'list', definitions: ['scout', 'missing-definition'] }
+          },
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches code.',
+            body: 'Scout.'
+          },
+          {
+            id: 'reviewer',
+            name: 'Reviewer',
+            description: 'Reviews code.',
+            body: 'Review.'
+          }
+        ]
+      })
+
+      try {
+        await session.prompt('Delegate coordination.')
+        expect(childToolNames).toEqual([expect.arrayContaining(['agents_delegate_0'])])
+        expect(childSystemPrompts[0]).toContain('scout: Scout — Researches code.')
+        expect(childSystemPrompts[0]).not.toContain('reviewer: Reviewer — Reviews code.')
+        expect(childSystemPrompts[0]).not.toContain('missing-definition')
+
+        const coordinatorResult = readToolResultDetails(
+          findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        )
+        expect(coordinatorResult.status).toBe('completed')
+        expect(coordinatorResult.transcriptPath).toBeDefined()
+        const coordinatorTranscript = readFileSync(coordinatorResult.transcriptPath!, 'utf8')
+        expect(coordinatorTranscript).toContain(
+          '"status":"error","output":"Agent Definition reviewer is not allowed by this subagent\'s spawns policy."'
+        )
+      } finally {
+        session.dispose()
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
+    }
+  })
+
+  it('allows wildcard depth-2 delegation on the faux provider and records parent linkage for each child', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'spacezero-agent-delegate-depth-two-'))
+
+    try {
+      const nestedSystemPrompts: string[] = []
+      const createPiSession = createPiAgentSessionFactory({
+        agentDir: join(tempDir, 'agent'),
+        configureFauxProvider: (faux) => {
+          faux.setResponses([
+            fauxAssistantMessage(
+              [
+                fauxToolCall('agents_delegate_0', {
+                  definition: 'coordinator',
+                  task: 'Coordinate nested scout work.'
+                })
+              ],
+              { stopReason: 'toolUse' }
+            ),
+            (context) => {
+              nestedSystemPrompts.push(context.systemPrompt ?? '')
+              return fauxAssistantMessage(
+                [
+                  fauxToolCall('agents_delegate_0', {
+                    definition: 'scout',
+                    task: 'Inspect from depth 2.'
+                  })
+                ],
+                { stopReason: 'toolUse' }
+              )
+            },
+            fauxAssistantMessage([fauxText('Depth-2 scout report.')]),
+            fauxAssistantMessage([fauxText('Coordinator final with scout report.')]),
+            fauxAssistantMessage([fauxText('Parent final with coordinator report.')])
+          ])
+        }
+      })
+
+      const session = await createPiSession({
+        sessionId: 'parent-depth-two',
+        projectId: 'project-1',
+        cwd: tempDir,
+        delegationDefinitions: [
+          {
+            id: 'coordinator',
+            name: 'Coordinator',
+            description: 'Coordinates nested work.',
+            body: 'Coordinate.',
+            spawns: { type: 'any' }
+          },
+          {
+            id: 'scout',
+            name: 'Scout',
+            description: 'Researches code.',
+            body: 'Scout.'
+          }
+        ]
+      })
+
+      try {
+        await session.prompt('Delegate nested work.')
+        expect(nestedSystemPrompts[0]).toContain('coordinator: Coordinator')
+        expect(nestedSystemPrompts[0]).toContain('scout: Scout')
+
+        const coordinatorResult = readToolResultDetails(
+          findToolResult(session.getTranscriptSnapshot(), 'agents_delegate_0')
+        )
+        expect(coordinatorResult).toMatchObject({
+          status: 'completed',
+          output: 'Coordinator final with scout report.',
+          parentSessionId: 'parent-depth-two',
+          childSessionId: expect.stringMatching(/^subagent-/),
+          transcriptPath: expect.stringContaining(join(tempDir, 'agent', 'sessions'))
+        })
+
+        const coordinatorTranscript = readFileSync(coordinatorResult.transcriptPath!, 'utf8')
+        expect(coordinatorTranscript).toContain('Depth-2 scout report.')
+        expect(coordinatorTranscript).toContain(
+          `"parentSessionId":"${coordinatorResult.childSessionId}"`
+        )
+        const sessionsDir = join(tempDir, 'agent', 'sessions')
+        const sessionFiles = readdirSync(sessionsDir).map((file) => join(sessionsDir, file))
+        const nestedTranscript = sessionFiles
+          .map((file) => readFileSync(file, 'utf8'))
+          .find((contents) =>
+            contents.includes(`"parentSession":"${coordinatorResult.childSessionId}"`)
+          )
+        expect(nestedTranscript).toContain('"customType":"spacezero.subagentRun"')
+        expect(nestedTranscript).toContain(
+          `"parentSessionId":"${coordinatorResult.childSessionId}"`
+        )
       } finally {
         session.dispose()
       }
