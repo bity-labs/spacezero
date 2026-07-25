@@ -6,6 +6,7 @@ export const BROWSER_IPC_CHANNELS = {
   reload: 'browser:reload',
   stop: 'browser:stop',
   openInDefaultBrowser: 'browser:openInDefaultBrowser',
+  openUrlInDefaultBrowser: 'browser:openUrlInDefaultBrowser',
   show: 'browser:show',
   hide: 'browser:hide',
   createTab: 'browser:createTab',
@@ -80,6 +81,10 @@ export type BrowserCreateTabRequest = BrowserContextRequest & {
   input?: string
 }
 
+export type BrowserOpenUrlInDefaultBrowserRequest = {
+  url: string
+}
+
 export type BrowserSelectTabRequest = BrowserContextRequest & {
   tabId: string
 }
@@ -114,6 +119,7 @@ export type BrowserAPI = {
   reload: (request: BrowserTabRequest) => Promise<BrowserState>
   stop: (request: BrowserTabRequest) => Promise<BrowserState>
   openInDefaultBrowser: (request: BrowserTabRequest) => Promise<void>
+  openUrlInDefaultBrowser: (request: BrowserOpenUrlInDefaultBrowserRequest) => Promise<void>
   show: (request: BrowserPresentationRequest) => Promise<BrowserState>
   hide: (request: BrowserContextRequest) => Promise<void>
   createTab: (request: BrowserCreateTabRequest) => Promise<BrowserState>
