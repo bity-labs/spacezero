@@ -6,6 +6,6 @@ import { getGitService } from './git.runtime'
 export function registerGitIpc(): void {
   ipcMain.handle(GIT_IPC_CHANNELS.getProjectSessionReview, async (_event, request: unknown) => {
     const parsed = getProjectSessionGitReviewSchema.parse(request)
-    return getGitService().getProjectSessionReview(parsed.sessionId)
+    return getGitService().getProjectSessionReview(parsed.sessionId, parsed.filter)
   })
 }
