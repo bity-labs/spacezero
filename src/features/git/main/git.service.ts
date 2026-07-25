@@ -203,7 +203,7 @@ async function createFileDiff({
     )
   }
   const content = diff.stdout
-  if (filter === 'uncommitted' && content.length === 0) return null
+  if (filter === 'uncommitted' && content.length === 0 && !isUnmergedStatus(status)) return null
   const binary = content.includes('GIT binary patch') || content.includes('Binary files ')
   const large = Buffer.byteLength(content, 'utf8') > MAX_DIFF_BYTES
   return {
