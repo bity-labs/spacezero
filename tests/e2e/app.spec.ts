@@ -623,12 +623,27 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     const Database = require('better-sqlite3')
     const database = new Database(join(app.getPath('userData'), 'spacezero.sqlite3'))
     const timestamp = Date.now()
+    const insertProject = database.prepare(
+      `INSERT OR IGNORE INTO projects (id, name, path, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    insertProject.run('browser-project-1', 'Browser Project 1', '/tmp/spacezero-browser-project-1', timestamp, timestamp)
+    insertProject.run('browser-project-2', 'Browser Project 2', '/tmp/spacezero-browser-project-2', timestamp, timestamp)
+    const insertSession = database.prepare(
+      `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    insertSession.run('browser-e2e-session', null, 'Browser E2E', 'idle', timestamp, timestamp, null)
+    insertSession.run('browser-workspace-2', null, 'Browser Workspace 2', 'idle', timestamp, timestamp, null)
+    insertSession.run('browser-project-session-1', 'browser-project-1', 'Browser Project Session 1', 'idle', timestamp, timestamp, null)
+    insertSession.run('browser-project-session-2', 'browser-project-2', 'Browser Project Session 2', 'idle', timestamp, timestamp, null)
+    insertSession.run('browser-kb-session', null, 'Browser Knowledge Base', 'idle', timestamp, timestamp, 'knowledge-base')
     database
       .prepare(
-        `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+         VALUES (?, ?, ?)`
       )
-      .run('browser-e2e-session', null, 'Browser E2E', 'idle', timestamp, timestamp)
+      .run('knowledgeBase.currentSessionId', 'browser-kb-session', timestamp)
     database.close()
 
     for (const channel of [
@@ -720,6 +735,77 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     spacezero: 'undefined',
     electronRequire: 'undefined'
   })
+
+  const contextIsolationTargets = [
+    {
+      name: 'project-1',
+      contextKey: 'session:browser-project-session-1',
+      context: { kind: 'project-session', projectId: 'browser-project-1', sessionId: 'browser-project-session-1' }
+    },
+    {
+      name: 'project-2',
+      contextKey: 'session:browser-project-session-2',
+      context: { kind: 'project-session', projectId: 'browser-project-2', sessionId: 'browser-project-session-2' }
+    },
+    {
+      name: 'workspace-2',
+      contextKey: 'session:browser-workspace-2',
+      context: { kind: 'workspace-session', sessionId: 'browser-workspace-2' }
+    },
+    {
+      name: 'knowledge-base',
+      contextKey: 'knowledge-base',
+      context: { kind: 'knowledge-base' }
+    }
+  ]
+  const contextIsolationUrls = contextIsolationTargets.map((target) => `${fixtureUrl}?context=${target.name}`)
+  await window.evaluate(
+    async ({ targets, urls }) => {
+      for (const [index, target] of targets.entries()) {
+        await window.spacezero.browser.createTab({
+          contextKey: target.contextKey,
+          context: target.context,
+          input: urls[index]
+        })
+      }
+    },
+    { targets: contextIsolationTargets, urls: contextIsolationUrls }
+  )
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { urls }) => {
+      const liveUrls = new Set(webContents.getAllWebContents().map((contents) => contents.getURL()))
+      return urls.every((url) => liveUrls.has(url))
+    }, { urls: contextIsolationUrls })
+  ).toBe(true)
+  const contextIsolationResults = await electronApp.evaluate(async ({ session, webContents }, { urls }) => {
+    return Promise.all(
+      urls.map(async (url) => {
+        const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === url)
+        if (!contents) throw new Error(`Embedded Browser webContents was not found for ${url}`)
+        return {
+          url,
+          preferences: contents.getLastWebPreferences(),
+          usesDedicatedProfile: contents.session === session.fromPartition('persist:spacezero-browser'),
+          globals: await contents.executeJavaScript(`({
+            spacezero: typeof window.spacezero,
+            electronRequire: typeof window.require,
+            nodeProcess: typeof window.process
+          })`)
+        }
+      })
+    )
+  }, { urls: contextIsolationUrls })
+  expect(contextIsolationResults).toHaveLength(4)
+  for (const result of contextIsolationResults) {
+    expect(result.usesDedicatedProfile).toBe(true)
+    expect(result.preferences.sandbox).toBe(true)
+    expect(result.preferences.contextIsolation).toBe(true)
+    expect(result.preferences.nodeIntegration).toBe(false)
+    expect(result.globals).toMatchObject({
+      spacezero: 'undefined',
+      electronRequire: 'undefined'
+    })
+  }
 
   await window.getByRole('button', { name: 'Terminal', exact: true }).click()
   await expect.poll(async () =>

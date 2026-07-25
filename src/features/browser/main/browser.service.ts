@@ -99,6 +99,7 @@ export class BrowserService {
     const tab = this.resolveTab(context, request.tabId)
     const url = normalizeBrowserUrl(request.input)
     tab.url = url
+    clearPageMetadata(tab)
     tab.error = null
     tab.isLoading = true
     this.adapter.loadUrl(tab.id, url)
@@ -181,6 +182,7 @@ export class BrowserService {
     if (request.input) {
       const url = normalizeBrowserUrl(request.input)
       tab.url = url
+      clearPageMetadata(tab)
       tab.error = null
       tab.isLoading = true
       this.adapter.loadUrl(tab.id, url)
@@ -287,7 +289,12 @@ export class BrowserService {
   markNavigationCommitted(tabId: string, url: string, history?: { canGoBack: boolean; canGoForward: boolean }): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    found.tab.url = url
+    if (found.tab.url !== url) {
+      found.tab.url = url
+      clearPageMetadata(found.tab)
+    } else {
+      found.tab.url = url
+    }
     found.tab.error = null
     if (history) {
       found.tab.canGoBack = history.canGoBack
@@ -299,6 +306,7 @@ export class BrowserService {
   markNavigationFailed(tabId: string, error: string): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
+    clearPageMetadata(found.tab)
     found.tab.error = error
     found.tab.isLoading = false
     this.publishState(found.context)
@@ -578,6 +586,11 @@ function fallbackTitleForUrl(url: string | null): string | null {
   } catch {
     return url
   }
+}
+
+function clearPageMetadata(tab: BrowserTab): void {
+  tab.title = null
+  tab.faviconUrl = null
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {

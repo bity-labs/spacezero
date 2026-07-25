@@ -323,6 +323,35 @@ describe('BrowserTool', () => {
     expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
   })
 
+  it('selects inactive tabs with roving tab keyboard navigation and keeps close controls separate', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
+      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' }),
+      makeTab('browser-tab-3', { title: 'Third', url: 'https://third.example/' })
+    ])
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const first = await screen.findByRole('tab', { name: 'First' })
+    expect(first).toHaveAttribute('tabIndex', '0')
+    expect(screen.getByRole('tab', { name: 'Second' })).toHaveAttribute('tabIndex', '-1')
+    expect(first).not.toContainElement(screen.getByRole('button', { name: 'Close First' }))
+
+    first.focus()
+    await user.keyboard('{ArrowRight}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-2' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Second' })).toHaveFocus())
+
+    await user.keyboard('{End}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
+    await user.keyboard('{Home}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-1' }))
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'First' })).toHaveFocus())
+    await user.keyboard('{ArrowLeft}')
+    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
+  })
+
   it('reorders tabs with drag and drop while preserving the active selection', async () => {
     const browser = installBrowserApi({}, [
       makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
