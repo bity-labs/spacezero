@@ -3,7 +3,11 @@ import { z } from 'zod'
 import { BROWSER_COMMAND_IDS } from './browser.contract'
 
 export const browserContextSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('project-session'), projectId: z.string().min(1), sessionId: z.string().min(1) }),
+  z.object({
+    kind: z.literal('project-session'),
+    projectId: z.string().min(1),
+    sessionId: z.string().min(1)
+  }),
   z.object({ kind: z.literal('workspace-session'), sessionId: z.string().min(1) }),
   z.object({ kind: z.literal('knowledge-base') })
 ])
@@ -55,6 +59,10 @@ export const browserPresentationRequestSchema = z.object({
 export const browserCreateTabRequestSchema = z.object({
   ...contextRequestFields,
   input: z.string().min(1).max(4096).optional()
+})
+
+export const browserOpenUrlInDefaultBrowserRequestSchema = z.object({
+  url: z.string().min(1).max(4096)
 })
 
 export const browserSelectTabRequestSchema = z.object({

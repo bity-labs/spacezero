@@ -5,6 +5,7 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
+import type { BrowserContext } from '../../../browser/shared'
 import type {
   TerminalContext,
   TerminalDiagnostic,
@@ -14,8 +15,15 @@ import type {
   TerminalUnsubscribeRequest
 } from '../../shared'
 
+type TerminalBrowserHandoff = {
+  contextKey: string
+  context: BrowserContext
+  openBrowserTool: () => void
+}
+
 type TerminalToolProps = {
   context: TerminalContext
+  browserHandoff?: TerminalBrowserHandoff
 }
 
 type TerminalStatus = 'starting' | 'running' | 'empty' | 'failed'
@@ -28,7 +36,7 @@ type SubscriptionState = {
 
 const viewportByContext = new Map<string, Map<string, number>>()
 
-export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element {
+export function TerminalTool({ context, browserHandoff }: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -44,7 +52,10 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
     return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
   }, [terminalContextKind, terminalContextSessionId])
-  const terminalContextKey = useMemo(() => terminalContextIdentity(terminalContext), [terminalContext])
+  const terminalContextKey = useMemo(
+    () => terminalContextIdentity(terminalContext),
+    [terminalContext]
+  )
   const viewportByTerminal = getViewportStore(terminalContextKey)
   const [tabs, setTabs] = useState<TerminalTab[]>([])
   const [activeTerminal, setActiveTerminal] = useState<{
@@ -56,6 +67,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const [error, setError] = useState<string | null>(null)
   const [diagnostics, setDiagnostics] = useState<TerminalDiagnostic[]>([])
   const [autoCreateToken, setAutoCreateToken] = useState(0)
+  const [fallbackUrl, setFallbackUrl] = useState<string | null>(null)
 
   const updateActiveTerminal = useCallback(
     (nextTerminalId: string | null): void => {
@@ -93,12 +105,15 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     xtermRef.current?.write(event.data)
   }, [])
 
-  const applyReplayOutputEvent = useCallback(async (xterm: XTerm, event: TerminalOutputEvent): Promise<void> => {
-    const lastSequence = lastSequenceByTerminalRef.current.get(event.terminalId) ?? 0
-    if (event.sequence <= lastSequence) return
-    lastSequenceByTerminalRef.current.set(event.terminalId, event.sequence)
-    await writeParsed(xterm, event.data)
-  }, [])
+  const applyReplayOutputEvent = useCallback(
+    async (xterm: XTerm, event: TerminalOutputEvent): Promise<void> => {
+      const lastSequence = lastSequenceByTerminalRef.current.get(event.terminalId) ?? 0
+      if (event.sequence <= lastSequence) return
+      lastSequenceByTerminalRef.current.set(event.terminalId, event.sequence)
+      await writeParsed(xterm, event.data)
+    },
+    []
+  )
 
   const applyTerminalEvent = useCallback(
     (event: TerminalEvent): void => {
@@ -140,6 +155,26 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     })
   }, [fitTerminal, terminalContext])
 
+  const openTerminalLink = useCallback(
+    async (url: string): Promise<void> => {
+      if (!browserHandoff) {
+        setFallbackUrl(url)
+        return
+      }
+      try {
+        await window.spacezero.browser.createTab({
+          contextKey: browserHandoff.contextKey,
+          context: browserHandoff.context,
+          input: url
+        })
+        browserHandoff.openBrowserTool()
+      } catch {
+        setFallbackUrl(url)
+      }
+    },
+    [browserHandoff, setFallbackUrl]
+  )
+
   useEffect(() => {
     let cancelled = false
     const forceNew = forceCreateRequestedRef.current
@@ -168,7 +203,9 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
           forceNew
         })
         if (cancelled) return
-        const createdTabs = created.tabs ?? (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
+        const createdTabs =
+          created.tabs ??
+          (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
         const activeTerminalId = created.activeTerminalId ?? created.terminalId
         setTabs(createdTabs)
         setDiagnostics(created.diagnostics ?? [])
@@ -201,6 +238,8 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     terminalIdRef.current = terminalId
 
     if (containerRef.current) xterm.open(containerRef.current)
+
+    const linkProvider = registerTerminalLinkProvider(xterm, openTerminalLink)
 
     const dataSubscription = xterm.onData((data) => {
       const currentTerminalId = terminalIdRef.current
@@ -275,6 +314,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       cancelled = true
       observer.disconnect()
       removeEventListener()
+      linkProvider.dispose()
       dataSubscription.dispose()
       viewportByTerminal.set(activeTerminalId, readViewport(xterm))
       void unsubscribeTerminal({ terminalId: activeTerminalId, context: terminalContext })
@@ -287,6 +327,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     activeTerminal,
     applyReplayOutputEvent,
     applyTerminalEvent,
+    openTerminalLink,
     resizeTerminal,
     terminalContext,
     terminalContextKey,
@@ -334,87 +375,205 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     setTabs(snapshot.tabs)
   }
 
+  async function copyFallbackUrl(): Promise<void> {
+    if (!fallbackUrl) return
+    await navigator.clipboard.writeText(fallbackUrl)
+    setFallbackUrl(null)
+  }
+
+  async function openFallbackUrlInDefaultBrowser(): Promise<void> {
+    if (!fallbackUrl) return
+    await window.spacezero.browser.openUrlInDefaultBrowser({ url: fallbackUrl })
+    setFallbackUrl(null)
+  }
+
   return (
-    <section aria-label="Terminal" className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="shrink-0 text-sm font-medium">Terminal</div>
-          {tabs.length > 0 ? (
-            <div aria-label="Terminal tabs" role="tablist" className="flex min-w-0 items-center gap-1 overflow-x-auto">
-              {tabs.map((tab) => (
-                <div
-                  key={tab.terminalId}
-                  draggable
-                  onDragStart={() => {
-                    draggedTerminalIdRef.current = tab.terminalId
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => void reorderTabs(tab.terminalId)}
-                  className="flex shrink-0 items-center rounded-md border"
-                >
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={tab.terminalId === terminalId}
-                    aria-label={`Select terminal tab ${tab.title}`}
-                    onClick={() => void selectTerminal(tab.terminalId)}
-                    className="px-2 py-1 text-xs"
+    <>
+      <section aria-label="Terminal" className="flex h-full min-h-0 flex-col bg-background">
+        <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="shrink-0 text-sm font-medium">Terminal</div>
+            {tabs.length > 0 ? (
+              <div
+                aria-label="Terminal tabs"
+                role="tablist"
+                className="flex min-w-0 items-center gap-1 overflow-x-auto"
+              >
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.terminalId}
+                    draggable
+                    onDragStart={() => {
+                      draggedTerminalIdRef.current = tab.terminalId
+                    }}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => void reorderTabs(tab.terminalId)}
+                    className="flex shrink-0 items-center rounded-md border"
                   >
-                    {tab.title}
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={tab.terminalId === terminalId ? 'Close Terminal' : `Close terminal tab ${tab.title}`}
-                    onClick={() => void closeTerminal(tab.terminalId)}
-                    className="px-2 py-1 text-xs text-muted-foreground"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-        <Button size="sm" variant="ghost" aria-label="Add terminal tab" onClick={startTerminal}>
-          New Terminal
-        </Button>
-      </div>
-      {status === 'failed' ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-          <div>
-            <p className="text-sm font-medium">Terminal failed to start</p>
-            <p className="mt-1 max-w-md text-xs text-muted-foreground">{error}</p>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tab.terminalId === terminalId}
+                      aria-label={`Select terminal tab ${tab.title}`}
+                      onClick={() => void selectTerminal(tab.terminalId)}
+                      className="px-2 py-1 text-xs"
+                    >
+                      {tab.title}
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={
+                        tab.terminalId === terminalId
+                          ? 'Close Terminal'
+                          : `Close terminal tab ${tab.title}`
+                      }
+                      onClick={() => void closeTerminal(tab.terminalId)}
+                      className="px-2 py-1 text-xs text-muted-foreground"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
-          <Button size="sm" onClick={startTerminal}>
-            Retry
-          </Button>
-        </div>
-      ) : status === 'empty' ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-          <p className="text-sm text-muted-foreground">New Terminal</p>
-          <Button size="sm" onClick={startTerminal}>
+          <Button size="sm" variant="ghost" aria-label="Add terminal tab" onClick={startTerminal}>
             New Terminal
           </Button>
         </div>
-      ) : (
-        <div className="relative min-h-0 flex-1 overflow-hidden p-2">
-          <div ref={containerRef} aria-label="Terminal output" className="h-full" />
-          {diagnostics.length > 0 ? (
-            <div role="status" className="absolute inset-x-4 top-4 rounded-md border bg-background/95 p-2 text-xs text-muted-foreground shadow-sm">
-              {diagnostics.map((diagnostic) => (
-                <p key={`${diagnostic.type}:${diagnostic.terminalId}`}>{diagnostic.message}</p>
-              ))}
+        {status === 'failed' ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
+            <div>
+              <p className="text-sm font-medium">Terminal failed to start</p>
+              <p className="mt-1 max-w-md text-xs text-muted-foreground">{error}</p>
             </div>
-          ) : null}
-          {status === 'starting' ? (
-            <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
-              Starting terminal…
+            <Button size="sm" onClick={startTerminal}>
+              Retry
+            </Button>
+          </div>
+        ) : status === 'empty' ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
+            <p className="text-sm text-muted-foreground">New Terminal</p>
+            <Button size="sm" onClick={startTerminal}>
+              New Terminal
+            </Button>
+          </div>
+        ) : (
+          <div className="relative min-h-0 flex-1 overflow-hidden p-2">
+            <div ref={containerRef} aria-label="Terminal output" className="h-full" />
+            {diagnostics.length > 0 ? (
+              <div
+                role="status"
+                className="absolute inset-x-4 top-4 rounded-md border bg-background/95 p-2 text-xs text-muted-foreground shadow-sm"
+              >
+                {diagnostics.map((diagnostic) => (
+                  <p key={`${diagnostic.type}:${diagnostic.terminalId}`}>{diagnostic.message}</p>
+                ))}
+              </div>
+            ) : null}
+            {status === 'starting' ? (
+              <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
+                Starting terminal…
+              </div>
+            ) : null}
+          </div>
+        )}
+      </section>
+      {fallbackUrl ? (
+        <div
+          aria-label="Terminal Link choices"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/60"
+          role="dialog"
+        >
+          <div className="max-w-md rounded-lg border bg-background p-4 shadow-lg">
+            <p className="text-sm font-medium">Browser is unavailable</p>
+            <p className="mt-2 break-all text-xs text-muted-foreground">{fallbackUrl}</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setFallbackUrl(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void copyFallbackUrl()}>
+                Copy URL
+              </Button>
+              <Button size="sm" onClick={() => void openFallbackUrlInDefaultBrowser()}>
+                Open in default browser
+              </Button>
             </div>
-          ) : null}
+          </div>
         </div>
-      )}
-    </section>
+      ) : null}
+    </>
   )
+}
+
+function registerTerminalLinkProvider(
+  xterm: XTerm,
+  onOpenLink: (url: string) => Promise<void>
+): { dispose: () => void } {
+  if (!('registerLinkProvider' in xterm) || typeof xterm.registerLinkProvider !== 'function') {
+    return { dispose: () => undefined }
+  }
+
+  return xterm.registerLinkProvider({
+    provideLinks: (bufferLineNumber, callback) => {
+      const line = xterm.buffer.active.getLine(bufferLineNumber)?.translateToString(true) ?? ''
+      callback(findTerminalLinks(line, bufferLineNumber, onOpenLink))
+    }
+  })
+}
+
+function findTerminalLinks(
+  line: string,
+  bufferLineNumber: number,
+  onOpenLink: (url: string) => Promise<void>
+): Array<{
+  text: string
+  range: { start: { x: number; y: number }; end: { x: number; y: number } }
+  activate: (event: MouseEvent, text: string) => void
+}> {
+  const links: Array<{
+    text: string
+    range: { start: { x: number; y: number }; end: { x: number; y: number } }
+    activate: (event: MouseEvent, text: string) => void
+  }> = []
+  for (const match of line.matchAll(/https?:\/\/[^\s<>'"]+/gi)) {
+    const raw = match[0]
+    const url = trimTerminalLink(raw)
+    if (!isValidTerminalLink(url)) continue
+    const startIndex = match.index ?? 0
+    links.push({
+      text: url,
+      range: {
+        start: { x: startIndex + 1, y: bufferLineNumber },
+        end: { x: startIndex + url.length, y: bufferLineNumber }
+      },
+      activate: (event, text) => {
+        if (!isModifierClick(event)) return
+        void onOpenLink(text)
+      }
+    })
+  }
+  return links
+}
+
+function trimTerminalLink(url: string): string {
+  return url.replace(/[),.;:!?]+$/u, '')
+}
+
+function isValidTerminalLink(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname.length > 0
+    )
+  } catch {
+    return false
+  }
+}
+
+function isModifierClick(event: MouseEvent): boolean {
+  return event.metaKey || event.ctrlKey
 }
 
 function orderTerminalEvents(events: TerminalEvent[]): TerminalEvent[] {
