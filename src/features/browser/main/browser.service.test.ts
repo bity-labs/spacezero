@@ -603,6 +603,52 @@ describe('BrowserService', () => {
     expect(tabsRepository.contexts.get('session:workspace-1')).toBeUndefined()
   })
 
+  it('persists the initial blank tab when an empty context is materialized', async () => {
+    const tabsRepository = new FakeBrowserTabsRepository()
+    const firstAdapter = new FakeBrowserViewAdapter()
+    const firstService = new BrowserService(
+      firstAdapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+
+    const initial = await firstService.getState(workspaceContext)
+    await firstService.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
+    })
+
+    expect(tabsRepository.contexts.get('session:workspace-1')).toEqual([
+      {
+        context: workspaceContext.context,
+        tabId: initial.activeTabId,
+        order: 0,
+        active: true,
+        url: null
+      }
+    ])
+    expect(firstAdapter.loaded).toEqual([])
+
+    const secondAdapter = new FakeBrowserViewAdapter()
+    const secondService = new BrowserService(
+      secondAdapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+    const restored = await secondService.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
+    })
+
+    expect(restored.activeTabId).toBe(initial.activeTabId)
+    expect(restored.tabs).toEqual([expect.objectContaining({ id: initial.activeTabId, url: null })])
+    expect(secondAdapter.loaded).toEqual([])
+  })
+
   it('restores saved tab order and active selection without loading pages until shown or selected', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const tabsRepository = new FakeBrowserTabsRepository([
@@ -657,6 +703,51 @@ describe('BrowserService', () => {
     ])
   })
 
+  it('rejects invalid persisted URLs before native Browser navigation', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const tabsRepository = new FakeBrowserTabsRepository([
+      {
+        context: workspaceContext.context,
+        tabId: 'browser-tab-file-url',
+        order: 0,
+        active: true,
+        url: 'file:///etc/passwd'
+      },
+      {
+        context: workspaceContext.context,
+        tabId: 'browser-tab-blank',
+        order: 1,
+        active: false,
+        url: null
+      },
+      {
+        context: workspaceContext.context,
+        tabId: 'browser-tab-http-url',
+        order: 2,
+        active: false,
+        url: 'https://safe.example/path'
+      }
+    ])
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+
+    const state = await service.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
+    })
+    await service.selectTab({ ...workspaceContext, tabId: 'browser-tab-http-url' })
+
+    expect(state.tabs.map((tab) => tab.id)).toEqual(['browser-tab-blank', 'browser-tab-http-url'])
+    expect(adapter.loaded).toEqual([
+      { id: 'browser-tab-http-url', url: 'https://safe.example/path' }
+    ])
+  })
+
   it('falls back to a blank tab when persisted Browser tab metadata is malformed', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const tabsRepository = new FakeBrowserTabsRepository([
@@ -708,6 +799,24 @@ describe('BrowserService', () => {
 
     expect(state.tabs).toEqual([expect.objectContaining({ id: 'browser-tab-blank', url: null })])
     expect(adapter.loaded).toEqual([])
+  })
+
+  it('closes live Browser views without removing durable metadata', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const tabsRepository = new FakeBrowserTabsRepository()
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+    const state = await service.createTab({ ...workspaceContext, input: 'https://docs.example/' })
+
+    service.closeSessionContext('workspace-1')
+
+    expect(adapter.destroyed).toEqual(state.tabs.map((tab) => tab.id))
+    expect(tabsRepository.deletedContextKeys).toEqual([])
+    expect(tabsRepository.contexts.get('session:workspace-1')).toBeDefined()
   })
 
   it('removes persisted metadata when an owning context is deleted', async () => {
@@ -809,7 +918,7 @@ describe('BrowserService', () => {
     expect(adapter.hidden.slice(-1)).toEqual([second.activeTabId])
     expect((await service.getState(workspaceContext)).tabs.map((tab) => tab.id)).toEqual(tabIds)
 
-    service.destroySessionContext('workspace-1')
+    await service.destroySessionContext('workspace-1')
 
     expect(adapter.destroyed).toEqual(tabIds)
   })
