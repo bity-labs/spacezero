@@ -355,7 +355,8 @@ describe('BrowserService', () => {
     const service = new BrowserService(adapter, createContextRepository())
     const state = await service.show({
       ...workspaceContext,
-      bounds: { x: 10, y: 20, width: 640, height: 480 }
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
     })
 
     await service.hide(workspaceContext)
@@ -388,7 +389,8 @@ describe('BrowserService', () => {
     service.removeNativeClosedTabs([state.activeTabId])
     const reopened = await service.show({
       ...workspaceContext,
-      bounds: { x: 10, y: 20, width: 640, height: 480 }
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
     })
 
     expect(reopened.activeTabId).not.toBe(state.activeTabId)

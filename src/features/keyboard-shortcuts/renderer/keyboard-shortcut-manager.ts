@@ -28,6 +28,7 @@ export class KeyboardShortcutManager {
   private readonly shortcuts = new Map<AppCommandId, KeyboardShortcutDefinition>()
   private context: ShortcutContext
   private readonly userOverrides = new Map<AppCommandId, Keybinding>()
+  private readonly bindingListeners = new Set<() => void>()
 
   constructor(
     registry: AppCommandRegistry,
@@ -42,8 +43,10 @@ export class KeyboardShortcutManager {
   /** Register a shortcut. Returns an unsubscribe function. */
   register(definition: KeyboardShortcutDefinition): () => void {
     this.shortcuts.set(definition.commandId, definition)
+    this.emitBindingsChanged()
     return () => {
       this.shortcuts.delete(definition.commandId)
+      this.emitBindingsChanged()
     }
   }
 
@@ -57,6 +60,24 @@ export class KeyboardShortcutManager {
     } else {
       this.userOverrides.delete(commandId)
     }
+    this.emitBindingsChanged()
+  }
+
+  onBindingsChanged(listener: () => void): () => void {
+    this.bindingListeners.add(listener)
+    return () => {
+      this.bindingListeners.delete(listener)
+    }
+  }
+
+  getEffectiveKeybinding(commandId: AppCommandId): Keybinding | null {
+    const definition = this.shortcuts.get(commandId)
+    if (!definition) return null
+    return this.resolveBinding(definition)
+  }
+
+  resolveKeybinding(definition: KeyboardShortcutDefinition): Keybinding {
+    return this.resolveBinding(definition)
   }
 
   setContext(partial: Partial<ShortcutContext>): void {
@@ -104,6 +125,10 @@ export class KeyboardShortcutManager {
 
   private resolveBinding(definition: KeyboardShortcutDefinition): Keybinding {
     return this.userOverrides.get(definition.commandId) ?? definition.userOverride ?? definition.defaultKeybinding
+  }
+
+  private emitBindingsChanged(): void {
+    for (const listener of this.bindingListeners) listener()
   }
 
   private evaluateWhen(definition: KeyboardShortcutDefinition, context: ShortcutContext): boolean {
