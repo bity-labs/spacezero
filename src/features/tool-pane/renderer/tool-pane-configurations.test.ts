@@ -27,6 +27,8 @@ describe('Tool Pane contextual configurations', () => {
     expect(project.tools.map((tool) => tool.id)).toEqual(['files', 'git', 'browser', 'terminal'])
     expect(project.tools[0]).toMatchObject({ id: 'files', available: true })
     expect(project.tools[0]?.render).toBeTypeOf('function')
+    expect(project.tools[1]).toMatchObject({ id: 'git', available: true })
+    expect(project.tools[1]?.render).toBeTypeOf('function')
     expect(project.tools[2]).toMatchObject({ id: 'browser', available: true })
     expect(project.tools[2]?.render).toBeTypeOf('function')
     expect(project.tools[3]).toMatchObject({ id: 'terminal', available: true })

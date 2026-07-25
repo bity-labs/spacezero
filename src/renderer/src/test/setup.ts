@@ -97,6 +97,14 @@ beforeEach(async () => {
         }
       })
     },
+    git: {
+      getProjectSessionReview: async () => ({
+        status: 'clean',
+        branch: 'main',
+        upstream: { kind: 'none' },
+        files: []
+      })
+    },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),
       getCurrentSession: async () => ({
