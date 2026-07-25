@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -57,6 +57,144 @@ describe('GitService', () => {
     expect(review.files.find((file) => file.path === 'new-note.md')).toMatchObject({
       kind: 'untracked',
       diff: expect.stringContaining('+hello')
+    })
+  })
+
+  it('returns nested untracked files individually with eligible text content', async () => {
+    const root = await createTempDir('spacezero-git-nested-untracked-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await mkdir(join(worktree, 'new-dir'), { recursive: true })
+    await writeFile(join(worktree, 'new-dir', 'note.txt'), 'nested note\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files.map((file) => file.path)).toContain('new-dir/note.txt')
+    expect(review.files.map((file) => file.path)).not.toContain('new-dir/')
+    expect(review.files.find((file) => file.path === 'new-dir/note.txt')).toMatchObject({
+      kind: 'untracked',
+      diff: expect.stringContaining('+nested note')
+    })
+  })
+
+  it('represents untracked symlinks without dereferencing external file content', async () => {
+    const root = await createTempDir('spacezero-git-symlink-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    const secret = join(root, 'external-secret.txt')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(secret, 'outside-worktree-secret\n')
+    await symlink(secret, join(worktree, 'secret-link'))
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const link = review.files.find((file) => file.path === 'secret-link')
+    expect(link).toMatchObject({ kind: 'untracked', diff: null })
+    expect(JSON.stringify(link)).not.toContain('outside-worktree-secret')
+  })
+
+  it('preserves old and new paths for a pure rename diff', async () => {
+    const root = await createTempDir('spacezero-git-pure-rename-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await git(['-C', worktree, 'mv', 'README.md', 'README-renamed.md'])
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const renamed = review.files.find((file) => file.path === 'README-renamed.md')
+    expect(renamed).toMatchObject({ kind: 'renamed', oldPath: 'README.md' })
+    expect(renamed?.diff).toContain('rename from README.md')
+    expect(renamed?.diff).toContain('rename to README-renamed.md')
+    expect(renamed?.diff).not.toContain('--- /dev/null')
+  })
+
+  it('preserves rename metadata and only real content edits for a modified rename diff', async () => {
+    const root = await createTempDir('spacezero-git-modified-rename-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await git(['-C', worktree, 'mv', 'README.md', 'README-renamed.md'])
+    await writeFile(join(worktree, 'README-renamed.md'), '# Test\n\nRenamed edit\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const renamed = review.files.find((file) => file.path === 'README-renamed.md')
+    expect(renamed).toMatchObject({ kind: 'renamed', oldPath: 'README.md' })
+    expect(renamed?.diff).toContain('rename from README.md')
+    expect(renamed?.diff).toContain('rename to README-renamed.md')
+    expect(renamed?.diff).toContain('+Renamed edit')
+    expect(renamed?.diff).not.toContain('--- /dev/null')
+  })
+
+  it('returns an explicit Git error when upstream count query fails', async () => {
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: '/project', worktreePath: '/worktree' }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      runGit: async ({ args }) => {
+        if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
+        if (args[0] === 'rev-parse') return { stdout: 'origin/feature\n', stderr: '', exitCode: 0 }
+        if (args[0] === 'rev-list') return { stdout: '', stderr: 'rev-list failed\n', exitCode: 128 }
+        if (args[0] === 'status') return { stdout: '', stderr: '', exitCode: 0 }
+        return { stdout: '', stderr: '', exitCode: 0 }
+      }
+    })
+
+    await expect(service.getProjectSessionReview('session-1')).resolves.toEqual({
+      status: 'git-error',
+      message: 'rev-list failed'
+    })
+  })
+
+  it('returns an explicit Git error when a required file diff query fails', async () => {
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: '/project', worktreePath: '/worktree' }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      runGit: async ({ args }) => {
+        if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
+        if (args[0] === 'rev-parse') return { stdout: '', stderr: 'no upstream\n', exitCode: 128 }
+        if (args[0] === 'status') return { stdout: ' M README.md\0', stderr: '', exitCode: 0 }
+        if (args[0] === 'diff') return { stdout: '', stderr: 'diff failed\n', exitCode: 128 }
+        return { stdout: '', stderr: '', exitCode: 0 }
+      }
+    })
+
+    await expect(service.getProjectSessionReview('session-1')).resolves.toEqual({
+      status: 'git-error',
+      message: 'diff failed'
     })
   })
 
