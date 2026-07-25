@@ -9,6 +9,7 @@ import type {
   TerminalCloseRequest,
   TerminalCreateRequest,
   TerminalCreateResult,
+  TerminalDiagnostic,
   TerminalEvent,
   TerminalListTabsRequest,
   TerminalResizeRequest,
@@ -336,59 +337,78 @@ export function createTerminalService({
     await assertContextOwnerActive(request.context)
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
-    for (const persisted of persistedTabs.sort((left, right) => left.order - right.order)) {
-      const fallbackCwd = await resolveInitialCwd(request.context)
-      const cwd = await resolveRestoredCwd(persisted.cwd, fallbackCwd)
-      const shell = enableShellIntegration
-        ? await withCwdShellIntegration(resolveShell())
-        : resolveShell()
-      const id = createId()
-      const process = await pty.spawn({
-        shell: shell.executable,
-        args: shell.args,
-        cwd,
-        cols: request.cols ?? 80,
-        rows: request.rows ?? 24,
-        env: { ...processEnv(), ...shell.env }
-      })
-      const shellTitle = shellName(shell.executable)
-      const record: TerminalRecord = {
-        id,
-        ownerWindowId,
-        context: request.context,
-        pty: process,
-        shellTitle,
-        title: cwdTitle(cwd, shellTitle),
-        restorationTabId: persisted.tabId,
-        currentWorkingDirectory: cwd,
-        latestCwdReportOrdinal: 0,
-        cwdReportBuffer: '',
-        output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
-        subscribed: false,
-        subscriptionGeneration: 0,
-        operationQueue: Promise.resolve(),
-        dispose: []
+    const restoredRecords: TerminalRecord[] = []
+    const diagnostics: TerminalDiagnostic[] = []
+    const key = contextKey(ownerWindowId, request.context)
+    try {
+      for (const persisted of persistedTabs.sort((left, right) => left.order - right.order)) {
+        const fallbackCwd = await resolveInitialCwd(request.context)
+        const restoredCwd = await resolveRestoredCwd(persisted.cwd, fallbackCwd)
+        const shell = enableShellIntegration
+          ? await withCwdShellIntegration(resolveShell())
+          : resolveShell()
+        const id = createId()
+        const process = await pty.spawn({
+          shell: shell.executable,
+          args: shell.args,
+          cwd: restoredCwd.cwd,
+          cols: request.cols ?? 80,
+          rows: request.rows ?? 24,
+          env: { ...processEnv(), ...shell.env }
+        })
+        const shellTitle = shellName(shell.executable)
+        const record: TerminalRecord = {
+          id,
+          ownerWindowId,
+          context: request.context,
+          pty: process,
+          shellTitle,
+          title: cwdTitle(restoredCwd.cwd, shellTitle),
+          restorationTabId: persisted.tabId,
+          currentWorkingDirectory: restoredCwd.cwd,
+          latestCwdReportOrdinal: 0,
+          cwdReportBuffer: '',
+          output: { chunks: [], nextSequence: 1, totalBytes: 0, totalLines: 0 },
+          subscribed: false,
+          subscriptionGeneration: 0,
+          operationQueue: Promise.resolve(),
+          dispose: []
+        }
+        if (restoredCwd.fellBack) {
+          diagnostics.push({
+            type: 'cwd-fallback',
+            terminalId: id,
+            savedCwd: persisted.cwd,
+            cwd: restoredCwd.cwd,
+            message: `Restored terminal cwd was unavailable; using ${restoredCwd.cwd}.`
+          })
+        }
+        record.dispose.push(
+          process.onData((data) => retainAndEmit(record, data)),
+          process.onExit((event) => removeExitedTerminal(record, event))
+        )
+        terminals.set(id, record)
+        restoredRecords.push(record)
+        const state = contexts.get(key) ?? { terminalIds: [], activeTerminalId: null }
+        state.terminalIds.push(id)
+        if (persisted.active) state.activeTerminalId = id
+        contexts.set(key, state)
       }
-      record.dispose.push(
-        process.onData((data) => retainAndEmit(record, data)),
-        process.onExit((event) => removeExitedTerminal(record, event))
-      )
-      terminals.set(id, record)
-      const key = contextKey(ownerWindowId, request.context)
-      const state = contexts.get(key) ?? { terminalIds: [], activeTerminalId: null }
-      state.terminalIds.push(id)
-      if (persisted.active) state.activeTerminalId = id
-      contexts.set(key, state)
-    }
-    const state = contexts.get(contextKey(ownerWindowId, request.context))
-    if (state && !state.activeTerminalId) state.activeTerminalId = state.terminalIds[0] ?? null
-    emptyContexts.delete(contextKey(ownerWindowId, request.context))
-    await persistContext(ownerWindowId, request.context)
-    const activeTerminalId = snapshot(ownerWindowId, request.context).activeTerminalId
-    return {
-      status: 'running',
-      terminalId: activeTerminalId ?? '',
-      ...snapshot(ownerWindowId, request.context)
+      const state = contexts.get(key)
+      if (state && !state.activeTerminalId) state.activeTerminalId = state.terminalIds[0] ?? null
+      emptyContexts.delete(key)
+      await persistContext(ownerWindowId, request.context)
+      const restoredSnapshot = snapshot(ownerWindowId, request.context)
+      const activeTerminalId = restoredSnapshot.activeTerminalId
+      return {
+        status: 'running',
+        terminalId: activeTerminalId ?? '',
+        ...restoredSnapshot,
+        diagnostics
+      }
+    } catch (error) {
+      await rollbackRestoredTerminals(key, restoredRecords)
+      throw error
     }
   }
 
@@ -769,7 +789,7 @@ export function createTerminalService({
   ): void {
     if (!terminals.has(terminal.id)) return
     deleteTerminal(terminal, { markEmpty: true })
-    void tabsRepository.deleteTab(terminal.context, terminal.restorationTabId)
+    void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
     emitToWindow(terminal.ownerWindowId, {
       type: 'exit',
       terminalId: terminal.id,
@@ -783,9 +803,32 @@ export function createTerminalService({
     options: { markEmpty: boolean }
   ): Promise<void> {
     deleteTerminal(terminal, options)
-    if (options.markEmpty)
-      await tabsRepository.deleteTab(terminal.context, terminal.restorationTabId)
+    if (options.markEmpty) await persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
     await trackContextShutdown(terminal.context, () => terminal.pty.kill())
+  }
+
+  async function persistAfterTerminalRemoval(
+    terminal: TerminalRecord,
+    options: { deleteRestorationTab: boolean }
+  ): Promise<void> {
+    if (options.deleteRestorationTab) {
+      await tabsRepository.deleteTab(terminal.context, terminal.restorationTabId)
+    }
+    if (contexts.has(contextKey(terminal.ownerWindowId, terminal.context))) {
+      await persistContext(terminal.ownerWindowId, terminal.context)
+    }
+  }
+
+  async function rollbackRestoredTerminals(
+    key: string,
+    restoredRecords: TerminalRecord[]
+  ): Promise<void> {
+    contexts.delete(key)
+    for (const record of restoredRecords) {
+      terminals.delete(record.id)
+      for (const dispose of record.dispose.splice(0)) dispose()
+    }
+    await Promise.all(restoredRecords.map((record) => record.pty.kill()))
   }
 
   function deleteTerminal(terminal: TerminalRecord, options: { markEmpty: boolean }): void {
@@ -887,15 +930,18 @@ export function createTerminalService({
     }
   }
 
-  async function resolveRestoredCwd(savedCwd: string, fallbackCwd: string): Promise<string> {
-    if (!isUsableCwdPath(savedCwd)) return fallbackCwd
+  async function resolveRestoredCwd(
+    savedCwd: string,
+    fallbackCwd: string
+  ): Promise<{ cwd: string; fellBack: boolean }> {
+    if (!isUsableCwdPath(savedCwd)) return { cwd: fallbackCwd, fellBack: true }
     try {
       const pathStat = await stat(savedCwd)
-      if (pathStat.isDirectory()) return savedCwd
+      if (pathStat.isDirectory()) return { cwd: savedCwd, fellBack: false }
     } catch {
-      return fallbackCwd
+      return { cwd: fallbackCwd, fellBack: true }
     }
-    return fallbackCwd
+    return { cwd: fallbackCwd, fellBack: true }
   }
 
   function enqueueTerminalOperation<T>(

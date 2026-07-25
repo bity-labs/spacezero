@@ -28,6 +28,14 @@ export type TerminalTabsSnapshot = {
   activeTerminalId: TerminalId | null
 }
 
+export type TerminalDiagnostic = {
+  type: 'cwd-fallback'
+  terminalId: TerminalId
+  savedCwd: string
+  cwd: string
+  message: string
+}
+
 export type TerminalListTabsRequest = {
   context: TerminalContext
 }
@@ -43,10 +51,12 @@ export type TerminalCreateResult =
   | ({
       status: 'running'
       terminalId: TerminalId
+      diagnostics?: TerminalDiagnostic[]
     } & Partial<TerminalTabsSnapshot>)
   | ({
       status: 'empty'
       terminalId: null
+      diagnostics?: TerminalDiagnostic[]
     } & Partial<TerminalTabsSnapshot>)
 
 export type TerminalSelectTabRequest = {

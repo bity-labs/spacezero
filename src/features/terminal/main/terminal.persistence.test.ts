@@ -25,15 +25,24 @@ const session = {
 }
 const context = { kind: 'project-session' as const, sessionId: session.id }
 
-function createHarness(tabsRepository = createFakeTabsRepository()) {
+function createHarness({
+  tabsRepository = createFakeTabsRepository(),
+  spawn
+}: {
+  tabsRepository?: TerminalTabsRepository & { rows: PersistedTerminalTab[] }
+  spawn?: TerminalPtyAdapter['spawn']
+} = {}) {
   let nextId = 1
   const ptys: FakePty[] = []
   const adapter: TerminalPtyAdapter = {
-    spawn: vi.fn(async (request) => {
-      const pty = new FakePty(request.cwd)
-      ptys.push(pty)
-      return pty
-    })
+    spawn: vi.fn(
+      spawn ??
+        (async (request) => {
+          const pty = new FakePty(request.cwd)
+          ptys.push(pty)
+          return pty
+        })
+    )
   }
   const service = createTerminalService({
     repository: {
@@ -59,7 +68,7 @@ describe('Terminal tab restoration persistence', () => {
     const cwd = await mkdtemp(join(tmpdir(), 'spacezero-terminal-persist-'))
     try {
       const tabsRepository = createFakeTabsRepository()
-      const firstRun = createHarness(tabsRepository)
+      const firstRun = createHarness({ tabsRepository })
       const first = await firstRun.service.create({ ownerWindowId: 1, request: { context } })
       const second = await firstRun.service.create({
         ownerWindowId: 1,
@@ -80,7 +89,7 @@ describe('Terminal tab restoration persistence', () => {
       })
       await firstRun.service.closeAll()
 
-      const secondRun = createHarness(tabsRepository)
+      const secondRun = createHarness({ tabsRepository })
       const restored = await secondRun.service.create({ ownerWindowId: 2, request: { context } })
 
       expect(restored.status).toBe('running')
@@ -109,7 +118,7 @@ describe('Terminal tab restoration persistence', () => {
 
   it('removes restoration records on explicit close, natural exit, and context deletion', async () => {
     const tabsRepository = createFakeTabsRepository()
-    const { ptys, service } = createHarness(tabsRepository)
+    const { ptys, service } = createHarness({ tabsRepository })
     const first = await service.create({ ownerWindowId: 1, request: { context } })
     const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
     if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
@@ -125,6 +134,82 @@ describe('Terminal tab restoration persistence', () => {
     expect(tabsRepository.rows).toHaveLength(0)
   })
 
+  it('rolls back restored terminals when a later tab fails to spawn', async () => {
+    const tabsRepository = createFakeTabsRepository([
+      {
+        tabId: 'persisted-tab-1',
+        context,
+        order: 0,
+        title: 'one',
+        active: false,
+        cwd: session.worktreePath
+      },
+      {
+        tabId: 'persisted-tab-2',
+        context,
+        order: 1,
+        title: 'two',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
+    const restoredPtys: FakePty[] = []
+    let spawnAttempts = 0
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async (request) => {
+        spawnAttempts += 1
+        if (spawnAttempts === 2) throw new Error('spawn failed')
+        const pty = new FakePty(request.cwd)
+        restoredPtys.push(pty)
+        return pty
+      })
+    })
+
+    await expect(service.create({ ownerWindowId: 1, request: { context } })).rejects.toThrow(
+      'spawn failed'
+    )
+    expect(restoredPtys[0]?.killed).toBe(true)
+
+    const retry = await service.create({ ownerWindowId: 1, request: { context } })
+    expect(retry.status).toBe('running')
+    expect(retry.tabs).toHaveLength(2)
+    expect(retry.activeTerminalId).toBe('id-4')
+  })
+
+  it('persists remaining order and active tab when the active tab is closed', async () => {
+    const tabsRepository = createFakeTabsRepository()
+    const { ptys, service } = createHarness({ tabsRepository })
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+    await service.selectTab({ ownerWindowId: 1, request: { context, terminalId: first.terminalId } })
+
+    await service.close({ ownerWindowId: 1, request: { context, terminalId: first.terminalId } })
+    ptys[0]?.emitExit(0)
+
+    expect(tabsRepository.rows).toEqual([
+      expect.objectContaining({ tabId: 'id-4', order: 0, active: true })
+    ])
+  })
+
+  it('persists remaining order and active tab when the active tab exits naturally', async () => {
+    const tabsRepository = createFakeTabsRepository()
+    const { ptys, service } = createHarness({ tabsRepository })
+    const first = await service.create({ ownerWindowId: 1, request: { context } })
+    const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
+    await service.selectTab({ ownerWindowId: 1, request: { context, terminalId: first.terminalId } })
+
+    ptys[0]?.emitExit(0)
+
+    await vi.waitFor(() =>
+      expect(tabsRepository.rows).toEqual([
+        expect.objectContaining({ tabId: 'id-4', order: 0, active: true })
+      ])
+    )
+  })
+
   it('falls back to the validated context root when a restored cwd is inaccessible', async () => {
     const tabsRepository = createFakeTabsRepository([
       {
@@ -136,12 +221,20 @@ describe('Terminal tab restoration persistence', () => {
         cwd: '/definitely/missing/spacezero/terminal/path'
       }
     ])
-    const { adapter, service } = createHarness(tabsRepository)
+    const { adapter, service } = createHarness({ tabsRepository })
 
     await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toMatchObject(
       {
         status: 'running',
-        tabs: [{ terminalId: 'id-1', title: 'session-1' }]
+        tabs: [{ terminalId: 'id-1', title: 'session-1' }],
+        diagnostics: [
+          expect.objectContaining({
+            type: 'cwd-fallback',
+            terminalId: 'id-1',
+            savedCwd: '/definitely/missing/spacezero/terminal/path',
+            cwd: session.worktreePath
+          })
+        ]
       }
     )
     expect(adapter.spawn).toHaveBeenCalledWith(

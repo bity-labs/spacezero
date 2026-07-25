@@ -721,6 +721,39 @@ describe('TerminalTool', () => {
     expect(screen.getByRole('tab', { name: 'Select terminal tab api', selected: false })).toBeVisible()
   })
 
+  it('renders restored cwd fallback diagnostics from the create result', async () => {
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: 'terminal-1',
+        tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+        activeTerminalId: 'terminal-1',
+        diagnostics: [
+          {
+            type: 'cwd-fallback' as const,
+            terminalId: 'terminal-1',
+            savedCwd: '/missing',
+            cwd: '/repo',
+            message: 'Restored terminal cwd was unavailable; using /repo.'
+          }
+        ]
+      })),
+      subscribe: vi.fn(async ({ terminalId }) => ({ terminalId, events: [], oldestSequence: 1, nextSequence: 1 })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => undefined),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Restored terminal cwd was unavailable; using /repo.'
+    )
+  })
+
   it('falls back to the shell name supplied by main when no usable cwd label exists', async () => {
     window.spacezero.terminal = {
       ...terminalApiDefaults,

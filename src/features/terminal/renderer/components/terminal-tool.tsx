@@ -5,7 +5,14 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
-import type { TerminalContext, TerminalEvent, TerminalOutputEvent, TerminalTab, TerminalUnsubscribeRequest } from '../../shared'
+import type {
+  TerminalContext,
+  TerminalDiagnostic,
+  TerminalEvent,
+  TerminalOutputEvent,
+  TerminalTab,
+  TerminalUnsubscribeRequest
+} from '../../shared'
 
 type TerminalToolProps = {
   context: TerminalContext
@@ -43,11 +50,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
   const [terminalId, setTerminalId] = useState<string | null>(null)
   const [status, setStatus] = useState<TerminalStatus>('starting')
   const [error, setError] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<TerminalDiagnostic[]>([])
   const [autoCreateToken, setAutoCreateToken] = useState(0)
 
   const startTerminal = useCallback(() => {
     forceCreateRequestedRef.current = true
     setError(null)
+    setDiagnostics([])
     setStatus('starting')
     setAutoCreateToken((value) => value + 1)
   }, [])
@@ -126,6 +135,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
     queueMicrotask(() => {
       if (cancelled) return
       setError(null)
+      setDiagnostics([])
       if (contextChanged || !forceNew) {
         setStatus('starting')
         setTabs([])
@@ -147,6 +157,7 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
         const createdTabs = created.tabs ?? (created.terminalId ? [{ terminalId: created.terminalId, title: 'Shell' }] : [])
         const activeTerminalId = created.activeTerminalId ?? created.terminalId
         setTabs(createdTabs)
+        setDiagnostics(created.diagnostics ?? [])
         terminalIdRef.current = activeTerminalId
         setTerminalId(activeTerminalId)
         setStatus(created.status === 'empty' ? 'empty' : 'running')
@@ -368,6 +379,13 @@ export function TerminalTool({ context }: TerminalToolProps): React.JSX.Element 
       ) : (
         <div className="relative min-h-0 flex-1 overflow-hidden p-2">
           <div ref={containerRef} aria-label="Terminal output" className="h-full" />
+          {diagnostics.length > 0 ? (
+            <div role="status" className="absolute inset-x-4 top-4 rounded-md border bg-background/95 p-2 text-xs text-muted-foreground shadow-sm">
+              {diagnostics.map((diagnostic) => (
+                <p key={`${diagnostic.type}:${diagnostic.terminalId}`}>{diagnostic.message}</p>
+              ))}
+            </div>
+          ) : null}
           {status === 'starting' ? (
             <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
               Starting terminal…
