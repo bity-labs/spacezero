@@ -51,11 +51,8 @@ export function createSessionCleanupService({
 
   async function deleteProjectSessions(projectId: string): Promise<void> {
     const normalizedProjectId = projectId.trim()
-    const [project, sessions] = await Promise.all([
-      repository.findProjectById(normalizedProjectId),
-      repository.listByProjectIdIncludingArchived(normalizedProjectId)
-    ])
-    for (const session of sessions) await deleteStoredSession(session, project)
+    const sessions = await repository.listByProjectIdIncludingArchived(normalizedProjectId)
+    for (const session of sessions) await deleteSession(session.id)
   }
 
   async function deleteStoredSession(
