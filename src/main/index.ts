@@ -7,6 +7,7 @@ import {
   stopAgentUtilityProcessHost,
   getAgentUtilityProcessHost
 } from '../features/agent-workspace/main/agent-utility-process'
+import { disposeBrowserIpcResources } from '../features/browser/main'
 import { getKnowledgeBaseSyncScheduler } from '../features/knowledge-base/main'
 import { closeDatabase, getDatabase } from './db'
 import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
@@ -107,6 +108,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   getKnowledgeBaseSyncScheduler().stop()
+  disposeBrowserIpcResources()
   stopAgentUtilityProcessHost()
   closeDatabase()
 })
