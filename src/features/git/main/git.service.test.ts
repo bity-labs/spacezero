@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
+import type { Stats } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { promisify } from 'node:util'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -185,6 +186,60 @@ describe('GitService', () => {
     expect(JSON.stringify(raced)).not.toContain('outside-worktree-parent-race-secret')
   })
 
+  it('fails closed when a Windows canonical untracked path resolves on a different drive', async () => {
+    const worktree = 'C:\\worktree'
+    const target = 'C:\\worktree\\new-dir\\note.txt'
+    const outside = 'D:\\outside\\note.txt'
+    const secret = 'different-drive-secret\n'
+    const regularFileStats = createStatsStub({ dev: 1, ino: 1, file: true, symbolicLink: false })
+    let readAttempted = false
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: 'C:\\project', worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      runGit: async ({ args }) => {
+        if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
+        if (args[0] === 'rev-parse') return { stdout: '', stderr: 'no upstream\n', exitCode: 128 }
+        if (args[0] === 'status') return { stdout: '?? new-dir/note.txt\0', stderr: '', exitCode: 0 }
+        return { stdout: '', stderr: '', exitCode: 0 }
+      },
+      fileSystem: {
+        async lstat(path) {
+          expect(path).toBe(target)
+          return regularFileStats
+        },
+        async open(path) {
+          expect(path).toBe(target)
+          return {
+            async stat() {
+              return regularFileStats
+            },
+            async readFile() {
+              readAttempted = true
+              return Buffer.from(secret)
+            },
+            async close() {}
+          } as Awaited<ReturnType<typeof open>>
+        },
+        async realpath(path) {
+          if (path === worktree) return worktree
+          if (path === target) return outside
+          return path
+        }
+      },
+      pathFlavor: win32
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const raced = review.files.find((file) => file.path === 'new-dir/note.txt')
+    expect(raced).toMatchObject({ kind: 'untracked', diff: null })
+    expect(readAttempted).toBe(false)
+    expect(JSON.stringify(raced)).not.toContain(secret.trim())
+  })
+
   it('preserves old and new paths for a pure rename diff', async () => {
     const root = await createTempDir('spacezero-git-pure-rename-')
     const base = join(root, 'base')
@@ -327,6 +382,25 @@ async function createRepository(path: string): Promise<void> {
 async function git(args: string[]): Promise<string> {
   const { stdout } = await execFileAsync('git', args, { encoding: 'utf8' })
   return stdout
+}
+
+function createStatsStub({
+  dev,
+  ino,
+  file,
+  symbolicLink
+}: {
+  dev: number
+  ino: number
+  file: boolean
+  symbolicLink: boolean
+}) {
+  return {
+    dev,
+    ino,
+    isFile: () => file,
+    isSymbolicLink: () => symbolicLink
+  } as Stats
 }
 
 function createManagedWorktreeServiceStub(
