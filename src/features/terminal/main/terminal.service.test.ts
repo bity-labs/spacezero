@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1217,6 +1217,114 @@ describe('Terminal service', () => {
     expect(spawnRequest?.args).toContain('--user-arg')
   })
 
+  it('removes a bash shell-integration directory when the terminal is closed', async () => {
+    const { adapter } = createHarness()
+    let nextId = 1
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => `terminal-integrated-close-${nextId++}`,
+      resolveShell: () => ({ executable: '/bin/bash', args: [] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    const first = await integratedService.create({ ownerWindowId: 1, request: { context } })
+    const second = await integratedService.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    if (first.status !== 'running' || second.status !== 'running') throw new Error('expected running terminals')
+    const [firstRcfile, secondRcfile] = vi
+      .mocked(adapter.spawn)
+      .mock.calls.map((call) => call[0].args.at(1))
+    if (!firstRcfile || !secondRcfile) throw new Error('expected integration rcfiles')
+    const firstIntegrationDir = firstRcfile.replace(/\/bashrc$/, '')
+    const secondIntegrationDir = secondRcfile.replace(/\/bashrc$/, '')
+    await expect(pathExists(firstIntegrationDir)).resolves.toBe(true)
+    await expect(pathExists(secondIntegrationDir)).resolves.toBe(true)
+
+    await integratedService.close({
+      ownerWindowId: 1,
+      request: { terminalId: first.terminalId, context }
+    })
+
+    await expect(pathExists(firstIntegrationDir)).resolves.toBe(false)
+    await expect(pathExists(secondIntegrationDir)).resolves.toBe(true)
+    await integratedService.close({
+      ownerWindowId: 1,
+      request: { terminalId: second.terminalId, context }
+    })
+    await expect(pathExists(secondIntegrationDir)).resolves.toBe(false)
+  })
+
+  it('removes a zsh shell-integration directory after natural terminal exit', async () => {
+    const { adapter, ptys } = createHarness()
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      createId: () => 'terminal-integrated-exit',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    const created = await integratedService.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+    const integrationDir = vi.mocked(adapter.spawn).mock.calls.at(-1)?.[0].env.ZDOTDIR
+    if (!integrationDir) throw new Error('expected integration ZDOTDIR')
+    await expect(pathExists(integrationDir)).resolves.toBe(true)
+
+    ptys[0]?.emitExit(0)
+
+    await vi.waitFor(async () => expect(await pathExists(integrationDir)).toBe(false))
+  })
+
+  it('removes a shell-integration directory when shell launch fails', async () => {
+    let integrationDir: string | undefined
+    const adapter: TerminalPtyAdapter = {
+      spawn: vi.fn(async (request) => {
+        integrationDir = request.env.ZDOTDIR
+        throw new Error('ENOENT')
+      })
+    }
+    const integratedService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: adapter,
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn(),
+      enableShellIntegration: true
+    })
+
+    await expect(integratedService.create({ ownerWindowId: 1, request: { context } })).rejects.toThrow(
+      'terminal.shellLaunchFailed'
+    )
+
+    expect(integrationDir).toBeDefined()
+    await expect(pathExists(integrationDir!)).resolves.toBe(false)
+  })
+
   it('leaves unsupported shell launch requests unchanged when cwd integration is enabled', async () => {
     const { adapter } = createHarness()
     const integratedService = createTerminalService({
@@ -1270,6 +1378,18 @@ describe('Terminal service', () => {
     expect(adapter.spawn).toHaveBeenCalledTimes(1)
   })
 })
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return false
+    }
+    throw error
+  }
+}
 
 class FakePty extends EventEmitter implements PtyProcess {
   killed = false
