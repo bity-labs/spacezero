@@ -779,6 +779,10 @@ beforeEach(async () => {
       updateModelDefaults: async (request) => ({
         defaultThinking: request.defaultThinking ?? 'medium',
         defaultModel: request.defaultModel
+      }),
+      getChatLinkSettings: async () => ({ openChatLinksIn: 'space-zero-browser' }),
+      updateChatLinkSettings: async (request) => ({
+        openChatLinksIn: request.openChatLinksIn
       })
     }
   }

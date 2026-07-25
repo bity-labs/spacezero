@@ -30,6 +30,16 @@ export type BrowserContext =
   | { kind: 'workspace-session'; sessionId: string }
   | { kind: 'knowledge-base' }
 
+export function browserContextKey(context: BrowserContext): string {
+  switch (context.kind) {
+    case 'project-session':
+    case 'workspace-session':
+      return `session:${context.sessionId}`
+    case 'knowledge-base':
+      return 'knowledge-base'
+  }
+}
+
 export type BrowserBounds = {
   x: number
   y: number

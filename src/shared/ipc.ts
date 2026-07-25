@@ -11,6 +11,10 @@ import type {
   ApplyAgentDefinitionToFreshSessionRequest
 } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
+import type {
+  ChatLinkSettings,
+  UpdateChatLinkSettingsRequest
+} from './chat-link-settings'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type {
   AddApiKeyRequest,
@@ -199,7 +203,9 @@ export const IPC_CHANNELS = {
     getStorageSettings: 'settings:getStorageSettings',
     chooseSpaceZeroHome: 'settings:chooseSpaceZeroHome',
     getModelDefaults: 'settings:getModelDefaults',
-    updateModelDefaults: 'settings:updateModelDefaults'
+    updateModelDefaults: 'settings:updateModelDefaults',
+    getChatLinkSettings: 'settings:getChatLinkSettings',
+    updateChatLinkSettings: 'settings:updateChatLinkSettings'
   }
 } as const
 
@@ -355,5 +361,9 @@ export type SpaceZeroAPI = {
     chooseSpaceZeroHome: () => Promise<StorageSettings | null>
     getModelDefaults: () => Promise<ModelDefaults>
     updateModelDefaults: (request: UpdateModelDefaultsRequest) => Promise<ModelDefaults>
+    getChatLinkSettings: () => Promise<ChatLinkSettings>
+    updateChatLinkSettings: (
+      request: UpdateChatLinkSettingsRequest
+    ) => Promise<ChatLinkSettings>
   }
 }

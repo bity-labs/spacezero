@@ -30,6 +30,7 @@ export type AgentChatProps = {
   ) => void | Promise<void>
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
+  onOpenLink?: (url: string) => void | Promise<void>
 }
 
 export function AgentChat({
@@ -44,7 +45,8 @@ export function AgentChat({
   contentClassName,
   onSubmit,
   onAbort,
-  onToolConfirmationResolve
+  onToolConfirmationResolve,
+  onOpenLink
 }: AgentChatProps) {
   useEffect(() => {
     if (status !== 'running' || !onAbort) return undefined
@@ -109,6 +111,7 @@ export function AgentChat({
         emptyState={emptyState}
         contentClassName={contentClassName}
         onToolConfirmationResolve={onToolConfirmationResolve}
+        onOpenLink={onOpenLink}
       />
       {composerContent ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/95 to-transparent px-6 pb-6 pt-16">

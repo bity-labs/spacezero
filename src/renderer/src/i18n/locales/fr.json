@@ -217,6 +217,14 @@
     "preferences": {
       "sectionTitle": "Préférences"
     },
+    "chatLinks": {
+      "label": "Ouvrir les liens du chat dans",
+      "description": "Choisissez si les liens HTTP et HTTPS cliqués dans le chat s’ouvrent dans le navigateur Space Zero ou votre navigateur par défaut.",
+      "spaceZeroBrowser": "Navigateur Space Zero",
+      "defaultBrowser": "Navigateur par défaut",
+      "loading": "Chargement de la préférence des liens du chat…",
+      "saveError": "Impossible d’enregistrer la préférence des liens du chat."
+    },
     "notifications": {
       "sectionTitle": "Notifications",
       "system": {
