@@ -188,7 +188,7 @@ describe('App', () => {
     expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
   })
 
-  it('enables Files and Terminal in the Tool Switcher for a configured Knowledge Base', async () => {
+  it('enables Files, Browser, and Terminal in the Tool Switcher for a configured Knowledge Base', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -208,10 +208,9 @@ describe('App', () => {
       'vertical'
     )
     expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
-    for (const label of ['Git', 'Browser']) {
-      expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
-    }
+    expect(screen.getByRole('button', { name: 'Git — Coming soon' })).toBeDisabled()
   })
 
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
@@ -674,10 +673,9 @@ describe('App', () => {
       'Space ZeroSession 1'
     )
     expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
-    for (const label of ['Git', 'Browser']) {
-      expect(screen.getByRole('button', { name: `${label} — Coming soon` })).toBeDisabled()
-    }
+    expect(screen.getByRole('button', { name: 'Git — Coming soon' })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
@@ -828,7 +826,7 @@ describe('App', () => {
       'aria-orientation',
       'vertical'
     )
-    expect(screen.getByRole('button', { name: 'Browser — Coming soon' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: /Files/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Git —/ })).not.toBeInTheDocument()

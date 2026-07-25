@@ -15,6 +15,11 @@ const TerminalTool = lazy(async () => {
   return { default: module.TerminalTool }
 })
 
+const BrowserTool = lazy(async () => {
+  const module = await import('../../browser/renderer/components/browser-tool')
+  return { default: module.BrowserTool }
+})
+
 const toolRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
   git: { id: 'git', label: 'Git', available: false, icon: GitBranch },
@@ -51,7 +56,7 @@ export function createProjectSessionToolPaneConfiguration(session: {
             : null
       },
       toolRegistry.git,
-      toolRegistry.browser,
+      createBrowserToolDescriptor(),
       {
         ...toolRegistry.terminal,
         available: true,
@@ -78,7 +83,7 @@ export function createWorkspaceSessionToolPaneConfiguration(session: {
     capabilities: { kind: 'workspace-session', sessionId: session.id },
     defaultToolId: 'browser',
     tools: [
-      toolRegistry.browser,
+      createBrowserToolDescriptor(),
       {
         ...toolRegistry.terminal,
         available: true,
@@ -124,7 +129,7 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
             : null
       },
       toolRegistry.git,
-      toolRegistry.browser,
+      createBrowserToolDescriptor(),
       {
         ...toolRegistry.terminal,
         available: true,
@@ -141,11 +146,32 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
   }
 }
 
+function createBrowserToolDescriptor(): ToolDescriptor {
+  return {
+    ...toolRegistry.browser,
+    available: true,
+    render: ({ contextKey, capabilities }) =>
+      createElement(
+        Suspense,
+        { fallback: createElement(BrowserToolLoading) },
+        createElement(BrowserTool, { contextKey, context: capabilities })
+      )
+  }
+}
+
 function TerminalToolLoading(): React.JSX.Element {
   return createElement(
     'div',
     { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
     'Loading Terminal…'
+  )
+}
+
+function BrowserToolLoading(): React.JSX.Element {
+  return createElement(
+    'div',
+    { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
+    'Loading Browser…'
   )
 }
 
