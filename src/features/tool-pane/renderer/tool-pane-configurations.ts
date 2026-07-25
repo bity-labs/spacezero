@@ -23,6 +23,11 @@ const BrowserTool = lazy(async () => {
   return { default: module.BrowserTool }
 })
 
+const GitTool = lazy(async () => {
+  const module = await import('../../git/renderer/components/git-tool')
+  return { default: module.GitTool }
+})
+
 const toolRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
   git: { id: 'git', label: 'Git', available: false, icon: GitBranch },
@@ -58,7 +63,18 @@ export function createProjectSessionToolPaneConfiguration(session: {
               )
             : null
       },
-      toolRegistry.git,
+      {
+        ...toolRegistry.git,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-session'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(GitToolLoading) },
+                createElement(GitTool, { sessionId: capabilities.sessionId })
+              )
+            : null
+      },
       createBrowserToolDescriptor(),
       {
         ...toolRegistry.terminal,
@@ -214,6 +230,14 @@ function FilesToolLoading(): React.JSX.Element {
     'div',
     { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
     'Loading Files…'
+  )
+}
+
+function GitToolLoading(): React.JSX.Element {
+  return createElement(
+    'div',
+    { className: 'flex h-full items-center justify-center text-sm text-muted-foreground' },
+    'Loading Git…'
   )
 }
 

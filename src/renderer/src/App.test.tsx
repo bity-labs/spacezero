@@ -675,7 +675,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Git — Coming soon' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Git' })).toBeEnabled()
 
     fireEvent.click(screen.getByRole('button', { name: /Session 2/ }))
 
