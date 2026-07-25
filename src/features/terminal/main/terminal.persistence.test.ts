@@ -177,6 +177,64 @@ describe('Terminal tab restoration persistence', () => {
     expect(retry.activeTerminalId).toBe('id-4')
   })
 
+  it('preserves a forced terminal created while restored terminals roll back', async () => {
+    const tabsRepository = createFakeTabsRepository([
+      {
+        tabId: 'persisted-tab-1',
+        context,
+        order: 0,
+        title: 'one',
+        active: false,
+        cwd: session.worktreePath
+      },
+      {
+        tabId: 'persisted-tab-2',
+        context,
+        order: 1,
+        title: 'two',
+        active: true,
+        cwd: session.worktreePath
+      }
+    ])
+    const restoredPty = new FakePty(session.worktreePath)
+    const freshPty = new FakePty(session.worktreePath)
+    let rejectSecondRestore!: (error: Error) => void
+    let spawnAttempts = 0
+    const { service } = createHarness({
+      tabsRepository,
+      spawn: vi.fn(async () => {
+        spawnAttempts += 1
+        if (spawnAttempts === 1) return restoredPty
+        if (spawnAttempts === 2) {
+          return new Promise<PtyProcess>((_, reject) => {
+            rejectSecondRestore = reject
+          })
+        }
+        return freshPty
+      })
+    })
+
+    const restoring = service.create({ ownerWindowId: 1, request: { context } })
+    await vi.waitFor(() => expect(spawnAttempts).toBe(2))
+
+    const forced = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    rejectSecondRestore(new Error('spawn failed'))
+    await expect(restoring).rejects.toThrow('spawn failed')
+
+    expect(forced).toMatchObject({
+      status: 'running',
+      terminalId: 'id-3',
+      activeTerminalId: 'id-3',
+      tabs: [{ terminalId: 'id-1', title: 'session-1' }, { terminalId: 'id-3', title: 'session-1' }]
+    })
+    await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
+      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      activeTerminalId: 'id-3'
+    })
+    expect(restoredPty.killed).toBe(true)
+    expect(freshPty.killed).toBe(false)
+  })
+
   it('persists remaining order and active tab when the active tab is closed', async () => {
     const tabsRepository = createFakeTabsRepository()
     const { ptys, service } = createHarness({ tabsRepository })
