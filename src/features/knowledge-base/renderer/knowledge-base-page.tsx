@@ -309,6 +309,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
         requireRuntimeReady
         placeholder="Ask about your Knowledge Base…"
         emptyState="Ask the workspace agent about your Knowledge Base. Streamed replies appear here."
+        chatLinkContext={{ kind: 'knowledge-base' }}
       />
     </div>
   )

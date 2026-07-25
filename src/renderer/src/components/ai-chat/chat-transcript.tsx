@@ -18,6 +18,7 @@ export type ChatTranscriptProps = {
   className?: string
   contentClassName?: string
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
+  onOpenLink?: (url: string) => void | Promise<void>
 }
 
 export function ChatTranscript({
@@ -25,7 +26,8 @@ export function ChatTranscript({
   emptyState,
   className,
   contentClassName,
-  onToolConfirmationResolve
+  onToolConfirmationResolve,
+  onOpenLink
 }: ChatTranscriptProps) {
   return (
     <Conversation className={cn('min-h-0', className)}>
@@ -37,6 +39,7 @@ export function ChatTranscript({
                 <ChatTranscriptMessage
                   message={message}
                   onToolConfirmationResolve={onToolConfirmationResolve}
+                  onOpenLink={onOpenLink}
                 />
               </ConversationItem>
             ))}
@@ -48,10 +51,18 @@ export function ChatTranscript({
 
 const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
   message,
-  onToolConfirmationResolve
+  onToolConfirmationResolve,
+  onOpenLink
 }: {
   message: AiChatMessage
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
+  onOpenLink?: (url: string) => void | Promise<void>
 }) {
-  return <ChatMessage message={message} onToolConfirmationResolve={onToolConfirmationResolve} />
+  return (
+    <ChatMessage
+      message={message}
+      onToolConfirmationResolve={onToolConfirmationResolve}
+      onOpenLink={onOpenLink}
+    />
+  )
 })

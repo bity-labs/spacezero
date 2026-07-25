@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { browserContextKey, type BrowserContext } from '../../../browser/shared'
+import { useToolPaneStore } from '../../../tool-pane/renderer'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
@@ -21,6 +23,7 @@ type WorkspaceSessionHostSurfaceProps = {
   placeholder?: string
   emptyState?: string
   requireRuntimeReady?: boolean
+  chatLinkContext?: BrowserContext
 }
 
 export function ProjectSessionHostSurface({
@@ -51,6 +54,7 @@ export function ProjectSessionHostSurface({
         void agentSession.resolveToolConfirmation(callId, approved)
       }
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
+      chatLinkContext={{ kind: 'project-session', projectId: project.id, sessionId: session.id }}
     />
   )
 }
@@ -59,7 +63,8 @@ export function WorkspaceSessionHostSurface({
   session,
   placeholder = 'Ask about Space Zero…',
   emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.',
-  requireRuntimeReady = false
+  requireRuntimeReady = false,
+  chatLinkContext = { kind: 'workspace-session', sessionId: session.id }
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
@@ -114,6 +119,7 @@ export function WorkspaceSessionHostSurface({
         void agentSession.resolveToolConfirmation(callId, approved)
       }
       emptyState={emptyState}
+      chatLinkContext={chatLinkContext}
     />
   )
 }
@@ -132,6 +138,7 @@ type SessionHostFrameProps = {
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
+  chatLinkContext?: BrowserContext
 }
 
 function SessionHostFrame({
@@ -144,7 +151,8 @@ function SessionHostFrame({
   onSubmit,
   onAbort,
   onToolConfirmationResolve,
-  emptyState
+  emptyState,
+  chatLinkContext
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
   const [submissionError, setSubmissionError] = useState<string | undefined>(undefined)
@@ -166,7 +174,24 @@ function SessionHostFrame({
     },
     [onSubmit]
   )
+  const openBrowserTool = useToolPaneStore((state) => state.openTool)
   const alertMessage = submissionError ?? (error ? `Agent prompt failed: ${error}` : undefined)
+  const openChatLink = useCallback(
+    async (url: string) => {
+      if (!chatLinkContext || !isHttpChatLink(url)) return
+
+      const settings = await window.spacezero.settings.getChatLinkSettings()
+      if (settings.openChatLinksIn === 'default-browser') {
+        await window.spacezero.browser.openUrlInDefaultBrowser({ url })
+        return
+      }
+
+      const contextKey = browserContextKey(chatLinkContext)
+      await window.spacezero.browser.createTab({ contextKey, context: chatLinkContext, input: url })
+      openBrowserTool(contextKey, 'browser')
+    },
+    [chatLinkContext, openBrowserTool]
+  )
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
@@ -191,9 +216,19 @@ function SessionHostFrame({
         onSubmit={handleSubmit}
         onAbort={onAbort}
         onToolConfirmationResolve={onToolConfirmationResolve}
+        onOpenLink={openChatLink}
       />
     </div>
   )
+}
+
+function isHttpChatLink(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
 }
 
 function isFreshAgentSession(

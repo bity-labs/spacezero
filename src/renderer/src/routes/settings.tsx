@@ -14,6 +14,7 @@ import {
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
+import type { ChatLinkDestination, ChatLinkSettings } from '@shared/chat-link-settings'
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 import type { AuthProviderOption, AuthProviderStatus, ModelAuthSettings } from '@shared/model-auth'
 import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model-settings'
@@ -299,6 +300,40 @@ function GeneralSettingsSection({
   onThemePreferenceChange
 }: GeneralSettingsSectionProps): React.JSX.Element {
   const { t } = useTranslation()
+  const [chatLinkSettings, setChatLinkSettings] = useState<ChatLinkSettings | null>(null)
+  const [chatLinkError, setChatLinkError] = useState(false)
+
+  useEffect(() => {
+    let isCurrent = true
+
+    window.spacezero.settings
+      .getChatLinkSettings()
+      .then((settings) => {
+        if (!isCurrent) return
+        setChatLinkSettings(settings)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setChatLinkError(true)
+      })
+
+    return () => {
+      isCurrent = false
+    }
+  }, [])
+
+  async function handleChatLinkDestinationChange(destination: ChatLinkDestination): Promise<void> {
+    setChatLinkError(false)
+
+    try {
+      const settings = await window.spacezero.settings.updateChatLinkSettings({
+        openChatLinksIn: destination
+      })
+      setChatLinkSettings(settings)
+    } catch {
+      setChatLinkError(true)
+    }
+  }
 
   return (
     <>
@@ -363,6 +398,42 @@ function GeneralSettingsSection({
           ) : null}
           {themeError ? (
             <p className="px-4 pb-3 text-sm text-destructive">{t('settings.theme.saveError')}</p>
+          ) : null}
+          <SettingsRow
+            title={t('settings.chatLinks.label')}
+            description={t('settings.chatLinks.description')}
+          >
+            <Select
+              value={chatLinkSettings?.openChatLinksIn ?? 'space-zero-browser'}
+              onValueChange={(value) =>
+                void handleChatLinkDestinationChange(value as ChatLinkDestination)
+              }
+              disabled={!chatLinkSettings}
+            >
+              <SelectTrigger size="sm" className="w-48" aria-label={t('settings.chatLinks.label')}>
+                <SelectValue>
+                  {(value: ChatLinkDestination) => getChatLinkDestinationLabel(value, t)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="space-zero-browser">
+                  {t('settings.chatLinks.spaceZeroBrowser')}
+                </SelectItem>
+                <SelectItem value="default-browser">
+                  {t('settings.chatLinks.defaultBrowser')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+          {!chatLinkSettings ? (
+            <p className="px-4 pb-3 text-sm text-muted-foreground">
+              {t('settings.chatLinks.loading')}
+            </p>
+          ) : null}
+          {chatLinkError ? (
+            <p className="px-4 pb-3 text-sm text-destructive">
+              {t('settings.chatLinks.saveError')}
+            </p>
           ) : null}
         </SettingsSection>
       </div>
@@ -635,6 +706,14 @@ function getThemePreferenceLabel(
   if (preference === 'system') return t('settings.theme.system')
   if (preference === 'dark') return t('settings.theme.dark')
   return t('settings.theme.light')
+}
+
+function getChatLinkDestinationLabel(
+  destination: ChatLinkDestination,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (destination === 'default-browser') return t('settings.chatLinks.defaultBrowser')
+  return t('settings.chatLinks.spaceZeroBrowser')
 }
 
 function ModelsSettingsSection(): React.JSX.Element {
