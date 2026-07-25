@@ -783,6 +783,10 @@ beforeEach(async () => {
       getChatLinkSettings: async () => ({ openChatLinksIn: 'space-zero-browser' }),
       updateChatLinkSettings: async (request) => ({
         openChatLinksIn: request.openChatLinksIn
+      }),
+      getTerminalSettings: async () => ({ confirmBeforeClosingLiveTerminals: true }),
+      updateTerminalSettings: async (request) => ({
+        confirmBeforeClosingLiveTerminals: request.confirmBeforeClosingLiveTerminals
       })
     }
   }

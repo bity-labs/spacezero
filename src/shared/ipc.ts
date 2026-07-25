@@ -82,6 +82,7 @@ import type {
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 import type { StorageSettings } from './storage-settings'
+import type { TerminalSettings, UpdateTerminalSettingsRequest } from './terminal-settings'
 import type {
   AgentGlobalSkill,
   SetGlobalAgentSkillEnabledRequest
@@ -205,7 +206,9 @@ export const IPC_CHANNELS = {
     getModelDefaults: 'settings:getModelDefaults',
     updateModelDefaults: 'settings:updateModelDefaults',
     getChatLinkSettings: 'settings:getChatLinkSettings',
-    updateChatLinkSettings: 'settings:updateChatLinkSettings'
+    updateChatLinkSettings: 'settings:updateChatLinkSettings',
+    getTerminalSettings: 'settings:getTerminalSettings',
+    updateTerminalSettings: 'settings:updateTerminalSettings'
   }
 } as const
 
@@ -365,5 +368,7 @@ export type SpaceZeroAPI = {
     updateChatLinkSettings: (
       request: UpdateChatLinkSettingsRequest
     ) => Promise<ChatLinkSettings>
+    getTerminalSettings: () => Promise<TerminalSettings>
+    updateTerminalSettings: (request: UpdateTerminalSettingsRequest) => Promise<TerminalSettings>
   }
 }

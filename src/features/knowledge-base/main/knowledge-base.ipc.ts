@@ -1,5 +1,8 @@
 import { ipcMain } from 'electron'
 
+import { runWithLiveTerminalConfirmation } from '../../terminal/main/terminal-confirmation.service'
+import { getTerminalService } from '../../terminal/main/terminal.runtime'
+
 import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   addKnowledgeBaseRemoteRequestSchema,
@@ -30,8 +33,18 @@ export function registerKnowledgeBaseIpc(): void {
     getKnowledgeBaseChatService().startNewChat()
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
-    await getKnowledgeBaseProjectsService().clearProjectLinks()
-    return getKnowledgeBaseService().reset()
+    const terminalService = getTerminalService()
+    const context = { kind: 'knowledge-base' as const }
+    return runWithLiveTerminalConfirmation({
+      operationKey: 'reset-knowledge-base',
+      purpose: 'delete-context',
+      countLiveTerminals: () => terminalService.countLiveTerminalsForContext(context),
+      run: async () => {
+        await terminalService.closeAllForContext(context)
+        await getKnowledgeBaseProjectsService().clearProjectLinks()
+        return getKnowledgeBaseService().reset()
+      }
+    })
   })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.createNew, async () => {
     const status = await getKnowledgeBaseService().createNew()

@@ -600,6 +600,24 @@ describe('Terminal service', () => {
     expect(ptys[0]?.killed).toBe(true)
   })
 
+  it('reports aggregate live terminal counts for shutdown and context deletion prompts', async () => {
+    const { service } = createHarness()
+    await service.create({ ownerWindowId: 1, request: { context } })
+    await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
+    await service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
+
+    expect(service.countLiveTerminals()).toBe(3)
+    expect(service.countLiveTerminalsForContext(context)).toBe(2)
+    expect(service.countLiveTerminalsForContext(workspaceContext)).toBe(1)
+    expect(service.countLiveTerminalsForContext(knowledgeBaseContext)).toBe(0)
+
+    await service.closeAllForContext(context)
+
+    expect(service.countLiveTerminals()).toBe(1)
+    expect(service.countLiveTerminalsForContext(context)).toBe(0)
+    expect(service.countLiveTerminalsForContext(workspaceContext)).toBe(1)
+  })
+
   it('re-authenticates an existing terminal owner before returning a live record', async () => {
     const { repository, service } = createHarness()
     await expect(
@@ -903,10 +921,47 @@ describe('Terminal service', () => {
 
     await expect(service.closeAllForContext(context)).rejects.toThrow('terminal.killFailed')
     expect(ptys[0]?.killAttempts).toBe(1)
+    expect(service.countLiveTerminals()).toBe(1)
+    expect(service.countLiveTerminalsForContext(context)).toBe(1)
 
     await service.closeAllForContext(context)
     expect(ptys[0]?.killAttempts).toBe(2)
     await expect(service.closeAllForContext(context)).resolves.toBeUndefined()
+  })
+
+  it('keeps failed app shutdowns visible and retryable through closeAll', async () => {
+    const ptys: FailsOnceKillPty[] = []
+    const service = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => session),
+        findProjectById: vi.fn(async () => project)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty: {
+        spawn: vi.fn(async () => {
+          const pty = new FailsOnceKillPty(80, 24)
+          ptys.push(pty)
+          return pty
+        })
+      },
+      createId: () => 'terminal-app-shutdown-retry',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    const created = await service.create({ ownerWindowId: 1, request: { context } })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+
+    await expect(service.closeAll()).rejects.toThrow('terminal.killFailed')
+    expect(ptys[0]?.killAttempts).toBe(1)
+    expect(service.countLiveTerminals()).toBe(1)
+
+    await service.closeAll()
+    expect(ptys[0]?.killAttempts).toBe(2)
+    expect(service.countLiveTerminals()).toBe(0)
   })
 
   it('preserves input and resize invocation order while older operations are pending', async () => {

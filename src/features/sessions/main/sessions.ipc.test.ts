@@ -175,12 +175,32 @@ describe('Sessions IPC terminal cleanup mapping', () => {
     expect(deletionResolved).toBe(false)
 
     resolveSpawn?.(new FakePty(80, 24))
-    await expect(create).rejects.toThrow('terminal.contextDeleting')
+    await create
     await deletion
 
     expect(ptys[0]?.killed).toBe(true)
     expect(events).toEqual(['utility', 'metadata'])
     expect(deletionResolved).toBe(true)
+  })
+
+  it('coalesces concurrent deletion requests into one cleanup and metadata transaction', async () => {
+    const session = createStoredSession()
+    const { deleteSession, ptys, repository, terminalService, utilityHost } =
+      await setupSessionsIpcHarness({ session })
+    const created = await terminalService.create({
+      ownerWindowId: 1,
+      request: { context: { kind: 'workspace-session', sessionId: session.id } }
+    })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+
+    await Promise.all([
+      deleteSession({}, { sessionId: session.id }),
+      deleteSession({}, { sessionId: session.id })
+    ])
+
+    expect(ptys[0]?.killed).toBe(true)
+    expect(utilityHost.deleteSession).toHaveBeenCalledTimes(1)
+    expect(repository.deleteById).toHaveBeenCalledTimes(1)
   })
 
   it('preserves the Knowledge Base managed-chat exception during Session deletion', async () => {
