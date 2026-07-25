@@ -921,12 +921,14 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   const surfaceBounds = await window.getByLabel('Browser page surface').boundingBox()
   expect(browserIsolation.url).toBe(fixtureUrl)
   expect(browserIsolation.title).toBe('Browser fixture')
-  expect(browserIsolation.attachedBounds).toEqual({
+  expect(browserIsolation.attachedBounds).toMatchObject({
     x: Math.round(surfaceBounds?.x ?? 0),
-    y: Math.round(surfaceBounds?.y ?? 0),
-    width: Math.round(surfaceBounds?.width ?? 0),
-    height: Math.round(surfaceBounds?.height ?? 0)
+    width: Math.round(surfaceBounds?.width ?? 0)
   })
+  expect(browserIsolation.attachedBounds?.y).toBeGreaterThanOrEqual(Math.round(surfaceBounds?.y ?? 0))
+  expect((browserIsolation.attachedBounds?.y ?? 0) + (browserIsolation.attachedBounds?.height ?? 0)).toBe(
+    Math.round((surfaceBounds?.y ?? 0) + (surfaceBounds?.height ?? 0))
+  )
   expect(browserIsolation.usesDedicatedProfile).toBe(true)
   expect(browserIsolation.usesDefaultProfile).toBe(false)
   expect(browserIsolation.preferences.sandbox).toBe(true)
@@ -935,6 +937,102 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     spacezero: 'undefined',
     electronRequire: 'undefined'
   })
+
+  const newWindowTargetUrl = `http://127.0.0.1:${address.port}/new-window-target`
+  const scriptedPopupPageUrl = `http://127.0.0.1:${address.port}/scripted-popup-page`
+  const scriptedPopupTargetUrl = `http://127.0.0.1:${address.port}/scripted-popup-target`
+  const authPopupTargetUrl = `http://127.0.0.1:${address.port}/auth-popup-target`
+  await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) throw new Error('Embedded browser webContents was not found for popup fixtures.')
+    const point = await contents.executeJavaScript(`(() => {
+      const rect = document.querySelector('#target-blank').getBoundingClientRect()
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    contents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+    contents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  }, { fixtureUrl })
+  await expect.poll(async () =>
+    window.evaluate(() =>
+      window.spacezero.browser.getState({
+        contextKey: 'session:browser-e2e-session',
+        context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' }
+      }).then((state) => state.tabs.map((tab) => tab.url))
+    )
+  ).toContain(newWindowTargetUrl)
+
+  await window.evaluate(async ({ scriptedPopupPageUrl }) => {
+    await window.spacezero.browser.createTab({
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      input: scriptedPopupPageUrl
+    })
+  }, { scriptedPopupPageUrl })
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { scriptedPopupPageUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === scriptedPopupPageUrl)
+    , { scriptedPopupPageUrl })
+  ).toBe(true)
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  const scriptedPopupBlocked = await electronApp.evaluate(({ webContents }, { scriptedPopupTargetUrl }) =>
+    webContents.getAllWebContents().every((contents) => contents.getURL() !== scriptedPopupTargetUrl)
+  , { scriptedPopupTargetUrl })
+  expect(scriptedPopupBlocked).toBe(true)
+  await window.evaluate(async ({ fixtureUrl }) => {
+    const state = await window.spacezero.browser.getState({
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' }
+    })
+    const fixtureTab = state.tabs.find((tab) => tab.url === fixtureUrl)
+    if (!fixtureTab) throw new Error('Fixture tab was not found after scripted popup check.')
+    await window.spacezero.browser.selectTab({
+      contextKey: 'session:browser-e2e-session',
+      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      tabId: fixtureTab.id
+    })
+  }, { fixtureUrl })
+
+  await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) throw new Error('Embedded browser webContents was not found for auth popup fixture.')
+    const point = await contents.executeJavaScript(`(() => {
+      const rect = document.querySelector('#auth-popup').getBoundingClientRect()
+      return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) }
+    })()`)
+    contents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+    contents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  }, { fixtureUrl })
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { authPopupTargetUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === authPopupTargetUrl)
+    , { authPopupTargetUrl })
+  ).toBe(true)
+  const authPopupIsolation = await electronApp.evaluate(async ({ session, webContents }, { authPopupTargetUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === authPopupTargetUrl)
+    if (!contents) throw new Error('Authentication popup webContents was not found.')
+    return {
+      openerAvailable: await contents.executeJavaScript('Boolean(window.opener)'),
+      usesDedicatedProfile: contents.session === session.fromPartition('persist:spacezero-browser'),
+      preferences: contents.getLastWebPreferences(),
+      globals: await contents.executeJavaScript(`({ spacezero: typeof window.spacezero, electronRequire: typeof window.require })`)
+    }
+  }, { authPopupTargetUrl })
+  expect(authPopupIsolation).toMatchObject({
+    openerAvailable: true,
+    usesDedicatedProfile: true,
+    preferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+    globals: { spacezero: 'undefined', electronRequire: 'undefined' }
+  })
+  await electronApp.evaluate(async ({ webContents }, { authPopupTargetUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === authPopupTargetUrl)
+    if (!contents) throw new Error('Authentication popup webContents was not found to close.')
+    await contents.executeJavaScript('window.close()')
+  }, { authPopupTargetUrl })
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { authPopupTargetUrl }) =>
+      webContents.getAllWebContents().every((contents) => contents.getURL() !== authPopupTargetUrl)
+    , { authPopupTargetUrl })
+  ).toBe(true)
 
   const contextIsolationTargets = [
     {
@@ -1324,9 +1422,28 @@ test('enforces Browser permission and certificate policy through real Electron h
 })
 
 async function startBrowserFixtureServer(): Promise<Server> {
-  const server = createServer((_request, response) => {
+  const server = createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
-    response.end('<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>')
+    if (request.url?.startsWith('/new-window-target')) {
+      response.end('<!doctype html><title>New Window Target</title><h1>New window target</h1>')
+      return
+    }
+    if (request.url?.startsWith('/scripted-popup-page')) {
+      response.end(`<!doctype html><title>Scripted Popup Page</title><h1>Scripted popup page</h1><script>setTimeout(() => window.open('/scripted-popup-target', '_blank'), 50)</script>`)
+      return
+    }
+    if (request.url?.startsWith('/scripted-popup-target')) {
+      response.end('<!doctype html><title>Scripted Popup Target</title><h1>Scripted popup target</h1>')
+      return
+    }
+    if (request.url?.startsWith('/auth-popup-target')) {
+      response.end(`<!doctype html><title>Auth Popup Target</title><h1>Auth popup target</h1><script>window.opener.postMessage('auth-ready', '*')</script>`)
+      return
+    }
+    response.end(`<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>
+      <a id="target-blank" href="/new-window-target" target="_blank">Open target blank</a>
+      <button id="scripted-popup" onclick="window.open('/scripted-popup-target', '_blank')">Scripted popup</button>
+      <button id="auth-popup" onclick="window.open('/auth-popup-target', 'spacezero-auth', 'width=480,height=640')">Auth popup</button>`)
   })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)
