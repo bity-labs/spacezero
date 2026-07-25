@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { lstat, open, realpath } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import path from 'node:path'
 import { promisify } from 'node:util'
 
 import type { GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
@@ -27,18 +27,22 @@ type UntrackedFileSystem = {
   realpath: (path: string) => Promise<string>
 }
 
+type PathFlavor = Pick<typeof path, 'isAbsolute' | 'join' | 'relative'>
+
 const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath }
 
 export function createGitService({
   sessionsRepository,
   managedWorktreeService,
   runGit = runGitCli,
-  fileSystem = defaultUntrackedFileSystem
+  fileSystem = defaultUntrackedFileSystem,
+  pathFlavor = path
 }: {
   sessionsRepository: SessionsRepository
   managedWorktreeService: ManagedWorktreeService
   runGit?: GitRunner
   fileSystem?: UntrackedFileSystem
+  pathFlavor?: PathFlavor
 }) {
   async function getProjectSessionReview(sessionId: string): Promise<GitReviewState> {
     const session = await sessionsRepository.findSessionById(sessionId)
@@ -73,7 +77,7 @@ export function createGitService({
         (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
       )
       const files = await Promise.all(
-        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit, fileSystem }))
+        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit, fileSystem, pathFlavor }))
       )
       const sorted = files.sort(compareFileDiffs)
       return sorted.length === 0
@@ -156,15 +160,17 @@ async function createFileDiff({
   cwd,
   status,
   runGit,
-  fileSystem
+  fileSystem,
+  pathFlavor
 }: {
   cwd: string
   status: PorcelainStatus
   runGit: GitRunner
   fileSystem: UntrackedFileSystem
+  pathFlavor: PathFlavor
 }): Promise<GitFileDiff> {
   const kind = getChangeKind(status)
-  if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem)
+  if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem, pathFlavor)
 
   const pathspecs = status.oldPath ? [status.oldPath, status.path] : [status.path]
   const diff = await runGit({
@@ -191,10 +197,11 @@ async function createFileDiff({
 async function createUntrackedDiff(
   cwd: string,
   path: string,
-  fileSystem: UntrackedFileSystem
+  fileSystem: UntrackedFileSystem,
+  pathFlavor: PathFlavor
 ): Promise<GitFileDiff> {
   try {
-    const absolutePath = join(cwd, path)
+    const absolutePath = pathFlavor.join(cwd, path)
     const cwdRealPath = await fileSystem.realpath(cwd)
     const handle = await fileSystem.open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
@@ -212,7 +219,7 @@ async function createUntrackedDiff(
       const currentRealPath = await fileSystem.realpath(absolutePath)
       const verifiedStats = await fileSystem.lstat(absolutePath)
       if (
-        !isPathInsideDirectory(currentRealPath, cwdRealPath) ||
+        !isPathInsideDirectory(currentRealPath, cwdRealPath, pathFlavor) ||
         verifiedStats.isSymbolicLink() ||
         !verifiedStats.isFile() ||
         openedStats.dev !== verifiedStats.dev ||
@@ -243,9 +250,15 @@ async function createUntrackedDiff(
   }
 }
 
-function isPathInsideDirectory(path: string, directory: string): boolean {
-  const relativePath = relative(directory, path)
-  return relativePath === '' || Boolean(relativePath) && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`)
+function isPathInsideDirectory(path: string, directory: string, pathFlavor: PathFlavor): boolean {
+  const relativePath = pathFlavor.relative(directory, path)
+  return (
+    relativePath === '' ||
+    Boolean(relativePath) &&
+      !pathFlavor.isAbsolute(relativePath) &&
+      !relativePath.startsWith('..') &&
+      !relativePath.split(/[\\/]+/).includes('..')
+  )
 }
 
 function getChangeKind(status: PorcelainStatus): GitFileDiff['kind'] {
