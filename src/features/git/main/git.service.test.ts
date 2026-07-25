@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -108,6 +108,42 @@ describe('GitService', () => {
     const link = review.files.find((file) => file.path === 'secret-link')
     expect(link).toMatchObject({ kind: 'untracked', diff: null })
     expect(JSON.stringify(link)).not.toContain('outside-worktree-secret')
+  })
+
+  it('fails closed when an untracked file is swapped to an external symlink before content read', async () => {
+    const root = await createTempDir('spacezero-git-symlink-race-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    const secret = join(root, 'external-secret.txt')
+    const racedPath = join(worktree, 'race.txt')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(secret, 'outside-worktree-race-secret\n')
+    await writeFile(racedPath, 'safe initial content\n')
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      fileSystem: {
+        async lstat(path) {
+          const stats = await lstat(path)
+          if (path === racedPath) {
+            await rm(racedPath)
+            await symlink(secret, racedPath)
+          }
+          return stats
+        },
+        open
+      }
+    })
+
+    const review = await service.getProjectSessionReview('session-1')
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    const raced = review.files.find((file) => file.path === 'race.txt')
+    expect(raced).toMatchObject({ kind: 'untracked', diff: null })
+    expect(JSON.stringify(raced)).not.toContain('outside-worktree-race-secret')
   })
 
   it('preserves old and new paths for a pure rename diff', async () => {

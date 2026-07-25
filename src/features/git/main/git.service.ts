@@ -1,5 +1,7 @@
 import { execFile } from 'node:child_process'
-import { lstat, readFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import type { Stats } from 'node:fs'
+import { lstat, open } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -19,14 +21,23 @@ type GitRunner = (request: { cwd: string; args: string[]; allowFailure?: boolean
   exitCode: number
 }>
 
+type UntrackedFileSystem = {
+  lstat: (path: string) => Promise<Stats>
+  open: (path: string, flags: number) => ReturnType<typeof open>
+}
+
+const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open }
+
 export function createGitService({
   sessionsRepository,
   managedWorktreeService,
-  runGit = runGitCli
+  runGit = runGitCli,
+  fileSystem = defaultUntrackedFileSystem
 }: {
   sessionsRepository: SessionsRepository
   managedWorktreeService: ManagedWorktreeService
   runGit?: GitRunner
+  fileSystem?: UntrackedFileSystem
 }) {
   async function getProjectSessionReview(sessionId: string): Promise<GitReviewState> {
     const session = await sessionsRepository.findSessionById(sessionId)
@@ -61,7 +72,7 @@ export function createGitService({
         (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
       )
       const files = await Promise.all(
-        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit }))
+        statuses.map((status) => createFileDiff({ cwd: worktree.path, status, runGit, fileSystem }))
       )
       const sorted = files.sort(compareFileDiffs)
       return sorted.length === 0
@@ -143,14 +154,16 @@ function parsePorcelainStatus(output: string): PorcelainStatus[] {
 async function createFileDiff({
   cwd,
   status,
-  runGit
+  runGit,
+  fileSystem
 }: {
   cwd: string
   status: PorcelainStatus
   runGit: GitRunner
+  fileSystem: UntrackedFileSystem
 }): Promise<GitFileDiff> {
   const kind = getChangeKind(status)
-  if (kind === 'untracked') return createUntrackedDiff(cwd, status.path)
+  if (kind === 'untracked') return createUntrackedDiff(cwd, status.path, fileSystem)
 
   const pathspecs = status.oldPath ? [status.oldPath, status.path] : [status.path]
   const diff = await runGit({
@@ -174,27 +187,41 @@ async function createFileDiff({
   }
 }
 
-async function createUntrackedDiff(cwd: string, path: string): Promise<GitFileDiff> {
+async function createUntrackedDiff(
+  cwd: string,
+  path: string,
+  fileSystem: UntrackedFileSystem
+): Promise<GitFileDiff> {
   try {
     const absolutePath = join(cwd, path)
-    const stats = await lstat(absolutePath)
+    const stats = await fileSystem.lstat(absolutePath)
     if (stats.isSymbolicLink() || !stats.isFile()) {
       return { path, kind: 'untracked', binary: false, large: false, diff: null }
     }
-    const bytes = await readFile(absolutePath)
-    const binary = bytes.includes(0)
-    const large = bytes.byteLength > MAX_UNTRACKED_BYTES
-    if (binary || large) return { path, kind: 'untracked', binary, large, diff: null }
-    const text = bytes.toString('utf8')
-    return {
-      path,
-      kind: 'untracked',
-      binary: false,
-      large: false,
-      diff: `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n${text
-        .split('\n')
-        .map((line) => `+${line}`)
-        .join('\n')}\n`
+
+    const handle = await fileSystem.open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      const openedStats = await handle.stat()
+      if (!openedStats.isFile() || openedStats.dev !== stats.dev || openedStats.ino !== stats.ino) {
+        return { path, kind: 'untracked', binary: false, large: false, diff: null }
+      }
+      const bytes = await handle.readFile()
+      const binary = bytes.includes(0)
+      const large = bytes.byteLength > MAX_UNTRACKED_BYTES
+      if (binary || large) return { path, kind: 'untracked', binary, large, diff: null }
+      const text = bytes.toString('utf8')
+      return {
+        path,
+        kind: 'untracked',
+        binary: false,
+        large: false,
+        diff: `diff --git a/${path} b/${path}\nnew file mode 100644\n--- /dev/null\n+++ b/${path}\n${text
+          .split('\n')
+          .map((line) => `+${line}`)
+          .join('\n')}\n`
+      }
+    } finally {
+      await handle.close()
     }
   } catch {
     return { path, kind: 'untracked', binary: false, large: false, diff: null }
