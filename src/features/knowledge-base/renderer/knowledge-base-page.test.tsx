@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import type { AgentSessionProjectionEvent } from '../../../shared/agent-session-projection.model'
+
 import {
   ToolPaneShell,
   useToolPaneStore,
@@ -33,6 +35,60 @@ describe('KnowledgeBasePage', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('tree', { name: 'Knowledge Base files' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Search Knowledge Base')).not.toBeInTheDocument()
+  })
+
+  it('routes Knowledge Base chat links to the stable Knowledge Base Browser context', async () => {
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const createTab = vi.fn(async () => ({ contextKey: 'knowledge-base', activeTabId: 'tab-1', tabs: [] }))
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.settings.getChatLinkSettings = async () => ({
+      openChatLinksIn: 'space-zero-browser'
+    })
+
+    render(<KnowledgeBasePage />)
+
+    await screen.findByPlaceholderText('Ask about your Knowledge Base…')
+    await act(async () => {
+      projectionListener?.({
+        type: 'snapshot',
+        sessionId: managedSession.id,
+        seq: 1,
+        snapshot: {
+          status: 'idle',
+          messages: [
+            {
+              role: 'assistant',
+              timestamp: 100,
+              content: [{ type: 'text', text: 'Open [reference](https://example.com/kb).' }],
+              stopReason: 'endTurn'
+            }
+          ],
+          toolConfirmationRequests: []
+        }
+      })
+    })
+    fireEvent.click(await screen.findByRole('link', { name: 'reference' }))
+
+    await waitFor(() =>
+      expect(createTab).toHaveBeenCalledWith({
+        contextKey: 'knowledge-base',
+        context: { kind: 'knowledge-base' },
+        input: 'https://example.com/kb'
+      })
+    )
+    expect(useToolPaneStore.getState().contexts['knowledge-base']).toMatchObject({
+      isOpen: true,
+      activeToolId: 'browser'
+    })
   })
 
   it('starts a fresh managed chat and shows the replacement Session', async () => {

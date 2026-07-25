@@ -226,6 +226,14 @@
     "preferences": {
       "sectionTitle": "Preferences"
     },
+    "chatLinks": {
+      "label": "Open chat links in",
+      "description": "Choose whether HTTP and HTTPS links clicked in chat open in Space Zero Browser or your default browser.",
+      "spaceZeroBrowser": "Space Zero Browser",
+      "defaultBrowser": "Default browser",
+      "loading": "Loading chat link preference…",
+      "saveError": "Unable to save the chat link preference."
+    },
     "notifications": {
       "sectionTitle": "Notifications",
       "system": {

@@ -1,12 +1,13 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
+import { resetToolPaneStore, useToolPaneStore } from '../../../tool-pane/renderer'
 import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
 const project: Project = {
@@ -36,6 +37,10 @@ const workspaceSession: WorkspaceSession = {
   updatedAt: new Date(0).toISOString()
 }
 
+beforeEach(() => {
+  resetToolPaneStore()
+})
+
 describe('ProjectSessionHostSurface', () => {
   it('renders prompt failures in the session panel', async () => {
     const user = userEvent.setup()
@@ -51,6 +56,86 @@ describe('ProjectSessionHostSurface', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Agent prompt failed: agent unavailable'
     )
+  })
+
+  it('routes Project Session chat HTTP links to a new same-context Browser tab by default', async () => {
+    const user = userEvent.setup()
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const createTab = vi.fn(async () => ({ contextKey: 'session:session-1', activeTabId: 'tab-1', tabs: [] }))
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.settings.getChatLinkSettings = async () => ({
+      openChatLinksIn: 'space-zero-browser'
+    })
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await act(async () => {
+      projectionListener?.(chatSnapshotEvent('session-1', 'Read [docs](https://example.com/docs).'))
+    })
+    await user.click(await screen.findByRole('link', { name: 'docs' }))
+
+    expect(createTab).toHaveBeenCalledWith({
+      contextKey: 'session:session-1',
+      context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
+      input: 'https://example.com/docs'
+    })
+    expect(useToolPaneStore.getState().contexts['session:session-1']).toMatchObject({
+      isOpen: true,
+      activeToolId: 'browser'
+    })
+  })
+
+  it('routes Workspace Session chat HTTP links to the default browser when selected', async () => {
+    const user = userEvent.setup()
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const openUrlInDefaultBrowser = vi.fn(async () => undefined)
+    const createTab = vi.fn(async () => ({ contextKey: 'session:workspace-session-1', activeTabId: 'tab-1', tabs: [] }))
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.settings.getChatLinkSettings = async () => ({ openChatLinksIn: 'default-browser' })
+
+    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+
+    await act(async () => {
+      projectionListener?.(
+        chatSnapshotEvent('workspace-session-1', 'Open [site](https://spacezero.dev).')
+      )
+    })
+    await user.click(await screen.findByRole('link', { name: 'site' }))
+
+    expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/' })
+    expect(createTab).not.toHaveBeenCalled()
+    expect(useToolPaneStore.getState().contexts['session:workspace-session-1']).toBeUndefined()
+  })
+
+  it('fails closed for unsupported chat link protocols before Browser routing', async () => {
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const createTab = vi.fn(async () => ({ contextKey: 'session:session-1', activeTabId: 'tab-1', tabs: [] }))
+    const openUrlInDefaultBrowser = vi.fn(async () => undefined)
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    await act(async () => {
+      projectionListener?.(chatSnapshotEvent('session-1', 'Ignore [file](file:///etc/passwd).'))
+    })
+    expect(await screen.findByText('file [blocked]')).toBeInTheDocument()
+
+    expect(createTab).not.toHaveBeenCalled()
+    expect(openUrlInDefaultBrowser).not.toHaveBeenCalled()
   })
 
   it('uses configured model and thinking defaults when session state has no override', async () => {
@@ -678,3 +763,23 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.queryByText('workspace.getStatus')).not.toBeInTheDocument()
   })
 })
+
+function chatSnapshotEvent(sessionId: string, text: string): AgentSessionProjectionEvent {
+  return {
+    type: 'snapshot',
+    sessionId,
+    seq: 1,
+    snapshot: {
+      status: 'idle',
+      messages: [
+        {
+          role: 'assistant',
+          timestamp: 100,
+          content: [{ type: 'text', text }],
+          stopReason: 'endTurn'
+        }
+      ],
+      toolConfirmationRequests: []
+    }
+  }
+}

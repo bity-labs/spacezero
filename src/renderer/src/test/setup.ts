@@ -780,6 +780,10 @@ beforeEach(async () => {
         defaultThinking: request.defaultThinking ?? 'medium',
         defaultModel: request.defaultModel
       }),
+      getChatLinkSettings: async () => ({ openChatLinksIn: 'space-zero-browser' }),
+      updateChatLinkSettings: async (request) => ({
+        openChatLinksIn: request.openChatLinksIn
+      }),
       getTerminalSettings: async () => ({ confirmBeforeClosingLiveTerminals: true }),
       updateTerminalSettings: async (request) => ({
         confirmBeforeClosingLiveTerminals: request.confirmBeforeClosingLiveTerminals
