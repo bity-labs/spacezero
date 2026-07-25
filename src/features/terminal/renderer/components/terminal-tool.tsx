@@ -167,6 +167,11 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
           context: browserHandoff.context,
           input: url
         })
+        const currentTerminalId = terminalIdRef.current
+        const currentXterm = xtermRef.current
+        if (currentTerminalId && currentXterm) {
+          viewportByTerminal.set(currentTerminalId, readViewport(currentXterm))
+        }
         browserHandoff.openBrowserTool()
       } catch {
         setFallbackUrl(url)
@@ -531,20 +536,21 @@ type TerminalLogicalLine = {
 
 function readWrappedLogicalLine(xterm: XTerm, bufferLineNumber: number): TerminalLogicalLine {
   const buffer = xterm.buffer.active
-  let firstLineNumber = bufferLineNumber
-  while (firstLineNumber > 0 && buffer.getLine(firstLineNumber)?.isWrapped) {
-    firstLineNumber -= 1
+  const targetLineIndex = bufferLineNumber - 1
+  let firstLineIndex = targetLineIndex
+  while (firstLineIndex > 0 && buffer.getLine(firstLineIndex)?.isWrapped) {
+    firstLineIndex -= 1
   }
 
-  let lastLineNumber = bufferLineNumber
-  while (buffer.getLine(lastLineNumber + 1)?.isWrapped) {
-    lastLineNumber += 1
+  let lastLineIndex = targetLineIndex
+  while (buffer.getLine(lastLineIndex + 1)?.isWrapped) {
+    lastLineIndex += 1
   }
 
   const pieces: string[] = []
   const cellsByStringIndex: TerminalCellPosition[] = []
-  for (let lineNumber = firstLineNumber; lineNumber <= lastLineNumber; lineNumber += 1) {
-    appendPhysicalLine(xterm, lineNumber, pieces, cellsByStringIndex)
+  for (let lineIndex = firstLineIndex; lineIndex <= lastLineIndex; lineIndex += 1) {
+    appendPhysicalLine(xterm, lineIndex, pieces, cellsByStringIndex)
   }
 
   let text = pieces.join('')
@@ -558,11 +564,11 @@ function readWrappedLogicalLine(xterm: XTerm, bufferLineNumber: number): Termina
 
 function appendPhysicalLine(
   xterm: XTerm,
-  lineNumber: number,
+  lineIndex: number,
   pieces: string[],
   cellsByStringIndex: TerminalCellPosition[]
 ): void {
-  const line = xterm.buffer.active.getLine(lineNumber)
+  const line = xterm.buffer.active.getLine(lineIndex)
   if (!line) return
 
   const maxColumn = Math.min(line.length, xterm.cols)
@@ -574,7 +580,7 @@ function appendPhysicalLine(
     const chars = cell.getChars() || ' '
     pieces.push(chars)
     for (let index = 0; index < chars.length; index += 1) {
-      cellsByStringIndex.push({ x: column + 1, y: lineNumber })
+      cellsByStringIndex.push({ x: column + 1, y: lineIndex + 1 })
     }
   }
 }
