@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import type { Stats } from 'node:fs'
-import { lstat, open } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, open, realpath } from 'node:fs/promises'
+import { join, relative, sep } from 'node:path'
 import { promisify } from 'node:util'
 
 import type { GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
@@ -24,9 +24,10 @@ type GitRunner = (request: { cwd: string; args: string[]; allowFailure?: boolean
 type UntrackedFileSystem = {
   lstat: (path: string) => Promise<Stats>
   open: (path: string, flags: number) => ReturnType<typeof open>
+  realpath: (path: string) => Promise<string>
 }
 
-const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open }
+const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath }
 
 export function createGitService({
   sessionsRepository,
@@ -194,15 +195,29 @@ async function createUntrackedDiff(
 ): Promise<GitFileDiff> {
   try {
     const absolutePath = join(cwd, path)
-    const stats = await fileSystem.lstat(absolutePath)
-    if (stats.isSymbolicLink() || !stats.isFile()) {
-      return { path, kind: 'untracked', binary: false, large: false, diff: null }
-    }
-
+    const cwdRealPath = await fileSystem.realpath(cwd)
     const handle = await fileSystem.open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const openedStats = await handle.stat()
-      if (!openedStats.isFile() || openedStats.dev !== stats.dev || openedStats.ino !== stats.ino) {
+      const currentStats = await fileSystem.lstat(absolutePath)
+      if (
+        !openedStats.isFile() ||
+        currentStats.isSymbolicLink() ||
+        !currentStats.isFile() ||
+        openedStats.dev !== currentStats.dev ||
+        openedStats.ino !== currentStats.ino
+      ) {
+        return { path, kind: 'untracked', binary: false, large: false, diff: null }
+      }
+      const currentRealPath = await fileSystem.realpath(absolutePath)
+      const verifiedStats = await fileSystem.lstat(absolutePath)
+      if (
+        !isPathInsideDirectory(currentRealPath, cwdRealPath) ||
+        verifiedStats.isSymbolicLink() ||
+        !verifiedStats.isFile() ||
+        openedStats.dev !== verifiedStats.dev ||
+        openedStats.ino !== verifiedStats.ino
+      ) {
         return { path, kind: 'untracked', binary: false, large: false, diff: null }
       }
       const bytes = await handle.readFile()
@@ -226,6 +241,11 @@ async function createUntrackedDiff(
   } catch {
     return { path, kind: 'untracked', binary: false, large: false, diff: null }
   }
+}
+
+function isPathInsideDirectory(path: string, directory: string): boolean {
+  const relativePath = relative(directory, path)
+  return relativePath === '' || Boolean(relativePath) && !relativePath.startsWith('..') && !relativePath.includes(`..${sep}`)
 }
 
 function getChangeKind(status: PorcelainStatus): GitFileDiff['kind'] {
