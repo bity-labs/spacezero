@@ -456,6 +456,8 @@ beforeEach(async () => {
             url: null,
             title: null,
             isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
             error: null
           }
         ]
@@ -469,6 +471,8 @@ beforeEach(async () => {
             url: input,
             title: null,
             isLoading: true,
+            canGoBack: false,
+            canGoForward: false,
             error: null
           }
         ]
@@ -482,10 +486,73 @@ beforeEach(async () => {
             url: null,
             title: null,
             isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
             error: null
           }
         ]
       }),
+      goBack: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
+      goForward: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
+      reload: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: true,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
+      stop: async ({ contextKey }) => ({
+        contextKey,
+        activeTabId: 'browser-tab-test',
+        tabs: [
+          {
+            id: 'browser-tab-test',
+            url: null,
+            title: null,
+            isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
+            error: null
+          }
+        ]
+      }),
+      openInDefaultBrowser: async () => undefined,
       hide: async () => undefined,
       closeTab: async ({ contextKey }) => ({
         contextKey,
@@ -496,10 +563,13 @@ beforeEach(async () => {
             url: null,
             title: null,
             isLoading: false,
+            canGoBack: false,
+            canGoForward: false,
             error: null
           }
         ]
-      })
+      }),
+      onEvent: () => () => undefined
     },
     agent: {
       ping: async () => ({

@@ -15,6 +15,7 @@ export interface ShortcutContext {
   textInputFocused: boolean
   commandPaletteOpen: boolean
   terminalFocused: boolean
+  browserFocused: boolean
   previewFocused: boolean
   editorFocused: boolean
 }
@@ -24,6 +25,7 @@ export function createDefaultShortcutContext(): ShortcutContext {
     textInputFocused: false,
     commandPaletteOpen: false,
     terminalFocused: false,
+    browserFocused: false,
     previewFocused: false,
     editorFocused: false
   }

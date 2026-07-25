@@ -53,6 +53,11 @@ const fakes = vi.hoisted(() => {
     closed = false
     destroyed = false
     loadedUrl: string | null = null
+    wentBack = false
+    wentForward = false
+    reloaded = false
+    stopped = false
+    lastPreventDefault: (() => void) | null = null
 
     setWindowOpenHandler(): void {}
     isDestroyed(): boolean {
@@ -64,6 +69,29 @@ const fakes = vi.hoisted(() => {
     }
     async loadURL(url: string): Promise<void> {
       this.loadedUrl = url
+    }
+    canGoBack(): boolean {
+      return true
+    }
+    canGoForward(): boolean {
+      return true
+    }
+    goBack(): void {
+      this.wentBack = true
+    }
+    goForward(): void {
+      this.wentForward = true
+    }
+    reload(): void {
+      this.reloaded = true
+    }
+    stop(): void {
+      this.stopped = true
+    }
+    emitBeforeInput(input: unknown): void {
+      const event = { preventDefault: vi.fn() }
+      this.lastPreventDefault = event.preventDefault
+      this.emit('before-input-event', event as never, input as never)
     }
   }
 
@@ -98,7 +126,21 @@ vi.mock('electron', () => ({
   WebContentsView: fakes.FakeWebContentsView
 }))
 
+import { BROWSER_COMMAND_IDS, type BrowserShortcutBinding } from '../shared'
 import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
+
+const defaultShortcutBindings: BrowserShortcutBinding[] = [
+  { commandId: BROWSER_COMMAND_IDS.focusAddress, keybinding: { normalized: 'mod+l' } },
+  { commandId: BROWSER_COMMAND_IDS.reload, keybinding: { normalized: 'mod+r' } },
+  {
+    commandId: BROWSER_COMMAND_IDS.back,
+    keybinding: { normalized: process.platform === 'darwin' ? 'mod+[' : 'alt+arrowleft' }
+  },
+  {
+    commandId: BROWSER_COMMAND_IDS.forward,
+    keybinding: { normalized: process.platform === 'darwin' ? 'mod+]' : 'alt+arrowright' }
+  }
+]
 
 describe('ElectronBrowserViewAdapter', () => {
   beforeEach(() => {
@@ -114,8 +156,8 @@ describe('ElectronBrowserViewAdapter', () => {
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
     adapter.createView('tab-2', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, sender as never)
-    adapter.showView('tab-2', { x: 5, y: 5, width: 200, height: 150 }, sender as never)
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView('tab-2', { x: 5, y: 5, width: 200, height: 150 }, defaultShortcutBindings, sender as never)
 
     expect(window.contentView.added).toEqual([fakes.createdViews[0], fakes.createdViews[1]])
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
@@ -132,8 +174,8 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(senderB, windowB)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, senderA as never)
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, senderB as never)
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, senderA as never)
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, senderB as never)
 
     expect(windowA.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(windowB.contentView.added).toEqual([fakes.createdViews[0]])
@@ -146,12 +188,101 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, sender as never)
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
 
     window.emit('closed')
 
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(fakes.createdViews[0]?.webContents.closed).toBe(true)
+  })
+
+  it('routes focused page Browser shortcuts through the main command capability', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { handleNativeCommand: vi.fn() }
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'r',
+      control: process.platform !== 'darwin',
+      meta: process.platform === 'darwin',
+      alt: false,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(fakes.createdViews[0]?.webContents.lastPreventDefault).toHaveBeenCalled()
+    expect(service.handleNativeCommand).toHaveBeenCalledWith('tab-1', 'browser.reload')
+  })
+
+  it('honors remapped focused page Browser shortcuts and ignores the previous default', () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { handleNativeCommand: vi.fn() }
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      [{ commandId: BROWSER_COMMAND_IDS.focusAddress, keybinding: { normalized: 'alt+enter' } }],
+      sender as never
+    )
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'l',
+      control: process.platform !== 'darwin',
+      meta: process.platform === 'darwin',
+      alt: false,
+      shift: false,
+      isAutoRepeat: false
+    })
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'Enter',
+      control: false,
+      meta: false,
+      alt: true,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(service.handleNativeCommand).toHaveBeenCalledTimes(1)
+    expect(service.handleNativeCommand).toHaveBeenCalledWith('tab-1', BROWSER_COMMAND_IDS.focusAddress)
+  })
+
+  it('does not steal embedded page text-input cursor shortcuts on macOS', () => {
+    const originalPlatform = process.platform
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
+    const adapter = new ElectronBrowserViewAdapter()
+    const service = { handleNativeCommand: vi.fn() }
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'ArrowLeft',
+      control: false,
+      meta: false,
+      alt: true,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(fakes.createdViews[0]?.webContents.lastPreventDefault).not.toHaveBeenCalled()
+    expect(service.handleNativeCommand).not.toHaveBeenCalled()
+    Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
   })
 
   it('destroys hidden native resources and clears service tabs when the owner window closes', () => {
@@ -163,7 +294,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.setService(service as never)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, sender as never)
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
     adapter.hideView('tab-1')
 
     window.emit('closed')
