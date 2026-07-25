@@ -3,8 +3,10 @@ import { ipcMain } from 'electron'
 import { languagePreferenceSchema } from '../../../shared/i18n'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { addApiKeyRequestSchema, providerRequestSchema } from '../../../shared/model-auth'
+import { updateChatLinkSettingsRequestSchema } from '../../../shared/chat-link-settings'
 import { updateModelDefaultsRequestSchema } from '../../../shared/model-settings'
 import { themePreferenceSchema } from '../../../shared/theme'
+import { getChatLinkSettings, updateChatLinkSettings } from './chat-link-settings.service'
 import { getLanguageSettings, updateLanguagePreference } from './language-settings.service'
 import { getModelDefaults, updateModelDefaults } from './model-defaults-settings.service'
 import {
@@ -57,6 +59,18 @@ export function registerSettingsIpc(): void {
     }
 
     return updateModelDefaults(parsedRequest.data)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settings.getChatLinkSettings, () => getChatLinkSettings())
+
+  ipcMain.handle(IPC_CHANNELS.settings.updateChatLinkSettings, (_event, request: unknown) => {
+    const parsedRequest = updateChatLinkSettingsRequestSchema.safeParse(request)
+
+    if (!parsedRequest.success) {
+      throw new Error('settings.invalidUpdateChatLinkSettingsRequest')
+    }
+
+    return updateChatLinkSettings(parsedRequest.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.agent.getModelAuthSettings, () => getModelAuthSettings())

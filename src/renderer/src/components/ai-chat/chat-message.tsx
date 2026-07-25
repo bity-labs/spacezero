@@ -10,12 +10,14 @@ export type ChatMessageProps = {
   message: AiChatMessage
   className?: string
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
+  onOpenLink?: (url: string) => void | Promise<void>
 }
 
 export function ChatMessage({
   message,
   className,
-  onToolConfirmationResolve = noopToolConfirmationResolve
+  onToolConfirmationResolve = noopToolConfirmationResolve,
+  onOpenLink
 }: ChatMessageProps) {
   return (
     <Message
@@ -24,7 +26,7 @@ export function ChatMessage({
     >
       <MessageContent>
         {message.parts.map((part, index) =>
-          renderPart(part, index, onToolConfirmationResolve)
+          renderPart(part, index, onToolConfirmationResolve, onOpenLink)
         )}
       </MessageContent>
     </Message>
@@ -34,11 +36,40 @@ export function ChatMessage({
 function renderPart(
   part: AiChatMessagePart,
   index: number,
-  onToolConfirmationResolve: (callId: string, approved: boolean) => void
+  onToolConfirmationResolve: (callId: string, approved: boolean) => void,
+  onOpenLink: ((url: string) => void | Promise<void>) | undefined
 ) {
   switch (part.type) {
     case 'text':
-      return <MessageResponse key={index}>{part.text}</MessageResponse>
+      return (
+        <MessageResponse
+          key={index}
+          components={
+            onOpenLink
+              ? {
+                  a: ({ href, children, ...props }) => (
+                    <a
+                      {...props}
+                      href={href}
+                      onClick={(event) => {
+                        if (!href || !isHttpChatLink(href)) {
+                          event.preventDefault()
+                          return
+                        }
+                        event.preventDefault()
+                        void onOpenLink(href)
+                      }}
+                    >
+                      {children}
+                    </a>
+                  )
+                }
+              : undefined
+          }
+        >
+          {part.text}
+        </MessageResponse>
+      )
     case 'thinking':
       return <ChatThinkingBlock key={index} part={part} />
     case 'tool-call':
@@ -55,3 +86,12 @@ function renderPart(
 }
 
 function noopToolConfirmationResolve() {}
+
+function isHttpChatLink(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}

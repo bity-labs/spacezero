@@ -239,7 +239,10 @@ const api: SpaceZeroAPI = {
     chooseSpaceZeroHome: () => ipcRenderer.invoke(IPC_CHANNELS.settings.chooseSpaceZeroHome),
     getModelDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getModelDefaults),
     updateModelDefaults: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.settings.updateModelDefaults, request)
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateModelDefaults, request),
+    getChatLinkSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getChatLinkSettings),
+    updateChatLinkSettings: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateChatLinkSettings, request)
   }
 }
 

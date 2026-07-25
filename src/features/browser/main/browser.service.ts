@@ -1,7 +1,7 @@
 import type { WebContents } from 'electron'
 import { nanoid } from 'nanoid'
 
-import { BROWSER_COMMAND_IDS } from '../shared'
+import { BROWSER_COMMAND_IDS, browserContextKey } from '../shared'
 import type {
   BrowserBounds,
   BrowserCloseTabRequest,
@@ -502,16 +502,6 @@ export function assertAuthorizedContext(request: BrowserContextRequest): string 
   const expectedKey = browserContextKey(request.context)
   if (request.contextKey !== expectedKey) throw new Error('Browser context is not authorized.')
   return expectedKey
-}
-
-export function browserContextKey(context: BrowserContext): string {
-  switch (context.kind) {
-    case 'project-session':
-    case 'workspace-session':
-      return `session:${context.sessionId}`
-    case 'knowledge-base':
-      return 'knowledge-base'
-  }
 }
 
 export function normalizeBrowserUrl(input: string): string {
