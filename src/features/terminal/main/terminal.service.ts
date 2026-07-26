@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { isAbsolute as isPosixAbsolute } from 'node:path/posix'
@@ -114,12 +114,19 @@ export type TerminalShell = {
   executable: string
   args: string[]
   env?: NodeJS.ProcessEnv
+  integrationDir?: string
 }
 
 const OSC7_PREFIX = `${String.fromCharCode(27)}]7;`
 const BEL = String.fromCharCode(7)
 const ST = `${String.fromCharCode(27)}\\`
 const MAX_PARTIAL_CWD_REPORT_BYTES = 4096
+
+type ShellIntegrationFileWriter = (
+  file: string,
+  data: string,
+  encoding: BufferEncoding
+) => Promise<void>
 
 type TerminalRecord = {
   id: string
@@ -137,6 +144,7 @@ type TerminalRecord = {
   subscriptionGeneration: number
   operationQueue: Promise<void>
   dispose: Array<() => void>
+  integrationDir?: string
   serviceShutdown?: { markEmpty: boolean }
 }
 
@@ -184,7 +192,8 @@ export function createTerminalService({
   emitToWindow,
   maxRetainedLines = DEFAULT_MAX_RETAINED_LINES,
   maxRetainedBytes = DEFAULT_MAX_RETAINED_BYTES,
-  enableShellIntegration = false
+  enableShellIntegration = false,
+  writeShellIntegrationFile = writeFile
 }: {
   repository: TerminalRepository
   worktrees: TerminalWorktreeValidator
@@ -198,6 +207,7 @@ export function createTerminalService({
   maxRetainedLines?: number
   maxRetainedBytes?: number
   enableShellIntegration?: boolean
+  writeShellIntegrationFile?: ShellIntegrationFileWriter
 }) {
   const terminals = new Map<string, TerminalRecord>()
   const contexts = new Map<string, TerminalContextState>()
@@ -278,7 +288,7 @@ export function createTerminalService({
     if (isContextDeleting(request.context)) throw new Error('terminal.contextDeleting')
 
     const shell = enableShellIntegration
-      ? await withCwdShellIntegration(resolveShell())
+      ? await withCwdShellIntegration(resolveShell(), writeShellIntegrationFile)
       : resolveShell()
     const id = createId()
     let process: PtyProcess
@@ -292,6 +302,7 @@ export function createTerminalService({
         env: { ...processEnv(), ...shell.env }
       })
     } catch (error) {
+      await cleanupShellIntegration(shell.integrationDir)
       throw new Error(
         `terminal.shellLaunchFailed: ${error instanceof Error ? error.message : 'unknown error'}`,
         { cause: error }
@@ -299,7 +310,13 @@ export function createTerminalService({
     }
 
     if (isContextDeleting(request.context)) {
-      await trackContextShutdown(request.context, () => process.kill())
+      await trackContextShutdown(request.context, async () => {
+        try {
+          await process.kill()
+        } finally {
+          await cleanupShellIntegration(shell.integrationDir)
+        }
+      })
       throw new Error('terminal.contextDeleting')
     }
 
@@ -319,7 +336,8 @@ export function createTerminalService({
       subscribed: false,
       subscriptionGeneration: 0,
       operationQueue: Promise.resolve(),
-      dispose: []
+      dispose: [],
+      integrationDir: shell.integrationDir
     }
     record.dispose.push(
       process.onData((data) => retainAndEmit(record, data)),
@@ -352,17 +370,23 @@ export function createTerminalService({
         const fallbackCwd = await resolveInitialCwd(request.context)
         const restoredCwd = await resolveRestoredCwd(persisted.cwd, fallbackCwd)
         const shell = enableShellIntegration
-          ? await withCwdShellIntegration(resolveShell())
+          ? await withCwdShellIntegration(resolveShell(), writeShellIntegrationFile)
           : resolveShell()
         const id = createId()
-        const process = await pty.spawn({
-          shell: shell.executable,
-          args: shell.args,
-          cwd: restoredCwd.cwd,
-          cols: request.cols ?? 80,
-          rows: request.rows ?? 24,
-          env: { ...processEnv(), ...shell.env }
-        })
+        let process: PtyProcess
+        try {
+          process = await pty.spawn({
+            shell: shell.executable,
+            args: shell.args,
+            cwd: restoredCwd.cwd,
+            cols: request.cols ?? 80,
+            rows: request.rows ?? 24,
+            env: { ...processEnv(), ...shell.env }
+          })
+        } catch (error) {
+          await cleanupShellIntegration(shell.integrationDir)
+          throw error
+        }
         const shellTitle = shellName(shell.executable)
         const record: TerminalRecord = {
           id,
@@ -379,7 +403,8 @@ export function createTerminalService({
           subscribed: false,
           subscriptionGeneration: 0,
           operationQueue: Promise.resolve(),
-          dispose: []
+          dispose: [],
+          integrationDir: shell.integrationDir
         }
         if (restoredCwd.fellBack) {
           diagnostics.push({
@@ -818,6 +843,7 @@ export function createTerminalService({
     const shutdown = terminal.serviceShutdown
     const markEmpty = shutdown?.markEmpty ?? true
     deleteTerminal(terminal, { markEmpty })
+    void cleanupShellIntegration(terminal.integrationDir)
     void persistAfterTerminalRemoval(terminal, { deleteRestorationTab: markEmpty })
     emitToWindow(terminal.ownerWindowId, {
       type: 'exit',
@@ -839,6 +865,7 @@ export function createTerminalService({
     }
     terminalShutdownsById.delete(terminal.id)
     deleteTerminal(terminal, options)
+    await cleanupShellIntegration(terminal.integrationDir)
     if (options.markEmpty) await persistAfterTerminalRemoval(terminal, { deleteRestorationTab: true })
   }
 
@@ -908,7 +935,15 @@ export function createTerminalService({
         })
       }
     } finally {
-      await Promise.all(restoredRecords.map((record) => record.pty.kill()))
+      await Promise.all(
+        restoredRecords.map(async (record) => {
+          try {
+            await record.pty.kill()
+          } finally {
+            await cleanupShellIntegration(record.integrationDir)
+          }
+        })
+      )
     }
   }
 
@@ -1106,10 +1141,13 @@ export function resolveDefaultShell(): TerminalShell {
   return { executable, args: [] }
 }
 
-async function withCwdShellIntegration(shell: TerminalShell): Promise<TerminalShell> {
+async function withCwdShellIntegration(
+  shell: TerminalShell,
+  writeStartupFile: ShellIntegrationFileWriter
+): Promise<TerminalShell> {
   const name = shellName(shell.executable).toLowerCase()
-  if (name === 'bash') return withBashCwdIntegration(shell)
-  if (name === 'zsh') return withZshCwdIntegration(shell)
+  if (name === 'bash') return withBashCwdIntegration(shell, writeStartupFile)
+  if (name === 'zsh') return withZshCwdIntegration(shell, writeStartupFile)
   if (name === 'fish') {
     return {
       ...shell,
@@ -1139,24 +1177,36 @@ async function withCwdShellIntegration(shell: TerminalShell): Promise<TerminalSh
   return shell
 }
 
-async function withBashCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
+async function withBashCwdIntegration(
+  shell: TerminalShell,
+  writeStartupFile: ShellIntegrationFileWriter
+): Promise<TerminalShell> {
   const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-bash-'))
   const rcfile = join(dir, 'bashrc')
-  await writeFile(
-    rcfile,
-    'if [ -r "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "${HOSTNAME:-localhost}" "$PWD"; }\nPROMPT_COMMAND="__spacezero_cwd_report${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\n',
-    'utf8'
-  )
-  return { ...shell, args: ['--rcfile', rcfile, ...shell.args] }
+  try {
+    await writeStartupFile(
+      rcfile,
+      'if [ -r "$HOME/.bashrc" ]; then . "$HOME/.bashrc"; fi\n__spacezero_cwd_report() { printf "\\033]7;file://%s%s\\007" "${HOSTNAME:-localhost}" "$PWD"; }\nPROMPT_COMMAND="__spacezero_cwd_report${PROMPT_COMMAND:+;$PROMPT_COMMAND}"\n',
+      'utf8'
+    )
+  } catch (error) {
+    await cleanupShellIntegration(dir)
+    throw error
+  }
+  return { ...shell, args: ['--rcfile', rcfile, ...shell.args], integrationDir: dir }
 }
 
-async function withZshCwdIntegration(shell: TerminalShell): Promise<TerminalShell> {
+async function withZshCwdIntegration(
+  shell: TerminalShell,
+  writeStartupFile: ShellIntegrationFileWriter
+): Promise<TerminalShell> {
   const dir = await mkdtemp(join(tmpdir(), 'spacezero-terminal-zsh-'))
   const originalZdotdirWasSet = Object.hasOwn(process.env, 'ZDOTDIR') ? '1' : '0'
   const originalZdotdir = process.env.ZDOTDIR ?? ''
-  await writeFile(
-    join(dir, '.zshenv'),
-    `if [ "\${SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET:-0}" = "1" ]; then
+  try {
+    await writeStartupFile(
+      join(dir, '.zshenv'),
+      `if [ "\${SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET:-0}" = "1" ]; then
   export ZDOTDIR="\${SPACEZERO_ORIGINAL_ZDOTDIR}"
 else
   unset ZDOTDIR
@@ -1170,8 +1220,12 @@ typeset -ga precmd_functions chpwd_functions
 precmd_functions+=(__spacezero_cwd_report)
 chpwd_functions+=(__spacezero_cwd_report)
 `,
-    'utf8'
-  )
+      'utf8'
+    )
+  } catch (error) {
+    await cleanupShellIntegration(dir)
+    throw error
+  }
   return {
     ...shell,
     args: [...shell.args],
@@ -1179,7 +1233,17 @@ chpwd_functions+=(__spacezero_cwd_report)
       SPACEZERO_ORIGINAL_ZDOTDIR: originalZdotdir,
       SPACEZERO_ORIGINAL_ZDOTDIR_WAS_SET: originalZdotdirWasSet,
       ZDOTDIR: dir
-    }
+    },
+    integrationDir: dir
+  }
+}
+
+async function cleanupShellIntegration(dir: string | undefined): Promise<void> {
+  if (!dir) return
+  try {
+    await rm(dir, { recursive: true, force: true })
+  } catch {
+    // Shell-integration temp cleanup is best-effort and must not block terminal shutdown.
   }
 }
 
