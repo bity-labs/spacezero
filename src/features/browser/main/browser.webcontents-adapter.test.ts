@@ -305,6 +305,25 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(downloadsService.handleDownloadStarted).not.toHaveBeenCalled()
   })
 
+  it('routes controlled authentication child downloads through the owning Browser tab', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    const adapter = new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    const child = new fakes.FakeBrowserWindow(22)
+    fakes.createdViews[0]?.webContents.emit('did-create-window', child as never, {} as never)
+    const item = { cancel: vi.fn() }
+
+    fakes.downloadHandlers[0]?.({}, item, child.webContents)
+
+    expect(downloadsService.handleDownloadStarted).toHaveBeenCalledWith('tab-1', item, window)
+    expect(item.cancel).not.toHaveBeenCalled()
+  })
+
   it('routes user-initiated target blank web requests into a same-context tab without creating a window', async () => {
     const adapter = new ElectronBrowserViewAdapter()
     const service = { openNativeRequestedTab: vi.fn() }

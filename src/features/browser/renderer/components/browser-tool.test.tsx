@@ -96,10 +96,16 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
     }),
     onEvent: vi.fn((listener: (event: BrowserEvent) => void) => {
       browserEventListeners.push(listener)
-      return () => undefined
+      return () => {
+        const index = browserEventListeners.indexOf(listener)
+        if (index >= 0) browserEventListeners.splice(index, 1)
+      }
     }),
     emitBrowserEvent: (event: BrowserEvent) => {
-      browserEventListeners[browserEventListeners.length - 1]?.(event)
+      for (const listener of [...browserEventListeners]) listener(event)
+    },
+    setTestState: (nextState: typeof state) => {
+      state = nextState
     }
   }
   Object.defineProperty(window, 'spacezero', {
@@ -109,8 +115,8 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
   return api
 }
 
-function renderBrowserTool(): void {
-  render(
+function renderBrowserTool(): ReturnType<typeof render> {
+  return render(
     <AppCommandProvider>
       <KeyboardShortcutsProvider>
         <BrowserTool context={context} contextKey={contextKey} />
@@ -238,6 +244,60 @@ describe('BrowserTool', () => {
 
     expect(await screen.findByLabelText('Browser downloads')).toHaveTextContent('report.pdf')
     expect(screen.getByLabelText('Browser downloads')).not.toHaveTextContent('/tmp')
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    await user.click(screen.getByRole('button', { name: 'Reveal in folder' }))
+
+    expect(browser.openDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
+    expect(browser.revealDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
+  })
+
+  it('replays owning Browser download completion after unmount without leaking to another context', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/download' })
+    const user = userEvent.setup()
+
+    const { unmount } = renderBrowserTool()
+    await screen.findByRole('button', { name: 'Open in default browser' })
+    await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
+    unmount()
+
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'download-updated',
+        download: {
+          id: 'download-1',
+          tabId: 'browser-tab-1',
+          filename: 'report.pdf',
+          status: 'completed',
+          receivedBytes: 42,
+          totalBytes: 42
+        }
+      })
+    })
+
+    browser.setTestState({
+      contextKey: 'session:workspace-2',
+      activeTabId: 'browser-tab-other',
+      tabs: [makeTab('browser-tab-other', { url: 'https://other.example/' })]
+    })
+    const otherContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
+    const otherRender = render(
+      <AppCommandProvider>
+        <KeyboardShortcutsProvider>
+          <BrowserTool context={otherContext} contextKey="session:workspace-2" />
+        </KeyboardShortcutsProvider>
+      </AppCommandProvider>
+    )
+    await screen.findByLabelText('Browser URL')
+    expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
+    otherRender.unmount()
+
+    browser.setTestState({
+      contextKey,
+      activeTabId: 'browser-tab-1',
+      tabs: [makeTab('browser-tab-1', { url: 'https://example.com/download' })]
+    })
+    renderBrowserTool()
+    expect(await screen.findByLabelText('Browser downloads')).toHaveTextContent('report.pdf')
     await user.click(screen.getByRole('button', { name: 'Open' }))
     await user.click(screen.getByRole('button', { name: 'Reveal in folder' }))
 
