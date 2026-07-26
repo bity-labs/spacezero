@@ -529,13 +529,16 @@ describe('GitTool', () => {
           status: 'ok' as const,
           branch: 'branch-b',
           upstream: { kind: 'none' as const },
-          files: [{ path: 'b.txt', kind: 'modified' as const, binary: false, large: false, diff: '+b\n' }]
+          files: [
+            { path: 'a-staged.txt', kind: 'modified' as const, binary: false, large: false, diff: '+session-b\n' }
+          ]
         })
       }
     })
     await screen.findByText('branch-b')
     expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
+    expect(screen.getByText('+session-b')).toBeInTheDocument()
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
 
     rendered.rerender(<GitTool sessionId="session-a" />)
@@ -716,11 +719,11 @@ describe('GitTool', () => {
       upstream: { kind: 'none' as const },
       files: [
         {
-          path: `${filter}.txt`,
+          path: 'shared.txt',
           kind: 'modified' as const,
           binary: false,
           large: false,
-          diff: `diff --git a/${filter}.txt b/${filter}.txt\n+${filter}\n`
+          diff: `diff --git a/shared.txt b/shared.txt\n+${filter}\n`
         }
       ]
     }))
@@ -729,7 +732,7 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
-    await userEvent.click(screen.getByRole('button', { name: /staged.txt/i }))
+    await userEvent.click(screen.getByRole('button', { name: /shared.txt/i }))
     await waitFor(() => expect(screen.queryByText('+staged')).not.toBeInTheDocument())
     fireEvent.scroll(screen.getByLabelText('Git changed files'), { target: { scrollTop: 91 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'not persisted')
@@ -740,6 +743,8 @@ describe('GitTool', () => {
 
     await screen.findByText('+uncommitted')
     expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: /shared.txt/i })).toBeInTheDocument()
+    expect(screen.getByText('+uncommitted')).toBeInTheDocument()
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('')
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
   })
