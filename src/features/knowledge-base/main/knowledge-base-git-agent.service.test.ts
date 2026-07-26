@@ -73,22 +73,103 @@ describe('createKnowledgeBaseGitAgentService', () => {
     }
   })
 
-  it('sanitizes origin URLs in results and redacts secrets from Git errors', async () => {
+  it('uses literal whole-file paths when staging and unstaging', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+      await writeFile(join(root, 'ordinary.md'), 'ordinary\n', 'utf8')
+      await writeFile(join(root, 'unrelated.md'), 'unrelated\n', 'utf8')
+
+      await expect(service.stageFiles({ relativePaths: ['ordinary.md'] })).resolves.toEqual({
+        stagedPaths: ['ordinary.md']
+      })
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'ordinary.md\n'
+      })
+
+      await expect(
+        service.stageFiles({ relativePaths: [':(top,glob)**'] })
+      ).rejects.toThrow()
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'ordinary.md\n'
+      })
+
+      await runGit(root, ['add', 'unrelated.md'])
+      await expect(
+        service.unstageFiles({ relativePaths: [':(top,glob)**'] })
+      ).rejects.toThrow()
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'ordinary.md\nunrelated.md\n'
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects directory-wide staging selectors', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+      await mkdir(join(root, 'notes'))
+      await writeFile(join(root, 'notes', 'one.md'), 'one\n', 'utf8')
+
+      await expect(service.stageFiles({ relativePaths: ['notes'] })).rejects.toThrow(
+        'must name a whole file'
+      )
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: ''
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts only sanitized HTTPS and SSH origin URLs', async () => {
     const root = await createRepo()
     try {
       const service = createService(root)
 
       await expect(
-        service.configureOrigin({ gitUrl: 'https://token@example.com/org/kb.git?secret=yes' })
+        service.configureOrigin({ gitUrl: 'https://example.com/org/kb.git' })
       ).resolves.toEqual({ configured: true, url: 'https://example.com/org/kb.git' })
-      await expect(service.getOriginRemote()).resolves.toEqual({
-        configured: true,
-        url: 'https://example.com/org/kb.git'
+      await expect(runGit(root, ['remote', 'get-url', 'origin'])).resolves.toMatchObject({
+        stdout: 'https://example.com/org/kb.git\n'
       })
+
+      await expect(
+        service.configureOrigin({ gitUrl: 'ssh://git@example.com/org/kb.git' })
+      ).resolves.toEqual({ configured: true, url: 'ssh://example.com/org/kb.git' })
+      await expect(
+        service.configureOrigin({ gitUrl: 'git@example.com:org/kb.git' })
+      ).resolves.toEqual({ configured: true, url: 'example.com:org/kb.git' })
 
       await runGit(root, ['remote', 'set-url', 'origin', 'https://token@example.invalid/org/kb.git'])
       await expect(service.push()).rejects.toThrow('https://example.invalid/org/kb.git')
       await expect(service.push()).rejects.not.toThrow('token@')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects local, helper, credential-bearing, and query-bearing origin URLs', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+      for (const gitUrl of [
+        '/tmp/target.git',
+        'file:///tmp/target.git',
+        'ext::sh -c whoami',
+        'foo::bar',
+        'https://token@example.com/org/kb.git',
+        'https://example.com/org/kb.git?secret=yes',
+        'ssh://git@example.com/org/kb.git?secret=yes',
+        'ssh://git:secret@example.com/org/kb.git'
+      ]) {
+        await expect(service.configureOrigin({ gitUrl })).rejects.toThrow(
+          'Origin must be an HTTPS or SSH Git remote URL'
+        )
+      }
+      await expect(runGit(root, ['remote'])).resolves.toMatchObject({ stdout: '' })
     } finally {
       await rm(root, { recursive: true, force: true })
     }

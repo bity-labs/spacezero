@@ -1,4 +1,5 @@
-import { isAbsolute } from 'node:path'
+import { stat } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 
 import { z } from 'zod'
 
@@ -43,7 +44,23 @@ export const knowledgeBaseGitCommitSchema = z
 
 export const knowledgeBaseGitOriginSchema = z
   .object({
-    gitUrl: z.string().trim().min(1).max(2048)
+    gitUrl: z
+      .string()
+      .trim()
+      .min(1)
+      .max(2048)
+      .transform((value, ctx) => {
+        const normalized = normalizeSupportedGitRemoteUrl(value)
+        if (!normalized) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message:
+              'Origin must be an HTTPS or SSH Git remote URL without credentials, query parameters, or fragments.'
+          })
+          return z.NEVER
+        }
+        return normalized
+      })
   })
   .strict()
 
@@ -89,20 +106,30 @@ export function createKnowledgeBaseGitAgentService({
     })
   }
 
-  async function stageFiles(input: z.infer<typeof knowledgeBaseGitPathListSchema>) {
+  async function stageFiles(input: z.input<typeof knowledgeBaseGitPathListSchema>) {
+    const validated = knowledgeBaseGitPathListSchema.parse(input)
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
-        await host.runGit(rootPath, ['add', '--', ...input.relativePaths])
-        return { stagedPaths: input.relativePaths }
+        await assertWholeFilePaths(rootPath, validated.relativePaths)
+        await host.runGit(rootPath, ['--literal-pathspecs', 'add', '--', ...validated.relativePaths])
+        return { stagedPaths: validated.relativePaths }
       })
     )
   }
 
-  async function unstageFiles(input: z.infer<typeof knowledgeBaseGitPathListSchema>) {
+  async function unstageFiles(input: z.input<typeof knowledgeBaseGitPathListSchema>) {
+    const validated = knowledgeBaseGitPathListSchema.parse(input)
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
-        await host.runGit(rootPath, ['restore', '--staged', '--', ...input.relativePaths])
-        return { unstagedPaths: input.relativePaths }
+        await assertWholeFilePaths(rootPath, validated.relativePaths)
+        await host.runGit(rootPath, [
+          '--literal-pathspecs',
+          'restore',
+          '--staged',
+          '--',
+          ...validated.relativePaths
+        ])
+        return { unstagedPaths: validated.relativePaths }
       })
     )
   }
@@ -123,12 +150,18 @@ export function createKnowledgeBaseGitAgentService({
     })
   }
 
-  async function configureOrigin(input: z.infer<typeof knowledgeBaseGitOriginSchema>) {
+  async function configureOrigin(input: z.input<typeof knowledgeBaseGitOriginSchema>) {
+    const validated = knowledgeBaseGitOriginSchema.parse(input)
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
         const existing = await getOrigin(host, rootPath)
-        await host.runGit(rootPath, existing ? ['remote', 'set-url', 'origin', input.gitUrl] : ['remote', 'add', 'origin', input.gitUrl])
-        const origin = (await getOrigin(host, rootPath)) ?? input.gitUrl
+        await host.runGit(
+          rootPath,
+          existing
+            ? ['remote', 'set-url', 'origin', validated.gitUrl]
+            : ['remote', 'add', 'origin', validated.gitUrl]
+        )
+        const origin = (await getOrigin(host, rootPath)) ?? validated.gitUrl
         return { configured: true as const, url: sanitizeGitRemoteUrl(origin) }
       })
     )
@@ -152,6 +185,42 @@ export function createKnowledgeBaseGitAgentService({
   }
 
   return { inspectRepository, stageFiles, unstageFiles, createCommit, getOriginRemote, configureOrigin, push }
+}
+
+async function assertWholeFilePaths(rootPath: string, relativePaths: readonly string[]): Promise<void> {
+  await Promise.all(
+    relativePaths.map(async (relativePath) => {
+      try {
+        const entry = await stat(join(rootPath, relativePath))
+        if (entry.isDirectory()) {
+          throw new Error(`Knowledge Base Git path must name a whole file: ${relativePath}`)
+        }
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
+        throw error
+      }
+    })
+  )
+}
+
+function normalizeSupportedGitRemoteUrl(remoteUrl: string): string | null {
+  if (remoteUrl.includes('\0') || remoteUrl.includes('::')) return null
+
+  try {
+    const url = new URL(remoteUrl)
+    if (url.protocol !== 'https:' && url.protocol !== 'ssh:') return null
+    if (!url.hostname || url.search || url.hash) return null
+    if (url.protocol === 'https:' && (url.username || url.password)) return null
+    if (url.protocol === 'ssh:' && url.password) return null
+    return sanitizeGitRemoteUrl(remoteUrl)
+  } catch {
+    if (/[?#\s]/.test(remoteUrl)) return null
+    if (remoteUrl.startsWith('/') || remoteUrl.startsWith('./') || remoteUrl.startsWith('../')) {
+      return null
+    }
+    const scpStyle = /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^:]+$/.exec(remoteUrl)
+    return scpStyle ? remoteUrl : null
+  }
 }
 
 async function getOrigin(
