@@ -2,11 +2,14 @@ import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { lstat, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
+import { TextDecoder } from 'node:util'
 
 import type { FilesDocument, SaveFilesDocumentRequest, SaveFilesDocumentResult } from '../shared'
 
 export const MAX_FILES_TEXT_FILE_BYTES = 2 * 1024 * 1024
 export const MAX_FILES_IMAGE_FILE_BYTES = 10 * 1024 * 1024
+
+const OVERSIZED_CLASSIFICATION_CHUNK_BYTES = 64 * 1024
 
 type SupportedImageSignature = {
   mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
@@ -70,10 +73,11 @@ async function openFilesDocumentUnsafe(
   }
 
   if (details.size > MAX_FILES_TEXT_FILE_BYTES && !imageSignature) {
+    const isOversizedText = await isUtf8TextFile(absolutePath)
     return {
       ...baseDocument,
-      contentKind: 'oversized',
-      classification: 'oversized-text',
+      contentKind: isOversizedText ? 'oversized' : 'binary',
+      classification: isOversizedText ? 'oversized-text' : 'binary',
       revision: metadataRevision
     }
   }
@@ -259,6 +263,33 @@ function detectSupportedImageSignature(bytes: Buffer): SupportedImageSignature |
     return { mediaType: 'image/webp' }
   }
   return null
+}
+
+async function isUtf8TextFile(absolutePath: string): Promise<boolean> {
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const file = await open(absolutePath, 'r')
+  try {
+    const buffer = Buffer.alloc(OVERSIZED_CLASSIFICATION_CHUNK_BYTES)
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.byteLength, null)
+      if (bytesRead === 0) break
+      const chunk = buffer.subarray(0, bytesRead)
+      if (chunk.includes(0)) return false
+      if (!decodeUtf8Chunk(decoder, chunk, true)) return false
+    }
+    return decodeUtf8Chunk(decoder, undefined, false)
+  } finally {
+    await file.close()
+  }
+}
+
+function decodeUtf8Chunk(decoder: TextDecoder, chunk: Buffer | undefined, stream: boolean): boolean {
+  try {
+    decoder.decode(chunk, { stream })
+    return true
+  } catch {
+    return false
+  }
 }
 
 function decodeEditableUtf8(bytes: Buffer): TextMetadata | null {
