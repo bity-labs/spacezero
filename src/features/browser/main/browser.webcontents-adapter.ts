@@ -209,6 +209,7 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
         browserSession.clearStorageData({
           storages: [
             'cookies',
+            'filesystem',
             'localstorage',
             'indexdb',
             'serviceworkers',
