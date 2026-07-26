@@ -23,6 +23,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
   const agentSession = useAgentSession(sessionId)
   const [filter, setFilter] = useState<GitChangeFilter>('uncommitted')
   const [state, setState] = useState<GitReviewState | null>(null)
+  const [actionState, setActionState] = useState<GitReviewState | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
   const [instructions, setInstructions] = useState('')
@@ -30,12 +31,22 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
 
   useEffect(() => {
     let canceled = false
-    void window.spacezero.git.getProjectSessionReview({ sessionId, filter }).then((result) => {
+    void (async () => {
+      const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({ sessionId, filter })
+      const actionReviewPromise =
+        filter === 'uncommitted'
+          ? selectedReviewPromise
+          : window.spacezero.git.getProjectSessionReview({ sessionId, filter: 'uncommitted' })
+      const [selectedReview, actionReview] = await Promise.all([selectedReviewPromise, actionReviewPromise])
       if (canceled) return
-      setState(result)
-      if (result.status === 'ok') setExpandedPaths(new Set(result.files.map((file) => file.path)))
-      else setExpandedPaths(new Set())
-    })
+      setState(selectedReview)
+      setActionState(actionReview)
+      if (selectedReview.status === 'ok') {
+        setExpandedPaths(new Set(selectedReview.files.map((file) => file.path)))
+      } else {
+        setExpandedPaths(new Set())
+      }
+    })()
     return () => {
       canceled = true
     }
@@ -56,7 +67,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
     }
   }, [])
 
-  const actions = useMemo(() => getActionAvailability(state), [state])
+  const actions = useMemo(() => getActionAvailability(actionState), [actionState])
   const alternateAction = primaryAction === 'commit' ? 'commit-and-push' : 'commit'
   const busy = agentSession.status === 'running'
   const primaryDisabled = busy || !actions[primaryAction]
@@ -96,6 +107,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
       filter={filter}
       onFilterChange={(nextFilter) => {
         setState(null)
+        setActionState(null)
         setFilter(nextFilter)
       }}
       state={state}
