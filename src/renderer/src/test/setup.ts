@@ -103,7 +103,10 @@ beforeEach(async () => {
         branch: 'main',
         upstream: { kind: 'none' },
         files: []
-      })
+      }),
+      observeProjectSession: async () => ({ subscriptionId: 'git-observation-test' }),
+      unobserveProjectSession: async () => undefined,
+      onObservationEvent: () => () => undefined
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),

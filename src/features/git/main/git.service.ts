@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import { constants } from 'node:fs'
-import type { Stats } from 'node:fs'
-import { lstat, open, realpath } from 'node:fs/promises'
+import { constants, watch } from 'node:fs'
+import type { FSWatcher, Stats } from 'node:fs'
+import { lstat, open, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
@@ -27,11 +27,12 @@ type UntrackedFileSystem = {
   lstat: (path: string) => Promise<Stats>
   open: (path: string, flags: number) => ReturnType<typeof open>
   realpath: (path: string) => Promise<string>
+  watch: typeof watch
 }
 
 type PathFlavor = Pick<typeof path, 'isAbsolute' | 'join' | 'relative'>
 
-const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath }
+const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath, watch }
 
 export function createGitService({
   sessionsRepository,
@@ -98,7 +99,99 @@ export function createGitService({
     }
   }
 
-  return { getProjectSessionReview }
+  async function observeProjectSession(
+    sessionId: string,
+    onEvent: (event: { kind: 'repository-changed' } | { kind: 'watch-error'; message: string }) => void
+  ): Promise<() => void> {
+    const root = await resolveProjectSessionWorktreePath(sessionId)
+    if (!root.ok) {
+      onEvent({ kind: 'watch-error', message: root.message })
+      return () => undefined
+    }
+
+    const watchers: FSWatcher[] = []
+    const close = (): void => {
+      for (const watcher of watchers.splice(0)) watcher.close()
+    }
+    const emitChanged = (): void => onEvent({ kind: 'repository-changed' })
+    const emitError = (error: unknown): void =>
+      onEvent({
+        kind: 'watch-error',
+        message: boundedErrorMessage(error instanceof Error ? error.message : String(error))
+      })
+
+    try {
+      watchers.push(
+        fileSystem.watch(root.path, { recursive: true }, emitChanged).on('error', (error) => {
+          emitError(error)
+          close()
+        })
+      )
+      const gitDir = await resolveGitDir(root.path, pathFlavor)
+      if (gitDir) {
+        watchers.push(
+          fileSystem.watch(gitDir, { recursive: true }, emitChanged).on('error', (error) => {
+            emitError(error)
+            close()
+          })
+        )
+      }
+    } catch (error) {
+      close()
+      emitError(error)
+      return () => undefined
+    }
+
+    return close
+  }
+
+  async function resolveProjectSessionWorktreePath(
+    sessionId: string
+  ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+    const session = await sessionsRepository.findSessionById(sessionId)
+    if (!session || !session.projectId) {
+      return { ok: false, message: 'Project Session not found.' }
+    }
+
+    const worktree = getSessionWorktree(session)
+    if (!worktree) {
+      return { ok: false, message: 'This Project Session has no managed worktree.' }
+    }
+
+    const project = await sessionsRepository.findProjectById(session.projectId)
+    if (!project || project.archivedAt) {
+      return { ok: false, message: 'The Project for this Session is unavailable.' }
+    }
+
+    const valid = await managedWorktreeService.validate({
+      projectPath: project.path,
+      projectId: session.projectId,
+      sessionId: session.id,
+      worktree
+    })
+    if (!valid) {
+      return { ok: false, message: 'The managed worktree could not be authenticated.' }
+    }
+
+    return { ok: true, path: worktree.path }
+  }
+
+  return { getProjectSessionReview, observeProjectSession }
+}
+
+async function resolveGitDir(cwd: string, pathFlavor: PathFlavor): Promise<string | null> {
+  try {
+    const gitPath = pathFlavor.join(cwd, '.git')
+    const stats = await lstat(gitPath)
+    if (stats.isDirectory()) return gitPath
+    if (!stats.isFile()) return null
+    const content = await readFile(gitPath, 'utf8')
+    const match = /^gitdir:\s*(.+)$/m.exec(content)
+    if (!match) return null
+    return pathFlavor.isAbsolute(match[1]) ? match[1] : pathFlavor.join(cwd, match[1])
+  } catch {
+    return null
+  }
 }
 
 function getSessionWorktree(session: StoredSession) {
