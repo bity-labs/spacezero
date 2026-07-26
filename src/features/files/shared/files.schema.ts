@@ -63,3 +63,10 @@ export const saveFilesDocumentRequestSchema = z
     expectedRevision: z.string().trim().min(1)
   })
   .strict()
+
+export const revealFilesEntryRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    relativePath: relativeFilePathSchema
+  })
+  .strict()

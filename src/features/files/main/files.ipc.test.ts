@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createListFilesDirectoryHandler,
   createOpenFilesDocumentHandler,
+  createRevealFilesEntryHandler,
   createSaveFilesDocumentHandler
 } from './files.ipc'
 import { openFilesDocument } from './files-document.adapter'
@@ -52,6 +53,24 @@ describe('Files IPC', () => {
     } finally {
       await rm(rootPath, { recursive: true, force: true })
     }
+  })
+
+  it('validates renderer input before revealing a context entry', async () => {
+    const revealInSystemFileManager = vi.fn(async () => undefined)
+    const handle = createRevealFilesEntryHandler({ revealInSystemFileManager })
+
+    await expect(
+      handle({ context: projectContext, relativePath: 'assets/image.png' })
+    ).resolves.toBeUndefined()
+    expect(revealInSystemFileManager).toHaveBeenCalledWith({
+      context: projectContext,
+      relativePath: 'assets/image.png'
+    })
+
+    await expect(
+      handle({ context: projectContext, relativePath: '/tmp/image.png' })
+    ).rejects.toThrow()
+    expect(revealInSystemFileManager).toHaveBeenCalledTimes(1)
   })
 
   it('validates renderer input before opening or saving a context document', async () => {

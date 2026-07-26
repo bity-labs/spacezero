@@ -13,7 +13,9 @@ const api: SpaceZeroAPI = {
   files: {
     listDirectory: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.listDirectory, request),
     openDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.openDocument, request),
-    saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request)
+    saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request),
+    revealInSystemFileManager: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.files.revealInSystemFileManager, request)
   },
   git: {
     getReview: (request) => ipcRenderer.invoke(IPC_CHANNELS.git.getReview, request),

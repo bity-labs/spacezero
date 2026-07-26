@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { openFilesDocument, saveFilesDocument } from './files-document.adapter'
 
 const MAX_TEXT_BYTES = 2 * 1024 * 1024
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024
+const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00])
 
 describe('Files document adapter', () => {
   let rootPath: string
@@ -31,24 +33,79 @@ describe('Files document adapter', () => {
     })
   })
 
-  it('returns bounded metadata for binary and oversized files without decoding them into text', async () => {
+  it.each([
+    ['png', pngBytes, 'image/png'],
+    ['jpg', Buffer.from([0xff, 0xd8, 0xff, 0x00]), 'image/jpeg'],
+    ['gif', Buffer.from('GIF89a', 'ascii'), 'image/gif'],
+    ['webp', Buffer.concat([Buffer.from('RIFFxxxxWEBP', 'ascii'), Buffer.from([0x00])]), 'image/webp']
+  ] as const)('previews supported %s images by verified content signature', async (extension, bytes, mediaType) => {
+    await writeFile(join(rootPath, `spoofed-${extension}.txt`), bytes)
+
+    const image = await openFilesDocument(rootPath, `spoofed-${extension}.txt`)
+    expect(image).toMatchObject({
+      name: `spoofed-${extension}.txt`,
+      relativePath: `spoofed-${extension}.txt`,
+      contentKind: 'image',
+      classification: 'image',
+      mediaType,
+      dataUrl: `data:${mediaType};base64,${bytes.toString('base64')}`
+    })
+    expect(image).not.toHaveProperty('content')
+  })
+
+  it('does not trust a supported image extension when the content signature is spoofed', async () => {
+    await writeFile(join(rootPath, 'not-really.png'), 'plain text')
+
+    await expect(openFilesDocument(rootPath, 'not-really.png')).resolves.toMatchObject({
+      contentKind: 'text',
+      content: 'plain text'
+    })
+  })
+
+  it('keeps SVG routed as editable UTF-8 text instead of a trusted rendered image', async () => {
+    await writeFile(join(rootPath, 'vector.svg'), '<svg><script>alert(1)</script></svg>')
+
+    await expect(openFilesDocument(rootPath, 'vector.svg')).resolves.toMatchObject({
+      name: 'vector.svg',
+      contentKind: 'text',
+      content: '<svg><script>alert(1)</script></svg>'
+    })
+  })
+
+  it('returns bounded metadata for binary and oversized files without decoding them into text or images', async () => {
     await writeFile(join(rootPath, 'binary.dat'), Buffer.from([0x48, 0x00, 0x49]))
     await writeFile(join(rootPath, 'large.txt'), Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61))
+    await writeFile(
+      join(rootPath, 'large.png'),
+      Buffer.concat([pngBytes, Buffer.alloc(MAX_IMAGE_BYTES + 1 - pngBytes.byteLength, 0x00)])
+    )
 
     const binary = await openFilesDocument(rootPath, 'binary.dat')
     expect(binary).toMatchObject({
       name: 'binary.dat',
       relativePath: 'binary.dat',
-      contentKind: 'binary'
+      contentKind: 'binary',
+      classification: 'binary'
     })
     expect(binary).not.toHaveProperty('content')
+    expect(binary).not.toHaveProperty('dataUrl')
     const oversized = await openFilesDocument(rootPath, 'large.txt')
     expect(oversized).toMatchObject({
       name: 'large.txt',
       relativePath: 'large.txt',
-      contentKind: 'oversized'
+      contentKind: 'oversized',
+      classification: 'oversized-text'
     })
     expect(oversized).not.toHaveProperty('content')
+    const oversizedImage = await openFilesDocument(rootPath, 'large.png')
+    expect(oversizedImage).toMatchObject({
+      name: 'large.png',
+      relativePath: 'large.png',
+      contentKind: 'oversized',
+      classification: 'oversized-image'
+    })
+    expect(oversizedImage).not.toHaveProperty('content')
+    expect(oversizedImage).not.toHaveProperty('dataUrl')
   })
 
   it('preserves an existing UTF-8 BOM and CRLF convention on save', async () => {

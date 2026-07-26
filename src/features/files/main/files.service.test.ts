@@ -48,6 +48,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
         lineEnding: 'lf'
       }
     }),
+    revealEntry: async () => undefined,
     ...overrides
   })
 }
@@ -151,6 +152,24 @@ describe('Files service', () => {
 
     expect(readDirectory).toHaveBeenCalledWith('/verified/kb', '')
     expect(openDocument).toHaveBeenCalledWith('/verified/kb', 'README.md')
+  })
+
+  it('reveals entries from the same authenticated Project Session and Knowledge Base roots', async () => {
+    const revealEntry = vi.fn(async () => undefined)
+    const knowledgeBaseRootProvider = { getVerifiedRoot: vi.fn(async () => '/verified/kb') }
+    const service = createTestService({ revealEntry, knowledgeBaseRootProvider })
+
+    await service.revealInSystemFileManager({
+      context: projectContext,
+      relativePath: 'binary.dat'
+    })
+    await service.revealInSystemFileManager({
+      context: knowledgeBaseContext,
+      relativePath: 'assets/image.png'
+    })
+
+    expect(revealEntry).toHaveBeenCalledWith('/worktrees/project-1/session-1', 'binary.dat')
+    expect(revealEntry).toHaveBeenCalledWith('/verified/kb', 'assets/image.png')
   })
 
   it('coordinates Knowledge Base writes through the existing Knowledge Base operation lock', async () => {
