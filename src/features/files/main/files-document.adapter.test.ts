@@ -76,6 +76,10 @@ describe('Files document adapter', () => {
     await writeFile(join(rootPath, 'binary.dat'), Buffer.from([0x48, 0x00, 0x49]))
     await writeFile(join(rootPath, 'large.txt'), Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61))
     await writeFile(
+      join(rootPath, 'large-binary.dat'),
+      Buffer.concat([Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61), Buffer.from([0x00])])
+    )
+    await writeFile(
       join(rootPath, 'large.png'),
       Buffer.concat([pngBytes, Buffer.alloc(MAX_IMAGE_BYTES + 1 - pngBytes.byteLength, 0x00)])
     )
@@ -97,6 +101,16 @@ describe('Files document adapter', () => {
       classification: 'oversized-text'
     })
     expect(oversized).not.toHaveProperty('content')
+    expect(oversized).not.toHaveProperty('dataUrl')
+    const largeBinary = await openFilesDocument(rootPath, 'large-binary.dat')
+    expect(largeBinary).toMatchObject({
+      name: 'large-binary.dat',
+      relativePath: 'large-binary.dat',
+      contentKind: 'binary',
+      classification: 'binary'
+    })
+    expect(largeBinary).not.toHaveProperty('content')
+    expect(largeBinary).not.toHaveProperty('dataUrl')
     const oversizedImage = await openFilesDocument(rootPath, 'large.png')
     expect(oversizedImage).toMatchObject({
       name: 'large.png',
