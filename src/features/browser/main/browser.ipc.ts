@@ -92,6 +92,7 @@ export function registerBrowserIpc(): void {
   ipcMain.handle(IPC_CHANNELS.browser.reorderTabs, (_event, request: unknown) =>
     browserService.reorderTabs(browserReorderTabsRequestSchema.parse(request))
   )
+  ipcMain.handle(IPC_CHANNELS.browser.clearData, () => browserService.clearData())
 }
 
 export function disposeBrowserIpcResources(): void {

@@ -370,6 +370,24 @@
         "user": "Définitions de ~/.agents/agents.",
         "bundled": "Définitions par défaut en lecture seule fournies avec Space Zero."
       }
+    },
+    "browserData": {
+      "sectionTitle": "Données du navigateur",
+      "clearAction": "Effacer les données du navigateur",
+      "description": "Efface les cookies, le stockage des sites, le cache et les autorisations temporaires du navigateur dans tous les contextes du panneau d’outils. Les onglets et URL enregistrés sont conservés.",
+      "scopeNote": "Seul le profil dédié du navigateur Space Zero est affecté. Le rendu de l’app et le profil de votre navigateur par défaut ne sont pas effacés.",
+      "confirmTitle": "Effacer les données du navigateur ?",
+      "confirmDescription": "Cette action déconnecte les sites dans tous les contextes du navigateur Space Zero et recharge les onglets actifs dans des sessions propres. L’ordre, la sélection active et les URL des onglets sont conservés.",
+      "confirmAction": "Effacer les données du navigateur",
+      "clearing": "Effacement…",
+      "success": "Les données du navigateur ont été effacées. Les onglets actifs se rechargent avec le profil nettoyé.",
+      "failure": "Certaines données du navigateur n’ont pas pu être effacées : {{categories}}. Réessayez avant de considérer le profil du navigateur comme propre.",
+      "unexpectedFailure": "Les données du navigateur n’ont pas pu être effacées. Réessayez.",
+      "categories": {
+        "cookiesAndSiteStorage": "cookies et stockage des sites",
+        "cache": "cache",
+        "temporaryGrants": "autorisations temporaires"
+      }
     }
   }
 }

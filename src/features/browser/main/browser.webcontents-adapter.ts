@@ -1,7 +1,13 @@
 import * as electron from 'electron'
 import { type BrowserWindow, type Input, type WebContents } from 'electron'
 
-import { type BrowserBounds, type BrowserShortcutBinding } from '../shared'
+import {
+  type BrowserBounds,
+  type BrowserClearDataCategory,
+  type BrowserClearDataFailure,
+  type BrowserClearDataResult,
+  type BrowserShortcutBinding
+} from '../shared'
 import {
   BROWSER_PARTITION,
   BROWSER_WEB_PREFERENCES,
@@ -41,7 +47,8 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   private service: BrowserService | null = null
 
   constructor(securityPolicy?: BrowserSecurityPolicy) {
-    this.securityPolicy = securityPolicy ?? createNativeBrowserSecurityPolicy(() => this.activeOwnerWindow())
+    this.securityPolicy =
+      securityPolicy ?? createNativeBrowserSecurityPolicy(() => this.activeOwnerWindow())
     this.installPermissionPolicy()
     this.installCertificatePolicy()
   }
@@ -57,7 +64,10 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     return [...new Set(windows)]
   }
 
-  createView(tabId: string, _options?: { partition: string; preferences: Record<string, unknown> }): void {
+  createView(
+    tabId: string,
+    _options?: { partition: string; preferences: Record<string, unknown> }
+  ): void {
     const view = new electron.WebContentsView({
       webPreferences: {
         ...BROWSER_WEB_PREFERENCES,
@@ -82,11 +92,17 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('did-navigate-in-page', (_event, url) =>
       this.service?.markNavigationCommitted(tabId, url, this.historyState(tabId))
     )
-    view.webContents.on('did-fail-load', (_event, _code, description, validatedUrl, isMainFrame) => {
-      if (!isMainFrame) return
-      this.service?.markNavigationFailed(tabId, `${description}${validatedUrl ? `: ${validatedUrl}` : ''}`)
-      this.service?.markHistoryChanged(tabId, this.historyState(tabId))
-    })
+    view.webContents.on(
+      'did-fail-load',
+      (_event, _code, description, validatedUrl, isMainFrame) => {
+        if (!isMainFrame) return
+        this.service?.markNavigationFailed(
+          tabId,
+          `${description}${validatedUrl ? `: ${validatedUrl}` : ''}`
+        )
+        this.service?.markHistoryChanged(tabId, this.historyState(tabId))
+      }
+    )
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
@@ -120,7 +136,8 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     if (!window) return
 
     const previouslyActiveTabId = this.activeTabByWindowId.get(window.id)
-    if (previouslyActiveTabId && previouslyActiveTabId !== tabId) this.hideView(previouslyActiveTabId)
+    if (previouslyActiveTabId && previouslyActiveTabId !== tabId)
+      this.hideView(previouslyActiveTabId)
 
     if (record.attachedWindow && record.attachedWindow !== window) this.detachRecord(tabId, record)
     if (record.ownerWindow !== window) record.ownerWindow = window
@@ -181,21 +198,65 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     record.view.webContents.stop()
   }
 
+  async clearProfileData(): Promise<BrowserClearDataResult> {
+    const cleared: BrowserClearDataCategory[] = []
+    const failures: BrowserClearDataFailure[] = []
+
+    const browserSession = electron.session.fromPartition(BROWSER_PARTITION)
+    await clearBrowserDataCategory(
+      'cookies-and-site-storage',
+      () =>
+        browserSession.clearStorageData({
+          storages: [
+            'cookies',
+            'localstorage',
+            'indexdb',
+            'serviceworkers',
+            'cachestorage',
+            'shadercache'
+          ]
+        }),
+      cleared,
+      failures
+    )
+    await clearBrowserDataCategory('cache', () => browserSession.clearCache(), cleared, failures)
+
+    this.securityPolicy.resetTemporaryDecisions()
+    cleared.push('temporary-grants')
+
+    return {
+      status: failures.length === 0 ? 'cleared' : cleared.length > 0 ? 'partial-failure' : 'failed',
+      cleared,
+      failures
+    }
+  }
+
   private installPermissionPolicy(): void {
     if (!('session' in electron) || !('app' in electron)) return
     const install = (): void => {
       const browserSession = electron.session.fromPartition(BROWSER_PARTITION)
-      browserSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
-        if (!webContents) return false
-        const record = this.recordForWebContents(webContents)
-        if (!record) return false
-        return this.securityPolicy.checkPermission({
-          requestingUrl: details.requestingUrl || details.securityOrigin || requestingOrigin || webContents.getURL(),
-          permission,
-          details: { mediaTypes: details.mediaType && details.mediaType !== 'unknown' ? [details.mediaType] : undefined },
-          isBackground: !this.isRecordVisible(record)
-        })
-      })
+      browserSession.setPermissionCheckHandler(
+        (webContents, permission, requestingOrigin, details) => {
+          if (!webContents) return false
+          const record = this.recordForWebContents(webContents)
+          if (!record) return false
+          return this.securityPolicy.checkPermission({
+            requestingUrl:
+              details.requestingUrl ||
+              details.securityOrigin ||
+              requestingOrigin ||
+              webContents.getURL(),
+            permission,
+            details: {
+              mediaTypes:
+                details.mediaType && details.mediaType !== 'unknown'
+                  ? [details.mediaType]
+                  : undefined
+            },
+            isBackground: !this.isRecordVisible(record)
+          })
+        }
+      )
       browserSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
         const record = this.recordForWebContents(webContents)
         if (!record) {
@@ -218,17 +279,28 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
 
   private installCertificatePolicy(): void {
     if (!('app' in electron)) return
-    electron.app.on('certificate-error', (event, webContents, url, error, _certificate, callback) => {
-      const record = this.recordForWebContents(webContents)
-      if (!record) return
-      event.preventDefault()
-      void this.securityPolicy
-        .requestCertificateException({ url, originalUrl: record.requestedUrl ?? webContents.getURL(), error })
-        .then(callback, () => callback(false))
-    })
+    electron.app.on(
+      'certificate-error',
+      (event, webContents, url, error, _certificate, callback) => {
+        const record = this.recordForWebContents(webContents)
+        if (!record) return
+        event.preventDefault()
+        void this.securityPolicy
+          .requestCertificateException({
+            url,
+            originalUrl: record.requestedUrl ?? webContents.getURL(),
+            error
+          })
+          .then(callback, () => callback(false))
+      }
+    )
   }
 
-  private handleWillNavigate(tabId: string, event: { preventDefault: () => void }, urlText: string): void {
+  private handleWillNavigate(
+    tabId: string,
+    event: { preventDefault: () => void },
+    urlText: string
+  ): void {
     const url = safeUrl(urlText)
     if (!url) {
       event.preventDefault()
@@ -242,7 +314,10 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     }
   }
 
-  private handleWindowOpen(tabId: string, details: ElectronWindowOpenDetails): ElectronWindowOpenDecision {
+  private handleWindowOpen(
+    tabId: string,
+    details: ElectronWindowOpenDetails
+  ): ElectronWindowOpenDecision {
     const url = safeUrl(details.url)
     if (!url) return { action: 'deny' }
 
@@ -253,7 +328,10 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
         }
         return { action: 'deny' }
       }
-      if (isEligibleAuthenticationPopupRequest(details) && this.consumeEligibleUserGesture(tabId, url.toString())) {
+      if (
+        isEligibleAuthenticationPopupRequest(details) &&
+        this.consumeEligibleUserGesture(tabId, url.toString())
+      ) {
         return {
           action: 'allow',
           overrideBrowserWindowOptions: {
@@ -364,7 +442,8 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     const window = record.attachedWindow
     if (!window) return
     window.contentView.removeChildView(record.view)
-    if (this.activeTabByWindowId.get(window.id) === tabId) this.activeTabByWindowId.delete(window.id)
+    if (this.activeTabByWindowId.get(window.id) === tabId)
+      this.activeTabByWindowId.delete(window.id)
     record.attachedWindow = null
   }
 
@@ -387,7 +466,9 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   }
 }
 
-function createNativeBrowserSecurityPolicy(ownerWindow: () => BrowserWindow | null): BrowserSecurityPolicy {
+function createNativeBrowserSecurityPolicy(
+  ownerWindow: () => BrowserWindow | null
+): BrowserSecurityPolicy {
   return new BrowserSecurityPolicy(
     async ({ origin, capability }) => {
       const options = {
@@ -434,8 +515,7 @@ type ElectronWindowOpenDetails = {
 }
 
 type ElectronWindowOpenDecision =
-  | { action: 'deny' }
-  | { action: 'allow'; overrideBrowserWindowOptions?: Record<string, unknown> }
+  { action: 'deny' } | { action: 'allow'; overrideBrowserWindowOptions?: Record<string, unknown> }
 
 function isEligibleSameContextTabRequest(details: ElectronWindowOpenDetails): boolean {
   return details.disposition === 'foreground-tab' || details.disposition === 'background-tab'
@@ -443,7 +523,10 @@ function isEligibleSameContextTabRequest(details: ElectronWindowOpenDetails): bo
 
 function isEligibleAuthenticationPopupRequest(details: ElectronWindowOpenDetails): boolean {
   if (details.disposition !== 'new-window') return false
-  return Boolean(details.frameName && details.frameName !== '_blank') && Boolean(details.features?.trim())
+  return (
+    Boolean(details.frameName && details.frameName !== '_blank') &&
+    Boolean(details.features?.trim())
+  )
 }
 
 function safeUrl(input: string): URL | null {
@@ -467,7 +550,10 @@ function containsUnsafeNestedProtocol(input: string): boolean {
   }
 }
 
-async function confirmAndOpenExternalProtocol(url: URL, ownerWindow: BrowserWindow | null): Promise<void> {
+async function confirmAndOpenExternalProtocol(
+  url: URL,
+  ownerWindow: BrowserWindow | null
+): Promise<void> {
   const options = {
     type: 'question' as const,
     buttons: ['Open', 'Cancel'],
@@ -498,19 +584,24 @@ function browserCommandForInput(
   if (input.type !== 'keyDown' || input.isAutoRepeat) return null
 
   for (const shortcutBinding of shortcutBindings) {
-    if (inputMatchesKeybinding(input, shortcutBinding.keybinding.normalized)) return shortcutBinding.commandId
+    if (inputMatchesKeybinding(input, shortcutBinding.keybinding.normalized))
+      return shortcutBinding.commandId
   }
 
   return null
 }
 
 function inputMatchesKeybinding(input: Input, normalized: string): boolean {
-  const tokens = normalized.toLowerCase().split('+').map((token) => token.trim())
+  const tokens = normalized
+    .toLowerCase()
+    .split('+')
+    .map((token) => token.trim())
   const key = tokens.pop()
   if (!key || input.key.toLowerCase() !== key) return false
 
   const modifiers = new Set(tokens)
-  if ([...modifiers].some((modifier) => !['mod', 'ctrl', 'alt', 'shift'].includes(modifier))) return false
+  if ([...modifiers].some((modifier) => !['mod', 'ctrl', 'alt', 'shift'].includes(modifier)))
+    return false
   const wantsMod = modifiers.has('mod')
   const wantsCtrl = modifiers.has('ctrl')
   const wantsAlt = modifiers.has('alt')
@@ -525,4 +616,18 @@ function inputMatchesKeybinding(input: Input, normalized: string): boolean {
   }
 
   return input.alt === wantsAlt && input.shift === wantsShift
+}
+
+async function clearBrowserDataCategory(
+  category: BrowserClearDataCategory,
+  action: () => Promise<void>,
+  cleared: BrowserClearDataCategory[],
+  failures: BrowserClearDataFailure[]
+): Promise<void> {
+  try {
+    await action()
+    cleared.push(category)
+  } catch {
+    failures.push({ category, message: 'Could not clear this Browser data category.' })
+  }
 }
