@@ -7,6 +7,8 @@ export type FilesOpenLocation = {
   relativePath: string
   line?: number
   intent?: FilesOpenTabIntent
+  revalidateExisting?: boolean
+  allowMetadata?: boolean
 }
 
 export type FilesOpenLocationResult = { status: 'opened' } | { status: 'failed'; message: string }
@@ -18,12 +20,21 @@ export async function openFilesLocation({
   ipcContext,
   relativePath,
   line,
-  intent = 'preview'
+  intent = 'preview',
+  revalidateExisting = true,
+  allowMetadata = false
 }: FilesOpenLocation): Promise<FilesOpenLocationResult> {
   nextOpenLocationRequestId += 1
   const requestId = nextOpenLocationRequestId
   const store = useFilesStore.getState()
-  const shouldFetch = store.beginOpenTab(contextKey, relativePath, intent, requestId, line)
+  const shouldFetch = store.beginOpenTab(
+    contextKey,
+    relativePath,
+    intent,
+    requestId,
+    line,
+    revalidateExisting
+  )
   if (!shouldFetch) return { status: 'opened' }
 
   try {
@@ -31,6 +42,11 @@ export async function openFilesLocation({
       context: ipcContext,
       relativePath
     })
+    if (document.contentKind !== 'text' && !allowMetadata) {
+      const message = filesUnsupportedDocumentMessage(document.contentKind)
+      useFilesStore.getState().failOpenTab(contextKey, relativePath, message, requestId)
+      return { status: 'failed', message }
+    }
     useFilesStore.getState().finishOpenTab(contextKey, document, requestId)
     return { status: 'opened' }
   } catch (error) {
@@ -38,6 +54,12 @@ export async function openFilesLocation({
     useFilesStore.getState().failOpenTab(contextKey, relativePath, message, requestId)
     return { status: 'failed', message }
   }
+}
+
+function filesUnsupportedDocumentMessage(contentKind: 'binary' | 'oversized'): string {
+  return contentKind === 'oversized'
+    ? 'This file is larger than 2 MiB and cannot be edited in Files.'
+    : 'This file is binary and cannot be edited in Files.'
 }
 
 export function filesOpenLocationErrorMessage(error: unknown): string {

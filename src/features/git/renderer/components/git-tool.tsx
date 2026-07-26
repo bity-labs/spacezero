@@ -419,6 +419,7 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
   const lines = diff.split('\n')
   const folded: FoldedDiffLine[] = []
   let newLineNumber: number | null = null
+  let syntheticAddedFile = false
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
@@ -427,6 +428,11 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
       newLineNumber = Number(hunkStart[1])
       folded.push({ text: line })
       continue
+    }
+    if (line === '--- /dev/null') {
+      syntheticAddedFile = true
+    } else if (syntheticAddedFile && line.startsWith('+++ ')) {
+      newLineNumber = 1
     }
 
     const targetLine = getDiffLineTarget(line, newLineNumber)
@@ -463,7 +469,12 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
     }
 
     folded.push({ text: line, targetLine })
-    if (newLineNumber !== null && !line.startsWith('-') && !line.startsWith('\\')) {
+    if (
+      newLineNumber !== null &&
+      !line.startsWith('-') &&
+      !line.startsWith('+++') &&
+      !line.startsWith('\\')
+    ) {
       newLineNumber += 1
     }
   }
@@ -478,7 +489,7 @@ function getDiffLineTarget(line: string, currentNewLine: number | null): number 
 }
 
 function isFilesHandoffSupported(file: GitFileDiff, filesHandoff?: GitFilesHandoff): boolean {
-  return Boolean(filesHandoff) && file.kind !== 'deleted' && !file.binary && !file.large
+  return Boolean(filesHandoff) && file.kind !== 'deleted'
 }
 
 function filesHandoffUnavailableMessage(
@@ -488,8 +499,6 @@ function filesHandoffUnavailableMessage(
   if (!filesHandoff) return 'Files is unavailable for this Git context.'
   if (file.kind === 'deleted')
     return 'Deleted files stay reviewable in Git and cannot be opened in Files.'
-  if (file.binary) return 'Binary changes stay reviewable in Git and cannot be edited in Files.'
-  if (file.large) return 'Large changes stay reviewable in Git and cannot be edited in Files.'
   return undefined
 }
 
