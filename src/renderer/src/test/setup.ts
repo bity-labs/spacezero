@@ -642,6 +642,11 @@ beforeEach(async () => {
           error: null
         }))
       }),
+      clearData: async () => ({
+        status: 'cleared',
+        cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+        failures: []
+      }),
       onEvent: () => () => undefined
     },
     agent: {

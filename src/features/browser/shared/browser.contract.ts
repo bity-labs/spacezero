@@ -13,6 +13,7 @@ export const BROWSER_IPC_CHANNELS = {
   selectTab: 'browser:selectTab',
   closeTab: 'browser:closeTab',
   reorderTabs: 'browser:reorderTabs',
+  clearData: 'browser:clearData',
   event: 'browser:event'
 } as const
 
@@ -62,6 +63,25 @@ export type BrowserState = {
   contextKey: string
   activeTabId: string
   tabs: BrowserTab[]
+}
+
+export const BROWSER_CLEAR_DATA_CATEGORIES = [
+  'cookies-and-site-storage',
+  'cache',
+  'temporary-grants'
+] as const
+
+export type BrowserClearDataCategory = (typeof BROWSER_CLEAR_DATA_CATEGORIES)[number]
+
+export type BrowserClearDataFailure = {
+  category: BrowserClearDataCategory
+  message: string
+}
+
+export type BrowserClearDataResult = {
+  status: 'cleared' | 'partial-failure' | 'failed'
+  cleared: BrowserClearDataCategory[]
+  failures: BrowserClearDataFailure[]
 }
 
 export type BrowserContextRequest = {
@@ -136,5 +156,6 @@ export type BrowserAPI = {
   selectTab: (request: BrowserSelectTabRequest) => Promise<BrowserState>
   closeTab: (request: BrowserCloseTabRequest) => Promise<BrowserState>
   reorderTabs: (request: BrowserReorderTabsRequest) => Promise<BrowserState>
+  clearData: () => Promise<BrowserClearDataResult>
   onEvent: (listener: (event: BrowserEvent) => void) => () => void
 }
