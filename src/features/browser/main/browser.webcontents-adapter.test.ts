@@ -55,6 +55,7 @@ const fakes = vi.hoisted(() => {
     certificate: unknown,
     callback: (allowed: boolean) => void
   ) => void> = []
+  const downloadHandlers: Array<(event: unknown, item: unknown, webContents: FakeWebContents) => void> = []
 
   class FakeContentView {
     readonly added: FakeWebContentsView[] = []
@@ -178,6 +179,7 @@ const fakes = vi.hoisted(() => {
     permissionCheckHandlers,
     permissionHandlers,
     certificateHandlers,
+    downloadHandlers,
     FakeWebContentsView,
     FakeBrowserWindow
   }
@@ -206,7 +208,10 @@ vi.mock('electron', () => ({
   session: {
     fromPartition: () => ({
       setPermissionCheckHandler: (handler: never) => fakes.permissionCheckHandlers.push(handler),
-      setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler)
+      setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler),
+      on: (event: string, handler: never) => {
+        if (event === 'will-download') fakes.downloadHandlers.push(handler)
+      }
     })
   },
   WebContentsView: fakes.FakeWebContentsView
@@ -235,6 +240,7 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.permissionCheckHandlers.length = 0
     fakes.permissionHandlers.length = 0
     fakes.certificateHandlers.length = 0
+    fakes.downloadHandlers.length = 0
     openExternal.mockClear()
     showMessageBox.mockClear()
     showMessageBox.mockResolvedValue({ response: 1 })
@@ -271,6 +277,32 @@ describe('ElectronBrowserViewAdapter', () => {
 
     expect(windowA.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(windowB.contentView.added).toEqual([fakes.createdViews[0]])
+  })
+
+  it('routes Browser downloads through the injected main-owned download service', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    const adapter = new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    const item = { cancel: vi.fn() }
+    fakes.downloadHandlers[0]?.({}, item, fakes.createdViews[0]!.webContents)
+
+    expect(downloadsService.handleDownloadStarted).toHaveBeenCalledWith('tab-1', item, window)
+  })
+
+  it('cancels Browser downloads that do not belong to a tracked tab', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const item = { cancel: vi.fn() }
+
+    fakes.downloadHandlers[0]?.({}, item, new fakes.FakeBrowserWindow(99).webContents)
+
+    expect(item.cancel).toHaveBeenCalled()
+    expect(downloadsService.handleDownloadStarted).not.toHaveBeenCalled()
   })
 
   it('routes user-initiated target blank web requests into a same-context tab without creating a window', async () => {

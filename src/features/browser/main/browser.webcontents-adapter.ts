@@ -8,6 +8,7 @@ import {
   type BrowserService,
   type BrowserViewAdapter
 } from './browser.service'
+import type { BrowserDownloadsService } from './browser-downloads.service'
 import { BrowserSecurityPolicy } from './browser.security-policy'
 
 type BrowserChildWindow = BrowserWindow & {
@@ -40,10 +41,14 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   private readonly securityPolicy: BrowserSecurityPolicy
   private service: BrowserService | null = null
 
-  constructor(securityPolicy?: BrowserSecurityPolicy) {
+  constructor(
+    securityPolicy?: BrowserSecurityPolicy,
+    private readonly downloadsService?: BrowserDownloadsService
+  ) {
     this.securityPolicy = securityPolicy ?? createNativeBrowserSecurityPolicy(() => this.activeOwnerWindow())
     this.installPermissionPolicy()
     this.installCertificatePolicy()
+    this.installDownloadPolicy()
   }
 
   setService(service: BrowserService): void {
@@ -228,6 +233,27 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     })
   }
 
+  private installDownloadPolicy(): void {
+    if (!this.downloadsService || !('session' in electron) || !('app' in electron)) return
+    const install = (): void => {
+      const browserSession = electron.session.fromPartition(BROWSER_PARTITION)
+      browserSession.on('will-download', (_event, item, webContents) => {
+        const found = this.tabIdForWebContents(webContents)
+        if (!found) {
+          item.cancel()
+          return
+        }
+        void this.downloadsService?.handleDownloadStarted(
+          found.tabId,
+          item,
+          found.record.ownerWindow ?? undefined
+        )
+      })
+    }
+    if (electron.app.isReady()) install()
+    else void electron.app.whenReady().then(install)
+  }
+
   private handleWillNavigate(tabId: string, event: { preventDefault: () => void }, urlText: string): void {
     const url = safeUrl(urlText)
     if (!url) {
@@ -343,8 +369,14 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   }
 
   private recordForWebContents(webContents: WebContents): BrowserViewRecord | null {
-    for (const record of this.views.values()) {
-      if (record.view.webContents === webContents) return record
+    return this.tabIdForWebContents(webContents)?.record ?? null
+  }
+
+  private tabIdForWebContents(
+    webContents: WebContents
+  ): { tabId: string; record: BrowserViewRecord } | null {
+    for (const [tabId, record] of this.views.entries()) {
+      if (record.view.webContents === webContents) return { tabId, record }
     }
     return null
   }
