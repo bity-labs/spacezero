@@ -70,6 +70,8 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
       tabs: state.tabs.map((tab) => (tab.id === state.activeTabId ? { ...tab, isLoading: false } : tab))
     })),
     openInDefaultBrowser: vi.fn(async () => undefined),
+    openDownload: vi.fn(async () => undefined),
+    revealDownload: vi.fn(async () => undefined),
     show: vi.fn(async () => state),
     hide: vi.fn(async () => undefined),
     createTab: vi.fn(async () => {
@@ -210,6 +212,37 @@ describe('BrowserTool', () => {
     await user.click(await screen.findByRole('button', { name: 'Open in default browser' }))
 
     expect(browser.openInDefaultBrowser).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
+  })
+
+  it('shows safe Browser download completion metadata with main-owned actions', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/download' })
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+    await screen.findByRole('button', { name: 'Open in default browser' })
+    await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
+
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'download-updated',
+        download: {
+          id: 'download-1',
+          tabId: 'browser-tab-1',
+          filename: 'report.pdf',
+          status: 'completed',
+          receivedBytes: 42,
+          totalBytes: 42
+        }
+      })
+    })
+
+    expect(await screen.findByLabelText('Browser downloads')).toHaveTextContent('report.pdf')
+    expect(screen.getByLabelText('Browser downloads')).not.toHaveTextContent('/tmp')
+    await user.click(screen.getByRole('button', { name: 'Open' }))
+    await user.click(screen.getByRole('button', { name: 'Reveal in folder' }))
+
+    expect(browser.openDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
+    expect(browser.revealDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
   })
 
   it('uses focus-scoped browser shortcuts without firing when focus leaves Browser', async () => {

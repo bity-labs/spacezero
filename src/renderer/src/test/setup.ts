@@ -569,6 +569,8 @@ beforeEach(async () => {
       }),
       openInDefaultBrowser: async () => undefined,
       openUrlInDefaultBrowser: async () => undefined,
+      openDownload: async () => undefined,
+      revealDownload: async () => undefined,
       hide: async () => undefined,
       createTab: async ({ contextKey }) => ({
         contextKey,

@@ -11,6 +11,7 @@ import { Button } from '@renderer/components/ui/button'
 import {
   BROWSER_COMMAND_IDS,
   type BrowserContext,
+  type BrowserDownloadSnapshot,
   type BrowserShortcutBinding,
   type BrowserState,
   type BrowserTab
@@ -78,6 +79,7 @@ export function BrowserTool({
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const [downloads, setDownloads] = useState<BrowserDownloadSnapshot[]>([])
   const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
@@ -158,6 +160,24 @@ export function BrowserTool({
       setError(toErrorMessage(reason))
     }
   }, [activeTabUrl, tabRequest])
+
+  const openDownload = useCallback(async (downloadId: string): Promise<void> => {
+    setError(null)
+    try {
+      await window.spacezero.browser.openDownload({ downloadId })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }, [])
+
+  const revealDownload = useCallback(async (downloadId: string): Promise<void> => {
+    setError(null)
+    try {
+      await window.spacezero.browser.revealDownload({ downloadId })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }, [])
 
   const createBlankTab = useCallback(async (): Promise<void> => {
     setError(null)
@@ -363,6 +383,10 @@ export function BrowserTool({
 
   useEffect(() => {
     return window.spacezero.browser.onEvent((event) => {
+      if (event.type === 'download-updated') {
+        setDownloads((current) => upsertDownload(current, event.download).slice(-4))
+        return
+      }
       if (event.contextKey !== contextKey) return
       if (event.type === 'state-changed') {
         setState(event.state)
@@ -589,8 +613,67 @@ export function BrowserTool({
         </div>
       ) : null}
       <div ref={surfaceRef} aria-label="Browser page surface" className="min-h-0 flex-1" />
+      {downloads.length > 0 ? (
+        <div
+          aria-label="Browser downloads"
+          className="absolute bottom-3 right-3 flex max-w-md flex-col gap-2"
+          role="status"
+        >
+          {downloads.map((download) => (
+            <div key={download.id} className="rounded-md border bg-background p-3 text-sm shadow-lg">
+              <div className="font-medium">{download.filename}</div>
+              <div className="text-muted-foreground">{downloadStatusLabel(download)}</div>
+              {download.status === 'completed' ? (
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" type="button" onClick={() => void openDownload(download.id)}>
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => void revealDownload(download.id)}
+                  >
+                    Reveal in folder
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   )
+}
+
+function upsertDownload(
+  downloads: BrowserDownloadSnapshot[],
+  next: BrowserDownloadSnapshot
+): BrowserDownloadSnapshot[] {
+  const index = downloads.findIndex((download) => download.id === next.id)
+  if (index === -1) return [...downloads, next]
+  return downloads.map((download) => (download.id === next.id ? next : download))
+}
+
+function downloadStatusLabel(download: BrowserDownloadSnapshot): string {
+  switch (download.status) {
+    case 'selecting-save-location':
+      return 'Choose where to save this download.'
+    case 'downloading':
+      return formatDownloadProgress(download)
+    case 'completed':
+      return 'Download complete.'
+    case 'cancelled':
+      return 'Download cancelled.'
+    case 'failed':
+      return 'Download failed.'
+  }
+}
+
+function formatDownloadProgress(download: BrowserDownloadSnapshot): string {
+  if (!download.totalBytes) return 'Downloading…'
+  const percent = Math.min(100, Math.round((download.receivedBytes / download.totalBytes) * 100))
+  return `Downloading… ${percent}%`
 }
 
 function tabLabel(tab: BrowserTab): string {
