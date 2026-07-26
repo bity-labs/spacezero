@@ -15,6 +15,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import type { ChatLinkDestination, ChatLinkSettings } from '@shared/chat-link-settings'
+import type { GitActionSettings, GitComposerAction } from '@shared/git-action-settings'
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 import type { AuthProviderOption, AuthProviderStatus, ModelAuthSettings } from '@shared/model-auth'
 import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model-settings'
@@ -302,6 +303,8 @@ function GeneralSettingsSection({
   const { t } = useTranslation()
   const [chatLinkSettings, setChatLinkSettings] = useState<ChatLinkSettings | null>(null)
   const [chatLinkError, setChatLinkError] = useState(false)
+  const [gitActionSettings, setGitActionSettings] = useState<GitActionSettings | null>(null)
+  const [gitActionError, setGitActionError] = useState(false)
 
   useEffect(() => {
     let isCurrent = true
@@ -315,6 +318,17 @@ function GeneralSettingsSection({
       .catch(() => {
         if (!isCurrent) return
         setChatLinkError(true)
+      })
+
+    window.spacezero.settings
+      .getGitActionSettings()
+      .then((settings) => {
+        if (!isCurrent) return
+        setGitActionSettings(settings)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setGitActionError(true)
       })
 
     return () => {
@@ -332,6 +346,19 @@ function GeneralSettingsSection({
       setChatLinkSettings(settings)
     } catch {
       setChatLinkError(true)
+    }
+  }
+
+  async function handleGitActionChange(primaryGitAction: GitComposerAction): Promise<void> {
+    setGitActionError(false)
+
+    try {
+      const settings = await window.spacezero.settings.updateGitActionSettings({
+        primaryGitAction
+      })
+      setGitActionSettings(settings)
+    } catch {
+      setGitActionError(true)
     }
   }
 
@@ -435,6 +462,42 @@ function GeneralSettingsSection({
           {chatLinkError ? (
             <p className="px-4 pb-3 text-sm text-destructive">
               {t('settings.chatLinks.saveError')}
+            </p>
+          ) : null}
+          <SettingsRow
+            title={t('settings.gitPrimaryAction.label')}
+            description={t('settings.gitPrimaryAction.description')}
+          >
+            <Select
+              value={gitActionSettings?.primaryGitAction ?? 'commit-and-push'}
+              onValueChange={(value) => void handleGitActionChange(value as GitComposerAction)}
+              disabled={!gitActionSettings}
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-44"
+                aria-label={t('settings.gitPrimaryAction.label')}
+              >
+                <SelectValue>
+                  {(value: GitComposerAction) => getGitActionLabel(value, t)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="commit">{t('settings.gitPrimaryAction.commit')}</SelectItem>
+                <SelectItem value="commit-and-push">
+                  {t('settings.gitPrimaryAction.commitAndPush')}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+          {!gitActionSettings ? (
+            <p className="px-4 pb-3 text-sm text-muted-foreground">
+              {t('settings.gitPrimaryAction.loading')}
+            </p>
+          ) : null}
+          {gitActionError ? (
+            <p className="px-4 pb-3 text-sm text-destructive">
+              {t('settings.gitPrimaryAction.saveError')}
             </p>
           ) : null}
         </SettingsSection>
@@ -810,6 +873,14 @@ function getChatLinkDestinationLabel(
 ): string {
   if (destination === 'default-browser') return t('settings.chatLinks.defaultBrowser')
   return t('settings.chatLinks.spaceZeroBrowser')
+}
+
+function getGitActionLabel(
+  action: GitComposerAction,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (action === 'commit') return t('settings.gitPrimaryAction.commit')
+  return t('settings.gitPrimaryAction.commitAndPush')
 }
 
 function ModelsSettingsSection(): React.JSX.Element {

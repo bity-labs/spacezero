@@ -234,6 +234,14 @@
       "loading": "Loading chat link preference…",
       "saveError": "Unable to save the chat link preference."
     },
+    "gitPrimaryAction": {
+      "label": "Primary Git action",
+      "description": "Choose which Project Session Git composer action appears as the primary button.",
+      "commit": "Commit",
+      "commitAndPush": "Commit & Push",
+      "loading": "Loading Git action preference…",
+      "saveError": "Unable to save the Git action preference."
+    },
     "notifications": {
       "sectionTitle": "Notifications",
       "system": {

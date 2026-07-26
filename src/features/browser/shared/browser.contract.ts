@@ -7,6 +7,8 @@ export const BROWSER_IPC_CHANNELS = {
   stop: 'browser:stop',
   openInDefaultBrowser: 'browser:openInDefaultBrowser',
   openUrlInDefaultBrowser: 'browser:openUrlInDefaultBrowser',
+  openDownload: 'browser:openDownload',
+  revealDownload: 'browser:revealDownload',
   show: 'browser:show',
   hide: 'browser:hide',
   createTab: 'browser:createTab',
@@ -139,7 +141,35 @@ export type BrowserCommandRequestedEvent = {
   commandId: (typeof BROWSER_COMMAND_IDS)[keyof typeof BROWSER_COMMAND_IDS]
 }
 
-export type BrowserEvent = BrowserStateChangedEvent | BrowserCommandRequestedEvent
+export type BrowserDownloadStatus =
+  | 'selecting-save-location'
+  | 'downloading'
+  | 'completed'
+  | 'cancelled'
+  | 'failed'
+
+export type BrowserDownloadSnapshot = {
+  id: string
+  tabId: string
+  filename: string
+  status: BrowserDownloadStatus
+  receivedBytes: number
+  totalBytes: number | null
+}
+
+export type BrowserDownloadUpdatedEvent = {
+  type: 'download-updated'
+  download: BrowserDownloadSnapshot
+}
+
+export type BrowserDownloadActionRequest = {
+  downloadId: string
+}
+
+export type BrowserEvent =
+  | BrowserStateChangedEvent
+  | BrowserCommandRequestedEvent
+  | BrowserDownloadUpdatedEvent
 
 export type BrowserAPI = {
   getState: (request: BrowserContextRequest) => Promise<BrowserState>
@@ -150,6 +180,8 @@ export type BrowserAPI = {
   stop: (request: BrowserTabRequest) => Promise<BrowserState>
   openInDefaultBrowser: (request: BrowserTabRequest) => Promise<void>
   openUrlInDefaultBrowser: (request: BrowserOpenUrlInDefaultBrowserRequest) => Promise<void>
+  openDownload: (request: BrowserDownloadActionRequest) => Promise<void>
+  revealDownload: (request: BrowserDownloadActionRequest) => Promise<void>
   show: (request: BrowserPresentationRequest) => Promise<BrowserState>
   hide: (request: BrowserContextRequest) => Promise<void>
   createTab: (request: BrowserCreateTabRequest) => Promise<BrowserState>
