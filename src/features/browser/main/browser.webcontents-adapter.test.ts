@@ -35,26 +35,43 @@ const fakes = vi.hoisted(() => {
 
   const senderToWindow = new Map<unknown, FakeBrowserWindow>()
   const createdViews: FakeWebContentsView[] = []
-  const permissionCheckHandlers: Array<(
-    webContents: FakeWebContents | null,
-    permission: string,
-    requestingOrigin: string,
-    details: { requestingUrl?: string; securityOrigin?: string; mediaType?: 'video' | 'audio' | 'unknown' }
-  ) => boolean> = []
-  const permissionHandlers: Array<(
-    webContents: FakeWebContents,
-    permission: string,
-    callback: (allowed: boolean) => void,
-    details: { requestingUrl?: string; mediaTypes?: string[] }
-  ) => void> = []
-  const certificateHandlers: Array<(
-    event: { preventDefault: () => void },
-    webContents: FakeWebContents,
-    url: string,
-    error: string,
-    certificate: unknown,
-    callback: (allowed: boolean) => void
-  ) => void> = []
+  const permissionCheckHandlers: Array<
+    (
+      webContents: FakeWebContents | null,
+      permission: string,
+      requestingOrigin: string,
+      details: {
+        requestingUrl?: string
+        securityOrigin?: string
+        mediaType?: 'video' | 'audio' | 'unknown'
+      }
+    ) => boolean
+  > = []
+  const permissionHandlers: Array<
+    (
+      webContents: FakeWebContents,
+      permission: string,
+      callback: (allowed: boolean) => void,
+      details: { requestingUrl?: string; mediaTypes?: string[] }
+    ) => void
+  > = []
+  const browserSession = {
+    clearStorageData: vi.fn().mockResolvedValue(undefined),
+    clearCache: vi.fn().mockResolvedValue(undefined)
+  }
+  const certificateHandlers: Array<
+    (
+      event: { preventDefault: () => void },
+      webContents: FakeWebContents,
+      url: string,
+      error: string,
+      certificate: unknown,
+      callback: (allowed: boolean) => void
+    ) => void
+  > = []
+  const downloadHandlers: Array<
+    (event: unknown, item: unknown, webContents: FakeWebContents) => void
+  > = []
 
   class FakeContentView {
     readonly added: FakeWebContentsView[] = []
@@ -88,7 +105,10 @@ const fakes = vi.hoisted(() => {
         this.debugger.attached = true
       },
       sendCommand: vi.fn().mockResolvedValue(undefined),
-      on: (_event: 'message', listener: (event: unknown, method: string, params: unknown) => void) => {
+      on: (
+        _event: 'message',
+        listener: (event: unknown, method: string, params: unknown) => void
+      ) => {
         this.debugger.listeners.push(listener)
       }
     }
@@ -136,7 +156,8 @@ const fakes = vi.hoisted(() => {
       this.emit('before-input-event', event as never, input as never)
     }
     emitWindowOpenGesture(url: string, userGesture: boolean): void {
-      for (const listener of this.debugger.listeners) listener({}, 'Page.windowOpen', { url, userGesture })
+      for (const listener of this.debugger.listeners)
+        listener({}, 'Page.windowOpen', { url, userGesture })
     }
   }
 
@@ -177,7 +198,9 @@ const fakes = vi.hoisted(() => {
     createdViews,
     permissionCheckHandlers,
     permissionHandlers,
+    browserSession,
     certificateHandlers,
+    downloadHandlers,
     FakeWebContentsView,
     FakeBrowserWindow
   }
@@ -205,8 +228,12 @@ vi.mock('electron', () => ({
   },
   session: {
     fromPartition: () => ({
+      ...fakes.browserSession,
       setPermissionCheckHandler: (handler: never) => fakes.permissionCheckHandlers.push(handler),
-      setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler)
+      setPermissionRequestHandler: (handler: never) => fakes.permissionHandlers.push(handler),
+      on: (event: string, handler: never) => {
+        if (event === 'will-download') fakes.downloadHandlers.push(handler)
+      }
     })
   },
   WebContentsView: fakes.FakeWebContentsView
@@ -235,9 +262,44 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.permissionCheckHandlers.length = 0
     fakes.permissionHandlers.length = 0
     fakes.certificateHandlers.length = 0
+    fakes.browserSession.clearStorageData.mockClear()
+    fakes.browserSession.clearStorageData.mockResolvedValue(undefined)
+    fakes.browserSession.clearCache.mockClear()
+    fakes.browserSession.clearCache.mockResolvedValue(undefined)
+    fakes.downloadHandlers.length = 0
     openExternal.mockClear()
     showMessageBox.mockClear()
     showMessageBox.mockResolvedValue({ response: 1 })
+  })
+
+  it('clears only the dedicated Browser profile categories and reports partial failures', async () => {
+    const adapter = new ElectronBrowserViewAdapter()
+    fakes.browserSession.clearStorageData.mockRejectedValueOnce(new Error('storage failed'))
+
+    const result = await adapter.clearProfileData()
+
+    expect(fakes.browserSession.clearStorageData).toHaveBeenCalledWith({
+      storages: [
+        'cookies',
+        'filesystem',
+        'localstorage',
+        'indexdb',
+        'serviceworkers',
+        'cachestorage',
+        'shadercache'
+      ]
+    })
+    expect(fakes.browserSession.clearCache).toHaveBeenCalledTimes(1)
+    expect(result).toEqual({
+      status: 'partial-failure',
+      cleared: ['cache', 'temporary-grants'],
+      failures: [
+        {
+          category: 'cookies-and-site-storage',
+          message: 'Could not clear this Browser data category.'
+        }
+      ]
+    })
   })
 
   it('shows one active Browser view per owner window', () => {
@@ -248,8 +310,18 @@ describe('ElectronBrowserViewAdapter', () => {
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
     adapter.createView('tab-2', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
-    adapter.showView('tab-2', { x: 5, y: 5, width: 200, height: 150 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
+    adapter.showView(
+      'tab-2',
+      { x: 5, y: 5, width: 200, height: 150 },
+      defaultShortcutBindings,
+      sender as never
+    )
 
     expect(window.contentView.added).toEqual([fakes.createdViews[0], fakes.createdViews[1]])
     expect(window.contentView.removed).toEqual([fakes.createdViews[0]])
@@ -266,11 +338,66 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(senderB, windowB)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, senderA as never)
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, senderB as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      senderA as never
+    )
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      senderB as never
+    )
 
     expect(windowA.contentView.removed).toEqual([fakes.createdViews[0]])
     expect(windowB.contentView.added).toEqual([fakes.createdViews[0]])
+  })
+
+  it('routes Browser downloads through the injected main-owned download service', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    const adapter = new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    const item = { cancel: vi.fn() }
+    fakes.downloadHandlers[0]?.({}, item, fakes.createdViews[0]!.webContents)
+
+    expect(downloadsService.handleDownloadStarted).toHaveBeenCalledWith('tab-1', item, window)
+  })
+
+  it('cancels Browser downloads that do not belong to a tracked tab', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const item = { cancel: vi.fn() }
+
+    fakes.downloadHandlers[0]?.({}, item, new fakes.FakeBrowserWindow(99).webContents)
+
+    expect(item.cancel).toHaveBeenCalled()
+    expect(downloadsService.handleDownloadStarted).not.toHaveBeenCalled()
+  })
+
+  it('routes controlled authentication child downloads through the owning Browser tab', async () => {
+    const downloadsService = { handleDownloadStarted: vi.fn().mockResolvedValue(undefined) }
+    const adapter = new ElectronBrowserViewAdapter(undefined, downloadsService as never)
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    const child = new fakes.FakeBrowserWindow(22)
+    fakes.createdViews[0]?.webContents.emit('did-create-window', child as never, {} as never)
+    const item = { cancel: vi.fn() }
+
+    fakes.downloadHandlers[0]?.({}, item, child.webContents)
+
+    expect(downloadsService.handleDownloadStarted).toHaveBeenCalledWith('tab-1', item, window)
+    expect(item.cancel).not.toHaveBeenCalled()
   })
 
   it('routes user-initiated target blank web requests into a same-context tab without creating a window', async () => {
@@ -288,7 +415,10 @@ describe('ElectronBrowserViewAdapter', () => {
     })
 
     expect(decision).toEqual({ action: 'deny' })
-    expect(service.openNativeRequestedTab).toHaveBeenCalledWith('tab-1', 'https://docs.example/path')
+    expect(service.openNativeRequestedTab).toHaveBeenCalledWith(
+      'tab-1',
+      'https://docs.example/path'
+    )
   })
 
   it('blocks script-created web popups without a request-scoped transient user gesture', () => {
@@ -354,7 +484,9 @@ describe('ElectronBrowserViewAdapter', () => {
 
     adapter.destroyView('tab-1')
 
-    expect(child.webContents.windowOpenHandler?.({ url: 'https://login.example/descendant' })).toEqual({ action: 'deny' })
+    expect(
+      child.webContents.windowOpenHandler?.({ url: 'https://login.example/descendant' })
+    ).toEqual({ action: 'deny' })
     expect(child.closed).toBe(true)
   })
 
@@ -369,7 +501,9 @@ describe('ElectronBrowserViewAdapter', () => {
     })
 
     expect(decision).toEqual({ action: 'deny' })
-    await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith('mailto:builder@example.com?subject=Hello'))
+    await vi.waitFor(() =>
+      expect(openExternal).toHaveBeenCalledWith('mailto:builder@example.com?subject=Hello')
+    )
     expect(showMessageBox).toHaveBeenCalledWith(
       expect.objectContaining({
         message: 'Open mailto link?',
@@ -384,7 +518,11 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
     const preventDefault = vi.fn()
 
-    fakes.createdViews[0]?.webContents.emit('will-navigate', { preventDefault } as never, 'mailto:builder@example.com' as never)
+    fakes.createdViews[0]?.webContents.emit(
+      'will-navigate',
+      { preventDefault } as never,
+      'mailto:builder@example.com' as never
+    )
 
     expect(preventDefault).toHaveBeenCalled()
     await vi.waitFor(() => expect(openExternal).toHaveBeenCalledWith('mailto:builder@example.com'))
@@ -399,22 +537,34 @@ describe('ElectronBrowserViewAdapter', () => {
     ).toEqual({ action: 'deny' })
     expect(showMessageBox).toHaveBeenCalledTimes(1)
     showMessageBox.mockClear()
-    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'file:///etc/passwd' })).toEqual({
+    expect(
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'file:///etc/passwd' })
+    ).toEqual({
       action: 'deny'
     })
     expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'not a url' })).toEqual({
       action: 'deny'
     })
     expect(
-      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x@y.test?body=file%3A%2F%2Fetc%2Fpasswd' })
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+        url: 'mailto:x@y.test?body=file%3A%2F%2Fetc%2Fpasswd'
+      })
     ).toEqual({ action: 'deny' })
-    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x%' })).toEqual({ action: 'deny' })
+    expect(fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:x%' })).toEqual({
+      action: 'deny'
+    })
     expect(
-      fakes.createdViews[0]?.webContents.windowOpenHandler?.({ url: 'mailto:builder@example.com?subject=%' })
+      fakes.createdViews[0]?.webContents.windowOpenHandler?.({
+        url: 'mailto:builder@example.com?subject=%'
+      })
     ).toEqual({ action: 'deny' })
     const preventDefault = vi.fn()
     expect(() =>
-      fakes.createdViews[0]?.webContents.emit('will-navigate', { preventDefault } as never, 'mailto:x#%' as never)
+      fakes.createdViews[0]?.webContents.emit(
+        'will-navigate',
+        { preventDefault } as never,
+        'mailto:x#%' as never
+      )
     ).not.toThrow()
     expect(preventDefault).toHaveBeenCalled()
 
@@ -430,7 +580,12 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
 
     window.emit('closed')
 
@@ -446,7 +601,12 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
     adapter.setService(service as never)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
 
     fakes.createdViews[0]?.webContents.emitBeforeInput({
       type: 'keyDown',
@@ -497,7 +657,10 @@ describe('ElectronBrowserViewAdapter', () => {
     })
 
     expect(service.handleNativeCommand).toHaveBeenCalledTimes(1)
-    expect(service.handleNativeCommand).toHaveBeenCalledWith('tab-1', BROWSER_COMMAND_IDS.focusAddress)
+    expect(service.handleNativeCommand).toHaveBeenCalledWith(
+      'tab-1',
+      BROWSER_COMMAND_IDS.focusAddress
+    )
   })
 
   it('does not steal embedded page text-input cursor shortcuts on macOS', () => {
@@ -510,7 +673,12 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
     adapter.setService(service as never)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
 
     fakes.createdViews[0]?.webContents.emitBeforeInput({
       type: 'keyDown',
@@ -536,7 +704,12 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.setService(service as never)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
     adapter.hideView('tab-1')
 
     window.emit('closed')
@@ -549,7 +722,9 @@ describe('ElectronBrowserViewAdapter', () => {
   it('denies background permission requests and prompts only for visible Browser contents', async () => {
     const policy = {
       checkPermission: vi.fn().mockReturnValue(false),
-      requestPermission: vi.fn((request: { isBackground?: boolean }) => Promise.resolve(!request.isBackground)),
+      requestPermission: vi.fn((request: { isBackground?: boolean }) =>
+        Promise.resolve(!request.isBackground)
+      ),
       requestCertificateException: vi.fn()
     }
     const adapter = new ElectronBrowserViewAdapter(policy as never)
@@ -575,7 +750,12 @@ describe('ElectronBrowserViewAdapter', () => {
       isBackground: true
     })
 
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
     let visibleDecision: boolean | null = null
     fakes.permissionHandlers[0]?.(
       fakes.createdViews[0].webContents,
@@ -613,9 +793,14 @@ describe('ElectronBrowserViewAdapter', () => {
       })
     ).toBe(false)
     expect(
-      fakes.permissionCheckHandlers[0]?.(fakes.createdViews[0].webContents, 'notifications', 'https://example.com', {
-        requestingUrl: 'https://example.com/'
-      })
+      fakes.permissionCheckHandlers[0]?.(
+        fakes.createdViews[0].webContents,
+        'notifications',
+        'https://example.com',
+        {
+          requestingUrl: 'https://example.com/'
+        }
+      )
     ).toBe(false)
     expect(policy.checkPermission).toHaveBeenLastCalledWith({
       requestingUrl: 'https://example.com/',
@@ -624,12 +809,22 @@ describe('ElectronBrowserViewAdapter', () => {
       isBackground: true
     })
 
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
     expect(
-      fakes.permissionCheckHandlers[0]?.(fakes.createdViews[0].webContents, 'media', 'https://example.com', {
-        requestingUrl: 'https://example.com/',
-        mediaType: 'video'
-      })
+      fakes.permissionCheckHandlers[0]?.(
+        fakes.createdViews[0].webContents,
+        'media',
+        'https://example.com',
+        {
+          requestingUrl: 'https://example.com/',
+          mediaType: 'video'
+        }
+      )
     ).toBe(true)
     expect(policy.checkPermission).toHaveBeenLastCalledWith({
       requestingUrl: 'https://example.com/',
@@ -650,7 +845,12 @@ describe('ElectronBrowserViewAdapter', () => {
     const window = new fakes.FakeBrowserWindow(1)
     fakes.senderToWindow.set(sender, window)
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      defaultShortcutBindings,
+      sender as never
+    )
     adapter.hideView('tab-1')
 
     let decision: boolean | null = null
