@@ -297,10 +297,13 @@ function GitToolSession({
   }, [currentAgentStatus, refresh])
 
   const actions = useMemo(() => getActionAvailability(actionState), [actionState])
+  const conflictFiles = useMemo(() => getConflictFiles(actionState), [actionState])
+  const hasConflicts = conflictFiles.length > 0
   const alternateAction = primaryAction === 'commit' ? 'commit-and-push' : 'commit'
   const busy = currentAgentStatus === 'running'
   const primaryDisabled = busy || !actions[primaryAction]
   const alternateDisabled = busy || !actions[alternateAction]
+  const resolveDisabled = busy || !hasConflicts
 
   if (!state) {
     return (
@@ -375,6 +378,7 @@ function GitToolSession({
             getGitViewMemory(gitMemoryKey).scrollTop = event.currentTarget.scrollTop
           }}
         >
+          {hasConflicts ? <GitConflictBanner conflictCount={conflictFiles.length} /> : null}
           {handoffError ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               {handoffError}
@@ -406,24 +410,86 @@ function GitToolSession({
         </div>
       )}
       {agentSession ? (
-        <GitCommitComposer
-          alternateAction={alternateAction}
-          alternateDisabled={alternateDisabled}
-          busy={busy}
-          instructions={instructions}
-          menuOpen={menuOpen}
-          primaryAction={primaryAction}
-          primaryDisabled={primaryDisabled}
-          onInstructionsChange={setInstructions}
-          onMenuOpenChange={setMenuOpen}
-          onSubmit={(action) => {
-            setMenuOpen(false)
-            gitPromptRunPending.current = true
-            void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
-          }}
-        />
+        hasConflicts ? (
+          <GitConflictResolver
+            disabled={resolveDisabled}
+            instructions={instructions}
+            onInstructionsChange={setInstructions}
+            onResolve={() => {
+              gitPromptRunPending.current = true
+              void agentSession.prompt(buildResolveConflictsPrompt())
+            }}
+          />
+        ) : (
+          <GitCommitComposer
+            alternateAction={alternateAction}
+            alternateDisabled={alternateDisabled}
+            busy={busy}
+            instructions={instructions}
+            menuOpen={menuOpen}
+            primaryAction={primaryAction}
+            primaryDisabled={primaryDisabled}
+            onInstructionsChange={setInstructions}
+            onMenuOpenChange={setMenuOpen}
+            onSubmit={(action) => {
+              setMenuOpen(false)
+              gitPromptRunPending.current = true
+              void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
+            }}
+          />
+        )
       ) : null}
     </GitShell>
+  )
+}
+
+function GitConflictBanner({ conflictCount }: { conflictCount: number }): React.JSX.Element {
+  return (
+    <div
+      aria-label="Unresolved Git conflicts"
+      className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+      role="status"
+    >
+      <p className="font-semibold">Unresolved Git conflicts</p>
+      <p className="mt-1">
+        {conflictCount === 1
+          ? '1 conflicted file needs resolution before commit or push.'
+          : `${conflictCount} conflicted files need resolution before commit or push.`}
+      </p>
+    </div>
+  )
+}
+
+function GitConflictResolver({
+  disabled,
+  instructions,
+  onInstructionsChange,
+  onResolve
+}: {
+  disabled: boolean
+  instructions: string
+  onInstructionsChange: (instructions: string) => void
+  onResolve: () => void
+}): React.JSX.Element {
+  return (
+    <footer className="shrink-0 space-y-3 border-t bg-background p-4">
+      <Textarea
+        aria-label="Commit instructions"
+        className="min-h-20 resize-none"
+        placeholder="Optional notes to keep for the next commit request…"
+        value={instructions}
+        onChange={(event) => onInstructionsChange(event.target.value)}
+      />
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-muted-foreground">
+          Sends a normal prompt to this Project Session agent to inspect fresh managed-worktree
+          state and resolve the conflict workflow.
+        </p>
+        <Button disabled={disabled} type="button" onClick={onResolve}>
+          Resolve with agent
+        </Button>
+      </div>
+    </footer>
   )
 }
 
@@ -802,12 +868,28 @@ function getActionAvailability(state: GitReviewState | null): Record<GitComposer
     return { commit: false, 'commit-and-push': false }
   }
 
+  if (getConflictFiles(state).length > 0) return { commit: false, 'commit-and-push': false }
+
   const hasChanges = state.files.length > 0
   const branchAhead = state.upstream.kind === 'tracked' && state.upstream.ahead > 0
   return {
     commit: state.status === 'ok' && hasChanges,
     'commit-and-push': hasChanges || branchAhead
   }
+}
+
+function getConflictFiles(state: GitReviewState | null): GitFileDiff[] {
+  if (!state || state.status !== 'ok') return []
+  return state.files.filter((file) => file.kind === 'conflicted')
+}
+
+function buildResolveConflictsPrompt(): string {
+  return [
+    'Please inspect the fresh Git state in this Project Session managed worktree and resolve the unresolved Git conflicts.',
+    'Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; run fresh Git status and diff commands in the managed worktree before acting.',
+    'Handle the complete conflict resolution workflow using your existing managed-worktree project capabilities: inspect conflicted files, edit resolutions, run appropriate validation, and report the final Git status in the normal Session transcript.',
+    'Do not commit or push unless I explicitly ask for that after the conflicts are resolved.'
+  ].join('\n\n')
 }
 
 function buildGitActionPrompt(
