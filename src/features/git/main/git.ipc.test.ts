@@ -68,6 +68,21 @@ describe('Git IPC observation lifecycle', () => {
     expect(sender.listenerCount('destroyed')).toBe(0)
   })
 
+  it('removes the sender destroyed listener when watcher startup rejects', async () => {
+    const sender = createSender()
+    const startupError = new Error('missing managed worktree')
+    observeProjectSession.mockRejectedValue(startupError)
+    const handler = handlers.get(GIT_IPC_CHANNELS.observeProjectSession)
+    if (!handler) throw new Error('observe handler was not registered')
+
+    await expect(handler({ sender }, { sessionId: 'session-1' })).rejects.toThrow('missing managed worktree')
+    expect(sender.listenerCount('destroyed')).toBe(0)
+
+    sender.destroyed = true
+    sender.emit('destroyed')
+    expect(sender.listenerCount('destroyed')).toBe(0)
+  })
+
   it('removes sender destroyed listeners on repeated observe and unobserve churn', async () => {
     const sender = createSender()
     const closes = [vi.fn(), vi.fn(), vi.fn()]

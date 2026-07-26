@@ -507,6 +507,9 @@ describe('GitTool', () => {
     })
     await screen.findByText('branch-a-staged')
     await userEvent.click(screen.getByRole('button', { name: /a-staged.txt/i }))
+    await waitFor(() => expect(screen.queryByText('+a-staged')).not.toBeInTheDocument())
+    const sessionAScroller = screen.getByLabelText('Git changed files')
+    fireEvent.scroll(sessionAScroller, { target: { scrollTop: 44 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'session a commit')
 
     rendered.rerender(<GitTool sessionId="session-b" />)
@@ -533,6 +536,7 @@ describe('GitTool', () => {
     await screen.findByText('branch-b')
     expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
 
     rendered.rerender(<GitTool sessionId="session-a" />)
     expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
@@ -555,6 +559,8 @@ describe('GitTool', () => {
     })
     await screen.findByText('branch-a-restored')
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('session a commit')
+    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 44)
+    expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
   })
 
   it('surfaces immediate setup and later watch errors while preserving Refresh and context isolation', async () => {
@@ -605,6 +611,11 @@ describe('GitTool', () => {
     })
     await screen.findByText(/Git auto-refresh unavailable: missing managed worktree/)
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() =>
+      expect(screen.getByText(/Git auto-refresh unavailable: missing managed worktree/)).toBeInTheDocument()
+    )
 
     rendered.rerender(<GitTool sessionId="session-b" />)
     await screen.findByText('branch-b')
@@ -622,6 +633,11 @@ describe('GitTool', () => {
 
     await screen.findByText(/Git auto-refresh unavailable: native watcher stopped/)
     expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    window.dispatchEvent(new Event('focus'))
+    await waitFor(() =>
+      expect(screen.getByText(/Git auto-refresh unavailable: native watcher stopped/)).toBeInTheDocument()
+    )
     expect(screen.queryByText('branch-a')).not.toBeInTheDocument()
   })
 
@@ -713,6 +729,9 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
+    await userEvent.click(screen.getByRole('button', { name: /staged.txt/i }))
+    await waitFor(() => expect(screen.queryByText('+staged')).not.toBeInTheDocument())
+    fireEvent.scroll(screen.getByLabelText('Git changed files'), { target: { scrollTop: 91 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'not persisted')
     rendered.unmount()
     resetGitToolViewMemoryForTests()
@@ -722,5 +741,6 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('')
+    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
   })
 })
