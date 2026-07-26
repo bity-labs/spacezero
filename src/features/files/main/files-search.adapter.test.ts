@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -128,6 +128,35 @@ describe('Files search adapter', () => {
         expect.objectContaining({ relativePath: 'foo/sub/bar' })
       ])
     )
+  })
+
+  it('does not start one git check-ignore process per traversed entry', async () => {
+    await execFileAsync('git', ['init'], { cwd: rootPath })
+    const realGitPath = (await execFileAsync('which', ['git'])).stdout.trim()
+    const shimPath = await mkdtemp(join(tmpdir(), 'spacezero-git-shim-'))
+    const logPath = join(shimPath, 'git-processes.log')
+    const gitShim = join(shimPath, 'git')
+    await writeFile(
+      gitShim,
+      `#!/bin/sh\ncase " $* " in\n  *" check-ignore "*) printf '%s\\n' check-ignore >> "${logPath}" ;;\nesac\nexec "${realGitPath}" "$@"\n`
+    )
+    await chmod(gitShim, 0o755)
+    const previousPath = process.env.PATH
+    process.env.PATH = `${shimPath}:${previousPath ?? ''}`
+
+    try {
+      for (let index = 0; index < 100; index += 1) {
+        await writeFile(join(rootPath, `file-${index}.txt`), 'needle')
+      }
+
+      await searchFiles(rootPath, searchRequest('needle', { maxResults: 100 }))
+
+      const checkIgnoreStartupCount = (await readFile(logPath, 'utf8')).trim().split('\n').length
+      expect(checkIgnoreStartupCount).toBe(1)
+    } finally {
+      process.env.PATH = previousPath
+      await rm(shimPath, { recursive: true, force: true })
+    }
   })
 
   it('stops before further filesystem work when an in-flight search is aborted', async () => {
