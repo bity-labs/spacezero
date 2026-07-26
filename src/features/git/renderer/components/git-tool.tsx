@@ -20,7 +20,9 @@ type GitFilesHandoff = {
   openLocation: (location: {
     relativePath: string
     line?: number
-  }) => Promise<{ status: 'opened' } | { status: 'failed'; message: string }>
+  }) => Promise<
+    { status: 'opened' } | { status: 'ignored' } | { status: 'failed'; message: string }
+  >
 }
 
 type GitToolProps = {
@@ -254,8 +256,10 @@ function GitDiffCard({
       onHandoffError(result.message)
       return
     }
-    onHandoffError(null)
-    filesHandoff.openFilesTool()
+    if (result.status === 'opened') {
+      onHandoffError(null)
+      filesHandoff.openFilesTool()
+    }
   }
   return (
     <section className="overflow-hidden rounded-lg border bg-card">

@@ -1,8 +1,26 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
+import { openFilesLocation } from '../../../files/renderer/files-open-location'
+import { useFilesStore } from '../../../files/renderer/files-store'
 import { GitTool } from './git-tool'
+
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
 
 describe('GitTool', () => {
   it('defaults to Uncommitted, requests by Project Session id, and renders collapsible saved text diffs', async () => {
@@ -457,6 +475,88 @@ describe('GitTool', () => {
       await screen.findByText('This file no longer exists. Refresh Git and Files, then try again.')
     ).toBeInTheDocument()
     expect(openFilesTool).not.toHaveBeenCalled()
+  })
+
+  it('does not switch Files when an earlier successful handoff is superseded by a pending request that fails', async () => {
+    const firstRead = deferred<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>()
+    const secondRead = deferred<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>()
+    window.spacezero.files.openDocument = vi
+      .fn()
+      .mockReturnValueOnce(firstRead.promise)
+      .mockReturnValueOnce(secondRead.promise)
+    const openFilesTool = vi.fn()
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'stale-then-fails.txt',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: '@@ -1 +1 @@\n+current\n'
+        }
+      ]
+    }))
+
+    render(
+      <GitTool
+        sessionId="session-1"
+        filesHandoff={{
+          openFilesTool,
+          openLocation: (location) =>
+            openFilesLocation({
+              contextKey: 'session-1',
+              ipcContext: { kind: 'project-session', sessionId: 'session-1' },
+              relativePath: location.relativePath,
+              line: location.line
+            })
+        }}
+      />
+    )
+
+    const fileButton = await screen.findByRole('button', { name: 'stale-then-fails.txt' })
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(1))
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      firstRead.resolve({
+        name: 'stale-then-fails.txt',
+        relativePath: 'stale-then-fails.txt',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'stale-success',
+        content: 'stale',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      await firstRead.promise
+    })
+
+    expect(openFilesTool).not.toHaveBeenCalled()
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'stale-then-fails.txt',
+      status: 'loading'
+    })
+
+    await act(async () => {
+      secondRead.reject(new Error('files.notFound'))
+      await secondRead.promise.catch(() => undefined)
+    })
+
+    expect(
+      await screen.findByText('This file no longer exists. Refresh Git and Files, then try again.')
+    ).toBeInTheDocument()
+    expect(openFilesTool).not.toHaveBeenCalled()
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'stale-then-fails.txt',
+      status: 'error',
+      message: 'This file no longer exists. Refresh Git and Files, then try again.'
+    })
   })
 
   it('renders missing-worktree failures without repository data', async () => {

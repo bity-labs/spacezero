@@ -67,13 +67,13 @@ type FilesStore = {
     targetLine?: number,
     revalidateExisting?: boolean
   ) => boolean
-  finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => void
+  finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => boolean
   failOpenTab: (
     sessionId: string,
     relativePath: string,
     message: string,
     openRequestId: number
-  ) => void
+  ) => boolean
   clearLocationTarget: (sessionId: string, relativePath: string, locationRequestId: number) => void
   activateTab: (sessionId: string, relativePath: string) => void
   promoteTab: (sessionId: string, relativePath: string) => void
@@ -161,7 +161,8 @@ const useFilesStore = create<FilesStore>()(
         })
         return shouldOpen
       },
-      finishOpenTab: (sessionId, document, openRequestId) =>
+      finishOpenTab: (sessionId, document, openRequestId) => {
+        let accepted = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const tab = context.tabs.find(
@@ -171,6 +172,7 @@ const useFilesStore = create<FilesStore>()(
               candidate.openRequestId === openRequestId
           )
           if (!tab) return state
+          accepted = true
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((candidate) =>
               candidate === tab
@@ -178,28 +180,35 @@ const useFilesStore = create<FilesStore>()(
                 : candidate
             )
           })
-        }),
-      failOpenTab: (sessionId, relativePath, message, openRequestId) =>
+        })
+        return accepted
+      },
+      failOpenTab: (sessionId, relativePath, message, openRequestId) => {
+        let accepted = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           return updateContext(state, sessionId, {
-            tabs: context.tabs.map((tab) =>
-              tab.relativePath === relativePath &&
-              tab.status === 'loading' &&
-              tab.openRequestId === openRequestId
-                ? {
-                    relativePath,
-                    name: pathName(relativePath),
-                    status: 'error' as const,
-                    message,
-                    preview: tab.preview,
-                    targetLine: tab.targetLine,
-                    locationRequestId: tab.locationRequestId
-                  }
-                : tab
-            )
+            tabs: context.tabs.map((tab) => {
+              const matchesRequest =
+                tab.relativePath === relativePath &&
+                tab.status === 'loading' &&
+                tab.openRequestId === openRequestId
+              if (!matchesRequest) return tab
+              accepted = true
+              return {
+                relativePath,
+                name: pathName(relativePath),
+                status: 'error' as const,
+                message,
+                preview: tab.preview,
+                targetLine: tab.targetLine,
+                locationRequestId: tab.locationRequestId
+              }
+            })
           })
-        }),
+        })
+        return accepted
+      },
       clearLocationTarget: (sessionId, relativePath, locationRequestId) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
