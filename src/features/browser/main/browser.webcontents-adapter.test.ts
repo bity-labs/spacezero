@@ -273,6 +273,7 @@ describe('ElectronBrowserViewAdapter', () => {
     expect(fakes.browserSession.clearStorageData).toHaveBeenCalledWith({
       storages: [
         'cookies',
+        'filesystem',
         'localstorage',
         'indexdb',
         'serviceworkers',
