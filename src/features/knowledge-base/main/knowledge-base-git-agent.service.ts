@@ -110,7 +110,7 @@ export function createKnowledgeBaseGitAgentService({
     const validated = knowledgeBaseGitPathListSchema.parse(input)
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
-        await assertWholeFilePaths(rootPath, validated.relativePaths)
+        await assertWholeFilePaths(rootPath, validated.relativePaths, host)
         await host.runGit(rootPath, ['--literal-pathspecs', 'add', '--', ...validated.relativePaths])
         return { stagedPaths: validated.relativePaths }
       })
@@ -121,7 +121,7 @@ export function createKnowledgeBaseGitAgentService({
     const validated = knowledgeBaseGitPathListSchema.parse(input)
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
-        await assertWholeFilePaths(rootPath, validated.relativePaths)
+        await assertWholeFilePaths(rootPath, validated.relativePaths, host)
         await host.runGit(rootPath, [
           '--literal-pathspecs',
           'restore',
@@ -187,7 +187,11 @@ export function createKnowledgeBaseGitAgentService({
   return { inspectRepository, stageFiles, unstageFiles, createCommit, getOriginRemote, configureOrigin, push }
 }
 
-async function assertWholeFilePaths(rootPath: string, relativePaths: readonly string[]): Promise<void> {
+async function assertWholeFilePaths(
+  rootPath: string,
+  relativePaths: readonly string[],
+  host: Pick<KnowledgeBaseGitHost, 'runGit'>
+): Promise<void> {
   await Promise.all(
     relativePaths.map(async (relativePath) => {
       try {
@@ -196,8 +200,37 @@ async function assertWholeFilePaths(rootPath: string, relativePaths: readonly st
           throw new Error(`Knowledge Base Git path must name a whole file: ${relativePath}`)
         }
       } catch (error) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return
-        throw error
+        if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) {
+          throw error
+        }
+
+        const indexPaths = (await host.runGit(rootPath, [
+          '--literal-pathspecs',
+          'ls-files',
+          '-z',
+          '--',
+          relativePath
+        ])).stdout
+          .split('\0')
+          .filter(Boolean)
+        const headPaths = (await host.runGit(rootPath, [
+          '--literal-pathspecs',
+          'ls-tree',
+          '-r',
+          '--name-only',
+          '-z',
+          'HEAD',
+          '--',
+          relativePath
+        ])).stdout
+          .split('\0')
+          .filter(Boolean)
+        const trackedPaths = [...new Set([...indexPaths, ...headPaths])]
+        if (trackedPaths.length !== 1 || trackedPaths[0] !== relativePath.replaceAll('\\', '/')) {
+          throw new Error(`Knowledge Base Git path must name a whole file: ${relativePath}`, {
+            cause: error
+          })
+        }
       }
     })
   )
@@ -212,7 +245,7 @@ function normalizeSupportedGitRemoteUrl(remoteUrl: string): string | null {
     if (!url.hostname || url.search || url.hash) return null
     if (url.protocol === 'https:' && (url.username || url.password)) return null
     if (url.protocol === 'ssh:' && url.password) return null
-    return sanitizeGitRemoteUrl(remoteUrl)
+    return remoteUrl
   } catch {
     if (/[?#\s]/.test(remoteUrl)) return null
     if (remoteUrl.startsWith('/') || remoteUrl.startsWith('./') || remoteUrl.startsWith('../')) {
