@@ -5,7 +5,14 @@ import { lstat, open, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 
-import type { GitChangeFilter, GitFileDiff, GitReviewState, GitUpstreamState } from '../shared'
+import type {
+  GitChangeFilter,
+  GitContext,
+  GitFileDiff,
+  GitReviewState,
+  GitUpstreamState
+} from '../shared'
+import type { KnowledgeBaseRootProvider } from '../../knowledge-base/main/knowledge-base-root.provider'
 import type { ManagedWorktreeService } from '../../sessions/main/managed-worktree.service'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 
@@ -37,57 +44,44 @@ const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath,
 export function createGitService({
   sessionsRepository,
   managedWorktreeService,
+  knowledgeBaseRootProvider,
   runGit = runGitCli,
   fileSystem = defaultUntrackedFileSystem,
   pathFlavor = path
 }: {
   sessionsRepository: SessionsRepository
   managedWorktreeService: ManagedWorktreeService
+  knowledgeBaseRootProvider?: KnowledgeBaseRootProvider
   runGit?: GitRunner
   fileSystem?: UntrackedFileSystem
   pathFlavor?: PathFlavor
 }) {
-  async function getProjectSessionReview(
-    sessionId: string,
+  async function getReview(
+    context: GitContext,
     filter: GitChangeFilter = 'uncommitted'
   ): Promise<GitReviewState> {
-    const session = await sessionsRepository.findSessionById(sessionId)
-    if (!session || !session.projectId) {
-      return { status: 'missing-worktree', message: 'Project Session not found.' }
-    }
-
-    const worktree = getSessionWorktree(session)
-    if (!worktree) {
-      return { status: 'missing-worktree', message: 'This Project Session has no managed worktree.' }
-    }
-
-    const project = await sessionsRepository.findProjectById(session.projectId)
-    if (!project || project.archivedAt) {
-      return { status: 'inaccessible', message: 'The Project for this Session is unavailable.' }
-    }
-
-    const valid = await managedWorktreeService.validate({
-      projectPath: project.path,
-      projectId: session.projectId,
-      sessionId: session.id,
-      worktree
-    })
-    if (!valid) {
-      return { status: 'inaccessible', message: 'The managed worktree could not be authenticated.' }
-    }
+    const root = await resolveGitRootPath(context)
+    if (!root.ok) return root.state
 
     try {
-      const branch = await getBranch(worktree.path, runGit)
-      const upstream = await getUpstream(worktree.path, runGit)
+      const branch = await getBranch(root.path, runGit)
+      const upstream = await getUpstream(root.path, runGit)
       const statuses = parsePorcelainStatus(
-        (await runGit({ cwd: worktree.path, args: ['status', '--porcelain=v1', '-z', '--untracked-files=all'] })).stdout
+        (
+          await runGit({
+            cwd: root.path,
+            args: ['status', '--porcelain=v1', '-z', '--untracked-files=all']
+          })
+        ).stdout
       ).filter((status) => statusMatchesFilter(status, filter))
       const files = await Promise.all(
         statuses.map((status) =>
-          createFileDiff({ cwd: worktree.path, status, filter, runGit, fileSystem, pathFlavor })
+          createFileDiff({ cwd: root.path, status, filter, runGit, fileSystem, pathFlavor })
         )
       )
-      const sorted = files.filter((file): file is GitFileDiff => file !== null).sort(compareFileDiffs)
+      const sorted = files
+        .filter((file): file is GitFileDiff => file !== null)
+        .sort(compareFileDiffs)
       return sorted.length === 0
         ? { status: 'clean', branch, upstream, files: [] }
         : { status: 'ok', branch, upstream, files: sorted }
@@ -99,11 +93,20 @@ export function createGitService({
     }
   }
 
-  async function observeProjectSession(
+  async function getProjectSessionReview(
     sessionId: string,
-    onEvent: (event: { kind: 'repository-changed' } | { kind: 'watch-error'; message: string }) => void
+    filter: GitChangeFilter = 'uncommitted'
+  ): Promise<GitReviewState> {
+    return getReview({ kind: 'project-session', sessionId }, filter)
+  }
+
+  async function observe(
+    context: GitContext,
+    onEvent: (
+      event: { kind: 'repository-changed' } | { kind: 'watch-error'; message: string }
+    ) => void
   ): Promise<() => void> {
-    const root = await resolveProjectSessionWorktreePath(sessionId)
+    const root = await resolveGitRootPath(context)
     if (!root.ok) {
       onEvent({ kind: 'watch-error', message: root.message })
       return () => undefined
@@ -145,22 +148,50 @@ export function createGitService({
     return close
   }
 
-  async function resolveProjectSessionWorktreePath(
-    sessionId: string
-  ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
+  async function observeProjectSession(
+    sessionId: string,
+    onEvent: (
+      event: { kind: 'repository-changed' } | { kind: 'watch-error'; message: string }
+    ) => void
+  ): Promise<() => void> {
+    return observe({ kind: 'project-session', sessionId }, onEvent)
+  }
+
+  async function resolveGitRootPath(
+    context: GitContext
+  ): Promise<{ ok: true; path: string } | { ok: false; state: GitReviewState; message: string }> {
+    if (context.kind === 'knowledge-base') {
+      if (!knowledgeBaseRootProvider) {
+        const message = 'Knowledge Base Git is unavailable.'
+        return { ok: false, message, state: { status: 'inaccessible', message } }
+      }
+      try {
+        return { ok: true, path: await knowledgeBaseRootProvider.getVerifiedRoot() }
+      } catch (error) {
+        const message = boundedErrorMessage(
+          error instanceof Error ? error.message : 'Knowledge Base repository is unavailable.'
+        )
+        return { ok: false, message, state: { status: 'inaccessible', message } }
+      }
+    }
+
+    const sessionId = context.sessionId
     const session = await sessionsRepository.findSessionById(sessionId)
     if (!session || !session.projectId) {
-      return { ok: false, message: 'Project Session not found.' }
+      const message = 'Project Session not found.'
+      return { ok: false, message, state: { status: 'missing-worktree', message } }
     }
 
     const worktree = getSessionWorktree(session)
     if (!worktree) {
-      return { ok: false, message: 'This Project Session has no managed worktree.' }
+      const message = 'This Project Session has no managed worktree.'
+      return { ok: false, message, state: { status: 'missing-worktree', message } }
     }
 
     const project = await sessionsRepository.findProjectById(session.projectId)
     if (!project || project.archivedAt) {
-      return { ok: false, message: 'The Project for this Session is unavailable.' }
+      const message = 'The Project for this Session is unavailable.'
+      return { ok: false, message, state: { status: 'inaccessible', message } }
     }
 
     const valid = await managedWorktreeService.validate({
@@ -170,13 +201,14 @@ export function createGitService({
       worktree
     })
     if (!valid) {
-      return { ok: false, message: 'The managed worktree could not be authenticated.' }
+      const message = 'The managed worktree could not be authenticated.'
+      return { ok: false, message, state: { status: 'inaccessible', message } }
     }
 
     return { ok: true, path: worktree.path }
   }
 
-  return { getProjectSessionReview, observeProjectSession }
+  return { getReview, getProjectSessionReview, observe, observeProjectSession }
 }
 
 async function resolveGitDir(cwd: string, pathFlavor: PathFlavor): Promise<string | null> {
@@ -224,7 +256,9 @@ async function getUpstream(cwd: string, runGit: GitRunner): Promise<GitUpstreamS
     allowFailure: true
   })
   if (counts.exitCode !== 0) {
-    throw new Error(counts.stderr.trim() || counts.stdout.trim() || 'Git upstream count query failed.')
+    throw new Error(
+      counts.stderr.trim() || counts.stdout.trim() || 'Git upstream count query failed.'
+    )
   }
   const [ahead = '0', behind = '0'] = counts.stdout.trim().split(/\s+/)
   return { kind: 'tracked', name, ahead: Number(ahead) || 0, behind: Number(behind) || 0 }
@@ -292,7 +326,9 @@ async function createFileDiff({
       }
     }
     throw new Error(
-      boundedErrorMessage(diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`)
+      boundedErrorMessage(
+        diff.stderr.trim() || diff.stdout.trim() || `Git diff query failed for ${status.path}.`
+      )
     )
   }
   const content = diff.stdout
@@ -380,10 +416,10 @@ function isPathInsideDirectory(path: string, directory: string, pathFlavor: Path
   const relativePath = pathFlavor.relative(directory, path)
   return (
     relativePath === '' ||
-    Boolean(relativePath) &&
+    (Boolean(relativePath) &&
       !pathFlavor.isAbsolute(relativePath) &&
       !relativePath.startsWith('..') &&
-      !relativePath.split(/[\\/]+/).includes('..')
+      !relativePath.split(/[\\/]+/).includes('..'))
   )
 }
 
@@ -418,8 +454,8 @@ function isUnmergedStatus(status: PorcelainStatus): boolean {
   return (
     status.x === 'U' ||
     status.y === 'U' ||
-    status.x === 'A' && status.y === 'A' ||
-    status.x === 'D' && status.y === 'D'
+    (status.x === 'A' && status.y === 'A') ||
+    (status.x === 'D' && status.y === 'D')
   )
 }
 
@@ -452,9 +488,12 @@ async function runGitCli({
       exitCode: getExecCode(error)
     }
     if (allowFailure) return result
-    throw new Error(boundedErrorMessage(result.stderr.trim() || result.stdout.trim() || 'Git command failed.'), {
-      cause: error
-    })
+    throw new Error(
+      boundedErrorMessage(result.stderr.trim() || result.stdout.trim() || 'Git command failed.'),
+      {
+        cause: error
+      }
+    )
   }
 }
 
@@ -463,5 +502,7 @@ function getExecText(error: unknown, field: 'stdout' | 'stderr'): string {
 }
 
 function getExecCode(error: unknown): number {
-  return typeof error === 'object' && error !== null && 'code' in error ? Number(error.code) || 1 : 1
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? Number(error.code) || 1
+    : 1
 }
