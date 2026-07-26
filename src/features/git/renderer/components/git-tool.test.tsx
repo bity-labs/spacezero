@@ -402,6 +402,79 @@ describe('GitTool', () => {
     expect(message).not.toContain('+change')
   })
 
+  it('does not let a stale Knowledge Base session lookup overwrite a newer session-change event', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    const initialLookup = deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentSession>>>()
+    const session1 = {
+      id: 'knowledge-base-session-1',
+      kind: 'workspace' as const,
+      title: 'Knowledge Base Chat',
+      status: 'idle' as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const session2 = { ...session1, id: 'knowledge-base-session-2' }
+    window.spacezero.knowledgeBase.getCurrentSession = vi.fn(() => initialLookup.promise)
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'workspace' as const,
+      projectId: null,
+      cwd: '/tmp/spacezero-workspace-sessions',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'notes/kb.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/notes/kb.md b/notes/kb.md\n+change\n'
+        }
+      ]
+    }))
+
+    render(<GitTool context={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }} />)
+    await waitFor(() => expect(window.spacezero.knowledgeBase.getCurrentSession).toHaveBeenCalled())
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spacezero:knowledge-base-session-changed', { detail: session2 })
+      )
+    })
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({
+        sessionId: 'knowledge-base-session-2'
+      })
+    )
+
+    await act(async () => {
+      initialLookup.resolve(session1)
+      await initialLookup.promise
+    })
+    await userEvent.click(await screen.findByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'knowledge-base-session-2',
+      message: expect.stringContaining('verified Knowledge Base repository')
+    })
+    expect(prompt).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'knowledge-base-session-1' })
+    )
+  })
+
   it('passes composer text as preferred commit instructions without changing the saved primary action', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined

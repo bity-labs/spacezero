@@ -183,6 +183,29 @@ describe('createKnowledgeBaseTools', () => {
     expect(stage.inputSchema.safeParse({ relativePaths: ['.git/config'] }).success).toBe(false)
   })
 
+  it('validates and sanitizes Knowledge Base origin configuration input', () => {
+    const configureOrigin = findTool(createTools(), 'knowledgeBase.git.configureOrigin')
+
+    expect(configureOrigin.inputSchema.safeParse({ gitUrl: 'https://github.com/org/kb.git' }).success).toBe(true)
+    expect(configureOrigin.inputSchema.safeParse({ gitUrl: 'git@github.com:org/kb.git' }).success).toBe(true)
+    for (const gitUrl of [
+      '/tmp/target.git',
+      'file:///tmp/target.git',
+      'ext::sh -c whoami',
+      'https://token@github.com/org/kb.git',
+      'https://github.com/org/kb.git?secret=yes'
+    ]) {
+      expect(configureOrigin.inputSchema.safeParse({ gitUrl }).success).toBe(false)
+    }
+
+    const parsed = configureOrigin.inputSchema.parse({
+      gitUrl: 'ssh://git@github.com/org/kb.git'
+    })
+    expect(configureOrigin.confirmationSummary?.(parsed)).toBe(
+      'Configure Knowledge Base origin: ssh://github.com/org/kb.git'
+    )
+  })
+
   it('routes Git tool handlers through the Knowledge Base Git service', async () => {
     const gitService = createGitService()
     const tools = createTools(createFilesService(), gitService)
@@ -196,14 +219,14 @@ describe('createKnowledgeBaseTools', () => {
 
     await expect(
       findTool(tools, 'knowledgeBase.git.configureOrigin').handler({
-        gitUrl: 'https://token@example.com/org/kb.git'
+        gitUrl: 'https://example.com/org/kb.git'
       })
     ).resolves.toEqual({
       ok: true,
       data: { configured: true, url: 'https://github.com/org/kb.git' }
     })
     expect(gitService.configureOrigin).toHaveBeenCalledWith({
-      gitUrl: 'https://token@example.com/org/kb.git'
+      gitUrl: 'https://example.com/org/kb.git'
     })
   })
 })

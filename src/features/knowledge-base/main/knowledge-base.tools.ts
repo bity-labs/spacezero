@@ -12,6 +12,7 @@ import {
   knowledgeBaseGitPushSchema,
   type KnowledgeBaseGitAgentService
 } from './knowledge-base-git-agent.service'
+import { sanitizeGitRemoteUrl } from './knowledge-base-git-security'
 import type { KnowledgeBaseFilesService } from './knowledge-base-files.service'
 import { getKnowledgeBaseGitAgentService, getKnowledgeBaseService } from './index'
 
@@ -182,7 +183,7 @@ export function createKnowledgeBaseTools(
         required: ['gitUrl']
       },
       confirmationSummary: (input) =>
-        `Configure Knowledge Base origin: ${input.gitUrl.replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/?#]*@/gi, '$1')}`,
+        `Configure Knowledge Base origin: ${sanitizeGitRemoteUrl(input.gitUrl)}`,
       handler: async (input) => ({ ok: true, data: await gitService.configureOrigin(input) })
     }),
     defineWorkspaceTool({

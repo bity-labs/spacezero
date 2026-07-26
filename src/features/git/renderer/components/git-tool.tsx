@@ -88,20 +88,24 @@ function KnowledgeBaseGitTool({
   filesHandoff?: GitFilesHandoff
 }): React.JSX.Element {
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const sessionLookupSequence = useRef(0)
 
   useEffect(() => {
     let canceled = false
     const loadCurrentSession = async (): Promise<void> => {
+      const requestId = (sessionLookupSequence.current += 1)
       const session = await window.spacezero.knowledgeBase.getCurrentSession()
-      if (!canceled) setSessionId(session.id)
+      if (!canceled && requestId === sessionLookupSequence.current) setSessionId(session.id)
     }
     const onFocus = (): void => {
       void loadCurrentSession()
     }
     const onSessionChanged = (event: Event): void => {
       const detail = (event as CustomEvent<WorkspaceSession>).detail
-      if (detail?.id) setSessionId(detail.id)
-      else void loadCurrentSession()
+      if (detail?.id) {
+        sessionLookupSequence.current += 1
+        setSessionId(detail.id)
+      } else void loadCurrentSession()
     }
     void loadCurrentSession()
     window.addEventListener(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, onSessionChanged)
