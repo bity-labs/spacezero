@@ -95,7 +95,8 @@ beforeEach(async () => {
           hasBom: false,
           lineEnding: 'lf'
         }
-      })
+      }),
+      revealInSystemFileManager: async () => undefined
     },
     git: {
       getReview: async () => ({

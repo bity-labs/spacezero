@@ -1,7 +1,8 @@
 export const FILES_IPC_CHANNELS = {
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
-  saveDocument: 'files:saveDocument'
+  saveDocument: 'files:saveDocument',
+  revealInSystemFileManager: 'files:revealInSystemFileManager'
 } as const
 
 export const KNOWLEDGE_BASE_FILES_CONTEXT_KEY = 'knowledge-base' as const
@@ -50,19 +51,34 @@ export type FilesTextDocument = FilesDocumentBase & {
   lineEnding: 'lf' | 'crlf'
 }
 
-export type FilesMetadataDocument = FilesDocumentBase & {
-  contentKind: 'binary' | 'oversized'
+export type FilesImageDocument = FilesDocumentBase & {
+  contentKind: 'image'
+  classification: 'image'
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+  dataUrl: string
   content?: undefined
 }
 
-export type FilesDocument = FilesTextDocument | FilesMetadataDocument
+export type FilesMetadataDocument = FilesDocumentBase & {
+  contentKind: 'binary' | 'oversized'
+  classification: 'binary' | 'oversized-text' | 'oversized-image'
+  content?: undefined
+}
+
+export type FilesDocument = FilesTextDocument | FilesImageDocument | FilesMetadataDocument
 
 export type SaveFilesDocumentResult =
   | { status: 'saved'; document: FilesTextDocument }
   | { status: 'conflict'; document: FilesDocument }
 
+export type RevealFilesEntryRequest = {
+  context: FilesContext
+  relativePath: string
+}
+
 export type FilesAPI = {
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>
+  revealInSystemFileManager: (request: RevealFilesEntryRequest) => Promise<void>
 }

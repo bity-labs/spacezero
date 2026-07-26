@@ -4,6 +4,7 @@ import type {
   FilesEntry,
   ListFilesDirectoryRequest,
   OpenFilesDocumentRequest,
+  RevealFilesEntryRequest,
   SaveFilesDocumentRequest,
   SaveFilesDocumentResult
 } from '../shared'
@@ -60,7 +61,8 @@ export function createFilesService({
   operations,
   readDirectory,
   openDocument,
-  saveDocument
+  saveDocument,
+  revealEntry
 }: {
   repository: FilesRepository
   worktrees: FilesWorktreeValidator
@@ -72,6 +74,7 @@ export function createFilesService({
     rootPath: string,
     request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
+  revealEntry: (rootPath: string, relativePath: string) => Promise<void>
 }) {
   return {
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
@@ -93,6 +96,11 @@ export function createFilesService({
           expectedRevision: request.expectedRevision
         })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async revealInSystemFileManager(request: RevealFilesEntryRequest): Promise<void> {
+      const root = await resolveFilesRoot(request.context)
+      return revealEntry(root.path, request.relativePath)
     }
   }
 

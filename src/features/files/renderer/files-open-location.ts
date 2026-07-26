@@ -63,7 +63,8 @@ export async function openFilesLocation({
   }
 }
 
-function filesUnsupportedDocumentMessage(contentKind: 'binary' | 'oversized'): string {
+function filesUnsupportedDocumentMessage(contentKind: 'binary' | 'oversized' | 'image'): string {
+  if (contentKind === 'image') return 'This image can be previewed but not edited in Files.'
   return contentKind === 'oversized'
     ? 'This file is larger than 2 MiB and cannot be edited in Files.'
     : 'This file is binary and cannot be edited in Files.'
