@@ -91,6 +91,14 @@ async function setupSessionsIpcHarness({
   vi.doMock('../../terminal/main/terminal.runtime', () => ({
     getTerminalService: () => terminalService
   }))
+  vi.doMock('../../browser/main/browser.ipc', () => ({
+    getBrowserService: () => ({
+      closeSessionContext: vi.fn(),
+      closeKnowledgeBaseContext: vi.fn(),
+      destroySessionContext: vi.fn(async () => undefined),
+      destroyKnowledgeBaseContext: vi.fn(async () => undefined)
+    })
+  }))
   vi.doMock('../../agent-workspace/main/agent-session-handler', () => ({
     createManagedProjectAgentSession: vi.fn()
   }))

@@ -1,5 +1,6 @@
 import { ipcMain, shell } from 'electron'
 
+import { getDatabase } from '../../../main/db'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   browserCloseTabRequestSchema,
@@ -15,6 +16,7 @@ import {
 import { createKnowledgeBaseChatRepository } from '../../knowledge-base/main/knowledge-base-chat.repository'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { BrowserService } from './browser.service'
+import { createBrowserTabsRepository } from './browser-tabs.repository'
 import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
 
 const sessionsRepository = createSessionsRepository()
@@ -29,7 +31,8 @@ const browserService = new BrowserService(
   },
   {
     openExternal: (url) => shell.openExternal(url)
-  }
+  },
+  createBrowserTabsRepository(getDatabase)
 )
 browserViewAdapter.setService(browserService)
 
