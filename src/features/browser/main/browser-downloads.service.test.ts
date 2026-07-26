@@ -152,6 +152,42 @@ describe('BrowserDownloadsService', () => {
     ])
   })
 
+  it('defers early completion until Save As accepts a main-owned destination', async () => {
+    const item = new FakeDownloadItem('archive.zip')
+    const saveDialog = createDeferred<string | null>()
+    const { service, nativeOperations, events } = createService({ showSaveDialog: vi.fn(() => saveDialog.promise) })
+
+    const started = service.handleDownloadStarted('tab-1', item)
+    await vi.waitFor(() => expect(events.at(-1)?.download.status).toBe('selecting-save-location'))
+    item.receivedBytes = 100
+    item.emitDone('completed')
+
+    expect(events.map((event) => event.download.status)).toEqual(['selecting-save-location'])
+
+    saveDialog.resolve('/safe/archive.zip')
+    await started
+
+    expect(item.savePath).toBe('/safe/archive.zip')
+    expect(item.resumed).toBe(false)
+    expect(events.map((event) => event.download.status)).toEqual([
+      'selecting-save-location',
+      'completed'
+    ])
+    expect(events.at(-1)?.download).toMatchObject({
+      tabId: 'tab-1',
+      filename: 'archive.zip',
+      receivedBytes: 100,
+      totalBytes: 100
+    })
+    expect(JSON.stringify(events)).not.toContain('/safe/archive.zip')
+
+    const downloadId = events.at(-1)?.download.id
+    await service.openCompletedDownload({ downloadId: downloadId! })
+    await service.revealCompletedDownload({ downloadId: downloadId! })
+    expect(nativeOperations.openPath).toHaveBeenCalledWith('/safe/archive.zip')
+    expect(nativeOperations.revealInFolder).toHaveBeenCalledWith('/safe/archive.zip')
+  })
+
   it('does not resume or overwrite interrupted downloads when Save As resolves later', async () => {
     const item = new FakeDownloadItem('archive.zip')
     const saveDialog = createDeferred<string | null>()
