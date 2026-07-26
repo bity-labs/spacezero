@@ -23,7 +23,7 @@ export function createSessionCleanupService({
   closeTerminalsForDeletion = async ({ sessions }) => {
     for (const session of sessions) await closeTerminalsForSession(session)
   },
-  closeBrowsersForSession = () => undefined,
+  closeBrowsersForSession = async () => undefined,
   withProjectLifecycleLock = async (_projectId, operation) => operation()
 }: {
   repository: SessionCleanupRepository
@@ -32,7 +32,7 @@ export function createSessionCleanupService({
   removeTranscript: (path: string) => Promise<void>
   closeTerminalsForSession?: (session: StoredSession) => Promise<void>
   closeTerminalsForDeletion?: (request: TerminalDeletionRequest) => Promise<void>
-  closeBrowsersForSession?: (session: StoredSession) => void
+  closeBrowsersForSession?: (session: StoredSession) => Promise<void>
   withProjectLifecycleLock?: ProjectLifecycleLock
 }) {
   const deleteOperationsBySession = new Map<string, Promise<void>>()
@@ -94,7 +94,7 @@ export function createSessionCleanupService({
     session: StoredSession,
     project: StoredProject
   ): Promise<void> {
-    closeBrowsersForSession(session)
+    await closeBrowsersForSession(session)
     await deleteUtilitySession({ sessionId: session.id })
 
     const worktree = readStoredWorktree(session)

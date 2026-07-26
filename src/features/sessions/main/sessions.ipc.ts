@@ -20,10 +20,10 @@ const sessionsService = createSessionsService({ repository: sessionsRepository }
 
 function closeBrowserContextForSession(session: { id: string; projectId: string | null; managedContext?: 'knowledge-base' | null }): void {
   if (session.managedContext === 'knowledge-base') {
-    getBrowserService().destroyKnowledgeBaseContext()
+    getBrowserService().closeKnowledgeBaseContext()
     return
   }
-  getBrowserService().destroySessionContext(session.id)
+  getBrowserService().closeSessionContext(session.id)
 }
 
 export function registerSessionsIpc(): void {

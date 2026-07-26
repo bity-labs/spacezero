@@ -73,10 +73,31 @@ export type BrowserContextRepository = {
   getCurrentKnowledgeBaseSessionId: () => Promise<string | undefined>
 }
 
+type BrowserRuntimeTab = BrowserTab & {
+  restoredUrl: string | null
+  hasLoadedRestoredUrl: boolean
+}
+
 type BrowserContextState = {
+  context: BrowserContext
   contextKey: string
   activeTabId: string
-  tabs: BrowserTab[]
+  tabs: BrowserRuntimeTab[]
+}
+
+export type BrowserPersistedTab = {
+  context: BrowserContext
+  tabId: string
+  order: number
+  active: boolean
+  url: string | null
+}
+
+export type BrowserTabsRepository = {
+  listByContext: (context: BrowserContext) => Promise<BrowserPersistedTab[]>
+  replaceContext: (context: BrowserContext, tabs: BrowserPersistedTab[]) => Promise<void> | void
+  deleteContext: (context: BrowserContext) => Promise<void> | void
+  deleteContextKey: (contextKey: string) => Promise<void> | void
 }
 
 type BrowserEventListener = (event: BrowserEvent) => void
@@ -88,7 +109,8 @@ export class BrowserService {
   constructor(
     private readonly adapter: BrowserViewAdapter,
     private readonly contextRepository?: BrowserContextRepository,
-    private readonly externalOpener?: BrowserExternalOpener
+    private readonly externalOpener?: BrowserExternalOpener,
+    private readonly tabsRepository?: BrowserTabsRepository
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -100,6 +122,8 @@ export class BrowserService {
     const tab = this.resolveTab(context, request.tabId)
     const url = normalizeBrowserUrl(request.input)
     tab.url = url
+    tab.restoredUrl = null
+    tab.hasLoadedRestoredUrl = true
     clearPageMetadata(tab)
     tab.error = null
     tab.isLoading = true
@@ -166,10 +190,12 @@ export class BrowserService {
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
+    const loadedRestoredTab = this.loadRestoredTabIfNeeded(tab)
     for (const otherTab of context.tabs) {
       if (otherTab.id !== tab.id) this.adapter.hideView(otherTab.id)
     }
     this.adapter.showView(tab.id, request.bounds, request.shortcutBindings, sender)
+    if (loadedRestoredTab) return this.publishState(context)
     return toBrowserState(context)
   }
 
@@ -187,6 +213,8 @@ export class BrowserService {
     if (request.input) {
       const url = normalizeBrowserUrl(request.input)
       tab.url = url
+      tab.restoredUrl = null
+      tab.hasLoadedRestoredUrl = true
       clearPageMetadata(tab)
       tab.error = null
       tab.isLoading = true
@@ -200,6 +228,7 @@ export class BrowserService {
     const tab = context.tabs.find((candidate) => candidate.id === request.tabId)
     if (!tab) throw new Error('Browser tab is not authorized for this context.')
     context.activeTabId = tab.id
+    this.loadRestoredTabIfNeeded(tab)
     return this.publishState(context)
   }
 
@@ -236,31 +265,39 @@ export class BrowserService {
     if (reorderedTabs.some((tab) => !tab)) {
       throw new Error('Browser tab order must contain each context tab exactly once.')
     }
-    context.tabs = reorderedTabs as BrowserTab[]
+    context.tabs = reorderedTabs as BrowserRuntimeTab[]
     return this.publishState(context)
   }
 
-  destroyContext(context: BrowserContext): void {
-    const contextKey = browserContextKey(context)
-    const state = this.contexts.get(contextKey)
-    if (!state) return
-    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
-    this.contexts.delete(contextKey)
+  closeContext(context: BrowserContext): void {
+    this.closeContextKey(browserContextKey(context))
   }
 
-  destroySessionContext(sessionId: string): void {
-    const state = this.contexts.get(`session:${sessionId}`)
-    if (!state) return
-    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
-    this.contexts.delete(state.contextKey)
+  closeSessionContext(sessionId: string): void {
+    this.closeContextKey(`session:${sessionId}`)
   }
 
-  destroyProjectSessionContext(sessionId: string, projectId: string): void {
-    this.destroyContext({ kind: 'project-session', projectId, sessionId })
+  closeKnowledgeBaseContext(): void {
+    this.closeContextKey(browserContextKey({ kind: 'knowledge-base' }))
   }
 
-  destroyKnowledgeBaseContext(): void {
-    this.destroyContext({ kind: 'knowledge-base' })
+  async destroyContext(context: BrowserContext): Promise<void> {
+    this.closeContext(context)
+    await this.tabsRepository?.deleteContext(context)
+  }
+
+  async destroySessionContext(sessionId: string): Promise<void> {
+    const contextKey = `session:${sessionId}`
+    this.closeContextKey(contextKey)
+    await this.tabsRepository?.deleteContextKey(contextKey)
+  }
+
+  async destroyProjectSessionContext(sessionId: string, projectId: string): Promise<void> {
+    await this.destroyContext({ kind: 'project-session', projectId, sessionId })
+  }
+
+  async destroyKnowledgeBaseContext(): Promise<void> {
+    await this.destroyContext({ kind: 'knowledge-base' })
   }
 
   removeNativeClosedTabs(tabIds: string[]): void {
@@ -305,6 +342,8 @@ export class BrowserService {
     } else {
       found.tab.url = url
     }
+    found.tab.restoredUrl = null
+    found.tab.hasLoadedRestoredUrl = true
     found.tab.error = null
     if (history) {
       found.tab.canGoBack = history.canGoBack
@@ -412,23 +451,61 @@ export class BrowserService {
     const contextKey = await this.assertAuthorizedContext(request)
     let context = this.contexts.get(contextKey)
     if (!context) {
-      const tab = this.createBlankTab()
-      context = { contextKey, activeTabId: tab.id, tabs: [tab] }
+      context = await this.restoreContext(request.context, contextKey)
       this.contexts.set(contextKey, context)
     }
     return context
   }
 
-  private createBlankTab(): BrowserTab {
-    const tab: BrowserTab = {
-      id: `browser-tab-${nanoid()}`,
-      url: null,
+  private async restoreContext(
+    context: BrowserContext,
+    contextKey: string
+  ): Promise<BrowserContextState> {
+    const persistedTabs = (await this.tabsRepository?.listByContext(context)) ?? []
+    const validTabs = persistedTabs.flatMap((tab) => {
+      if (!tab.context || !tab.tabId) return []
+      const url = normalizePersistedBrowserUrl(tab.url)
+      if (url === undefined) return []
+      return [{ ...tab, url }]
+    })
+    if (validTabs.length === 0) {
+      const tab = this.createBlankTab()
+      const state = { context, contextKey, activeTabId: tab.id, tabs: [tab] }
+      await this.persistContext(state)
+      return state
+    }
+
+    const tabs = validTabs.map((tab) => this.createRestoredTab(tab.tabId, tab.url))
+    const activeTab = validTabs.find((tab) => tab.active)?.tabId
+    const activeTabId =
+      activeTab && tabs.some((tab) => tab.id === activeTab) ? activeTab : tabs[0].id
+    return { context, contextKey, activeTabId, tabs }
+  }
+
+  private createBlankTab(): BrowserRuntimeTab {
+    return this.createRuntimeTab(`browser-tab-${nanoid()}`, null, true)
+  }
+
+  private createRestoredTab(tabId: string, url: string | null): BrowserRuntimeTab {
+    return this.createRuntimeTab(tabId, url, !url)
+  }
+
+  private createRuntimeTab(
+    tabId: string,
+    url: string | null,
+    hasLoadedRestoredUrl: boolean
+  ): BrowserRuntimeTab {
+    const tab: BrowserRuntimeTab = {
+      id: tabId,
+      url,
       title: null,
       faviconUrl: null,
       isLoading: false,
       canGoBack: false,
       canGoForward: false,
-      error: null
+      error: null,
+      restoredUrl: url,
+      hasLoadedRestoredUrl
     }
     this.adapter.createView(tab.id, {
       partition: BROWSER_PARTITION,
@@ -437,8 +514,32 @@ export class BrowserService {
     return tab
   }
 
-  private resolveTab(context: BrowserContextState, requestedTabId: string | undefined): BrowserTab {
-    const tab = context.tabs.find((candidate) => candidate.id === requestedTabId) ?? context.tabs[0]
+  private closeContextKey(contextKey: string): void {
+    const state = this.contexts.get(contextKey)
+    if (!state) return
+    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    this.contexts.delete(contextKey)
+  }
+
+  private loadRestoredTabIfNeeded(tab: BrowserRuntimeTab): boolean {
+    if (!tab.restoredUrl || tab.hasLoadedRestoredUrl) return false
+    tab.hasLoadedRestoredUrl = true
+    tab.isLoading = true
+    tab.error = null
+    tab.canGoBack = false
+    tab.canGoForward = false
+    this.adapter.loadUrl(tab.id, tab.restoredUrl)
+    return true
+  }
+
+  private resolveTab(
+    context: BrowserContextState,
+    requestedTabId: string | undefined
+  ): BrowserRuntimeTab {
+    const tab =
+      context.tabs.find((candidate) => candidate.id === requestedTabId) ??
+      context.tabs.find((candidate) => candidate.id === context.activeTabId) ??
+      context.tabs[0]
     if (!tab) throw new Error('Browser context has no active tab.')
     context.activeTabId = tab.id
     return tab
@@ -446,7 +547,7 @@ export class BrowserService {
 
   private findTabWithContext(
     tabId: string
-  ): { context: BrowserContextState; tab: BrowserTab } | undefined {
+  ): { context: BrowserContextState; tab: BrowserRuntimeTab } | undefined {
     for (const context of this.contexts.values()) {
       const tab = context.tabs.find((candidate) => candidate.id === tabId)
       if (tab) return { context, tab }
@@ -456,8 +557,22 @@ export class BrowserService {
 
   private publishState(context: BrowserContextState): BrowserState {
     const state = toBrowserState(context)
+    void this.persistContext(context)
     this.publishEvent({ type: 'state-changed', contextKey: context.contextKey, state })
     return state
+  }
+
+  private async persistContext(context: BrowserContextState): Promise<void> {
+    await this.tabsRepository?.replaceContext(
+      context.context,
+      context.tabs.map((tab, order) => ({
+        context: context.context,
+        tabId: tab.id,
+        order,
+        active: tab.id === context.activeTabId,
+        url: tab.url
+      }))
+    )
   }
 
   private publishCommand(
@@ -547,6 +662,15 @@ export function normalizeExternalBrowserUrl(input: string): string {
   return url.toString()
 }
 
+function normalizePersistedBrowserUrl(input: string | null): string | null | undefined {
+  if (input === null) return null
+  try {
+    return normalizeExternalBrowserUrl(input)
+  } catch {
+    return undefined
+  }
+}
+
 function normalizeExplicitHttpUrl(input: string): string {
   let url: URL
   try {
@@ -626,6 +750,15 @@ function toBrowserState(context: BrowserContextState): BrowserState {
   return {
     contextKey: context.contextKey,
     activeTabId: context.activeTabId,
-    tabs: context.tabs.map((tab) => ({ ...tab }))
+    tabs: context.tabs.map((tab) => ({
+      id: tab.id,
+      url: tab.url,
+      title: tab.title,
+      faviconUrl: tab.faviconUrl,
+      isLoading: tab.isLoading,
+      canGoBack: tab.canGoBack,
+      canGoForward: tab.canGoForward,
+      error: tab.error
+    }))
   }
 }

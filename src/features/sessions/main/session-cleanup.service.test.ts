@@ -350,6 +350,52 @@ describe('Session cleanup service', () => {
     expect(events).toEqual(['terminal'])
   })
 
+  it('propagates Browser metadata cleanup failure before reporting Session deletion success', async () => {
+    const session = createStoredSession()
+    const deleteById = vi.fn(async () => undefined)
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById
+      },
+      worktrees: { remove: vi.fn(async () => undefined) },
+      deleteUtilitySession: vi.fn(async () => undefined),
+      removeTranscript: vi.fn(async () => undefined),
+      closeBrowsersForSession: async () => {
+        throw new Error('browser.metadataDeleteFailed')
+      }
+    })
+
+    await expect(service.deleteSession('session-1')).rejects.toThrow('browser.metadataDeleteFailed')
+    expect(deleteById).not.toHaveBeenCalled()
+  })
+
+  it('propagates Browser metadata cleanup failure before reporting Project deletion success', async () => {
+    const session = createStoredSession()
+    const deleteById = vi.fn(async () => undefined)
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById
+      },
+      worktrees: { remove: vi.fn(async () => undefined) },
+      deleteUtilitySession: vi.fn(async () => undefined),
+      removeTranscript: vi.fn(async () => undefined),
+      closeBrowsersForSession: async () => {
+        throw new Error('browser.metadataDeleteFailed')
+      }
+    })
+
+    await expect(service.deleteProjectSessions('project-1')).rejects.toThrow(
+      'browser.metadataDeleteFailed'
+    )
+    expect(deleteById).not.toHaveBeenCalled()
+  })
+
   it('propagates terminal shutdown failure before destructive Project cleanup', async () => {
     const session = createStoredSession()
     const events: string[] = []

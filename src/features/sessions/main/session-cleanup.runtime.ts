@@ -36,7 +36,7 @@ export function getSessionCleanupService(): ReturnType<typeof createSessionClean
         }
       })
     },
-    closeBrowsersForSession: (session) => closeBrowserContextForSession(session),
+    closeBrowsersForSession: (session) => deleteBrowserContextForSession(session),
     withProjectLifecycleLock
   })
   return service
@@ -49,10 +49,10 @@ function terminalContextForSession(session: StoredSession) {
     : ({ kind: 'workspace-session', sessionId: session.id } as const)
 }
 
-function closeBrowserContextForSession(session: StoredSession): void {
+async function deleteBrowserContextForSession(session: StoredSession): Promise<void> {
   if (session.managedContext === 'knowledge-base') {
-    getBrowserService().destroyKnowledgeBaseContext()
+    await getBrowserService().destroyKnowledgeBaseContext()
     return
   }
-  getBrowserService().destroySessionContext(session.id)
+  await getBrowserService().destroySessionContext(session.id)
 }

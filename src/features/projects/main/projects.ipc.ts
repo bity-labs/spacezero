@@ -41,7 +41,7 @@ export function registerProjectsIpc(): void {
       sessionsService,
       projectsService,
       deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
-      closeBrowsersForSession: (session) => getBrowserService().destroySessionContext(session.id)
+      closeBrowsersForSession: (session) => getBrowserService().closeSessionContext(session.id)
     })
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {

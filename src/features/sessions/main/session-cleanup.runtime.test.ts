@@ -20,7 +20,8 @@ function createStoredSession(id: string): StoredSession {
 
 async function setupRuntime({
   sessions,
-  runWithConfirmation
+  runWithConfirmation,
+  destroySessionContext = vi.fn(async () => undefined)
 }: {
   sessions: StoredSession[]
   runWithConfirmation: (request: {
@@ -28,6 +29,7 @@ async function setupRuntime({
     countLiveTerminals: () => number | Promise<number>
     run: () => Promise<unknown>
   }) => Promise<unknown>
+  destroySessionContext?: ReturnType<typeof vi.fn>
 }) {
   vi.resetModules()
   const storedSessions = [...sessions]
@@ -45,7 +47,6 @@ async function setupRuntime({
   const removeWorktree = vi.fn(async () => undefined)
   const deleteUtilitySession = vi.fn(async () => undefined)
   const closeTerminalContext = vi.fn(async () => undefined)
-  const destroySessionContext = vi.fn()
 
   vi.doMock('./sessions.repository', () => ({ createSessionsRepository: () => repository }))
   vi.doMock('./managed-worktree.runtime', () => ({
@@ -123,6 +124,36 @@ describe('Session cleanup runtime coordination', () => {
     expect(harness.removeWorktree).not.toHaveBeenCalled()
     expect(harness.repository.deleteById).not.toHaveBeenCalled()
     expect(harness.destroySessionContext).not.toHaveBeenCalled()
+    expect(deleteProject).not.toHaveBeenCalled()
+  })
+
+  it('propagates Browser metadata deletion failure before deleting Project metadata', async () => {
+    const runWithConfirmation = vi.fn(async (request) => request.run())
+    const destroySessionContext = vi.fn(async () => {
+      throw new Error('browser.metadataDeleteFailed')
+    })
+    const harness = await setupRuntime({
+      sessions: [createStoredSession('session-1')],
+      runWithConfirmation,
+      destroySessionContext
+    })
+    const deleteProject = vi.fn(async () => ({
+      id: 'project-1',
+      name: 'Space Zero',
+      path: '/repos/spacezero',
+      createdAt: new Date('2026-07-18T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-18T00:00:00.000Z')
+    }))
+
+    await expect(
+      harness.deleteProjectLifecycle('project-1', {
+        sessionCleanupService: harness.service,
+        projectsService: { deleteProject }
+      })
+    ).rejects.toThrow('browser.metadataDeleteFailed')
+
+    expect(destroySessionContext).toHaveBeenCalledWith('session-1')
+    expect(harness.repository.deleteById).not.toHaveBeenCalled()
     expect(deleteProject).not.toHaveBeenCalled()
   })
 
