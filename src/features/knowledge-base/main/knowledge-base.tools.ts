@@ -7,6 +7,7 @@ import {
 } from '../shared'
 import {
   knowledgeBaseGitCommitSchema,
+  knowledgeBaseGitConflictOperationSchema,
   knowledgeBaseGitOriginSchema,
   knowledgeBaseGitPathListSchema,
   knowledgeBaseGitPushSchema,
@@ -201,6 +202,41 @@ export function createKnowledgeBaseTools(
       },
       confirmationSummary: () => 'Push Knowledge Base Git branch to origin',
       handler: async () => ({ ok: true, data: await gitService.push() })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.continueConflictResolution',
+      description:
+        'Continue the current supported Knowledge Base Git conflict operation after files have been resolved and staged. Supports merge, rebase, cherry-pick, and revert states only; does not accept arbitrary Git arguments.',
+      safetyLevel: 'dangerous',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitConflictOperationSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      },
+      confirmationSummary: () => 'Continue the current Knowledge Base Git conflict operation',
+      handler: async (input) => ({
+        ok: true,
+        data: await gitService.continueConflictResolution(input)
+      })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.abortConflictResolution',
+      description:
+        'Abort the current supported Knowledge Base Git conflict operation. Supports merge, rebase, cherry-pick, and revert states only; does not accept arbitrary Git arguments.',
+      safetyLevel: 'dangerous',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitConflictOperationSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      },
+      confirmationSummary: () => 'Abort the current Knowledge Base Git conflict operation',
+      handler: async (input) => ({ ok: true, data: await gitService.abortConflictResolution(input) })
     })
   ]
 }

@@ -11,18 +11,38 @@ import { createKnowledgeBaseGitAgentService } from './knowledge-base-git-agent.s
 
 const execFileAsync = promisify(execFile)
 
-async function runGit(cwd: string, args: readonly string[]) {
+async function runGit(cwd: string, args: readonly string[], options?: { env?: NodeJS.ProcessEnv }) {
   const { stdout, stderr } = await execFileAsync('git', [...args], {
     cwd,
     encoding: 'utf8',
+    env: options?.env ? { ...process.env, ...options.env } : process.env,
     maxBuffer: 10 * 1024 * 1024
   })
   return { stdout, stderr }
 }
 
+async function createHeadlessGitEnv() {
+  const home = await mkdtemp(join(tmpdir(), 'spacezero-issue-177-git-home-'))
+  return {
+    HOME: home,
+    XDG_CONFIG_HOME: join(home, '.config'),
+    EDITOR: undefined,
+    GIT_EDITOR: undefined
+  }
+}
+
+function createServiceWithRunGit(root: string, runGitCommand = runGit) {
+  return createKnowledgeBaseGitAgentService({
+    rootProvider: { getVerifiedRoot: async () => root },
+    host: { runGit: runGitCommand },
+    operations: createKnowledgeBaseOperationCoordinator()
+  })
+}
+
 async function createRepo() {
   const root = await mkdtemp(join(tmpdir(), 'spacezero-issue-176-kb-git-'))
   await runGit(root, ['init'])
+  await runGit(root, ['checkout', '-B', 'main'])
   await runGit(root, ['config', 'user.email', 'builder@example.com'])
   await runGit(root, ['config', 'user.name', 'Builder'])
   await writeFile(join(root, 'README.md'), '# Knowledge Base\n', 'utf8')
@@ -32,11 +52,26 @@ async function createRepo() {
 }
 
 function createService(root: string) {
-  return createKnowledgeBaseGitAgentService({
-    rootProvider: { getVerifiedRoot: async () => root },
-    host: { runGit },
-    operations: createKnowledgeBaseOperationCoordinator()
-  })
+  return createServiceWithRunGit(root)
+}
+
+async function createConflictingBranches(root: string, fileName = 'note.md') {
+  await writeFile(join(root, fileName), 'base\n', 'utf8')
+  await runGit(root, ['add', fileName])
+  await runGit(root, ['commit', '-m', 'Add note'])
+  await runGit(root, ['checkout', '-b', 'incoming'])
+  await writeFile(join(root, fileName), 'incoming\n', 'utf8')
+  await runGit(root, ['commit', '-am', 'Incoming note'])
+  const incomingCommit = (await runGit(root, ['rev-parse', 'HEAD'])).stdout.trim()
+  await runGit(root, ['checkout', 'main'])
+  await writeFile(join(root, fileName), 'local\n', 'utf8')
+  await runGit(root, ['commit', '-am', 'Local note'])
+  return { fileName, incomingCommit }
+}
+
+async function resolveCurrentConflict(root: string, fileName = 'note.md') {
+  await writeFile(join(root, fileName), 'resolved\n', 'utf8')
+  await createService(root).stageFiles({ relativePaths: [fileName] })
 }
 
 describe('createKnowledgeBaseGitAgentService', () => {
@@ -266,6 +301,240 @@ describe('createKnowledgeBaseGitAgentService', () => {
 
       await expect(service.getOriginRemote()).resolves.toEqual({ configured: false })
       await expect(service.push()).rejects.toThrow('origin remote is not configured')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('discovers conflicted paths and the supported interrupted operation', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'note.md'), 'base\n', 'utf8')
+      await runGit(root, ['add', 'note.md'])
+      await runGit(root, ['commit', '-m', 'Add note'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'note.md'), 'incoming\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Incoming note'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'note.md'), 'local\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Local note'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: 'merge',
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'note.md', contentType: 'text' }],
+        porcelainStatus: expect.stringContaining('UU note.md')
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('surfaces binary conflicts without pretending document tools can resolve them as text', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 2, 3]))
+      await runGit(root, ['add', 'image.bin'])
+      await runGit(root, ['commit', '-m', 'Add binary fixture'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 9, 3]))
+      await runGit(root, ['commit', '-am', 'Incoming binary'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 8, 3]))
+      await runGit(root, ['commit', '-am', 'Local binary'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: 'merge',
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'image.bin', contentType: 'binary' }]
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not advertise invalid UTF-8 conflicts as document-editable text', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'invalid.txt'), new Uint8Array([0x62, 0x61, 0x73, 0x65, 0x0a]))
+      await runGit(root, ['add', 'invalid.txt'])
+      await runGit(root, ['commit', '-m', 'Add invalid UTF-8 fixture'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'invalid.txt'), new Uint8Array([0x69, 0x6e, 0xff, 0x0a]))
+      await runGit(root, ['commit', '-am', 'Incoming invalid UTF-8'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'invalid.txt'), new Uint8Array([0x6c, 0x6f, 0xff, 0x0a]))
+      await runGit(root, ['commit', '-am', 'Local invalid UTF-8'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: 'merge',
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'invalid.txt', contentType: 'binary' }]
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('retains unknown conflict content type when Git cannot report text or binary details', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'spacezero-issue-177-kb-git-unknown-'))
+    try {
+      const service = createServiceWithRunGit(root, async (_cwd, args) => {
+        if (args.join(' ') === 'branch --show-current') return { stdout: 'main\n', stderr: '' }
+        if (args[0] === 'remote') return { stdout: '', stderr: '' }
+        if (args.includes('--branch')) return { stdout: 'UU missing.md\n', stderr: '' }
+        if (args.includes('--diff-filter=U')) return { stdout: 'missing.md\0', stderr: '' }
+        if (args.includes('--numstat')) return { stdout: '', stderr: '' }
+        if (args[0] === 'rev-parse') return { stdout: `.git/${args.at(-1) ?? ''}\n`, stderr: '' }
+        return { stdout: '', stderr: '' }
+      })
+
+      await expect(service.inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: null,
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'missing.md', contentType: 'unknown' }]
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not map conflicting git am state to rebase or dispatch rebase mutations', async () => {
+    const root = await createRepo()
+    try {
+      const { incomingCommit } = await createConflictingBranches(root)
+      const patchPath = join(root, 'incoming.patch')
+      const patch = (await runGit(root, ['format-patch', '-1', incomingCommit, '--stdout'])).stdout
+      await writeFile(patchPath, patch, 'utf8')
+
+      await expect(runGit(root, ['am', '-3', patchPath])).rejects.toThrow()
+
+      const applyingMarker = (await runGit(root, ['rev-parse', '--git-path', 'rebase-apply/applying'])).stdout.trim()
+      await expect(readFile(join(root, applyingMarker), 'utf8')).resolves.toBe('')
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: null,
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'note.md', contentType: 'text' }]
+      })
+
+      const commands: string[][] = []
+      const service = createServiceWithRunGit(root, async (cwd, args) => {
+        commands.push([...args])
+        return runGit(cwd, args)
+      })
+      await expect(service.continueConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
+      await expect(service.abortConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
+      expect(commands).not.toContainEqual(['rebase', '--continue'])
+      expect(commands).not.toContainEqual(['rebase', '--abort'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    {
+      operation: 'merge' as const,
+      start: async (root: string) => {
+        await createConflictingBranches(root)
+        await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+      }
+    },
+    {
+      operation: 'rebase' as const,
+      start: async (root: string) => {
+        await createConflictingBranches(root)
+        await expect(runGit(root, ['rebase', 'incoming'])).rejects.toThrow()
+      }
+    },
+    {
+      operation: 'cherry-pick' as const,
+      start: async (root: string) => {
+        const { incomingCommit } = await createConflictingBranches(root)
+        await expect(runGit(root, ['cherry-pick', incomingCommit])).rejects.toThrow()
+      }
+    },
+    {
+      operation: 'revert' as const,
+      start: async (root: string) => {
+        const { incomingCommit } = await createConflictingBranches(root)
+        await expect(runGit(root, ['revert', incomingCommit])).rejects.toThrow()
+      }
+    }
+  ])(
+    'continues $operation conflicts non-interactively after resolved files are staged',
+    async ({ operation, start }) => {
+      const root = await createRepo()
+      try {
+        await start(root)
+        await resolveCurrentConflict(root)
+        const env = await createHeadlessGitEnv()
+        const service = createServiceWithRunGit(root, (cwd, args) => runGit(cwd, args, { env }))
+
+        await expect(service.continueConflictResolution({})).resolves.toMatchObject({ operation })
+        await expect(service.inspectRepository()).resolves.toMatchObject({
+          interruptedOperation: null,
+          hasConflicts: false,
+          conflictedFiles: []
+        })
+        await expect(readFile(join(root, 'note.md'), 'utf8')).resolves.toBe('resolved\n')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    }
+  )
+
+  it('aborts supported conflict operations without accepting arbitrary Git arguments', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'note.md'), 'base\n', 'utf8')
+      await runGit(root, ['add', 'note.md'])
+      await runGit(root, ['commit', '-m', 'Add note'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'note.md'), 'incoming\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Incoming note'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'note.md'), 'local\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Local note'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+      await expect(
+        createService(root).abortConflictResolution({ unexpected: '--hard' } as never)
+      ).rejects.toThrow()
+      await expect(createService(root).abortConflictResolution({})).resolves.toMatchObject({
+        operation: 'merge'
+      })
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: null,
+        hasConflicts: false,
+        conflictedFiles: []
+      })
+      await expect(readFile(join(root, 'note.md'), 'utf8')).resolves.toBe('local\n')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects continue and abort when no supported interrupted operation exists', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+
+      await expect(service.continueConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
+      await expect(service.abortConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }
