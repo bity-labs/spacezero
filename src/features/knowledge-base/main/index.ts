@@ -10,6 +10,10 @@ import {
   type KnowledgeBaseFilesService
 } from './knowledge-base-files.service'
 import { createKnowledgeBaseHost } from './knowledge-base-host.adapter'
+import {
+  createKnowledgeBaseGitAgentService,
+  type KnowledgeBaseGitAgentService
+} from './knowledge-base-git-agent.service'
 import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import { createKnowledgeBaseService, type KnowledgeBaseService } from './knowledge-base.service'
 import {
@@ -55,6 +59,7 @@ let syncCoordinator: KnowledgeBaseSyncCoordinator | undefined
 let syncScheduler: KnowledgeBaseSyncScheduler | undefined
 let projectsService: KnowledgeBaseProjectsService | undefined
 let mentionsService: KnowledgeBaseMentionsService | undefined
+let gitAgentService: KnowledgeBaseGitAgentService | undefined
 
 export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
   if (!service) {
@@ -112,6 +117,15 @@ export function getKnowledgeBaseMentionsService(): KnowledgeBaseMentionsService 
     rootProvider: getKnowledgeBaseRootProvider()
   })
   return mentionsService
+}
+
+export function getKnowledgeBaseGitAgentService(): KnowledgeBaseGitAgentService {
+  gitAgentService ??= createKnowledgeBaseGitAgentService({
+    rootProvider: getKnowledgeBaseRootProvider(),
+    host: createKnowledgeBaseHost(),
+    operations: operationCoordinator
+  })
+  return gitAgentService
 }
 
 export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService {

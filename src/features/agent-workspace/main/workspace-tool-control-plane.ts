@@ -20,6 +20,18 @@ export function getWorkspaceToolRegistry() {
   return registry
 }
 
+export function listWorkspaceToolDescriptorsForSession(context?: {
+  managedContext?: 'knowledge-base' | null
+}) {
+  const includeKnowledgeBaseGit = context?.managedContext === 'knowledge-base'
+  return registry
+    .listAgentDescriptors()
+    .filter(
+      (descriptor) =>
+        includeKnowledgeBaseGit || !descriptor.name.startsWith('knowledgeBase.git.')
+    )
+}
+
 export function getAgentActivityHistory() {
   return history
 }

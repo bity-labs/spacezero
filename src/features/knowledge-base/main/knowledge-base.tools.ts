@@ -5,8 +5,16 @@ import {
   knowledgeBasePathRequestSchema,
   saveKnowledgeBaseDocumentRequestSchema
 } from '../shared'
+import {
+  knowledgeBaseGitCommitSchema,
+  knowledgeBaseGitOriginSchema,
+  knowledgeBaseGitPathListSchema,
+  knowledgeBaseGitPushSchema,
+  type KnowledgeBaseGitAgentService
+} from './knowledge-base-git-agent.service'
+import { sanitizeGitRemoteUrl } from './knowledge-base-git-security'
 import type { KnowledgeBaseFilesService } from './knowledge-base-files.service'
-import { getKnowledgeBaseService } from './index'
+import { getKnowledgeBaseGitAgentService, getKnowledgeBaseService } from './index'
 
 export type KnowledgeBaseToolService = Pick<
   KnowledgeBaseFilesService,
@@ -14,7 +22,8 @@ export type KnowledgeBaseToolService = Pick<
 >
 
 export function createKnowledgeBaseTools(
-  service: KnowledgeBaseToolService = getKnowledgeBaseService()
+  service: KnowledgeBaseToolService = getKnowledgeBaseService(),
+  gitService: KnowledgeBaseGitAgentService = getKnowledgeBaseGitAgentService()
 ) {
   return [
     defineWorkspaceTool({
@@ -75,6 +84,123 @@ export function createKnowledgeBaseTools(
         ok: true,
         data: await service.saveDocument(input)
       })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.inspect',
+      description:
+        'Inspect fresh Knowledge Base Git status, current branch, and sanitized origin information. This is scoped to the verified Knowledge Base repository.',
+      safetyLevel: 'read',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: z.object({}).strict(),
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      },
+      handler: async () => ({ ok: true, data: await gitService.inspectRepository() })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.stageFiles',
+      description:
+        'Stage whole Knowledge Base files by repository-relative path. Does not accept arbitrary Git arguments or paths outside the verified Knowledge Base repository.',
+      safetyLevel: 'write',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitPathListSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { relativePaths: { type: 'array', items: { type: 'string' } } },
+        required: ['relativePaths']
+      },
+      confirmationSummary: (input) =>
+        `Stage Knowledge Base files: ${input.relativePaths.join(', ')}`,
+      handler: async (input) => ({ ok: true, data: await gitService.stageFiles(input) })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.unstageFiles',
+      description:
+        'Unstage whole Knowledge Base files by repository-relative path. Does not accept arbitrary Git arguments or paths outside the verified Knowledge Base repository.',
+      safetyLevel: 'write',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitPathListSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { relativePaths: { type: 'array', items: { type: 'string' } } },
+        required: ['relativePaths']
+      },
+      confirmationSummary: (input) =>
+        `Unstage Knowledge Base files: ${input.relativePaths.join(', ')}`,
+      handler: async (input) => ({ ok: true, data: await gitService.unstageFiles(input) })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.commit',
+      description:
+        'Create a Knowledge Base Git commit from currently staged changes using the supplied commit message. The repository root is resolved and verified by Space Zero.',
+      safetyLevel: 'write',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitCommitSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { message: { type: 'string' } },
+        required: ['message']
+      },
+      confirmationSummary: (input) => `Commit Knowledge Base changes: ${input.message}`,
+      handler: async (input) => ({ ok: true, data: await gitService.createCommit(input) })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.getOrigin',
+      description:
+        'Inspect whether the verified Knowledge Base repository has an origin remote. Returned URLs are sanitized and never include credentials.',
+      safetyLevel: 'read',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: z.object({}).strict(),
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      },
+      handler: async () => ({ ok: true, data: await gitService.getOriginRemote() })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.configureOrigin',
+      description:
+        'Add or update the origin remote for the verified Knowledge Base repository. Returned URLs are sanitized and credentials are not echoed back.',
+      safetyLevel: 'dangerous',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitOriginSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { gitUrl: { type: 'string' } },
+        required: ['gitUrl']
+      },
+      confirmationSummary: (input) =>
+        `Configure Knowledge Base origin: ${sanitizeGitRemoteUrl(input.gitUrl)}`,
+      handler: async (input) => ({ ok: true, data: await gitService.configureOrigin(input) })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.git.push',
+      description:
+        'Push the current Knowledge Base branch to origin with upstream tracking. This is scoped to the verified Knowledge Base repository and does not accept arbitrary remotes, branches, or Git arguments.',
+      safetyLevel: 'dangerous',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: knowledgeBaseGitPushSchema,
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {}
+      },
+      confirmationSummary: () => 'Push Knowledge Base Git branch to origin',
+      handler: async () => ({ ok: true, data: await gitService.push() })
     })
   ]
 }

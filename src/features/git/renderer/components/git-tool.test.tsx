@@ -94,7 +94,7 @@ describe('GitTool', () => {
       context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
       filter: 'uncommitted'
     })
-    expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'notes/kb.md' }))
     expect(openLocation).toHaveBeenCalledWith({ relativePath: 'notes/kb.md', line: undefined })
@@ -333,6 +333,146 @@ describe('GitTool', () => {
     expect(message).toContain('No upstream is currently configured')
     expect(message).not.toContain('diff --git')
     expect(message).not.toContain('+change')
+  })
+
+  it('routes Knowledge Base commit prompts to the current managed chat session after New chat', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'workspace' as const,
+      projectId: null,
+      cwd: '/tmp/spacezero-workspace-sessions',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    let currentSession = {
+      id: 'knowledge-base-session-1',
+      kind: 'workspace' as const,
+      title: 'Knowledge Base Chat',
+      status: 'idle' as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    window.spacezero.knowledgeBase.getCurrentSession = vi.fn(async () => currentSession)
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'notes/kb.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/notes/kb.md b/notes/kb.md\n+change\n'
+        }
+      ]
+    }))
+
+    render(<GitTool context={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }} />)
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
+
+    currentSession = { ...currentSession, id: 'knowledge-base-session-2' }
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spacezero:knowledge-base-session-changed', { detail: currentSession })
+      )
+    })
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({
+        sessionId: 'knowledge-base-session-2'
+      })
+    )
+    await userEvent.click(await screen.findByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'knowledge-base-session-2',
+      message: expect.stringContaining('verified Knowledge Base repository')
+    })
+    const message = prompt.mock.calls[0]?.[0].message ?? ''
+    expect(message).not.toContain('diff --git')
+    expect(message).not.toContain('+change')
+  })
+
+  it('does not let a stale Knowledge Base session lookup overwrite a newer session-change event', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    const initialLookup = deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentSession>>>()
+    const session1 = {
+      id: 'knowledge-base-session-1',
+      kind: 'workspace' as const,
+      title: 'Knowledge Base Chat',
+      status: 'idle' as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const session2 = { ...session1, id: 'knowledge-base-session-2' }
+    window.spacezero.knowledgeBase.getCurrentSession = vi.fn(() => initialLookup.promise)
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'workspace' as const,
+      projectId: null,
+      cwd: '/tmp/spacezero-workspace-sessions',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'notes/kb.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/notes/kb.md b/notes/kb.md\n+change\n'
+        }
+      ]
+    }))
+
+    render(<GitTool context={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }} />)
+    await waitFor(() => expect(window.spacezero.knowledgeBase.getCurrentSession).toHaveBeenCalled())
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spacezero:knowledge-base-session-changed', { detail: session2 })
+      )
+    })
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({
+        sessionId: 'knowledge-base-session-2'
+      })
+    )
+
+    await act(async () => {
+      initialLookup.resolve(session1)
+      await initialLookup.promise
+    })
+    await userEvent.click(await screen.findByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'knowledge-base-session-2',
+      message: expect.stringContaining('verified Knowledge Base repository')
+    })
+    expect(prompt).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'knowledge-base-session-1' })
+    )
   })
 
   it('passes composer text as preferred commit instructions without changing the saved primary action', async () => {
