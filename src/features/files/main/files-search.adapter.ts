@@ -1,9 +1,13 @@
 import { isUtf8 } from 'node:buffer'
+import { execFile } from 'node:child_process'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
+import { promisify } from 'node:util'
 
 import type { FilesSearchResult, SearchFilesRequest } from '../shared'
 import { MAX_FILES_TEXT_FILE_BYTES } from './files-document.adapter'
+
+const execFileAsync = promisify(execFile)
 
 const DEFAULT_MAX_RESULTS = 100
 const MAX_SNIPPETS_PER_FILE = 3
@@ -41,6 +45,7 @@ type SearchWalkerState = {
   maxResults: number
   results: FilesSearchResult[]
   ignoreRules: IgnoreRule[]
+  useGitIgnoreOracle: boolean
   signal?: AbortSignal
 }
 
@@ -63,6 +68,7 @@ export async function searchFiles(
       maxResults: request.maxResults ?? DEFAULT_MAX_RESULTS,
       results: [],
       ignoreRules: [],
+      useGitIgnoreOracle: await canUseGitIgnoreOracle(canonicalRoot),
       signal: options.signal
     }
 
@@ -80,7 +86,7 @@ async function walkDirectory(state: SearchWalkerState, relativeDirectory: string
 
   const directoryPath = resolveInsideRoot(state.canonicalRoot, relativeDirectory)
   const previousRuleCount = state.ignoreRules.length
-  if (!state.includeIgnored) {
+  if (!state.includeIgnored && !state.useGitIgnoreOracle) {
     state.ignoreRules.push(...(await readIgnoreRules(state.canonicalRoot, relativeDirectory)))
   }
   throwIfAborted(state)
@@ -97,7 +103,7 @@ async function walkDirectory(state: SearchWalkerState, relativeDirectory: string
     if (details.isSymbolicLink()) continue
 
     const isDirectory = details.isDirectory()
-    if (!state.includeIgnored && isIgnoredPath(state, relativePath, isDirectory)) continue
+    if (!state.includeIgnored && (await isIgnoredPath(state, relativePath, isDirectory))) continue
 
     if (isDirectory) {
       await walkDirectory(state, relativePath)
@@ -215,13 +221,15 @@ function parseIgnoreRule(rawPattern: string, basePath: string): IgnoreRule {
   }
 }
 
-function isIgnoredPath(
+async function isIgnoredPath(
   state: SearchWalkerState,
   relativePath: string,
   isDirectory: boolean
-): boolean {
+): Promise<boolean> {
   const segments = relativePath.split('/')
   if (segments.some((segment) => COMMON_GENERATED_DIRECTORY_NAMES.has(segment))) return true
+
+  if (state.useGitIgnoreOracle) return isGitIgnored(state.canonicalRoot, relativePath)
 
   let ignored = false
   for (const rule of state.ignoreRules) {
@@ -244,6 +252,34 @@ function matchesIgnoreRule(rule: IgnoreRule, relativePath: string): boolean {
   const patternRegex = globToRegex(rule.pattern)
   if (rule.anchored || rule.pattern.includes('/')) return patternRegex.test(pathFromRuleBase)
   return pathFromRuleBase.split('/').some((segment) => patternRegex.test(segment))
+}
+
+async function canUseGitIgnoreOracle(canonicalRoot: string): Promise<boolean> {
+  try {
+    const { stdout } = await execFileAsync('git', [
+      '-C',
+      canonicalRoot,
+      'rev-parse',
+      '--is-inside-work-tree'
+    ])
+    return stdout.trim() === 'true'
+  } catch {
+    return false
+  }
+}
+
+async function isGitIgnored(canonicalRoot: string, relativePath: string): Promise<boolean> {
+  try {
+    await execFileAsync('git', ['-C', canonicalRoot, 'check-ignore', '-q', '--', relativePath])
+    return true
+  } catch (error) {
+    if (isExitCode(error, 1)) return false
+    throw error
+  }
+}
+
+function isExitCode(error: unknown, code: number): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
 function throwIfAborted(state: SearchWalkerState): void {

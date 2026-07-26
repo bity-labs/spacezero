@@ -64,11 +64,15 @@ describe('Files search adapter', () => {
     )
   })
 
-  it('honors nested gitignore files plus anchored and negated rules', async () => {
+  it('matches git check-ignore semantics for nested, anchored, negated, character-class, and doublestar rules', async () => {
     await execFileAsync('git', ['init'], { cwd: rootPath })
     await mkdir(join(rootPath, 'nested'), { recursive: true })
     await mkdir(join(rootPath, 'anchored'), { recursive: true })
-    await writeFile(join(rootPath, '.gitignore'), '/anchored.txt\n*.log\n!important.log\n')
+    await mkdir(join(rootPath, 'foo', 'sub'), { recursive: true })
+    await writeFile(
+      join(rootPath, '.gitignore'),
+      '/anchored.txt\n*.log\n!important.log\n[ab].txt\n/foo/**/bar\n'
+    )
     await writeFile(join(rootPath, 'nested', '.gitignore'), 'secret.txt\n/anchored.txt\n')
     await writeFile(join(rootPath, 'nested', 'secret.txt'), 'needle')
     await writeFile(join(rootPath, 'nested', 'anchored.txt'), 'needle')
@@ -76,24 +80,40 @@ describe('Files search adapter', () => {
     await writeFile(join(rootPath, 'anchored', 'anchored.txt'), 'needle')
     await writeFile(join(rootPath, 'debug.log'), 'needle')
     await writeFile(join(rootPath, 'important.log'), 'needle')
+    await writeFile(join(rootPath, 'a.txt'), 'needle')
+    await writeFile(join(rootPath, 'foo', 'bar'), 'needle')
+    await writeFile(join(rootPath, 'foo', 'sub', 'bar'), 'needle')
 
-    await expect(
-      execFileAsync('git', ['check-ignore', '-v', 'nested/secret.txt'], { cwd: rootPath })
-    ).resolves.toMatchObject({ stdout: expect.stringContaining('nested/.gitignore') })
+    const gitIgnoredPaths = (
+      await execFileAsync(
+        'git',
+        [
+          'check-ignore',
+          '-v',
+          'nested/secret.txt',
+          'a.txt',
+          'foo/bar',
+          'foo/sub/bar'
+        ],
+        { cwd: rootPath }
+      )
+    ).stdout
+      .trim()
+      .split('\n')
+      .map((line) => line.split('\t').at(-1))
+    expect(gitIgnoredPaths).toEqual(['nested/secret.txt', 'a.txt', 'foo/bar', 'foo/sub/bar'])
 
-    await expect(searchFiles(rootPath, searchRequest('needle'))).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ relativePath: 'anchored/anchored.txt' }),
-        expect.objectContaining({ relativePath: 'important.log' })
-      ])
-    )
     const defaultPaths = (await searchFiles(rootPath, searchRequest('needle'))).map(
       (result) => result.relativePath
     )
+    expect(defaultPaths).toEqual(expect.arrayContaining(['anchored/anchored.txt', 'important.log']))
     expect(defaultPaths).not.toContain('nested/secret.txt')
     expect(defaultPaths).not.toContain('nested/anchored.txt')
     expect(defaultPaths).not.toContain('anchored.txt')
     expect(defaultPaths).not.toContain('debug.log')
+    expect(defaultPaths).not.toContain('a.txt')
+    expect(defaultPaths).not.toContain('foo/bar')
+    expect(defaultPaths).not.toContain('foo/sub/bar')
 
     await expect(
       searchFiles(rootPath, searchRequest('needle', { includeIgnored: true }))
@@ -102,7 +122,10 @@ describe('Files search adapter', () => {
         expect.objectContaining({ relativePath: 'nested/secret.txt' }),
         expect.objectContaining({ relativePath: 'nested/anchored.txt' }),
         expect.objectContaining({ relativePath: 'anchored.txt' }),
-        expect.objectContaining({ relativePath: 'debug.log' })
+        expect.objectContaining({ relativePath: 'debug.log' }),
+        expect.objectContaining({ relativePath: 'a.txt' }),
+        expect.objectContaining({ relativePath: 'foo/bar' }),
+        expect.objectContaining({ relativePath: 'foo/sub/bar' })
       ])
     )
   })
