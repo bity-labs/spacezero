@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
-import type { BrowserEvent } from '../../shared'
+import type { BrowserContext, BrowserEvent } from '../../shared'
 import { BrowserTool } from './browser-tool'
 
 const context = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
@@ -45,7 +45,7 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
   }
   const browserEventListeners: Array<(event: BrowserEvent) => void> = []
   const api = {
-    getState: vi.fn(async () => state),
+    getState: vi.fn(async (_request?: { contextKey: string }) => state),
     navigate: vi.fn(async (request: { tabId?: string; input: string }) => {
       const tabId = request.tabId ?? state.activeTabId
       state = {
@@ -115,11 +115,13 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
   return api
 }
 
-function renderBrowserTool(): ReturnType<typeof render> {
+function renderBrowserTool(
+  props: { contextKey: string; context: BrowserContext } = { contextKey, context }
+): ReturnType<typeof render> {
   return render(
     <AppCommandProvider>
       <KeyboardShortcutsProvider>
-        <BrowserTool context={context} contextKey={contextKey} />
+        <BrowserTool context={props.context} contextKey={props.contextKey} />
       </KeyboardShortcutsProvider>
     </AppCommandProvider>
   )
@@ -303,6 +305,63 @@ describe('BrowserTool', () => {
 
     expect(browser.openDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
     expect(browser.revealDownload).toHaveBeenCalledWith({ downloadId: 'download-1' })
+  })
+
+  it('clears stale tab and download state when one mounted Browser is rebound A to B to A', async () => {
+    const browser = installBrowserApi({ url: 'https://a.example/download', title: 'Context A' })
+    browser.getState.mockImplementation(async (request?: { contextKey: string }) => {
+      if (request?.contextKey === 'session:workspace-2') throw new Error('state unavailable')
+      return {
+        contextKey,
+        activeTabId: 'browser-tab-1',
+        tabs: [makeTab('browser-tab-1', { url: 'https://a.example/download', title: 'Context A' })]
+      }
+    })
+    const otherContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
+
+    const view = renderBrowserTool()
+    expect(await screen.findByRole('tab', { name: 'Context A' })).toBeInTheDocument()
+    await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
+
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'download-updated',
+        download: {
+          id: 'download-a',
+          tabId: 'browser-tab-1',
+          filename: 'a.zip',
+          status: 'completed',
+          receivedBytes: 1,
+          totalBytes: 1
+        }
+      })
+    })
+    expect(await screen.findByLabelText('Browser downloads')).toHaveTextContent('a.zip')
+
+    view.rerender(
+      <AppCommandProvider>
+        <KeyboardShortcutsProvider>
+          <BrowserTool context={otherContext} contextKey="session:workspace-2" />
+        </KeyboardShortcutsProvider>
+      </AppCommandProvider>
+    )
+
+    expect(screen.queryByRole('tab', { name: 'Context A' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText('state unavailable')).toBeInTheDocument())
+    expect(screen.queryByRole('tab', { name: 'Context A' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
+
+    view.rerender(
+      <AppCommandProvider>
+        <KeyboardShortcutsProvider>
+          <BrowserTool context={context} contextKey={contextKey} />
+        </KeyboardShortcutsProvider>
+      </AppCommandProvider>
+    )
+
+    expect(await screen.findByRole('tab', { name: 'Context A' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Browser downloads')).toHaveTextContent('a.zip')
   })
 
   it('uses focus-scoped browser shortcuts without firing when focus leaves Browser', async () => {

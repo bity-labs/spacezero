@@ -114,18 +114,25 @@ export function BrowserTool({
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
   const [state, setState] = useState<BrowserState | null>(null)
+  const [stateContextKey, setStateContextKey] = useState(contextKey)
   const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
   const [address, setAddress] = useState('')
+  const [addressContextKey, setAddressContextKey] = useState(contextKey)
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const [downloads, setDownloads] = useState<BrowserDownloadSnapshot[]>([])
-  const browserTabIdsRef = useRef(new Set<string>())
+  const [downloadsVersion, setDownloadsVersion] = useState(0)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
-  const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
+  const contextState = stateContextKey === contextKey ? state : null
+  const activeTab =
+    contextState?.tabs.find((tab) => tab.id === contextState.activeTabId) ?? contextState?.tabs[0]
   const activeTabId = activeTab?.id
   const activeTabUrl = activeTab?.url ?? ''
+  const downloads = useMemo(() => {
+    void downloadsVersion
+    return browserDownloadsForTabs(new Set(contextState?.tabs.map((tab) => tab.id) ?? []))
+  }, [contextState, downloadsVersion])
 
   const tabRequest = useCallback(
     () => ({ contextKey, context, tabId: activeTabId }),
@@ -148,8 +155,10 @@ export function BrowserTool({
           input
         })
         setState(nextState)
+        setStateContextKey(contextKey)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? input)
+        setAddressContextKey(contextKey)
         isEditingAddressRef.current = false
         setIsEditingAddress(false)
       } catch (reason) {
@@ -167,30 +176,33 @@ export function BrowserTool({
         ? await window.spacezero.browser.stop(tabRequest())
         : await window.spacezero.browser.reload(tabRequest())
       setState(nextState)
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab, tabRequest])
+  }, [activeTab, contextKey, tabRequest])
 
   const goBack = useCallback(async (): Promise<void> => {
     if (!activeTab?.canGoBack) return
     setError(null)
     try {
       setState(await window.spacezero.browser.goBack(tabRequest()))
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab?.canGoBack, tabRequest])
+  }, [activeTab?.canGoBack, contextKey, tabRequest])
 
   const goForward = useCallback(async (): Promise<void> => {
     if (!activeTab?.canGoForward) return
     setError(null)
     try {
       setState(await window.spacezero.browser.goForward(tabRequest()))
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab?.canGoForward, tabRequest])
+  }, [activeTab?.canGoForward, contextKey, tabRequest])
 
   const openInDefaultBrowser = useCallback(async (): Promise<void> => {
     if (!activeTabUrl) return
@@ -225,7 +237,9 @@ export function BrowserTool({
     try {
       const nextState = await window.spacezero.browser.createTab({ contextKey, context })
       setState(nextState)
+      setStateContextKey(contextKey)
       setAddress('')
+      setAddressContextKey(contextKey)
       isEditingAddressRef.current = false
       setIsEditingAddress(false)
       requestAnimationFrame(() => focusAddressField())
@@ -240,6 +254,7 @@ export function BrowserTool({
       try {
         const nextState = await window.spacezero.browser.selectTab({ contextKey, context, tabId })
         setState(nextState)
+        setStateContextKey(contextKey)
       } catch (reason) {
         setError(toErrorMessage(reason))
       }
@@ -265,10 +280,10 @@ export function BrowserTool({
 
   const selectTabByKeyboard = useCallback(
     (currentTabId: string, key: string): void => {
-      if (!state?.tabs.length) return
-      const currentIndex = state.tabs.findIndex((tab) => tab.id === currentTabId)
+      if (!contextState?.tabs.length) return
+      const currentIndex = contextState.tabs.findIndex((tab) => tab.id === currentTabId)
       if (currentIndex < 0) return
-      const lastIndex = state.tabs.length - 1
+      const lastIndex = contextState.tabs.length - 1
       const nextIndexByKey: Record<string, number> = {
         ArrowLeft: currentIndex === 0 ? lastIndex : currentIndex - 1,
         ArrowRight: currentIndex === lastIndex ? 0 : currentIndex + 1,
@@ -276,11 +291,11 @@ export function BrowserTool({
         End: lastIndex
       }
       const nextIndex = nextIndexByKey[key]
-      const nextTabId = state.tabs[nextIndex]?.id
+      const nextTabId = contextState.tabs[nextIndex]?.id
       if (!nextTabId) return
       void selectAndFocusTab(nextTabId)
     },
-    [selectAndFocusTab, state]
+    [contextState, selectAndFocusTab]
   )
 
   const closeTab = useCallback(
@@ -289,6 +304,7 @@ export function BrowserTool({
       try {
         const nextState = await window.spacezero.browser.closeTab({ contextKey, context, tabId })
         setState(nextState)
+        setStateContextKey(contextKey)
         const nextActiveTab = nextState.tabs.find(
           (candidate) => candidate.id === nextState.activeTabId
         )
@@ -307,16 +323,17 @@ export function BrowserTool({
 
   const reorderTabs = useCallback(
     async (sourceTabId: string, targetTabId: string): Promise<void> => {
-      if (!state || sourceTabId === targetTabId) return
-      const sourceIndex = state.tabs.findIndex((tab) => tab.id === sourceTabId)
-      const targetIndex = state.tabs.findIndex((tab) => tab.id === targetTabId)
+      if (!contextState || sourceTabId === targetTabId) return
+      const sourceIndex = contextState.tabs.findIndex((tab) => tab.id === sourceTabId)
+      const targetIndex = contextState.tabs.findIndex((tab) => tab.id === targetTabId)
       if (sourceIndex < 0 || targetIndex < 0) return
-      const nextTabs = [...state.tabs]
+      const nextTabs = [...contextState.tabs]
       const [movedTab] = nextTabs.splice(sourceIndex, 1)
       if (!movedTab) return
       nextTabs.splice(targetIndex, 0, movedTab)
-      const optimisticState = { ...state, tabs: nextTabs }
+      const optimisticState = { ...contextState, tabs: nextTabs }
       setState(optimisticState)
+      setStateContextKey(contextKey)
       try {
         setState(
           await window.spacezero.browser.reorderTabs({
@@ -325,12 +342,13 @@ export function BrowserTool({
             tabIds: nextTabs.map((tab) => tab.id)
           })
         )
+        setStateContextKey(contextKey)
       } catch (reason) {
-        setState(state)
+        setState(contextState)
         setError(toErrorMessage(reason))
       }
     },
-    [context, contextKey, state]
+    [context, contextKey, contextState]
   )
 
   const retry = useCallback(async (): Promise<void> => {
@@ -399,8 +417,10 @@ export function BrowserTool({
       .then((nextState) => {
         if (cancelled) return
         setState(nextState)
+        setStateContextKey(contextKey)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? '')
+        setAddressContextKey(contextKey)
         isEditingAddressRef.current = false
         inputRef.current?.focus()
       })
@@ -414,8 +434,11 @@ export function BrowserTool({
   }, [context, contextKey, focusAddressField, shortcutManager])
 
   useEffect(() => {
-    if (!isEditingAddressRef.current) setAddress(activeTabUrl)
-  }, [activeTabUrl, isEditingAddress])
+    if (!isEditingAddressRef.current) {
+      setAddress(activeTabUrl)
+      setAddressContextKey(contextKey)
+    }
+  }, [activeTabUrl, contextKey, isEditingAddress])
 
   useEffect(() => {
     const activeElement = tabStripRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
@@ -423,15 +446,9 @@ export function BrowserTool({
   }, [activeTabId])
 
   useEffect(() => {
-    if (!state) return
-    browserTabIdsRef.current = new Set(state.tabs.map((tab) => tab.id))
-    setDownloads(browserDownloadsForTabs(browserTabIdsRef.current))
-  }, [state])
-
-  useEffect(() => {
     ensureBrowserDownloadSubscription()
     return subscribeToBrowserDownloads(() => {
-      setDownloads(browserDownloadsForTabs(browserTabIdsRef.current))
+      setDownloadsVersion((version) => version + 1)
     })
   }, [])
 
@@ -441,8 +458,12 @@ export function BrowserTool({
       if (event.contextKey !== contextKey) return
       if (event.type === 'state-changed') {
         setState(event.state)
+        setStateContextKey(contextKey)
         const tab = event.state.tabs.find((candidate) => candidate.id === event.state.activeTabId)
-        if (!isEditingAddressRef.current) setAddress(tab?.url ?? '')
+        if (!isEditingAddressRef.current) {
+          setAddress(tab?.url ?? '')
+          setAddressContextKey(contextKey)
+        }
         return
       }
       if (event.commandId === BROWSER_COMMAND_IDS.focusAddress) focusAddressField()
@@ -514,7 +535,7 @@ export function BrowserTool({
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1"
         role="tablist"
       >
-        {state?.tabs.map((tab) => {
+        {contextState?.tabs.map((tab) => {
           const selected = tab.id === activeTabId
           return (
             <div
@@ -625,11 +646,12 @@ export function BrowserTool({
           aria-label="Browser URL"
           className="h-8 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
           placeholder="Enter a URL or search terms"
-          value={address}
+          value={addressContextKey === contextKey ? address : ''}
           onChange={(event) => {
             isEditingAddressRef.current = true
             setIsEditingAddress(true)
             setAddress(event.target.value)
+            setAddressContextKey(contextKey)
           }}
         />
         <Button size="sm" type="submit">

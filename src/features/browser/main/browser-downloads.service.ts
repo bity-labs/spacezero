@@ -80,10 +80,16 @@ export class BrowserDownloadsService {
       record.totalBytes = safeTotalBytes(item.getTotalBytes())
       this.publish(record)
     })
+    let completedBeforeSavePath = false
     item.once('done', (_event, state) => {
       if (state === 'completed') {
-        record.status = 'completed'
         record.receivedBytes = Math.max(record.receivedBytes, item.getReceivedBytes())
+        record.totalBytes = safeTotalBytes(item.getTotalBytes())
+        if (record.status === 'selecting-save-location') {
+          completedBeforeSavePath = true
+          return
+        }
+        record.status = 'completed'
       } else if (state === 'cancelled') {
         record.status = 'cancelled'
         record.completedPath = null
@@ -121,12 +127,12 @@ export class BrowserDownloadsService {
     }
 
     item.setSavePath(savePath)
-    record.status = 'downloading'
+    record.status = completedBeforeSavePath ? 'completed' : 'downloading'
     record.completedPath = savePath
-    record.receivedBytes = Math.max(0, item.getReceivedBytes())
+    record.receivedBytes = Math.max(record.receivedBytes, item.getReceivedBytes())
     record.totalBytes = safeTotalBytes(item.getTotalBytes())
     this.publish(record)
-    item.resume?.()
+    if (!completedBeforeSavePath) item.resume?.()
   }
 
   async openCompletedDownload(request: BrowserDownloadActionRequest): Promise<void> {
