@@ -189,7 +189,14 @@ function FilesToolSession({
 
   const openFile = useCallback(
     async (relativePath: string, intent: FilesOpenTabIntent): Promise<void> => {
-      await openFilesLocation({ contextKey: sessionId, ipcContext, relativePath, intent })
+      await openFilesLocation({
+        contextKey: sessionId,
+        ipcContext,
+        relativePath,
+        intent,
+        revalidateExisting: false,
+        allowMetadata: true
+      })
     },
     [ipcContext, sessionId]
   )
@@ -721,7 +728,12 @@ function FilesReadyEditorPanel({
     editor.revealLineInCenter(document.targetLine)
     editor.setPosition({ lineNumber: document.targetLine, column: 1 })
     editor.focus()
-  }, [document.locationRequestId, document.targetLine])
+    if (document.locationRequestId !== undefined) {
+      useFilesStore
+        .getState()
+        .clearLocationTarget(sessionId, document.relativePath, document.locationRequestId)
+    }
+  }, [document.locationRequestId, document.relativePath, document.targetLine, sessionId])
   const supportsRichMode = isMarkdownDocumentPath(document.relativePath)
   const richModeLimitation = supportsRichMode
     ? getRichMarkdownLimitation(document.draft, { isMdx: isMdxPath(document.relativePath) })

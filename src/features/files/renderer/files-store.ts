@@ -64,7 +64,8 @@ type FilesStore = {
     relativePath: string,
     intent: FilesOpenTabIntent,
     openRequestId: number,
-    targetLine?: number
+    targetLine?: number,
+    revalidateExisting?: boolean
   ) => boolean
   finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => void
   failOpenTab: (
@@ -73,6 +74,7 @@ type FilesStore = {
     message: string,
     openRequestId: number
   ) => void
+  clearLocationTarget: (sessionId: string, relativePath: string, locationRequestId: number) => void
   activateTab: (sessionId: string, relativePath: string) => void
   promoteTab: (sessionId: string, relativePath: string) => void
   closeTab: (sessionId: string, relativePath: string) => void
@@ -115,22 +117,28 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
-      beginOpenTab: (sessionId, relativePath, intent, openRequestId, targetLine) => {
+      beginOpenTab: (sessionId, relativePath, intent, openRequestId, targetLine, revalidateExisting = false) => {
         let shouldOpen = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const existingIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
           if (existingIndex >= 0) {
-            const tabs = context.tabs.map((tab, index) =>
-              index === existingIndex
-                ? {
-                    ...tab,
-                    ...(intent === 'permanent' ? { preview: false } : {}),
-                    targetLine,
-                    locationRequestId: openRequestId
-                  }
-                : tab
-            )
+            const existing = context.tabs[existingIndex]
+            const shouldRevalidate = revalidateExisting && shouldRevalidateExistingTab(existing)
+            shouldOpen = shouldRevalidate
+            const tabs = context.tabs.map((tab, index) => {
+              if (index !== existingIndex) return tab
+              const nextPreview = intent === 'permanent' ? false : tab.preview
+              if (!shouldRevalidate) {
+                return {
+                  ...tab,
+                  preview: nextPreview,
+                  targetLine,
+                  locationRequestId: openRequestId
+                }
+              }
+              return loadingTab(relativePath, nextPreview, openRequestId, targetLine)
+            })
             return updateContext(state, sessionId, {
               tabs,
               activeTabPath: relativePath,
@@ -188,6 +196,17 @@ const useFilesStore = create<FilesStore>()(
                     targetLine: tab.targetLine,
                     locationRequestId: tab.locationRequestId
                   }
+                : tab
+            )
+          })
+        }),
+      clearLocationTarget: (sessionId, relativePath, locationRequestId) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              tab.relativePath === relativePath && tab.locationRequestId === locationRequestId
+                ? { ...tab, targetLine: undefined, locationRequestId: undefined }
                 : tab
             )
           })
@@ -496,6 +515,16 @@ function toTabDocument(
 
 function canReplacePreviewTab(tab: FilesTabState): boolean {
   return tab.preview && !(tab.status === 'ready' && tab.dirty)
+}
+
+function shouldRevalidateExistingTab(tab: FilesTabState): boolean {
+  if (tab.status === 'ready' && tab.dirty) return false
+  return (
+    tab.status === 'loading' ||
+    tab.status === 'error' ||
+    tab.status === 'ready' ||
+    tab.status === 'metadata'
+  )
 }
 
 function closeTabIfAllowed(

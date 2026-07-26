@@ -369,6 +369,13 @@ describe('GitTool', () => {
           binary: false,
           large: false,
           diff: '@@ -9,2 +9,3 @@\n context\n+changed\n'
+        },
+        {
+          path: 'new-note.md',
+          kind: 'untracked' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/new-note.md b/new-note.md\nnew file mode 100644\n--- /dev/null\n+++ b/new-note.md\n+first\n+second\n'
         }
       ]
     }))
@@ -382,10 +389,18 @@ describe('GitTool', () => {
     await userEvent.click(screen.getByRole('button', { name: '+changed' }))
     expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'src/app.ts', line: 10 })
     expect(openFilesTool).toHaveBeenCalledTimes(2)
+
+    await userEvent.click(screen.getByRole('button', { name: '+second' }))
+    expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'new-note.md', line: 2 })
+    expect(openFilesTool).toHaveBeenCalledTimes(3)
   })
 
-  it('keeps deleted and unsupported changes reviewable in Git without invoking Files', async () => {
-    const openLocation = vi.fn(async () => ({ status: 'opened' as const }))
+  it('lets Files determine non-deleted handoff support while keeping actual unsupported files in Git', async () => {
+    const openLocation = vi.fn(async ({ relativePath }: { relativePath: string }) =>
+      relativePath === 'image.png'
+        ? { status: 'failed' as const, message: 'This file is binary and cannot be edited in Files.' }
+        : { status: 'opened' as const }
+    )
     const openFilesTool = vi.fn()
     window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
       status: 'ok' as const,
@@ -394,17 +409,23 @@ describe('GitTool', () => {
       files: [
         { path: 'deleted.txt', kind: 'deleted' as const, binary: false, large: false, diff: null },
         { path: 'image.png', kind: 'modified' as const, binary: true, large: false, diff: null },
-        { path: 'big.txt', kind: 'modified' as const, binary: false, large: true, diff: null }
+        { path: 'large-but-text.txt', kind: 'modified' as const, binary: false, large: true, diff: null }
       ]
     }))
 
     render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
 
     expect(await screen.findByRole('button', { name: 'deleted.txt' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'image.png' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'big.txt' })).toBeDisabled()
-    expect(openLocation).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'image.png' }))
+    expect(await screen.findByText('This file is binary and cannot be edited in Files.')).toBeInTheDocument()
     expect(openFilesTool).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'large-but-text.txt' }))
+    expect(openLocation).toHaveBeenLastCalledWith({
+      relativePath: 'large-but-text.txt',
+      line: undefined
+    })
+    expect(openFilesTool).toHaveBeenCalledTimes(1)
   })
 
   it('reports stale path handoff failures without switching to Files', async () => {

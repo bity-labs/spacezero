@@ -1230,6 +1230,94 @@ describe('Files Tool', () => {
     await waitFor(() => expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(2))
   })
 
+  it('consumes external line targets after reveal so Markdown can return to Rich mode with its buffer', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 23,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Title\n\nbody line',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-line-rich" />)
+
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-line-rich',
+        ipcContext: { kind: 'project-session', sessionId: 'session-line-rich' },
+        relativePath: 'README.md',
+        line: 3
+      })
+    })
+
+    await waitFor(() => expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
+      '# Title\n\nbody line'
+    )
+    fireEvent.change(screen.getByLabelText('Rich Markdown editor'), { target: { value: '# Dirty' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
+    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# Dirty')
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty')
+  })
+
+  it('keeps unsupported external Files handoffs in the current tool and allows a later retry', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'asset.bin', relativePath: 'asset.bin', kind: 'file' as const }
+    ])
+    const openDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        name: 'asset.bin',
+        relativePath: 'asset.bin',
+        contentKind: 'binary' as const,
+        size: 4,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'binary-revision'
+      })
+      .mockResolvedValueOnce({
+        name: 'asset.bin',
+        relativePath: 'asset.bin',
+        contentKind: 'text' as const,
+        size: 5,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'text-revision',
+        content: 'text!',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+    window.spacezero.files.openDocument = openDocument
+
+    const first = await openFilesLocation({
+      contextKey: 'session-unsupported-retry',
+      ipcContext: { kind: 'project-session', sessionId: 'session-unsupported-retry' },
+      relativePath: 'asset.bin'
+    })
+    const second = await openFilesLocation({
+      contextKey: 'session-unsupported-retry',
+      ipcContext: { kind: 'project-session', sessionId: 'session-unsupported-retry' },
+      relativePath: 'asset.bin'
+    })
+
+    expect(first).toEqual({
+      status: 'failed',
+      message: 'This file is binary and cannot be edited in Files.'
+    })
+    expect(second).toEqual({ status: 'opened' })
+    expect(openDocument).toHaveBeenCalledTimes(2)
+    expect(useFilesStore.getState().contexts['session-unsupported-retry'].tabs[0]).toMatchObject({
+      status: 'ready',
+      draft: 'text!'
+    })
+  })
+
   it('keeps external Files location handoffs isolated by context key', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'shared.ts', relativePath: 'shared.ts', kind: 'file' as const }
