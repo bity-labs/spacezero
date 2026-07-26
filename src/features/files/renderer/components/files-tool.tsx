@@ -123,6 +123,7 @@ function FilesToolSession({
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
   const searchRequestRef = useRef(0)
+  const activeSearchRequestIdRef = useRef<string | null>(null)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
 
@@ -216,12 +217,30 @@ function FilesToolSession({
     [ipcContext, sessionId]
   )
 
+  const cancelActiveSearch = useCallback((): void => {
+    const requestId = activeSearchRequestIdRef.current
+    if (!requestId) return
+    activeSearchRequestIdRef.current = null
+    void window.spacezero.files.cancelSearch({ context: ipcContext, requestId })
+  }, [ipcContext])
+
+  const invalidateSearchResults = useCallback((): void => {
+    cancelActiveSearch()
+    searchRequestRef.current += 1
+    setSearchQuery('')
+    setSearchState({ status: 'idle' })
+  }, [cancelActiveSearch])
+
   const performSearch = useCallback(
     async (query: string, includeIgnored: boolean): Promise<void> => {
       const normalizedQuery = query.trim()
-      const requestId = searchRequestRef.current + 1
-      searchRequestRef.current = requestId
+      cancelActiveSearch()
+      const requestSequence = searchRequestRef.current + 1
+      const requestId = `${sessionId}:${requestSequence}`
+      searchRequestRef.current = requestSequence
+      activeSearchRequestIdRef.current = requestId
       if (!normalizedQuery) {
+        activeSearchRequestIdRef.current = null
         setSearchState({ status: 'idle' })
         return
       }
@@ -230,12 +249,26 @@ function FilesToolSession({
         const results = await window.spacezero.files.search({
           context: ipcContext,
           query: normalizedQuery,
-          includeIgnored
+          includeIgnored,
+          requestId
         })
-        if (searchRequestRef.current !== requestId || activeSessionRef.current !== sessionId) return
+        if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
+        if (
+          searchRequestRef.current !== requestSequence ||
+          activeSessionRef.current !== sessionId
+        ) {
+          return
+        }
         setSearchState({ status: 'ready', query: normalizedQuery, results })
       } catch (error) {
-        if (searchRequestRef.current !== requestId || activeSessionRef.current !== sessionId) return
+        if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
+        if (
+          searchRequestRef.current !== requestSequence ||
+          activeSessionRef.current !== sessionId
+        ) {
+          return
+        }
+        if (error instanceof Error && error.message.includes('files.searchCanceled')) return
         setSearchState({
           status: 'error',
           query: normalizedQuery,
@@ -243,14 +276,12 @@ function FilesToolSession({
         })
       }
     },
-    [ipcContext, sessionId]
+    [cancelActiveSearch, ipcContext, sessionId]
   )
 
   const clearSearch = useCallback((): void => {
-    searchRequestRef.current += 1
-    setSearchQuery('')
-    setSearchState({ status: 'idle' })
-  }, [])
+    invalidateSearchResults()
+  }, [invalidateSearchResults])
 
   const saveDocumentSnapshot = useCallback(
     async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
@@ -271,13 +302,14 @@ function FilesToolSession({
           return false
         }
         markSaved(sessionId, result.document, saveRequest)
+        invalidateSearchResults()
         return true
       } catch (error) {
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
         return false
       }
     },
-    [ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
+    [invalidateSearchResults, ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
@@ -339,14 +371,27 @@ function FilesToolSession({
 
   useEffect(() => {
     activeSessionRef.current = sessionId
-    searchRequestRef.current += 1
-    setSearchState({ status: 'idle' })
-    setSearchQuery('')
+    invalidateSearchResults()
     void loadRoot()
     return () => {
+      cancelActiveSearch()
       if (activeSessionRef.current === sessionId) activeSessionRef.current = ''
     }
-  }, [loadRoot, sessionId])
+  }, [cancelActiveSearch, invalidateSearchResults, loadRoot, sessionId])
+
+  useEffect(() => {
+    const subscriptionId = `${sessionId}:files-observation`
+    void window.spacezero.files.observe({ context: ipcContext, subscriptionId })
+    const unsubscribeEvents = window.spacezero.files.onObservationEvent((event) => {
+      if (event.subscriptionId === subscriptionId && event.contextKey === sessionId) {
+        invalidateSearchResults()
+      }
+    })
+    return () => {
+      unsubscribeEvents()
+      void window.spacezero.files.unobserve({ subscriptionId })
+    }
+  }, [invalidateSearchResults, ipcContext, sessionId])
 
   useEffect(() => {
     if (rootState.status !== 'ready' || restoredRootRef.current) return

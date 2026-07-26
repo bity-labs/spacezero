@@ -1,9 +1,13 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { searchFiles } from './files-search.adapter'
+
+const execFileAsync = promisify(execFile)
 
 describe('Files search adapter', () => {
   let rootPath: string
@@ -58,6 +62,60 @@ describe('Files search adapter', () => {
         expect.objectContaining({ relativePath: 'visible.txt', kind: 'content' })
       ])
     )
+  })
+
+  it('honors nested gitignore files plus anchored and negated rules', async () => {
+    await execFileAsync('git', ['init'], { cwd: rootPath })
+    await mkdir(join(rootPath, 'nested'), { recursive: true })
+    await mkdir(join(rootPath, 'anchored'), { recursive: true })
+    await writeFile(join(rootPath, '.gitignore'), '/anchored.txt\n*.log\n!important.log\n')
+    await writeFile(join(rootPath, 'nested', '.gitignore'), 'secret.txt\n/anchored.txt\n')
+    await writeFile(join(rootPath, 'nested', 'secret.txt'), 'needle')
+    await writeFile(join(rootPath, 'nested', 'anchored.txt'), 'needle')
+    await writeFile(join(rootPath, 'anchored.txt'), 'needle')
+    await writeFile(join(rootPath, 'anchored', 'anchored.txt'), 'needle')
+    await writeFile(join(rootPath, 'debug.log'), 'needle')
+    await writeFile(join(rootPath, 'important.log'), 'needle')
+
+    await expect(
+      execFileAsync('git', ['check-ignore', '-v', 'nested/secret.txt'], { cwd: rootPath })
+    ).resolves.toMatchObject({ stdout: expect.stringContaining('nested/.gitignore') })
+
+    await expect(searchFiles(rootPath, searchRequest('needle'))).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relativePath: 'anchored/anchored.txt' }),
+        expect.objectContaining({ relativePath: 'important.log' })
+      ])
+    )
+    const defaultPaths = (await searchFiles(rootPath, searchRequest('needle'))).map(
+      (result) => result.relativePath
+    )
+    expect(defaultPaths).not.toContain('nested/secret.txt')
+    expect(defaultPaths).not.toContain('nested/anchored.txt')
+    expect(defaultPaths).not.toContain('anchored.txt')
+    expect(defaultPaths).not.toContain('debug.log')
+
+    await expect(
+      searchFiles(rootPath, searchRequest('needle', { includeIgnored: true }))
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relativePath: 'nested/secret.txt' }),
+        expect.objectContaining({ relativePath: 'nested/anchored.txt' }),
+        expect.objectContaining({ relativePath: 'anchored.txt' }),
+        expect.objectContaining({ relativePath: 'debug.log' })
+      ])
+    )
+  })
+
+  it('stops before further filesystem work when an in-flight search is aborted', async () => {
+    await writeFile(join(rootPath, 'one.txt'), 'needle')
+    await writeFile(join(rootPath, 'two.txt'), 'needle')
+    const controller = new AbortController()
+    controller.abort()
+
+    await expect(
+      searchFiles(rootPath, searchRequest('needle'), { signal: controller.signal })
+    ).rejects.toThrow('files.searchCanceled')
   })
 
   it('hard-excludes git internals, symbolic links, binary files, and oversized content', async () => {
