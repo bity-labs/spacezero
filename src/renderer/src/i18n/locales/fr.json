@@ -234,6 +234,14 @@
       "loading": "Chargement de la préférence des liens du chat…",
       "saveError": "Impossible d’enregistrer la préférence des liens du chat."
     },
+    "gitPrimaryAction": {
+      "label": "Action Git principale",
+      "description": "Choisissez quelle action du compositeur Git de Session projet apparaît comme bouton principal.",
+      "commit": "Commit",
+      "commitAndPush": "Commit & Push",
+      "loading": "Chargement de la préférence d’action Git…",
+      "saveError": "Impossible d’enregistrer la préférence d’action Git."
+    },
     "notifications": {
       "sectionTitle": "Notifications",
       "system": {

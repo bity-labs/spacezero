@@ -247,6 +247,9 @@ const api: SpaceZeroAPI = {
     getChatLinkSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getChatLinkSettings),
     updateChatLinkSettings: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.settings.updateChatLinkSettings, request),
+    getGitActionSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getGitActionSettings),
+    updateGitActionSettings: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateGitActionSettings, request),
     getTerminalSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getTerminalSettings),
     updateTerminalSettings: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.settings.updateTerminalSettings, request)

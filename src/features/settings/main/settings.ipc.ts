@@ -4,10 +4,12 @@ import { languagePreferenceSchema } from '../../../shared/i18n'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { addApiKeyRequestSchema, providerRequestSchema } from '../../../shared/model-auth'
 import { updateChatLinkSettingsRequestSchema } from '../../../shared/chat-link-settings'
+import { updateGitActionSettingsRequestSchema } from '../../../shared/git-action-settings'
 import { updateModelDefaultsRequestSchema } from '../../../shared/model-settings'
 import { terminalSettingsSchema } from '../../../shared/terminal-settings'
 import { themePreferenceSchema } from '../../../shared/theme'
 import { getChatLinkSettings, updateChatLinkSettings } from './chat-link-settings.service'
+import { getGitActionSettings, updateGitActionSettings } from './git-action-settings.service'
 import { getLanguageSettings, updateLanguagePreference } from './language-settings.service'
 import { getModelDefaults, updateModelDefaults } from './model-defaults-settings.service'
 import {
@@ -73,6 +75,18 @@ export function registerSettingsIpc(): void {
     }
 
     return updateChatLinkSettings(parsedRequest.data)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settings.getGitActionSettings, () => getGitActionSettings())
+
+  ipcMain.handle(IPC_CHANNELS.settings.updateGitActionSettings, (_event, request: unknown) => {
+    const parsedRequest = updateGitActionSettingsRequestSchema.safeParse(request)
+
+    if (!parsedRequest.success) {
+      throw new Error('settings.invalidUpdateGitActionSettingsRequest')
+    }
+
+    return updateGitActionSettings(parsedRequest.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.settings.getTerminalSettings, () => getTerminalSettings())
