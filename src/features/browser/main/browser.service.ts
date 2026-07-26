@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import { BROWSER_COMMAND_IDS, browserContextKey } from '../shared'
 import type {
   BrowserBounds,
+  BrowserClearDataResult,
   BrowserCloseTabRequest,
   BrowserContext,
   BrowserContextRequest,
@@ -47,6 +48,7 @@ export type BrowserViewAdapter = {
   goForward: (tabId: string) => void
   reload: (tabId: string) => void
   stop: (tabId: string) => void
+  clearProfileData: () => Promise<BrowserClearDataResult>
 }
 
 export type BrowserExternalOpener = {
@@ -252,6 +254,26 @@ export class BrowserService {
       context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
     }
     return this.publishState(context)
+  }
+
+  async clearData(): Promise<BrowserClearDataResult> {
+    const result = await this.adapter.clearProfileData()
+    if (result.cleared.length > 0) {
+      for (const context of this.contexts.values()) {
+        let changed = false
+        for (const tab of context.tabs) {
+          if (!tab.url || !tab.hasLoadedRestoredUrl) continue
+          tab.isLoading = true
+          tab.error = null
+          tab.canGoBack = false
+          tab.canGoForward = false
+          this.adapter.reload(tab.id)
+          changed = true
+        }
+        if (changed) this.publishState(context)
+      }
+    }
+    return result
   }
 
   async reorderTabs(request: BrowserReorderTabsRequest): Promise<BrowserState> {
