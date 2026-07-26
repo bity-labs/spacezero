@@ -82,10 +82,18 @@ describe('GitService', () => {
 
     expect(review.status).toBe('ok')
     if (review.status !== 'ok') return
-    expect(review.files.map((file) => file.path)).toEqual(['README.md', 'staged-only.md', 'untracked.md'])
+    expect(review.files.map((file) => file.path)).toEqual([
+      'README.md',
+      'staged-only.md',
+      'untracked.md'
+    ])
     expect(review.files.find((file) => file.path === 'README.md')?.diff).toContain('+unstaged')
-    expect(review.files.find((file) => file.path === 'staged-only.md')).toMatchObject({ kind: 'added' })
-    expect(review.files.find((file) => file.path === 'untracked.md')).toMatchObject({ kind: 'untracked' })
+    expect(review.files.find((file) => file.path === 'staged-only.md')).toMatchObject({
+      kind: 'added'
+    })
+    expect(review.files.find((file) => file.path === 'untracked.md')).toMatchObject({
+      kind: 'untracked'
+    })
   })
 
   it('separates staged and unstaged patches for a partially staged file', async () => {
@@ -111,9 +119,15 @@ describe('GitService', () => {
     if (staged.status !== 'ok' || unstaged.status !== 'ok') return
     expect(staged.files.map((file) => file.path)).toEqual(['README.md'])
     expect(unstaged.files.map((file) => file.path)).toEqual(['README.md'])
-    expect(staged.files[0]).toMatchObject({ kind: 'modified', diff: expect.stringContaining('+staged line') })
+    expect(staged.files[0]).toMatchObject({
+      kind: 'modified',
+      diff: expect.stringContaining('+staged line')
+    })
     expect(staged.files[0].diff).not.toContain('+unstaged line')
-    expect(unstaged.files[0]).toMatchObject({ kind: 'modified', diff: expect.stringContaining('+unstaged line') })
+    expect(unstaged.files[0]).toMatchObject({
+      kind: 'modified',
+      diff: expect.stringContaining('+unstaged line')
+    })
     expect(unstaged.files[0].diff).not.toContain('+staged line')
   })
 
@@ -230,7 +244,19 @@ describe('GitService', () => {
     await writeFile(join(worktree, 'f.txt'), await git(['-C', worktree, 'show', 'HEAD:f.txt']))
 
     expect(await git(['-C', worktree, 'status', '--porcelain=v1'])).toBe('UU f.txt\n')
-    expect(await git(['-C', worktree, 'diff', '--no-ext-diff', '--find-renames=1%', '--binary', 'HEAD', '--', 'f.txt'])).toBe('')
+    expect(
+      await git([
+        '-C',
+        worktree,
+        'diff',
+        '--no-ext-diff',
+        '--find-renames=1%',
+        '--binary',
+        'HEAD',
+        '--',
+        'f.txt'
+      ])
+    ).toBe('')
 
     const service = createGitService({
       sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
@@ -269,9 +295,17 @@ describe('GitService', () => {
 
     expect(review.status).toBe('ok')
     if (review.status !== 'ok') return
-    expect(review.files.find((file) => file.path === 'delete-me.txt')).toMatchObject({ kind: 'deleted' })
-    expect(review.files.find((file) => file.path === 'binary.bin')).toMatchObject({ binary: true, diff: null })
-    expect(review.files.find((file) => file.path === 'large.txt')).toMatchObject({ large: true, diff: null })
+    expect(review.files.find((file) => file.path === 'delete-me.txt')).toMatchObject({
+      kind: 'deleted'
+    })
+    expect(review.files.find((file) => file.path === 'binary.bin')).toMatchObject({
+      binary: true,
+      diff: null
+    })
+    expect(review.files.find((file) => file.path === 'large.txt')).toMatchObject({
+      large: true,
+      diff: null
+    })
   })
 
   it('returns conflicted files first with conflict state', async () => {
@@ -437,12 +471,16 @@ describe('GitService', () => {
     let readAttempted = false
 
     const service = createGitService({
-      sessionsRepository: createSessionsRepository({ projectPath: 'C:\\project', worktreePath: worktree }),
+      sessionsRepository: createSessionsRepository({
+        projectPath: 'C:\\project',
+        worktreePath: worktree
+      }),
       managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
       runGit: async ({ args }) => {
         if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
         if (args[0] === 'rev-parse') return { stdout: '', stderr: 'no upstream\n', exitCode: 128 }
-        if (args[0] === 'status') return { stdout: '?? new-dir/note.txt\0', stderr: '', exitCode: 0 }
+        if (args[0] === 'status')
+          return { stdout: '?? new-dir/note.txt\0', stderr: '', exitCode: 0 }
         return { stdout: '', stderr: '', exitCode: 0 }
       },
       fileSystem: {
@@ -535,12 +573,16 @@ describe('GitService', () => {
 
   it('returns an explicit Git error when upstream count query fails', async () => {
     const service = createGitService({
-      sessionsRepository: createSessionsRepository({ projectPath: '/project', worktreePath: '/worktree' }),
+      sessionsRepository: createSessionsRepository({
+        projectPath: '/project',
+        worktreePath: '/worktree'
+      }),
       managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
       runGit: async ({ args }) => {
         if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
         if (args[0] === 'rev-parse') return { stdout: 'origin/feature\n', stderr: '', exitCode: 0 }
-        if (args[0] === 'rev-list') return { stdout: '', stderr: 'rev-list failed\n', exitCode: 128 }
+        if (args[0] === 'rev-list')
+          return { stdout: '', stderr: 'rev-list failed\n', exitCode: 128 }
         if (args[0] === 'status') return { stdout: '', stderr: '', exitCode: 0 }
         return { stdout: '', stderr: '', exitCode: 0 }
       }
@@ -554,13 +596,17 @@ describe('GitService', () => {
 
   it('returns a bounded explicit Git error when a required file diff query fails', async () => {
     const service = createGitService({
-      sessionsRepository: createSessionsRepository({ projectPath: '/project', worktreePath: '/worktree' }),
+      sessionsRepository: createSessionsRepository({
+        projectPath: '/project',
+        worktreePath: '/worktree'
+      }),
       managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
       runGit: async ({ args }) => {
         if (args[0] === 'branch') return { stdout: 'feature\n', stderr: '', exitCode: 0 }
         if (args[0] === 'rev-parse') return { stdout: '', stderr: 'no upstream\n', exitCode: 128 }
         if (args[0] === 'status') return { stdout: ' M README.md\0', stderr: '', exitCode: 0 }
-        if (args[0] === 'diff') return { stdout: '', stderr: `${'diff failed '.repeat(1024)}\n`, exitCode: 128 }
+        if (args[0] === 'diff')
+          return { stdout: '', stderr: `${'diff failed '.repeat(1024)}\n`, exitCode: 128 }
         return { stdout: '', stderr: '', exitCode: 0 }
       }
     })
@@ -616,17 +662,19 @@ describe('GitService', () => {
     type WatchCallback = (eventType: string, filename: string | null) => void
     const callbacks = new Map<string, WatchCallback>()
     const closed: string[] = []
-    const watchStub = vi.fn((path: Parameters<typeof watch>[0], _options: unknown, listener?: WatchCallback) => {
-      if (listener) callbacks.set(path.toString(), listener)
-      return {
-        close() {
-          closed.push(path.toString())
-        },
-        on() {
-          return this
-        }
-      } as unknown as ReturnType<typeof watch>
-    }) as unknown as typeof watch
+    const watchStub = vi.fn(
+      (path: Parameters<typeof watch>[0], _options: unknown, listener?: WatchCallback) => {
+        if (listener) callbacks.set(path.toString(), listener)
+        return {
+          close() {
+            closed.push(path.toString())
+          },
+          on() {
+            return this
+          }
+        } as unknown as ReturnType<typeof watch>
+      }
+    ) as unknown as typeof watch
 
     const service = createGitService({
       sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
@@ -638,7 +686,8 @@ describe('GitService', () => {
         watch: watchStub
       }
     })
-    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> = []
+    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> =
+      []
 
     const close = await service.observeProjectSession('session-1', (event) => events.push(event))
     const observedGitDir = Array.from(callbacks.keys()).find((path) => path !== worktree)
@@ -651,6 +700,58 @@ describe('GitService', () => {
     expect(events).toEqual([{ kind: 'repository-changed' }, { kind: 'repository-changed' }])
     expect(closed).toEqual([worktree, observedGitDir])
     expect(await git(['-C', worktree, 'status', '--porcelain=v1'])).toBe('')
+  })
+
+  it('resolves Knowledge Base reviews through the verified root provider without a renderer-supplied path or managed-worktree validation', async () => {
+    const root = await createTempDir('spacezero-git-kb-review-')
+    await createRepository(root)
+    await writeFile(join(root, 'kb.md'), 'knowledge change\n')
+    const validate = vi.fn(async () => true)
+    const getVerifiedRoot = vi.fn(async () => root)
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: root, worktreePath: null }),
+      managedWorktreeService: createManagedWorktreeServiceStub(validate),
+      knowledgeBaseRootProvider: {
+        getStatus: async () => ({ setupState: 'configured' as const, rootPath: root }),
+        getVerifiedRoot,
+        invalidate: vi.fn()
+      }
+    })
+
+    const review = await service.getReview(
+      { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      'unstaged'
+    )
+
+    expect(getVerifiedRoot).toHaveBeenCalledTimes(1)
+    expect(validate).not.toHaveBeenCalled()
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files.map((file) => file.path)).toEqual(['kb.md'])
+    expect(review.files[0]?.diff).toContain('+knowledge change')
+  })
+
+  it('reports unavailable Knowledge Base roots without fabricating a Git repository', async () => {
+    const validate = vi.fn(async () => true)
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: '/unused', worktreePath: null }),
+      managedWorktreeService: createManagedWorktreeServiceStub(validate),
+      knowledgeBaseRootProvider: {
+        getStatus: async () => ({ setupState: 'unconfigured' as const }),
+        getVerifiedRoot: async () => {
+          throw new Error('Knowledge Base is not configured.')
+        },
+        invalidate: vi.fn()
+      }
+    })
+
+    const review = await service.getReview({ kind: 'knowledge-base', contextKey: 'knowledge-base' })
+
+    expect(review).toEqual({
+      status: 'inaccessible',
+      message: 'Knowledge Base is not configured.'
+    })
+    expect(validate).not.toHaveBeenCalled()
   })
 
   it('surfaces bounded observe setup errors and closes any started watchers', async () => {
@@ -682,7 +783,8 @@ describe('GitService', () => {
         watch: watchStub
       }
     })
-    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> = []
+    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> =
+      []
 
     const close = await service.observeProjectSession('session-1', (event) => events.push(event))
     close()
@@ -690,7 +792,9 @@ describe('GitService', () => {
     expect(closed).toEqual([worktree])
     expect(events).toHaveLength(1)
     expect(events[0]).toMatchObject({ kind: 'watch-error' })
-    expect(events[0]?.kind === 'watch-error' ? events[0].message.length : 0).toBeLessThanOrEqual(4096)
+    expect(events[0]?.kind === 'watch-error' ? events[0].message.length : 0).toBeLessThanOrEqual(
+      4096
+    )
   })
 })
 

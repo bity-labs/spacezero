@@ -96,7 +96,7 @@ describe('ProjectSessionHostSurface', () => {
     window.spacezero.settings.getGitActionSettings = async () => ({
       primaryGitAction: 'commit-and-push'
     })
-    window.spacezero.git.getProjectSessionReview = async () => ({
+    window.spacezero.git.getReview = async () => ({
       status: 'ok',
       branch: 'feature/test',
       upstream: { kind: 'tracked', name: 'origin/feature/test', ahead: 0, behind: 0 },
@@ -167,14 +167,20 @@ describe('ProjectSessionHostSurface', () => {
     })
 
     expect(await screen.findByText(/Please inspect the current Git state/)).toBeInTheDocument()
-    expect(screen.getByText('I inspected fresh Git state and created a commit.')).toBeInTheDocument()
+    expect(
+      screen.getByText('I inspected fresh Git state and created a commit.')
+    ).toBeInTheDocument()
     expect(primaryChatComposer).toHaveValue(draft)
   })
 
   it('routes Project Session chat HTTP links to a new same-context Browser tab by default', async () => {
     const user = userEvent.setup()
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
-    const createTab = vi.fn(async () => ({ contextKey: 'session:session-1', activeTabId: 'tab-1', tabs: [] }))
+    const createTab = vi.fn(async () => ({
+      contextKey: 'session:session-1',
+      activeTabId: 'tab-1',
+      tabs: []
+    }))
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener
       return () => undefined
@@ -206,14 +212,20 @@ describe('ProjectSessionHostSurface', () => {
     const user = userEvent.setup()
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
     const openUrlInDefaultBrowser = vi.fn(async () => undefined)
-    const createTab = vi.fn(async () => ({ contextKey: 'session:workspace-session-1', activeTabId: 'tab-1', tabs: [] }))
+    const createTab = vi.fn(async () => ({
+      contextKey: 'session:workspace-session-1',
+      activeTabId: 'tab-1',
+      tabs: []
+    }))
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener
       return () => undefined
     }
     window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
     window.spacezero.browser.createTab = createTab
-    window.spacezero.settings.getChatLinkSettings = async () => ({ openChatLinksIn: 'default-browser' })
+    window.spacezero.settings.getChatLinkSettings = async () => ({
+      openChatLinksIn: 'default-browser'
+    })
 
     render(<WorkspaceSessionHostSurface session={workspaceSession} />)
 
@@ -231,7 +243,11 @@ describe('ProjectSessionHostSurface', () => {
 
   it('fails closed for unsupported chat link protocols before Browser routing', async () => {
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
-    const createTab = vi.fn(async () => ({ contextKey: 'session:session-1', activeTabId: 'tab-1', tabs: [] }))
+    const createTab = vi.fn(async () => ({
+      contextKey: 'session:session-1',
+      activeTabId: 'tab-1',
+      tabs: []
+    }))
     const openUrlInDefaultBrowser = vi.fn(async () => undefined)
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener

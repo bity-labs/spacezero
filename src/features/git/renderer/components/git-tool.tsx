@@ -5,7 +5,13 @@ import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { GitComposerAction } from '../../../../shared/git-action-settings'
-import type { GitChangeFilter, GitFileDiff, GitReviewState, GitUpstreamState } from '../../shared'
+import type {
+  GitChangeFilter,
+  GitContext,
+  GitFileDiff,
+  GitReviewState,
+  GitUpstreamState
+} from '../../shared'
 
 const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
   { value: 'uncommitted', label: 'Uncommitted' },
@@ -31,8 +37,8 @@ export function resetGitToolViewMemoryForTests(): void {
   gitViewMemoryBySession.clear()
 }
 
-function getGitViewMemory(sessionId: string): GitViewMemory {
-  const existing = gitViewMemoryBySession.get(sessionId)
+function getGitViewMemory(memoryKey: string): GitViewMemory {
+  const existing = gitViewMemoryBySession.get(memoryKey)
   if (existing) return existing
   const created = {
     filter: 'uncommitted' as GitChangeFilter,
@@ -41,7 +47,7 @@ function getGitViewMemory(sessionId: string): GitViewMemory {
     instructions: '',
     scrollTop: 0
   }
-  gitViewMemoryBySession.set(sessionId, created)
+  gitViewMemoryBySession.set(memoryKey, created)
   return created
 }
 
@@ -55,18 +61,58 @@ type GitFilesHandoff = {
   >
 }
 
+type GitAgentSession = ReturnType<typeof useAgentSession>
+
 type GitToolProps = {
-  sessionId: string
+  context?: GitContext
+  sessionId?: string
   filesHandoff?: GitFilesHandoff
 }
 
-export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
-  return <GitToolSession key={sessionId} filesHandoff={filesHandoff} sessionId={sessionId} />
+export function GitTool({ context, sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
+  const gitContext = context ?? (sessionId ? { kind: 'project-session' as const, sessionId } : null)
+  if (!gitContext) throw new Error('GitTool requires a Git context.')
+  if (gitContext.kind === 'project-session') {
+    return <ProjectGitTool context={gitContext} filesHandoff={filesHandoff} />
+  }
+  return (
+    <GitToolSession key={gitContext.contextKey} context={gitContext} filesHandoff={filesHandoff} />
+  )
 }
 
-function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
-  const agentSession = useAgentSession(sessionId)
-  const initialMemory = useMemo(() => getGitViewMemory(sessionId), [sessionId])
+function ProjectGitTool({
+  context,
+  filesHandoff
+}: {
+  context: Extract<GitContext, { kind: 'project-session' }>
+  filesHandoff?: GitFilesHandoff
+}): React.JSX.Element {
+  const agentSession = useAgentSession(context.sessionId)
+  return (
+    <GitToolSession
+      key={`session:${context.sessionId}`}
+      agentSession={agentSession}
+      context={context}
+      filesHandoff={filesHandoff}
+    />
+  )
+}
+
+function getGitContextMemoryKey(context: GitContext): string {
+  return context.kind === 'knowledge-base' ? context.contextKey : `session:${context.sessionId}`
+}
+
+function GitToolSession({
+  context,
+  filesHandoff,
+  agentSession = null
+}: {
+  context: GitContext
+  filesHandoff?: GitFilesHandoff
+  agentSession?: GitAgentSession | null
+}): React.JSX.Element {
+  const gitMemoryKey = getGitContextMemoryKey(context)
+  const initialMemory = useMemo(() => getGitViewMemory(gitMemoryKey), [gitMemoryKey])
   const [filter, setFilterState] = useState<GitChangeFilter>(initialMemory.filter)
   const [state, setState] = useState<GitReviewState | null>(null)
   const [actionState, setActionState] = useState<GitReviewState | null>(null)
@@ -82,31 +128,33 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const gitPromptRunPending = useRef(false)
-  const previousAgentStatus = useRef(agentSession.status)
+  const hasAgentSession = Boolean(agentSession)
+  const currentAgentStatus = agentSession?.status ?? 'idle'
+  const previousAgentStatus = useRef(currentAgentStatus)
 
   const setFilter = useCallback(
     (nextFilter: GitChangeFilter) => {
-      getGitViewMemory(sessionId).filter = nextFilter
+      getGitViewMemory(gitMemoryKey).filter = nextFilter
       setFilterState(nextFilter)
     },
-    [sessionId]
+    [gitMemoryKey]
   )
   const setInstructions = useCallback(
     (nextInstructions: string) => {
-      getGitViewMemory(sessionId).instructions = nextInstructions
+      getGitViewMemory(gitMemoryKey).instructions = nextInstructions
       setInstructionsState(nextInstructions)
     },
-    [sessionId]
+    [gitMemoryKey]
   )
   const setExpandedPaths = useCallback(
     (next: Set<string> | ((current: Set<string>) => Set<string>)) => {
       setExpandedPathsState((current) => {
         const resolved = typeof next === 'function' ? next(current) : next
-        getGitViewMemory(sessionId).expandedPaths = new Set(resolved)
+        getGitViewMemory(gitMemoryKey).expandedPaths = new Set(resolved)
         return resolved
       })
     },
-    [sessionId]
+    [gitMemoryKey]
   )
 
   const refresh = useCallback(
@@ -116,14 +164,14 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
         setState(null)
         setActionState(null)
       }
-      const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({
-        sessionId,
+      const selectedReviewPromise = window.spacezero.git.getReview({
+        context,
         filter
       })
       const actionReviewPromise =
-        filter === 'uncommitted'
+        !hasAgentSession || filter === 'uncommitted'
           ? selectedReviewPromise
-          : window.spacezero.git.getProjectSessionReview({ sessionId, filter: 'uncommitted' })
+          : window.spacezero.git.getReview({ context, filter: 'uncommitted' })
       const [selectedReview, actionReview] = await Promise.all([
         selectedReviewPromise,
         actionReviewPromise
@@ -132,7 +180,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
       setState(selectedReview)
       setActionState(actionReview)
       if (selectedReview.status === 'ok') {
-        const memory = getGitViewMemory(sessionId)
+        const memory = getGitViewMemory(gitMemoryKey)
         setExpandedPaths(
           new Set(
             selectedReview.files
@@ -144,7 +192,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
         setExpandedPaths(new Set())
       }
     },
-    [filter, sessionId, setExpandedPaths]
+    [context, filter, gitMemoryKey, hasAgentSession, setExpandedPaths]
   )
 
   useEffect(() => {
@@ -155,6 +203,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
   }, [refresh])
 
   useEffect(() => {
+    if (!hasAgentSession) return
     let canceled = false
     void window.spacezero.settings
       .getGitActionSettings()
@@ -167,7 +216,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
     return () => {
       canceled = true
     }
-  }, [])
+  }, [hasAgentSession])
 
   useEffect(() => {
     return () => {
@@ -180,8 +229,9 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
     let observationSubscriptionId: string | null = null
     let observedWatchError = false
     const unsubscribeEvents = window.spacezero.git.onObservationEvent((event) => {
-      if (event.sessionId !== sessionId) return
-      if (event.subscriptionId !== observationSubscriptionId && observationSubscriptionId !== null) return
+      if (event.contextKey !== gitMemoryKey) return
+      if (event.subscriptionId !== observationSubscriptionId && observationSubscriptionId !== null)
+        return
       if (event.kind === 'watch-error') {
         observedWatchError = true
         setWatchDiagnostic(getObservationErrorMessage(event.message))
@@ -194,7 +244,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
     })
 
     void window.spacezero.git
-      .observeProjectSession({ sessionId })
+      .observe({ context })
       .then(({ subscriptionId }) => {
         if (disposed) {
           void window.spacezero.git.unobserveProjectSession({ subscriptionId })
@@ -212,10 +262,12 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
       unsubscribeEvents()
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       if (observationSubscriptionId) {
-        void window.spacezero.git.unobserveProjectSession({ subscriptionId: observationSubscriptionId })
+        void window.spacezero.git.unobserveProjectSession({
+          subscriptionId: observationSubscriptionId
+        })
       }
     }
-  }, [refresh, sessionId])
+  }, [context, gitMemoryKey, refresh])
 
   useEffect(() => {
     const onFocus = (): void => {
@@ -226,27 +278,27 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
   }, [refresh])
 
   useEffect(() => {
-    const memory = getGitViewMemory(sessionId)
+    const memory = getGitViewMemory(gitMemoryKey)
     const container = scrollContainerRef.current
     if (!container) return
     container.scrollTop = memory.scrollTop
-  }, [sessionId, state])
+  }, [gitMemoryKey, state])
 
   useEffect(() => {
     if (
       gitPromptRunPending.current &&
       previousAgentStatus.current === 'running' &&
-      agentSession.status === 'idle'
+      currentAgentStatus === 'idle'
     ) {
       gitPromptRunPending.current = false
       void refresh()
     }
-    previousAgentStatus.current = agentSession.status
-  }, [agentSession.status, refresh])
+    previousAgentStatus.current = currentAgentStatus
+  }, [currentAgentStatus, refresh])
 
   const actions = useMemo(() => getActionAvailability(actionState), [actionState])
   const alternateAction = primaryAction === 'commit' ? 'commit-and-push' : 'commit'
-  const busy = agentSession.status === 'running'
+  const busy = currentAgentStatus === 'running'
   const primaryDisabled = busy || !actions[primaryAction]
   const alternateDisabled = busy || !actions[alternateAction]
 
@@ -320,7 +372,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
           aria-label="Git changed files"
           className="min-h-0 flex-1 space-y-3 overflow-auto p-4"
           onScroll={(event) => {
-            getGitViewMemory(sessionId).scrollTop = event.currentTarget.scrollTop
+            getGitViewMemory(gitMemoryKey).scrollTop = event.currentTarget.scrollTop
           }}
         >
           {handoffError ? (
@@ -337,7 +389,7 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
               onHandoffError={setHandoffError}
               onToggle={() =>
                 setExpandedPaths((current) => {
-                  const memory = getGitViewMemory(sessionId)
+                  const memory = getGitViewMemory(gitMemoryKey)
                   const next = new Set(current)
                   if (next.has(file.path)) {
                     next.delete(file.path)
@@ -353,22 +405,24 @@ function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
           ))}
         </div>
       )}
-      <GitCommitComposer
-        alternateAction={alternateAction}
-        alternateDisabled={alternateDisabled}
-        busy={busy}
-        instructions={instructions}
-        menuOpen={menuOpen}
-        primaryAction={primaryAction}
-        primaryDisabled={primaryDisabled}
-        onInstructionsChange={setInstructions}
-        onMenuOpenChange={setMenuOpen}
-        onSubmit={(action) => {
-          setMenuOpen(false)
-          gitPromptRunPending.current = true
-          void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
-        }}
-      />
+      {agentSession ? (
+        <GitCommitComposer
+          alternateAction={alternateAction}
+          alternateDisabled={alternateDisabled}
+          busy={busy}
+          instructions={instructions}
+          menuOpen={menuOpen}
+          primaryAction={primaryAction}
+          primaryDisabled={primaryDisabled}
+          onInstructionsChange={setInstructions}
+          onMenuOpenChange={setMenuOpen}
+          onSubmit={(action) => {
+            setMenuOpen(false)
+            gitPromptRunPending.current = true
+            void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
+          }}
+        />
+      ) : null}
     </GitShell>
   )
 }

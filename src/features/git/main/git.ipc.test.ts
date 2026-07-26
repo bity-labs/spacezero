@@ -9,14 +9,16 @@ const observeProjectSession = vi.fn()
 
 vi.mock('electron', () => ({
   ipcMain: {
-    handle: vi.fn((channel: string, handler: (event: { sender: TestSender }, request: unknown) => unknown) => {
-      handlers.set(channel, handler)
-    })
+    handle: vi.fn(
+      (channel: string, handler: (event: { sender: TestSender }, request: unknown) => unknown) => {
+        handlers.set(channel, handler)
+      }
+    )
   }
 }))
 
 vi.mock('./git.runtime', () => ({
-  getGitService: () => ({ observeProjectSession })
+  getGitService: () => ({ observe: observeProjectSession })
 }))
 
 type TestSender = EventEmitter & {
@@ -57,7 +59,9 @@ describe('Git IPC observation lifecycle', () => {
     const handler = handlers.get(GIT_IPC_CHANNELS.observeProjectSession)
     if (!handler) throw new Error('observe handler was not registered')
 
-    const response = handler({ sender }, { sessionId: 'session-1' }) as Promise<{ subscriptionId: string }>
+    const response = handler({ sender }, { sessionId: 'session-1' }) as Promise<{
+      subscriptionId: string
+    }>
     expect(sender.listenerCount('destroyed')).toBe(1)
     sender.destroyed = true
     sender.emit('destroyed')
@@ -75,12 +79,41 @@ describe('Git IPC observation lifecycle', () => {
     const handler = handlers.get(GIT_IPC_CHANNELS.observeProjectSession)
     if (!handler) throw new Error('observe handler was not registered')
 
-    await expect(handler({ sender }, { sessionId: 'session-1' })).rejects.toThrow('missing managed worktree')
+    await expect(handler({ sender }, { sessionId: 'session-1' })).rejects.toThrow(
+      'missing managed worktree'
+    )
     expect(sender.listenerCount('destroyed')).toBe(0)
 
     sender.destroyed = true
     sender.emit('destroyed')
     expect(sender.listenerCount('destroyed')).toBe(0)
+  })
+
+  it('emits Knowledge Base observation events with the stable context key and no session id', async () => {
+    const sender = createSender()
+    let notify!: (event: { kind: 'repository-changed' }) => void
+    observeProjectSession.mockImplementation(async (_context, onEvent) => {
+      notify = onEvent
+      return vi.fn()
+    })
+    const observe = handlers.get(GIT_IPC_CHANNELS.observe)
+    if (!observe) throw new Error('Git observe handler was not registered')
+
+    const { subscriptionId } = (await observe(
+      { sender },
+      { context: { kind: 'knowledge-base', contextKey: 'knowledge-base' } }
+    )) as { subscriptionId: string }
+    notify({ kind: 'repository-changed' })
+
+    expect(observeProjectSession).toHaveBeenCalledWith(
+      { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      expect.any(Function)
+    )
+    expect(sender.send).toHaveBeenCalledWith(GIT_IPC_CHANNELS.observationEvent, {
+      subscriptionId,
+      contextKey: 'knowledge-base',
+      kind: 'repository-changed'
+    })
   })
 
   it('removes sender destroyed listeners on repeated observe and unobserve churn', async () => {
