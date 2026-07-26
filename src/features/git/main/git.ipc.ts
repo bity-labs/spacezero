@@ -11,7 +11,13 @@ import {
 } from '../shared'
 import { getGitService } from './git.runtime'
 
-const subscriptions = new Map<string, { close: () => void }>()
+type GitSubscription = {
+  close: () => void
+  removeDestroyedListener: () => void
+  closed: boolean
+}
+
+const subscriptions = new Map<string, GitSubscription>()
 
 export function registerGitIpc(): void {
   ipcMain.handle(GIT_IPC_CHANNELS.getProjectSessionReview, async (_event, request: unknown) => {
@@ -23,13 +29,26 @@ export function registerGitIpc(): void {
     const parsed = observeProjectSessionGitSchema.parse(request)
     const subscriptionId = randomUUID()
     const sender = event.sender
+    let senderDestroyed = sender.isDestroyed()
+    const onSenderDestroyed = (): void => {
+      senderDestroyed = true
+      closeGitSubscription(subscriptionId)
+    }
+    sender.once('destroyed', onSenderDestroyed)
+
+    const removeDestroyedListener = (): void => {
+      sender.off('destroyed', onSenderDestroyed)
+    }
+
     const close = await getGitService().observeProjectSession(parsed.sessionId, (observation) => {
       if (sender.isDestroyed()) return
       const payload: GitObservationEvent = { subscriptionId, sessionId: parsed.sessionId, ...observation }
       sender.send(GIT_IPC_CHANNELS.observationEvent, payload)
     })
-    subscriptions.set(subscriptionId, { close })
-    sender.once('destroyed', () => closeGitSubscription(subscriptionId))
+
+    const subscription: GitSubscription = { close, removeDestroyedListener, closed: false }
+    subscriptions.set(subscriptionId, subscription)
+    if (senderDestroyed || sender.isDestroyed()) closeGitSubscription(subscriptionId)
     return { subscriptionId }
   })
 
@@ -41,7 +60,9 @@ export function registerGitIpc(): void {
 
 function closeGitSubscription(subscriptionId: string): void {
   const subscription = subscriptions.get(subscriptionId)
-  if (!subscription) return
+  if (!subscription || subscription.closed) return
+  subscription.closed = true
   subscriptions.delete(subscriptionId)
+  subscription.removeDestroyedListener()
   subscription.close()
 }
