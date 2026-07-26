@@ -18,6 +18,8 @@ type FilesTabBase = {
   name: string
   preview: boolean
   openRequestId?: number
+  targetLine?: number
+  locationRequestId?: number
 }
 
 export type FilesTabState =
@@ -61,7 +63,8 @@ type FilesStore = {
     sessionId: string,
     relativePath: string,
     intent: FilesOpenTabIntent,
-    openRequestId: number
+    openRequestId: number,
+    targetLine?: number
   ) => boolean
   finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => void
   failOpenTab: (
@@ -112,14 +115,21 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
-      beginOpenTab: (sessionId, relativePath, intent, openRequestId) => {
+      beginOpenTab: (sessionId, relativePath, intent, openRequestId, targetLine) => {
         let shouldOpen = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const existingIndex = context.tabs.findIndex((tab) => tab.relativePath === relativePath)
           if (existingIndex >= 0) {
             const tabs = context.tabs.map((tab, index) =>
-              index === existingIndex && intent === 'permanent' ? { ...tab, preview: false } : tab
+              index === existingIndex
+                ? {
+                    ...tab,
+                    ...(intent === 'permanent' ? { preview: false } : {}),
+                    targetLine,
+                    locationRequestId: openRequestId
+                  }
+                : tab
             )
             return updateContext(state, sessionId, {
               tabs,
@@ -130,7 +140,7 @@ const useFilesStore = create<FilesStore>()(
 
           shouldOpen = true
           const previewIndex = context.tabs.findIndex(canReplacePreviewTab)
-          const nextTab = loadingTab(relativePath, intent === 'preview', openRequestId)
+          const nextTab = loadingTab(relativePath, intent === 'preview', openRequestId, targetLine)
           const tabs =
             intent === 'preview' && previewIndex >= 0
               ? context.tabs.map((tab, index) => (index === previewIndex ? nextTab : tab))
@@ -155,7 +165,9 @@ const useFilesStore = create<FilesStore>()(
           if (!tab) return state
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((candidate) =>
-              candidate === tab ? toTabDocument(document, tab.preview) : candidate
+              candidate === tab
+                ? toTabDocument(document, tab.preview, tab.targetLine, tab.locationRequestId)
+                : candidate
             )
           })
         }),
@@ -172,7 +184,9 @@ const useFilesStore = create<FilesStore>()(
                     name: pathName(relativePath),
                     status: 'error' as const,
                     message,
-                    preview: tab.preview
+                    preview: tab.preview,
+                    targetLine: tab.targetLine,
+                    locationRequestId: tab.locationRequestId
                   }
                 : tab
             )
@@ -182,7 +196,10 @@ const useFilesStore = create<FilesStore>()(
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
           if (!context.tabs.some((tab) => tab.relativePath === relativePath)) return state
-          return updateContext(state, sessionId, { activeTabPath: relativePath, selectedPath: relativePath })
+          return updateContext(state, sessionId, {
+            activeTabPath: relativePath,
+            selectedPath: relativePath
+          })
         }),
       promoteTab: (sessionId, relativePath) =>
         set((state) => {
@@ -334,12 +351,16 @@ export function createDefaultFilesContext(): FilesContextState {
 
 export function toReadyDocument(
   document: FilesTextDocument,
-  preview = false
+  preview = false,
+  targetLine?: number,
+  locationRequestId?: number
 ): Extract<FilesTabState, { status: 'ready' }> {
   return {
     ...document,
     name: document.name,
     preview,
+    targetLine,
+    locationRequestId,
     status: 'ready',
     draft: document.content,
     dirty: false,
@@ -441,21 +462,36 @@ function createDefaultContext(): FilesContextState {
 function loadingTab(
   relativePath: string,
   preview: boolean,
-  openRequestId: number
+  openRequestId: number,
+  targetLine?: number
 ): Extract<FilesTabState, { status: 'loading' }> {
   return {
     relativePath,
     name: pathName(relativePath),
     preview,
     openRequestId,
+    targetLine,
+    locationRequestId: openRequestId,
     status: 'loading'
   }
 }
 
-function toTabDocument(document: FilesDocument, preview: boolean): FilesTabState {
+function toTabDocument(
+  document: FilesDocument,
+  preview: boolean,
+  targetLine?: number,
+  locationRequestId?: number
+): FilesTabState {
   return document.contentKind === 'text'
-    ? toReadyDocument(document, preview)
-    : { ...document, name: document.name, preview, status: 'metadata' }
+    ? toReadyDocument(document, preview, targetLine, locationRequestId)
+    : {
+        ...document,
+        name: document.name,
+        preview,
+        targetLine,
+        locationRequestId,
+        status: 'metadata'
+      }
 }
 
 function canReplacePreviewTab(tab: FilesTabState): boolean {

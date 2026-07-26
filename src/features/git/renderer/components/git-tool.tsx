@@ -15,11 +15,20 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 
 const UNCHANGED_CONTEXT_LINES = 3
 
-type GitToolProps = {
-  sessionId: string
+type GitFilesHandoff = {
+  openFilesTool: () => void
+  openLocation: (location: {
+    relativePath: string
+    line?: number
+  }) => Promise<{ status: 'opened' } | { status: 'failed'; message: string }>
 }
 
-export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
+type GitToolProps = {
+  sessionId: string
+  filesHandoff?: GitFilesHandoff
+}
+
+export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
   const agentSession = useAgentSession(sessionId)
   const [filter, setFilter] = useState<GitChangeFilter>('uncommitted')
   const [state, setState] = useState<GitReviewState | null>(null)
@@ -28,16 +37,23 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
   const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
   const [instructions, setInstructions] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [handoffError, setHandoffError] = useState<string | null>(null)
 
   useEffect(() => {
     let canceled = false
     void (async () => {
-      const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({ sessionId, filter })
+      const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({
+        sessionId,
+        filter
+      })
       const actionReviewPromise =
         filter === 'uncommitted'
           ? selectedReviewPromise
           : window.spacezero.git.getProjectSessionReview({ sessionId, filter: 'uncommitted' })
-      const [selectedReview, actionReview] = await Promise.all([selectedReviewPromise, actionReviewPromise])
+      const [selectedReview, actionReview] = await Promise.all([
+        selectedReviewPromise,
+        actionReviewPromise
+      ])
       if (canceled) return
       setState(selectedReview)
       setActionState(actionReview)
@@ -119,11 +135,18 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
         />
       ) : (
         <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4">
+          {handoffError ? (
+            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+              {handoffError}
+            </div>
+          ) : null}
           {state.files.map((file) => (
             <GitDiffCard
               key={`${file.oldPath ?? ''}:${file.path}`}
               expanded={expandedPaths.has(file.path)}
               file={file}
+              filesHandoff={filesHandoff}
+              onHandoffError={setHandoffError}
               onToggle={() =>
                 setExpandedPaths((current) => {
                   const next = new Set(current)
@@ -192,7 +215,9 @@ function GitShell({
               key={option.value}
               aria-selected={filter === option.value}
               className={`rounded-md border px-3 py-1 text-xs ${
-                filter === option.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'
+                filter === option.value
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground'
               }`}
               role="tab"
               type="button"
@@ -211,38 +236,79 @@ function GitShell({
 function GitDiffCard({
   file,
   expanded,
+  filesHandoff,
+  onHandoffError,
   onToggle
 }: {
   file: GitFileDiff
   expanded: boolean
+  filesHandoff?: GitFilesHandoff
+  onHandoffError: (message: string | null) => void
   onToggle: () => void
 }): React.JSX.Element {
+  const canOpenInFiles = isFilesHandoffSupported(file, filesHandoff)
+  const openInFiles = async (line?: number): Promise<void> => {
+    if (!filesHandoff || !canOpenInFiles) return
+    const result = await filesHandoff.openLocation({ relativePath: file.path, line })
+    if (result.status === 'failed') {
+      onHandoffError(result.message)
+      return
+    }
+    onHandoffError(null)
+    filesHandoff.openFilesTool()
+  }
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      <button
-        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60"
-        type="button"
-        onClick={onToggle}
-      >
+      <div className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
         <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{file.path}</div>
+          <button
+            className={`block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
+            disabled={!canOpenInFiles}
+            title={filesHandoffUnavailableMessage(file, filesHandoff)}
+            type="button"
+            onClick={() => void openInFiles()}
+          >
+            {file.path}
+          </button>
           {file.oldPath ? (
-            <div className="truncate text-xs text-muted-foreground">renamed from {file.oldPath}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              renamed from {file.oldPath}
+            </div>
           ) : null}
         </div>
-        <span className="shrink-0 rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
-          {file.kind}
-        </span>
-      </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
+            {file.kind}
+          </span>
+          <button
+            className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent"
+            type="button"
+            onClick={onToggle}
+          >
+            {expanded ? 'Collapse' : 'Expand'}
+          </button>
+        </div>
+      </div>
       {expanded ? (
         file.diff && !file.binary && !file.large ? (
           <pre className="max-h-[480px] overflow-auto border-t bg-muted/30 p-3 text-xs leading-5">
             <code>
-              {foldDiff(file.diff).map((line, index) => (
-                <span key={`${index}:${line}`} className="block">
-                  {line}
-                </span>
-              ))}
+              {getFoldedDiffLines(file.diff).map((line, index) =>
+                line.targetLine && canOpenInFiles ? (
+                  <button
+                    key={`${index}:${line.text}`}
+                    className="block w-full whitespace-pre text-left hover:bg-accent/70"
+                    type="button"
+                    onClick={() => void openInFiles(line.targetLine)}
+                  >
+                    {line.text}
+                  </button>
+                ) : (
+                  <span key={`${index}:${line.text}`} className="block">
+                    {line.text}
+                  </span>
+                )
+              )}
             </code>
           </pre>
         ) : (
@@ -347,28 +413,84 @@ function GitStateMessage({
   )
 }
 
-function foldDiff(diff: string): string[] {
+type FoldedDiffLine = { text: string; targetLine?: number }
+
+function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
   const lines = diff.split('\n')
-  const folded: string[] = []
+  const folded: FoldedDiffLine[] = []
+  let newLineNumber: number | null = null
+
   for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].startsWith(' ')) {
-      folded.push(lines[index])
+    const line = lines[index]
+    const hunkStart = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
+    if (hunkStart) {
+      newLineNumber = Number(hunkStart[1])
+      folded.push({ text: line })
       continue
     }
 
-    const start = index
-    while (index < lines.length && lines[index].startsWith(' ')) index += 1
-    const unchanged = lines.slice(start, index)
-    index -= 1
-    if (unchanged.length <= UNCHANGED_CONTEXT_LINES * 2) {
-      folded.push(...unchanged)
+    const targetLine = getDiffLineTarget(line, newLineNumber)
+    if (line.startsWith(' ') && newLineNumber !== null) {
+      const start = index
+      const startLineNumber = newLineNumber
+      while (index < lines.length && lines[index].startsWith(' ')) {
+        newLineNumber += 1
+        index += 1
+      }
+      const unchanged = lines.slice(start, index)
+      index -= 1
+      if (unchanged.length <= UNCHANGED_CONTEXT_LINES * 2) {
+        folded.push(
+          ...unchanged.map((text, offset) => ({ text, targetLine: startLineNumber + offset }))
+        )
+        continue
+      }
+      folded.push(
+        ...unchanged
+          .slice(0, UNCHANGED_CONTEXT_LINES)
+          .map((text, offset) => ({ text, targetLine: startLineNumber + offset }))
+      )
+      folded.push({
+        text: `… ${unchanged.length - UNCHANGED_CONTEXT_LINES * 2} unchanged lines folded`
+      })
+      const lastLinesStart = startLineNumber + unchanged.length - UNCHANGED_CONTEXT_LINES
+      folded.push(
+        ...unchanged
+          .slice(-UNCHANGED_CONTEXT_LINES)
+          .map((text, offset) => ({ text, targetLine: lastLinesStart + offset }))
+      )
       continue
     }
-    folded.push(...unchanged.slice(0, UNCHANGED_CONTEXT_LINES))
-    folded.push(`… ${unchanged.length - UNCHANGED_CONTEXT_LINES * 2} unchanged lines folded`)
-    folded.push(...unchanged.slice(-UNCHANGED_CONTEXT_LINES))
+
+    folded.push({ text: line, targetLine })
+    if (newLineNumber !== null && !line.startsWith('-') && !line.startsWith('\\')) {
+      newLineNumber += 1
+    }
   }
   return folded
+}
+
+function getDiffLineTarget(line: string, currentNewLine: number | null): number | undefined {
+  if (currentNewLine === null) return undefined
+  if (line.startsWith('+') && !line.startsWith('+++')) return currentNewLine
+  if (line.startsWith(' ')) return currentNewLine
+  return undefined
+}
+
+function isFilesHandoffSupported(file: GitFileDiff, filesHandoff?: GitFilesHandoff): boolean {
+  return Boolean(filesHandoff) && file.kind !== 'deleted' && !file.binary && !file.large
+}
+
+function filesHandoffUnavailableMessage(
+  file: GitFileDiff,
+  filesHandoff?: GitFilesHandoff
+): string | undefined {
+  if (!filesHandoff) return 'Files is unavailable for this Git context.'
+  if (file.kind === 'deleted')
+    return 'Deleted files stay reviewable in Git and cannot be opened in Files.'
+  if (file.binary) return 'Binary changes stay reviewable in Git and cannot be edited in Files.'
+  if (file.large) return 'Large changes stay reviewable in Git and cannot be edited in Files.'
+  return undefined
 }
 
 function getFilterLabel(filter: GitChangeFilter): string {
