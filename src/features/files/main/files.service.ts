@@ -5,7 +5,9 @@ import type {
   ListFilesDirectoryRequest,
   OpenFilesDocumentRequest,
   SaveFilesDocumentRequest,
-  SaveFilesDocumentResult
+  SaveFilesDocumentResult,
+  SearchFilesRequest,
+  FilesSearchResult
 } from '../shared'
 
 export type FilesRepository = {
@@ -60,7 +62,8 @@ export function createFilesService({
   operations,
   readDirectory,
   openDocument,
-  saveDocument
+  saveDocument,
+  search
 }: {
   repository: FilesRepository
   worktrees: FilesWorktreeValidator
@@ -72,6 +75,10 @@ export function createFilesService({
     rootPath: string,
     request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
+  search: (
+    rootPath: string,
+    request: Omit<SearchFilesRequest, 'context'>
+  ) => Promise<FilesSearchResult[]>
 }) {
   return {
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
@@ -93,6 +100,15 @@ export function createFilesService({
           expectedRevision: request.expectedRevision
         })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async search(request: SearchFilesRequest): Promise<FilesSearchResult[]> {
+      const root = await resolveFilesRoot(request.context)
+      return search(root.path, {
+        query: request.query,
+        includeIgnored: request.includeIgnored,
+        ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults })
+      })
     }
   }
 

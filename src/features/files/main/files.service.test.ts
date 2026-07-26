@@ -48,6 +48,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
         lineEnding: 'lf'
       }
     }),
+    search: async () => [],
     ...overrides
   })
 }
@@ -123,6 +124,22 @@ describe('Files service', () => {
       relativePath: 'README.md',
       content: 'updated',
       expectedRevision: 'revision-1'
+    })
+  })
+
+  it('searches through the same authenticated managed worktree without renderer-selected roots', async () => {
+    const search = vi.fn(async () => [
+      { kind: 'filename' as const, relativePath: 'README.md', name: 'README.md' }
+    ])
+    const service = createTestService({ search })
+
+    await expect(
+      service.search({ context: projectContext, query: 'readme', includeIgnored: false })
+    ).resolves.toEqual([{ kind: 'filename', relativePath: 'README.md', name: 'README.md' }])
+
+    expect(search).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      query: 'readme',
+      includeIgnored: false
     })
   })
 

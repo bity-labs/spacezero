@@ -181,6 +181,98 @@ describe('Files Tool', () => {
     )
   })
 
+  it('searches the active context, replaces the tree, returns to prior tree state, and opens positioned previews', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
+    ])
+    const search = vi.fn(async () => [
+      {
+        kind: 'content' as const,
+        relativePath: 'app.ts',
+        name: 'app.ts',
+        snippets: [{ line: 3, column: 5, text: 'hello needle' }]
+      }
+    ])
+    window.spacezero.files.search = search
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'app.ts',
+      relativePath: 'app.ts',
+      contentKind: 'text' as const,
+      size: 18,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'one\ntwo\nhello needle\n',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    fireEvent.submit(screen.getByRole('search'))
+
+    expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
+    expect(screen.queryByRole('tree', { name: 'Project files' })).not.toBeInTheDocument()
+    expect(search).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      query: 'needle',
+      includeIgnored: false
+    })
+
+    fireEvent.click(
+      within(screen.getByLabelText('Search results')).getByRole('button', { name: /app.ts/ })
+    )
+    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
+    expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Return to file tree' }))
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    expect(screen.getAllByText('app.ts').length).toBeGreaterThan(0)
+  })
+
+  it('cancels superseded search results and keeps search failures local to the explorer column', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    let resolveFirst:
+      ((results: Awaited<ReturnType<typeof window.spacezero.files.search>>) => void) | undefined
+    const firstResult = new Promise<Awaited<ReturnType<typeof window.spacezero.files.search>>>(
+      (resolve) => {
+        resolveFirst = resolve
+      }
+    )
+    const search = vi
+      .fn()
+      .mockImplementationOnce(async () => firstResult)
+      .mockResolvedValueOnce([
+        { kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }
+      ])
+      .mockRejectedValueOnce(new Error('files.searchFailed'))
+    window.spacezero.files.search = search
+
+    render(<FilesTool sessionId="session-1" />)
+    await screen.findByRole('tree', { name: 'Project files' })
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'first' } })
+    fireEvent.submit(screen.getByRole('search'))
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'second' } })
+    fireEvent.submit(screen.getByRole('search'))
+    resolveFirst?.([{ kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }])
+
+    await waitFor(() => expect(screen.getAllByText('second.txt')).toHaveLength(2))
+    expect(screen.queryByText('first.txt')).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'broken' } })
+    fireEvent.submit(screen.getByRole('search'))
+
+    expect(
+      await screen.findByText('Couldn’t search these files. Adjust the query or try again.')
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Return to file tree' }))
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+  })
+
   it('reloads persisted expanded directories parent-first after remounting', async () => {
     useFilesStore.getState().setExpanded('session-1', 'src', true)
     useFilesStore.getState().setExpanded('session-1', 'src/nested', true)
@@ -1261,7 +1353,9 @@ describe('Files Tool', () => {
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
       '# Title\n\nbody line'
     )
-    fireEvent.change(screen.getByLabelText('Rich Markdown editor'), { target: { value: '# Dirty' } })
+    fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
+      target: { value: '# Dirty' }
+    })
     fireEvent.click(screen.getByRole('button', { name: 'Source' }))
     expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# Dirty')
     fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
