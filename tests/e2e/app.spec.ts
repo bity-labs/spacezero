@@ -812,6 +812,9 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Browser fixture server did not bind.')
   const fixtureUrl = `http://127.0.0.1:${address.port}/browser-fixture`
+  const downloadDirectory = await mkdtemp(join(tmpdir(), 'spacezero-browser-download-e2e-'))
+  userDataDirectories.push(downloadDirectory)
+  const downloadPath = join(downloadDirectory, 'chosen-fixture-download.txt')
 
   const electronApp = await launchApp()
   const window = await electronApp.firstWindow()
@@ -937,6 +940,53 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     spacezero: 'undefined',
     electronRequire: 'undefined'
   })
+
+  await electronApp.evaluate(({ dialog, shell }, { downloadPath }) => {
+    let openedPath: string | null = null
+    let revealedPath: string | null = null
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: downloadPath })
+    shell.openPath = async (path: string) => {
+      openedPath = path
+      return ''
+    }
+    shell.showItemInFolder = (path: string) => {
+      revealedPath = path
+    }
+    ;(globalThis as {
+      __spacezeroBrowserDownloadNativeActions?: () => { openedPath: string | null; revealedPath: string | null }
+    }).__spacezeroBrowserDownloadNativeActions = () => ({ openedPath, revealedPath })
+  }, { downloadPath })
+  await window.evaluate(() => {
+    ;(globalThis as { __spacezeroBrowserDownloadEvents?: unknown[] }).__spacezeroBrowserDownloadEvents = []
+    window.spacezero.browser.onEvent((event) => {
+      if (event.type === 'download-updated') {
+        ;(globalThis as { __spacezeroBrowserDownloadEvents?: unknown[] }).__spacezeroBrowserDownloadEvents?.push(event.download)
+      }
+    })
+  })
+  await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) throw new Error('Embedded browser webContents was not found for download fixture.')
+    await contents.executeJavaScript('document.querySelector("#download-link")?.click()')
+  }, { fixtureUrl })
+  await expect.poll(() => existsSync(downloadPath)).toBe(true)
+  await expect(window.getByLabel('Browser downloads')).toContainText('Download complete')
+  await expect(window.getByLabel('Browser downloads')).toContainText('fixture-download.txt')
+  const downloadEvents = await window.evaluate(() =>
+    (globalThis as { __spacezeroBrowserDownloadEvents?: unknown[] }).__spacezeroBrowserDownloadEvents ?? []
+  )
+  expect(JSON.stringify(downloadEvents)).not.toContain(downloadPath)
+  expect(JSON.stringify(downloadEvents)).not.toContain(fixtureUrl)
+  const downloadsRegion = window.getByLabel('Browser downloads')
+  await downloadsRegion.getByRole('button', { name: 'Open', exact: true }).click()
+  await downloadsRegion.getByRole('button', { name: 'Reveal in folder' }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(() =>
+      (globalThis as {
+        __spacezeroBrowserDownloadNativeActions?: () => { openedPath: string | null; revealedPath: string | null }
+      }).__spacezeroBrowserDownloadNativeActions?.()
+    )
+  ).toEqual({ openedPath: downloadPath, revealedPath: downloadPath })
 
   const newWindowTargetUrl = `http://127.0.0.1:${address.port}/new-window-target`
   const scriptedPopupPageUrl = `http://127.0.0.1:${address.port}/scripted-popup-page`
@@ -1592,6 +1642,14 @@ test('enforces Browser permission and certificate policy through real Electron h
 
 async function startBrowserFixtureServer(): Promise<Server> {
   const server = createServer((request, response) => {
+    if (request.url?.startsWith('/download.txt')) {
+      response.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-disposition': 'attachment; filename="fixture-download.txt"'
+      })
+      response.end('spacezero browser download fixture')
+      return
+    }
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     if (request.url?.startsWith('/new-window-target')) {
       response.end('<!doctype html><title>New Window Target</title><h1>New window target</h1>')
@@ -1619,6 +1677,7 @@ async function startBrowserFixtureServer(): Promise<Server> {
     }
     response.end(`<!doctype html><title>Space Zero Browser Fixture</title><h1>Browser fixture</h1>
       <a id="target-blank" href="/new-window-target" target="_blank">Open target blank</a>
+      <a id="download-link" href="/download.txt" download>Download fixture</a>
       <button id="scripted-popup" onclick="window.open('/scripted-popup-target', '_blank')">Scripted popup</button>
       <button id="auth-popup" onclick="window.open('/auth-popup-target', 'spacezero-auth', 'width=480,height=640')">Auth popup</button>`)
   })
