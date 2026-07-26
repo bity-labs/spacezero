@@ -43,7 +43,10 @@ function createGitService(): KnowledgeBaseGitAgentService {
     inspectRepository: vi.fn(async () => ({
       branch: 'main',
       origin: { configured: false as const },
-      porcelainStatus: ' M note.md'
+      porcelainStatus: ' M note.md',
+      interruptedOperation: null,
+      conflictedFiles: [],
+      hasConflicts: false
     })),
     stageFiles: vi.fn(async ({ relativePaths }) => ({ stagedPaths: relativePaths })),
     unstageFiles: vi.fn(async ({ relativePaths }) => ({ unstagedPaths: relativePaths })),
@@ -60,6 +63,14 @@ function createGitService(): KnowledgeBaseGitAgentService {
       branch: 'main',
       origin: 'https://github.com/org/kb.git',
       output: 'Everything up-to-date'
+    })),
+    continueConflictResolution: vi.fn(async () => ({
+      operation: 'rebase' as const,
+      output: 'Successfully rebased and updated refs/heads/main.'
+    })),
+    abortConflictResolution: vi.fn(async () => ({
+      operation: 'rebase' as const,
+      output: ''
     }))
   }
 }
@@ -169,6 +180,16 @@ describe('createKnowledgeBaseTools', () => {
           name: 'knowledgeBase.git.push',
           safetyLevel: 'dangerous',
           domain: 'knowledge-base'
+        }),
+        expect.objectContaining({
+          name: 'knowledgeBase.git.continueConflictResolution',
+          safetyLevel: 'dangerous',
+          domain: 'knowledge-base'
+        }),
+        expect.objectContaining({
+          name: 'knowledgeBase.git.abortConflictResolution',
+          safetyLevel: 'dangerous',
+          domain: 'knowledge-base'
         })
       ])
     )
@@ -228,5 +249,18 @@ describe('createKnowledgeBaseTools', () => {
     expect(gitService.configureOrigin).toHaveBeenCalledWith({
       gitUrl: 'https://example.com/org/kb.git'
     })
+
+    await expect(
+      findTool(tools, 'knowledgeBase.git.continueConflictResolution').handler({})
+    ).resolves.toEqual({
+      ok: true,
+      data: { operation: 'rebase', output: 'Successfully rebased and updated refs/heads/main.' }
+    })
+    expect(gitService.continueConflictResolution).toHaveBeenCalledWith({})
+
+    await expect(
+      findTool(tools, 'knowledgeBase.git.abortConflictResolution').handler({})
+    ).resolves.toEqual({ ok: true, data: { operation: 'rebase', output: '' } })
+    expect(gitService.abortConflictResolution).toHaveBeenCalledWith({})
   })
 })

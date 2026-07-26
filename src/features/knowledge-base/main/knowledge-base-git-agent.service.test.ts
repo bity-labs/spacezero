@@ -23,6 +23,7 @@ async function runGit(cwd: string, args: readonly string[]) {
 async function createRepo() {
   const root = await mkdtemp(join(tmpdir(), 'spacezero-issue-176-kb-git-'))
   await runGit(root, ['init'])
+  await runGit(root, ['checkout', '-B', 'main'])
   await runGit(root, ['config', 'user.email', 'builder@example.com'])
   await runGit(root, ['config', 'user.name', 'Builder'])
   await writeFile(join(root, 'README.md'), '# Knowledge Base\n', 'utf8')
@@ -266,6 +267,136 @@ describe('createKnowledgeBaseGitAgentService', () => {
 
       await expect(service.getOriginRemote()).resolves.toEqual({ configured: false })
       await expect(service.push()).rejects.toThrow('origin remote is not configured')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('discovers conflicted paths and the supported interrupted operation', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'note.md'), 'base\n', 'utf8')
+      await runGit(root, ['add', 'note.md'])
+      await runGit(root, ['commit', '-m', 'Add note'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'note.md'), 'incoming\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Incoming note'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'note.md'), 'local\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Local note'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: 'merge',
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'note.md', contentType: 'text' }],
+        porcelainStatus: expect.stringContaining('UU note.md')
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('surfaces binary conflicts without pretending document tools can resolve them as text', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 2, 3]))
+      await runGit(root, ['add', 'image.bin'])
+      await runGit(root, ['commit', '-m', 'Add binary fixture'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 9, 3]))
+      await runGit(root, ['commit', '-am', 'Incoming binary'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'image.bin'), new Uint8Array([0, 1, 8, 3]))
+      await runGit(root, ['commit', '-am', 'Local binary'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: 'merge',
+        hasConflicts: true,
+        conflictedFiles: [{ relativePath: 'image.bin', contentType: 'binary' }]
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('continues supported conflict operations after resolved files are staged', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'note.md'), 'base\n', 'utf8')
+      await runGit(root, ['add', 'note.md'])
+      await runGit(root, ['commit', '-m', 'Add note'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'note.md'), 'incoming\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Incoming note'])
+      const incomingCommit = (await runGit(root, ['rev-parse', 'HEAD'])).stdout.trim()
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'note.md'), 'local\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Local note'])
+
+      await expect(runGit(root, ['cherry-pick', incomingCommit])).rejects.toThrow()
+      await writeFile(join(root, 'note.md'), 'resolved\n', 'utf8')
+      await createService(root).stageFiles({ relativePaths: ['note.md'] })
+
+      await expect(createService(root).continueConflictResolution({})).resolves.toMatchObject({
+        operation: 'cherry-pick'
+      })
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: null,
+        hasConflicts: false,
+        conflictedFiles: []
+      })
+      await expect(readFile(join(root, 'note.md'), 'utf8')).resolves.toBe('resolved\n')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('aborts supported conflict operations without accepting arbitrary Git arguments', async () => {
+    const root = await createRepo()
+    try {
+      await writeFile(join(root, 'note.md'), 'base\n', 'utf8')
+      await runGit(root, ['add', 'note.md'])
+      await runGit(root, ['commit', '-m', 'Add note'])
+      await runGit(root, ['checkout', '-b', 'incoming'])
+      await writeFile(join(root, 'note.md'), 'incoming\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Incoming note'])
+      await runGit(root, ['checkout', 'main'])
+      await writeFile(join(root, 'note.md'), 'local\n', 'utf8')
+      await runGit(root, ['commit', '-am', 'Local note'])
+
+      await expect(runGit(root, ['merge', 'incoming'])).rejects.toThrow()
+      await expect(
+        createService(root).abortConflictResolution({ unexpected: '--hard' } as never)
+      ).rejects.toThrow()
+      await expect(createService(root).abortConflictResolution({})).resolves.toMatchObject({
+        operation: 'merge'
+      })
+      await expect(createService(root).inspectRepository()).resolves.toMatchObject({
+        interruptedOperation: null,
+        hasConflicts: false,
+        conflictedFiles: []
+      })
+      await expect(readFile(join(root, 'note.md'), 'utf8')).resolves.toBe('local\n')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects continue and abort when no supported interrupted operation exists', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+
+      await expect(service.continueConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
+      await expect(service.abortConflictResolution({})).rejects.toThrow(
+        'no supported interrupted operation'
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }
