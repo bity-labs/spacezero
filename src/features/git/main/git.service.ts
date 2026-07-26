@@ -27,11 +27,12 @@ type UntrackedFileSystem = {
   lstat: (path: string) => Promise<Stats>
   open: (path: string, flags: number) => ReturnType<typeof open>
   realpath: (path: string) => Promise<string>
+  watch: typeof watch
 }
 
 type PathFlavor = Pick<typeof path, 'isAbsolute' | 'join' | 'relative'>
 
-const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath }
+const defaultUntrackedFileSystem: UntrackedFileSystem = { lstat, open, realpath, watch }
 
 export function createGitService({
   sessionsRepository,
@@ -121,7 +122,7 @@ export function createGitService({
 
     try {
       watchers.push(
-        watch(root.path, { recursive: true }, emitChanged).on('error', (error) => {
+        fileSystem.watch(root.path, { recursive: true }, emitChanged).on('error', (error) => {
           emitError(error)
           close()
         })
@@ -129,7 +130,7 @@ export function createGitService({
       const gitDir = await resolveGitDir(root.path, pathFlavor)
       if (gitDir) {
         watchers.push(
-          watch(gitDir, { recursive: true }, emitChanged).on('error', (error) => {
+          fileSystem.watch(gitDir, { recursive: true }, emitChanged).on('error', (error) => {
             emitError(error)
             close()
           })

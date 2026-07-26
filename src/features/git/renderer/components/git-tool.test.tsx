@@ -1,9 +1,9 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
-import type { GitObservationEvent } from '../../shared'
+import type { GitObservationEvent, GitReviewState } from '../../shared'
 import { GitTool, resetGitToolViewMemoryForTests } from './git-tool'
 
 describe('GitTool', () => {
@@ -465,6 +465,166 @@ describe('GitTool', () => {
     expect(window.spacezero.git.getProjectSessionReview).toHaveBeenCalledTimes(2)
   })
 
+  it('synchronously isolates and restores state across Project Session switches without prior data flash', async () => {
+    const resolvers = new Map<string, (value: GitReviewState) => void>()
+    window.spacezero.git.getProjectSessionReview = vi.fn(
+      ({ sessionId, filter }: { sessionId: string; filter: string }) =>
+        new Promise<GitReviewState>((resolve) => {
+          resolvers.set(`${sessionId}:${filter}:${resolvers.size}`, resolve)
+        })
+    )
+
+    const rendered = render(<GitTool sessionId="session-a" />)
+    await waitFor(() => expect(resolvers.size).toBe(1))
+    act(() => {
+      resolvers.get('session-a:uncommitted:0')?.({
+        status: 'ok' as const,
+        branch: 'branch-a',
+        upstream: { kind: 'none' as const },
+        files: [{ path: 'a.txt', kind: 'modified' as const, binary: false, large: false, diff: '+a\n' }]
+      })
+    })
+    await screen.findByText('branch-a')
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+    await waitFor(() => expect(resolvers.size).toBe(3))
+    act(() => {
+      resolvers.get('session-a:staged:1')?.({
+        status: 'ok' as const,
+        branch: 'branch-a-staged',
+        upstream: { kind: 'none' as const },
+        files: [
+          { path: 'a-staged.txt', kind: 'modified' as const, binary: false, large: false, diff: '+a-staged\n' }
+        ]
+      })
+      resolvers.get('session-a:uncommitted:2')?.({
+        status: 'ok' as const,
+        branch: 'branch-a-actions',
+        upstream: { kind: 'none' as const },
+        files: [
+          { path: 'a-actions.txt', kind: 'modified' as const, binary: false, large: false, diff: '+a-actions\n' }
+        ]
+      })
+    })
+    await screen.findByText('branch-a-staged')
+    await userEvent.click(screen.getByRole('button', { name: /a-staged.txt/i }))
+    await userEvent.type(screen.getByLabelText('Commit instructions'), 'session a commit')
+
+    rendered.rerender(<GitTool sessionId="session-b" />)
+
+    expect(screen.getByText('Loading Git…')).toBeInTheDocument()
+    expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
+    expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByDisplayValue('session a commit')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(Array.from(resolvers.keys()).some((key) => key.startsWith('session-b:uncommitted:'))).toBe(true)
+    )
+    act(() => {
+      for (const [key, resolve] of resolvers) {
+        if (!key.startsWith('session-b:uncommitted:')) continue
+        resolve({
+          status: 'ok' as const,
+          branch: 'branch-b',
+          upstream: { kind: 'none' as const },
+          files: [{ path: 'b.txt', kind: 'modified' as const, binary: false, large: false, diff: '+b\n' }]
+        })
+      }
+    })
+    await screen.findByText('branch-b')
+    expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
+    expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
+
+    rendered.rerender(<GitTool sessionId="session-a" />)
+    expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('branch-b')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(Array.from(resolvers.keys()).some((key) => key.startsWith('session-a:staged:') && !key.endsWith(':1'))).toBe(true)
+    )
+    act(() => {
+      for (const [key, resolve] of resolvers) {
+        if (!key.startsWith('session-a:')) continue
+        resolve({
+          status: 'ok' as const,
+          branch: 'branch-a-restored',
+          upstream: { kind: 'none' as const },
+          files: [
+            { path: 'a-staged.txt', kind: 'modified' as const, binary: false, large: false, diff: '+a-staged\n' }
+          ]
+        })
+      }
+    })
+    await screen.findByText('branch-a-restored')
+    expect(screen.getByLabelText('Commit instructions')).toHaveValue('session a commit')
+  })
+
+  it('surfaces immediate setup and later watch errors while preserving Refresh and context isolation', async () => {
+    const observationListeners: Array<(event: GitObservationEvent) => void> = []
+    window.spacezero.git.onObservationEvent = vi.fn((listener) => {
+      observationListeners.push(listener)
+      return () => undefined
+    })
+    let resolveInitialObserve: ((value: { subscriptionId: string }) => void) | undefined
+    window.spacezero.git.observeProjectSession = vi.fn(async ({ sessionId }: { sessionId: string }) => {
+      if (sessionId === 'session-a') {
+        return new Promise<{ subscriptionId: string }>((resolve) => {
+          resolveInitialObserve = resolve
+        })
+      }
+      return { subscriptionId: 'sub-b' }
+    })
+    window.spacezero.git.getProjectSessionReview = vi.fn(async ({ sessionId }: { sessionId: string }) =>
+      sessionId === 'session-a'
+        ? {
+            status: 'ok' as const,
+            branch: 'branch-a',
+            upstream: { kind: 'none' as const },
+            files: [
+              { path: 'a.txt', kind: 'modified' as const, binary: false, large: false, diff: '+a\n' }
+            ]
+          }
+        : {
+            status: 'clean' as const,
+            branch: 'branch-b',
+            upstream: { kind: 'none' as const },
+            files: [] as []
+          }
+    )
+
+    const rendered = render(<GitTool sessionId="session-a" />)
+    await screen.findByText('branch-a')
+    const initialListener = observationListeners[0]
+    if (!initialListener) throw new Error('Git observation listener was not registered')
+    act(() => {
+      initialListener({
+        subscriptionId: 'sub-a',
+        sessionId: 'session-a',
+        kind: 'watch-error',
+        message: 'missing managed worktree'
+      })
+      resolveInitialObserve?.({ subscriptionId: 'sub-a' })
+    })
+    await screen.findByText(/Git auto-refresh unavailable: missing managed worktree/)
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+
+    rendered.rerender(<GitTool sessionId="session-b" />)
+    await screen.findByText('branch-b')
+    expect(screen.queryByText('branch-a')).not.toBeInTheDocument()
+    const listener = observationListeners.at(-1)
+    if (!listener) throw new Error('Git observation listener was not registered')
+    act(() => {
+      listener({
+        subscriptionId: 'sub-b',
+        sessionId: 'session-b',
+        kind: 'watch-error',
+        message: 'native watcher stopped'
+      })
+    })
+
+    await screen.findByText(/Git auto-refresh unavailable: native watcher stopped/)
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
+    expect(screen.queryByText('branch-a')).not.toBeInTheDocument()
+  })
+
   it('refreshes after a Git-originated agent run completes', async () => {
     const projectionListeners: Array<(event: AgentSessionProjectionEvent) => void> = []
     window.spacezero.agent.onSessionProjectionEvent = vi.fn((listener) => {
@@ -498,7 +658,7 @@ describe('GitTool', () => {
     await waitFor(() => expect(window.spacezero.git.getProjectSessionReview).toHaveBeenCalledTimes(2))
   })
 
-  it('preserves filter, expanded files, composer text, and scroll in memory for the current app run', async () => {
+  it('preserves filter, expanded files, composer text, and actual scroll in memory for the current app run', async () => {
     window.spacezero.git.getProjectSessionReview = vi.fn(async ({ filter }: { filter: string }) => ({
       status: 'ok' as const,
       branch: 'main',
@@ -519,6 +679,8 @@ describe('GitTool', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
     await userEvent.click(screen.getByRole('button', { name: /staged.txt/i }))
+    const scroller = screen.getByLabelText('Git changed files')
+    fireEvent.scroll(scroller, { target: { scrollTop: 72 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'ship it')
     rendered.unmount()
 
@@ -527,6 +689,38 @@ describe('GitTool', () => {
     await screen.findByText('staged.txt')
     expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('ship it')
+    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 72)
     expect(screen.queryByText('+staged')).not.toBeInTheDocument()
+  })
+
+  it('resets to default Git view memory after restart', async () => {
+    window.spacezero.git.getProjectSessionReview = vi.fn(async ({ filter }: { filter: string }) => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: `${filter}.txt`,
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: `diff --git a/${filter}.txt b/${filter}.txt\n+${filter}\n`
+        }
+      ]
+    }))
+
+    const rendered = render(<GitTool sessionId="session-restart" />)
+    await screen.findByText('+uncommitted')
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+    await screen.findByText('+staged')
+    await userEvent.type(screen.getByLabelText('Commit instructions'), 'not persisted')
+    rendered.unmount()
+    resetGitToolViewMemoryForTests()
+
+    render(<GitTool sessionId="session-restart" />)
+
+    await screen.findByText('+uncommitted')
+    expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByLabelText('Commit instructions')).toHaveValue('')
   })
 })

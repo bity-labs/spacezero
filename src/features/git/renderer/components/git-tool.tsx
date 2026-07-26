@@ -15,6 +15,7 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 
 const UNCHANGED_CONTEXT_LINES = 3
 const OBSERVATION_REFRESH_DELAY_MS = 150
+const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
 
 type GitViewMemory = {
   filter: GitChangeFilter
@@ -49,6 +50,10 @@ type GitToolProps = {
 }
 
 export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
+  return <GitToolSession key={sessionId} sessionId={sessionId} />
+}
+
+function GitToolSession({ sessionId }: GitToolProps): React.JSX.Element {
   const agentSession = useAgentSession(sessionId)
   const initialMemory = useMemo(() => getGitViewMemory(sessionId), [sessionId])
   const [filter, setFilterState] = useState<GitChangeFilter>(initialMemory.filter)
@@ -59,6 +64,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
   )
   const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
   const [instructions, setInstructionsState] = useState(initialMemory.instructions)
+  const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const refreshSequence = useRef(0)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -98,6 +104,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
         setState(null)
         setActionState(null)
       }
+      setWatchDiagnostic(null)
       const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({ sessionId, filter })
       const actionReviewPromise =
         filter === 'uncommitted'
@@ -155,8 +162,12 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
     let disposed = false
     let observationSubscriptionId: string | null = null
     const unsubscribeEvents = window.spacezero.git.onObservationEvent((event) => {
-      if (event.subscriptionId !== observationSubscriptionId || event.sessionId !== sessionId) return
-      if (event.kind === 'watch-error') return
+      if (event.sessionId !== sessionId) return
+      if (event.subscriptionId !== observationSubscriptionId && observationSubscriptionId !== null) return
+      if (event.kind === 'watch-error') {
+        setWatchDiagnostic(getObservationErrorMessage(event.message))
+        return
+      }
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
       debounceTimer.current = setTimeout(() => {
         void refresh()
@@ -172,7 +183,9 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
         }
         observationSubscriptionId = subscriptionId
       })
-      .catch(() => undefined)
+      .catch((error) => {
+        if (!disposed) setWatchDiagnostic(getObservationErrorMessage(error))
+      })
 
     return () => {
       disposed = true
@@ -219,28 +232,48 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
 
   if (!state) {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter} onRefresh={() => void refresh()}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Loading Git…" />
       </GitShell>
     )
   }
   if (state.status === 'missing-worktree') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter} onRefresh={() => void refresh()}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Managed worktree missing" message={state.message} />
       </GitShell>
     )
   }
   if (state.status === 'inaccessible') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter} onRefresh={() => void refresh()}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Git unavailable" message={state.message} />
       </GitShell>
     )
   }
   if (state.status === 'git-error') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter} onRefresh={() => void refresh()}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Git query failed" message={state.message} />
       </GitShell>
     )
@@ -254,6 +287,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
       }}
       onRefresh={() => void refresh()}
       state={state}
+      watchDiagnostic={watchDiagnostic}
     >
       {state.status === 'clean' ? (
         <GitStateMessage
@@ -263,6 +297,7 @@ export function GitTool({ sessionId }: GitToolProps): React.JSX.Element {
       ) : (
         <div
           ref={scrollContainerRef}
+          aria-label="Git changed files"
           className="min-h-0 flex-1 space-y-3 overflow-auto p-4"
           onScroll={(event) => {
             getGitViewMemory(sessionId).scrollTop = event.currentTarget.scrollTop
@@ -316,12 +351,14 @@ function GitShell({
   onFilterChange,
   onRefresh,
   state,
+  watchDiagnostic,
   children
 }: {
   filter: GitChangeFilter
   onFilterChange: (filter: GitChangeFilter) => void
   onRefresh: () => void
   state?: Extract<GitReviewState, { status: 'ok' | 'clean' }>
+  watchDiagnostic?: string | null
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -349,6 +386,14 @@ function GitShell({
             </Button>
           </div>
         </div>
+        {watchDiagnostic ? (
+          <div
+            className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            role="status"
+          >
+            Git auto-refresh unavailable: {watchDiagnostic} You can still use Refresh.
+          </div>
+        ) : null}
         <div className="mt-3 flex gap-2" role="tablist" aria-label="Changes filter">
           {CHANGE_FILTERS.map((option) => (
             <button
@@ -532,6 +577,14 @@ function foldDiff(diff: string): string[] {
     folded.push(...unchanged.slice(-UNCHANGED_CONTEXT_LINES))
   }
   return folded
+}
+
+function getObservationErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error || 'Git auto-refresh setup failed.')
+  const trimmed = message.trim() || 'Git auto-refresh setup failed.'
+  return trimmed.length > MAX_OBSERVATION_DIAGNOSTIC_LENGTH
+    ? `${trimmed.slice(0, MAX_OBSERVATION_DIAGNOSTIC_LENGTH - 1)}…`
+    : trimmed
 }
 
 function getFilterLabel(filter: GitChangeFilter): string {
