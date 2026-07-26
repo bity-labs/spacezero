@@ -13,6 +13,8 @@ type KnowledgeBasePageProps = {
   onConfiguredChange?: (configured: boolean) => void
 }
 
+const KNOWLEDGE_BASE_SESSION_CHANGED_EVENT = 'spacezero:knowledge-base-session-changed'
+
 export function KnowledgeBasePage({
   onConfiguredChange
 }: KnowledgeBasePageProps): React.JSX.Element {
@@ -241,7 +243,11 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
     setStartingNewChat(true)
     setError(null)
     try {
-      setSession(await window.spacezero.knowledgeBase.startNewChat())
+      const nextSession = await window.spacezero.knowledgeBase.startNewChat()
+      setSession(nextSession)
+      window.dispatchEvent(
+        new CustomEvent(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, { detail: nextSession })
+      )
     } catch (startError) {
       setError(getErrorMessage(startError, 'Unable to start a new Knowledge Base chat.'))
     } finally {

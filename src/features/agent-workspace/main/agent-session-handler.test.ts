@@ -1606,8 +1606,49 @@ describe('createWorkspaceAgentSession', () => {
         ])
       })
     )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'knowledgeBase.git.inspect' })
+        ])
+      })
+    )
     await expect(repository.listWorkspaceSessions()).resolves.toEqual([
       expect.objectContaining({ id: 'workspace-session-1', projectId: null })
     ])
+  })
+
+  it('scopes Knowledge Base Git Workspace Tools to the managed Knowledge Base chat Session', async () => {
+    const repository = createRepository()
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const readModelDefaults = vi.fn(async () => ({
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+      defaultThinking: 'medium' as const
+    }))
+
+    await createWorkspaceAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-1',
+      readModelDefaults,
+      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      managedContext: 'knowledge-base'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'knowledge-base-session-1',
+        kind: 'workspace',
+        projectId: null,
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'knowledgeBase.git.inspect', safetyLevel: 'read' }),
+          expect.objectContaining({ name: 'knowledgeBase.git.stageFiles', safetyLevel: 'write' }),
+          expect.objectContaining({ name: 'knowledgeBase.git.push', safetyLevel: 'dangerous' })
+        ])
+      })
+    )
   })
 })
