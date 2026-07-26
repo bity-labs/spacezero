@@ -2,7 +2,11 @@ export const FILES_IPC_CHANNELS = {
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
   saveDocument: 'files:saveDocument',
-  search: 'files:search'
+  search: 'files:search',
+  cancelSearch: 'files:cancelSearch',
+  observe: 'files:observe',
+  unobserve: 'files:unobserve',
+  observationEvent: 'files:observationEvent'
 } as const
 
 export const KNOWLEDGE_BASE_FILES_CONTEXT_KEY = 'knowledge-base' as const
@@ -40,7 +44,26 @@ export type SearchFilesRequest = {
   context: FilesContext
   query: string
   includeIgnored: boolean
+  requestId: string
   maxResults?: number
+}
+
+export type CancelFilesSearchRequest = {
+  context: FilesContext
+  requestId: string
+}
+
+export type ObserveFilesRequest = {
+  context: FilesContext
+  subscriptionId: string
+}
+
+export type ObserveFilesResult = {
+  subscriptionId: string
+}
+
+export type UnobserveFilesRequest = {
+  subscriptionId: string
 }
 
 export type FilesDocumentBase = {
@@ -87,9 +110,21 @@ export type FilesSearchResult =
       snippets: FilesSearchSnippet[]
     }
 
+export type FilesObservationEvent = {
+  subscriptionId: string
+  contextKey: string
+  kind: 'changed' | 'watch-error'
+  relativePath: string | null
+  message?: string
+}
+
 export type FilesAPI = {
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>
   search: (request: SearchFilesRequest) => Promise<FilesSearchResult[]>
+  cancelSearch: (request: CancelFilesSearchRequest) => Promise<void>
+  observe: (request: ObserveFilesRequest) => Promise<ObserveFilesResult>
+  unobserve: (request: UnobserveFilesRequest) => Promise<void>
+  onObservationEvent: (listener: (event: FilesObservationEvent) => void) => () => void
 }

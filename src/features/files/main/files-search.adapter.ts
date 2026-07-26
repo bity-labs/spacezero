@@ -29,6 +29,7 @@ type IgnoreRule = {
   directoryOnly: boolean
   anchored: boolean
   negated: boolean
+  basePath: string
 }
 
 type SearchWalkerState = {
@@ -40,11 +41,13 @@ type SearchWalkerState = {
   maxResults: number
   results: FilesSearchResult[]
   ignoreRules: IgnoreRule[]
+  signal?: AbortSignal
 }
 
 export async function searchFiles(
   rootPath: string,
-  request: Omit<SearchFilesRequest, 'context'>
+  request: Omit<SearchFilesRequest, 'context' | 'requestId'>,
+  options: { signal?: AbortSignal } = {}
 ): Promise<FilesSearchResult[]> {
   try {
     const query = request.query.trim()
@@ -59,7 +62,8 @@ export async function searchFiles(
       includeIgnored: request.includeIgnored,
       maxResults: request.maxResults ?? DEFAULT_MAX_RESULTS,
       results: [],
-      ignoreRules: await readIgnoreRules(canonicalRoot)
+      ignoreRules: [],
+      signal: options.signal
     }
 
     await walkDirectory(state, '')
@@ -71,13 +75,20 @@ export async function searchFiles(
 }
 
 async function walkDirectory(state: SearchWalkerState, relativeDirectory: string): Promise<void> {
+  throwIfAborted(state)
   if (state.results.length >= state.maxResults) return
 
   const directoryPath = resolveInsideRoot(state.canonicalRoot, relativeDirectory)
+  const previousRuleCount = state.ignoreRules.length
+  if (!state.includeIgnored) {
+    state.ignoreRules.push(...(await readIgnoreRules(state.canonicalRoot, relativeDirectory)))
+  }
+  throwIfAborted(state)
   const entries = await readdir(directoryPath, { withFileTypes: true })
 
   for (const entry of entries) {
-    if (state.results.length >= state.maxResults) return
+    throwIfAborted(state)
+    if (state.results.length >= state.maxResults) break
     if (entry.name.toLowerCase() === '.git') continue
 
     const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
@@ -97,6 +108,8 @@ async function walkDirectory(state: SearchWalkerState, relativeDirectory: string
     addFilenameMatch(state, relativePath)
     await addContentMatches(state, relativePath, absolutePath, details.size)
   }
+
+  state.ignoreRules.splice(previousRuleCount)
 }
 
 function addFilenameMatch(state: SearchWalkerState, relativePath: string): void {
@@ -115,9 +128,11 @@ async function addContentMatches(
   absolutePath: string,
   size: number
 ): Promise<void> {
+  throwIfAborted(state)
   if (state.results.length >= state.maxResults || size > MAX_FILES_TEXT_FILE_BYTES) return
 
   const bytes = await readFile(absolutePath)
+  throwIfAborted(state)
   if (!isUtf8(bytes) || bytes.includes(0)) return
 
   const content = bytes.toString('utf8').replace(/^\uFEFF/, '')
@@ -161,14 +176,20 @@ function createSnippet(
   }
 }
 
-async function readIgnoreRules(canonicalRoot: string): Promise<IgnoreRule[]> {
+async function readIgnoreRules(
+  canonicalRoot: string,
+  relativeDirectory: string
+): Promise<IgnoreRule[]> {
   try {
-    const gitignore = await readFile(resolve(canonicalRoot, '.gitignore'), 'utf8')
+    const gitignore = await readFile(
+      resolve(canonicalRoot, relativeDirectory, '.gitignore'),
+      'utf8'
+    )
     return gitignore
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith('#'))
-      .map(parseIgnoreRule)
+      .map((line) => parseIgnoreRule(line, relativeDirectory))
   } catch (error) {
     const code =
       typeof error === 'object' && error !== null && 'code' in error
@@ -179,7 +200,7 @@ async function readIgnoreRules(canonicalRoot: string): Promise<IgnoreRule[]> {
   }
 }
 
-function parseIgnoreRule(rawPattern: string): IgnoreRule {
+function parseIgnoreRule(rawPattern: string, basePath: string): IgnoreRule {
   const negated = rawPattern.startsWith('!')
   const unnegated = negated ? rawPattern.slice(1) : rawPattern
   const anchored = unnegated.startsWith('/')
@@ -189,7 +210,8 @@ function parseIgnoreRule(rawPattern: string): IgnoreRule {
     pattern: directoryOnly ? withoutAnchor.slice(0, -1) : withoutAnchor,
     directoryOnly,
     anchored,
-    negated
+    negated,
+    basePath
   }
 }
 
@@ -210,9 +232,22 @@ function isIgnoredPath(
 }
 
 function matchesIgnoreRule(rule: IgnoreRule, relativePath: string): boolean {
+  const pathFromRuleBase = rule.basePath
+    ? relativePath === rule.basePath
+      ? ''
+      : relativePath.startsWith(`${rule.basePath}/`)
+        ? relativePath.slice(rule.basePath.length + 1)
+        : null
+    : relativePath
+  if (pathFromRuleBase === null || pathFromRuleBase.length === 0) return false
+
   const patternRegex = globToRegex(rule.pattern)
-  if (rule.anchored || rule.pattern.includes('/')) return patternRegex.test(relativePath)
-  return relativePath.split('/').some((segment) => patternRegex.test(segment))
+  if (rule.anchored || rule.pattern.includes('/')) return patternRegex.test(pathFromRuleBase)
+  return pathFromRuleBase.split('/').some((segment) => patternRegex.test(segment))
+}
+
+function throwIfAborted(state: SearchWalkerState): void {
+  if (state.signal?.aborted) throw new Error('files.searchCanceled')
 }
 
 function globToRegex(pattern: string): RegExp {

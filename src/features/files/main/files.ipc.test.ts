@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  createCancelFilesSearchHandler,
   createListFilesDirectoryHandler,
   createOpenFilesDocumentHandler,
   createSaveFilesDocumentHandler,
@@ -66,6 +67,7 @@ describe('Files IPC', () => {
         context: knowledgeBaseContext,
         query: 'readme',
         includeIgnored: true,
+        requestId: 'search-1',
         maxResults: 25
       })
     ).resolves.toEqual([{ kind: 'filename', relativePath: 'README.md', name: 'README.md' }])
@@ -73,13 +75,35 @@ describe('Files IPC', () => {
       context: knowledgeBaseContext,
       query: 'readme',
       includeIgnored: true,
+      requestId: 'search-1',
       maxResults: 25
     })
 
     await expect(
-      handle({ context: knowledgeBaseContext, query: '', includeIgnored: false, rootPath: '/tmp' })
+      handle({
+        context: knowledgeBaseContext,
+        query: '',
+        includeIgnored: false,
+        requestId: 'search-1',
+        rootPath: '/tmp'
+      })
     ).rejects.toThrow()
     expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  it('validates renderer input before canceling a context search', async () => {
+    const cancelSearch = vi.fn(async () => undefined)
+    const handle = createCancelFilesSearchHandler({ cancelSearch })
+
+    await expect(
+      handle({ context: projectContext, requestId: 'search-1' })
+    ).resolves.toBeUndefined()
+    expect(cancelSearch).toHaveBeenCalledWith({ context: projectContext, requestId: 'search-1' })
+
+    await expect(
+      handle({ context: projectContext, requestId: '', rootPath: '/tmp' })
+    ).rejects.toThrow()
+    expect(cancelSearch).toHaveBeenCalledTimes(1)
   })
 
   it('validates renderer input before opening or saving a context document', async () => {

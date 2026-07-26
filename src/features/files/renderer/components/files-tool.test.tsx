@@ -214,11 +214,14 @@ describe('Files Tool', () => {
 
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
     expect(screen.queryByRole('tree', { name: 'Project files' })).not.toBeInTheDocument()
-    expect(search).toHaveBeenCalledWith({
-      context: { kind: 'project-session', sessionId: 'session-1' },
-      query: 'needle',
-      includeIgnored: false
-    })
+    expect(search).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: { kind: 'project-session', sessionId: 'session-1' },
+        query: 'needle',
+        includeIgnored: false,
+        requestId: expect.any(String)
+      })
+    )
 
     fireEvent.click(
       within(screen.getByLabelText('Search results')).getByRole('button', { name: /app.ts/ })
@@ -270,6 +273,133 @@ describe('Files Tool', () => {
       await screen.findByText('Couldn’t search these files. Adjust the query or try again.')
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Return to file tree' }))
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+  })
+
+  it('cancels main-owned searches when superseded, cleared, or unmounted', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    let resolveFirst:
+      ((results: Awaited<ReturnType<typeof window.spacezero.files.search>>) => void) | undefined
+    const firstResult = new Promise<Awaited<ReturnType<typeof window.spacezero.files.search>>>(
+      (resolve) => {
+        resolveFirst = resolve
+      }
+    )
+    let resolveSecond:
+      ((results: Awaited<ReturnType<typeof window.spacezero.files.search>>) => void) | undefined
+    const secondResult = new Promise<Awaited<ReturnType<typeof window.spacezero.files.search>>>(
+      (resolve) => {
+        resolveSecond = resolve
+      }
+    )
+    const search = vi
+      .fn()
+      .mockImplementationOnce(async () => firstResult)
+      .mockImplementationOnce(async () => secondResult)
+    const cancelSearch = vi.fn(async () => undefined)
+    window.spacezero.files.search = search
+    window.spacezero.files.cancelSearch = cancelSearch
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    await screen.findByRole('tree', { name: 'Project files' })
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'first' } })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
+    const firstRequestId = search.mock.calls[0]?.[0].requestId
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'second' } })
+    fireEvent.submit(screen.getByRole('search'))
+    await waitFor(() =>
+      expect(cancelSearch).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-1' },
+        requestId: firstRequestId
+      })
+    )
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Return to file tree' }))
+    await waitFor(() => expect(cancelSearch).toHaveBeenCalledTimes(2))
+    view.unmount()
+    expect(cancelSearch).toHaveBeenCalledTimes(2)
+    resolveFirst?.([{ kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }])
+    resolveSecond?.([{ kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }])
+  })
+
+  it('invalidates active search results after saves and external Files observation events', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 6,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'needle',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async ({ relativePath, content }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'README.md',
+        relativePath,
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    window.spacezero.files.search = vi.fn(async () => [
+      {
+        kind: 'content' as const,
+        relativePath: 'README.md',
+        name: 'README.md',
+        snippets: [{ line: 1, column: 1, text: 'needle' }]
+      }
+    ])
+    let observationListener:
+      Parameters<typeof window.spacezero.files.onObservationEvent>[0] | undefined
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListener = listener
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    await screen.findByRole('tree', { name: 'Project files' })
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    fireEvent.submit(screen.getByRole('search'))
+    expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /README.md/ }))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'removed' }
+    })
+    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+
+    await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    fireEvent.submit(screen.getByRole('search'))
+    expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
+
+    act(() =>
+      observationListener?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'changed',
+        relativePath: 'README.md'
+      })
+    )
+
+    await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
   })
 
