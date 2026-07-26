@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 import { describe, expect, it } from 'vitest'
@@ -124,6 +124,55 @@ describe('createKnowledgeBaseGitAgentService', () => {
     }
   })
 
+  it('rejects absent directories that would stage multiple tracked deletions', async () => {
+    const root = await createRepo()
+    try {
+      const service = createService(root)
+      await mkdir(join(root, 'notes'))
+      await writeFile(join(root, 'notes', 'one.md'), 'one\n', 'utf8')
+      await writeFile(join(root, 'notes', 'two.md'), 'two\n', 'utf8')
+      await runGit(root, ['add', 'notes/one.md', 'notes/two.md'])
+      await runGit(root, ['commit', '-m', 'Add notes'])
+      await rm(join(root, 'notes'), { recursive: true })
+
+      await expect(service.stageFiles({ relativePaths: ['notes'] })).rejects.toThrow(
+        'must name a whole file'
+      )
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: ''
+      })
+
+      await expect(service.stageFiles({ relativePaths: ['notes/one.md'] })).resolves.toEqual({
+        stagedPaths: ['notes/one.md']
+      })
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'notes/one.md\n'
+      })
+
+      await expect(service.unstageFiles({ relativePaths: ['notes'] })).rejects.toThrow(
+        'must name a whole file'
+      )
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'notes/one.md\n'
+      })
+
+      await expect(service.unstageFiles({ relativePaths: ['notes/one.md'] })).resolves.toEqual({
+        unstagedPaths: ['notes/one.md']
+      })
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: ''
+      })
+      await expect(service.stageFiles({ relativePaths: ['notes/two.md'] })).resolves.toEqual({
+        stagedPaths: ['notes/two.md']
+      })
+      await expect(runGit(root, ['diff', '--cached', '--name-only'])).resolves.toMatchObject({
+        stdout: 'notes/two.md\n'
+      })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('accepts only sanitized HTTPS and SSH origin URLs', async () => {
     const root = await createRepo()
     try {
@@ -139,9 +188,15 @@ describe('createKnowledgeBaseGitAgentService', () => {
       await expect(
         service.configureOrigin({ gitUrl: 'ssh://git@example.com/org/kb.git' })
       ).resolves.toEqual({ configured: true, url: 'ssh://example.com/org/kb.git' })
+      await expect(runGit(root, ['remote', 'get-url', 'origin'])).resolves.toMatchObject({
+        stdout: 'ssh://git@example.com/org/kb.git\n'
+      })
       await expect(
         service.configureOrigin({ gitUrl: 'git@example.com:org/kb.git' })
       ).resolves.toEqual({ configured: true, url: 'example.com:org/kb.git' })
+      await expect(runGit(root, ['remote', 'get-url', 'origin'])).resolves.toMatchObject({
+        stdout: 'git@example.com:org/kb.git\n'
+      })
 
       await runGit(root, ['remote', 'set-url', 'origin', 'https://token@example.invalid/org/kb.git'])
       await expect(service.push()).rejects.toThrow('https://example.invalid/org/kb.git')
@@ -172,6 +227,35 @@ describe('createKnowledgeBaseGitAgentService', () => {
       await expect(runGit(root, ['remote'])).resolves.toMatchObject({ stdout: '' })
     } finally {
       await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('pushes to the configured origin remote without accepting an arbitrary push target', async () => {
+    const fixture = await mkdtemp(join(tmpdir(), 'spacezero-issue-176-kb-git-push-'))
+    const root = join(fixture, 'knowledge-base')
+    const origin = join(fixture, 'origin.git')
+    try {
+      await mkdir(dirname(root), { recursive: true })
+      await runGit(fixture, ['init', '--bare', origin])
+      await runGit(fixture, ['init', root])
+      await runGit(root, ['config', 'user.email', 'builder@example.com'])
+      await runGit(root, ['config', 'user.name', 'Builder'])
+      await writeFile(join(root, 'README.md'), '# Knowledge Base\n', 'utf8')
+      await runGit(root, ['add', 'README.md'])
+      await runGit(root, ['commit', '-m', 'Initial commit'])
+      await runGit(root, ['remote', 'add', 'origin', origin])
+
+      const service = createService(root)
+      await expect(service.push()).resolves.toMatchObject({
+        branch: expect.any(String),
+        origin,
+        output: expect.stringContaining('branch')
+      })
+      await expect(runGit(root, ['remote', 'get-url', 'origin'])).resolves.toMatchObject({
+        stdout: `${origin}\n`
+      })
+    } finally {
+      await rm(fixture, { recursive: true, force: true })
     }
   })
 
