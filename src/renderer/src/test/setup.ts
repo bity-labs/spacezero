@@ -569,6 +569,8 @@ beforeEach(async () => {
       }),
       openInDefaultBrowser: async () => undefined,
       openUrlInDefaultBrowser: async () => undefined,
+      openDownload: async () => undefined,
+      revealDownload: async () => undefined,
       hide: async () => undefined,
       createTab: async ({ contextKey }) => ({
         contextKey,
@@ -796,6 +798,10 @@ beforeEach(async () => {
       getChatLinkSettings: async () => ({ openChatLinksIn: 'space-zero-browser' }),
       updateChatLinkSettings: async (request) => ({
         openChatLinksIn: request.openChatLinksIn
+      }),
+      getGitActionSettings: async () => ({ primaryGitAction: 'commit-and-push' }),
+      updateGitActionSettings: async (request) => ({
+        primaryGitAction: request.primaryGitAction
       }),
       getTerminalSettings: async () => ({ confirmBeforeClosingLiveTerminals: true }),
       updateTerminalSettings: async (request) => ({

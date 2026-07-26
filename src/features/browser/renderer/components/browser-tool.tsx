@@ -11,6 +11,7 @@ import { Button } from '@renderer/components/ui/button'
 import {
   BROWSER_COMMAND_IDS,
   type BrowserContext,
+  type BrowserDownloadSnapshot,
   type BrowserShortcutBinding,
   type BrowserState,
   type BrowserTab
@@ -61,6 +62,46 @@ function getBrowserNativeShortcutBindings(
   }))
 }
 
+type BrowserDownloadStoreListener = () => void
+
+type BrowserDownloadStore = {
+  api: typeof window.spacezero.browser | null
+  unsubscribe: (() => void) | null
+  downloadsById: Map<string, BrowserDownloadSnapshot>
+  listeners: Set<BrowserDownloadStoreListener>
+}
+
+const browserDownloadStore: BrowserDownloadStore = {
+  api: null,
+  unsubscribe: null,
+  downloadsById: new Map(),
+  listeners: new Set()
+}
+
+function ensureBrowserDownloadSubscription(): void {
+  const api = window.spacezero.browser
+  if (browserDownloadStore.api === api && browserDownloadStore.unsubscribe) return
+  browserDownloadStore.unsubscribe?.()
+  browserDownloadStore.downloadsById.clear()
+  browserDownloadStore.api = api
+  browserDownloadStore.unsubscribe = api.onEvent((event) => {
+    if (event.type !== 'download-updated') return
+    browserDownloadStore.downloadsById.set(event.download.id, event.download)
+    for (const listener of browserDownloadStore.listeners) listener()
+  })
+}
+
+function subscribeToBrowserDownloads(listener: BrowserDownloadStoreListener): () => void {
+  browserDownloadStore.listeners.add(listener)
+  return () => browserDownloadStore.listeners.delete(listener)
+}
+
+function browserDownloadsForTabs(tabIds: Set<string>): BrowserDownloadSnapshot[] {
+  return [...browserDownloadStore.downloadsById.values()]
+    .filter((download) => tabIds.has(download.tabId))
+    .slice(-4)
+}
+
 export function BrowserTool({
   contextKey,
   context
@@ -73,16 +114,25 @@ export function BrowserTool({
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
   const [state, setState] = useState<BrowserState | null>(null)
+  const [stateContextKey, setStateContextKey] = useState(contextKey)
   const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
   const [address, setAddress] = useState('')
+  const [addressContextKey, setAddressContextKey] = useState(contextKey)
   const [isEditingAddress, setIsEditingAddress] = useState(false)
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
+  const [downloadsVersion, setDownloadsVersion] = useState(0)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
-  const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
+  const contextState = stateContextKey === contextKey ? state : null
+  const activeTab =
+    contextState?.tabs.find((tab) => tab.id === contextState.activeTabId) ?? contextState?.tabs[0]
   const activeTabId = activeTab?.id
   const activeTabUrl = activeTab?.url ?? ''
+  const downloads = useMemo(() => {
+    void downloadsVersion
+    return browserDownloadsForTabs(new Set(contextState?.tabs.map((tab) => tab.id) ?? []))
+  }, [contextState, downloadsVersion])
 
   const tabRequest = useCallback(
     () => ({ contextKey, context, tabId: activeTabId }),
@@ -105,8 +155,10 @@ export function BrowserTool({
           input
         })
         setState(nextState)
+        setStateContextKey(contextKey)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? input)
+        setAddressContextKey(contextKey)
         isEditingAddressRef.current = false
         setIsEditingAddress(false)
       } catch (reason) {
@@ -124,30 +176,33 @@ export function BrowserTool({
         ? await window.spacezero.browser.stop(tabRequest())
         : await window.spacezero.browser.reload(tabRequest())
       setState(nextState)
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab, tabRequest])
+  }, [activeTab, contextKey, tabRequest])
 
   const goBack = useCallback(async (): Promise<void> => {
     if (!activeTab?.canGoBack) return
     setError(null)
     try {
       setState(await window.spacezero.browser.goBack(tabRequest()))
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab?.canGoBack, tabRequest])
+  }, [activeTab?.canGoBack, contextKey, tabRequest])
 
   const goForward = useCallback(async (): Promise<void> => {
     if (!activeTab?.canGoForward) return
     setError(null)
     try {
       setState(await window.spacezero.browser.goForward(tabRequest()))
+      setStateContextKey(contextKey)
     } catch (reason) {
       setError(toErrorMessage(reason))
     }
-  }, [activeTab?.canGoForward, tabRequest])
+  }, [activeTab?.canGoForward, contextKey, tabRequest])
 
   const openInDefaultBrowser = useCallback(async (): Promise<void> => {
     if (!activeTabUrl) return
@@ -159,12 +214,32 @@ export function BrowserTool({
     }
   }, [activeTabUrl, tabRequest])
 
+  const openDownload = useCallback(async (downloadId: string): Promise<void> => {
+    setError(null)
+    try {
+      await window.spacezero.browser.openDownload({ downloadId })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }, [])
+
+  const revealDownload = useCallback(async (downloadId: string): Promise<void> => {
+    setError(null)
+    try {
+      await window.spacezero.browser.revealDownload({ downloadId })
+    } catch (reason) {
+      setError(toErrorMessage(reason))
+    }
+  }, [])
+
   const createBlankTab = useCallback(async (): Promise<void> => {
     setError(null)
     try {
       const nextState = await window.spacezero.browser.createTab({ contextKey, context })
       setState(nextState)
+      setStateContextKey(contextKey)
       setAddress('')
+      setAddressContextKey(contextKey)
       isEditingAddressRef.current = false
       setIsEditingAddress(false)
       requestAnimationFrame(() => focusAddressField())
@@ -179,6 +254,7 @@ export function BrowserTool({
       try {
         const nextState = await window.spacezero.browser.selectTab({ contextKey, context, tabId })
         setState(nextState)
+        setStateContextKey(contextKey)
       } catch (reason) {
         setError(toErrorMessage(reason))
       }
@@ -204,10 +280,10 @@ export function BrowserTool({
 
   const selectTabByKeyboard = useCallback(
     (currentTabId: string, key: string): void => {
-      if (!state?.tabs.length) return
-      const currentIndex = state.tabs.findIndex((tab) => tab.id === currentTabId)
+      if (!contextState?.tabs.length) return
+      const currentIndex = contextState.tabs.findIndex((tab) => tab.id === currentTabId)
       if (currentIndex < 0) return
-      const lastIndex = state.tabs.length - 1
+      const lastIndex = contextState.tabs.length - 1
       const nextIndexByKey: Record<string, number> = {
         ArrowLeft: currentIndex === 0 ? lastIndex : currentIndex - 1,
         ArrowRight: currentIndex === lastIndex ? 0 : currentIndex + 1,
@@ -215,11 +291,11 @@ export function BrowserTool({
         End: lastIndex
       }
       const nextIndex = nextIndexByKey[key]
-      const nextTabId = state.tabs[nextIndex]?.id
+      const nextTabId = contextState.tabs[nextIndex]?.id
       if (!nextTabId) return
       void selectAndFocusTab(nextTabId)
     },
-    [selectAndFocusTab, state]
+    [contextState, selectAndFocusTab]
   )
 
   const closeTab = useCallback(
@@ -228,6 +304,7 @@ export function BrowserTool({
       try {
         const nextState = await window.spacezero.browser.closeTab({ contextKey, context, tabId })
         setState(nextState)
+        setStateContextKey(contextKey)
         const nextActiveTab = nextState.tabs.find(
           (candidate) => candidate.id === nextState.activeTabId
         )
@@ -246,16 +323,17 @@ export function BrowserTool({
 
   const reorderTabs = useCallback(
     async (sourceTabId: string, targetTabId: string): Promise<void> => {
-      if (!state || sourceTabId === targetTabId) return
-      const sourceIndex = state.tabs.findIndex((tab) => tab.id === sourceTabId)
-      const targetIndex = state.tabs.findIndex((tab) => tab.id === targetTabId)
+      if (!contextState || sourceTabId === targetTabId) return
+      const sourceIndex = contextState.tabs.findIndex((tab) => tab.id === sourceTabId)
+      const targetIndex = contextState.tabs.findIndex((tab) => tab.id === targetTabId)
       if (sourceIndex < 0 || targetIndex < 0) return
-      const nextTabs = [...state.tabs]
+      const nextTabs = [...contextState.tabs]
       const [movedTab] = nextTabs.splice(sourceIndex, 1)
       if (!movedTab) return
       nextTabs.splice(targetIndex, 0, movedTab)
-      const optimisticState = { ...state, tabs: nextTabs }
+      const optimisticState = { ...contextState, tabs: nextTabs }
       setState(optimisticState)
+      setStateContextKey(contextKey)
       try {
         setState(
           await window.spacezero.browser.reorderTabs({
@@ -264,12 +342,13 @@ export function BrowserTool({
             tabIds: nextTabs.map((tab) => tab.id)
           })
         )
+        setStateContextKey(contextKey)
       } catch (reason) {
-        setState(state)
+        setState(contextState)
         setError(toErrorMessage(reason))
       }
     },
-    [context, contextKey, state]
+    [context, contextKey, contextState]
   )
 
   const retry = useCallback(async (): Promise<void> => {
@@ -338,8 +417,10 @@ export function BrowserTool({
       .then((nextState) => {
         if (cancelled) return
         setState(nextState)
+        setStateContextKey(contextKey)
         const tab = nextState.tabs.find((candidate) => candidate.id === nextState.activeTabId)
         setAddress(tab?.url ?? '')
+        setAddressContextKey(contextKey)
         isEditingAddressRef.current = false
         inputRef.current?.focus()
       })
@@ -353,8 +434,11 @@ export function BrowserTool({
   }, [context, contextKey, focusAddressField, shortcutManager])
 
   useEffect(() => {
-    if (!isEditingAddressRef.current) setAddress(activeTabUrl)
-  }, [activeTabUrl, isEditingAddress])
+    if (!isEditingAddressRef.current) {
+      setAddress(activeTabUrl)
+      setAddressContextKey(contextKey)
+    }
+  }, [activeTabUrl, contextKey, isEditingAddress])
 
   useEffect(() => {
     const activeElement = tabStripRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
@@ -362,12 +446,24 @@ export function BrowserTool({
   }, [activeTabId])
 
   useEffect(() => {
+    ensureBrowserDownloadSubscription()
+    return subscribeToBrowserDownloads(() => {
+      setDownloadsVersion((version) => version + 1)
+    })
+  }, [])
+
+  useEffect(() => {
     return window.spacezero.browser.onEvent((event) => {
+      if (event.type === 'download-updated') return
       if (event.contextKey !== contextKey) return
       if (event.type === 'state-changed') {
         setState(event.state)
+        setStateContextKey(contextKey)
         const tab = event.state.tabs.find((candidate) => candidate.id === event.state.activeTabId)
-        if (!isEditingAddressRef.current) setAddress(tab?.url ?? '')
+        if (!isEditingAddressRef.current) {
+          setAddress(tab?.url ?? '')
+          setAddressContextKey(contextKey)
+        }
         return
       }
       if (event.commandId === BROWSER_COMMAND_IDS.focusAddress) focusAddressField()
@@ -439,7 +535,7 @@ export function BrowserTool({
         className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1"
         role="tablist"
       >
-        {state?.tabs.map((tab) => {
+        {contextState?.tabs.map((tab) => {
           const selected = tab.id === activeTabId
           return (
             <div
@@ -550,11 +646,12 @@ export function BrowserTool({
           aria-label="Browser URL"
           className="h-8 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
           placeholder="Enter a URL or search terms"
-          value={address}
+          value={addressContextKey === contextKey ? address : ''}
           onChange={(event) => {
             isEditingAddressRef.current = true
             setIsEditingAddress(true)
             setAddress(event.target.value)
+            setAddressContextKey(contextKey)
           }}
         />
         <Button size="sm" type="submit">
@@ -589,8 +686,58 @@ export function BrowserTool({
         </div>
       ) : null}
       <div ref={surfaceRef} aria-label="Browser page surface" className="min-h-0 flex-1" />
+      {downloads.length > 0 ? (
+        <div
+          aria-label="Browser downloads"
+          className="absolute bottom-3 right-3 flex max-w-md flex-col gap-2"
+          role="status"
+        >
+          {downloads.map((download) => (
+            <div key={download.id} className="rounded-md border bg-background p-3 text-sm shadow-lg">
+              <div className="font-medium">{download.filename}</div>
+              <div className="text-muted-foreground">{downloadStatusLabel(download)}</div>
+              {download.status === 'completed' ? (
+                <div className="mt-2 flex gap-2">
+                  <Button size="sm" type="button" onClick={() => void openDownload(download.id)}>
+                    Open
+                  </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => void revealDownload(download.id)}
+                  >
+                    Reveal in folder
+                  </Button>
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   )
+}
+
+function downloadStatusLabel(download: BrowserDownloadSnapshot): string {
+  switch (download.status) {
+    case 'selecting-save-location':
+      return 'Choose where to save this download.'
+    case 'downloading':
+      return formatDownloadProgress(download)
+    case 'completed':
+      return 'Download complete.'
+    case 'cancelled':
+      return 'Download cancelled.'
+    case 'failed':
+      return 'Download failed.'
+  }
+}
+
+function formatDownloadProgress(download: BrowserDownloadSnapshot): string {
+  if (!download.totalBytes) return 'Downloading…'
+  const percent = Math.min(100, Math.round((download.receivedBytes / download.totalBytes) * 100))
+  return `Downloading… ${percent}%`
 }
 
 function tabLabel(tab: BrowserTab): string {

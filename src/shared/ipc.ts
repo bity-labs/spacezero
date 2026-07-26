@@ -11,10 +11,8 @@ import type {
   ApplyAgentDefinitionToFreshSessionRequest
 } from './agent-protocol'
 import type { AgentToolExecutionEvent } from './workspace-tool-protocol'
-import type {
-  ChatLinkSettings,
-  UpdateChatLinkSettingsRequest
-} from './chat-link-settings'
+import type { ChatLinkSettings, UpdateChatLinkSettingsRequest } from './chat-link-settings'
+import type { GitActionSettings, UpdateGitActionSettingsRequest } from './git-action-settings'
 import type { LanguagePreference, LanguageSettings } from './i18n'
 import type {
   AddApiKeyRequest,
@@ -209,6 +207,8 @@ export const IPC_CHANNELS = {
     updateModelDefaults: 'settings:updateModelDefaults',
     getChatLinkSettings: 'settings:getChatLinkSettings',
     updateChatLinkSettings: 'settings:updateChatLinkSettings',
+    getGitActionSettings: 'settings:getGitActionSettings',
+    updateGitActionSettings: 'settings:updateGitActionSettings',
     getTerminalSettings: 'settings:getTerminalSettings',
     updateTerminalSettings: 'settings:updateTerminalSettings'
   }
@@ -368,9 +368,9 @@ export type SpaceZeroAPI = {
     getModelDefaults: () => Promise<ModelDefaults>
     updateModelDefaults: (request: UpdateModelDefaultsRequest) => Promise<ModelDefaults>
     getChatLinkSettings: () => Promise<ChatLinkSettings>
-    updateChatLinkSettings: (
-      request: UpdateChatLinkSettingsRequest
-    ) => Promise<ChatLinkSettings>
+    updateChatLinkSettings: (request: UpdateChatLinkSettingsRequest) => Promise<ChatLinkSettings>
+    getGitActionSettings: () => Promise<GitActionSettings>
+    updateGitActionSettings: (request: UpdateGitActionSettingsRequest) => Promise<GitActionSettings>
     getTerminalSettings: () => Promise<TerminalSettings>
     updateTerminalSettings: (request: UpdateTerminalSettingsRequest) => Promise<TerminalSettings>
   }

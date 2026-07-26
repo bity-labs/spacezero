@@ -65,6 +65,10 @@ export const browserOpenUrlInDefaultBrowserRequestSchema = z.object({
   url: z.string().min(1).max(4096)
 })
 
+export const browserDownloadActionRequestSchema = z.object({
+  downloadId: z.string().min(1).max(128)
+})
+
 export const browserSelectTabRequestSchema = z.object({
   ...contextRequestFields,
   tabId: z.string().min(1)
