@@ -11,7 +11,10 @@ export type FilesOpenLocation = {
   allowMetadata?: boolean
 }
 
-export type FilesOpenLocationResult = { status: 'opened' } | { status: 'failed'; message: string }
+export type FilesOpenLocationResult =
+  | { status: 'opened' }
+  | { status: 'ignored' }
+  | { status: 'failed'; message: string }
 
 let nextOpenLocationRequestId = 10_000
 
@@ -44,15 +47,19 @@ export async function openFilesLocation({
     })
     if (document.contentKind !== 'text' && !allowMetadata) {
       const message = filesUnsupportedDocumentMessage(document.contentKind)
-      useFilesStore.getState().failOpenTab(contextKey, relativePath, message, requestId)
-      return { status: 'failed', message }
+      const accepted = useFilesStore
+        .getState()
+        .failOpenTab(contextKey, relativePath, message, requestId)
+      return accepted ? { status: 'failed', message } : { status: 'ignored' }
     }
-    useFilesStore.getState().finishOpenTab(contextKey, document, requestId)
-    return { status: 'opened' }
+    const accepted = useFilesStore.getState().finishOpenTab(contextKey, document, requestId)
+    return accepted ? { status: 'opened' } : { status: 'ignored' }
   } catch (error) {
     const message = filesOpenLocationErrorMessage(error)
-    useFilesStore.getState().failOpenTab(contextKey, relativePath, message, requestId)
-    return { status: 'failed', message }
+    const accepted = useFilesStore
+      .getState()
+      .failOpenTab(contextKey, relativePath, message, requestId)
+    return accepted ? { status: 'failed', message } : { status: 'ignored' }
   }
 }
 
