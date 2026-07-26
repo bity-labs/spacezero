@@ -1,5 +1,5 @@
 import { isUtf8 } from 'node:buffer'
-import { execFile } from 'node:child_process'
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
 import { promisify } from 'node:util'
@@ -45,7 +45,7 @@ type SearchWalkerState = {
   maxResults: number
   results: FilesSearchResult[]
   ignoreRules: IgnoreRule[]
-  useGitIgnoreOracle: boolean
+  gitIgnoreOracle?: GitIgnoreOracle
   signal?: AbortSignal
 }
 
@@ -68,12 +68,16 @@ export async function searchFiles(
       maxResults: request.maxResults ?? DEFAULT_MAX_RESULTS,
       results: [],
       ignoreRules: [],
-      useGitIgnoreOracle: await canUseGitIgnoreOracle(canonicalRoot),
+      gitIgnoreOracle: await createGitIgnoreOracle(canonicalRoot, options.signal),
       signal: options.signal
     }
 
-    await walkDirectory(state, '')
-    return state.results.slice(0, state.maxResults)
+    try {
+      await walkDirectory(state, '')
+      return state.results.slice(0, state.maxResults)
+    } finally {
+      state.gitIgnoreOracle?.close()
+    }
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('files.')) throw error
     throw new Error('files.searchFailed', { cause: error })
@@ -86,7 +90,7 @@ async function walkDirectory(state: SearchWalkerState, relativeDirectory: string
 
   const directoryPath = resolveInsideRoot(state.canonicalRoot, relativeDirectory)
   const previousRuleCount = state.ignoreRules.length
-  if (!state.includeIgnored && !state.useGitIgnoreOracle) {
+  if (!state.includeIgnored && state.gitIgnoreOracle === undefined) {
     state.ignoreRules.push(...(await readIgnoreRules(state.canonicalRoot, relativeDirectory)))
   }
   throwIfAborted(state)
@@ -229,7 +233,7 @@ async function isIgnoredPath(
   const segments = relativePath.split('/')
   if (segments.some((segment) => COMMON_GENERATED_DIRECTORY_NAMES.has(segment))) return true
 
-  if (state.useGitIgnoreOracle) return isGitIgnored(state.canonicalRoot, relativePath)
+  if (state.gitIgnoreOracle !== undefined) return state.gitIgnoreOracle.isIgnored(relativePath)
 
   let ignored = false
   for (const rule of state.ignoreRules) {
@@ -254,7 +258,10 @@ function matchesIgnoreRule(rule: IgnoreRule, relativePath: string): boolean {
   return pathFromRuleBase.split('/').some((segment) => patternRegex.test(segment))
 }
 
-async function canUseGitIgnoreOracle(canonicalRoot: string): Promise<boolean> {
+async function createGitIgnoreOracle(
+  canonicalRoot: string,
+  signal?: AbortSignal
+): Promise<GitIgnoreOracle | undefined> {
   try {
     const { stdout } = await execFileAsync('git', [
       '-C',
@@ -262,24 +269,108 @@ async function canUseGitIgnoreOracle(canonicalRoot: string): Promise<boolean> {
       'rev-parse',
       '--is-inside-work-tree'
     ])
-    return stdout.trim() === 'true'
+    if (stdout.trim() !== 'true') return undefined
+    return new GitIgnoreOracle(canonicalRoot, signal)
   } catch {
-    return false
+    return undefined
   }
 }
 
-async function isGitIgnored(canonicalRoot: string, relativePath: string): Promise<boolean> {
-  try {
-    await execFileAsync('git', ['-C', canonicalRoot, 'check-ignore', '-q', '--', relativePath])
-    return true
-  } catch (error) {
-    if (isExitCode(error, 1)) return false
-    throw error
-  }
+type GitIgnoreRequest = {
+  resolve: (ignored: boolean) => void
+  reject: (error: Error) => void
 }
 
-function isExitCode(error: unknown, code: number): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
+class GitIgnoreOracle {
+  private readonly process: ChildProcessWithoutNullStreams
+  private readonly pending: GitIgnoreRequest[] = []
+  private stdoutBuffer = Buffer.alloc(0)
+  private closed = false
+  private failure: Error | undefined
+
+  constructor(canonicalRoot: string, signal?: AbortSignal) {
+    this.process = spawn('git', [
+      '-C',
+      canonicalRoot,
+      'check-ignore',
+      '--stdin',
+      '-z',
+      '-v',
+      '-n'
+    ])
+    this.process.stdout.on('data', (chunk: Buffer) => this.handleStdout(chunk))
+    this.process.stderr.resume()
+    this.process.on('error', (error) => this.failAll(error))
+    this.process.on('close', (code) => {
+      if (code !== 0 && code !== 1 && !this.failure) {
+        this.failAll(new Error('files.searchFailed'))
+      }
+    })
+    signal?.addEventListener(
+      'abort',
+      () => {
+        this.failAll(new Error('files.searchCanceled'))
+        this.process.kill()
+        this.close()
+      },
+      { once: true }
+    )
+  }
+
+  isIgnored(relativePath: string): Promise<boolean> {
+    if (this.failure) return Promise.reject(this.failure)
+    if (this.closed) return Promise.reject(new Error('files.searchFailed'))
+
+    return new Promise<boolean>((resolve, reject) => {
+      this.pending.push({ resolve, reject })
+      this.process.stdin.write(`${relativePath}\0`, (error) => {
+        if (error) this.failAll(error)
+      })
+    })
+  }
+
+  close(): void {
+    if (this.closed) return
+    this.closed = true
+    this.process.stdin.end()
+  }
+
+  private handleStdout(chunk: Buffer): void {
+    this.stdoutBuffer = Buffer.concat([this.stdoutBuffer, chunk])
+    const fields: string[] = []
+    let delimiterIndex = this.stdoutBuffer.indexOf(0)
+    while (delimiterIndex >= 0) {
+      fields.push(this.stdoutBuffer.subarray(0, delimiterIndex).toString('utf8'))
+      this.stdoutBuffer = this.stdoutBuffer.subarray(delimiterIndex + 1)
+      delimiterIndex = this.stdoutBuffer.indexOf(0)
+    }
+
+    while (fields.length >= 4) {
+      const [source, lineNumber, pattern, pathname] = fields.splice(0, 4)
+      void lineNumber
+      void pathname
+      const request = this.pending.shift()
+      if (request === undefined) {
+        this.failAll(new Error('files.searchFailed'))
+        return
+      }
+      request.resolve(source.length > 0 && !pattern.startsWith('!'))
+    }
+
+    if (fields.length > 0) {
+      this.stdoutBuffer = Buffer.concat([
+        Buffer.from(`${fields.join('\0')}\0`, 'utf8'),
+        this.stdoutBuffer
+      ])
+    }
+  }
+
+  private failAll(error: Error): void {
+    if (!this.failure) this.failure = error
+    while (this.pending.length > 0) {
+      this.pending.shift()?.reject(error)
+    }
+  }
 }
 
 function throwIfAborted(state: SearchWalkerState): void {
