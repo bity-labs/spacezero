@@ -1,3 +1,6 @@
+import { watch } from 'node:fs'
+import type { FSWatcher } from 'node:fs'
+
 import type {
   FilesContext,
   FilesDocument,
@@ -5,7 +8,10 @@ import type {
   ListFilesDirectoryRequest,
   OpenFilesDocumentRequest,
   SaveFilesDocumentRequest,
-  SaveFilesDocumentResult
+  SaveFilesDocumentResult,
+  SearchFilesRequest,
+  FilesSearchResult,
+  FilesObservationEvent
 } from '../shared'
 
 export type FilesRepository = {
@@ -60,7 +66,8 @@ export function createFilesService({
   operations,
   readDirectory,
   openDocument,
-  saveDocument
+  saveDocument,
+  search
 }: {
   repository: FilesRepository
   worktrees: FilesWorktreeValidator
@@ -72,7 +79,14 @@ export function createFilesService({
     rootPath: string,
     request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
+  search: (
+    rootPath: string,
+    request: Omit<SearchFilesRequest, 'context' | 'requestId'>,
+    options?: { signal?: AbortSignal }
+  ) => Promise<FilesSearchResult[]>
 }) {
+  const activeSearches = new Map<string, AbortController>()
+
   return {
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
       const root = await resolveFilesRoot(request.context)
@@ -93,6 +107,70 @@ export function createFilesService({
           expectedRevision: request.expectedRevision
         })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async search(request: SearchFilesRequest): Promise<FilesSearchResult[]> {
+      const root = await resolveFilesRoot(request.context)
+      const searchKey = filesSearchKey(request.context, request.requestId)
+      abortContextSearches(request.context)
+      const controller = new AbortController()
+      activeSearches.set(searchKey, controller)
+      try {
+        return await search(
+          root.path,
+          {
+            query: request.query,
+            includeIgnored: request.includeIgnored,
+            ...(request.maxResults === undefined ? {} : { maxResults: request.maxResults })
+          },
+          { signal: controller.signal }
+        )
+      } finally {
+        if (activeSearches.get(searchKey) === controller) activeSearches.delete(searchKey)
+      }
+    },
+
+    async cancelSearch(request: Pick<SearchFilesRequest, 'context' | 'requestId'>): Promise<void> {
+      const searchKey = filesSearchKey(request.context, request.requestId)
+      const controller = activeSearches.get(searchKey)
+      if (!controller) return
+      controller.abort()
+      activeSearches.delete(searchKey)
+    },
+
+    async observe(
+      context: FilesContext,
+      onEvent: (event: Omit<FilesObservationEvent, 'subscriptionId'>) => void
+    ): Promise<() => void> {
+      const root = await resolveFilesRoot(context)
+      const contextKey = filesContextKey(context)
+      let watcher: FSWatcher | null = null
+      try {
+        watcher = watch(root.path, { recursive: true }, (_eventType, filename) => {
+          onEvent({ kind: 'changed', contextKey, relativePath: filename?.toString() ?? null })
+        })
+        watcher.on('error', (error) => {
+          onEvent({ kind: 'watch-error', contextKey, relativePath: null, message: error.message })
+        })
+      } catch (error) {
+        onEvent({
+          kind: 'watch-error',
+          contextKey,
+          relativePath: null,
+          message: error instanceof Error ? error.message : String(error)
+        })
+      }
+      return () => watcher?.close()
+    }
+  }
+
+  function abortContextSearches(context: FilesContext): void {
+    const contextKey = filesContextKey(context)
+    for (const [searchKey, controller] of activeSearches) {
+      if (searchKey.startsWith(`${contextKey}:`)) {
+        controller.abort()
+        activeSearches.delete(searchKey)
+      }
     }
   }
 
@@ -130,4 +208,12 @@ export function createFilesService({
     if (!valid) throw new Error('files.worktreeInvalid')
     return worktree
   }
+}
+
+function filesSearchKey(context: FilesContext, requestId: string): string {
+  return `${filesContextKey(context)}:${requestId}`
+}
+
+function filesContextKey(context: FilesContext): string {
+  return context.kind === 'project-session' ? context.sessionId : context.contextKey
 }

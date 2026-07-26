@@ -3,7 +3,9 @@ import { describe, expect, it } from 'vitest'
 import {
   listFilesDirectoryRequestSchema,
   openFilesDocumentRequestSchema,
-  saveFilesDocumentRequestSchema
+  saveFilesDocumentRequestSchema,
+  cancelFilesSearchRequestSchema,
+  searchFilesRequestSchema
 } from './files.schema'
 
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
@@ -39,6 +41,70 @@ describe('Files IPC schemas', () => {
       { context: projectContext, relativePath: '', rootPath: '/arbitrary' }
     ]) {
       expect(() => listFilesDirectoryRequestSchema.parse(input)).toThrow()
+    }
+  })
+
+  it('accepts bounded context search requests without arbitrary roots', () => {
+    expect(
+      searchFilesRequestSchema.parse({
+        context: knowledgeBaseContext,
+        query: ' readme ',
+        includeIgnored: true,
+        requestId: 'search-1',
+        maxResults: 25
+      })
+    ).toEqual({
+      context: knowledgeBaseContext,
+      query: 'readme',
+      includeIgnored: true,
+      requestId: 'search-1',
+      maxResults: 25
+    })
+
+    for (const input of [
+      { context: knowledgeBaseContext, query: '', includeIgnored: false, requestId: 'search-1' },
+      {
+        context: knowledgeBaseContext,
+        query: 'x'.repeat(201),
+        includeIgnored: false,
+        requestId: 'search-1'
+      },
+      {
+        context: knowledgeBaseContext,
+        query: 'readme',
+        includeIgnored: 'yes',
+        requestId: 'search-1'
+      },
+      { context: knowledgeBaseContext, query: 'readme', includeIgnored: false, requestId: '' },
+      {
+        context: knowledgeBaseContext,
+        query: 'readme',
+        includeIgnored: false,
+        requestId: 'search-1',
+        maxResults: 0
+      },
+      {
+        context: knowledgeBaseContext,
+        query: 'readme',
+        includeIgnored: false,
+        requestId: 'search-1',
+        rootPath: '/tmp'
+      }
+    ]) {
+      expect(() => searchFilesRequestSchema.parse(input)).toThrow()
+    }
+  })
+
+  it('accepts bounded search cancellation requests without arbitrary roots', () => {
+    expect(
+      cancelFilesSearchRequestSchema.parse({ context: projectContext, requestId: 'search-1' })
+    ).toEqual({ context: projectContext, requestId: 'search-1' })
+
+    for (const input of [
+      { context: projectContext, requestId: '' },
+      { context: projectContext, requestId: 'search-1', rootPath: '/tmp' }
+    ]) {
+      expect(() => cancelFilesSearchRequestSchema.parse(input)).toThrow()
     }
   })
 

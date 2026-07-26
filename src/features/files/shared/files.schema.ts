@@ -63,3 +63,37 @@ export const saveFilesDocumentRequestSchema = z
     expectedRevision: z.string().trim().min(1)
   })
   .strict()
+
+const searchRequestIdSchema = z.string().trim().min(1).max(200)
+
+export const searchFilesRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    query: z.string().trim().min(1).max(200),
+    includeIgnored: z.boolean(),
+    requestId: searchRequestIdSchema,
+    maxResults: z.number().int().min(1).max(200).optional()
+  })
+  .strict()
+
+export const cancelFilesSearchRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    requestId: searchRequestIdSchema
+  })
+  .strict()
+
+const filesSubscriptionIdSchema = z.string().trim().min(1).max(200)
+
+export const observeFilesRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    subscriptionId: filesSubscriptionIdSchema
+  })
+  .strict()
+
+export const unobserveFilesRequestSchema = z
+  .object({
+    subscriptionId: filesSubscriptionIdSchema
+  })
+  .strict()
