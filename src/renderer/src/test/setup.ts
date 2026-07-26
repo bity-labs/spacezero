@@ -98,12 +98,19 @@ beforeEach(async () => {
       })
     },
     git: {
+      getReview: async () => ({
+        status: 'clean',
+        branch: 'main',
+        upstream: { kind: 'none' },
+        files: []
+      }),
       getProjectSessionReview: async () => ({
         status: 'clean',
         branch: 'main',
         upstream: { kind: 'none' },
         files: []
       }),
+      observe: async () => ({ subscriptionId: 'git-observation-test' }),
       observeProjectSession: async () => ({ subscriptionId: 'git-observation-test' }),
       unobserveProjectSession: async () => undefined,
       onObservationEvent: () => () => undefined
