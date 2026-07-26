@@ -97,6 +97,159 @@ describe('GitTool', () => {
     expect(getProjectSessionReview).toHaveBeenCalledTimes(3)
   })
 
+  it('shows conflicts prominently, keeps conflicted files reviewable first, and replaces composer actions with Resolve with agent', async () => {
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'conflicted.txt',
+          kind: 'conflicted' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --cc conflicted.txt\n+<<<<<<< HEAD\n'
+        },
+        {
+          path: 'normal.txt',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/normal.txt b/normal.txt\n+normal\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('status', { name: 'Unresolved Git conflicts' })).toHaveTextContent(
+      '1 conflicted file needs resolution before commit or push.'
+    )
+    const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ })
+    expect(fileButtons.map((button) => button.textContent)).toEqual(['conflicted.txt', 'normal.txt'])
+    expect(screen.getByText('+<<<<<<< HEAD')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Commit' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
+  })
+
+  it('sends a fresh-state same-session conflict prompt without rendered diffs or changing composer text', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'conflicted.txt',
+          kind: 'conflicted' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --cc conflicted.txt\n+<<<<<<< HEAD\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    await userEvent.type(await screen.findByLabelText('Commit instructions'), 'keep this draft')
+    await userEvent.click(screen.getByRole('button', { name: 'Resolve with agent' }))
+
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      message: expect.stringContaining('unresolved Git conflicts')
+    })
+    const message = prompt.mock.calls[0]?.[0].message ?? ''
+    expect(message).toContain('managed worktree')
+    expect(message).toContain('fresh Git status and diff')
+    expect(message).toContain('complete conflict resolution workflow')
+    expect(message).not.toContain('diff --cc')
+    expect(message).not.toContain('<<<<<<< HEAD')
+    expect(screen.getByLabelText('Commit instructions')).toHaveValue('keep this draft')
+  })
+
+  it('disables Resolve with agent while already running and does not send another prompt', async () => {
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agent.getState = vi.fn(async () => ({
+      sessionId: 'session-1',
+      projectId: 'project-1',
+      cwd: '/tmp/project-1',
+      status: 'running' as const,
+      live: true,
+      transcriptPath: '/tmp/transcript.jsonl',
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      thinkingLevel: 'medium' as const
+    }))
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        { path: 'conflicted.txt', kind: 'conflicted' as const, binary: false, large: false, diff: null }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    const resolve = await screen.findByRole('button', { name: 'Resolve with agent' })
+    await waitFor(() => expect(resolve).toBeDisabled())
+    await userEvent.click(resolve)
+
+    expect(prompt).not.toHaveBeenCalled()
+  })
+
+  it('disables Resolve with agent while running, refreshes after completion, and returns to normal actions after resolution', async () => {
+    const projectionListeners: Array<(event: AgentSessionProjectionEvent) => void> = []
+    window.spacezero.agent.onSessionProjectionEvent = vi.fn((listener) => {
+      projectionListeners.push(listener)
+      return () => undefined
+    })
+    window.spacezero.agent.prompt = vi.fn(async () => undefined)
+    window.spacezero.git.getProjectSessionReview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'ok' as const,
+        branch: 'feature/test',
+        upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+        files: [
+          { path: 'conflicted.txt', kind: 'conflicted' as const, binary: false, large: false, diff: null }
+        ]
+      })
+      .mockResolvedValue({
+        status: 'ok' as const,
+        branch: 'feature/test',
+        upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+        files: [
+          { path: 'resolved.txt', kind: 'modified' as const, binary: false, large: false, diff: '+resolved\n' }
+        ]
+      })
+
+    render(<GitTool sessionId="session-1" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Resolve with agent' }))
+    const projectionListener = projectionListeners[0]
+    if (!projectionListener) throw new Error('Agent projection listener was not registered')
+
+    act(() => {
+      projectionListener({ type: 'agent_start', sessionId: 'session-1', seq: 1 })
+    })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeDisabled())
+
+    act(() => {
+      projectionListener({ type: 'agent_end', sessionId: 'session-1', seq: 2 })
+    })
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled())
+    expect(screen.queryByRole('button', { name: 'Resolve with agent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('status', { name: 'Unresolved Git conflicts' })).not.toBeInTheDocument()
+    expect(window.spacezero.git.getProjectSessionReview).toHaveBeenCalledTimes(2)
+  })
+
   it('loads the main-owned primary action preference and sends an empty Commit & Push prompt through the agent path', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
