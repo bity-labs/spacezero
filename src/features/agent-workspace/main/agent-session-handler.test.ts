@@ -1646,7 +1646,15 @@ describe('createWorkspaceAgentSession', () => {
         workspaceTools: expect.arrayContaining([
           expect.objectContaining({ name: 'knowledgeBase.git.inspect', safetyLevel: 'read' }),
           expect.objectContaining({ name: 'knowledgeBase.git.stageFiles', safetyLevel: 'write' }),
-          expect.objectContaining({ name: 'knowledgeBase.git.push', safetyLevel: 'dangerous' })
+          expect.objectContaining({ name: 'knowledgeBase.git.push', safetyLevel: 'dangerous' }),
+          expect.objectContaining({
+            name: 'knowledgeBase.git.continueConflictResolution',
+            safetyLevel: 'dangerous'
+          }),
+          expect.objectContaining({
+            name: 'knowledgeBase.git.abortConflictResolution',
+            safetyLevel: 'dangerous'
+          })
         ])
       })
     )
