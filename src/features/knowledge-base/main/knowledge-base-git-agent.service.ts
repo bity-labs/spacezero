@@ -1,5 +1,5 @@
 import { stat } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 
 import { z } from 'zod'
 
@@ -65,6 +65,18 @@ export const knowledgeBaseGitOriginSchema = z
   .strict()
 
 export const knowledgeBaseGitPushSchema = z.object({}).strict()
+export const knowledgeBaseGitConflictOperationSchema = z.object({}).strict()
+
+export type KnowledgeBaseGitInterruptedOperation =
+  | 'merge'
+  | 'rebase'
+  | 'cherry-pick'
+  | 'revert'
+
+export type KnowledgeBaseGitConflictFile = {
+  relativePath: string
+  contentType: 'text' | 'binary' | 'unknown'
+}
 
 export type KnowledgeBaseGitAgentService = ReturnType<typeof createKnowledgeBaseGitAgentService>
 
@@ -88,7 +100,7 @@ export function createKnowledgeBaseGitAgentService({
 
   async function inspectRepository() {
     return withRoot(async (rootPath) => {
-      const [branch, status, origin] = await Promise.all([
+      const [branch, status, origin, interruptedOperation, conflictedFiles] = await Promise.all([
         getCurrentBranch(host, rootPath),
         host.runGit(rootPath, [
           'status',
@@ -96,12 +108,17 @@ export function createKnowledgeBaseGitAgentService({
           '--branch',
           '--untracked-files=all'
         ]),
-        getOrigin(host, rootPath)
+        getOrigin(host, rootPath),
+        getInterruptedOperation(host, rootPath),
+        getConflictedFiles(host, rootPath)
       ])
       return {
         branch,
         origin: origin ? { configured: true as const, url: sanitizeGitRemoteUrl(origin) } : { configured: false as const },
-        porcelainStatus: redactGitSecrets(status.stdout).trim()
+        porcelainStatus: redactGitSecrets(status.stdout).trim(),
+        interruptedOperation,
+        conflictedFiles,
+        hasConflicts: interruptedOperation !== null || conflictedFiles.length > 0
       }
     })
   }
@@ -184,7 +201,130 @@ export function createKnowledgeBaseGitAgentService({
     )
   }
 
-  return { inspectRepository, stageFiles, unstageFiles, createCommit, getOriginRemote, configureOrigin, push }
+  async function continueConflictResolution(
+    input: z.input<typeof knowledgeBaseGitConflictOperationSchema>
+  ) {
+    knowledgeBaseGitConflictOperationSchema.parse(input)
+    return operations.runExclusive(() =>
+      withRoot(async (rootPath) => {
+        const operation = await requireInterruptedOperation(host, rootPath)
+        const result = await host.runGit(rootPath, [operation, '--continue'])
+        return {
+          operation,
+          output: redactGitSecrets(result.stdout || result.stderr).trim()
+        }
+      })
+    )
+  }
+
+  async function abortConflictResolution(
+    input: z.input<typeof knowledgeBaseGitConflictOperationSchema>
+  ) {
+    knowledgeBaseGitConflictOperationSchema.parse(input)
+    return operations.runExclusive(() =>
+      withRoot(async (rootPath) => {
+        const operation = await requireInterruptedOperation(host, rootPath)
+        const result = await host.runGit(rootPath, [operation, '--abort'])
+        return {
+          operation,
+          output: redactGitSecrets(result.stdout || result.stderr).trim()
+        }
+      })
+    )
+  }
+
+  return {
+    inspectRepository,
+    stageFiles,
+    unstageFiles,
+    createCommit,
+    getOriginRemote,
+    configureOrigin,
+    push,
+    continueConflictResolution,
+    abortConflictResolution
+  }
+}
+
+const GIT_OPERATION_MARKERS: readonly {
+  operation: KnowledgeBaseGitInterruptedOperation
+  marker: string
+}[] = [
+  { operation: 'rebase', marker: 'rebase-merge' },
+  { operation: 'rebase', marker: 'rebase-apply' },
+  { operation: 'merge', marker: 'MERGE_HEAD' },
+  { operation: 'cherry-pick', marker: 'CHERRY_PICK_HEAD' },
+  { operation: 'revert', marker: 'REVERT_HEAD' }
+]
+
+async function requireInterruptedOperation(
+  host: Pick<KnowledgeBaseGitHost, 'runGit'>,
+  rootPath: string
+): Promise<KnowledgeBaseGitInterruptedOperation> {
+  const operation = await getInterruptedOperation(host, rootPath)
+  if (!operation) {
+    throw new Error('Knowledge Base Git has no supported interrupted operation to continue or abort.')
+  }
+  return operation
+}
+
+async function getInterruptedOperation(
+  host: Pick<KnowledgeBaseGitHost, 'runGit'>,
+  rootPath: string
+): Promise<KnowledgeBaseGitInterruptedOperation | null> {
+  for (const { operation, marker } of GIT_OPERATION_MARKERS) {
+    const markerPath = (await host.runGit(rootPath, ['rev-parse', '--git-path', marker])).stdout.trim()
+    const absoluteMarkerPath = isAbsolute(markerPath) ? markerPath : resolve(rootPath, markerPath)
+    if (markerPath && (await pathExists(absoluteMarkerPath))) return operation
+  }
+  return null
+}
+
+async function getConflictedFiles(
+  host: Pick<KnowledgeBaseGitHost, 'runGit'>,
+  rootPath: string
+): Promise<KnowledgeBaseGitConflictFile[]> {
+  const paths = (await host.runGit(rootPath, ['diff', '--name-only', '-z', '--diff-filter=U'])).stdout
+    .split('\0')
+    .filter(Boolean)
+  return Promise.all(
+    paths.map(async (relativePath) => ({
+      relativePath,
+      contentType: await getConflictContentType(host, rootPath, relativePath)
+    }))
+  )
+}
+
+async function getConflictContentType(
+  host: Pick<KnowledgeBaseGitHost, 'runGit'>,
+  rootPath: string,
+  relativePath: string
+): Promise<KnowledgeBaseGitConflictFile['contentType']> {
+  const numstatOutputs = await Promise.all(
+    [[], ['--ours'], ['--theirs'], ['--base']].map(async (mode) =>
+      (await host.runGit(rootPath, [
+        '--literal-pathspecs',
+        'diff',
+        ...mode,
+        '--numstat',
+        '--',
+        relativePath
+      ])).stdout.trim()
+    )
+  )
+  if (numstatOutputs.some((output) => output.split(/\r?\n/).some((line) => line.startsWith('-\t-\t')))) return 'binary'
+  if (numstatOutputs.some(Boolean)) return 'text'
+  return 'unknown'
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false
+    throw error
+  }
 }
 
 async function assertWholeFilePaths(
