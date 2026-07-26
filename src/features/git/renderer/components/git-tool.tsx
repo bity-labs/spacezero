@@ -104,7 +104,6 @@ function GitToolSession({ sessionId }: GitToolProps): React.JSX.Element {
         setState(null)
         setActionState(null)
       }
-      setWatchDiagnostic(null)
       const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({ sessionId, filter })
       const actionReviewPromise =
         filter === 'uncommitted'
@@ -161,10 +160,12 @@ function GitToolSession({ sessionId }: GitToolProps): React.JSX.Element {
   useEffect(() => {
     let disposed = false
     let observationSubscriptionId: string | null = null
+    let observedWatchError = false
     const unsubscribeEvents = window.spacezero.git.onObservationEvent((event) => {
       if (event.sessionId !== sessionId) return
       if (event.subscriptionId !== observationSubscriptionId && observationSubscriptionId !== null) return
       if (event.kind === 'watch-error') {
+        observedWatchError = true
         setWatchDiagnostic(getObservationErrorMessage(event.message))
         return
       }
@@ -182,6 +183,7 @@ function GitToolSession({ sessionId }: GitToolProps): React.JSX.Element {
           return
         }
         observationSubscriptionId = subscriptionId
+        if (!observedWatchError) setWatchDiagnostic(null)
       })
       .catch((error) => {
         if (!disposed) setWatchDiagnostic(getObservationErrorMessage(error))

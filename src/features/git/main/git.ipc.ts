@@ -40,11 +40,17 @@ export function registerGitIpc(): void {
       sender.off('destroyed', onSenderDestroyed)
     }
 
-    const close = await getGitService().observeProjectSession(parsed.sessionId, (observation) => {
-      if (sender.isDestroyed()) return
-      const payload: GitObservationEvent = { subscriptionId, sessionId: parsed.sessionId, ...observation }
-      sender.send(GIT_IPC_CHANNELS.observationEvent, payload)
-    })
+    let close: () => void
+    try {
+      close = await getGitService().observeProjectSession(parsed.sessionId, (observation) => {
+        if (sender.isDestroyed()) return
+        const payload: GitObservationEvent = { subscriptionId, sessionId: parsed.sessionId, ...observation }
+        sender.send(GIT_IPC_CHANNELS.observationEvent, payload)
+      })
+    } catch (error) {
+      removeDestroyedListener()
+      throw error
+    }
 
     const subscription: GitSubscription = { close, removeDestroyedListener, closed: false }
     subscriptions.set(subscriptionId, subscription)
