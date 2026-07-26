@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@renderer/components/ui/button'
+import type { WorkspaceSession } from '../../../sessions/shared'
 import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
@@ -22,6 +23,7 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 const UNCHANGED_CONTEXT_LINES = 3
 const OBSERVATION_REFRESH_DELAY_MS = 150
 const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
+const KNOWLEDGE_BASE_SESSION_CHANGED_EVENT = 'spacezero:knowledge-base-session-changed'
 
 type GitViewMemory = {
   filter: GitChangeFilter
@@ -75,9 +77,69 @@ export function GitTool({ context, sessionId, filesHandoff }: GitToolProps): Rea
   if (gitContext.kind === 'project-session') {
     return <ProjectGitTool context={gitContext} filesHandoff={filesHandoff} />
   }
+  return <KnowledgeBaseGitTool context={gitContext} filesHandoff={filesHandoff} />
+}
+
+function KnowledgeBaseGitTool({
+  context,
+  filesHandoff
+}: {
+  context: Extract<GitContext, { kind: 'knowledge-base' }>
+  filesHandoff?: GitFilesHandoff
+}): React.JSX.Element {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+
+  useEffect(() => {
+    let canceled = false
+    const loadCurrentSession = async (): Promise<void> => {
+      const session = await window.spacezero.knowledgeBase.getCurrentSession()
+      if (!canceled) setSessionId(session.id)
+    }
+    const onFocus = (): void => {
+      void loadCurrentSession()
+    }
+    const onSessionChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<WorkspaceSession>).detail
+      if (detail?.id) setSessionId(detail.id)
+      else void loadCurrentSession()
+    }
+    void loadCurrentSession()
+    window.addEventListener(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, onSessionChanged)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      canceled = true
+      window.removeEventListener(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, onSessionChanged)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [])
+
+  if (!sessionId) {
+    return (
+      <GitToolSession key={context.contextKey} context={context} filesHandoff={filesHandoff} />
+    )
+  }
+
   return (
-    <GitToolSession key={gitContext.contextKey} context={gitContext} filesHandoff={filesHandoff} />
+    <KnowledgeBaseGitToolSession
+      key={`${context.contextKey}:${sessionId}`}
+      context={context}
+      filesHandoff={filesHandoff}
+      sessionId={sessionId}
+    />
   )
+}
+
+function KnowledgeBaseGitToolSession({
+  context,
+  filesHandoff,
+  sessionId
+}: {
+  context: Extract<GitContext, { kind: 'knowledge-base' }>
+  filesHandoff?: GitFilesHandoff
+  sessionId: string
+}): React.JSX.Element {
+  const agentSession = useAgentSession(sessionId)
+  return <GitToolSession agentSession={agentSession} context={context} filesHandoff={filesHandoff} />
 }
 
 function ProjectGitTool({
@@ -417,7 +479,7 @@ function GitToolSession({
             onInstructionsChange={setInstructions}
             onResolve={() => {
               gitPromptRunPending.current = true
-              void agentSession.prompt(buildResolveConflictsPrompt())
+              void agentSession.prompt(buildResolveConflictsPrompt(context))
             }}
           />
         ) : (
@@ -434,7 +496,9 @@ function GitToolSession({
             onSubmit={(action) => {
               setMenuOpen(false)
               gitPromptRunPending.current = true
-              void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
+              void agentSession.prompt(
+                buildGitActionPrompt(action, instructions, state.upstream, context)
+              )
             }}
           />
         )
@@ -883,11 +947,16 @@ function getConflictFiles(state: GitReviewState | null): GitFileDiff[] {
   return state.files.filter((file) => file.kind === 'conflicted')
 }
 
-function buildResolveConflictsPrompt(): string {
+function buildResolveConflictsPrompt(context: GitContext): string {
+  const repositoryLabel = getRepositoryPromptLabel(context)
+  const capabilityLabel =
+    context.kind === 'knowledge-base'
+      ? 'the approved Knowledge Base Git Workspace Tools'
+      : 'your existing managed-worktree project capabilities'
   return [
-    'Please inspect the fresh Git state in this Project Session managed worktree and resolve the unresolved Git conflicts.',
-    'Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; run fresh Git status and diff commands in the managed worktree before acting.',
-    'Handle the complete conflict resolution workflow using your existing managed-worktree project capabilities: inspect conflicted files, edit resolutions, run appropriate validation, and report the final Git status in the normal Session transcript.',
+    `Please inspect the fresh Git state in ${repositoryLabel} and resolve the unresolved Git conflicts.`,
+    `Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; inspect fresh Git status and diff information in ${repositoryLabel} before acting.`,
+    `Handle the complete conflict resolution workflow using ${capabilityLabel}: inspect conflicted files, edit resolutions, run appropriate validation, and report the final Git status in the normal Session transcript.`,
     'Do not commit or push unless I explicitly ask for that after the conflicts are resolved.'
   ].join('\n\n')
 }
@@ -895,14 +964,16 @@ function buildResolveConflictsPrompt(): string {
 function buildGitActionPrompt(
   action: GitComposerAction,
   instructions: string,
-  upstream: GitUpstreamState
+  upstream: GitUpstreamState,
+  context: GitContext
 ): string {
   const trimmedInstructions = instructions.trim()
+  const repositoryLabel = getRepositoryPromptLabel(context)
   const lines = [
     action === 'commit'
-      ? 'Please inspect the current Git state in this Project Session managed worktree and create an appropriate commit for the saved repository changes.'
-      : 'Please inspect the current Git state in this Project Session managed worktree, create an appropriate commit for saved repository changes if needed, and push the branch.',
-    'Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; run fresh Git status and diff commands in the managed worktree before acting.'
+      ? `Please inspect the current Git state in ${repositoryLabel} and create an appropriate commit for the saved repository changes.`
+      : `Please inspect the current Git state in ${repositoryLabel}, create an appropriate commit for saved repository changes if needed, and push the branch.`,
+    `Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; inspect fresh Git status and diff information in ${repositoryLabel} before acting.`
   ]
 
   if (trimmedInstructions) {
@@ -923,6 +994,12 @@ function buildGitActionPrompt(
   }
 
   return lines.join('\n\n')
+}
+
+function getRepositoryPromptLabel(context: GitContext): string {
+  return context.kind === 'knowledge-base'
+    ? 'the verified Knowledge Base repository'
+    : 'this Project Session managed worktree'
 }
 
 function formatActionLabel(action: GitComposerAction): string {

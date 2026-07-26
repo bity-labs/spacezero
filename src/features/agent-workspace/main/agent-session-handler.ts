@@ -5,7 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
 
 import type { AgentUtilityProcessHost } from './agent-utility-process'
-import { getWorkspaceToolRegistry } from './workspace-tool-control-plane'
+import { listWorkspaceToolDescriptorsForSession } from './workspace-tool-control-plane'
 import {
   withProjectLifecycleLock as runWithProjectLifecycleLock,
   type ProjectLifecycleLock
@@ -256,7 +256,7 @@ export async function createManagedProjectAgentSession(
         kind: 'project',
         projectId,
         cwd: worktree.path,
-        workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+        workspaceTools: listWorkspaceToolDescriptorsForSession(),
         appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
         ...(skillPaths ? { skillPaths } : {}),
         ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
@@ -385,7 +385,9 @@ export async function applyAgentDefinitionToFreshSession(
     projectId: storedSession.projectId,
     cwd,
     transcriptPath: storedSession.transcriptPath ?? currentState.transcriptPath ?? undefined,
-    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    workspaceTools: listWorkspaceToolDescriptorsForSession({
+      managedContext: storedSession.managedContext
+    }),
     ...(project
       ? {
           appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)]
@@ -549,7 +551,9 @@ async function restoreAgentSessionStateOnce(
       projectId: storedSession.projectId,
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
-      workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+      workspaceTools: listWorkspaceToolDescriptorsForSession({
+        managedContext: storedSession.managedContext
+      }),
       ...(project
         ? {
             appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)]
@@ -644,7 +648,7 @@ export async function createWorkspaceAgentSession({
     kind: 'workspace',
     projectId: null,
     cwd,
-    workspaceTools: getWorkspaceToolRegistry().listAgentDescriptors(),
+    workspaceTools: listWorkspaceToolDescriptorsForSession({ managedContext }),
     ...(skillPaths ? { skillPaths } : {}),
     ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,
