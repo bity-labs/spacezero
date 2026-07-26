@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import type { BrowserClearDataResult } from '../shared'
+
 import {
   BrowserService,
   normalizeBrowserUrl,
@@ -68,6 +70,11 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
   readonly forward: string[] = []
   readonly reloaded: string[] = []
   readonly stopped: string[] = []
+  clearResult: BrowserClearDataResult = {
+    status: 'cleared',
+    cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+    failures: []
+  }
 
   createView(
     tabId: string,
@@ -106,6 +113,14 @@ class FakeBrowserViewAdapter implements BrowserViewAdapter {
 
   stop(tabId: string): void {
     this.stopped.push(tabId)
+  }
+
+  async clearProfileData(): Promise<BrowserClearDataResult> {
+    return {
+      status: this.clearResult.status,
+      cleared: [...this.clearResult.cleared],
+      failures: [...this.clearResult.failures]
+    }
   }
 }
 
@@ -862,6 +877,111 @@ describe('BrowserService', () => {
     expect(
       service.openNativeRequestedTab('browser-tab-forged', 'https://example.com/')
     ).toBeUndefined()
+  })
+
+  it('clears the shared profile while retaining tab metadata and reloading live tabs across contexts', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const repository = new FakeBrowserTabsRepository()
+    const service = new BrowserService(adapter, createContextRepository(), undefined, repository)
+
+    const project = await service.getState(projectContext)
+    await service.navigate({
+      ...projectContext,
+      tabId: project.activeTabId,
+      input: 'https://example.com/account'
+    })
+    service.markNavigationCommitted(project.activeTabId, 'https://example.com/account')
+    const projectSecond = await service.createTab({
+      ...projectContext,
+      input: 'https://example.com/docs'
+    })
+    const workspace = await service.createTab({
+      ...workspaceContext,
+      input: 'https://example.net/login'
+    })
+    service.markNavigationCommitted(workspace.activeTabId, 'https://example.net/login')
+
+    const result = await service.clearData()
+
+    expect(result).toEqual({
+      status: 'cleared',
+      cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+      failures: []
+    })
+    expect(adapter.reloaded).toEqual(
+      expect.arrayContaining([
+        project.activeTabId,
+        projectSecond.activeTabId,
+        workspace.activeTabId
+      ])
+    )
+    expect(repository.contexts.get('session:project-session-1')?.map((tab) => tab.url)).toEqual([
+      'https://example.com/account',
+      'https://example.com/docs'
+    ])
+    expect(repository.contexts.get('session:workspace-1')?.map((tab) => tab.url)).toEqual([
+      null,
+      'https://example.net/login'
+    ])
+  })
+
+  it('leaves lazily restored tabs unloaded when browser data is cleared', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const repository = new FakeBrowserTabsRepository([
+      {
+        context: projectContext.context,
+        tabId: 'persisted-live-tab',
+        order: 0,
+        active: true,
+        url: 'https://example.com/live'
+      },
+      {
+        context: projectContext.context,
+        tabId: 'persisted-lazy-tab',
+        order: 1,
+        active: false,
+        url: 'https://example.com/lazy'
+      }
+    ])
+    const service = new BrowserService(adapter, createContextRepository(), undefined, repository)
+
+    await service.getState(projectContext)
+    await service.show({
+      ...projectContext,
+      tabId: 'persisted-live-tab',
+      bounds: { x: 0, y: 0, width: 800, height: 600 },
+      shortcutBindings: []
+    })
+    adapter.loaded.length = 0
+
+    await service.clearData()
+
+    expect(adapter.reloaded).toEqual(['persisted-live-tab'])
+    expect(adapter.loaded).toEqual([])
+    expect(repository.contexts.get('session:project-session-1')?.map((tab) => tab.tabId)).toEqual([
+      'persisted-live-tab',
+      'persisted-lazy-tab'
+    ])
+  })
+
+  it('reports partial clear failures without claiming a fully clean profile', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    adapter.clearResult = {
+      status: 'partial-failure',
+      cleared: ['cache', 'temporary-grants'],
+      failures: [{ category: 'cookies-and-site-storage', message: 'storage failed' }]
+    }
+    const service = new BrowserService(adapter, createContextRepository())
+    const state = await service.createTab({ ...workspaceContext, input: 'https://example.com' })
+
+    const result = await service.clearData()
+
+    expect(result).toEqual({
+      status: 'partial-failure',
+      cleared: ['cache', 'temporary-grants'],
+      failures: [{ category: 'cookies-and-site-storage', message: 'storage failed' }]
+    })
+    expect(adapter.reloaded).toContain(state.activeTabId)
   })
 
   it('rejects reorder requests that omit, duplicate, or import tab ids', async () => {

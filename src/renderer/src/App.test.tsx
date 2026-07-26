@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
+import type { BrowserClearDataResult } from '../../features/browser/shared'
 import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
@@ -1009,6 +1010,79 @@ describe('App', () => {
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('confirms and cancels Clear Browser Data in Settings without clearing the profile', async () => {
+    const clearData = vi.fn<() => Promise<BrowserClearDataResult>>(async () => ({
+      status: 'cleared',
+      cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+      failures: []
+    }))
+    window.spacezero.browser.clearData = clearData
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear Browser Data' }))
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'This signs sites out across Space Zero Browser contexts'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    expect(clearData).not.toHaveBeenCalled()
+  })
+
+  it('clears Browser data from Settings after confirmation and reports success', async () => {
+    const clearData = vi.fn<() => Promise<BrowserClearDataResult>>(async () => ({
+      status: 'cleared',
+      cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+      failures: []
+    }))
+    window.spacezero.browser.clearData = clearData
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear Browser Data' }))
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Browser Data' })
+    )
+
+    await waitFor(() => expect(clearData).toHaveBeenCalledTimes(1))
+    expect(await screen.findByText(/Browser data cleared/)).toBeInTheDocument()
+  })
+
+  it('disables Clear Browser Data while clearing and reports actionable partial failures', async () => {
+    let resolveClear: ((value: BrowserClearDataResult) => void) | undefined
+    const clearData = vi.fn(
+      () =>
+        new Promise<BrowserClearDataResult>((resolve) => {
+          resolveClear = resolve
+        })
+    )
+    window.spacezero.browser.clearData = clearData
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear Browser Data' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Clear Browser Data' }))
+
+    expect(within(dialog).getByRole('button', { name: 'Clearing…' })).toBeDisabled()
+    if (!resolveClear) throw new Error('clearData promise was not started')
+    resolveClear({
+      status: 'partial-failure',
+      cleared: ['cache', 'temporary-grants'],
+      failures: [{ category: 'cookies-and-site-storage', message: 'storage failed' }]
+    })
+
+    expect(
+      await screen.findByText(/Some Browser data could not be cleared: cookies and site storage/)
+    ).toBeInTheDocument()
   })
 
   it('changes the Space Zero Home from General Settings', async () => {

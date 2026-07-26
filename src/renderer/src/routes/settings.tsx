@@ -371,6 +371,8 @@ function GeneralSettingsSection({
 
         <TerminalSafetySettingsSection />
 
+        <BrowserDataSettingsSection />
+
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -501,6 +503,90 @@ function GeneralSettingsSection({
         </SettingsSection>
       </div>
     </>
+  )
+}
+
+function BrowserDataSettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  const [isClearing, setIsClearing] = useState(false)
+  const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+
+  async function confirmClearBrowserData(): Promise<void> {
+    if (isClearing) return
+    setIsClearing(true)
+    setMessage(null)
+
+    try {
+      const result = await window.spacezero.browser.clearData()
+      setIsConfirmOpen(false)
+      if (result.status === 'cleared') {
+        setMessage({ kind: 'success', text: t('settings.browserData.success') })
+      } else {
+        const failedCategories = result.failures
+          .map((failure) => browserDataCategoryLabel(failure.category, t))
+          .join(', ')
+        setMessage({
+          kind: 'error',
+          text: t('settings.browserData.failure', { categories: failedCategories })
+        })
+      }
+    } catch {
+      setMessage({ kind: 'error', text: t('settings.browserData.unexpectedFailure') })
+    } finally {
+      setIsClearing(false)
+    }
+  }
+
+  return (
+    <SettingsSection title={t('settings.browserData.sectionTitle')}>
+      <SettingsRow
+        title={t('settings.browserData.clearAction')}
+        description={t('settings.browserData.description')}
+      >
+        <Button
+          variant="destructive"
+          size="sm"
+          disabled={isClearing}
+          onClick={() => setIsConfirmOpen(true)}
+        >
+          {isClearing ? t('settings.browserData.clearing') : t('settings.browserData.clearAction')}
+        </Button>
+      </SettingsRow>
+      <p className="px-4 pb-3 text-xs text-muted-foreground">
+        {t('settings.browserData.scopeNote')}
+      </p>
+      {message ? (
+        <p
+          role="status"
+          className={`px-4 pb-3 text-sm ${message.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}
+        >
+          {message.text}
+        </p>
+      ) : null}
+      <Dialog open={isConfirmOpen} onOpenChange={(open) => !isClearing && setIsConfirmOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('settings.browserData.confirmTitle')}</DialogTitle>
+            <DialogDescription>{t('settings.browserData.confirmDescription')}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" disabled={isClearing} onClick={() => setIsConfirmOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={isClearing}
+              onClick={() => void confirmClearBrowserData()}
+            >
+              {isClearing
+                ? t('settings.browserData.clearing')
+                : t('settings.browserData.confirmAction')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </SettingsSection>
   )
 }
 
@@ -747,6 +833,20 @@ function SkillsSettingsSection(): React.JSX.Element {
       </div>
     </>
   )
+}
+
+function browserDataCategoryLabel(
+  category: 'cookies-and-site-storage' | 'cache' | 'temporary-grants',
+  t: (key: string) => string
+): string {
+  switch (category) {
+    case 'cookies-and-site-storage':
+      return t('settings.browserData.categories.cookiesAndSiteStorage')
+    case 'cache':
+      return t('settings.browserData.categories.cache')
+    case 'temporary-grants':
+      return t('settings.browserData.categories.temporaryGrants')
+  }
 }
 
 function getLanguagePreferenceLabel(

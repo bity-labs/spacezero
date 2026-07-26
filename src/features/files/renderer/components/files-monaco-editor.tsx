@@ -7,7 +7,10 @@ import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 configureFilesMonacoEnvironment()
 
 export type FilesMonacoEditorMount = (
-  editor: monaco.editor.IStandaloneCodeEditor,
+  editor: Pick<
+    monaco.editor.IStandaloneCodeEditor,
+    'addCommand' | 'focus' | 'revealLineInCenter' | 'setPosition'
+  >,
   monacoInstance: typeof monaco
 ) => void
 

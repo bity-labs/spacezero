@@ -284,6 +284,52 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('revalidates existing clean, error, and pending tabs while preserving dirty buffers', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-revalidate', 'clean.txt', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-revalidate', textDocument('clean.txt', 'saved'), 1)
+    expect(store.beginOpenTab('session-revalidate', 'dirty.txt', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-revalidate', textDocument('dirty.txt', 'saved'), 2)
+    store.updateDraft('session-revalidate', 'dirty draft')
+    expect(store.beginOpenTab('session-revalidate', 'failed.txt', 'permanent', 3)).toBe(true)
+    store.failOpenTab('session-revalidate', 'failed.txt', 'not found', 3)
+    expect(store.beginOpenTab('session-revalidate', 'pending.txt', 'permanent', 4)).toBe(true)
+
+    expect(store.beginOpenTab('session-revalidate', 'clean.txt', 'preview', 5, undefined, true)).toBe(true)
+    expect(store.beginOpenTab('session-revalidate', 'dirty.txt', 'preview', 6, undefined, true)).toBe(false)
+    expect(store.beginOpenTab('session-revalidate', 'failed.txt', 'preview', 7, undefined, true)).toBe(true)
+    expect(store.beginOpenTab('session-revalidate', 'pending.txt', 'preview', 8, undefined, true)).toBe(true)
+    store.failOpenTab('session-revalidate', 'pending.txt', 'stale failure', 4)
+    store.failOpenTab('session-revalidate', 'pending.txt', 'current failure', 8)
+
+    expect(useFilesStore.getState().contexts['session-revalidate']).toMatchObject({
+      tabs: [
+        { relativePath: 'clean.txt', status: 'loading', openRequestId: 5 },
+        { relativePath: 'dirty.txt', status: 'ready', draft: 'dirty draft', dirty: true },
+        { relativePath: 'failed.txt', status: 'loading', openRequestId: 7 },
+        { relativePath: 'pending.txt', status: 'error', message: 'current failure' }
+      ]
+    })
+  })
+
+  it('clears a consumed location target without touching the editor buffer', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-line-target', 'README.md', 'permanent', 1, 4)).toBe(true)
+    store.finishOpenTab('session-line-target', textDocument('README.md', '# Title'), 1)
+    store.updateDraft('session-line-target', '# Dirty')
+
+    store.clearLocationTarget('session-line-target', 'README.md', 1)
+
+    expect(useFilesStore.getState().contexts['session-line-target'].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      targetLine: undefined,
+      locationRequestId: undefined,
+      draft: '# Dirty',
+      dirty: true,
+      editorMode: 'rich'
+    })
+  })
+
   it('marks an inactive dirty tab as saving so Save All can settle per-file outcomes', () => {
     const store = useFilesStore.getState()
     expect(store.beginOpenTab('session-1', 'src/one.ts', 'permanent', 1)).toBe(true)

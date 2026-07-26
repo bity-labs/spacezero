@@ -1,10 +1,28 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
+import { openFilesLocation } from '../../../files/renderer/files-open-location'
+import { useFilesStore } from '../../../files/renderer/files-store'
 import type { GitObservationEvent, GitReviewState } from '../../shared'
 import { GitTool, resetGitToolViewMemoryForTests } from './git-tool'
+
+type Deferred<T> = {
+  promise: Promise<T>
+  resolve: (value: T) => void
+  reject: (error: unknown) => void
+}
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+  return { promise, resolve, reject }
+}
 
 describe('GitTool', () => {
   afterEach(() => {
@@ -35,11 +53,14 @@ describe('GitTool', () => {
       'true'
     )
     await screen.findByText('feature/test')
-    expect(getProjectSessionReview).toHaveBeenCalledWith({ sessionId: 'session-1', filter: 'uncommitted' })
+    expect(getProjectSessionReview).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      filter: 'uncommitted'
+    })
     expect(screen.getByText(/origin\/feature\/test/)).toHaveTextContent('2 ahead')
     expect(screen.getByText(/\+Changed/)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: /README.md/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     await waitFor(() => expect(screen.queryByText(/\+Changed/)).not.toBeInTheDocument())
   })
 
@@ -65,10 +86,13 @@ describe('GitTool', () => {
     await screen.findByText(/\+uncommitted/)
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText(/\+staged/)
-    expect(getProjectSessionReview).toHaveBeenCalledWith({ sessionId: 'session-1', filter: 'staged' })
+    expect(getProjectSessionReview).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      filter: 'staged'
+    })
     expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
 
-    await userEvent.click(screen.getByRole('button', { name: /staged.md/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     await waitFor(() => expect(screen.queryByText(/\+staged/)).not.toBeInTheDocument())
     expect(getProjectSessionReview).toHaveBeenCalledTimes(3)
   })
@@ -162,29 +186,38 @@ describe('GitTool', () => {
       async () => undefined
     )
     window.spacezero.agent.prompt = prompt
-    window.spacezero.git.getProjectSessionReview = vi.fn(
-      async ({ filter }: { filter: string }) =>
-        filter === 'staged'
-          ? {
-              status: 'clean' as const,
-              branch: 'feature/test',
-              upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
-              files: [] as []
-            }
-          : {
-              status: 'ok' as const,
-              branch: 'feature/test',
-              upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
-              files: [
-                {
-                  path: 'unstaged.txt',
-                  kind: 'modified' as const,
-                  binary: false,
-                  large: false,
-                  diff: 'diff --git a/unstaged.txt b/unstaged.txt\n+unstaged\n'
-                }
-              ]
-            }
+    window.spacezero.git.getProjectSessionReview = vi.fn(async ({ filter }: { filter: string }) =>
+      filter === 'staged'
+        ? {
+            status: 'clean' as const,
+            branch: 'feature/test',
+            upstream: {
+              kind: 'tracked' as const,
+              name: 'origin/feature/test',
+              ahead: 0,
+              behind: 0
+            },
+            files: [] as []
+          }
+        : {
+            status: 'ok' as const,
+            branch: 'feature/test',
+            upstream: {
+              kind: 'tracked' as const,
+              name: 'origin/feature/test',
+              ahead: 0,
+              behind: 0
+            },
+            files: [
+              {
+                path: 'unstaged.txt',
+                kind: 'modified' as const,
+                binary: false,
+                large: false,
+                diff: 'diff --git a/unstaged.txt b/unstaged.txt\n+unstaged\n'
+              }
+            ]
+          }
     )
 
     render(<GitTool sessionId="session-1" />)
@@ -255,7 +288,9 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" />)
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeDisabled())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeDisabled()
+    )
     expect(screen.getByRole('button', { name: 'More' })).toBeDisabled()
   })
 
@@ -307,7 +342,13 @@ describe('GitTool', () => {
       branch: 'feature/test',
       upstream: { kind: 'none' as const },
       files: [
-        { path: 'conflict.txt', kind: 'conflicted' as const, binary: false, large: false, diff: null },
+        {
+          path: 'conflict.txt',
+          kind: 'conflicted' as const,
+          binary: false,
+          large: false,
+          diff: null
+        },
         { path: 'added.txt', kind: 'added' as const, binary: false, large: false, diff: null },
         { path: 'deleted.txt', kind: 'deleted' as const, binary: false, large: false, diff: null },
         {
@@ -318,18 +359,210 @@ describe('GitTool', () => {
           large: false,
           diff: null
         },
-        { path: 'untracked.txt', kind: 'untracked' as const, binary: false, large: false, diff: null }
+        {
+          path: 'untracked.txt',
+          kind: 'untracked' as const,
+          binary: false,
+          large: false,
+          diff: null
+        }
       ]
     }))
 
     render(<GitTool sessionId="session-1" />)
 
-    const renamed = await screen.findByRole('button', { name: /renamed.txt/i })
-    expect(within(renamed).getByText('renamed')).toBeInTheDocument()
+    await screen.findByRole('button', { name: /renamed.txt/i })
+    expect(screen.getByText('renamed')).toBeInTheDocument()
     expect(screen.getByText('renamed from old.txt')).toBeInTheDocument()
     for (const kind of ['conflicted', 'added', 'deleted', 'untracked']) {
       expect(screen.getByText(kind)).toBeInTheDocument()
     }
+  })
+
+  it('hands editable changed filenames and diff lines to Files before switching the shared Tool Pane', async () => {
+    const openLocation = vi.fn(async () => ({ status: 'opened' as const }))
+    const openFilesTool = vi.fn()
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'src/app.ts',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: '@@ -9,2 +9,3 @@\n context\n+changed\n'
+        },
+        {
+          path: 'new-note.md',
+          kind: 'untracked' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/new-note.md b/new-note.md\nnew file mode 100644\n--- /dev/null\n+++ b/new-note.md\n+first\n+second\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'src/app.ts' }))
+    expect(openLocation).toHaveBeenCalledWith({ relativePath: 'src/app.ts', line: undefined })
+    expect(openFilesTool).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: '+changed' }))
+    expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'src/app.ts', line: 10 })
+    expect(openFilesTool).toHaveBeenCalledTimes(2)
+
+    await userEvent.click(screen.getByRole('button', { name: '+second' }))
+    expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'new-note.md', line: 2 })
+    expect(openFilesTool).toHaveBeenCalledTimes(3)
+  })
+
+  it('lets Files determine non-deleted handoff support while keeping actual unsupported files in Git', async () => {
+    const openLocation = vi.fn(async ({ relativePath }: { relativePath: string }) =>
+      relativePath === 'image.png'
+        ? { status: 'failed' as const, message: 'This file is binary and cannot be edited in Files.' }
+        : { status: 'opened' as const }
+    )
+    const openFilesTool = vi.fn()
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        { path: 'deleted.txt', kind: 'deleted' as const, binary: false, large: false, diff: null },
+        { path: 'image.png', kind: 'modified' as const, binary: true, large: false, diff: null },
+        { path: 'large-but-text.txt', kind: 'modified' as const, binary: false, large: true, diff: null }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
+
+    expect(await screen.findByRole('button', { name: 'deleted.txt' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'image.png' }))
+    expect(await screen.findByText('This file is binary and cannot be edited in Files.')).toBeInTheDocument()
+    expect(openFilesTool).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'large-but-text.txt' }))
+    expect(openLocation).toHaveBeenLastCalledWith({
+      relativePath: 'large-but-text.txt',
+      line: undefined
+    })
+    expect(openFilesTool).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports stale path handoff failures without switching to Files', async () => {
+    const openLocation = vi.fn(async () => ({
+      status: 'failed' as const,
+      message: 'This file no longer exists. Refresh Git and Files, then try again.'
+    }))
+    const openFilesTool = vi.fn()
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'stale.txt',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: '@@ -1 +1 @@\n+stale\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'stale.txt' }))
+
+    expect(
+      await screen.findByText('This file no longer exists. Refresh Git and Files, then try again.')
+    ).toBeInTheDocument()
+    expect(openFilesTool).not.toHaveBeenCalled()
+  })
+
+  it('does not switch Files when an earlier successful handoff is superseded by a pending request that fails', async () => {
+    const firstRead = deferred<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>()
+    const secondRead = deferred<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>()
+    window.spacezero.files.openDocument = vi
+      .fn()
+      .mockReturnValueOnce(firstRead.promise)
+      .mockReturnValueOnce(secondRead.promise)
+    const openFilesTool = vi.fn()
+    window.spacezero.git.getProjectSessionReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'stale-then-fails.txt',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: '@@ -1 +1 @@\n+current\n'
+        }
+      ]
+    }))
+
+    render(
+      <GitTool
+        sessionId="session-1"
+        filesHandoff={{
+          openFilesTool,
+          openLocation: (location) =>
+            openFilesLocation({
+              contextKey: 'session-1',
+              ipcContext: { kind: 'project-session', sessionId: 'session-1' },
+              relativePath: location.relativePath,
+              line: location.line
+            })
+        }}
+      />
+    )
+
+    const fileButton = await screen.findByRole('button', { name: 'stale-then-fails.txt' })
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(1))
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(2))
+
+    await act(async () => {
+      firstRead.resolve({
+        name: 'stale-then-fails.txt',
+        relativePath: 'stale-then-fails.txt',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'stale-success',
+        content: 'stale',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      await firstRead.promise
+    })
+
+    expect(openFilesTool).not.toHaveBeenCalled()
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'stale-then-fails.txt',
+      status: 'loading'
+    })
+
+    await act(async () => {
+      secondRead.reject(new Error('files.notFound'))
+      await secondRead.promise.catch(() => undefined)
+    })
+
+    expect(
+      await screen.findByText('This file no longer exists. Refresh Git and Files, then try again.')
+    ).toBeInTheDocument()
+    expect(openFilesTool).not.toHaveBeenCalled()
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      relativePath: 'stale-then-fails.txt',
+      status: 'error',
+      message: 'This file no longer exists. Refresh Git and Files, then try again.'
+    })
   })
 
   it('renders missing-worktree failures without repository data', async () => {
@@ -506,7 +739,7 @@ describe('GitTool', () => {
       })
     })
     await screen.findByText('branch-a-staged')
-    await userEvent.click(screen.getByRole('button', { name: /a-staged.txt/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     await waitFor(() => expect(screen.queryByText('+a-staged')).not.toBeInTheDocument())
     const sessionAScroller = screen.getByLabelText('Git changed files')
     fireEvent.scroll(sessionAScroller, { target: { scrollTop: 44 } })
@@ -697,7 +930,7 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
-    await userEvent.click(screen.getByRole('button', { name: /staged.txt/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     const scroller = screen.getByLabelText('Git changed files')
     fireEvent.scroll(scroller, { target: { scrollTop: 72 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'ship it')
@@ -732,7 +965,7 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
-    await userEvent.click(screen.getByRole('button', { name: /shared.txt/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
     await waitFor(() => expect(screen.queryByText('+staged')).not.toBeInTheDocument())
     fireEvent.scroll(screen.getByLabelText('Git changed files'), { target: { scrollTop: 91 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'not persisted')

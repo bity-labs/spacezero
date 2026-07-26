@@ -572,6 +572,8 @@ beforeEach(async () => {
       }),
       openInDefaultBrowser: async () => undefined,
       openUrlInDefaultBrowser: async () => undefined,
+      openDownload: async () => undefined,
+      revealDownload: async () => undefined,
       hide: async () => undefined,
       createTab: async ({ contextKey }) => ({
         contextKey,
@@ -644,6 +646,11 @@ beforeEach(async () => {
           canGoForward: false,
           error: null
         }))
+      }),
+      clearData: async () => ({
+        status: 'cleared',
+        cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+        failures: []
       }),
       onEvent: () => () => undefined
     },
