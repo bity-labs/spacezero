@@ -1,4 +1,5 @@
-import { stat } from 'node:fs/promises'
+import { isUtf8 } from 'node:buffer'
+import { readFile, stat } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 
 import { z } from 'zod'
@@ -208,7 +209,12 @@ export function createKnowledgeBaseGitAgentService({
     return operations.runExclusive(() =>
       withRoot(async (rootPath) => {
         const operation = await requireInterruptedOperation(host, rootPath)
-        const result = await host.runGit(rootPath, [operation, '--continue'])
+        const result = await host.runGit(rootPath, [
+          '-c',
+          'core.editor=true',
+          operation,
+          '--continue'
+        ])
         return {
           operation,
           output: redactGitSecrets(result.stdout || result.stderr).trim()
@@ -249,9 +255,15 @@ export function createKnowledgeBaseGitAgentService({
 const GIT_OPERATION_MARKERS: readonly {
   operation: KnowledgeBaseGitInterruptedOperation
   marker: string
+  isSupportedState?: (rootPath: string, markerPath: string) => Promise<boolean>
 }[] = [
   { operation: 'rebase', marker: 'rebase-merge' },
-  { operation: 'rebase', marker: 'rebase-apply' },
+  {
+    operation: 'rebase',
+    marker: 'rebase-apply',
+    isSupportedState: async (rootPath, markerPath) =>
+      !(await pathExists(resolve(rootPath, markerPath, 'applying')))
+  },
   { operation: 'merge', marker: 'MERGE_HEAD' },
   { operation: 'cherry-pick', marker: 'CHERRY_PICK_HEAD' },
   { operation: 'revert', marker: 'REVERT_HEAD' }
@@ -272,10 +284,16 @@ async function getInterruptedOperation(
   host: Pick<KnowledgeBaseGitHost, 'runGit'>,
   rootPath: string
 ): Promise<KnowledgeBaseGitInterruptedOperation | null> {
-  for (const { operation, marker } of GIT_OPERATION_MARKERS) {
+  for (const { operation, marker, isSupportedState } of GIT_OPERATION_MARKERS) {
     const markerPath = (await host.runGit(rootPath, ['rev-parse', '--git-path', marker])).stdout.trim()
     const absoluteMarkerPath = isAbsolute(markerPath) ? markerPath : resolve(rootPath, markerPath)
-    if (markerPath && (await pathExists(absoluteMarkerPath))) return operation
+    if (
+      markerPath &&
+      (await pathExists(absoluteMarkerPath)) &&
+      (!isSupportedState || (await isSupportedState(rootPath, absoluteMarkerPath)))
+    ) {
+      return operation
+    }
   }
   return null
 }
@@ -313,8 +331,11 @@ async function getConflictContentType(
     )
   )
   if (numstatOutputs.some((output) => output.split(/\r?\n/).some((line) => line.startsWith('-\t-\t')))) return 'binary'
-  if (numstatOutputs.some(Boolean)) return 'text'
-  return 'unknown'
+  if (!numstatOutputs.some(Boolean)) return 'unknown'
+
+  const content = await readFile(join(rootPath, relativePath)).catch(() => null)
+  if (!content) return 'unknown'
+  return content.includes(0) || !isUtf8(content) ? 'binary' : 'text'
 }
 
 async function pathExists(path: string): Promise<boolean> {
