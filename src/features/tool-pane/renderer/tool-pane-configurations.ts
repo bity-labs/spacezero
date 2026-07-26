@@ -2,6 +2,7 @@ import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
 import type { BrowserContext } from '../../browser/shared'
+import { openFilesLocation } from '../../files/renderer/files-open-location'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
 import type { TerminalContext } from '../../terminal/shared'
@@ -71,7 +72,22 @@ export function createProjectSessionToolPaneConfiguration(session: {
             ? createElement(
                 Suspense,
                 { fallback: createElement(GitToolLoading) },
-                createElement(GitTool, { sessionId: capabilities.sessionId })
+                createElement(GitTool, {
+                  sessionId: capabilities.sessionId,
+                  filesHandoff: {
+                    openFilesTool: () =>
+                      useToolPaneStore
+                        .getState()
+                        .openTool(sessionContextKey(capabilities.sessionId), 'files'),
+                    openLocation: ({ relativePath, line }) =>
+                      openFilesLocation({
+                        contextKey: capabilities.sessionId,
+                        ipcContext: { kind: 'project-session', sessionId: capabilities.sessionId },
+                        relativePath,
+                        line
+                      })
+                  }
+                })
               )
             : null
       },
