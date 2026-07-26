@@ -19,6 +19,7 @@ import {
   type FilesTabDropPosition,
   type FilesTabState
 } from '../files-store'
+import { openFilesLocation } from '../files-open-location'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesIcon } from './files-icon'
@@ -48,13 +49,6 @@ const EXPLORER_MAX_WIDTH = 520
 const EXPLORER_RESIZE_STEP = 20
 const saveConflictMessage =
   'This file changed on disk. Reload from disk or review the external changes before saving.'
-
-let nextOpenRequestId = 0
-
-function createOpenRequestId(): number {
-  nextOpenRequestId += 1
-  return nextOpenRequestId
-}
 
 type FilesToolProps =
   | { sessionId: string; treeLabel?: string; createRichImageAdapter?: RichImageAdapterFactory }
@@ -96,14 +90,12 @@ function FilesToolSession({
   treeLabel: string
 }): React.JSX.Element {
   const sessionId = contextKey
-  const context = useFilesStore((state) => state.contexts[contextKey]) ?? createDefaultFilesContext()
+  const context =
+    useFilesStore((state) => state.contexts[contextKey]) ?? createDefaultFilesContext()
   const setExplorerWidth = useFilesStore((state) => state.setExplorerWidth)
   const setExplorerCollapsed = useFilesStore((state) => state.setExplorerCollapsed)
   const setSelectedPath = useFilesStore((state) => state.setSelectedPath)
   const setExpanded = useFilesStore((state) => state.setExpanded)
-  const beginOpenTab = useFilesStore((state) => state.beginOpenTab)
-  const finishOpenTab = useFilesStore((state) => state.finishOpenTab)
-  const failOpenTab = useFilesStore((state) => state.failOpenTab)
   const activateTab = useFilesStore((state) => state.activateTab)
   const promoteTab = useFilesStore((state) => state.promoteTab)
   const closeTab = useFilesStore((state) => state.closeTab)
@@ -197,20 +189,9 @@ function FilesToolSession({
 
   const openFile = useCallback(
     async (relativePath: string, intent: FilesOpenTabIntent): Promise<void> => {
-      const requestId = createOpenRequestId()
-      const shouldFetch = beginOpenTab(sessionId, relativePath, intent, requestId)
-      if (!shouldFetch) return
-      try {
-        const document = await window.spacezero.files.openDocument({
-          context: ipcContext,
-          relativePath
-        })
-        finishOpenTab(sessionId, document, requestId)
-      } catch (error) {
-        failOpenTab(sessionId, relativePath, documentErrorMessage(error), requestId)
-      }
+      await openFilesLocation({ contextKey: sessionId, ipcContext, relativePath, intent })
     },
-    [beginOpenTab, failOpenTab, finishOpenTab, ipcContext, sessionId]
+    [ipcContext, sessionId]
   )
 
   const saveDocumentSnapshot = useCallback(
@@ -258,7 +239,9 @@ function FilesToolSession({
     (targetSessionId: string, relativePath: string): void => {
       const tab = useFilesStore
         .getState()
-        .contexts[targetSessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
+        .contexts[targetSessionId]?.tabs.find(
+          (candidate) => candidate.relativePath === relativePath
+        )
       if (tab?.status === 'ready' && tab.dirty) {
         setClosePromptPath(relativePath)
         return
@@ -456,7 +439,10 @@ function FilesToolSession({
           />
         </>
       )}
-      <div className="relative flex min-w-0 flex-1 flex-col bg-background" onKeyDown={handleEditorKeyDown}>
+      <div
+        className="relative flex min-w-0 flex-1 flex-col bg-background"
+        onKeyDown={handleEditorKeyDown}
+      >
         <FilesTabStrip
           activeTabPath={context.activeTabPath}
           sessionId={sessionId}
@@ -501,19 +487,35 @@ function DirtyTabCloseDialog({
 }): React.JSX.Element {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 p-4">
-      <div aria-modal="true" className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-lg" role="dialog">
+      <div
+        aria-modal="true"
+        className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-lg"
+        role="dialog"
+      >
         <h2 className="text-sm font-semibold">Save changes to {fileName}?</h2>
         <p className="mt-2 text-sm text-muted-foreground">
           This tab has unsaved changes. Save, discard, or cancel before closing it.
         </p>
         <div className="mt-4 flex justify-end gap-2">
-          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onCancel}>
+          <button
+            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
+            type="button"
+            onClick={onCancel}
+          >
             Cancel
           </button>
-          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onDiscard}>
+          <button
+            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
+            type="button"
+            onClick={onDiscard}
+          >
             Discard
           </button>
-          <button className="rounded-md border px-3 py-1 text-sm hover:bg-accent" type="button" onClick={onSave}>
+          <button
+            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
+            type="button"
+            onClick={onSave}
+          >
             Save
           </button>
         </div>
@@ -557,56 +559,54 @@ function FilesTabStrip({
 
   return (
     <div className="flex h-10 shrink-0 border-b bg-background">
-      <div
-        aria-label="Open files"
-        className="flex min-w-0 flex-1 overflow-x-auto"
-        role="tablist"
-      >
+      <div aria-label="Open files" className="flex min-w-0 flex-1 overflow-x-auto" role="tablist">
         {tabs.map((tab) => {
-        const active = tab.relativePath === activeTabPath
-        const dirty = tab.status === 'ready' && tab.dirty
-        return (
-          <div
-            key={tab.relativePath}
-            className="flex min-w-36 max-w-56 shrink-0 items-center border-r"
-            draggable
-            onDragOver={(event) => event.preventDefault()}
-            onDragStart={() => {
-              draggedPathRef.current = tab.relativePath
-            }}
-            onDrop={(event) => {
-              event.preventDefault()
-              const sourcePath = draggedPathRef.current
-              draggedPathRef.current = null
-              if (sourcePath) {
-                onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
-              }
-            }}
-          >
-            <button
-              ref={active ? activeTabRef : undefined}
-              aria-selected={active}
-              className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-xs ${active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'} ${tab.preview ? 'italic' : ''}`}
-              role="tab"
-              type="button"
-              onClick={() => onActivate(sessionId, tab.relativePath)}
+          const active = tab.relativePath === activeTabPath
+          const dirty = tab.status === 'ready' && tab.dirty
+          return (
+            <div
+              key={tab.relativePath}
+              className="flex min-w-36 max-w-56 shrink-0 items-center border-r"
+              draggable
+              onDragOver={(event) => event.preventDefault()}
+              onDragStart={() => {
+                draggedPathRef.current = tab.relativePath
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const sourcePath = draggedPathRef.current
+                draggedPathRef.current = null
+                if (sourcePath) {
+                  onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
+                }
+              }}
             >
-              <span>{dirty ? '● ' : ''}</span>
-              <span>{tab.name}</span>
-              {tab.preview ? <span className="sr-only"> preview</span> : null}
-            </button>
-            <button
-              aria-label={`Close ${tab.name}`}
-              className="mr-1 rounded px-1 text-muted-foreground hover:bg-accent disabled:opacity-40"
-              title={dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`}
-              type="button"
-              onClick={() => onClose(sessionId, tab.relativePath)}
-            >
-              ×
-            </button>
-          </div>
-        )
-      })}
+              <button
+                ref={active ? activeTabRef : undefined}
+                aria-selected={active}
+                className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-xs ${active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'} ${tab.preview ? 'italic' : ''}`}
+                role="tab"
+                type="button"
+                onClick={() => onActivate(sessionId, tab.relativePath)}
+              >
+                <span>{dirty ? '● ' : ''}</span>
+                <span>{tab.name}</span>
+                {tab.preview ? <span className="sr-only"> preview</span> : null}
+              </button>
+              <button
+                aria-label={`Close ${tab.name}`}
+                className="mr-1 rounded px-1 text-muted-foreground hover:bg-accent disabled:opacity-40"
+                title={
+                  dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
+                }
+                type="button"
+                onClick={() => onClose(sessionId, tab.relativePath)}
+              >
+                ×
+              </button>
+            </div>
+          )
+        })}
       </div>
       <button
         className="m-1 shrink-0 rounded-md border px-2 text-xs text-foreground hover:bg-accent disabled:opacity-50"
@@ -699,6 +699,7 @@ function FilesReadyEditorPanel({
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
   const onSaveRef = useRef(onSave)
+  const editorRef = useRef<Parameters<FilesMonacoEditorMount>[0] | null>(null)
   useEffect(() => {
     onSaveRef.current = onSave
   }, [onSave])
@@ -707,16 +708,31 @@ function FilesReadyEditorPanel({
     []
   )
   const handleEditorMount = useCallback<FilesMonacoEditorMount>((editor, monaco) => {
+    editorRef.current = editor
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       void onSaveRef.current()
     })
   }, [])
+
+  useEffect(() => {
+    if (document.targetLine === undefined) return
+    const editor = editorRef.current
+    if (!editor) return
+    editor.revealLineInCenter(document.targetLine)
+    editor.setPosition({ lineNumber: document.targetLine, column: 1 })
+    editor.focus()
+  }, [document.locationRequestId, document.targetLine])
   const supportsRichMode = isMarkdownDocumentPath(document.relativePath)
   const richModeLimitation = supportsRichMode
     ? getRichMarkdownLimitation(document.draft, { isMdx: isMdxPath(document.relativePath) })
     : null
   const activeMode: FilesEditorMode =
-    supportsRichMode && !richModeLimitation && document.editorMode === 'rich' ? 'rich' : 'source'
+    document.targetLine === undefined &&
+    supportsRichMode &&
+    !richModeLimitation &&
+    document.editorMode === 'rich'
+      ? 'rich'
+      : 'source'
   const language = getFilesEditorLanguage(document.relativePath)
   const richImageAdapter = useMemo(
     () => createRichImageAdapter?.(document.relativePath),
@@ -954,21 +970,6 @@ function filesErrorMessage(error: unknown): string {
     return 'Space Zero cannot access this directory. Check its permissions and try again.'
   }
   return 'Couldn’t read this directory. Try again.'
-}
-
-function documentErrorMessage(error: unknown): string {
-  const code = error instanceof Error ? error.message : ''
-  if (code.includes('files.notFile')) return 'This item is not a regular file.'
-  if (code.includes('files.gitProtected'))
-    return 'Git internals are protected and cannot be opened.'
-  if (code.includes('files.symlinkTraversalDenied'))
-    return 'Symbolic links cannot be opened in Files.'
-  if (code.includes('files.notFound'))
-    return 'This file no longer exists. Refresh the explorer and try again.'
-  if (code.includes('files.inaccessible')) {
-    return 'Space Zero cannot access this file. Check its permissions and try again.'
-  }
-  return 'Couldn’t open this file. Try again.'
 }
 
 function saveErrorMessage(error: unknown): string {
