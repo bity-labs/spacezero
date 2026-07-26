@@ -377,6 +377,9 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
   ): { tabId: string; record: BrowserViewRecord } | null {
     for (const [tabId, record] of this.views.entries()) {
       if (record.view.webContents === webContents) return { tabId, record }
+      for (const childWindow of record.childWindows) {
+        if (childWindow.webContents === webContents) return { tabId, record }
+      }
     }
     return null
   }

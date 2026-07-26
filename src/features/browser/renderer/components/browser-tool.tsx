@@ -62,6 +62,46 @@ function getBrowserNativeShortcutBindings(
   }))
 }
 
+type BrowserDownloadStoreListener = () => void
+
+type BrowserDownloadStore = {
+  api: typeof window.spacezero.browser | null
+  unsubscribe: (() => void) | null
+  downloadsById: Map<string, BrowserDownloadSnapshot>
+  listeners: Set<BrowserDownloadStoreListener>
+}
+
+const browserDownloadStore: BrowserDownloadStore = {
+  api: null,
+  unsubscribe: null,
+  downloadsById: new Map(),
+  listeners: new Set()
+}
+
+function ensureBrowserDownloadSubscription(): void {
+  const api = window.spacezero.browser
+  if (browserDownloadStore.api === api && browserDownloadStore.unsubscribe) return
+  browserDownloadStore.unsubscribe?.()
+  browserDownloadStore.downloadsById.clear()
+  browserDownloadStore.api = api
+  browserDownloadStore.unsubscribe = api.onEvent((event) => {
+    if (event.type !== 'download-updated') return
+    browserDownloadStore.downloadsById.set(event.download.id, event.download)
+    for (const listener of browserDownloadStore.listeners) listener()
+  })
+}
+
+function subscribeToBrowserDownloads(listener: BrowserDownloadStoreListener): () => void {
+  browserDownloadStore.listeners.add(listener)
+  return () => browserDownloadStore.listeners.delete(listener)
+}
+
+function browserDownloadsForTabs(tabIds: Set<string>): BrowserDownloadSnapshot[] {
+  return [...browserDownloadStore.downloadsById.values()]
+    .filter((download) => tabIds.has(download.tabId))
+    .slice(-4)
+}
+
 export function BrowserTool({
   contextKey,
   context
@@ -80,6 +120,7 @@ export function BrowserTool({
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [downloads, setDownloads] = useState<BrowserDownloadSnapshot[]>([])
+  const browserTabIdsRef = useRef(new Set<string>())
   const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const activeTab = state?.tabs.find((tab) => tab.id === state.activeTabId) ?? state?.tabs[0]
@@ -382,11 +423,21 @@ export function BrowserTool({
   }, [activeTabId])
 
   useEffect(() => {
+    if (!state) return
+    browserTabIdsRef.current = new Set(state.tabs.map((tab) => tab.id))
+    setDownloads(browserDownloadsForTabs(browserTabIdsRef.current))
+  }, [state])
+
+  useEffect(() => {
+    ensureBrowserDownloadSubscription()
+    return subscribeToBrowserDownloads(() => {
+      setDownloads(browserDownloadsForTabs(browserTabIdsRef.current))
+    })
+  }, [])
+
+  useEffect(() => {
     return window.spacezero.browser.onEvent((event) => {
-      if (event.type === 'download-updated') {
-        setDownloads((current) => upsertDownload(current, event.download).slice(-4))
-        return
-      }
+      if (event.type === 'download-updated') return
       if (event.contextKey !== contextKey) return
       if (event.type === 'state-changed') {
         setState(event.state)
@@ -644,15 +695,6 @@ export function BrowserTool({
       ) : null}
     </section>
   )
-}
-
-function upsertDownload(
-  downloads: BrowserDownloadSnapshot[],
-  next: BrowserDownloadSnapshot
-): BrowserDownloadSnapshot[] {
-  const index = downloads.findIndex((download) => download.id === next.id)
-  if (index === -1) return [...downloads, next]
-  return downloads.map((download) => (download.id === next.id ? next : download))
 }
 
 function downloadStatusLabel(download: BrowserDownloadSnapshot): string {

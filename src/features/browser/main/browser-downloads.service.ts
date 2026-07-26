@@ -95,10 +95,23 @@ export class BrowserDownloadsService {
       this.publish(record)
     })
 
-    const savePath = await this.dialog.showSaveDialog({
-      suggestedFilename: record.filename,
-      ownerWindow
-    })
+    let savePath: string | null
+    try {
+      savePath = await this.dialog.showSaveDialog({
+        suggestedFilename: record.filename,
+        ownerWindow
+      })
+    } catch {
+      if (record.status !== 'selecting-save-location') return
+      record.status = 'failed'
+      record.completedPath = null
+      this.publish(record)
+      item.cancel()
+      return
+    }
+
+    if (record.status !== 'selecting-save-location') return
+
     if (!savePath) {
       record.status = 'cancelled'
       record.completedPath = null
