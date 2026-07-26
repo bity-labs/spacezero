@@ -7,6 +7,7 @@ import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
+import { GitTool } from '../../../git/renderer/components/git-tool'
 import { resetToolPaneStore, useToolPaneStore } from '../../../tool-pane/renderer'
 import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
 
@@ -56,6 +57,118 @@ describe('ProjectSessionHostSurface', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Agent prompt failed: agent unavailable'
     )
+  })
+
+  it('projects Git-originated prompts through the normal transcript without changing the primary chat draft', async () => {
+    const user = userEvent.setup()
+    const projectionListeners = new Set<(event: AgentSessionProjectionEvent) => void>()
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListeners.add(nextListener)
+      return () => projectionListeners.delete(nextListener)
+    }
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      projectId: 'project-1',
+      cwd: project.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: '/tmp/session-1.jsonl',
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium'
+    })
+    window.spacezero.agent.getAvailableModels = async () => [
+      {
+        providerId: 'anthropic',
+        providerLabel: 'Anthropic',
+        modelId: 'claude-sonnet-4',
+        modelLabel: 'Claude Sonnet 4'
+      }
+    ]
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.settings.getModelDefaults = async () => ({
+      defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet-4' },
+      defaultThinking: 'medium'
+    })
+    window.spacezero.settings.getGitActionSettings = async () => ({
+      primaryGitAction: 'commit-and-push'
+    })
+    window.spacezero.git.getProjectSessionReview = async () => ({
+      status: 'ok',
+      branch: 'feature/test',
+      upstream: { kind: 'tracked', name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified',
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+        }
+      ]
+    })
+
+    render(
+      <div>
+        <ProjectSessionHostSurface project={project} session={session} />
+        <GitTool sessionId="session-1" />
+      </div>
+    )
+
+    const draft = 'Keep this primary composer draft exactly: üñîçødé\nsecond line'
+    const primaryChatComposer = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    await user.type(primaryChatComposer, draft)
+    expect(primaryChatComposer).toHaveValue(draft)
+
+    await user.click(await screen.findByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalledOnce())
+    const gitPrompt = prompt.mock.calls[0]?.[0].message ?? ''
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      message: expect.stringContaining('inspect the current Git state')
+    })
+
+    await act(async () => {
+      for (const listener of projectionListeners) {
+        listener({ type: 'agent_start', sessionId: 'session-1', seq: 1 })
+        listener({
+          type: 'message_start',
+          sessionId: 'session-1',
+          seq: 2,
+          message: { role: 'user', content: gitPrompt, timestamp: 100 }
+        })
+        listener({
+          type: 'message_start',
+          sessionId: 'session-1',
+          seq: 3,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'I inspected fresh Git state and created a commit.' }],
+            timestamp: 101
+          }
+        })
+        listener({
+          type: 'message_end',
+          sessionId: 'session-1',
+          seq: 4,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'I inspected fresh Git state and created a commit.' }],
+            timestamp: 101,
+            stopReason: 'stop'
+          }
+        })
+        listener({ type: 'agent_end', sessionId: 'session-1', seq: 5 })
+      }
+    })
+
+    expect(await screen.findByText(/Please inspect the current Git state/)).toBeInTheDocument()
+    expect(screen.getByText('I inspected fresh Git state and created a commit.')).toBeInTheDocument()
+    expect(primaryChatComposer).toHaveValue(draft)
   })
 
   it('routes Project Session chat HTTP links to a new same-context Browser tab by default', async () => {
