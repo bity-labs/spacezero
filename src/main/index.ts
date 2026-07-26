@@ -8,7 +8,6 @@ import {
   getAgentUtilityProcessHost
 } from '../features/agent-workspace/main/agent-utility-process'
 import { disposeBrowserIpcResources } from '../features/browser/main'
-import { getKnowledgeBaseSyncScheduler } from '../features/knowledge-base/main'
 import { shouldProceedWithLiveTerminalTermination } from '../features/terminal/main/terminal-confirmation.service'
 import { getTerminalService } from '../features/terminal/main/terminal.runtime'
 import { closeDatabase, getDatabase } from './db'
@@ -111,12 +110,7 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   getAgentUtilityProcessHost().start()
   getDatabase()
-  getKnowledgeBaseSyncScheduler().start()
   createWindow()
-
-  app.on('browser-window-focus', () => {
-    getKnowledgeBaseSyncScheduler().onAppFocus()
-  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -155,7 +149,6 @@ app.on('before-quit', (event) => {
     }
   }
 
-  getKnowledgeBaseSyncScheduler().stop()
   disposeBrowserIpcResources()
   stopAgentUtilityProcessHost()
   closeDatabase()

@@ -171,7 +171,34 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
               )
             : null
       },
-      toolRegistry.git,
+      {
+        ...toolRegistry.git,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'knowledge-base'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(GitToolLoading) },
+                createElement(GitTool, {
+                  context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+                  filesHandoff: {
+                    openFilesTool: () =>
+                      useToolPaneStore.getState().openTool('knowledge-base', 'files'),
+                    openLocation: ({ relativePath, line }) =>
+                      openFilesLocation({
+                        contextKey: 'knowledge-base',
+                        ipcContext: {
+                          kind: 'knowledge-base',
+                          contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
+                        },
+                        relativePath,
+                        line
+                      })
+                  }
+                })
+              )
+            : null
+      },
       createBrowserToolDescriptor(),
       {
         ...toolRegistry.terminal,
