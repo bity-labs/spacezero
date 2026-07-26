@@ -63,3 +63,12 @@ export const saveFilesDocumentRequestSchema = z
     expectedRevision: z.string().trim().min(1)
   })
   .strict()
+
+export const searchFilesRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    query: z.string().trim().min(1).max(200),
+    includeIgnored: z.boolean(),
+    maxResults: z.number().int().min(1).max(200).optional()
+  })
+  .strict()

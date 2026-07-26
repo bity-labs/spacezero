@@ -1,7 +1,8 @@
 export const FILES_IPC_CHANNELS = {
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
-  saveDocument: 'files:saveDocument'
+  saveDocument: 'files:saveDocument',
+  search: 'files:search'
 } as const
 
 export const KNOWLEDGE_BASE_FILES_CONTEXT_KEY = 'knowledge-base' as const
@@ -35,6 +36,13 @@ export type SaveFilesDocumentRequest = {
   expectedRevision: string
 }
 
+export type SearchFilesRequest = {
+  context: FilesContext
+  query: string
+  includeIgnored: boolean
+  maxResults?: number
+}
+
 export type FilesDocumentBase = {
   name: string
   relativePath: string
@@ -58,11 +66,30 @@ export type FilesMetadataDocument = FilesDocumentBase & {
 export type FilesDocument = FilesTextDocument | FilesMetadataDocument
 
 export type SaveFilesDocumentResult =
-  | { status: 'saved'; document: FilesTextDocument }
-  | { status: 'conflict'; document: FilesDocument }
+  { status: 'saved'; document: FilesTextDocument } | { status: 'conflict'; document: FilesDocument }
+
+export type FilesSearchSnippet = {
+  line: number
+  column: number
+  text: string
+}
+
+export type FilesSearchResult =
+  | {
+      kind: 'filename'
+      relativePath: string
+      name: string
+    }
+  | {
+      kind: 'content'
+      relativePath: string
+      name: string
+      snippets: FilesSearchSnippet[]
+    }
 
 export type FilesAPI = {
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>
+  search: (request: SearchFilesRequest) => Promise<FilesSearchResult[]>
 }

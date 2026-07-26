@@ -5,6 +5,7 @@ import {
   listFilesDirectoryRequestSchema,
   openFilesDocumentRequestSchema,
   saveFilesDocumentRequestSchema,
+  searchFilesRequestSchema,
   type FilesAPI
 } from '../shared'
 import {
@@ -15,6 +16,7 @@ import { createSessionsRepository } from '../../sessions/main/sessions.repositor
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { readFilesDirectory } from './files-directory.adapter'
 import { openFilesDocument, saveFilesDocument } from './files-document.adapter'
+import { searchFiles } from './files-search.adapter'
 import { createFilesService } from './files.service'
 
 const filesService = createFilesService({
@@ -24,7 +26,8 @@ const filesService = createFilesService({
   operations: getKnowledgeBaseOperationCoordinator(),
   readDirectory: readFilesDirectory,
   openDocument: openFilesDocument,
-  saveDocument: saveFilesDocument
+  saveDocument: saveFilesDocument,
+  search: searchFiles
 })
 
 export function createListFilesDirectoryHandler(
@@ -45,10 +48,17 @@ export function createSaveFilesDocumentHandler(
   return async (input) => service.saveDocument(saveFilesDocumentRequestSchema.parse(input))
 }
 
+export function createSearchFilesHandler(
+  service: Pick<FilesAPI, 'search'>
+): (input: unknown) => ReturnType<FilesAPI['search']> {
+  return async (input) => service.search(searchFilesRequestSchema.parse(input))
+}
+
 export function registerFilesIpc(): void {
   const handleListDirectory = createListFilesDirectoryHandler(filesService)
   const handleOpenDocument = createOpenFilesDocumentHandler(filesService)
   const handleSaveDocument = createSaveFilesDocumentHandler(filesService)
+  const handleSearch = createSearchFilesHandler(filesService)
   ipcMain.handle(FILES_IPC_CHANNELS.listDirectory, (_event, input: unknown) =>
     handleListDirectory(input)
   )
@@ -58,4 +68,5 @@ export function registerFilesIpc(): void {
   ipcMain.handle(FILES_IPC_CHANNELS.saveDocument, (_event, input: unknown) =>
     handleSaveDocument(input)
   )
+  ipcMain.handle(FILES_IPC_CHANNELS.search, (_event, input: unknown) => handleSearch(input))
 }

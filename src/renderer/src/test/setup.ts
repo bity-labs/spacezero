@@ -95,7 +95,8 @@ beforeEach(async () => {
           hasBom: false,
           lineEnding: 'lf'
         }
-      })
+      }),
+      search: async () => []
     },
     git: {
       getReview: async () => ({

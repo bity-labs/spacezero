@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest'
 import {
   listFilesDirectoryRequestSchema,
   openFilesDocumentRequestSchema,
-  saveFilesDocumentRequestSchema
+  saveFilesDocumentRequestSchema,
+  searchFilesRequestSchema
 } from './files.schema'
 
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
@@ -39,6 +40,32 @@ describe('Files IPC schemas', () => {
       { context: projectContext, relativePath: '', rootPath: '/arbitrary' }
     ]) {
       expect(() => listFilesDirectoryRequestSchema.parse(input)).toThrow()
+    }
+  })
+
+  it('accepts bounded context search requests without arbitrary roots', () => {
+    expect(
+      searchFilesRequestSchema.parse({
+        context: knowledgeBaseContext,
+        query: ' readme ',
+        includeIgnored: true,
+        maxResults: 25
+      })
+    ).toEqual({
+      context: knowledgeBaseContext,
+      query: 'readme',
+      includeIgnored: true,
+      maxResults: 25
+    })
+
+    for (const input of [
+      { context: knowledgeBaseContext, query: '', includeIgnored: false },
+      { context: knowledgeBaseContext, query: 'x'.repeat(201), includeIgnored: false },
+      { context: knowledgeBaseContext, query: 'readme', includeIgnored: 'yes' },
+      { context: knowledgeBaseContext, query: 'readme', includeIgnored: false, maxResults: 0 },
+      { context: knowledgeBaseContext, query: 'readme', includeIgnored: false, rootPath: '/tmp' }
+    ]) {
+      expect(() => searchFilesRequestSchema.parse(input)).toThrow()
     }
   })
 
