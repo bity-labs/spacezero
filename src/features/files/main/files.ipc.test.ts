@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  createCancelFilesSearchHandler,
   createListFilesDirectoryHandler,
   createOpenFilesDocumentHandler,
-  createSaveFilesDocumentHandler
+  createSaveFilesDocumentHandler,
+  createSearchFilesHandler
 } from './files.ipc'
 import { openFilesDocument } from './files-document.adapter'
 
@@ -52,6 +54,56 @@ describe('Files IPC', () => {
     } finally {
       await rm(rootPath, { recursive: true, force: true })
     }
+  })
+
+  it('validates renderer input before searching context files', async () => {
+    const search = vi.fn(async () => [
+      { kind: 'filename' as const, relativePath: 'README.md', name: 'README.md' }
+    ])
+    const handle = createSearchFilesHandler({ search })
+
+    await expect(
+      handle({
+        context: knowledgeBaseContext,
+        query: 'readme',
+        includeIgnored: true,
+        requestId: 'search-1',
+        maxResults: 25
+      })
+    ).resolves.toEqual([{ kind: 'filename', relativePath: 'README.md', name: 'README.md' }])
+    expect(search).toHaveBeenCalledWith({
+      context: knowledgeBaseContext,
+      query: 'readme',
+      includeIgnored: true,
+      requestId: 'search-1',
+      maxResults: 25
+    })
+
+    await expect(
+      handle({
+        context: knowledgeBaseContext,
+        query: '',
+        includeIgnored: false,
+        requestId: 'search-1',
+        rootPath: '/tmp'
+      })
+    ).rejects.toThrow()
+    expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  it('validates renderer input before canceling a context search', async () => {
+    const cancelSearch = vi.fn(async () => undefined)
+    const handle = createCancelFilesSearchHandler({ cancelSearch })
+
+    await expect(
+      handle({ context: projectContext, requestId: 'search-1' })
+    ).resolves.toBeUndefined()
+    expect(cancelSearch).toHaveBeenCalledWith({ context: projectContext, requestId: 'search-1' })
+
+    await expect(
+      handle({ context: projectContext, requestId: '', rootPath: '/tmp' })
+    ).rejects.toThrow()
+    expect(cancelSearch).toHaveBeenCalledTimes(1)
   })
 
   it('validates renderer input before opening or saving a context document', async () => {

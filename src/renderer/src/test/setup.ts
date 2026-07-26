@@ -95,7 +95,12 @@ beforeEach(async () => {
           hasBom: false,
           lineEnding: 'lf'
         }
-      })
+      }),
+      search: async () => [],
+      cancelSearch: async () => undefined,
+      observe: async ({ subscriptionId }) => ({ subscriptionId }),
+      unobserve: async () => undefined,
+      onObservationEvent: () => () => undefined
     },
     git: {
       getReview: async () => ({

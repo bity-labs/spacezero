@@ -13,7 +13,18 @@ const api: SpaceZeroAPI = {
   files: {
     listDirectory: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.listDirectory, request),
     openDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.openDocument, request),
-    saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request)
+    saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request),
+    search: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.search, request),
+    cancelSearch: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.cancelSearch, request),
+    observe: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.observe, request),
+    unobserve: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.unobserve, request),
+    onObservationEvent: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.files.observationEvent, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.files.observationEvent, handler)
+    }
   },
   git: {
     getReview: (request) => ipcRenderer.invoke(IPC_CHANNELS.git.getReview, request),
