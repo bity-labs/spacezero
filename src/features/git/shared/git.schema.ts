@@ -6,3 +6,11 @@ export const getProjectSessionGitReviewSchema = z.object({
   sessionId: z.string().min(1),
   filter: gitChangeFilterSchema.default('uncommitted')
 })
+
+export const observeProjectSessionGitSchema = z.object({
+  sessionId: z.string().min(1)
+})
+
+export const unobserveProjectSessionGitSchema = z.object({
+  subscriptionId: z.string().min(1)
+})

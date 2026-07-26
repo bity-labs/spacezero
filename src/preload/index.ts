@@ -17,7 +17,18 @@ const api: SpaceZeroAPI = {
   },
   git: {
     getProjectSessionReview: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.git.getProjectSessionReview, request)
+      ipcRenderer.invoke(IPC_CHANNELS.git.getProjectSessionReview, request),
+    observeProjectSession: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.git.observeProjectSession, request),
+    unobserveProjectSession: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.git.unobserveProjectSession, request),
+    onObservationEvent: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.git.observationEvent, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.git.observationEvent, handler)
+    }
   },
   knowledgeBase: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),

@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
+import { watch } from 'node:fs'
 import type { Stats } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { promisify } from 'node:util'
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { ManagedWorktreeService } from '../../sessions/main/managed-worktree.service'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
@@ -373,7 +374,8 @@ describe('GitService', () => {
           }
           return open(path, flags)
         },
-        realpath
+        realpath,
+        watch
       }
     })
 
@@ -412,7 +414,8 @@ describe('GitService', () => {
           }
           return open(path, flags)
         },
-        realpath
+        realpath,
+        watch
       }
     })
 
@@ -464,7 +467,8 @@ describe('GitService', () => {
           if (path === worktree) return worktree
           if (path === target) return outside
           return path
-        }
+        },
+        watch
       },
       pathFlavor: win32
     })
@@ -601,6 +605,92 @@ describe('GitService', () => {
       status: 'missing-worktree',
       message: 'This Project Session has no managed worktree.'
     })
+  })
+
+  it('observes dependency-injected worktree and Git index events without mutating repository state', async () => {
+    const root = await createTempDir('spacezero-git-observe-events-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    type WatchCallback = (eventType: string, filename: string | null) => void
+    const callbacks = new Map<string, WatchCallback>()
+    const closed: string[] = []
+    const watchStub = vi.fn((path: Parameters<typeof watch>[0], _options: unknown, listener?: WatchCallback) => {
+      if (listener) callbacks.set(path.toString(), listener)
+      return {
+        close() {
+          closed.push(path.toString())
+        },
+        on() {
+          return this
+        }
+      } as unknown as ReturnType<typeof watch>
+    }) as unknown as typeof watch
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      fileSystem: {
+        lstat,
+        open,
+        realpath,
+        watch: watchStub
+      }
+    })
+    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> = []
+
+    const close = await service.observeProjectSession('session-1', (event) => events.push(event))
+    const observedGitDir = Array.from(callbacks.keys()).find((path) => path !== worktree)
+    callbacks.get(worktree)?.('change', 'README.md')
+    if (observedGitDir) callbacks.get(observedGitDir)?.('change', 'index')
+    close()
+
+    expect(callbacks.has(worktree)).toBe(true)
+    expect(observedGitDir).toBeTruthy()
+    expect(events).toEqual([{ kind: 'repository-changed' }, { kind: 'repository-changed' }])
+    expect(closed).toEqual([worktree, observedGitDir])
+    expect(await git(['-C', worktree, 'status', '--porcelain=v1'])).toBe('')
+  })
+
+  it('surfaces bounded observe setup errors and closes any started watchers', async () => {
+    const root = await createTempDir('spacezero-git-observe-setup-error-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    const closed: string[] = []
+    const watchStub = vi.fn((path: Parameters<typeof watch>[0]) => {
+      if (path.toString() !== worktree) throw new Error(`${'watch failed '.repeat(1000)}`)
+      return {
+        close() {
+          closed.push(path.toString())
+        },
+        on() {
+          return this
+        }
+      } as unknown as ReturnType<typeof watch>
+    }) as unknown as typeof watch
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      fileSystem: {
+        lstat,
+        open,
+        realpath,
+        watch: watchStub
+      }
+    })
+    const events: Array<{ kind: 'repository-changed' } | { kind: 'watch-error'; message: string }> = []
+
+    const close = await service.observeProjectSession('session-1', (event) => events.push(event))
+    close()
+
+    expect(closed).toEqual([worktree])
+    expect(events).toHaveLength(1)
+    expect(events[0]).toMatchObject({ kind: 'watch-error' })
+    expect(events[0]?.kind === 'watch-error' ? events[0].message.length : 0).toBeLessThanOrEqual(4096)
   })
 })
 

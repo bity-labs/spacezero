@@ -1,12 +1,22 @@
 import type { z } from 'zod'
 
-import type { getProjectSessionGitReviewSchema } from './git.schema'
+import type {
+  getProjectSessionGitReviewSchema,
+  observeProjectSessionGitSchema,
+  unobserveProjectSessionGitSchema
+} from './git.schema'
 
 export const GIT_IPC_CHANNELS = {
-  getProjectSessionReview: 'git:getProjectSessionReview'
+  getProjectSessionReview: 'git:getProjectSessionReview',
+  observeProjectSession: 'git:observeProjectSession',
+  unobserveProjectSession: 'git:unobserveProjectSession',
+  observationEvent: 'git:observationEvent'
 } as const
 
 export type GitReviewRequest = z.infer<typeof getProjectSessionGitReviewSchema>
+export type GitObserveProjectSessionRequest = z.infer<typeof observeProjectSessionGitSchema>
+export type GitUnobserveProjectSessionRequest = z.infer<typeof unobserveProjectSessionGitSchema>
+export type GitObserveProjectSessionResponse = { subscriptionId: string }
 
 export type GitChangeFilter = 'uncommitted' | 'unstaged' | 'staged'
 
@@ -39,6 +49,15 @@ export type GitReviewState =
   | { status: 'inaccessible'; message: string }
   | { status: 'git-error'; message: string }
 
+export type GitObservationEvent =
+  | { subscriptionId: string; sessionId: string; kind: 'repository-changed' }
+  | { subscriptionId: string; sessionId: string; kind: 'watch-error'; message: string }
+
 export type GitAPI = {
   getProjectSessionReview: (request: GitReviewRequest) => Promise<GitReviewState>
+  observeProjectSession: (
+    request: GitObserveProjectSessionRequest
+  ) => Promise<GitObserveProjectSessionResponse>
+  unobserveProjectSession: (request: GitUnobserveProjectSessionRequest) => Promise<void>
+  onObservationEvent: (listener: (event: GitObservationEvent) => void) => () => void
 }

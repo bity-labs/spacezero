@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@renderer/components/ui/button'
 import { Textarea } from '@renderer/components/ui/textarea'
@@ -14,6 +14,36 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 ]
 
 const UNCHANGED_CONTEXT_LINES = 3
+const OBSERVATION_REFRESH_DELAY_MS = 150
+const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
+
+type GitViewMemory = {
+  filter: GitChangeFilter
+  expandedPaths: Set<string>
+  collapsedPaths: Set<string>
+  instructions: string
+  scrollTop: number
+}
+
+const gitViewMemoryBySession = new Map<string, GitViewMemory>()
+
+export function resetGitToolViewMemoryForTests(): void {
+  gitViewMemoryBySession.clear()
+}
+
+function getGitViewMemory(sessionId: string): GitViewMemory {
+  const existing = gitViewMemoryBySession.get(sessionId)
+  if (existing) return existing
+  const created = {
+    filter: 'uncommitted' as GitChangeFilter,
+    expandedPaths: new Set<string>(),
+    collapsedPaths: new Set<string>(),
+    instructions: '',
+    scrollTop: 0
+  }
+  gitViewMemoryBySession.set(sessionId, created)
+  return created
+}
 
 type GitFilesHandoff = {
   openFilesTool: () => void
@@ -31,19 +61,61 @@ type GitToolProps = {
 }
 
 export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
+  return <GitToolSession key={sessionId} filesHandoff={filesHandoff} sessionId={sessionId} />
+}
+
+function GitToolSession({ sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
   const agentSession = useAgentSession(sessionId)
-  const [filter, setFilter] = useState<GitChangeFilter>('uncommitted')
+  const initialMemory = useMemo(() => getGitViewMemory(sessionId), [sessionId])
+  const [filter, setFilterState] = useState<GitChangeFilter>(initialMemory.filter)
   const [state, setState] = useState<GitReviewState | null>(null)
   const [actionState, setActionState] = useState<GitReviewState | null>(null)
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+  const [expandedPaths, setExpandedPathsState] = useState<Set<string>>(
+    () => new Set(initialMemory.expandedPaths)
+  )
   const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
-  const [instructions, setInstructions] = useState('')
+  const [instructions, setInstructionsState] = useState(initialMemory.instructions)
+  const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [handoffError, setHandoffError] = useState<string | null>(null)
+  const refreshSequence = useRef(0)
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const gitPromptRunPending = useRef(false)
+  const previousAgentStatus = useRef(agentSession.status)
 
-  useEffect(() => {
-    let canceled = false
-    void (async () => {
+  const setFilter = useCallback(
+    (nextFilter: GitChangeFilter) => {
+      getGitViewMemory(sessionId).filter = nextFilter
+      setFilterState(nextFilter)
+    },
+    [sessionId]
+  )
+  const setInstructions = useCallback(
+    (nextInstructions: string) => {
+      getGitViewMemory(sessionId).instructions = nextInstructions
+      setInstructionsState(nextInstructions)
+    },
+    [sessionId]
+  )
+  const setExpandedPaths = useCallback(
+    (next: Set<string> | ((current: Set<string>) => Set<string>)) => {
+      setExpandedPathsState((current) => {
+        const resolved = typeof next === 'function' ? next(current) : next
+        getGitViewMemory(sessionId).expandedPaths = new Set(resolved)
+        return resolved
+      })
+    },
+    [sessionId]
+  )
+
+  const refresh = useCallback(
+    async ({ showLoading = false }: { showLoading?: boolean } = {}) => {
+      const requestId = (refreshSequence.current += 1)
+      if (showLoading) {
+        setState(null)
+        setActionState(null)
+      }
       const selectedReviewPromise = window.spacezero.git.getProjectSessionReview({
         sessionId,
         filter
@@ -56,19 +128,31 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
         selectedReviewPromise,
         actionReviewPromise
       ])
-      if (canceled) return
+      if (requestId !== refreshSequence.current) return
       setState(selectedReview)
       setActionState(actionReview)
       if (selectedReview.status === 'ok') {
-        setExpandedPaths(new Set(selectedReview.files.map((file) => file.path)))
-      } else {
+        const memory = getGitViewMemory(sessionId)
+        setExpandedPaths(
+          new Set(
+            selectedReview.files
+              .map((file) => file.path)
+              .filter((filePath) => !memory.collapsedPaths.has(filePath))
+          )
+        )
+      } else if (selectedReview.status === 'clean') {
         setExpandedPaths(new Set())
       }
-    })()
-    return () => {
-      canceled = true
-    }
-  }, [sessionId, filter])
+    },
+    [filter, sessionId, setExpandedPaths]
+  )
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void refresh({ showLoading: true })
+    }, 0)
+    return () => clearTimeout(timer)
+  }, [refresh])
 
   useEffect(() => {
     let canceled = false
@@ -85,6 +169,81 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
     }
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    }
+  }, [])
+
+  useEffect(() => {
+    let disposed = false
+    let observationSubscriptionId: string | null = null
+    let observedWatchError = false
+    const unsubscribeEvents = window.spacezero.git.onObservationEvent((event) => {
+      if (event.sessionId !== sessionId) return
+      if (event.subscriptionId !== observationSubscriptionId && observationSubscriptionId !== null) return
+      if (event.kind === 'watch-error') {
+        observedWatchError = true
+        setWatchDiagnostic(getObservationErrorMessage(event.message))
+        return
+      }
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      debounceTimer.current = setTimeout(() => {
+        void refresh()
+      }, OBSERVATION_REFRESH_DELAY_MS)
+    })
+
+    void window.spacezero.git
+      .observeProjectSession({ sessionId })
+      .then(({ subscriptionId }) => {
+        if (disposed) {
+          void window.spacezero.git.unobserveProjectSession({ subscriptionId })
+          return
+        }
+        observationSubscriptionId = subscriptionId
+        if (!observedWatchError) setWatchDiagnostic(null)
+      })
+      .catch((error) => {
+        if (!disposed) setWatchDiagnostic(getObservationErrorMessage(error))
+      })
+
+    return () => {
+      disposed = true
+      unsubscribeEvents()
+      if (debounceTimer.current) clearTimeout(debounceTimer.current)
+      if (observationSubscriptionId) {
+        void window.spacezero.git.unobserveProjectSession({ subscriptionId: observationSubscriptionId })
+      }
+    }
+  }, [refresh, sessionId])
+
+  useEffect(() => {
+    const onFocus = (): void => {
+      void refresh()
+    }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
+
+  useEffect(() => {
+    const memory = getGitViewMemory(sessionId)
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTop = memory.scrollTop
+  }, [sessionId, state])
+
+  useEffect(() => {
+    if (
+      gitPromptRunPending.current &&
+      previousAgentStatus.current === 'running' &&
+      agentSession.status === 'idle'
+    ) {
+      gitPromptRunPending.current = false
+      void refresh()
+    }
+    previousAgentStatus.current = agentSession.status
+  }, [agentSession.status, refresh])
+
   const actions = useMemo(() => getActionAvailability(actionState), [actionState])
   const alternateAction = primaryAction === 'commit' ? 'commit-and-push' : 'commit'
   const busy = agentSession.status === 'running'
@@ -93,28 +252,48 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
 
   if (!state) {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Loading Git…" />
       </GitShell>
     )
   }
   if (state.status === 'missing-worktree') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Managed worktree missing" message={state.message} />
       </GitShell>
     )
   }
   if (state.status === 'inaccessible') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Git unavailable" message={state.message} />
       </GitShell>
     )
   }
   if (state.status === 'git-error') {
     return (
-      <GitShell filter={filter} onFilterChange={setFilter}>
+      <GitShell
+        filter={filter}
+        onFilterChange={setFilter}
+        onRefresh={() => void refresh()}
+        watchDiagnostic={watchDiagnostic}
+      >
         <GitStateMessage title="Git query failed" message={state.message} />
       </GitShell>
     )
@@ -124,11 +303,11 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
     <GitShell
       filter={filter}
       onFilterChange={(nextFilter) => {
-        setState(null)
-        setActionState(null)
         setFilter(nextFilter)
       }}
+      onRefresh={() => void refresh()}
       state={state}
+      watchDiagnostic={watchDiagnostic}
     >
       {state.status === 'clean' ? (
         <GitStateMessage
@@ -136,7 +315,14 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
           message="This managed worktree is clean for the selected filter."
         />
       ) : (
-        <div className="min-h-0 flex-1 space-y-3 overflow-auto p-4">
+        <div
+          ref={scrollContainerRef}
+          aria-label="Git changed files"
+          className="min-h-0 flex-1 space-y-3 overflow-auto p-4"
+          onScroll={(event) => {
+            getGitViewMemory(sessionId).scrollTop = event.currentTarget.scrollTop
+          }}
+        >
           {handoffError ? (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
               {handoffError}
@@ -151,9 +337,15 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
               onHandoffError={setHandoffError}
               onToggle={() =>
                 setExpandedPaths((current) => {
+                  const memory = getGitViewMemory(sessionId)
                   const next = new Set(current)
-                  if (next.has(file.path)) next.delete(file.path)
-                  else next.add(file.path)
+                  if (next.has(file.path)) {
+                    next.delete(file.path)
+                    memory.collapsedPaths.add(file.path)
+                  } else {
+                    next.add(file.path)
+                    memory.collapsedPaths.delete(file.path)
+                  }
                   return next
                 })
               }
@@ -173,6 +365,7 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
         onMenuOpenChange={setMenuOpen}
         onSubmit={(action) => {
           setMenuOpen(false)
+          gitPromptRunPending.current = true
           void agentSession.prompt(buildGitActionPrompt(action, instructions, state.upstream))
         }}
       />
@@ -183,12 +376,16 @@ export function GitTool({ sessionId, filesHandoff }: GitToolProps): React.JSX.El
 function GitShell({
   filter,
   onFilterChange,
+  onRefresh,
   state,
+  watchDiagnostic,
   children
 }: {
   filter: GitChangeFilter
   onFilterChange: (filter: GitChangeFilter) => void
+  onRefresh: () => void
   state?: Extract<GitReviewState, { status: 'ok' | 'clean' }>
+  watchDiagnostic?: string | null
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -205,12 +402,25 @@ function GitShell({
               </p>
             ) : null}
           </div>
-          {state ? (
-            <span className="rounded-full border px-2 py-1 text-xs text-muted-foreground">
-              {state.files.length === 0 ? 'Clean' : `${state.files.length} changed`}
-            </span>
-          ) : null}
+          <div className="flex items-center gap-2">
+            {state ? (
+              <span className="rounded-full border px-2 py-1 text-xs text-muted-foreground">
+                {state.files.length === 0 ? 'Clean' : `${state.files.length} changed`}
+              </span>
+            ) : null}
+            <Button size="sm" type="button" variant="outline" onClick={onRefresh}>
+              Refresh
+            </Button>
+          </div>
         </div>
+        {watchDiagnostic ? (
+          <div
+            className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            role="status"
+          >
+            Git auto-refresh unavailable: {watchDiagnostic} You can still use Refresh.
+          </div>
+        ) : null}
         <div className="mt-3 flex gap-2" role="tablist" aria-label="Changes filter">
           {CHANGE_FILTERS.map((option) => (
             <button
@@ -483,6 +693,15 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
     }
   }
   return folded
+}
+
+function getObservationErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error ? error.message : String(error || 'Git auto-refresh setup failed.')
+  const trimmed = message.trim() || 'Git auto-refresh setup failed.'
+  return trimmed.length > MAX_OBSERVATION_DIAGNOSTIC_LENGTH
+    ? `${trimmed.slice(0, MAX_OBSERVATION_DIAGNOSTIC_LENGTH - 1)}…`
+    : trimmed
 }
 
 function getDiffLineTarget(line: string, currentNewLine: number | null): number | undefined {
