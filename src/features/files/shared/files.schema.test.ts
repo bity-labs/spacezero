@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  cancelFilesSearchRequestSchema,
   listFilesDirectoryRequestSchema,
   openFilesDocumentRequestSchema,
+  revealFilesEntryRequestSchema,
   saveFilesDocumentRequestSchema,
-  cancelFilesSearchRequestSchema,
   searchFilesRequestSchema
 } from './files.schema'
 
@@ -145,5 +146,24 @@ describe('Files IPC schemas', () => {
         expectedRevision: 'revision-1'
       })
     ).toThrow()
+  })
+
+  it('requires Reveal requests to use authenticated context identity and a relative entry path', () => {
+    expect(
+      revealFilesEntryRequestSchema.parse({
+        context: knowledgeBaseContext,
+        relativePath: 'assets/image.png'
+      })
+    ).toEqual({ context: knowledgeBaseContext, relativePath: 'assets/image.png' })
+
+    for (const input of [
+      { context: projectContext, relativePath: '' },
+      { context: projectContext, relativePath: '/tmp/secret.txt' },
+      { context: projectContext, relativePath: '../secret.txt' },
+      { context: projectContext, relativePath: '.git/config' },
+      { context: projectContext, relativePath: 'safe.txt', absolutePath: '/tmp/safe.txt' }
+    ]) {
+      expect(() => revealFilesEntryRequestSchema.parse(input)).toThrow()
+    }
   })
 })

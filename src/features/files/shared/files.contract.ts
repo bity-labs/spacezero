@@ -2,6 +2,7 @@ export const FILES_IPC_CHANNELS = {
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
   saveDocument: 'files:saveDocument',
+  revealInSystemFileManager: 'files:revealInSystemFileManager',
   search: 'files:search',
   cancelSearch: 'files:cancelSearch',
   observe: 'files:observe',
@@ -81,15 +82,25 @@ export type FilesTextDocument = FilesDocumentBase & {
   lineEnding: 'lf' | 'crlf'
 }
 
-export type FilesMetadataDocument = FilesDocumentBase & {
-  contentKind: 'binary' | 'oversized'
+export type FilesImageDocument = FilesDocumentBase & {
+  contentKind: 'image'
+  classification: 'image'
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+  dataUrl: string
   content?: undefined
 }
 
-export type FilesDocument = FilesTextDocument | FilesMetadataDocument
+export type FilesMetadataDocument = FilesDocumentBase & {
+  contentKind: 'binary' | 'oversized'
+  classification: 'binary' | 'oversized-text' | 'oversized-image'
+  content?: undefined
+}
+
+export type FilesDocument = FilesTextDocument | FilesImageDocument | FilesMetadataDocument
 
 export type SaveFilesDocumentResult =
-  { status: 'saved'; document: FilesTextDocument } | { status: 'conflict'; document: FilesDocument }
+  | { status: 'saved'; document: FilesTextDocument }
+  | { status: 'conflict'; document: FilesDocument }
 
 export type FilesSearchSnippet = {
   line: number
@@ -118,10 +129,16 @@ export type FilesObservationEvent = {
   message?: string
 }
 
+export type RevealFilesEntryRequest = {
+  context: FilesContext
+  relativePath: string
+}
+
 export type FilesAPI = {
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>
+  revealInSystemFileManager: (request: RevealFilesEntryRequest) => Promise<void>
   search: (request: SearchFilesRequest) => Promise<FilesSearchResult[]>
   cancelSearch: (request: CancelFilesSearchRequest) => Promise<void>
   observe: (request: ObserveFilesRequest) => Promise<ObserveFilesResult>

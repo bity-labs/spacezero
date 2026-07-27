@@ -579,6 +579,7 @@ function FilesToolSession({
                   {(props) => (
                     <FilesTreeRow
                       {...props}
+                      ipcContext={ipcContext}
                       onOpenPermanent={(relativePath) => openFile(relativePath, 'permanent')}
                       onRetry={loadDirectory}
                     />
@@ -617,6 +618,7 @@ function FilesToolSession({
         <FilesEditorPanel
           document={activeDocument}
           sessionId={sessionId}
+          ipcContext={ipcContext}
           onChange={(draft) => updateDraft(sessionId, draft)}
           onPin={(relativePath) => promoteTab(sessionId, relativePath)}
           createRichImageAdapter={createRichImageAdapter}
@@ -843,10 +845,12 @@ function FilesEditorPanel({
   onPin,
   createRichImageAdapter,
   onSave,
-  onSetEditorMode
+  onSetEditorMode,
+  ipcContext
 }: {
   document: FilesTabState | null
   sessionId: string
+  ipcContext: FilesContext
   createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
@@ -870,11 +874,37 @@ function FilesEditorPanel({
   }
 
   if (document.status === 'metadata') {
+    if (document.contentKind === 'image') {
+      return (
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-6 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+            <div>
+              <p className="font-medium text-foreground">{document.name}</p>
+              <p>{document.relativePath}</p>
+            </div>
+            <FilesRevealButton ipcContext={ipcContext} relativePath={document.relativePath} />
+          </div>
+          <div className="flex min-h-0 flex-1 items-center justify-center rounded-md bg-muted/30 p-4">
+            <img
+              src={document.dataUrl}
+              alt={document.name}
+              className="max-h-full max-w-full object-contain"
+              draggable={false}
+            />
+          </div>
+          <p>{document.mediaType} · {formatBytes(document.size)} · Modified {formatTimestamp(document.modifiedAt)}</p>
+        </div>
+      )
+    }
+
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
         <p className="font-medium text-foreground">{document.name}</p>
-        <p>{metadataMessage(document.contentKind)}</p>
-        <p>{formatBytes(document.size)}</p>
+        <p>{metadataMessage(document.contentKind, document.classification)}</p>
+        <p>{document.relativePath}</p>
+        <p>{formatBytes(document.size)} · Modified {formatTimestamp(document.modifiedAt)}</p>
+        <p>Classification: {metadataClassificationLabel(document.classification)}</p>
+        <FilesRevealButton ipcContext={ipcContext} relativePath={document.relativePath} />
       </div>
     )
   }
@@ -1048,8 +1078,10 @@ function FilesTreeRow({
   style,
   dragHandle,
   onOpenPermanent,
-  onRetry
+  onRetry,
+  ipcContext
 }: NodeRendererProps<FilesTreeItem> & {
+  ipcContext: FilesContext
   onOpenPermanent: (relativePath: string) => Promise<void>
   onRetry: (relativePath: string) => Promise<void>
 }): React.JSX.Element {
@@ -1104,8 +1136,47 @@ function FilesTreeRow({
       )}
       <FilesIcon name={item.name} kind={item.kind} expanded={node.isOpen} />
       <span className="truncate">{item.name}</span>
-      {item.kind === 'symlink' ? <span className="sr-only">Symbolic link</span> : null}
+      {item.kind === 'symlink' ? (
+        <>
+          <span className="sr-only">Symbolic link</span>
+          <FilesRevealButton ipcContext={ipcContext} relativePath={item.relativePath} compact />
+        </>
+      ) : null}
     </div>
+  )
+}
+
+function FilesRevealButton({
+  ipcContext,
+  relativePath,
+  compact = false
+}: {
+  ipcContext: FilesContext
+  relativePath: string
+  compact?: boolean
+}): React.JSX.Element {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <span className={compact ? 'ml-auto inline-flex items-center' : 'inline-flex flex-col items-center gap-1'}>
+      <button
+        className={
+          compact
+            ? 'rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground'
+            : 'rounded-md border px-3 py-1.5 text-sm text-foreground hover:bg-accent'
+        }
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation()
+          setError(null)
+          void window.spacezero.files
+            .revealInSystemFileManager({ context: ipcContext, relativePath })
+            .catch((caughtError) => setError(filesErrorMessage(caughtError)))
+        }}
+      >
+        Reveal in system file manager
+      </button>
+      {error ? <span className="text-xs text-destructive">{error}</span> : null}
+    </span>
   )
 }
 
@@ -1207,10 +1278,30 @@ function pathName(relativePath: string): string {
   return relativePath.split('/').at(-1) ?? relativePath
 }
 
-function metadataMessage(contentKind: 'binary' | 'oversized'): string {
+function metadataMessage(
+  contentKind: 'binary' | 'oversized',
+  classification: 'binary' | 'oversized-text' | 'oversized-image'
+): string {
+  if (classification === 'oversized-image') {
+    return 'This image is larger than 10 MiB and cannot be previewed here.'
+  }
   return contentKind === 'oversized'
     ? 'This file is larger than 2 MiB and cannot be edited here.'
     : 'This file is binary and cannot be edited here.'
+}
+
+function metadataClassificationLabel(
+  classification: 'binary' | 'oversized-text' | 'oversized-image'
+): string {
+  if (classification === 'oversized-image') return 'Oversized supported image'
+  if (classification === 'oversized-text') return 'Oversized text'
+  return 'Unsupported binary'
+}
+
+function formatTimestamp(value: string): string {
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return value
+  return timestamp.toLocaleString()
 }
 
 function statusMessage(status: 'loading' | 'empty' | 'error'): string {

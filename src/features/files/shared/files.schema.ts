@@ -64,6 +64,13 @@ export const saveFilesDocumentRequestSchema = z
   })
   .strict()
 
+export const revealFilesEntryRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    relativePath: relativeFilePathSchema
+  })
+  .strict()
+
 const searchRequestIdSchema = z.string().trim().min(1).max(200)
 
 export const searchFilesRequestSchema = z

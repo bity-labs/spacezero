@@ -8,6 +8,7 @@ import {
   createCancelFilesSearchHandler,
   createListFilesDirectoryHandler,
   createOpenFilesDocumentHandler,
+  createRevealFilesEntryHandler,
   createSaveFilesDocumentHandler,
   createSearchFilesHandler
 } from './files.ipc'
@@ -54,6 +55,24 @@ describe('Files IPC', () => {
     } finally {
       await rm(rootPath, { recursive: true, force: true })
     }
+  })
+
+  it('validates renderer input before revealing a context entry', async () => {
+    const revealInSystemFileManager = vi.fn(async () => undefined)
+    const handle = createRevealFilesEntryHandler({ revealInSystemFileManager })
+
+    await expect(
+      handle({ context: projectContext, relativePath: 'assets/image.png' })
+    ).resolves.toBeUndefined()
+    expect(revealInSystemFileManager).toHaveBeenCalledWith({
+      context: projectContext,
+      relativePath: 'assets/image.png'
+    })
+
+    await expect(
+      handle({ context: projectContext, relativePath: '/tmp/image.png' })
+    ).rejects.toThrow()
+    expect(revealInSystemFileManager).toHaveBeenCalledTimes(1)
   })
 
   it('validates renderer input before searching context files', async () => {
