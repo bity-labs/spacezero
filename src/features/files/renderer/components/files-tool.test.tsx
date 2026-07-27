@@ -5,7 +5,8 @@ const monacoMock = vi.hoisted(() => ({
   saveCommand: undefined as undefined | (() => void),
   revealLineInCenter: vi.fn<(line: number) => void>(),
   setPosition: vi.fn<(position: { lineNumber: number; column: number }) => void>(),
-  focus: vi.fn<() => void>()
+  focus: vi.fn<() => void>(),
+  saveViewState: vi.fn<() => unknown>(() => ({ cursorState: [{ position: { lineNumber: 4, column: 2 } }] }))
 }))
 
 vi.mock('./files-icon', () => ({
@@ -30,6 +31,7 @@ vi.mock('./files-monaco-editor', () => ({
         revealLineInCenter: (line: number) => void
         setPosition: (position: { lineNumber: number; column: number }) => void
         focus: () => void
+        saveViewState: () => unknown
       },
       monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }
     ) => void
@@ -42,7 +44,8 @@ vi.mock('./files-monaco-editor', () => ({
           },
           revealLineInCenter: monacoMock.revealLineInCenter,
           setPosition: monacoMock.setPosition,
-          focus: monacoMock.focus
+          focus: monacoMock.focus,
+          saveViewState: monacoMock.saveViewState
         },
         { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } }
       )
@@ -78,11 +81,17 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
     RichMarkdownEditor: ({
       documentRelativePath,
       markdown,
-      onChange
+      onChange,
+      initialScrollTop = 0,
+      onScrollContainerChange,
+      onScrollTopChange
     }: {
       documentRelativePath: string
       markdown: string
       onChange: (value: string) => void
+      initialScrollTop?: number
+      onScrollContainerChange?: (element: HTMLElement | null) => void
+      onScrollTopChange?: (scrollTop: number) => void
     }) => {
       const [content, setContent] = React.useState(markdown)
       const [history, setHistory] = React.useState<string[]>([])
@@ -106,8 +115,22 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
         })
       }
 
+      const containerRef = React.useRef<HTMLDivElement | null>(null)
+      React.useEffect(() => {
+        if (containerRef.current) containerRef.current.scrollTop = initialScrollTop
+      }, [initialScrollTop])
+      React.useEffect(() => {
+        onScrollContainerChange?.(containerRef.current)
+        return () => onScrollContainerChange?.(null)
+      }, [onScrollContainerChange])
+
       return (
-        <div className="rich-markdown-editor" data-document-relative-path={documentRelativePath}>
+        <div
+          ref={containerRef}
+          className="rich-markdown-editor"
+          data-document-relative-path={documentRelativePath}
+          onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
+        >
           <button type="button" aria-label="Undo" disabled={history.length === 0} onClick={undo}>
             Undo
           </button>
@@ -127,6 +150,7 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
   }
 })
 
+import { flushFilesEditorViewStates } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
 import { useFilesStore } from '../files-store'
 import { FilesTool } from './files-tool'
@@ -145,6 +169,7 @@ describe('Files Tool', () => {
     monacoMock.revealLineInCenter.mockClear()
     monacoMock.setPosition.mockClear()
     monacoMock.focus.mockClear()
+    monacoMock.saveViewState.mockClear()
   })
 
   it('loads only the visible directory and lazily expands folders through the Project Session API', async () => {
@@ -589,6 +614,77 @@ describe('Files Tool', () => {
     expect(await screen.findByText('linked-src')).toBeInTheDocument()
     expect(screen.getByText('Symbolic link')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Expand linked-src' })).not.toBeInTheDocument()
+  })
+
+  it('flushes active Monaco view state for normal exit without saving document content', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'app.ts',
+      relativePath: 'app.ts',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'app.ts-revision',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => {
+      throw new Error('unexpected save')
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('app.ts'))
+    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
+
+    act(() => flushFilesEditorViewStates())
+
+    expect(monacoMock.saveViewState).toHaveBeenCalledTimes(1)
+    expect(
+      useFilesStore.getState().contexts['session-1'].editorViewStates['app.ts'].monacoViewState
+    ).toEqual({ cursorState: [{ position: { lineNumber: 4, column: 2 } }] })
+    expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
+  })
+
+  it('restores and flushes rich Markdown scroll state for normal exit without saving document content', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'README.md-revision',
+      content: '# Saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => {
+      throw new Error('unexpected save')
+    })
+    useFilesStore.getState().setRichScrollTop('session-1', 'README.md', 32)
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    const richEditor = (await screen.findByLabelText('Rich Markdown editor')).closest(
+      '.rich-markdown-editor'
+    ) as HTMLElement
+    expect(richEditor.scrollTop).toBe(32)
+
+    act(() => {
+      richEditor.scrollTop = 96
+      fireEvent.scroll(richEditor)
+      flushFilesEditorViewStates()
+    })
+
+    expect(
+      useFilesStore.getState().contexts['session-1'].editorViewStates['README.md'].richScrollTop
+    ).toBe(96)
+    expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
   })
 
   it('opens Markdown in rich mode by default and shares one dirty buffer across rich and source modes', async () => {

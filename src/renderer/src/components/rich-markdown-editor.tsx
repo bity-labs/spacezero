@@ -52,16 +52,23 @@ export function RichMarkdownEditor({
   documentRelativePath,
   markdown,
   onChange,
-  imageAdapter
+  imageAdapter,
+  initialScrollTop = 0,
+  onScrollContainerChange,
+  onScrollTopChange
 }: {
   documentRelativePath: string
   markdown: string
   onChange: (markdown: string) => void
   imageAdapter?: RichMarkdownImageAdapter
+  initialScrollTop?: number
+  onScrollContainerChange?: (element: HTMLElement | null) => void
+  onScrollTopChange?: (scrollTop: number) => void
 }): React.JSX.Element {
   const { body, frontmatter } = splitMarkdownDocument(markdown)
   const frontmatterRef = useRef(frontmatter)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
   const [imageUploading, setImageUploading] = useState(false)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -77,6 +84,17 @@ export function RichMarkdownEditor({
     frontmatterRef.current = frontmatter
     onChangeRef.current = onChange
   }, [frontmatter, onChange])
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current
+    if (!scrollContainer) return
+    scrollContainer.scrollTop = initialScrollTop
+  }, [initialScrollTop])
+
+  useEffect(() => {
+    onScrollContainerChange?.(scrollContainerRef.current)
+    return () => onScrollContainerChange?.(null)
+  }, [onScrollContainerChange])
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -423,7 +441,12 @@ export function RichMarkdownEditor({
         </div>
       ) : null}
 
-      <EditorContent editor={editor} className="rich-markdown-editor__content" />
+      <EditorContent
+        ref={scrollContainerRef}
+        editor={editor}
+        className="rich-markdown-editor__content"
+        onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
+      />
     </div>
   )
 }

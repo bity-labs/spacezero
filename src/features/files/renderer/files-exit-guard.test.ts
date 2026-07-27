@@ -67,6 +67,30 @@ describe('Files exit guard', () => {
     expect(alert.mock.calls[0]?.[0]).toContain('knowledge-base: notes/two.md')
   })
 
+  it('waits for in-flight dirty saves to settle and blocks quit with the failed path', async () => {
+    openDirty('session-1', 'README.md', 'saved')
+    const request = {
+      relativePath: 'README.md',
+      content: 'saved draft',
+      expectedRevision: 'README.md-revision'
+    }
+    useFilesStore.getState().markSaving('session-1', request)
+    vi.spyOn(window, 'prompt').mockReturnValue('save')
+    const alert = vi.spyOn(window, 'alert').mockImplementation(() => undefined)
+    const saveDocument = vi.spyOn(window.spacezero.files, 'saveDocument')
+
+    const result = confirmFilesExit()
+    await Promise.resolve()
+
+    expect(saveDocument).not.toHaveBeenCalled()
+    expect(alert).not.toHaveBeenCalled()
+
+    useFilesStore.getState().markSaveFailed('session-1', 'Couldn’t save this file.', request)
+
+    await expect(result).resolves.toBe(false)
+    expect(alert.mock.calls[0]?.[0]).toContain('session-1: README.md')
+  })
+
   it('discards dirty buffers across contexts when the aggregate choice is discard', async () => {
     openDirty('session-1', 'src/one.ts', 'one')
     openDirty('session-2', 'src/two.ts', 'two')

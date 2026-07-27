@@ -1,5 +1,6 @@
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../shared'
 import { useFilesStore, type FilesSaveRequestSnapshot, type FilesTabState } from './files-store'
+import { flushFilesEditorViewStates } from './files-editor-view-state-registry'
 
 type DirtyFilesTab = Extract<FilesTabState, { status: 'ready' }>
 
@@ -13,6 +14,7 @@ const FILES_EXIT_PROMPT =
   'Unsaved Files changes exist. Type save to Save All, discard to Discard All, or cancel to keep Space Zero open.'
 
 export async function confirmFilesExit(): Promise<boolean> {
+  flushFilesEditorViewStates()
   const dirtyContexts = getDirtyFilesContexts()
   if (dirtyContexts.length === 0) return true
 
@@ -51,8 +53,7 @@ function getDirtyFilesContexts(): DirtyFilesContext[] {
       contextKey,
       ipcContext: toIpcContext(contextKey),
       tabs: context.tabs.filter(
-        (tab): tab is DirtyFilesTab =>
-          tab.status === 'ready' && tab.dirty && tab.saveStatus !== 'saving'
+        (tab): tab is DirtyFilesTab => tab.status === 'ready' && tab.dirty
       )
     }))
     .filter((context) => context.tabs.length > 0)
@@ -62,7 +63,7 @@ async function saveAllDirtyFiles(contexts: DirtyFilesContext[]): Promise<string[
   await Promise.all(
     contexts.flatMap((context) =>
       context.tabs.map(async (tab) => {
-        if (tab.externalStatus) return
+        if (tab.externalStatus || tab.saveStatus === 'saving') return
         const request: FilesSaveRequestSnapshot = {
           relativePath: tab.relativePath,
           content: tab.draft,
@@ -93,8 +94,33 @@ async function saveAllDirtyFiles(contexts: DirtyFilesContext[]): Promise<string[
     )
   )
 
+  await waitForDirtySavesToSettle(contexts)
+
   return getDirtyFilesContexts().flatMap((context) =>
     context.tabs.map((tab) => `${context.contextKey}: ${tab.relativePath}`)
+  )
+}
+
+function waitForDirtySavesToSettle(contexts: DirtyFilesContext[]): Promise<void> {
+  if (!hasDirtySavingTabs(contexts)) return Promise.resolve()
+
+  return new Promise((resolve) => {
+    const unsubscribe = useFilesStore.subscribe(() => {
+      if (hasDirtySavingTabs(contexts)) return
+      unsubscribe()
+      resolve()
+    })
+  })
+}
+
+function hasDirtySavingTabs(contexts: DirtyFilesContext[]): boolean {
+  const contextKeys = new Set(contexts.map((context) => context.contextKey))
+  return Object.entries(useFilesStore.getState().contexts).some(
+    ([contextKey, context]) =>
+      contextKeys.has(contextKey) &&
+      context.tabs.some(
+        (tab) => tab.status === 'ready' && tab.dirty && tab.saveStatus === 'saving'
+      )
   )
 }
 
