@@ -48,40 +48,20 @@ export async function moveFilesEntry(
   raceSeams: FilesMutationRaceSeams = {}
 ): Promise<void> {
   try {
-    const source = await resolveMutableExistingPath(rootPath, request.sourcePath)
-    const destination = await resolveNewEntryPath(rootPath, request.destinationPath)
-    if (source.normalizedPath === destination.normalizedPath)
-      throw new Error('files.invalidDestination')
-    if (
-      source.details.isDirectory() &&
-      isSameOrDescendant(source.absolutePath, destination.absolutePath)
-    ) {
-      throw new Error('files.directoryMoveIntoSelf')
-    }
-    const destinationParent = dirname(destination.absolutePath)
-    await assertExistingDirectory(destination.canonicalRoot, destinationParent)
-    await assertMissing(destination.absolutePath)
-    await raceSeams.beforeMoveMutation?.(source.absolutePath, destination.absolutePath)
-    const currentSource = await resolveMutableExistingPath(rootPath, request.sourcePath)
-    const currentDestination = await resolveNewEntryPath(rootPath, request.destinationPath)
-    if (currentSource.normalizedPath === currentDestination.normalizedPath)
-      throw new Error('files.invalidDestination')
-    if (
-      currentSource.details.isDirectory() &&
-      isSameOrDescendant(currentSource.absolutePath, currentDestination.absolutePath)
-    ) {
-      throw new Error('files.directoryMoveIntoSelf')
-    }
-    await assertExistingDirectory(
-      currentDestination.canonicalRoot,
-      dirname(currentDestination.absolutePath)
+    const initialPlan = await validateMovePlan(rootPath, request)
+    await raceSeams.beforeMoveMutation?.(
+      initialPlan.source.absolutePath,
+      initialPlan.destination.absolutePath
     )
-    await assertMissing(currentDestination.absolutePath)
+
+    const preMutationPlan = await validateMovePlan(rootPath, request)
     await raceSeams.beforeMoveFilesystemMutation?.(
-      currentSource.absolutePath,
-      currentDestination.absolutePath
+      preMutationPlan.source.absolutePath,
+      preMutationPlan.destination.absolutePath
     )
-    await moveWithoutOverwrite(currentSource, currentDestination.absolutePath)
+
+    const mutationPlan = await validateMovePlan(rootPath, request)
+    await moveWithoutOverwrite(mutationPlan.source, mutationPlan.destination.absolutePath)
   } catch (error) {
     throw toBoundarySafeFilesError(error, 'move')
   }
@@ -98,6 +78,29 @@ export async function trashFilesEntry(
   } catch (error) {
     throw toBoundarySafeFilesError(error, 'trash')
   }
+}
+
+async function validateMovePlan(
+  rootPath: string,
+  request: Omit<MoveFilesEntryRequest, 'context'>
+): Promise<{
+  source: Awaited<ReturnType<typeof resolveMutableExistingPath>>
+  destination: Awaited<ReturnType<typeof resolveNewEntryPath>>
+}> {
+  const source = await resolveMutableExistingPath(rootPath, request.sourcePath)
+  const destination = await resolveNewEntryPath(rootPath, request.destinationPath)
+  if (source.normalizedPath === destination.normalizedPath) {
+    throw new Error('files.invalidDestination')
+  }
+  if (
+    source.details.isDirectory() &&
+    isSameOrDescendant(source.absolutePath, destination.absolutePath)
+  ) {
+    throw new Error('files.directoryMoveIntoSelf')
+  }
+  await assertExistingDirectory(destination.canonicalRoot, dirname(destination.absolutePath))
+  await assertMissing(destination.absolutePath)
+  return { source, destination }
 }
 
 async function resolveMutableExistingPath(rootPath: string, relativePath: string) {

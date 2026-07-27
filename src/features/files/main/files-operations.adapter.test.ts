@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -174,6 +174,61 @@ describe('Files operations adapter', () => {
     ).rejects.toThrow('files.collision')
     await expect(readFile(join(rootPath, 'src/app.ts'), 'utf8')).resolves.toBe('source')
     await expect(readFile(join(rootPath, 'dest/app.ts'), 'utf8')).resolves.toBe('external')
+  })
+
+  it('fails closed when the source leaf is replaced at the filesystem mutation seam', async () => {
+    await mkdir(join(rootPath, 'src'))
+    await writeFile(join(rootPath, 'src/app.ts'), 'source')
+    await mkdir(join(rootPath, 'dest'))
+    await writeFile(join(rootPath, 'target.txt'), 'target')
+
+    await expect(
+      moveFilesEntry(
+        rootPath,
+        { sourcePath: 'src/app.ts', destinationPath: 'dest/app.ts' },
+        {
+          beforeMoveFilesystemMutation: async () => {
+            await rm(join(rootPath, 'src/app.ts'))
+            await symlink(join(rootPath, 'target.txt'), join(rootPath, 'src/app.ts'))
+          }
+        }
+      )
+    ).rejects.toThrow('files.symlinkOperationDenied')
+
+    const replacedSource = await lstat(join(rootPath, 'src/app.ts'))
+    expect(replacedSource.isSymbolicLink()).toBe(true)
+    await expect(readFile(join(rootPath, 'target.txt'), 'utf8')).resolves.toBe('target')
+    await expect(readFile(join(rootPath, 'dest/app.ts'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+  })
+
+  it('fails closed when the destination parent is replaced at the filesystem mutation seam', async () => {
+    await mkdir(join(rootPath, 'src'))
+    await writeFile(join(rootPath, 'src/app.ts'), 'source')
+    await mkdir(join(rootPath, 'dest'))
+    const outsidePath = await mkdtemp(join(tmpdir(), 'spacezero-files-ops-outside-'))
+
+    await expect(
+      moveFilesEntry(
+        rootPath,
+        { sourcePath: 'src/app.ts', destinationPath: 'dest/app.ts' },
+        {
+          beforeMoveFilesystemMutation: async () => {
+            await rm(join(rootPath, 'dest'), { recursive: true })
+            await symlink(outsidePath, join(rootPath, 'dest'))
+          }
+        }
+      )
+    ).rejects.toThrow('files.symlinkTraversalDenied')
+
+    await expect(readFile(join(rootPath, 'src/app.ts'), 'utf8')).resolves.toBe('source')
+    await expect(readFile(join(outsidePath, 'app.ts'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+    await expect(readFile(join(rootPath, 'dest/app.ts'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
   })
 
   it('rolls directory moves back when a child cannot move safely', async () => {
