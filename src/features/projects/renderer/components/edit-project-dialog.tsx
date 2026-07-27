@@ -17,7 +17,12 @@ type EditProjectDialogProps = {
   project: Project | null
   open: boolean
   onOpenChange: (open: boolean) => void
-  onUpdateProject: (request: { id: string; name: string; path: string }) => Promise<Project>
+  onUpdateProject: (request: {
+    id: string
+    name: string
+    path: string
+    agentResourcesTrusted?: boolean
+  }) => Promise<Project>
 }
 
 export function EditProjectDialog({
@@ -37,7 +42,12 @@ export function EditProjectDialog({
     setIsSaving(true)
     setError(null)
     try {
-      await onUpdateProject({ id: project.id, name, path })
+      await onUpdateProject({
+        id: project.id,
+        name,
+        path,
+        agentResourcesTrusted: project.agentResourcesTrusted === true
+      })
       onOpenChange(false)
     } catch (error) {
       const message = String(error)

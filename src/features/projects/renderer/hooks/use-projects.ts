@@ -20,7 +20,7 @@ export function useProjects(): {
   selectProject: (project: Project) => void
   upsertProject: (project: Project) => void
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
-  addProjectFromFolder: () => Promise<Project | null>
+  addProjectFromFolder: (request?: { agentResourcesTrusted: boolean }) => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
   archiveProject: (projectId: string) => Promise<void>
   deleteProject: (projectId: string) => Promise<DeleteProjectResult>
@@ -101,9 +101,9 @@ export function useProjects(): {
     [refreshProjects, rememberProject]
   )
 
-  const addProjectFromFolder = useCallback(async () => {
+  const addProjectFromFolder = useCallback(async (request = { agentResourcesTrusted: false }) => {
     setWarning(null)
-    const project = await window.spacezero.projects.addFromFolder()
+    const project = await window.spacezero.projects.addFromFolder(request)
     if (project) {
       setWarning(project.setupWarning ?? null)
       rememberProject(project)

@@ -36,6 +36,7 @@ import {
   type ResolveAgentDefinitionForSession,
   type ResolveAgentDefinitionsForDelegation
 } from '../../agents/main/agent-definition-resolver'
+import { resolveAgentDefinitionSourcesForSession } from '../../agents/main/agent-definition-paths'
 
 const agentDefinitionReferenceSchema = z.object({
   id: z.string().trim().min(1)
@@ -87,6 +88,7 @@ type StoredProject = {
   path: string
   knowledgeBasePath?: string | null
   archivedAt?: Date | null
+  agentResourcesTrusted?: boolean | null
 }
 
 export type CreateAgentSessionHandlerDependencies = {
@@ -103,6 +105,7 @@ export type CreateAgentSessionHandlerDependencies = {
   resolveSkillPaths?: ResolveSkillPaths
   resolveAgentDefinition?: ResolveAgentDefinitionForSession
   resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
+  resolveAgentDefinitionSources?: typeof resolveAgentDefinitionSourcesForSession
 }
 
 export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
@@ -125,6 +128,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   readProjectTrust?: ReadProjectTrust
   resolveSkillPaths?: ResolveSkillPaths
   resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
+  resolveAgentDefinitionSources?: typeof resolveAgentDefinitionSourcesForSession
 }
 
 export type ApplyAgentDefinitionToFreshSessionDependencies = Omit<
@@ -134,13 +138,12 @@ export type ApplyAgentDefinitionToFreshSessionDependencies = Omit<
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession' | 'getState'>
   readModelDefaults?: typeof getModelDefaults
   resolveAgentDefinition?: ResolveAgentDefinitionForSession
+  resolveAgentDefinitionSources?: typeof resolveAgentDefinitionSourcesForSession
   now?: Clock
 }
 
 const pendingSessionRestores = new Map<string, Promise<AgentSessionState>>()
 const noDisabledGlobalSkillPaths: typeof getDisabledGlobalSkillPaths = async () => []
-// Project-local resources fail closed until a main-owned persisted trust decision is integrated.
-const denyProjectTrustWithoutPersistedDecision: ReadProjectTrust = async () => false
 const unavailableStoredWorktrees = { validate: async () => false }
 
 export type CreateManagedProjectAgentSessionRequest = {
@@ -182,10 +185,11 @@ export async function createManagedProjectAgentSession(
     readModelDefaults = getModelDefaults,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
-    readProjectTrust = denyProjectTrustWithoutPersistedDecision,
+    readProjectTrust,
     resolveSkillPaths,
     resolveAgentDefinition = resolveAgentDefinitionForSession,
-    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
+    resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
   }: CreateAgentSessionHandlerDependencies
 ): Promise<{ state: AgentSessionState; session: ProjectSession }> {
   const projectId = request.projectId.trim()
@@ -238,18 +242,24 @@ export async function createManagedProjectAgentSession(
         getKnowledgeBaseStatus
       )
       const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-      const projectTrusted = await readProjectTrust(projectId, projectPath)
+      const projectTrusted = await readProjectTrustForProject(project, readProjectTrust)
       const skillPaths = await resolveSessionSkillPaths(
         resolveSkillPaths,
         worktree.path,
         'project',
         projectTrusted
       )
+      const agentDefinitionSources = await resolveAgentDefinitionSources({
+        cwd: worktree.path,
+        kind: 'project',
+        projectTrusted
+      })
       agentDefinitionSnapshot = request.agentDefinition
-        ? await resolveAgentDefinition(request.agentDefinition)
+        ? await resolveAgentDefinition(request.agentDefinition, { sources: agentDefinitionSources })
         : undefined
       const delegationDefinitions = await resolveVisibleDelegationDefinitions(
-        resolveDelegationDefinitions
+        resolveDelegationDefinitions,
+        agentDefinitionSources
       )
       state = await utilityHost.createSession({
         sessionId,
@@ -321,10 +331,11 @@ export async function applyAgentDefinitionToFreshSession(
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
-    readProjectTrust = denyProjectTrustWithoutPersistedDecision,
+    readProjectTrust,
     resolveSkillPaths,
     readModelDefaults = getModelDefaults,
     resolveAgentDefinition = resolveAgentDefinitionForSession,
+    resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession,
     now = () => new Date()
   }: ApplyAgentDefinitionToFreshSessionDependencies
 ): Promise<AgentSessionState> {
@@ -356,7 +367,6 @@ export async function applyAgentDefinitionToFreshSession(
     throw new Error('agentDefinitions.sessionNotFresh')
   }
 
-  const agentDefinition = await resolveAgentDefinition(request.agentDefinition)
   const modelDefaults = await readModelDefaults()
   const project = storedSession.projectId
     ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
@@ -368,7 +378,7 @@ export async function applyAgentDefinitionToFreshSession(
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = project ? await readProjectTrust(project.id, resolve(project.path)) : false
+  const projectTrusted = project ? await readProjectTrustForProject(project, readProjectTrust) : false
   const skillPaths = await resolveSessionSkillPaths(
     resolveSkillPaths,
     cwd,
@@ -376,6 +386,14 @@ export async function applyAgentDefinitionToFreshSession(
     projectTrusted
   )
   const sourceContext = createStoredSourceContext(storedSession)
+  const agentDefinitionSources = await resolveAgentDefinitionSources({
+    cwd,
+    kind: storedSession.projectId ? 'project' : 'workspace',
+    projectTrusted
+  })
+  const agentDefinition = await resolveAgentDefinition(request.agentDefinition, {
+    sources: agentDefinitionSources
+  })
 
   if (!project) await mkdir(cwd, { recursive: true })
 
@@ -466,9 +484,10 @@ export async function restoreAgentSessionState(
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
-    readProjectTrust = denyProjectTrustWithoutPersistedDecision,
+    readProjectTrust,
     resolveSkillPaths,
-    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
+    resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   const request = z.object({ sessionId: z.string().trim().min(1) }).parse(input)
@@ -484,7 +503,8 @@ export async function restoreAgentSessionState(
     readDisabledGlobalSkillPaths,
     readProjectTrust,
     resolveSkillPaths,
-    resolveDelegationDefinitions
+    resolveDelegationDefinitions,
+    resolveAgentDefinitionSources
   })
   pendingSessionRestores.set(request.sessionId, restore)
 
@@ -506,9 +526,10 @@ async function restoreAgentSessionStateOnce(
     getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
-    readProjectTrust = denyProjectTrustWithoutPersistedDecision,
+    readProjectTrust,
     resolveSkillPaths,
-    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
+    resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
   }: RestoreAgentSessionHandlerDependencies
 ): Promise<AgentSessionState> {
   try {
@@ -530,7 +551,7 @@ async function restoreAgentSessionStateOnce(
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = project ? await readProjectTrust(project.id, resolve(project.path)) : false
+  const projectTrusted = project ? await readProjectTrustForProject(project, readProjectTrust) : false
   const skillPaths = await resolveSessionSkillPaths(
     resolveSkillPaths,
     cwd,
@@ -538,8 +559,14 @@ async function restoreAgentSessionStateOnce(
     projectTrusted
   )
   const sourceContext = createStoredSourceContext(storedSession)
+  const agentDefinitionSources = await resolveAgentDefinitionSources({
+    cwd,
+    kind: storedSession.projectId ? 'project' : 'workspace',
+    projectTrusted
+  })
   const delegationDefinitions = await resolveVisibleDelegationDefinitions(
-    resolveDelegationDefinitions
+    resolveDelegationDefinitions,
+    agentDefinitionSources
   )
 
   if (!project) await mkdir(cwd, { recursive: true })
@@ -628,7 +655,8 @@ export async function createWorkspaceAgentSession({
   resolveSkillPaths,
   agentDefinition: agentDefinitionReference,
   resolveAgentDefinition = resolveAgentDefinitionForSession,
-  resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation
+  resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
+  resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
 }: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
   const sessionId = createSessionId()
   const cwd = resolve(getWorkspaceSessionCwd())
@@ -637,11 +665,17 @@ export async function createWorkspaceAgentSession({
   const modelDefaults = await readModelDefaults()
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
   const skillPaths = await resolveSessionSkillPaths(resolveSkillPaths, cwd, 'workspace', false)
+  const agentDefinitionSources = await resolveAgentDefinitionSources({
+    cwd,
+    kind: 'workspace',
+    projectTrusted: false
+  })
   const agentDefinition = agentDefinitionReference
-    ? await resolveAgentDefinition(agentDefinitionReference)
+    ? await resolveAgentDefinition(agentDefinitionReference, { sources: agentDefinitionSources })
     : undefined
   const delegationDefinitions = await resolveVisibleDelegationDefinitions(
-    resolveDelegationDefinitions
+    resolveDelegationDefinitions,
+    agentDefinitionSources
   )
   const state = await utilityHost.createSession({
     sessionId,
@@ -674,6 +708,20 @@ export async function createWorkspaceAgentSession({
   }
 }
 
+async function readProjectTrustForProject(
+  project: StoredProject,
+  readProjectTrust?: ReadProjectTrust
+): Promise<boolean> {
+  if (readProjectTrust) {
+    try {
+      return await readProjectTrust(project.id, resolve(project.path))
+    } catch {
+      return false
+    }
+  }
+  return project.agentResourcesTrusted === true
+}
+
 async function resolveSessionSkillPaths(
   resolveSkillPaths: ResolveSkillPaths | undefined,
   cwd: string,
@@ -689,9 +737,10 @@ async function resolveSessionSkillPaths(
 }
 
 async function resolveVisibleDelegationDefinitions(
-  resolveDelegationDefinitions: ResolveAgentDefinitionsForDelegation
+  resolveDelegationDefinitions: ResolveAgentDefinitionsForDelegation,
+  sources: Awaited<ReturnType<typeof resolveAgentDefinitionSourcesForSession>>
 ): Promise<DelegationAgentDefinition[]> {
-  return resolveDelegationDefinitions()
+  return resolveDelegationDefinitions({ sources })
 }
 
 function createDelegationDefinitionsRequest(

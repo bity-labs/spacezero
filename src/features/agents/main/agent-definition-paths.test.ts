@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createAgentDefinitionSources,
   createAgentDefinitionsFolderPath,
   createGlobalAgentDefinitionSources
 } from './agent-definition-paths'
@@ -17,6 +18,37 @@ describe('global agent definition paths', () => {
     expect(sources[1]).toEqual({ scope: 'user', path: '/Users/tiby/.agents/agents' })
     expect(sources[2]).toMatchObject({ scope: 'bundled' })
     expect(JSON.stringify(sources)).not.toContain('.agents/agents/project')
+  })
+
+  it('includes project sources first only for trusted Project Session contexts', () => {
+    const trustedSources = createAgentDefinitionSources({
+      cwd: '/Users/tiby/src/app/packages/web',
+      homePath: '/Users/tiby',
+      spaceZeroHome: '/Users/tiby/SpaceZero',
+      includeProjectDefinitions: true
+    })
+
+    expect(trustedSources.map((source) => source.scope)).toEqual([
+      'project',
+      'project',
+      'project',
+      'project',
+      'spacezero',
+      'user',
+      'bundled'
+    ])
+    expect(trustedSources[0]).toEqual({
+      scope: 'project',
+      path: '/Users/tiby/src/app/packages/web/.agents/agents'
+    })
+
+    const untrustedSources = createAgentDefinitionSources({
+      cwd: '/Users/tiby/src/app',
+      homePath: '/Users/tiby',
+      spaceZeroHome: '/Users/tiby/SpaceZero',
+      includeProjectDefinitions: false
+    })
+    expect(untrustedSources.map((source) => source.scope)).toEqual(['spacezero', 'user', 'bundled'])
   })
 
   it('opens only global author-owned agent definition folders', () => {

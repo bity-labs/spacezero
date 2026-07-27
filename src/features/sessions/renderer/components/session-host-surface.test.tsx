@@ -393,7 +393,7 @@ describe('ProjectSessionHostSurface', () => {
 
   it('lists Agent Definitions in a fresh session picker', async () => {
     const user = userEvent.setup()
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',
@@ -429,7 +429,7 @@ describe('ProjectSessionHostSurface', () => {
       agentDefinition: { id: 'reviewer', name: 'Reviewer' }
     }))
     const prompt = vi.fn(async () => undefined)
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',
@@ -469,7 +469,7 @@ describe('ProjectSessionHostSurface', () => {
       throw new Error('model is not authenticated')
     })
     const prompt = vi.fn(async () => undefined)
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',
@@ -551,7 +551,7 @@ describe('ProjectSessionHostSurface', () => {
       runtimeState = { ...runtimeState, thinkingLevel: level }
       return runtimeState
     })
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',
@@ -613,7 +613,7 @@ describe('ProjectSessionHostSurface', () => {
         }
       ]
     })
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',
@@ -652,7 +652,7 @@ describe('ProjectSessionHostSurface', () => {
         }
       ]
     })
-    window.spacezero.agents.getGlobalDefinitions = async () => [
+    window.spacezero.agents.getSessionDefinitions = async () => [
       {
         id: 'reviewer',
         scope: 'bundled',

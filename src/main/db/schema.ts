@@ -11,6 +11,7 @@ export const projects = sqliteTable('projects', {
   githubName: text('github_name'),
   githubUrl: text('github_url'),
   githubLinkedAt: integer('github_linked_at', { mode: 'timestamp_ms' }),
+  agentResourcesTrusted: integer('agent_resources_trusted', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' })

@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
 
 import type { GitHubCloneProgress, GitHubRepositorySetupOption } from '../../shared'
+import { AgentResourceTrustCheckbox } from '../../../projects/renderer/components/agent-resource-trust-checkbox'
 import { Button } from '@renderer/components/ui/button'
 
 export function RepositorySetup({
   onProjectReady,
-  onBusyChange
+  onBusyChange,
+  agentResourcesTrusted,
+  onAgentResourcesTrustedChange
 }: {
   onProjectReady: (projectId: string) => void | Promise<void>
   onBusyChange?: (busy: boolean) => void
+  agentResourcesTrusted?: boolean
+  onAgentResourcesTrustedChange?: (trusted: boolean) => void
 }): React.JSX.Element {
   const [options, setOptions] = useState<GitHubRepositorySetupOption[] | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
@@ -19,6 +24,7 @@ export function RepositorySetup({
   const [progress, setProgress] = useState<GitHubCloneProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isStarting, setIsStarting] = useState(false)
+  const [uncontrolledAgentResourcesTrusted, setUncontrolledAgentResourcesTrusted] = useState(false)
   const onProjectReadyRef = useRef(onProjectReady)
 
   useEffect(() => {
@@ -70,6 +76,8 @@ export function RepositorySetup({
   const cloneRunning = progress?.status === 'starting' || progress?.status === 'cloning'
   const cloneFailed = progress?.status === 'failed' || progress?.status === 'cancelled'
   const busy = isStarting || cloneRunning
+  const effectiveAgentResourcesTrusted =
+    agentResourcesTrusted ?? uncontrolledAgentResourcesTrusted
 
   useEffect(() => {
     onBusyChange?.(busy)
@@ -85,7 +93,10 @@ export function RepositorySetup({
     try {
       const result = await window.spacezero.github.startClone({
         repositoryId: selectedRepositoryId,
-        ...(selectedMatchId ? { existingProjectId: selectedMatchId } : {})
+        ...(selectedMatchId ? { existingProjectId: selectedMatchId } : {}),
+        ...(selectedMatchId
+          ? {}
+          : { agentResourcesTrusted: effectiveAgentResourcesTrusted })
       })
       if (!mountedRef.current) {
         if (result.status === 'started') {
@@ -193,6 +204,17 @@ export function RepositorySetup({
             </label>
           ))}
         </fieldset>
+      ) : null}
+
+      {selectedOption && !selectedOption.existingProject && matchingProjects.length === 0 ? (
+        <AgentResourceTrustCheckbox
+          checked={effectiveAgentResourcesTrusted}
+          disabled={busy}
+          onCheckedChange={(trusted) => {
+            setUncontrolledAgentResourcesTrusted(trusted)
+            onAgentResourcesTrustedChange?.(trusted)
+          }}
+        />
       ) : null}
 
       {progress ? (
