@@ -425,7 +425,7 @@ beforeEach(async () => {
         updatedAt: new Date(1).toISOString()
       }),
       archive: async () => undefined,
-      delete: async () => undefined
+      delete: async () => ({ deletedSessionIds: [] })
     },
     sessions: {
       listProjectSessions: async () => [],

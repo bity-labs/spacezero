@@ -320,10 +320,7 @@ export function WorkspaceShell(): React.JSX.Element {
       )
     )
       return
-    const deletedSessionIds = sessions
-      .filter((session) => session.projectId === project.id)
-      .map((session) => session.id)
-    await deleteProject(project.id)
+    const { deletedSessionIds } = await deleteProject(project.id)
     for (const sessionId of deletedSessionIds) {
       useFilesStore.getState().clearContext(sessionId)
     }

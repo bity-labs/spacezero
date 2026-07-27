@@ -259,7 +259,7 @@ describe('Project lifecycle orchestration', () => {
 
     pausedCreation.allowCreation.resolve()
     await pausedCreation.creation
-    await deletion
+    await expect(deletion).resolves.toEqual({ deletedSessionIds: ['session-delete'] })
 
     await expect(repository.findSessionById('session-delete')).resolves.toBeUndefined()
     expect(deleteUtilitySession).toHaveBeenCalledWith({ sessionId: 'session-delete' })

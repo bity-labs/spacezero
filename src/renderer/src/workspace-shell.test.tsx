@@ -6,7 +6,9 @@ import { useFilesStore } from '../../features/files/renderer/files-store'
 import { WorkspaceShell } from './workspace-shell'
 
 const mocks = vi.hoisted(() => ({
-  deleteProject: vi.fn(async () => undefined),
+  deleteProject: vi.fn(async () => ({
+    deletedSessionIds: ['session-deleted-1', 'session-deleted-archived']
+  })),
   refreshSessions: vi.fn(async () => [])
 }))
 
@@ -66,7 +68,6 @@ vi.mock('../../features/sessions/renderer', () => ({
   useProjectSessions: () => ({
     sessions: [
       { id: 'session-deleted-1', kind: 'project', projectId: 'project-1', title: 'One', status: 'idle', createdAt: '', updatedAt: '' },
-      { id: 'session-deleted-2', kind: 'project', projectId: 'project-1', title: 'Two', status: 'idle', createdAt: '', updatedAt: '' },
       { id: 'session-unrelated', kind: 'project', projectId: 'project-2', title: 'Other', status: 'idle', createdAt: '', updatedAt: '' }
     ],
     sessionsByProjectId: new Map(),
@@ -108,7 +109,7 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
     useFilesStore.setState({
       contexts: {
         'session-deleted-1': createPersistedContext('one.md'),
-        'session-deleted-2': createPersistedContext('two.md'),
+        'session-deleted-archived': createPersistedContext('archived.md'),
         'session-unrelated': createPersistedContext('other.md'),
         'knowledge-base': createPersistedContext('notes.md')
       }
