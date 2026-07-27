@@ -1,6 +1,6 @@
 {
   "name": "spacezero",
-  "version": "0.0.0",
+  "version": "0.1.0-beta.1",
   "description": "The zero-friction workspace for agentic development.",
   "main": "./out/main/index.js",
   "author": "Bity Labs",
@@ -24,7 +24,8 @@
     "package:prepare-github": "node scripts/prepare-github-app-config.mjs",
     "build:mac": "npm run build && npm run package:prepare-github && electron-builder --mac",
     "build:win": "npm run build && npm run package:prepare-github && electron-builder --win",
-    "build:linux": "npm run build && npm run package:prepare-github && electron-builder --linux"
+    "build:linux": "npm run build && npm run package:prepare-github && electron-builder --linux",
+    "release:validate-tag": "node scripts/validate-release-tag.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -126,7 +127,20 @@
       }
     ],
     "mac": {
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "publish": [
+        {
+          "provider": "github",
+          "owner": "bity-labs",
+          "repo": "spacezero",
+          "releaseType": "prerelease",
+          "channel": "beta"
+        }
+      ]
     },
     "win": {
       "target": "nsis"
@@ -134,6 +148,8 @@
     "linux": {
       "target": "AppImage",
       "category": "Development"
-    }
+    },
+    "detectUpdateChannel": true,
+    "generateUpdatesFilesForAllChannels": false
   }
 }
