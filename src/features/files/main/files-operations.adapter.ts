@@ -1,4 +1,4 @@
-import { mkdir, lstat, realpath, rename, writeFile } from 'node:fs/promises'
+import { link, lstat, mkdir, readdir, realpath, rmdir, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
 
 import type {
@@ -14,6 +14,10 @@ export type FilesTrashNativeOperations = {
 export type FilesMutationRaceSeams = {
   beforeCreateMutation?: (absolutePath: string) => Promise<void> | void
   beforeMoveMutation?: (sourcePath: string, destinationPath: string) => Promise<void> | void
+  beforeMoveFilesystemMutation?: (
+    sourcePath: string,
+    destinationPath: string
+  ) => Promise<void> | void
 }
 
 export async function createFilesEntry(
@@ -58,9 +62,26 @@ export async function moveFilesEntry(
     await assertExistingDirectory(destination.canonicalRoot, destinationParent)
     await assertMissing(destination.absolutePath)
     await raceSeams.beforeMoveMutation?.(source.absolutePath, destination.absolutePath)
-    await assertExistingDirectory(destination.canonicalRoot, destinationParent)
-    await assertMissing(destination.absolutePath)
-    await rename(source.absolutePath, destination.absolutePath)
+    const currentSource = await resolveMutableExistingPath(rootPath, request.sourcePath)
+    const currentDestination = await resolveNewEntryPath(rootPath, request.destinationPath)
+    if (currentSource.normalizedPath === currentDestination.normalizedPath)
+      throw new Error('files.invalidDestination')
+    if (
+      currentSource.details.isDirectory() &&
+      isSameOrDescendant(currentSource.absolutePath, currentDestination.absolutePath)
+    ) {
+      throw new Error('files.directoryMoveIntoSelf')
+    }
+    await assertExistingDirectory(
+      currentDestination.canonicalRoot,
+      dirname(currentDestination.absolutePath)
+    )
+    await assertMissing(currentDestination.absolutePath)
+    await raceSeams.beforeMoveFilesystemMutation?.(
+      currentSource.absolutePath,
+      currentDestination.absolutePath
+    )
+    await moveWithoutOverwrite(currentSource, currentDestination.absolutePath)
   } catch (error) {
     throw toBoundarySafeFilesError(error, 'move')
   }
@@ -102,6 +123,74 @@ async function resolveNewEntryPath(rootPath: string, relativePath: string) {
   const absolutePath = resolve(canonicalRoot, ...normalizedPath.split('/'))
   assertInsideRoot(canonicalRoot, absolutePath)
   return { absolutePath, canonicalRoot, normalizedPath }
+}
+
+async function moveWithoutOverwrite(
+  source: Awaited<ReturnType<typeof resolveMutableExistingPath>>,
+  destinationPath: string
+): Promise<void> {
+  if (source.details.isFile()) {
+    await link(source.absolutePath, destinationPath)
+    try {
+      await unlink(source.absolutePath)
+    } catch (error) {
+      await unlink(destinationPath).catch(() => undefined)
+      throw error
+    }
+    return
+  }
+
+  await moveDirectoryWithoutOverwrite(source.absolutePath, destinationPath)
+}
+
+async function moveDirectoryWithoutOverwrite(
+  sourcePath: string,
+  destinationPath: string
+): Promise<void> {
+  await mkdir(destinationPath)
+  const movedEntries: Array<{ sourcePath: string; destinationPath: string }> = []
+  try {
+    for (const entry of await readdir(sourcePath)) {
+      const childSourcePath = resolve(sourcePath, entry)
+      const childDestinationPath = resolve(destinationPath, entry)
+      const childDetails = await lstat(childSourcePath)
+      if (childDetails.isSymbolicLink()) throw new Error('files.symlinkOperationDenied')
+      if (childDetails.isFile()) {
+        await link(childSourcePath, childDestinationPath)
+        movedEntries.push({ sourcePath: childSourcePath, destinationPath: childDestinationPath })
+        await unlink(childSourcePath)
+      } else if (childDetails.isDirectory()) {
+        await moveDirectoryWithoutOverwrite(childSourcePath, childDestinationPath)
+        movedEntries.push({ sourcePath: childSourcePath, destinationPath: childDestinationPath })
+      } else {
+        throw new Error('files.unsupportedEntry')
+      }
+    }
+    await rmdir(sourcePath)
+  } catch (error) {
+    for (const movedEntry of movedEntries.reverse()) {
+      await restoreMovedEntry(movedEntry.sourcePath, movedEntry.destinationPath).catch(
+        () => undefined
+      )
+    }
+    await rmdir(destinationPath).catch(() => undefined)
+    throw error
+  }
+}
+
+async function restoreMovedEntry(sourcePath: string, destinationPath: string): Promise<void> {
+  const details = await lstat(destinationPath)
+  if (details.isFile()) {
+    await link(destinationPath, sourcePath)
+    await unlink(destinationPath)
+    return
+  }
+  if (!details.isDirectory()) return
+  await mkdir(sourcePath)
+  for (const entry of await readdir(destinationPath)) {
+    await restoreMovedEntry(resolve(sourcePath, entry), resolve(destinationPath, entry))
+  }
+  await rmdir(destinationPath)
 }
 
 async function assertExistingDirectory(canonicalRoot: string, absolutePath: string): Promise<void> {

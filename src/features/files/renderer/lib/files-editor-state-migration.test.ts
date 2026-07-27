@@ -52,8 +52,12 @@ describe('Files Monaco editor state migration', () => {
         }
       }
     }
-    const oldPath = createFilesMonacoModelPath('session-1', 'src/old/app.ts')
-    const oldModel = monaco.editor.createModel('const value = 1\n', 'typescript', monaco.Uri.parse(oldPath))
+    const oldPath = createFilesMonacoModelPath('session-1', 'src/old/app name-😀.ts')
+    const oldModel = monaco.editor.createModel(
+      'const value = 1\n',
+      'typescript',
+      monaco.Uri.parse(oldPath)
+    )
     const viewState = { cursorState: [], viewState: {} }
     const editor = {
       getModel: vi.fn(() => oldModel),
@@ -65,7 +69,7 @@ describe('Files Monaco editor state migration', () => {
     migrateFilesMonacoEditorState('session-1', 'src/old', 'src/new')
     unregister()
 
-    const newPath = createFilesMonacoModelPath('session-1', 'src/new/app.ts')
+    const newPath = createFilesMonacoModelPath('session-1', 'src/new/app name-😀.ts')
     const newModel = models.get(newPath)
     expect(newModel?.getValue()).toBe('const value = 1\n')
     expect(newModel?.getLanguageId()).toBe('typescript')
