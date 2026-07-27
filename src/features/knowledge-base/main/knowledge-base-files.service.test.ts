@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -7,10 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createKnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import { createKnowledgeBaseRootProvider } from './knowledge-base-root.provider'
 import type { KnowledgeBaseConfigurationRepository } from './knowledge-base.service'
-import {
-  MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES,
-  createKnowledgeBaseFilesService as createKnowledgeBaseFilesServiceImplementation
-} from './knowledge-base-files.service'
+import { createKnowledgeBaseFilesService as createKnowledgeBaseFilesServiceImplementation } from './knowledge-base-files.service'
 
 const temporaryDirectories: string[] = []
 
@@ -26,11 +23,6 @@ async function createFixture(): Promise<{ rootPath: string; outsidePath: string 
   await writeFile(join(rootPath, 'docs', 'note.md'), '# Durable note\n')
   await writeFile(join(rootPath, 'settings.json'), '{"theme":"dark"}\n')
   await writeFile(join(rootPath, 'diagram.png'), Buffer.from([0, 1, 2, 3]))
-  await writeFile(join(rootPath, 'secret-keyword.png'), Buffer.from([0, 1, 2, 3]))
-  await writeFile(
-    join(rootPath, 'huge-keyword.txt'),
-    Buffer.alloc(MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES + 1, 'a')
-  )
   await writeFile(outsidePath, 'outside')
 
   return { rootPath, outsidePath }
@@ -67,9 +59,9 @@ function createKnowledgeBaseFilesService({
 
 afterEach(async () => {
   await Promise.all(
-    temporaryDirectories.splice(0).map((directory) =>
-      rm(directory, { recursive: true, force: true })
-    )
+    temporaryDirectories
+      .splice(0)
+      .map((directory) => rm(directory, { recursive: true, force: true }))
   )
 })
 
@@ -82,13 +74,7 @@ describe('createKnowledgeBaseFilesService', () => {
 
     const tree = await service.getTree()
 
-    expect(tree.map((item) => item.relativePath)).toEqual([
-      'docs',
-      'diagram.png',
-      'huge-keyword.txt',
-      'secret-keyword.png',
-      'settings.json'
-    ])
+    expect(tree.map((item) => item.relativePath)).toEqual(['docs', 'diagram.png', 'settings.json'])
     expect(tree.find((item) => item.relativePath === 'docs')?.children).toEqual([
       expect.objectContaining({ relativePath: 'docs/note.md', contentKind: 'markdown' })
     ])
@@ -395,26 +381,6 @@ describe('createKnowledgeBaseFilesService', () => {
     )
   })
 
-  it('detects when an open document changes externally', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-    const opened = await service.openDocument({ relativePath: 'settings.json' })
-
-    await expect(
-      service.checkDocument({ relativePath: 'settings.json', revision: opened.revision })
-    ).resolves.toEqual({ changed: false })
-
-    await writeFile(join(rootPath, 'settings.json'), '{"theme":"light"}\n')
-    await expect(
-      service.checkDocument({ relativePath: 'settings.json', revision: opened.revision })
-    ).resolves.toMatchObject({
-      changed: true,
-      document: { content: '{"theme":"light"}\n' }
-    })
-  })
-
   it('returns file details without text content for unsupported binary files', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
@@ -429,101 +395,7 @@ describe('createKnowledgeBaseFilesService', () => {
     })
   })
 
-  it('searches filenames and text content with useful snippets on demand', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-
-    await expect(service.search({ query: 'settings' })).resolves.toEqual([
-      expect.objectContaining({
-        relativePath: 'settings.json',
-        matchType: 'filename'
-      })
-    ])
-    await expect(service.search({ query: 'durable' })).resolves.toEqual([
-      expect.objectContaining({
-        relativePath: 'docs/note.md',
-        matchType: 'content',
-        snippet: '# Durable note'
-      })
-    ])
-  })
-
-  it('skips Git internals, binary files, oversized files, and creates no search index', async () => {
-    const { rootPath } = await createFixture()
-    await writeFile(join(rootPath, '.git', 'keyword-note.txt'), 'keyword')
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-    const entriesBeforeSearch = await readdir(rootPath)
-
-    await expect(service.search({ query: 'keyword' })).resolves.toEqual([])
-    expect(await readdir(rootPath)).toEqual(entriesBeforeSearch)
-  })
-
-  it('creates files and folders under the configured root', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-
-    await service.createItem({ relativePath: 'notes', kind: 'folder' })
-    await service.createItem({ relativePath: 'notes/new-note.md', kind: 'file' })
-
-    await expect(readFile(join(rootPath, 'notes', 'new-note.md'), 'utf8')).resolves.toBe('')
-  })
-
-  it('renames and moves files and folders without overwriting existing items', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-
-    await service.renameItem({ relativePath: 'docs/note.md', newName: 'decision.md' })
-    await service.moveItem({
-      sourcePath: 'docs/decision.md',
-      destinationPath: 'decision.md'
-    })
-
-    await expect(readFile(join(rootPath, 'decision.md'), 'utf8')).resolves.toBe('# Durable note\n')
-    await expect(
-      service.moveItem({ sourcePath: 'decision.md', destinationPath: 'settings.json' })
-    ).rejects.toThrow('A Knowledge Base item already exists at the destination.')
-  })
-
-  it('permanently deletes files and folders', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-
-    await service.deleteItem({ relativePath: 'docs' })
-
-    await expect(access(join(rootPath, 'docs'))).rejects.toThrow()
-  })
-
-  it('protects Git internals and rejects traversal for every mutation', async () => {
-    const { rootPath } = await createFixture()
-    const service = createKnowledgeBaseFilesService({
-      configurationRepository: configuredRepository(rootPath)
-    })
-
-    await expect(service.createItem({ relativePath: '.git/new', kind: 'file' })).rejects.toThrow(
-      'Knowledge Base Git internals are protected.'
-    )
-    await expect(
-      service.renameItem({ relativePath: 'docs/note.md', newName: '../outside.md' })
-    ).rejects.toThrow('Knowledge Base item names cannot contain path separators.')
-    await expect(
-      service.moveItem({ sourcePath: 'docs/note.md', destinationPath: '../outside.md' })
-    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-    await expect(service.deleteItem({ relativePath: '.git' })).rejects.toThrow(
-      'Knowledge Base Git internals are protected.'
-    )
-  })
-
-  it('rejects read and mutation operations through a parent symlink outside the Knowledge Base', async () => {
+  it('rejects document operations through a parent symlink outside the Knowledge Base', async () => {
     const { rootPath } = await createFixture()
     const outsideDirectory = join(rootPath, '..', 'outside-directory')
     const outsideFile = join(outsideDirectory, 'victim.md')
@@ -544,25 +416,6 @@ describe('createKnowledgeBaseFilesService', () => {
         expectedRevision: 'untrusted-revision'
       })
     ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-    await expect(
-      service.createItem({ relativePath: 'outside-directory-link/new.md', kind: 'file' })
-    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-    await expect(
-      service.moveItem({
-        sourcePath: 'docs/note.md',
-        destinationPath: 'outside-directory-link/moved.md'
-      })
-    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-    await expect(
-      service.moveItem({
-        sourcePath: 'outside-directory-link/victim.md',
-        destinationPath: 'stolen.md'
-      })
-    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-    await expect(
-      service.deleteItem({ relativePath: 'outside-directory-link/victim.md' })
-    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
-
     await expect(readFile(outsideFile, 'utf8')).resolves.toBe('# Keep me\n')
     await expect(readFile(join(rootPath, 'docs', 'note.md'), 'utf8')).resolves.toBe(
       '# Durable note\n'
@@ -579,12 +432,9 @@ describe('createKnowledgeBaseFilesService', () => {
     await expect(service.openDocument({ relativePath: '.GIT/config' })).rejects.toThrow(
       'Knowledge Base Git internals are protected.'
     )
-    await expect(
-      service.createItem({ relativePath: '.GIT/new', kind: 'file' })
-    ).rejects.toThrow('Knowledge Base Git internals are protected.')
-    await expect(
-      service.openDocument({ relativePath: 'git-link/config' })
-    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(service.openDocument({ relativePath: 'git-link/config' })).rejects.toThrow(
+      'Knowledge Base Git internals are protected.'
+    )
     await expect(
       service.saveDocument({
         relativePath: 'git-link/config',
@@ -592,19 +442,6 @@ describe('createKnowledgeBaseFilesService', () => {
         expectedRevision: 'untrusted-revision'
       })
     ).rejects.toThrow('Knowledge Base Git internals are protected.')
-    await expect(
-      service.moveItem({ sourcePath: 'git-link/config', destinationPath: 'stolen-config' })
-    ).rejects.toThrow('Knowledge Base Git internals are protected.')
-    await expect(
-      service.moveItem({
-        sourcePath: 'docs/note.md',
-        destinationPath: 'git-link/note.md'
-      })
-    ).rejects.toThrow('Knowledge Base Git internals are protected.')
-    await expect(service.deleteItem({ relativePath: 'git-link/config' })).rejects.toThrow(
-      'Knowledge Base Git internals are protected.'
-    )
-
     await expect(readFile(join(rootPath, '.git', 'config'), 'utf8')).resolves.toBe(
       'secret git metadata'
     )
@@ -626,12 +463,10 @@ describe('createKnowledgeBaseFilesService', () => {
     })
     const service = createKnowledgeBaseFilesServiceImplementation({ rootProvider })
 
-    await expect(
-      service.openDocument({ relativePath: 'secret.txt' })
-    ).rejects.toThrow('Knowledge Base is unavailable')
-    await expect(readFile(join(outsidePath, 'secret.txt'), 'utf8')).resolves.toBe(
-      'outside secret'
+    await expect(service.openDocument({ relativePath: 'secret.txt' })).rejects.toThrow(
+      'Knowledge Base is unavailable'
     )
+    await expect(readFile(join(outsidePath, 'secret.txt'), 'utf8')).resolves.toBe('outside secret')
   })
 
   it('rejects traversal, Git internals, absolute paths, and symlinks that can escape the root', async () => {

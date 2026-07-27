@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
 import type { AgentDefinitionScope } from '../../../../features/agents/shared'
 import {
+  KNOWLEDGE_BASE_FILES_CONTEXT_KEY,
+  type FilesEntry
+} from '../../../../features/files/shared'
+import {
   encodeKnowledgeBaseMentionPath,
-  getActiveKnowledgeBaseMentionQuery,
-  type KnowledgeBaseTreeItem
+  getActiveKnowledgeBaseMentionQuery
 } from '../../../../features/knowledge-base/shared'
 import {
   ModelSelector,
@@ -118,7 +121,7 @@ export function ChatInput({
   const [inputValue, setInputValue] = useState('')
   const [activeSkillIndex, setActiveSkillIndex] = useState(0)
   const [isSkillMenuDismissed, setSkillMenuDismissed] = useState(false)
-  const [knowledgeBaseItems, setKnowledgeBaseItems] = useState<KnowledgeBaseTreeItem[]>([])
+  const [knowledgeBaseItems, setKnowledgeBaseItems] = useState<string[]>([])
   const [knowledgeBaseMentionState, setKnowledgeBaseMentionState] = useState<
     'loading' | 'ready' | 'unconfigured' | 'error'
   >('loading')
@@ -146,7 +149,7 @@ export function ChatInput({
   const knowledgeBaseMentionOptions = useMemo(
     () =>
       activeKnowledgeBaseMention
-        ? flattenKnowledgeBaseTree(knowledgeBaseItems).filter((path) =>
+        ? knowledgeBaseItems.filter((path) =>
             encodeKnowledgeBaseMentionPath(path)
               .toLowerCase()
               .startsWith(activeKnowledgeBaseMention.query.toLowerCase())
@@ -168,9 +171,9 @@ export function ChatInput({
           setKnowledgeBaseMentionState('unconfigured')
           return
         }
-        const tree = await window.spacezero.knowledgeBase.getTree()
+        const paths = await listKnowledgeBaseMentionPaths()
         if (!current) return
-        setKnowledgeBaseItems(tree)
+        setKnowledgeBaseItems(paths)
         setKnowledgeBaseMentionState('ready')
       })
       .catch(() => {
@@ -483,11 +486,19 @@ export function ChatInput({
   )
 }
 
-function flattenKnowledgeBaseTree(items: KnowledgeBaseTreeItem[]): string[] {
-  return items.flatMap((item) => [
-    item.kind === 'folder' ? `${item.relativePath}/` : item.relativePath,
-    ...(item.children ? flattenKnowledgeBaseTree(item.children) : [])
-  ])
+async function listKnowledgeBaseMentionPaths(relativePath = ''): Promise<string[]> {
+  const entries = await window.spacezero.files.listDirectory({
+    context: { kind: 'knowledge-base', contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY },
+    relativePath
+  })
+  const paths = await Promise.all(entries.map(listKnowledgeBaseMentionEntry))
+  return paths.flat()
+}
+
+async function listKnowledgeBaseMentionEntry(entry: FilesEntry): Promise<string[]> {
+  if (entry.kind === 'symlink') return []
+  if (entry.kind === 'file') return [entry.relativePath]
+  return [`${entry.relativePath}/`, ...(await listKnowledgeBaseMentionPaths(entry.relativePath))]
 }
 
 function getSkillSuggestions(value: string, skills: ChatInputSkill[]): ChatInputSkill[] {
