@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,6 +8,8 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createCancelFilesSearchHandler,
   createCreateFilesEntryHandler,
+  createObserveFilesHandler,
+  createUnobserveFilesHandler,
   createListFilesDirectoryHandler,
   createMoveFilesEntryHandler,
   createOpenFilesDocumentHandler,
@@ -19,6 +22,30 @@ import { openFilesDocument } from './files-document.adapter'
 
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
 const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
+
+function createSender(id = 1) {
+  const events = new EventEmitter()
+  let destroyed = false
+  const sender = {
+    id,
+    sent: [] as unknown[],
+    isDestroyed: vi.fn(() => destroyed),
+    send: vi.fn((_channel: string, payload: unknown) => {
+      sender.sent.push(payload)
+    }),
+    once: vi.fn((event: string, listener: () => void) => events.once(event, listener)),
+    removeListener: vi.fn((event: string, listener: () => void) => {
+      events.removeListener(event, listener)
+      return events
+    }),
+    destroy: () => {
+      destroyed = true
+      events.emit('destroyed')
+    },
+    listenerCount: (event: string) => events.listenerCount(event)
+  }
+  return sender
+}
 
 describe('Files IPC', () => {
   it('validates renderer input before listing a context directory', async () => {
@@ -179,6 +206,68 @@ describe('Files IPC', () => {
       handle({ context: projectContext, requestId: '', rootPath: '/tmp' })
     ).rejects.toThrow()
     expect(cancelSearch).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes a watcher exactly once when unobserve races deferred startup', async () => {
+    let emitEvent:
+      | ((event: { kind: 'modified'; contextKey: string; relativePath: string }) => void)
+      | undefined
+    let resolveObserve: ((close: () => void) => void) | undefined
+    const close = vi.fn()
+    const service = {
+      observe: vi.fn((_context, onEvent) => {
+        emitEvent = onEvent
+        return new Promise<() => void>((resolve) => {
+          resolveObserve = resolve
+        })
+      })
+    }
+    const sender = createSender()
+    const observations = new Map()
+    const observe = createObserveFilesHandler(service, observations)
+    const unobserve = createUnobserveFilesHandler(observations)
+
+    const observed = observe(sender, { context: projectContext, subscriptionId: 'sub-1' })
+    await vi.waitFor(() => expect(sender.listenerCount('destroyed')).toBe(1))
+    await unobserve(sender, { subscriptionId: 'sub-1' })
+    expect(sender.listenerCount('destroyed')).toBe(0)
+    resolveObserve?.(close)
+    await expect(observed).resolves.toEqual({ subscriptionId: 'sub-1' })
+
+    expect(close).toHaveBeenCalledTimes(1)
+    emitEvent?.({ kind: 'modified', contextKey: 'session-1', relativePath: 'README.md' })
+    expect(sender.send).not.toHaveBeenCalled()
+  })
+
+  it('removes sender destroyed listeners across repeated subscribe/unsubscribe and destruction', async () => {
+    const close = vi.fn()
+    const service = { observe: vi.fn(async () => close) }
+    const sender = createSender()
+    const observations = new Map()
+    const observe = createObserveFilesHandler(service, observations)
+    const unobserve = createUnobserveFilesHandler(observations)
+
+    await observe(sender, { context: projectContext, subscriptionId: 'sub-1' })
+    await unobserve(sender, { subscriptionId: 'sub-1' })
+    await observe(sender, { context: projectContext, subscriptionId: 'sub-1' })
+    sender.destroy()
+    await unobserve(sender, { subscriptionId: 'sub-1' })
+
+    expect(close).toHaveBeenCalledTimes(2)
+    expect(sender.listenerCount('destroyed')).toBe(0)
+  })
+
+  it('cleans up sender listeners when watcher startup rejects', async () => {
+    const service = { observe: vi.fn(async () => Promise.reject(new Error('watch failed'))) }
+    const sender = createSender()
+    const observations = new Map()
+    const observe = createObserveFilesHandler(service, observations)
+
+    await expect(
+      observe(sender, { context: knowledgeBaseContext, subscriptionId: 'sub-1' })
+    ).rejects.toThrow('watch failed')
+
+    expect(sender.listenerCount('destroyed')).toBe(0)
   })
 
   it('validates renderer input before opening or saving a context document', async () => {

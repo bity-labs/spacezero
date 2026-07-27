@@ -474,6 +474,66 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('reloads a clean external document while preserving tab identity and valid editor mode', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-external-clean', 'README.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-external-clean', textDocument('README.md', '# old'), 1)
+    store.setEditorMode('session-external-clean', 'README.md', 'source')
+    const editorStateKey = useFilesStore.getState().contexts['session-external-clean'].tabs[0]
+      .editorStateKey
+
+    store.reloadCleanExternalDocument('session-external-clean', {
+      ...textDocument('README.md', '# new'),
+      revision: 'new-revision'
+    })
+
+    expect(useFilesStore.getState().contexts['session-external-clean'].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      content: '# new',
+      draft: '# new',
+      dirty: false,
+      revision: 'new-revision',
+      editorMode: 'source',
+      editorStateKey
+    })
+  })
+
+  it('preserves dirty buffers and blocks normal save after external modification', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-external-conflict', 'src/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-external-conflict', textDocument('src/index.ts', 'saved'), 1)
+    store.updateDraft('session-external-conflict', 'local draft')
+
+    store.markExternalConflict('session-external-conflict', 'src/index.ts', 'disk-revision')
+    store.markSaving('session-external-conflict', {
+      relativePath: 'src/index.ts',
+      content: 'local draft',
+      expectedRevision: 'src/index.ts-revision'
+    })
+
+    expect(useFilesStore.getState().contexts['session-external-conflict'].tabs[0]).toMatchObject({
+      draft: 'local draft',
+      dirty: true,
+      saveStatus: 'error',
+      externalStatus: { kind: 'conflict', diskRevision: 'disk-revision' }
+    })
+  })
+
+  it('keeps deleted-on-disk buffers open until recreated or closed', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-external-delete', 'note.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-external-delete', textDocument('note.md', 'saved'), 1)
+
+    store.markDeletedOnDisk('session-external-delete', 'note.md')
+
+    expect(useFilesStore.getState().contexts['session-external-delete'].tabs[0]).toMatchObject({
+      relativePath: 'note.md',
+      draft: 'saved',
+      dirty: true,
+      externalStatus: { kind: 'deleted', missingRevision: 'note.md-revision' }
+    })
+  })
+
   it('restores each Project Session explorer width and collapsed state without restoring tabs', async () => {
     const store = useFilesStore.getState()
     store.setExplorerWidth('session-1', 320)

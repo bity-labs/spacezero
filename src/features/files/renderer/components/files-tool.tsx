@@ -120,6 +120,11 @@ function FilesToolSession({
   const markSaving = useFilesStore((state) => state.markSaving)
   const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
   const markSaved = useFilesStore((state) => state.markSaved)
+  const reloadCleanExternalDocument = useFilesStore((state) => state.reloadCleanExternalDocument)
+  const reloadExternalDocument = useFilesStore((state) => state.reloadExternalDocument)
+  const markExternalConflict = useFilesStore((state) => state.markExternalConflict)
+  const markDeletedOnDisk = useFilesStore((state) => state.markDeletedOnDisk)
+  const markExternalReadFailed = useFilesStore((state) => state.markExternalReadFailed)
   const discardDirtyTabsInPath = useFilesStore((state) => state.discardDirtyTabsInPath)
   const rewritePaths = useFilesStore((state) => state.rewritePaths)
   const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
@@ -135,8 +140,14 @@ function FilesToolSession({
   const restoredRootRef = useRef(false)
   const searchRequestRef = useRef(0)
   const activeSearchRequestIdRef = useRef<string | null>(null)
+  const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
+  const observedPathGenerationsRef = useRef(new Map<string, number>())
+  const searchStateRef = useRef(searchState)
+  const includeIgnoredSearchRef = useRef(includeIgnoredSearch)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
+  searchStateRef.current = searchState
+  includeIgnoredSearchRef.current = includeIgnoredSearch
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
@@ -295,10 +306,17 @@ function FilesToolSession({
   }, [invalidateSearchResults])
 
   const refreshActiveSearch = useCallback((): void => {
-    const state = searchState
+    const state = searchStateRef.current
     if (state.status === 'idle') return
-    void performSearch(state.query, includeIgnoredSearch)
-  }, [includeIgnoredSearch, performSearch, searchState])
+    void performSearch(state.query, includeIgnoredSearchRef.current)
+  }, [performSearch])
+
+  const invalidateObservedPathGeneration = useCallback((relativePath: string): void => {
+    observedPathGenerationsRef.current.set(
+      relativePath,
+      (observedPathGenerationsRef.current.get(relativePath) ?? 0) + 1
+    )
+  }, [])
 
   const revealTreePath = useCallback(
     async (relativePath: string): Promise<void> => {
@@ -313,7 +331,7 @@ function FilesToolSession({
 
   const saveDocumentSnapshot = useCallback(
     async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
-      if (document.saveStatus === 'saving') return false
+      if (document.saveStatus === 'saving' || document.externalStatus) return false
       const saveRequest = {
         relativePath: document.relativePath,
         content: document.draft,
@@ -327,6 +345,7 @@ function FilesToolSession({
         })
         if (result.status === 'conflict') {
           markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          markExternalConflict(sessionId, document.relativePath, result.document.revision)
           return false
         }
         markSaved(sessionId, result.document, saveRequest)
@@ -337,7 +356,7 @@ function FilesToolSession({
         return false
       }
     },
-    [invalidateSearchResults, ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
+    [invalidateSearchResults, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, sessionId]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
@@ -348,10 +367,83 @@ function FilesToolSession({
   const saveAllDirtyDocuments = useCallback(async (): Promise<void> => {
     const dirtyDocuments = context.tabs.filter(
       (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
-        tab.status === 'ready' && tab.dirty && tab.saveStatus !== 'saving'
+        tab.status === 'ready' && tab.dirty && tab.saveStatus !== 'saving' && !tab.externalStatus
     )
     await Promise.all(dirtyDocuments.map((document) => saveDocumentSnapshot(document)))
   }, [context.tabs, saveDocumentSnapshot])
+
+  const reloadFromDisk = useCallback(
+    async (relativePath: string): Promise<void> => {
+      const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
+      reloadExternalDocument(sessionId, document)
+      invalidateObservedPathGeneration(relativePath)
+    },
+    [invalidateObservedPathGeneration, ipcContext, reloadExternalDocument, sessionId]
+  )
+
+  const overwriteDisk = useCallback(
+    async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<void> => {
+      if (document.externalStatus?.kind !== 'conflict') return
+      if (!window.confirm(`Overwrite disk with your local changes to ${document.relativePath}?`)) {
+        return
+      }
+      const saveRequest = {
+        relativePath: document.relativePath,
+        content: document.draft,
+        expectedRevision: document.revision,
+        conflictResolution: {
+          kind: 'overwrite' as const,
+          acknowledgedRevision: document.externalStatus.diskRevision
+        }
+      }
+      markSaving(sessionId, saveRequest)
+      try {
+        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        if (result.status === 'conflict') {
+          markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          markExternalConflict(sessionId, document.relativePath, result.document.revision)
+          return
+        }
+        markSaved(sessionId, result.document, saveRequest)
+        invalidateObservedPathGeneration(document.relativePath)
+        refreshActiveSearch()
+      } catch (error) {
+        markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+      }
+    },
+    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+  )
+
+  const recreateDeletedFile = useCallback(
+    async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<void> => {
+      if (document.externalStatus?.kind !== 'deleted') return
+      if (!window.confirm(`Recreate ${document.relativePath} on disk?`)) return
+      const saveRequest = {
+        relativePath: document.relativePath,
+        content: document.draft,
+        expectedRevision: document.revision,
+        conflictResolution: {
+          kind: 'recreate' as const,
+          acknowledgedMissingRevision: document.externalStatus.missingRevision
+        }
+      }
+      markSaving(sessionId, saveRequest)
+      try {
+        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        if (result.status === 'conflict') {
+          markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          markExternalConflict(sessionId, document.relativePath, result.document.revision)
+          return
+        }
+        markSaved(sessionId, result.document, saveRequest)
+        invalidateObservedPathGeneration(document.relativePath)
+        refreshActiveSearch()
+      } catch (error) {
+        markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+      }
+    },
+    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+  )
 
   const prepareDirtyOperation = useCallback(
     async (relativePath: string): Promise<boolean> => {
@@ -506,17 +598,82 @@ function FilesToolSession({
 
   useEffect(() => {
     const subscriptionId = `${sessionId}:files-observation`
+    let closed = false
     void window.spacezero.files.observe({ context: ipcContext, subscriptionId })
-    const unsubscribeEvents = window.spacezero.files.onObservationEvent((event) => {
-      if (event.subscriptionId === subscriptionId && event.contextKey === sessionId) {
-        invalidateSearchResults()
+    const refreshOpenTab = async (relativePath: string, deleted: boolean): Promise<void> => {
+      const observedReadSequence = (observedDocumentReadSequencesRef.current.get(relativePath) ?? 0) + 1
+      observedDocumentReadSequencesRef.current.set(relativePath, observedReadSequence)
+      const observedGeneration = observedPathGenerationsRef.current.get(relativePath) ?? 0
+      const observedTab = useFilesStore
+        .getState()
+        .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
+      if (!observedTab || observedTab.status !== 'ready') return
+      if (deleted) {
+        markDeletedOnDisk(sessionId, relativePath)
+        return
       }
+      const getCurrentObservedTab = (): Extract<FilesTabState, { status: 'ready' }> | null => {
+        if (closed) return null
+        if (observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence) {
+          return null
+        }
+        if ((observedPathGenerationsRef.current.get(relativePath) ?? 0) !== observedGeneration) {
+          return null
+        }
+        const latestTab = useFilesStore
+          .getState()
+          .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
+        if (!latestTab || latestTab.status !== 'ready') return null
+        if (latestTab.revision !== observedTab.revision && !latestTab.externalStatus) return null
+        return latestTab
+      }
+      try {
+        const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
+        const latestTab = getCurrentObservedTab()
+        if (!latestTab) return
+        if (latestTab.dirty || latestTab.externalStatus) {
+          markExternalConflict(sessionId, relativePath, document.revision)
+        } else {
+          reloadCleanExternalDocument(sessionId, document)
+        }
+      } catch (error) {
+        const latestTab = getCurrentObservedTab()
+        if (!latestTab) return
+        if (isFilesNotFoundError(error)) {
+          markDeletedOnDisk(sessionId, relativePath)
+        } else {
+          markExternalReadFailed(sessionId, relativePath, externalReadErrorMessage(error))
+        }
+      }
+    }
+    const refreshAffectedTree = (relativePath: string | null): void => {
+      if (!relativePath) {
+        void loadRoot()
+        return
+      }
+      const parentPath = parentDirectoryPath(relativePath)
+      if (!parentPath) {
+        void loadRoot()
+        return
+      }
+      void loadDirectory(parentPath)
+    }
+    const unsubscribeEvents = window.spacezero.files.onObservationEvent((event) => {
+      if (event.subscriptionId !== subscriptionId || event.contextKey !== sessionId) return
+      if (event.kind === 'watch-error') {
+        window.console.warn('Files watcher error', event.message)
+        return
+      }
+      refreshActiveSearch()
+      refreshAffectedTree(event.relativePath)
+      if (event.relativePath) void refreshOpenTab(event.relativePath, event.kind === 'deleted')
     })
     return () => {
+      closed = true
       unsubscribeEvents()
       void window.spacezero.files.unobserve({ subscriptionId })
     }
-  }, [invalidateSearchResults, ipcContext, sessionId])
+  }, [ipcContext, loadDirectory, loadRoot, markDeletedOnDisk, markExternalConflict, markExternalReadFailed, refreshActiveSearch, reloadCleanExternalDocument, sessionId])
 
   useEffect(() => {
     if (rootState.status !== 'ready' || restoredRootRef.current) return
@@ -850,6 +1007,10 @@ function FilesToolSession({
           onPin={(relativePath) => promoteTab(sessionId, relativePath)}
           createRichImageAdapter={createRichImageAdapter}
           onSave={saveActiveDocument}
+          onReloadFromDisk={reloadFromDisk}
+          onOverwriteDisk={(document) => void overwriteDisk(document)}
+          onRecreateDeletedFile={(document) => void recreateDeletedFile(document)}
+          onCloseDeletedTab={(relativePath) => discardAndCloseTab(sessionId, relativePath)}
           onSetEditorMode={(relativePath, mode) => setEditorMode(sessionId, relativePath, mode)}
         />
         {closePromptPath ? (
@@ -1072,6 +1233,10 @@ function FilesEditorPanel({
   onPin,
   createRichImageAdapter,
   onSave,
+  onReloadFromDisk,
+  onOverwriteDisk,
+  onRecreateDeletedFile,
+  onCloseDeletedTab,
   onSetEditorMode,
   ipcContext
 }: {
@@ -1082,6 +1247,10 @@ function FilesEditorPanel({
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
+  onReloadFromDisk: (relativePath: string) => void | Promise<void>
+  onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onRecreateDeletedFile: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onCloseDeletedTab: (relativePath: string) => void
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
   if (!document) {
@@ -1149,6 +1318,10 @@ function FilesEditorPanel({
       onPin={onPin}
       createRichImageAdapter={createRichImageAdapter}
       onSave={onSave}
+      onReloadFromDisk={onReloadFromDisk}
+      onOverwriteDisk={onOverwriteDisk}
+      onRecreateDeletedFile={onRecreateDeletedFile}
+      onCloseDeletedTab={onCloseDeletedTab}
       onSetEditorMode={onSetEditorMode}
     />
   )
@@ -1161,6 +1334,10 @@ function FilesReadyEditorPanel({
   onPin,
   createRichImageAdapter,
   onSave,
+  onReloadFromDisk,
+  onOverwriteDisk,
+  onRecreateDeletedFile,
+  onCloseDeletedTab,
   onSetEditorMode
 }: {
   document: Extract<FilesTabState, { status: 'ready' }>
@@ -1169,6 +1346,10 @@ function FilesReadyEditorPanel({
   onChange: (draft: string) => void
   onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
+  onReloadFromDisk: (relativePath: string) => void | Promise<void>
+  onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onRecreateDeletedFile: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onCloseDeletedTab: (relativePath: string) => void
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
   const onSaveRef = useRef(onSave)
@@ -1261,7 +1442,7 @@ function FilesReadyEditorPanel({
           ) : null}
           <button
             className="rounded-md border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
-            disabled={document.saveStatus === 'saving'}
+            disabled={document.saveStatus === 'saving' || Boolean(document.externalStatus)}
             type="button"
             onClick={() => void onSave()}
           >
@@ -1269,6 +1450,36 @@ function FilesReadyEditorPanel({
           </button>
         </div>
       </header>
+      {document.externalStatus ? (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
+          <span>
+            {document.externalStatus.kind === 'deleted'
+              ? 'Deleted on disk. Your buffer is still open.'
+              : 'Changed on disk. Choose how to resolve before saving.'}
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            {document.externalStatus.kind === 'conflict' ? (
+              <>
+                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onReloadFromDisk(document.relativePath)}>
+                  Reload from disk
+                </button>
+                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onOverwriteDisk(document)}>
+                  Overwrite disk
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onRecreateDeletedFile(document)}>
+                  Recreate file
+                </button>
+                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => onCloseDeletedTab(document.relativePath)}>
+                  Close tab
+                </button>
+              </>
+            )}
+          </span>
+        </div>
+      ) : null}
       {document.error ? (
         <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
           {document.error}
@@ -1598,6 +1809,18 @@ function saveErrorMessage(error: unknown): string {
   if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
   if (code.includes('files.notEditableText')) return 'This file is not editable text.'
   return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function isFilesNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('files.notFound')
+}
+
+function externalReadErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.inaccessible')) {
+    return 'Space Zero cannot access this file. Check its permissions and try again.'
+  }
+  return 'Couldn’t reload this file from disk. Your changes are still in memory.'
 }
 
 function fileOperationErrorMessage(error: unknown): string {

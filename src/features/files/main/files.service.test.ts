@@ -263,6 +263,52 @@ describe('Files service', () => {
     expect(revealEntry).toHaveBeenCalledWith('/verified/kb', 'assets/image.png')
   })
 
+  it('forwards overwrite and recreate acknowledgements through both public rooted services', async () => {
+    const saveDocument = vi.fn(async () => ({
+      status: 'saved' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content: 'updated',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    const service = createTestService({ saveDocument })
+
+    await service.saveDocument({
+      context: projectContext,
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1',
+      conflictResolution: { kind: 'overwrite', acknowledgedRevision: 'disk-revision' }
+    })
+    await service.saveDocument({
+      context: knowledgeBaseContext,
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1',
+      conflictResolution: { kind: 'recreate', acknowledgedMissingRevision: 'missing-revision' }
+    })
+
+    expect(saveDocument).toHaveBeenNthCalledWith(1, '/worktrees/project-1/session-1', {
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1',
+      conflictResolution: { kind: 'overwrite', acknowledgedRevision: 'disk-revision' }
+    })
+    expect(saveDocument).toHaveBeenNthCalledWith(2, '/knowledge-base', {
+      relativePath: 'README.md',
+      content: 'updated',
+      expectedRevision: 'revision-1',
+      conflictResolution: { kind: 'recreate', acknowledgedMissingRevision: 'missing-revision' }
+    })
+  })
+
   it('coordinates Knowledge Base writes through the existing Knowledge Base operation lock', async () => {
     const operations = { runExclusive: vi.fn(async (operation) => operation()) }
     const saveDocument = vi.fn(async () => ({
