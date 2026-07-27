@@ -15,6 +15,10 @@ import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
 import { createLiveTerminalLastWindowCloseHandler } from './live-terminal-window-close'
 import {
+  createQuitLifecycleCoordinator,
+  confirmFilesExitForWindow
+} from './quit-lifecycle-coordinator'
+import {
   findSpaceZeroOAuthUrl,
   registerSpaceZeroProtocol,
   routeSpaceZeroOAuthUrl
@@ -23,10 +27,19 @@ import {
 log.initialize()
 
 let terminalQuitInProgress = false
-let terminalQuitConfirmed = false
-let filesQuitInProgress = false
-let filesQuitConfirmed = false
 const filesExitConfirmedWindows = new WeakSet<BrowserWindow>()
+const quitLifecycleCoordinator = createQuitLifecycleCoordinator({
+  getWindows: () => BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed()),
+  getTerminalService,
+  confirmTerminalQuit: (count) => shouldProceedWithLiveTerminalTermination({ count, purpose: 'quit' }),
+  quit: () => app.quit(),
+  finishQuit: () => {
+    disposeBrowserIpcResources()
+    stopAgentUtilityProcessHost()
+    closeDatabase()
+  },
+  logError: (message, error) => log.error(message, error)
+})
 
 registerSpaceZeroProtocol()
 
@@ -53,21 +66,6 @@ app.on('open-url', (event, url) => {
   void routeSpaceZeroOAuthUrl(url)
 })
 
-async function confirmFilesExitForAllWindows(): Promise<boolean> {
-  const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed())
-  for (const window of windows) {
-    const confirmed = await Promise.race([
-      window.webContents.executeJavaScript(
-        'window.spacezeroConfirmFilesExit ? window.spacezeroConfirmFilesExit() : true',
-        true
-      ),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000))
-    ])
-    if (!confirmed) return false
-  }
-  return true
-}
-
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -92,7 +90,9 @@ function createWindow(): void {
   })
 
   mainWindow.on('close', (event) => {
-    if (filesQuitConfirmed || filesQuitInProgress) return
+    if (quitLifecycleCoordinator.isFilesQuitConfirmed()) return
+    if (quitLifecycleCoordinator.isFilesQuitInProgress()) return
+    if (event.defaultPrevented) return
     if (filesExitConfirmedWindows.has(mainWindow)) {
       filesExitConfirmedWindows.delete(mainWindow)
       return
@@ -100,17 +100,11 @@ function createWindow(): void {
     event.preventDefault()
     void (async () => {
       try {
-        const confirmed = await Promise.race([
-          mainWindow.webContents.executeJavaScript(
-            'window.spacezeroConfirmFilesExit ? window.spacezeroConfirmFilesExit() : true',
-            true
-          ),
-          new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000))
-        ])
+        const confirmed = await confirmFilesExitForWindow(mainWindow)
         if (!confirmed || mainWindow.isDestroyed()) return
       } catch (error) {
-        log.error('Files exit guard failed; allowing window close', error)
-        if (mainWindow.isDestroyed()) return
+        log.error('Files exit guard failed; blocking window close', error)
+        return
       }
       filesExitConfirmedWindows.add(mainWindow)
       mainWindow.close()
@@ -140,8 +134,10 @@ app.whenReady().then(() => {
     setQuitInProgress: (inProgress) => {
       terminalQuitInProgress = inProgress
     },
-    setQuitConfirmed: () => {
-      terminalQuitConfirmed = true
+    setQuitConfirmed: () => undefined,
+    resetQuitAttempt: (window) => {
+      quitLifecycleCoordinator.resetFilesExitAttempt()
+      filesExitConfirmedWindows.delete(window as BrowserWindow)
     },
     logError: (error) => log.error('Terminal shutdown before last window close failed', error)
   })
@@ -165,54 +161,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', (event) => {
-  if (!filesQuitConfirmed) {
-    event.preventDefault()
-    if (filesQuitInProgress) return
-    filesQuitInProgress = true
-    void (async () => {
-      try {
-        const confirmed = await confirmFilesExitForAllWindows()
-        if (!confirmed) return
-        filesQuitConfirmed = true
-        app.quit()
-      } catch (error) {
-        log.error('Files shutdown before quit failed', error)
-      } finally {
-        filesQuitInProgress = false
-      }
-    })()
-    return
-  }
-
-  if (!terminalQuitConfirmed) {
-    const terminalService = getTerminalService()
-    const liveCount = terminalService.countLiveTerminals()
-    if (liveCount > 0) {
-      event.preventDefault()
-      if (terminalQuitInProgress) return
-      terminalQuitInProgress = true
-      void (async () => {
-        try {
-          const confirmed = await shouldProceedWithLiveTerminalTermination({
-            count: liveCount,
-            purpose: 'quit'
-          })
-          if (!confirmed) return
-          await terminalService.closeAll()
-          terminalQuitConfirmed = true
-          app.quit()
-        } catch (error) {
-          log.error('Terminal shutdown before quit failed', error)
-        } finally {
-          terminalQuitInProgress = false
-        }
-      })()
-      return
-    }
-  }
-
-  disposeBrowserIpcResources()
-  stopAgentUtilityProcessHost()
-  closeDatabase()
-})
+app.on('before-quit', (event) => quitLifecycleCoordinator.handleBeforeQuit(event))

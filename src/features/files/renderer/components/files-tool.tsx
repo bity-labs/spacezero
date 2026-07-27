@@ -27,6 +27,7 @@ import {
   type FilesTabDropPosition,
   type FilesTabState
 } from '../files-store'
+import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
 import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
@@ -1457,6 +1458,20 @@ function FilesReadyEditorPanel({
 }): React.JSX.Element {
   const onSaveRef = useRef(onSave)
   const editorRef = useRef<Parameters<FilesMonacoEditorMount>[0] | null>(null)
+  const richScrollContainerRef = useRef<HTMLElement | null>(null)
+  const flushEditorViewState = useCallback(() => {
+    const editor = editorRef.current
+    const viewState = typeof editor?.saveViewState === 'function' ? editor.saveViewState() : null
+    if (viewState) {
+      useFilesStore.getState().setMonacoViewState(sessionId, document.relativePath, viewState)
+    }
+    const richScrollContainer = richScrollContainerRef.current
+    if (richScrollContainer) {
+      useFilesStore
+        .getState()
+        .setRichScrollTop(sessionId, document.relativePath, richScrollContainer.scrollTop)
+    }
+  }, [document.relativePath, sessionId])
   useEffect(() => {
     onSaveRef.current = onSave
   }, [onSave])
@@ -1482,15 +1497,16 @@ function FilesReadyEditorPanel({
   )
 
   useEffect(() => {
+    return registerFilesEditorViewStateFlush(flushEditorViewState)
+  }, [flushEditorViewState])
+
+  useEffect(() => {
     return () => {
-      const editor = editorRef.current
-      const viewState = typeof editor?.saveViewState === 'function' ? editor.saveViewState() : null
-      if (viewState) {
-        useFilesStore.getState().setMonacoViewState(sessionId, document.relativePath, viewState)
-      }
+      flushEditorViewState()
       editorRef.current = null
+      richScrollContainerRef.current = null
     }
-  }, [document.relativePath, sessionId])
+  }, [flushEditorViewState])
 
   useEffect(() => {
     if (document.targetLine === undefined) return
@@ -1636,8 +1652,17 @@ function FilesReadyEditorPanel({
             key={`${sessionId}:${document.editorStateKey}`}
             documentRelativePath={document.relativePath}
             imageAdapter={richImageAdapter}
+            initialScrollTop={
+              getFilesEditorViewState(sessionId, document.relativePath)?.richScrollTop ?? 0
+            }
             markdown={document.draft}
             onChange={onChange}
+            onScrollContainerChange={(element) => {
+              richScrollContainerRef.current = element
+            }}
+            onScrollTopChange={(scrollTop) => {
+              useFilesStore.getState().setRichScrollTop(sessionId, document.relativePath, scrollTop)
+            }}
           />
         ) : (
           <FilesMonacoEditor
