@@ -137,7 +137,8 @@
           "provider": "github",
           "owner": "bity-labs",
           "repo": "spacezero",
-          "releaseType": "prerelease"
+          "releaseType": "prerelease",
+          "channel": "beta"
         }
       ]
     },
