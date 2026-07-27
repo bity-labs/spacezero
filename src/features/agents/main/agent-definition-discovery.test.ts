@@ -139,6 +139,36 @@ describe('discoverGlobalAgentDefinitions', () => {
     })
   })
 
+  it('marks lower-precedence project ancestor definitions with the same id as shadowed', async () => {
+    const root = await createTempRoot()
+    const closestProjectAgentsPath = join(root, 'project', 'packages', 'web', '.agents', 'agents')
+    const ancestorProjectAgentsPath = join(root, 'project', '.agents', 'agents')
+
+    await writeDefinition(
+      closestProjectAgentsPath,
+      'reviewer.md',
+      'name: Closest Project Reviewer\ndescription: Closest project definition.\n'
+    )
+    await writeDefinition(
+      ancestorProjectAgentsPath,
+      'reviewer.md',
+      'name: Ancestor Project Reviewer\ndescription: Ancestor project definition.\n'
+    )
+
+    const catalog = await discoverGlobalAgentDefinitions({
+      sources: [
+        { scope: 'project', path: closestProjectAgentsPath },
+        { scope: 'project', path: ancestorProjectAgentsPath },
+        { scope: 'bundled', definitions: [] }
+      ]
+    })
+
+    expect(catalog.map((entry) => [entry.id, entry.path, entry.scope, entry.shadowedBy])).toEqual([
+      ['reviewer', join(closestProjectAgentsPath, 'reviewer.md'), 'project', undefined],
+      ['reviewer', join(ancestorProjectAgentsPath, 'reviewer.md'), 'project', 'project']
+    ])
+  })
+
   it('keeps bundled definitions as fallback entries and marks them shadowed by higher scopes', async () => {
     const root = await createTempRoot()
     const userAgentsPath = join(root, 'home', '.agents', 'agents')
