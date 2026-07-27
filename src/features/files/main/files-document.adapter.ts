@@ -1,7 +1,7 @@
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
 import { lstat, open, readFile, realpath, writeFile } from 'node:fs/promises'
-import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
+import { basename, dirname, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
 import { TextDecoder } from 'node:util'
 
 import type { FilesDocument, SaveFilesDocumentRequest, SaveFilesDocumentResult } from '../shared'
@@ -119,9 +119,14 @@ async function saveFilesDocumentUnsafe(
   rootPath: string,
   request: Omit<SaveFilesDocumentRequest, 'context'>
 ): Promise<SaveFilesDocumentResult> {
-  const currentDocument = await openFilesDocumentUnsafe(rootPath, request.relativePath)
+  const currentDocument = await openCurrentDocumentOrRecreate(rootPath, request)
+  if ('status' in currentDocument) return currentDocument
+
   if (currentDocument.contentKind !== 'text') throw new Error('files.notEditableText')
-  if (currentDocument.revision !== request.expectedRevision) {
+  const acknowledgedOverwrite =
+    request.conflictResolution?.kind === 'overwrite' &&
+    request.conflictResolution.acknowledgedRevision === currentDocument.revision
+  if (currentDocument.revision !== request.expectedRevision && !acknowledgedOverwrite) {
     return { status: 'conflict', document: currentDocument }
   }
 
@@ -132,6 +137,25 @@ async function saveFilesDocumentUnsafe(
 
   const { absolutePath } = await resolveRegularFilePath(rootPath, request.relativePath)
   await writeFile(absolutePath, bytes)
+  const document = await openFilesDocumentUnsafe(rootPath, request.relativePath)
+  if (document.contentKind !== 'text') throw new Error('files.writeFailed')
+  return { status: 'saved', document }
+}
+
+async function openCurrentDocumentOrRecreate(
+  rootPath: string,
+  request: Omit<SaveFilesDocumentRequest, 'context'>
+): Promise<FilesDocument | SaveFilesDocumentResult> {
+  try {
+    return await openFilesDocumentUnsafe(rootPath, request.relativePath)
+  } catch (error) {
+    if (request.conflictResolution?.kind !== 'recreate') throw error
+  }
+
+  const { absolutePath } = await resolveMissingFilePath(rootPath, request.relativePath)
+  const bytes = Buffer.from(request.content, 'utf8')
+  if (bytes.byteLength > MAX_FILES_TEXT_FILE_BYTES) throw new Error('files.contentTooLarge')
+  await writeFile(absolutePath, bytes, { flag: 'wx' })
   const document = await openFilesDocumentUnsafe(rootPath, request.relativePath)
   if (document.contentKind !== 'text') throw new Error('files.writeFailed')
   return { status: 'saved', document }
@@ -157,6 +181,31 @@ async function resolveRegularFilePath(
   const canonicalFile = await realpath(candidatePath)
   assertInsideRoot(canonicalRoot, canonicalFile)
   return { absolutePath: canonicalFile, normalizedPath }
+}
+
+async function resolveMissingFilePath(
+  rootPath: string,
+  relativePath: string
+): Promise<{ absolutePath: string; normalizedPath: string }> {
+  const normalizedPath = normalizeRelativeFilePath(relativePath)
+  const canonicalRoot = await realpath(rootPath)
+  const absolutePath = resolve(canonicalRoot, normalizedPath)
+  assertInsideRoot(canonicalRoot, absolutePath)
+  const parentPath = await realpath(dirname(absolutePath))
+  assertInsideRoot(canonicalRoot, parentPath)
+  const parentDetails = await lstat(parentPath)
+  if (!parentDetails.isDirectory() || parentDetails.isSymbolicLink()) {
+    throw new Error('files.invalidPath')
+  }
+  try {
+    await lstat(absolutePath)
+    throw new Error('files.recreateConflict')
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return { absolutePath, normalizedPath }
+    }
+    throw error
+  }
 }
 
 function normalizeRelativeFilePath(path: string): string {

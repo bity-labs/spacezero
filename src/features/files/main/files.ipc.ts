@@ -135,7 +135,8 @@ export function registerFilesIpc(): void {
   )
   ipcMain.handle(FILES_IPC_CHANNELS.observe, async (event, input: unknown) => {
     const request = observeFilesRequestSchema.parse(input)
-    observations.get(request.subscriptionId)?.()
+    const observationKey = `${event.sender.id}:${request.subscriptionId}`
+    observations.get(observationKey)?.()
     const close = await filesService.observe(request.context, (payload) => {
       if (event.sender.isDestroyed()) return
       event.sender.send(FILES_IPC_CHANNELS.observationEvent, {
@@ -143,16 +144,17 @@ export function registerFilesIpc(): void {
         ...payload
       })
     })
-    observations.set(request.subscriptionId, close)
+    observations.set(observationKey, close)
     event.sender.once('destroyed', () => {
-      observations.get(request.subscriptionId)?.()
-      observations.delete(request.subscriptionId)
+      observations.get(observationKey)?.()
+      observations.delete(observationKey)
     })
     return { subscriptionId: request.subscriptionId }
   })
-  ipcMain.handle(FILES_IPC_CHANNELS.unobserve, (_event, input: unknown) => {
+  ipcMain.handle(FILES_IPC_CHANNELS.unobserve, (event, input: unknown) => {
     const request = unobserveFilesRequestSchema.parse(input)
-    observations.get(request.subscriptionId)?.()
-    observations.delete(request.subscriptionId)
+    const observationKey = `${event.sender.id}:${request.subscriptionId}`
+    observations.get(observationKey)?.()
+    observations.delete(observationKey)
   })
 }

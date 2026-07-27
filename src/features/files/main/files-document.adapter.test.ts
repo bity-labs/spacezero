@@ -217,6 +217,50 @@ describe('Files document adapter', () => {
     await expect(readFile(join(rootPath, 'conflict.txt'), 'utf8')).resolves.toBe('external\n')
   })
 
+  it('overwrites a conflict only when the latest disk revision is acknowledged', async () => {
+    await writeFile(join(rootPath, 'conflict.txt'), 'original\n')
+    const opened = await openFilesDocument(rootPath, 'conflict.txt')
+    await writeFile(join(rootPath, 'conflict.txt'), 'external\n')
+    const latest = await openFilesDocument(rootPath, 'conflict.txt')
+
+    const result = await saveFilesDocument(rootPath, {
+      relativePath: 'conflict.txt',
+      content: 'draft\n',
+      expectedRevision: opened.revision,
+      conflictResolution: { kind: 'overwrite', acknowledgedRevision: latest.revision }
+    })
+
+    expect(result).toMatchObject({ status: 'saved' })
+    await expect(readFile(join(rootPath, 'conflict.txt'), 'utf8')).resolves.toBe('draft\n')
+  })
+
+  it('recreates a deleted file without overwriting an unexpected replacement', async () => {
+    await writeFile(join(rootPath, 'deleted.txt'), 'original')
+    const opened = await openFilesDocument(rootPath, 'deleted.txt')
+    await rm(join(rootPath, 'deleted.txt'))
+
+    await expect(
+      saveFilesDocument(rootPath, {
+        relativePath: 'deleted.txt',
+        content: 'recreated',
+        expectedRevision: opened.revision,
+        conflictResolution: { kind: 'recreate', acknowledgedMissingRevision: opened.revision }
+      })
+    ).resolves.toMatchObject({ status: 'saved' })
+    await expect(readFile(join(rootPath, 'deleted.txt'), 'utf8')).resolves.toBe('recreated')
+
+    await rm(join(rootPath, 'deleted.txt'))
+    await writeFile(join(rootPath, 'deleted.txt'), 'replacement')
+    const replaced = await saveFilesDocument(rootPath, {
+      relativePath: 'deleted.txt',
+      content: 'local draft',
+      expectedRevision: opened.revision,
+      conflictResolution: { kind: 'recreate', acknowledgedMissingRevision: opened.revision }
+    })
+    expect(replaced).toMatchObject({ status: 'conflict' })
+    await expect(readFile(join(rootPath, 'deleted.txt'), 'utf8')).resolves.toBe('replacement')
+  })
+
   it('validates relative path shape, Git protection, regular-file type, and symlink components', async () => {
     await mkdir(join(rootPath, 'folder', 'nested'), { recursive: true })
     await writeFile(join(rootPath, 'folder', 'nested', 'file.txt'), 'ok')

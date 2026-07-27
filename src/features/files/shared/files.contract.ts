@@ -42,6 +42,9 @@ export type SaveFilesDocumentRequest = {
   relativePath: string
   content: string
   expectedRevision: string
+  conflictResolution?:
+    | { kind: 'overwrite'; acknowledgedRevision: string }
+    | { kind: 'recreate'; acknowledgedMissingRevision: string }
 }
 
 export type CreateFilesEntryRequest = {
@@ -143,7 +146,7 @@ export type FilesSearchResult =
 export type FilesObservationEvent = {
   subscriptionId: string
   contextKey: string
-  kind: 'changed' | 'watch-error'
+  kind: 'created' | 'modified' | 'deleted' | 'watch-error'
   relativePath: string | null
   message?: string
 }
