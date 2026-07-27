@@ -206,6 +206,7 @@ beforeEach(async () => {
     },
     agents: {
       getGlobalDefinitions: async () => [],
+      getSessionDefinitions: async () => [],
       openDefinitionsFolder: async () => undefined
     },
     github: {
@@ -234,6 +235,7 @@ beforeEach(async () => {
         id: projectId,
         name: 'Linked Project',
         path: '/tmp/linked-project',
+        agentResourcesTrusted: false,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(1).toISOString()
       }),
@@ -407,6 +409,7 @@ beforeEach(async () => {
         id: 'project-test',
         name,
         path: `/tmp/${name}`,
+        agentResourcesTrusted: false,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
@@ -414,6 +417,7 @@ beforeEach(async () => {
         id: 'folder-project-test',
         name: 'Existing Folder',
         path: '/tmp/existing-folder',
+        agentResourcesTrusted: false,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
@@ -421,6 +425,7 @@ beforeEach(async () => {
         id: request.id,
         name: request.name,
         path: request.path,
+        agentResourcesTrusted: request.agentResourcesTrusted ?? false,
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(1).toISOString()
       }),

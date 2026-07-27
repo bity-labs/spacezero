@@ -76,6 +76,7 @@ export type SessionsRepository = {
         path: string
         knowledgeBasePath?: string | null
         archivedAt?: Date | null
+        agentResourcesTrusted?: boolean
       }
     | undefined
   >

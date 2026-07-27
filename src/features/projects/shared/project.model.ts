@@ -15,18 +15,25 @@ export type Project = {
   knowledgeBasePath?: string
   setupWarning?: string
   githubRepository?: GitHubRepositoryAssociation
+  agentResourcesTrusted?: boolean
   createdAt: string
   updatedAt: string
 }
 
 export type CreateEmptyProjectRequest = {
   name: string
+  agentResourcesTrusted?: boolean
+}
+
+export type AddProjectFromFolderRequest = {
+  agentResourcesTrusted?: boolean
 }
 
 export type UpdateProjectRequest = {
   id: string
   name: string
   path: string
+  agentResourcesTrusted?: boolean
 }
 
 export type DeleteProjectResult = {

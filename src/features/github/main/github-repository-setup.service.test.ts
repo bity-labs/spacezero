@@ -24,6 +24,7 @@ const repository: GitHubRepository = {
 const registeredProject: Project = {
   id: 'project-1',
   name: 'spacezero',
+  agentResourcesTrusted: false,
   path: '/home/tiby/SpaceZero/projects/bity-labs/spacezero',
   githubRepository: {
     repositoryId: '1000',
@@ -41,6 +42,7 @@ const registeredProject: Project = {
 const unlinkedProject: Project = {
   id: 'project-unlinked',
   name: 'Space Zero local',
+  agentResourcesTrusted: false,
   path: '/home/tiby/ws/dev/spacezero',
   createdAt: '2026-07-18T01:00:00.000Z',
   updatedAt: '2026-07-18T01:00:00.000Z'
@@ -142,6 +144,7 @@ describe('GitHub repository setup service', () => {
       {
         name: 'spacezero',
         path: '/home/tiby/SpaceZero/projects/bity-labs/spacezero',
+        agentResourcesTrusted: false,
         repositoryId: '1000',
         nodeId: 'R_1000',
         owner: 'bity-labs',

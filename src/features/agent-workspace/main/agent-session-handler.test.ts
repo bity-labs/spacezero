@@ -640,6 +640,89 @@ describe('createProjectAgentSession', () => {
     )
   })
 
+  it('uses persisted Project trust as the default source for project skill paths', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo' },
+      {
+        repository: createRepository({
+          findProjectById: async (projectId) =>
+            projectId === 'project-1'
+              ? { id: projectId, path: '/repo', agentResourcesTrusted: true }
+              : undefined
+        }),
+        utilityHost,
+        worktrees: createTestWorktrees(),
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        resolveSkillPaths: async () => [
+          { path: '/repo/.agents/skills', scope: 'project' as const },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' as const }
+        ],
+        resolveDelegationDefinitions: async () => []
+      }
+    )
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skillPaths: [
+          { path: '/repo/.agents/skills', scope: 'project' },
+          { path: '/Users/tiby/SpaceZero/skills', scope: 'spacezero' }
+        ]
+      })
+    )
+  })
+
+  it('passes contextual project Agent Definition sources only for trusted Project Sessions', async () => {
+    const trustedSources: unknown[] = []
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createProjectAgentSession(
+      { projectId: 'project-1', cwd: '/repo', agentDefinition: { id: 'reviewer' } },
+      {
+        repository: createRepository({
+          findProjectById: async (projectId) =>
+            projectId === 'project-1'
+              ? { id: projectId, path: '/repo', agentResourcesTrusted: true }
+              : undefined
+        }),
+        utilityHost,
+        worktrees: createTestWorktrees(),
+        createSessionId: () => 'session-1',
+        readModelDefaults,
+        resolveAgentDefinitionSources: async ({ cwd, kind, projectTrusted }) => [
+          ...(kind === 'project' && projectTrusted
+            ? [{ scope: 'project' as const, path: `${cwd}/.agents/agents` }]
+            : []),
+          { scope: 'spacezero', path: '/Users/tiby/SpaceZero/agents' },
+          { scope: 'user', path: '/Users/tiby/.agents/agents' },
+          { scope: 'bundled', definitions: [] }
+        ],
+        resolveAgentDefinition: async (_reference, context) => {
+          trustedSources.push(...(context?.sources ?? []))
+          return { id: 'reviewer', name: 'Reviewer', body: 'Review.' }
+        },
+        resolveDelegationDefinitions: async (context) => {
+          trustedSources.push(...(context?.sources ?? []))
+          return []
+        }
+      }
+    )
+
+    expect(trustedSources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: 'project', path: '/worktrees/session-1/.agents/agents' })
+      ])
+    )
+  })
+
   it('denies project skill paths without an explicit trust decision', async () => {
     const utilityHost = {
       createSession: vi.fn(async () => createState()),

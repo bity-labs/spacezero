@@ -33,16 +33,26 @@ describe('RepositorySetup', () => {
       progressListener = listener
       return () => undefined
     }
-    window.spacezero.github.startClone = async () => ({
-      status: 'started',
+    const startClone = vi.fn(async () => ({
+      status: 'started' as const,
       operationId: 'clone-1'
-    })
+    }))
+    window.spacezero.github.startClone = startClone
     const onProjectReady = vi.fn()
 
     render(<RepositorySetup onProjectReady={onProjectReady} />)
 
     fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    expect(screen.getByRole('checkbox', { name: /Trust project agent resources/ })).not.toBeChecked()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Trust project agent resources/ }))
+    expect(screen.getByRole('checkbox', { name: /Trust project agent resources/ })).toBeChecked()
     fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    await waitFor(() =>
+      expect(startClone).toHaveBeenCalledWith({
+        repositoryId: '1000',
+        agentResourcesTrusted: true
+      })
+    )
     await screen.findByText('Preparing managed clone…')
     progressListener?.({
       operationId: 'clone-1',

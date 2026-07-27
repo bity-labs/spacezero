@@ -24,6 +24,7 @@ export function migrateDatabase(database: Database.Database): void {
       github_name TEXT,
       github_url TEXT,
       github_linked_at INTEGER,
+      agent_resources_trusted INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -100,6 +101,7 @@ export function migrateDatabase(database: Database.Database): void {
     ['github_name', 'TEXT'],
     ['github_url', 'TEXT'],
     ['github_linked_at', 'INTEGER'],
+    ['agent_resources_trusted', 'INTEGER NOT NULL DEFAULT 0'],
     ['archived_at', 'INTEGER']
   ] as const
   for (const [column, type] of projectMigrations) {

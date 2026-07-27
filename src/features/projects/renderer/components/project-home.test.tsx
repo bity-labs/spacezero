@@ -15,6 +15,7 @@ function renderProjectHome(component: React.ReactNode): ReturnType<typeof render
 const project: Project = {
   id: 'project-1',
   name: 'Space Zero',
+  agentResourcesTrusted: false,
   path: '/external/workspaces/spacezero',
   createdAt: '2026-07-18T00:00:00.000Z',
   updatedAt: '2026-07-18T00:00:00.000Z'
@@ -53,6 +54,33 @@ describe('ProjectHome', () => {
       'href',
       '#/settings?section=account'
     )
+  })
+
+  it('updates Project agent-resource trust immediately from Project Home', async () => {
+    window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
+    const updateProject = vi.fn(async (request) => ({
+      ...project,
+      agentResourcesTrusted: request.agentResourcesTrusted === true,
+      updatedAt: '2026-07-18T01:00:00.000Z'
+    }))
+    window.spacezero.projects.update = updateProject
+    const onProjectLinked = vi.fn()
+
+    renderProjectHome(
+      <ProjectHome project={project} onProjectLinked={onProjectLinked} onNewSession={() => undefined} />
+    )
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Trust project agent resources/ }))
+
+    await waitFor(() => {
+      expect(updateProject).toHaveBeenCalledWith({
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/external/workspaces/spacezero',
+        agentResourcesTrusted: true
+      })
+    })
+    expect(onProjectLinked).toHaveBeenCalledWith(expect.objectContaining({ agentResourcesTrusted: true }))
   })
 
   it.each([

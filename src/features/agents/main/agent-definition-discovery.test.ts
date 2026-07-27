@@ -94,6 +94,51 @@ describe('discoverGlobalAgentDefinitions', () => {
     expect(catalog.some((entry) => entry.id === 'project-only')).toBe(false)
   })
 
+  it('applies contextual project precedence and keeps invalid project diagnostics visible', async () => {
+    const root = await createTempRoot()
+    const projectAgentsPath = join(root, 'project', '.agents', 'agents')
+    const spaceZeroAgentsPath = join(root, 'SpaceZero', 'agents')
+    const userAgentsPath = join(root, 'home', '.agents', 'agents')
+
+    await writeDefinition(
+      projectAgentsPath,
+      'reviewer.md',
+      'name: Project Reviewer\ndescription: Project definition.\n'
+    )
+    await writeDefinition(projectAgentsPath, 'broken.md', 'name: Broken Project\n')
+    await writeDefinition(
+      spaceZeroAgentsPath,
+      'reviewer.md',
+      'name: Space Reviewer\ndescription: Space Zero definition.\n'
+    )
+    await writeDefinition(
+      userAgentsPath,
+      'reviewer.md',
+      'name: User Reviewer\ndescription: User definition.\n'
+    )
+
+    const catalog = await discoverGlobalAgentDefinitions({
+      sources: [
+        { scope: 'project', path: projectAgentsPath },
+        { scope: 'spacezero', path: spaceZeroAgentsPath },
+        { scope: 'user', path: userAgentsPath },
+        { scope: 'bundled', definitions: [] }
+      ]
+    })
+
+    expect(catalog.map((entry) => [entry.id, entry.scope, entry.status, entry.shadowedBy])).toEqual(
+      [
+        ['broken', 'project', 'invalid', undefined],
+        ['reviewer', 'project', 'valid', undefined],
+        ['reviewer', 'spacezero', 'valid', 'project'],
+        ['reviewer', 'user', 'valid', 'project']
+      ]
+    )
+    expect(catalog[0].diagnostics[0]).toMatchObject({
+      code: 'agentDefinitions.descriptionRequired'
+    })
+  })
+
   it('keeps bundled definitions as fallback entries and marks them shadowed by higher scopes', async () => {
     const root = await createTempRoot()
     const userAgentsPath = join(root, 'home', '.agents', 'agents')

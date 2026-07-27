@@ -1,4 +1,4 @@
-export type AgentDefinitionScope = 'spacezero' | 'user' | 'bundled'
+export type AgentDefinitionScope = 'project' | 'spacezero' | 'user' | 'bundled'
 
 export type OpenAgentDefinitionsFolderScope = Extract<AgentDefinitionScope, 'spacezero' | 'user'>
 
@@ -28,7 +28,7 @@ export type AgentDefinitionCatalogEntry = {
 }
 
 export type AgentDefinitionDirectorySource = {
-  scope: Extract<AgentDefinitionScope, 'spacezero' | 'user'>
+  scope: Extract<AgentDefinitionScope, 'project' | 'spacezero' | 'user'>
   path: string
 }
 
