@@ -4,7 +4,7 @@ export type AiChatMessageStatus = 'streaming' | 'complete' | 'error'
 
 export type AiChatThinkingState = 'streaming' | 'complete'
 
-export type AiChatThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+export type AiChatThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export type AiChatToolCallState = 'pending' | 'running' | 'success' | 'error'
 

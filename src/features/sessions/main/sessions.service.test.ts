@@ -126,7 +126,15 @@ describe('createSessionsService', () => {
     })
     const service = createSessionsService({ repository, now: () => now })
 
-    await service.updateAgentModel('agent-session-1', 'openai', 'gpt-5')
+    await service.updateAgentModel('agent-session-1', 'openai', 'gpt-5', 'max')
+
+    await expect(repository.findSessionById('agent-session-1')).resolves.toMatchObject({
+      modelProvider: 'openai',
+      modelId: 'gpt-5',
+      thinkingLevel: 'max',
+      updatedAt: now
+    })
+
     await service.updateAgentThinkingLevel('agent-session-1', 'high')
 
     await expect(repository.findSessionById('agent-session-1')).resolves.toMatchObject({

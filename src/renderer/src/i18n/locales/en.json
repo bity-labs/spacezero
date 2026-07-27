@@ -335,7 +335,8 @@
           "low": "Low",
           "medium": "Medium",
           "high": "High",
-          "xhigh": "X-High"
+          "xhigh": "X-High",
+          "max": "Max"
         }
       },
       "available": {
