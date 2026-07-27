@@ -442,6 +442,21 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('falls back to the parent selection when Trash removes a selected item without open tabs', () => {
+    const store = useFilesStore.getState()
+    store.setSelectedPath('session-1', 'notes/archive/old.md')
+    expect(store.beginOpenTab('session-1', 'other.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('other.md', 'other saved'), 1)
+
+    store.closeTabsInPath('session-1', 'notes/archive/old.md')
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'other.md',
+      selectedPath: 'other.md',
+      tabs: [{ relativePath: 'other.md' }]
+    })
+  })
+
   it('discards dirty affected tabs before mutation and closes affected tabs after Trash succeeds', () => {
     const store = useFilesStore.getState()
     expect(store.beginOpenTab('session-1', 'notes/a.md', 'permanent', 1)).toBe(true)

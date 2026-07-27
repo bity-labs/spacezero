@@ -11,9 +11,15 @@ export type FilesTrashNativeOperations = {
   trashItem: (absolutePath: string) => Promise<void>
 }
 
+export type FilesMutationRaceSeams = {
+  beforeCreateMutation?: (absolutePath: string) => Promise<void> | void
+  beforeMoveMutation?: (sourcePath: string, destinationPath: string) => Promise<void> | void
+}
+
 export async function createFilesEntry(
   rootPath: string,
-  request: Omit<CreateFilesEntryRequest, 'context'>
+  request: Omit<CreateFilesEntryRequest, 'context'>,
+  raceSeams: FilesMutationRaceSeams = {}
 ): Promise<void> {
   try {
     const { absolutePath, canonicalRoot } = await resolveNewEntryPath(
@@ -23,8 +29,10 @@ export async function createFilesEntry(
     const parentPath = dirname(absolutePath)
     await assertExistingDirectory(canonicalRoot, parentPath)
     await assertMissing(absolutePath)
+    await raceSeams.beforeCreateMutation?.(absolutePath)
+    await assertExistingDirectory(canonicalRoot, parentPath)
     if (request.kind === 'folder') await mkdir(absolutePath)
-    else await writeFile(absolutePath, '')
+    else await writeFile(absolutePath, '', { flag: 'wx' })
   } catch (error) {
     throw toBoundarySafeFilesError(error, 'create')
   }
@@ -32,7 +40,8 @@ export async function createFilesEntry(
 
 export async function moveFilesEntry(
   rootPath: string,
-  request: Omit<MoveFilesEntryRequest, 'context'>
+  request: Omit<MoveFilesEntryRequest, 'context'>,
+  raceSeams: FilesMutationRaceSeams = {}
 ): Promise<void> {
   try {
     const source = await resolveMutableExistingPath(rootPath, request.sourcePath)
@@ -45,7 +54,11 @@ export async function moveFilesEntry(
     ) {
       throw new Error('files.directoryMoveIntoSelf')
     }
-    await assertExistingDirectory(destination.canonicalRoot, dirname(destination.absolutePath))
+    const destinationParent = dirname(destination.absolutePath)
+    await assertExistingDirectory(destination.canonicalRoot, destinationParent)
+    await assertMissing(destination.absolutePath)
+    await raceSeams.beforeMoveMutation?.(source.absolutePath, destination.absolutePath)
+    await assertExistingDirectory(destination.canonicalRoot, destinationParent)
     await assertMissing(destination.absolutePath)
     await rename(source.absolutePath, destination.absolutePath)
   } catch (error) {
@@ -131,10 +144,13 @@ function normalizeRelativeEntryPath(path: string): string {
   if (segments.some((segment) => segment === '..' || segment === '.')) {
     throw new Error('files.invalidPath')
   }
-  if (segments.some((segment) => segment.toLowerCase() === '.git')) {
-    throw new Error('files.gitProtected')
-  }
+  if (segments.some(isGitProtectedSegment)) throw new Error('files.gitProtected')
+  if (segments.some((segment) => segment.includes(':'))) throw new Error('files.invalidPath')
   return segments.join('/')
+}
+
+function isGitProtectedSegment(segment: string): boolean {
+  return segment.toLowerCase().replace(/[ .]+$/u, '') === '.git'
 }
 
 function assertInsideRoot(rootPath: string, candidatePath: string): void {

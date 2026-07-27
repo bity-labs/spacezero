@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -63,6 +63,95 @@ describe('Files operations adapter', () => {
     await expect(
       trashFilesEntry(rootPath, { relativePath: 'link.txt' }, { trashItem: vi.fn() })
     ).rejects.toThrow('files.symlinkOperationDenied')
+  })
+
+  it('rechecks create containment at the mutation seam and refuses exclusive collisions', async () => {
+    await createFilesEntry(rootPath, { relativePath: 'safe', kind: 'folder' })
+    const outsidePath = await mkdtemp(join(tmpdir(), 'spacezero-files-ops-outside-'))
+
+    await expect(
+      createFilesEntry(
+        rootPath,
+        { relativePath: 'safe/new.txt', kind: 'file' },
+        {
+          beforeCreateMutation: async () => {
+            await rm(join(rootPath, 'safe'), { recursive: true })
+            await symlink(outsidePath, join(rootPath, 'safe'))
+          }
+        }
+      )
+    ).rejects.toThrow('files.symlinkTraversalDenied')
+
+    await expect(readFile(join(outsidePath, 'new.txt'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+
+    await createFilesEntry(rootPath, { relativePath: 'collision-parent', kind: 'folder' })
+    await expect(
+      createFilesEntry(
+        rootPath,
+        { relativePath: 'collision-parent/new.txt', kind: 'file' },
+        {
+          beforeCreateMutation: async () => {
+            await writeFile(join(rootPath, 'collision-parent/new.txt'), 'external')
+          }
+        }
+      )
+    ).rejects.toThrow('files.collision')
+    await expect(readFile(join(rootPath, 'collision-parent/new.txt'), 'utf8')).resolves.toBe(
+      'external'
+    )
+  })
+
+  it('rechecks move containment and collisions at the mutation seam without overwriting', async () => {
+    await createFilesEntry(rootPath, { relativePath: 'src', kind: 'folder' })
+    await writeFile(join(rootPath, 'src/app.ts'), 'source')
+    await createFilesEntry(rootPath, { relativePath: 'dest', kind: 'folder' })
+    const outsidePath = await mkdtemp(join(tmpdir(), 'spacezero-files-ops-outside-'))
+
+    await expect(
+      moveFilesEntry(
+        rootPath,
+        { sourcePath: 'src/app.ts', destinationPath: 'dest/app.ts' },
+        {
+          beforeMoveMutation: async () => {
+            await rm(join(rootPath, 'dest'), { recursive: true })
+            await symlink(outsidePath, join(rootPath, 'dest'))
+          }
+        }
+      )
+    ).rejects.toThrow('files.symlinkTraversalDenied')
+    await expect(readFile(join(rootPath, 'src/app.ts'), 'utf8')).resolves.toBe('source')
+    await expect(readFile(join(outsidePath, 'app.ts'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT'
+    })
+
+    await rm(join(rootPath, 'dest'))
+    await mkdir(join(rootPath, 'dest'))
+    await expect(
+      moveFilesEntry(
+        rootPath,
+        { sourcePath: 'src/app.ts', destinationPath: 'dest/app.ts' },
+        {
+          beforeMoveMutation: async () => {
+            await writeFile(join(rootPath, 'dest/app.ts'), 'external')
+          }
+        }
+      )
+    ).rejects.toThrow('files.collision')
+    await expect(readFile(join(rootPath, 'src/app.ts'), 'utf8')).resolves.toBe('source')
+    await expect(readFile(join(rootPath, 'dest/app.ts'), 'utf8')).resolves.toBe('external')
+  })
+
+  it('rejects Windows .git aliases and alternate stream path syntax before mutation', async () => {
+    for (const relativePath of ['.git./config', '.git /config', 'folder/.git./config']) {
+      await expect(createFilesEntry(rootPath, { relativePath, kind: 'file' })).rejects.toThrow(
+        'files.gitProtected'
+      )
+    }
+    await expect(createFilesEntry(rootPath, { relativePath: 'notes:ads.txt', kind: 'file' })).rejects.toThrow(
+      'files.invalidPath'
+    )
   })
 
   it('uses operating-system Trash and does not delete permanently when Trash fails', async () => {

@@ -27,6 +27,7 @@ import {
   type FilesTabState
 } from '../files-store'
 import { openFilesLocation } from '../files-open-location'
+import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesIcon } from './files-icon'
@@ -293,6 +294,23 @@ function FilesToolSession({
     invalidateSearchResults()
   }, [invalidateSearchResults])
 
+  const refreshActiveSearch = useCallback((): void => {
+    const state = searchState
+    if (state.status === 'idle') return
+    void performSearch(state.query, includeIgnoredSearch)
+  }, [includeIgnoredSearch, performSearch, searchState])
+
+  const revealTreePath = useCallback(
+    async (relativePath: string): Promise<void> => {
+      const ancestors = ancestorDirectoryPaths(relativePath)
+      for (const ancestor of ancestors) setExpanded(sessionId, ancestor, true)
+      await loadRoot()
+      for (const ancestor of ancestors) await loadDirectory(ancestor)
+      setSelectedPath(sessionId, relativePath)
+    },
+    [loadDirectory, loadRoot, sessionId, setExpanded, setSelectedPath]
+  )
+
   const saveDocumentSnapshot = useCallback(
     async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
       if (document.saveStatus === 'saving') return false
@@ -374,15 +392,14 @@ function FilesToolSession({
       const relativePath = joinRelativePath(parentPath, name.trim())
       try {
         await window.spacezero.files.createEntry({ context: ipcContext, relativePath, kind })
-        invalidateSearchResults()
-        await loadRoot()
-        setSelectedPath(sessionId, relativePath)
+        await revealTreePath(relativePath)
+        refreshActiveSearch()
         if (kind === 'file') await openFile(relativePath, 'permanent')
       } catch (error) {
         window.alert(fileOperationErrorMessage(error))
       }
     },
-    [invalidateSearchResults, ipcContext, loadRoot, openFile, sessionId, setSelectedPath]
+    [ipcContext, openFile, refreshActiveSearch, revealTreePath]
   )
 
   const moveEntry = useCallback(
@@ -396,14 +413,16 @@ function FilesToolSession({
           sourcePath,
           destinationPath: targetPath.trim()
         })
-        rewritePaths(sessionId, sourcePath, targetPath.trim())
-        invalidateSearchResults()
-        await loadRoot()
+        const destination = targetPath.trim()
+        migrateFilesMonacoEditorState(sessionId, sourcePath, destination)
+        rewritePaths(sessionId, sourcePath, destination)
+        await revealTreePath(destination)
+        refreshActiveSearch()
       } catch (error) {
         window.alert(fileOperationErrorMessage(error))
       }
     },
-    [invalidateSearchResults, ipcContext, loadRoot, prepareDirtyOperation, rewritePaths, sessionId]
+    [ipcContext, prepareDirtyOperation, refreshActiveSearch, revealTreePath, rewritePaths, sessionId]
   )
 
   const trashEntry = useCallback(
@@ -413,19 +432,21 @@ function FilesToolSession({
       try {
         await window.spacezero.files.trashEntry({ context: ipcContext, relativePath })
         closeTabsInPath(sessionId, relativePath)
-        invalidateSearchResults()
+        setSelectedPath(sessionId, parentDirectoryPath(relativePath) || null)
         await loadRoot()
+        refreshActiveSearch()
       } catch (error) {
         window.alert(fileOperationErrorMessage(error))
       }
     },
     [
       closeTabsInPath,
-      invalidateSearchResults,
       ipcContext,
       loadRoot,
       prepareDirtyOperation,
-      sessionId
+      refreshActiveSearch,
+      sessionId,
+      setSelectedPath
     ]
   )
 
@@ -1261,7 +1282,7 @@ function FilesReadyEditorPanel({
       <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
         {activeMode === 'rich' ? (
           <RichMarkdownEditor
-            key={`${sessionId}:${document.relativePath}`}
+            key={`${sessionId}:${document.editorStateKey}`}
             documentRelativePath={document.relativePath}
             imageAdapter={richImageAdapter}
             markdown={document.draft}
@@ -1542,6 +1563,16 @@ function joinRelativePath(parentPath: string, name: string): string {
 function parentDirectoryPath(relativePath: string): string {
   const index = relativePath.lastIndexOf('/')
   return index < 0 ? '' : relativePath.slice(0, index)
+}
+
+function ancestorDirectoryPaths(relativePath: string): string[] {
+  const ancestors: string[] = []
+  let current = parentDirectoryPath(relativePath)
+  while (current) {
+    ancestors.unshift(current)
+    current = parentDirectoryPath(current)
+  }
+  return ancestors
 }
 
 function isPathAffectedBy(candidatePath: string, relativePath: string): boolean {
