@@ -33,17 +33,18 @@ The GitHub App values are public client configuration only. Never add a GitHub A
 
 ## What the workflow publishes
 
-`.github/workflows/macos-beta-release.yml` runs on `macos-latest` with least required repository permission (`contents: write`). It:
+`.github/workflows/macos-beta-release.yml` uses deterministic `pnpm@10.28.1`, keeps setup/install/build under read-only repository permissions, and scopes release credentials only to the steps that need them. It:
 
 1. Installs dependencies with `pnpm install --frozen-lockfile`.
 2. Validates the pushed tag against `package.json` with `pnpm release:validate-tag`.
 3. Prepares the public packaged GitHub App config from repository variables.
 4. Builds the Electron main and renderer bundles.
-5. Writes the App Store Connect API key to a temporary runner file with owner-only permissions.
-6. Runs Electron Builder for macOS with forced code signing and `--publish always`.
-7. Removes the temporary App Store Connect API key file in an `always()` cleanup step.
+5. Writes the App Store Connect API key to a temporary runner file inside the signing/notarization step, with owner-only permissions and trap-based cleanup.
+6. Runs Electron Builder for macOS with forced code signing and publishing disabled.
+7. Verifies the complete signed/notarized DMG, ZIP, blockmap, and `beta-mac.yml` updater artifact set.
+8. Publishes the verified artifacts to a GitHub prerelease in a separate write-scoped job.
 
-Electron Builder uses the existing macOS beta channel config to produce the signed/notarized DMG plus updater ZIP/blockmap/metadata artifacts required by `electron-updater`, and publishes them to the GitHub Release only after signing/notarization succeeds.
+Electron Builder uses the existing macOS beta channel config to produce the signed/notarized DMG plus updater ZIP/blockmap/metadata artifacts required by `electron-updater`. The GitHub Release is not created or updated until signing, notarization, packaging, update metadata generation, and artifact verification have succeeded.
 
 ## Safe validation before the first public beta
 
