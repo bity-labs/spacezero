@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaretDown, CaretRight, SidebarSimple } from '@phosphor-icons/react'
+import { CaretDown, CaretRight, MagnifyingGlass, SidebarSimple, X } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
 import {
@@ -7,7 +7,7 @@ import {
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
 import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
-import type { FilesContext, FilesEntry } from '../../shared'
+import type { FilesContext, FilesEntry, FilesSearchResult } from '../../shared'
 import {
   createDefaultFilesContext,
   getActiveFilesTab,
@@ -43,6 +43,12 @@ type RootState =
   | { status: 'loading' }
   | { status: 'ready'; items: FilesTreeItem[] }
   | { status: 'error'; message: string }
+
+type SearchState =
+  | { status: 'idle' }
+  | { status: 'loading'; query: string }
+  | { status: 'ready'; query: string; results: FilesSearchResult[] }
+  | { status: 'error'; query: string; message: string }
 
 const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
@@ -107,12 +113,17 @@ function FilesToolSession({
   const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
   const markSaved = useFilesStore((state) => state.markSaved)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
+  const [searchQuery, setSearchQuery] = useState('')
+  const [includeIgnoredSearch, setIncludeIgnoredSearch] = useState(false)
+  const [searchState, setSearchState] = useState<SearchState>({ status: 'idle' })
   const [treeHeight, setTreeHeight] = useState(480)
   const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
+  const searchRequestRef = useRef(0)
+  const activeSearchRequestIdRef = useRef<string | null>(null)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
 
@@ -188,18 +199,89 @@ function FilesToolSession({
   )
 
   const openFile = useCallback(
-    async (relativePath: string, intent: FilesOpenTabIntent): Promise<void> => {
+    async (
+      relativePath: string,
+      intent: FilesOpenTabIntent,
+      targetLine?: number
+    ): Promise<void> => {
       await openFilesLocation({
         contextKey: sessionId,
         ipcContext,
         relativePath,
         intent,
+        line: targetLine,
         revalidateExisting: false,
         allowMetadata: true
       })
     },
     [ipcContext, sessionId]
   )
+
+  const cancelActiveSearch = useCallback((): void => {
+    const requestId = activeSearchRequestIdRef.current
+    if (!requestId) return
+    activeSearchRequestIdRef.current = null
+    void window.spacezero.files.cancelSearch({ context: ipcContext, requestId })
+  }, [ipcContext])
+
+  const invalidateSearchResults = useCallback((): void => {
+    cancelActiveSearch()
+    searchRequestRef.current += 1
+    setSearchQuery('')
+    setSearchState({ status: 'idle' })
+  }, [cancelActiveSearch])
+
+  const performSearch = useCallback(
+    async (query: string, includeIgnored: boolean): Promise<void> => {
+      const normalizedQuery = query.trim()
+      cancelActiveSearch()
+      const requestSequence = searchRequestRef.current + 1
+      const requestId = `${sessionId}:${requestSequence}`
+      searchRequestRef.current = requestSequence
+      activeSearchRequestIdRef.current = requestId
+      if (!normalizedQuery) {
+        activeSearchRequestIdRef.current = null
+        setSearchState({ status: 'idle' })
+        return
+      }
+      setSearchState({ status: 'loading', query: normalizedQuery })
+      try {
+        const results = await window.spacezero.files.search({
+          context: ipcContext,
+          query: normalizedQuery,
+          includeIgnored,
+          requestId
+        })
+        if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
+        if (
+          searchRequestRef.current !== requestSequence ||
+          activeSessionRef.current !== sessionId
+        ) {
+          return
+        }
+        setSearchState({ status: 'ready', query: normalizedQuery, results })
+      } catch (error) {
+        if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
+        if (
+          searchRequestRef.current !== requestSequence ||
+          activeSessionRef.current !== sessionId
+        ) {
+          return
+        }
+        if (error instanceof Error && error.message.includes('files.searchCanceled')) return
+        setSearchState({
+          status: 'error',
+          query: normalizedQuery,
+          message: searchErrorMessage(error)
+        })
+      }
+    },
+    [cancelActiveSearch, ipcContext, sessionId]
+  )
+
+  const clearSearch = useCallback((): void => {
+    invalidateSearchResults()
+  }, [invalidateSearchResults])
 
   const saveDocumentSnapshot = useCallback(
     async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
@@ -220,13 +302,14 @@ function FilesToolSession({
           return false
         }
         markSaved(sessionId, result.document, saveRequest)
+        invalidateSearchResults()
         return true
       } catch (error) {
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
         return false
       }
     },
-    [ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
+    [invalidateSearchResults, ipcContext, markSaveFailed, markSaved, markSaving, sessionId]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
@@ -288,11 +371,27 @@ function FilesToolSession({
 
   useEffect(() => {
     activeSessionRef.current = sessionId
+    invalidateSearchResults()
     void loadRoot()
     return () => {
+      cancelActiveSearch()
       if (activeSessionRef.current === sessionId) activeSessionRef.current = ''
     }
-  }, [loadRoot, sessionId])
+  }, [cancelActiveSearch, invalidateSearchResults, loadRoot, sessionId])
+
+  useEffect(() => {
+    const subscriptionId = `${sessionId}:files-observation`
+    void window.spacezero.files.observe({ context: ipcContext, subscriptionId })
+    const unsubscribeEvents = window.spacezero.files.onObservationEvent((event) => {
+      if (event.subscriptionId === subscriptionId && event.contextKey === sessionId) {
+        invalidateSearchResults()
+      }
+    })
+    return () => {
+      unsubscribeEvents()
+      void window.spacezero.files.unobserve({ subscriptionId })
+    }
+  }, [invalidateSearchResults, ipcContext, sessionId])
 
   useEffect(() => {
     if (rootState.status !== 'ready' || restoredRootRef.current) return
@@ -369,21 +468,77 @@ function FilesToolSession({
             className="flex min-h-0 shrink-0 flex-col border-r bg-background"
             style={{ width: clampExplorerWidth(context.explorerWidth) }}
           >
-            <header className="flex h-9 shrink-0 items-center justify-between border-b px-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Explorer
-              </span>
-              <button
-                aria-label="Collapse Files explorer"
-                className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                type="button"
-                onClick={() => setExplorerCollapsed(sessionId, true)}
+            <header className="flex shrink-0 flex-col gap-2 border-b p-2">
+              <div className="flex h-7 items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  Explorer
+                </span>
+                <button
+                  aria-label="Collapse Files explorer"
+                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                  type="button"
+                  onClick={() => setExplorerCollapsed(sessionId, true)}
+                >
+                  <SidebarSimple aria-hidden className="size-4" />
+                </button>
+              </div>
+              <form
+                className="flex items-center gap-1"
+                role="search"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void performSearch(searchQuery, includeIgnoredSearch)
+                }}
               >
-                <SidebarSimple aria-hidden className="size-4" />
-              </button>
+                <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
+                  <MagnifyingGlass
+                    aria-hidden
+                    className="mr-1 size-3 shrink-0 text-muted-foreground"
+                  />
+                  <input
+                    aria-label="Search files"
+                    className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                    placeholder="Search files"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                  />
+                </div>
+                {searchState.status !== 'idle' ? (
+                  <button
+                    aria-label="Return to file tree"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    type="button"
+                    onClick={clearSearch}
+                  >
+                    <X aria-hidden className="size-3" />
+                  </button>
+                ) : null}
+              </form>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  checked={includeIgnoredSearch}
+                  type="checkbox"
+                  onChange={(event) => {
+                    const checked = event.target.checked
+                    setIncludeIgnoredSearch(checked)
+                    if (searchState.status !== 'idle') void performSearch(searchQuery, checked)
+                  }}
+                />
+                Include ignored files
+              </label>
             </header>
             <div ref={treeContainerRef} className="min-h-0 flex-1 overflow-hidden">
-              {rootState.status === 'loading' ? (
+              {searchState.status !== 'idle' ? (
+                <FilesSearchResults
+                  state={searchState}
+                  onOpen={(result) => {
+                    const targetLine =
+                      result.kind === 'content' ? result.snippets[0]?.line : undefined
+                    void openFile(result.relativePath, 'preview', targetLine)
+                  }}
+                  onRetry={() => void performSearch(searchQuery, includeIgnoredSearch)}
+                />
+              ) : rootState.status === 'loading' ? (
                 <FilesState message="Loading files…" />
               ) : rootState.status === 'error' ? (
                 <FilesState message={rootState.message} actionLabel="Retry" onAction={loadRoot} />
@@ -528,6 +683,55 @@ function DirtyTabCloseDialog({
             Save
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function FilesSearchResults({
+  state,
+  onOpen,
+  onRetry
+}: {
+  state: SearchState
+  onOpen: (result: FilesSearchResult) => void
+  onRetry: () => void | Promise<void>
+}): React.JSX.Element {
+  if (state.status === 'loading') return <FilesState message="Searching files…" />
+  if (state.status === 'error') {
+    return <FilesState message={state.message} actionLabel="Retry" onAction={onRetry} />
+  }
+  if (state.status === 'idle') return <FilesState message="Enter a search query." />
+  if (state.results.length === 0) return <FilesState message={`No results for “${state.query}”.`} />
+
+  return (
+    <div className="h-full overflow-auto p-2" aria-label="Search results">
+      <p className="mb-2 text-xs text-muted-foreground">
+        {state.results.length} result{state.results.length === 1 ? '' : 's'} for “{state.query}”
+      </p>
+      <div className="space-y-1">
+        {state.results.map((result, index) => (
+          <button
+            key={`${result.kind}:${result.relativePath}:${index}`}
+            className="w-full rounded-md px-2 py-1 text-left text-xs hover:bg-accent"
+            type="button"
+            onClick={() => onOpen(result)}
+          >
+            <span className="block truncate font-medium text-foreground">{result.name}</span>
+            <span className="block truncate text-muted-foreground">{result.relativePath}</span>
+            {result.kind === 'content' ? (
+              <span className="mt-1 block space-y-1 text-muted-foreground">
+                {result.snippets.map((snippet) => (
+                  <span key={`${snippet.line}:${snippet.column}`} className="block truncate">
+                    {snippet.line}:{snippet.column} {snippet.text}
+                  </span>
+                ))}
+              </span>
+            ) : (
+              <span className="mt-1 block text-muted-foreground">Filename match</span>
+            )}
+          </button>
+        ))}
       </div>
     </div>
   )
@@ -1060,6 +1264,14 @@ function saveErrorMessage(error: unknown): string {
   if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
   if (code.includes('files.notEditableText')) return 'This file is not editable text.'
   return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function searchErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.worktreeMissing') || code.includes('files.worktreeInvalid')) {
+    return 'This Session’s managed worktree is missing or invalid. Repair or recreate the Session.'
+  }
+  return 'Couldn’t search these files. Adjust the query or try again.'
 }
 
 function pathName(relativePath: string): string {
