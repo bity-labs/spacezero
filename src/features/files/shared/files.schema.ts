@@ -64,6 +64,29 @@ export const saveFilesDocumentRequestSchema = z
   })
   .strict()
 
+export const createFilesEntryRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    relativePath: relativeFilePathSchema,
+    kind: z.enum(['file', 'folder'])
+  })
+  .strict()
+
+export const moveFilesEntryRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    sourcePath: relativeFilePathSchema,
+    destinationPath: relativeFilePathSchema
+  })
+  .strict()
+
+export const trashFilesEntryRequestSchema = z
+  .object({
+    context: filesContextSchema,
+    relativePath: relativeFilePathSchema
+  })
+  .strict()
+
 export const revealFilesEntryRequestSchema = z
   .object({
     context: filesContextSchema,

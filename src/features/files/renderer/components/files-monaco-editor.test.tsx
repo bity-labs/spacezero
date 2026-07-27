@@ -40,7 +40,7 @@ describe('FilesMonacoEditor', () => {
     const editorProps = editorMock.mock.calls[0]?.[0]
     expect(editorProps?.className).toBe('size-full')
     expect(editorProps?.height).toBe('100%')
-    expect(editorProps?.keepCurrentModel).toBe(true)
+    expect(editorProps).not.toHaveProperty('keepCurrentModel')
     expect(editorProps?.saveViewState).toBe(true)
     expect(editorProps?.language).toBe('cpp')
     expect(editorProps?.loading).toBeNull()
@@ -49,6 +49,6 @@ describe('FilesMonacoEditor', () => {
     expect(editorProps?.theme).toBe('vs-dark')
     expect(editorProps?.value).toBe('int main() { return 0; }\n')
     expect(editorProps?.onChange).toBe(onChange)
-    expect(editorProps?.onMount).toBe(onMount)
+    expect(editorProps?.onMount).toEqual(expect.any(Function))
   })
 })

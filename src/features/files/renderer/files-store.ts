@@ -20,6 +20,7 @@ type FilesTabBase = {
   openRequestId?: number
   targetLine?: number
   locationRequestId?: number
+  editorStateKey: string
 }
 
 export type FilesTabState =
@@ -94,6 +95,9 @@ type FilesStore = {
     document: FilesTextDocument,
     request: FilesSaveRequestSnapshot
   ) => void
+  discardDirtyTabsInPath: (sessionId: string, relativePath: string) => void
+  rewritePaths: (sessionId: string, sourcePath: string, destinationPath: string) => void
+  closeTabsInPath: (sessionId: string, relativePath: string) => void
 }
 
 const DEFAULT_EXPLORER_WIDTH = 260
@@ -117,7 +121,14 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
-      beginOpenTab: (sessionId, relativePath, intent, openRequestId, targetLine, revalidateExisting = false) => {
+      beginOpenTab: (
+        sessionId,
+        relativePath,
+        intent,
+        openRequestId,
+        targetLine,
+        revalidateExisting = false
+      ) => {
         let shouldOpen = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
@@ -176,7 +187,13 @@ const useFilesStore = create<FilesStore>()(
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((candidate) =>
               candidate === tab
-                ? toTabDocument(document, tab.preview, tab.targetLine, tab.locationRequestId)
+                ? toTabDocument(
+                    document,
+                    tab.preview,
+                    tab.targetLine,
+                    tab.locationRequestId,
+                    tab.editorStateKey
+                  )
                 : candidate
             )
           })
@@ -198,6 +215,7 @@ const useFilesStore = create<FilesStore>()(
               return {
                 relativePath,
                 name: pathName(relativePath),
+                editorStateKey: tab.editorStateKey,
                 status: 'error' as const,
                 message,
                 preview: tab.preview,
@@ -317,6 +335,7 @@ const useFilesStore = create<FilesStore>()(
               activeDocument.draft === request.content ? document.content : activeDocument.draft
             return {
               ...document,
+              editorStateKey: activeDocument.editorStateKey,
               status: 'ready',
               draft,
               dirty: draft !== document.content,
@@ -327,7 +346,72 @@ const useFilesStore = create<FilesStore>()(
               saveRequest: undefined
             }
           })
-        )
+        ),
+      discardDirtyTabsInPath: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              isPathAffectedBy(tab.relativePath, relativePath) && tab.status === 'ready'
+                ? {
+                    ...tab,
+                    draft: tab.content,
+                    dirty: false,
+                    saveStatus: 'idle',
+                    error: undefined,
+                    saveRequest: undefined
+                  }
+                : tab
+            )
+          })
+        }),
+      rewritePaths: (sessionId, sourcePath, destinationPath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const rewrite = (path: string): string =>
+            rewriteAffectedPath(path, sourcePath, destinationPath)
+          return updateContext(state, sessionId, {
+            selectedPath: context.selectedPath
+              ? rewrite(context.selectedPath)
+              : context.selectedPath,
+            expandedPaths: context.expandedPaths.map(rewrite),
+            activeTabPath: context.activeTabPath
+              ? rewrite(context.activeTabPath)
+              : context.activeTabPath,
+            tabs: context.tabs.map((tab) => ({
+              ...tab,
+              relativePath: rewrite(tab.relativePath),
+              name: pathName(rewrite(tab.relativePath))
+            }))
+          })
+        }),
+      closeTabsInPath: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const activeIndex = context.tabs.findIndex(
+            (tab) => tab.relativePath === context.activeTabPath
+          )
+          const tabs = context.tabs.filter(
+            (tab) => !isPathAffectedBy(tab.relativePath, relativePath)
+          )
+          const activeTabPath =
+            context.activeTabPath && isPathAffectedBy(context.activeTabPath, relativePath)
+              ? (tabs[activeIndex]?.relativePath ??
+                tabs[activeIndex - 1]?.relativePath ??
+                tabs[0]?.relativePath ??
+                null)
+              : context.activeTabPath
+          const selectedPath = context.selectedPath
+            ? isPathAffectedBy(context.selectedPath, relativePath)
+              ? (activeTabPath ?? parentDirectoryPath(relativePath)) || null
+              : context.selectedPath
+            : activeTabPath
+          return updateContext(state, sessionId, {
+            tabs,
+            activeTabPath,
+            selectedPath
+          })
+        })
     }),
     {
       name: 'spacezero.files',
@@ -381,11 +465,13 @@ export function toReadyDocument(
   document: FilesTextDocument,
   preview = false,
   targetLine?: number,
-  locationRequestId?: number
+  locationRequestId?: number,
+  editorStateKey = `${document.relativePath}:ready`
 ): Extract<FilesTabState, { status: 'ready' }> {
   return {
     ...document,
     name: document.name,
+    editorStateKey,
     preview,
     targetLine,
     locationRequestId,
@@ -496,6 +582,7 @@ function loadingTab(
   return {
     relativePath,
     name: pathName(relativePath),
+    editorStateKey: `${relativePath}:${openRequestId}`,
     preview,
     openRequestId,
     targetLine,
@@ -508,18 +595,36 @@ function toTabDocument(
   document: FilesDocument,
   preview: boolean,
   targetLine?: number,
-  locationRequestId?: number
+  locationRequestId?: number,
+  editorStateKey = `${document.relativePath}:ready`
 ): FilesTabState {
   return document.contentKind === 'text'
-    ? toReadyDocument(document, preview, targetLine, locationRequestId)
+    ? toReadyDocument(document, preview, targetLine, locationRequestId, editorStateKey)
     : {
         ...document,
         name: document.name,
+        editorStateKey,
         preview,
         targetLine,
         locationRequestId,
         status: 'metadata'
       }
+}
+
+function isPathAffectedBy(candidatePath: string, relativePath: string): boolean {
+  return candidatePath === relativePath || candidatePath.startsWith(`${relativePath}/`)
+}
+
+function rewriteAffectedPath(
+  candidatePath: string,
+  sourcePath: string,
+  destinationPath: string
+): string {
+  if (candidatePath === sourcePath) return destinationPath
+  if (candidatePath.startsWith(`${sourcePath}/`)) {
+    return `${destinationPath}${candidatePath.slice(sourcePath.length)}`
+  }
+  return candidatePath
 }
 
 function canReplacePreviewTab(tab: FilesTabState): boolean {
@@ -578,6 +683,11 @@ export function isMarkdownDocumentPath(relativePath: string): boolean {
 
 export function isMdxPath(relativePath: string): boolean {
   return relativePath.toLowerCase().endsWith('.mdx')
+}
+
+function parentDirectoryPath(relativePath: string): string {
+  const index = relativePath.lastIndexOf('/')
+  return index < 0 ? '' : relativePath.slice(0, index)
 }
 
 function pathName(relativePath: string): string {

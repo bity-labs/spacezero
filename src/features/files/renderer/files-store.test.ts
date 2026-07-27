@@ -44,7 +44,6 @@ describe('Files renderer state', () => {
     })
   })
 
-
   it('defaults lossless Markdown and MDX tabs to rich mode and keeps lossy documents in source mode', () => {
     const store = useFilesStore.getState()
 
@@ -53,7 +52,11 @@ describe('Files renderer state', () => {
     expect(store.beginOpenTab('session-1', 'docs/page.mdx', 'permanent', 2)).toBe(true)
     store.finishOpenTab('session-1', textDocument('docs/page.mdx', '# Page'), 2)
     expect(store.beginOpenTab('session-1', 'docs/lossy.mdx', 'permanent', 3)).toBe(true)
-    store.finishOpenTab('session-1', textDocument('docs/lossy.mdx', `import X from './x'\n\n# Page`), 3)
+    store.finishOpenTab(
+      'session-1',
+      textDocument('docs/lossy.mdx', `import X from './x'\n\n# Page`),
+      3
+    )
 
     expect(useFilesStore.getState().contexts['session-1'].tabs).toMatchObject([
       { relativePath: 'README.md', editorMode: 'rich' },
@@ -181,25 +184,19 @@ describe('Files renderer state', () => {
     }
 
     store.reorderTabs('session-1', 'one.txt', 'two.txt', 'after')
-    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
-      'two.txt',
-      'one.txt',
-      'three.txt'
-    ])
+    expect(
+      useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)
+    ).toEqual(['two.txt', 'one.txt', 'three.txt'])
 
     store.reorderTabs('session-1', 'three.txt', 'two.txt', 'before')
-    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
-      'three.txt',
-      'two.txt',
-      'one.txt'
-    ])
+    expect(
+      useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)
+    ).toEqual(['three.txt', 'two.txt', 'one.txt'])
 
     store.reorderTabs('session-1', 'three.txt', 'one.txt', 'after')
-    expect(useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)).toEqual([
-      'two.txt',
-      'one.txt',
-      'three.txt'
-    ])
+    expect(
+      useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)
+    ).toEqual(['two.txt', 'one.txt', 'three.txt'])
   })
 
   it('deterministically selects neighbors when clean tabs close', () => {
@@ -295,10 +292,18 @@ describe('Files renderer state', () => {
     store.failOpenTab('session-revalidate', 'failed.txt', 'not found', 3)
     expect(store.beginOpenTab('session-revalidate', 'pending.txt', 'permanent', 4)).toBe(true)
 
-    expect(store.beginOpenTab('session-revalidate', 'clean.txt', 'preview', 5, undefined, true)).toBe(true)
-    expect(store.beginOpenTab('session-revalidate', 'dirty.txt', 'preview', 6, undefined, true)).toBe(false)
-    expect(store.beginOpenTab('session-revalidate', 'failed.txt', 'preview', 7, undefined, true)).toBe(true)
-    expect(store.beginOpenTab('session-revalidate', 'pending.txt', 'preview', 8, undefined, true)).toBe(true)
+    expect(
+      store.beginOpenTab('session-revalidate', 'clean.txt', 'preview', 5, undefined, true)
+    ).toBe(true)
+    expect(
+      store.beginOpenTab('session-revalidate', 'dirty.txt', 'preview', 6, undefined, true)
+    ).toBe(false)
+    expect(
+      store.beginOpenTab('session-revalidate', 'failed.txt', 'preview', 7, undefined, true)
+    ).toBe(true)
+    expect(
+      store.beginOpenTab('session-revalidate', 'pending.txt', 'preview', 8, undefined, true)
+    ).toBe(true)
     store.failOpenTab('session-revalidate', 'pending.txt', 'stale failure', 4)
     store.failOpenTab('session-revalidate', 'pending.txt', 'current failure', 8)
 
@@ -409,6 +414,63 @@ describe('Files renderer state', () => {
         },
         { relativePath: 'src/two.ts', draft: 'two draft' }
       ]
+    })
+  })
+
+  it('rewrites affected tab, selection, and expanded paths after rename or move', () => {
+    const store = useFilesStore.getState()
+    store.setSelectedPath('session-1', 'src/old/index.ts')
+    store.setExpanded('session-1', 'src/old', true)
+    expect(store.beginOpenTab('session-1', 'src/old/index.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('src/old/index.ts', 'saved'), 1)
+    store.updateDraft('session-1', 'draft')
+
+    store.rewritePaths('session-1', 'src/old', 'src/new')
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      selectedPath: 'src/new/index.ts',
+      expandedPaths: ['src/new'],
+      activeTabPath: 'src/new/index.ts',
+      tabs: [
+        {
+          relativePath: 'src/new/index.ts',
+          name: 'index.ts',
+          draft: 'draft',
+          dirty: true
+        }
+      ]
+    })
+  })
+
+  it('falls back to the parent selection when Trash removes a selected item without open tabs', () => {
+    const store = useFilesStore.getState()
+    store.setSelectedPath('session-1', 'notes/archive/old.md')
+    expect(store.beginOpenTab('session-1', 'other.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('other.md', 'other saved'), 1)
+
+    store.closeTabsInPath('session-1', 'notes/archive/old.md')
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'other.md',
+      selectedPath: 'other.md',
+      tabs: [{ relativePath: 'other.md' }]
+    })
+  })
+
+  it('discards dirty affected tabs before mutation and closes affected tabs after Trash succeeds', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'notes/a.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('notes/a.md', 'saved'), 1)
+    store.updateDraft('session-1', 'draft')
+    expect(store.beginOpenTab('session-1', 'other.md', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('other.md', 'other saved'), 2)
+
+    store.discardDirtyTabsInPath('session-1', 'notes')
+    store.closeTabsInPath('session-1', 'notes')
+
+    expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
+      activeTabPath: 'other.md',
+      tabs: [{ relativePath: 'other.md' }]
     })
   })
 

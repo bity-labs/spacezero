@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import Editor from '@monaco-editor/react'
 import type * as monaco from 'monaco-editor'
 
+import { registerFilesMonacoEditor } from '../lib/files-editor-state-migration'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 
 configureFilesMonacoEnvironment()
@@ -9,7 +10,13 @@ configureFilesMonacoEnvironment()
 export type FilesMonacoEditorMount = (
   editor: Pick<
     monaco.editor.IStandaloneCodeEditor,
-    'addCommand' | 'focus' | 'revealLineInCenter' | 'setPosition'
+    | 'addCommand'
+    | 'focus'
+    | 'getModel'
+    | 'revealLineInCenter'
+    | 'restoreViewState'
+    | 'saveViewState'
+    | 'setPosition'
   >,
   monacoInstance: typeof monaco
 ) => void
@@ -35,9 +42,18 @@ export function FilesMonacoEditor({
   onChange,
   onMount
 }: FilesMonacoEditorProps): React.JSX.Element {
+  const unregisterRef = useRef<(() => void) | null>(null)
   const editorOptions = useMemo<monaco.editor.IStandaloneEditorConstructionOptions>(
     () => ({ ...options, automaticLayout: true }),
     [options]
+  )
+
+  useEffect(
+    () => () => {
+      unregisterRef.current?.()
+      unregisterRef.current = null
+    },
+    []
   )
 
   return (
@@ -45,7 +61,6 @@ export function FilesMonacoEditor({
       key={path}
       className="size-full"
       height={height}
-      keepCurrentModel
       language={language}
       loading={null}
       options={editorOptions}
@@ -54,7 +69,11 @@ export function FilesMonacoEditor({
       theme={theme}
       value={value}
       onChange={onChange}
-      onMount={onMount}
+      onMount={(editor, monacoInstance) => {
+        unregisterRef.current?.()
+        unregisterRef.current = registerFilesMonacoEditor(path, editor, monacoInstance)
+        onMount(editor, monacoInstance)
+      }}
     />
   )
 }
