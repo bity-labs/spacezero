@@ -583,7 +583,17 @@ export function BrowserTool({
                 }}
               >
                 {tab.faviconUrl ? (
-                  <img alt="" className="size-4 shrink-0" src={tab.faviconUrl} />
+                  <img
+                    alt=""
+                    className="size-4 shrink-0"
+                    src={tab.faviconUrl}
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none'
+                    }}
+                    onLoad={(event) => {
+                      event.currentTarget.style.display = ''
+                    }}
+                  />
                 ) : null}
                 <span className="truncate">{tabLabel(tab)}</span>
               </button>

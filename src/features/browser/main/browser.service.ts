@@ -75,9 +75,14 @@ export type BrowserContextRepository = {
   getCurrentKnowledgeBaseSessionId: () => Promise<string | undefined>
 }
 
+export type BrowserFaviconLoader = {
+  load: (faviconUrls: string[]) => Promise<string | null>
+}
+
 type BrowserRuntimeTab = BrowserTab & {
   restoredUrl: string | null
   hasLoadedRestoredUrl: boolean
+  faviconLoadSequence: number
 }
 
 type BrowserContextState = {
@@ -112,7 +117,8 @@ export class BrowserService {
     private readonly adapter: BrowserViewAdapter,
     private readonly contextRepository?: BrowserContextRepository,
     private readonly externalOpener?: BrowserExternalOpener,
-    private readonly tabsRepository?: BrowserTabsRepository
+    private readonly tabsRepository?: BrowserTabsRepository,
+    private readonly faviconLoader?: BrowserFaviconLoader
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -405,11 +411,20 @@ export class BrowserService {
     this.publishState(found.context)
   }
 
-  markFaviconChanged(tabId: string, faviconUrls: string[]): void {
+  async markFaviconChanged(tabId: string, faviconUrls: string[]): Promise<void> {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    found.tab.faviconUrl = faviconUrls[0] ?? null
+    const faviconLoadSequence = ++found.tab.faviconLoadSequence
+    found.tab.faviconUrl = null
     this.publishState(found.context)
+
+    const faviconUrl = this.faviconLoader
+      ? await this.faviconLoader.load(faviconUrls)
+      : (faviconUrls[0] ?? null)
+    const current = this.findTabWithContext(tabId)
+    if (!current || current.tab.faviconLoadSequence !== faviconLoadSequence) return
+    current.tab.faviconUrl = faviconUrl
+    this.publishState(current.context)
   }
 
   openNativeRequestedTab(parentTabId: string, url: string): BrowserState | undefined {
@@ -527,7 +542,8 @@ export class BrowserService {
       canGoForward: false,
       error: null,
       restoredUrl: url,
-      hasLoadedRestoredUrl
+      hasLoadedRestoredUrl,
+      faviconLoadSequence: 0
     }
     this.adapter.createView(tab.id, {
       partition: BROWSER_PARTITION,
@@ -763,9 +779,10 @@ function fallbackTitleForUrl(url: string | null): string | null {
   }
 }
 
-function clearPageMetadata(tab: BrowserTab): void {
+function clearPageMetadata(tab: BrowserRuntimeTab): void {
   tab.title = null
   tab.faviconUrl = null
+  tab.faviconLoadSequence += 1
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {
