@@ -9,19 +9,24 @@ import { discoverGlobalAgentDefinitions } from './agent-definition-discovery'
 import { resolveGlobalAgentDefinitionSources } from './agent-definition-paths'
 
 export type ResolveAgentDefinitionForSession = (
-  reference: AgentDefinitionReference
+  reference: AgentDefinitionReference,
+  context?: { sources?: AgentDefinitionSource[] }
 ) => Promise<ResolvedAgentDefinition>
 
-export type ResolveAgentDefinitionsForDelegation = () => Promise<DelegationAgentDefinition[]>
+export type ResolveAgentDefinitionsForDelegation = (context?: {
+  sources?: AgentDefinitionSource[]
+}) => Promise<DelegationAgentDefinition[]>
 
 export async function resolveAgentDefinitionsForDelegation({
   resolveSources = resolveGlobalAgentDefinitionSources,
-  discoverDefinitions = discoverGlobalAgentDefinitions
+  discoverDefinitions = discoverGlobalAgentDefinitions,
+  sources
 }: {
   resolveSources?: () => Promise<AgentDefinitionSource[]>
   discoverDefinitions?: typeof discoverGlobalAgentDefinitions
+  sources?: AgentDefinitionSource[]
 } = {}): Promise<DelegationAgentDefinition[]> {
-  const catalog = await discoverDefinitions({ sources: await resolveSources() })
+  const catalog = await discoverDefinitions({ sources: sources ?? (await resolveSources()) })
   return catalog.flatMap((entry) => {
     if (entry.status !== 'valid' || entry.shadowedBy) return []
     return [toDelegationAgentDefinition(entry)]
@@ -32,16 +37,18 @@ export async function resolveAgentDefinitionForSession(
   reference: AgentDefinitionReference,
   {
     resolveSources = resolveGlobalAgentDefinitionSources,
-    discoverDefinitions = discoverGlobalAgentDefinitions
+    discoverDefinitions = discoverGlobalAgentDefinitions,
+    sources
   }: {
     resolveSources?: () => Promise<AgentDefinitionSource[]>
     discoverDefinitions?: typeof discoverGlobalAgentDefinitions
+    sources?: AgentDefinitionSource[]
   } = {}
 ): Promise<ResolvedAgentDefinition> {
   const id = reference.id.trim()
   if (!id) throw new Error('agentDefinitions.definitionNotFound')
 
-  const catalog = await discoverDefinitions({ sources: await resolveSources() })
+  const catalog = await discoverDefinitions({ sources: sources ?? (await resolveSources()) })
   const definition = catalog.find(
     (entry) => entry.id === id && entry.status === 'valid' && !entry.shadowedBy
   )

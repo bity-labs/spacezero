@@ -7,6 +7,7 @@ import {
   type ProjectLifecycleLock
 } from './project-lifecycle-lock'
 import type {
+  AddProjectFromFolderRequest,
   CreateEmptyProjectRequest,
   GitHubRepositoryAssociation,
   Project,
@@ -24,6 +25,7 @@ export type StoredProject = {
   githubName?: string | null
   githubUrl?: string | null
   githubLinkedAt?: Date | null
+  agentResourcesTrusted?: boolean
   createdAt: Date
   updatedAt: Date
   archivedAt?: Date | null
@@ -57,6 +59,7 @@ export type LinkGitHubRepositoryInput = Omit<GitHubRepositoryAssociation, 'fullN
 export type RegisterGitHubProjectInput = LinkGitHubRepositoryInput & {
   name: string
   path: string
+  agentResourcesTrusted?: boolean
 }
 
 export type ProjectsService = {
@@ -68,7 +71,7 @@ export type ProjectsService = {
   ) => Promise<Project>
   registerGitHubProject: (input: RegisterGitHubProjectInput) => Promise<Project>
   createEmptyProject: (request: CreateEmptyProjectRequest) => Promise<Project>
-  addProjectFromFolder: () => Promise<Project | null>
+  addProjectFromFolder: (request?: AddProjectFromFolderRequest) => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
   archiveProject: (projectId: string) => Promise<void>
   deleteProject: (projectId: string) => Promise<StoredProject>
@@ -148,6 +151,7 @@ export function createProjectsService({
           githubName: input.name,
           githubUrl: input.htmlUrl,
           githubLinkedAt: timestamp,
+          agentResourcesTrusted: input.agentResourcesTrusted === true,
           createdAt: timestamp,
           updatedAt: timestamp
         })
@@ -163,13 +167,14 @@ export function createProjectsService({
         id: nanoid(),
         name,
         path: pathAdapter.normalizeProjectPath(path),
+        agentResourcesTrusted: request.agentResourcesTrusted === true,
         createdAt: timestamp,
         updatedAt: timestamp
       })
       return linkOptionalKnowledgeBase(project)
     },
 
-    async addProjectFromFolder() {
+    async addProjectFromFolder(request = { agentResourcesTrusted: false }) {
       const folder = await pathAdapter.chooseProjectFolder()
       if (folder.canceled) return null
 
@@ -178,6 +183,7 @@ export function createProjectsService({
         id: nanoid(),
         name: normalizeName(folder.name),
         path: pathAdapter.normalizeProjectPath(folder.path),
+        agentResourcesTrusted: request.agentResourcesTrusted === true,
         createdAt: timestamp,
         updatedAt: timestamp
       })
@@ -203,6 +209,9 @@ export function createProjectsService({
             ...existing,
             name: normalizeName(request.name),
             path: normalizedPath,
+            ...(request.agentResourcesTrusted === undefined
+              ? {}
+              : { agentResourcesTrusted: request.agentResourcesTrusted === true }),
             updatedAt: now()
           })
         )
@@ -254,6 +263,7 @@ function toProject(project: StoredProject, setupWarning?: string): Project {
     path: project.path,
     ...(project.knowledgeBasePath ? { knowledgeBasePath: project.knowledgeBasePath } : {}),
     ...(setupWarning ? { setupWarning } : {}),
+    agentResourcesTrusted: project.agentResourcesTrusted === true,
     ...(hasGitHubAssociation
       ? {
           githubRepository: {

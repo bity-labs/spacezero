@@ -106,6 +106,91 @@ describe('createProjectsService', () => {
     expect(await service.listProjects()).toEqual([project])
   })
 
+  it('persists explicit agent-resource trust when creating and importing projects', async () => {
+    const service = createProjectsService({
+      repository: createMemoryRepository(),
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/trusted-empty',
+        chooseProjectFolder: async () => ({
+          canceled: false,
+          path: '/tmp/trusted-folder',
+          name: 'Trusted Folder'
+        }),
+        normalizeProjectPath: (path) => path
+      }
+    })
+
+    await expect(
+      service.createEmptyProject({ name: 'Trusted Empty', agentResourcesTrusted: true })
+    ).resolves.toMatchObject({ agentResourcesTrusted: true })
+    await expect(
+      service.addProjectFromFolder({ agentResourcesTrusted: true })
+    ).resolves.toMatchObject({ agentResourcesTrusted: true })
+  })
+
+  it('defaults existing or unspecified Project trust to untrusted and preserves it across path edits', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository([
+        {
+          id: 'project-1',
+          name: 'Space Zero',
+          path: '/tmp/spacezero',
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]),
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path.trim()
+      }
+    })
+
+    await expect(service.getProject('project-1')).resolves.toMatchObject({
+      agentResourcesTrusted: false
+    })
+    await service.updateProject({
+      id: 'project-1',
+      name: 'Space Zero Desktop',
+      path: ' /tmp/spacezero-desktop '
+    })
+    await expect(service.getProject('project-1')).resolves.toMatchObject({
+      path: '/tmp/spacezero-desktop',
+      agentResourcesTrusted: false
+    })
+  })
+
+  it('updates Project agent-resource trust independently of path', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const service = createProjectsService({
+      repository: createMemoryRepository([
+        {
+          id: 'project-1',
+          name: 'Space Zero',
+          path: '/tmp/spacezero',
+          agentResourcesTrusted: false,
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]),
+      pathAdapter: {
+        createEmptyProjectDirectory: async () => '/tmp/unused',
+        chooseProjectFolder: async () => ({ canceled: true }),
+        normalizeProjectPath: (path) => path.trim()
+      }
+    })
+
+    await expect(
+      service.updateProject({
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/tmp/spacezero',
+        agentResourcesTrusted: true
+      })
+    ).resolves.toMatchObject({ agentResourcesTrusted: true, path: '/tmp/spacezero' })
+  })
+
   it('keeps project creation successful when optional Knowledge Base linking fails', async () => {
     const service = createProjectsService({
       repository: createMemoryRepository(),
@@ -359,6 +444,7 @@ describe('createProjectsService', () => {
       id: 'project-1',
       name: 'Space Zero Desktop',
       path: '/tmp/spacezero-desktop',
+      agentResourcesTrusted: false,
       createdAt: createdAt.toISOString(),
       updatedAt: updatedAt.toISOString()
     })

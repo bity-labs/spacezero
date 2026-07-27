@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 
 import { RepositorySetup } from '../../../github/renderer'
 import type { Project } from '../../shared'
+import { AgentResourceTrustCheckbox } from './agent-resource-trust-checkbox'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -19,8 +20,8 @@ import { cn } from '@renderer/lib/utils'
 type AddProjectDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onCreateEmptyProject: (request: { name: string }) => Promise<Project>
-  onAddFromFolder: () => Promise<Project | null>
+  onCreateEmptyProject: (request: { name: string; agentResourcesTrusted: boolean }) => Promise<Project>
+  onAddFromFolder: (request: { agentResourcesTrusted: boolean }) => Promise<Project | null>
   onGitHubProjectReady: (projectId: string) => Promise<void>
 }
 
@@ -37,12 +38,14 @@ export function AddProjectDialog({
   const [selectedPath, setSelectedPath] = useState<SetupPath>('empty')
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [agentResourcesTrusted, setAgentResourcesTrusted] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
   const reset = (): void => {
     setSelectedPath('empty')
     setName('')
     setError(null)
+    setAgentResourcesTrusted(false)
     setIsSaving(false)
   }
 
@@ -50,7 +53,7 @@ export function AddProjectDialog({
     setIsSaving(true)
     setError(null)
     try {
-      await onCreateEmptyProject({ name })
+      await onCreateEmptyProject({ name, agentResourcesTrusted })
       reset()
       onOpenChange(false)
     } catch {
@@ -69,7 +72,7 @@ export function AddProjectDialog({
     setIsSaving(true)
     setError(null)
     try {
-      const project = await onAddFromFolder()
+      const project = await onAddFromFolder({ agentResourcesTrusted })
       if (project) {
         reset()
         onOpenChange(false)
@@ -147,7 +150,20 @@ export function AddProjectDialog({
           </p>
         ) : null}
 
-        {selectedPath === 'git' ? <RepositorySetup onProjectReady={finishGitHubProject} /> : null}
+        {selectedPath === 'git' ? (
+          <RepositorySetup
+            agentResourcesTrusted={agentResourcesTrusted}
+            onAgentResourcesTrustedChange={setAgentResourcesTrusted}
+            onProjectReady={finishGitHubProject}
+          />
+        ) : null}
+
+        {selectedPath === 'empty' || selectedPath === 'folder' ? (
+          <AgentResourceTrustCheckbox
+            checked={agentResourcesTrusted}
+            onCheckedChange={setAgentResourcesTrusted}
+          />
+        ) : null}
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 

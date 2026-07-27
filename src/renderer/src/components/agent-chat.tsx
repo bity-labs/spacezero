@@ -135,20 +135,37 @@ function useAgentDefinitionControls(
 
   const refreshDefinitions = useCallback(() => {
     void window.spacezero.agents
-      .getGlobalDefinitions()
+      .getSessionDefinitions({ sessionId })
       .then((catalog) => {
         setDefinitions(
           catalog.flatMap((entry) => {
-            if (entry.status !== 'valid' || entry.shadowedBy || !entry.name || !entry.description) {
-              return []
+            const diagnostic = entry.diagnostics.find((item) => item.severity === 'error')
+            if (entry.status !== 'valid') {
+              return [
+                {
+                  id: entry.id,
+                  name: entry.name ?? entry.id,
+                  description: entry.description ?? 'Invalid Agent Definition.',
+                  scope: entry.scope,
+                  disabled: true,
+                  unavailableReason: diagnostic?.message ?? 'Invalid Agent Definition.'
+                }
+              ]
             }
+            if (!entry.name || !entry.description) return []
 
             return [
               {
                 id: entry.id,
                 name: entry.name,
                 description: entry.description,
-                scope: entry.scope
+                scope: entry.scope,
+                ...(entry.shadowedBy
+                  ? {
+                      disabled: true,
+                      unavailableReason: `Shadowed by ${entry.shadowedBy} Agent Definition.`
+                    }
+                  : {})
               }
             ]
           })
@@ -160,7 +177,7 @@ function useAgentDefinitionControls(
         setDefinitions([])
         setError('Unable to load Agent Definitions.')
       })
-  }, [])
+  }, [sessionId])
 
   useEffect(() => {
     refreshDefinitions()

@@ -230,6 +230,7 @@ export type ProjectReference = {
 export type StartGitHubCloneRequest = {
   repositoryId: string
   existingProjectId?: string
+  agentResourcesTrusted?: boolean
 }
 
 export type StartGitHubCloneResult =

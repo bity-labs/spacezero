@@ -204,7 +204,10 @@ describe('GitHub IPC boundary', () => {
       number: 100,
       page: 2
     })
-    expect(calls.startClone).toHaveBeenCalledWith({ repositoryId: '1000' }, expect.any(Function))
+    expect(calls.startClone).toHaveBeenCalledWith(
+      { repositoryId: '1000', agentResourcesTrusted: false },
+      expect.any(Function)
+    )
     expect(sender.send).toHaveBeenCalledWith(IPC_CHANNELS.github.cloneProgress, {
       operationId: 'clone-1',
       status: 'cloning',

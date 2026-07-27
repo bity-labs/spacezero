@@ -79,6 +79,8 @@ const api: SpaceZeroAPI = {
   },
   agents: {
     getGlobalDefinitions: () => ipcRenderer.invoke(IPC_CHANNELS.agents.getGlobalDefinitions),
+    getSessionDefinitions: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.agents.getSessionDefinitions, request),
     openDefinitionsFolder: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agents.openDefinitionsFolder, request)
   },
@@ -150,7 +152,7 @@ const api: SpaceZeroAPI = {
   projects: {
     list: () => ipcRenderer.invoke(IPC_CHANNELS.projects.list),
     createEmpty: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.createEmpty, request),
-    addFromFolder: () => ipcRenderer.invoke(IPC_CHANNELS.projects.addFromFolder),
+    addFromFolder: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.addFromFolder, request),
     update: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.update, request),
     archive: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.archive, request),
     delete: (request) => ipcRenderer.invoke(IPC_CHANNELS.projects.delete, request)
