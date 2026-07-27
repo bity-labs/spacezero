@@ -105,6 +105,7 @@ type FilesStore = {
   reloadExternalDocument: (sessionId: string, document: FilesDocument) => void
   markExternalConflict: (sessionId: string, relativePath: string, diskRevision: string) => void
   markDeletedOnDisk: (sessionId: string, relativePath: string) => void
+  markExternalReadFailed: (sessionId: string, relativePath: string, message: string) => void
   discardDirtyTabsInPath: (sessionId: string, relativePath: string) => void
   rewritePaths: (sessionId: string, sourcePath: string, destinationPath: string) => void
   closeTabsInPath: (sessionId: string, relativePath: string) => void
@@ -371,7 +372,8 @@ const useFilesStore = create<FilesStore>()(
                 tab.preview,
                 tab.targetLine,
                 tab.locationRequestId,
-                tab.editorStateKey
+                tab.editorStateKey,
+                tab.status === 'ready' ? tab.editorMode : undefined
               )
             })
           })
@@ -387,7 +389,8 @@ const useFilesStore = create<FilesStore>()(
                     false,
                     tab.targetLine,
                     tab.locationRequestId,
-                    tab.editorStateKey
+                    tab.editorStateKey,
+                    tab.status === 'ready' ? tab.editorMode : undefined
                   )
                 : tab
             )
@@ -415,6 +418,16 @@ const useFilesStore = create<FilesStore>()(
             error: 'Deleted on disk. Recreate file or close the tab.',
             saveRequest: undefined,
             externalStatus: { kind: 'deleted', missingRevision: document.revision }
+          }))
+        ),
+      markExternalReadFailed: (sessionId, relativePath, message) =>
+        set((state) =>
+          updateMatchingReadyTab(state, sessionId, relativePath, (document) => ({
+            ...document,
+            preview: false,
+            saveStatus: 'error',
+            error: message,
+            saveRequest: undefined
           }))
         ),
       discardDirtyTabsInPath: (sessionId, relativePath) =>
@@ -537,8 +550,10 @@ export function toReadyDocument(
   preview = false,
   targetLine?: number,
   locationRequestId?: number,
-  editorStateKey = `${document.relativePath}:ready`
+  editorStateKey = `${document.relativePath}:ready`,
+  preferredEditorMode?: FilesEditorMode
 ): Extract<FilesTabState, { status: 'ready' }> {
+  const defaultEditorMode = getDefaultEditorMode(document.relativePath, document.content)
   return {
     ...document,
     name: document.name,
@@ -551,7 +566,7 @@ export function toReadyDocument(
     dirty: false,
     saveStatus: 'idle',
     saveRequest: undefined,
-    editorMode: getDefaultEditorMode(document.relativePath, document.content)
+    editorMode: preferredEditorMode === 'source' ? 'source' : defaultEditorMode
   }
 }
 
@@ -667,10 +682,18 @@ function toTabDocument(
   preview: boolean,
   targetLine?: number,
   locationRequestId?: number,
-  editorStateKey = `${document.relativePath}:ready`
+  editorStateKey = `${document.relativePath}:ready`,
+  preferredEditorMode?: FilesEditorMode
 ): FilesTabState {
   return document.contentKind === 'text'
-    ? toReadyDocument(document, preview, targetLine, locationRequestId, editorStateKey)
+    ? toReadyDocument(
+        document,
+        preview,
+        targetLine,
+        locationRequestId,
+        editorStateKey,
+        preferredEditorMode
+      )
     : {
         ...document,
         name: document.name,

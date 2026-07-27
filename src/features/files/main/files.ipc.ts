@@ -28,6 +28,100 @@ import { revealFilesEntry } from './files-reveal.adapter'
 import { searchFiles } from './files-search.adapter'
 import { createFilesService } from './files.service'
 
+
+type FilesObservationSender = {
+  id: number
+  isDestroyed: () => boolean
+  send: (channel: string, payload: unknown) => void
+  once: (event: 'destroyed', listener: () => void) => unknown
+  removeListener: (event: 'destroyed', listener: () => void) => unknown
+}
+
+type FilesObservationService = {
+  observe: (
+    context: Parameters<ReturnType<typeof createFilesService>['observe']>[0],
+    onEvent: Parameters<ReturnType<typeof createFilesService>['observe']>[1]
+  ) => Promise<() => void>
+}
+
+type FilesObservationRecord = {
+  sender: FilesObservationSender
+  close?: () => void
+  closed: boolean
+  onDestroyed: () => void
+}
+
+export function createObserveFilesHandler(
+  service: FilesObservationService,
+  observations = new Map<string, FilesObservationRecord>()
+): (sender: FilesObservationSender, input: unknown) => Promise<{ subscriptionId: string }> {
+  return async (sender, input) => {
+    const request = observeFilesRequestSchema.parse(input)
+    const observationKey = filesObservationKey(sender, request.subscriptionId)
+    closeFilesObservation(observations, observationKey)
+
+    const record: FilesObservationRecord = {
+      sender,
+      closed: false,
+      onDestroyed: () => closeFilesObservation(observations, observationKey)
+    }
+    observations.set(observationKey, record)
+    sender.once('destroyed', record.onDestroyed)
+
+    try {
+      const close = await service.observe(request.context, (payload) => {
+        if (record.closed || observations.get(observationKey) !== record || sender.isDestroyed()) {
+          return
+        }
+        sender.send(FILES_IPC_CHANNELS.observationEvent, {
+          subscriptionId: request.subscriptionId,
+          ...payload
+        })
+      })
+      if (record.closed || observations.get(observationKey) !== record) {
+        close()
+        return { subscriptionId: request.subscriptionId }
+      }
+      record.close = close
+      return { subscriptionId: request.subscriptionId }
+    } catch (error) {
+      if (observations.get(observationKey) === record) {
+        observations.delete(observationKey)
+        sender.removeListener('destroyed', record.onDestroyed)
+      }
+      record.closed = true
+      throw error
+    }
+  }
+}
+
+export function createUnobserveFilesHandler(
+  observations = new Map<string, FilesObservationRecord>()
+): (sender: FilesObservationSender, input: unknown) => Promise<void> {
+  return async (sender, input) => {
+    const request = unobserveFilesRequestSchema.parse(input)
+    closeFilesObservation(observations, filesObservationKey(sender, request.subscriptionId))
+  }
+}
+
+function closeFilesObservation(
+  observations: Map<string, FilesObservationRecord>,
+  observationKey: string
+): void {
+  const record = observations.get(observationKey)
+  if (!record) return
+  observations.delete(observationKey)
+  if (!record.closed) {
+    record.closed = true
+    record.sender.removeListener('destroyed', record.onDestroyed)
+    record.close?.()
+  }
+}
+
+function filesObservationKey(sender: Pick<FilesObservationSender, 'id'>, subscriptionId: string): string {
+  return `${sender.id}:${subscriptionId}`
+}
+
 const filesService = createFilesService({
   repository: createSessionsRepository(),
   worktrees: getManagedWorktreeService(),
@@ -110,7 +204,7 @@ export function registerFilesIpc(): void {
   const handleRevealEntry = createRevealFilesEntryHandler(filesService)
   const handleSearch = createSearchFilesHandler(filesService)
   const handleCancelSearch = createCancelFilesSearchHandler(filesService)
-  const observations = new Map<string, () => void>()
+  const observations = new Map<string, FilesObservationRecord>()
 
   ipcMain.handle(FILES_IPC_CHANNELS.listDirectory, (_event, input: unknown) =>
     handleListDirectory(input)
@@ -133,28 +227,12 @@ export function registerFilesIpc(): void {
   ipcMain.handle(FILES_IPC_CHANNELS.cancelSearch, (_event, input: unknown) =>
     handleCancelSearch(input)
   )
-  ipcMain.handle(FILES_IPC_CHANNELS.observe, async (event, input: unknown) => {
-    const request = observeFilesRequestSchema.parse(input)
-    const observationKey = `${event.sender.id}:${request.subscriptionId}`
-    observations.get(observationKey)?.()
-    const close = await filesService.observe(request.context, (payload) => {
-      if (event.sender.isDestroyed()) return
-      event.sender.send(FILES_IPC_CHANNELS.observationEvent, {
-        subscriptionId: request.subscriptionId,
-        ...payload
-      })
-    })
-    observations.set(observationKey, close)
-    event.sender.once('destroyed', () => {
-      observations.get(observationKey)?.()
-      observations.delete(observationKey)
-    })
-    return { subscriptionId: request.subscriptionId }
-  })
-  ipcMain.handle(FILES_IPC_CHANNELS.unobserve, (event, input: unknown) => {
-    const request = unobserveFilesRequestSchema.parse(input)
-    const observationKey = `${event.sender.id}:${request.subscriptionId}`
-    observations.get(observationKey)?.()
-    observations.delete(observationKey)
-  })
+  const handleObserve = createObserveFilesHandler(filesService, observations)
+  const handleUnobserve = createUnobserveFilesHandler(observations)
+  ipcMain.handle(FILES_IPC_CHANNELS.observe, (event, input: unknown) =>
+    handleObserve(event.sender, input)
+  )
+  ipcMain.handle(FILES_IPC_CHANNELS.unobserve, (event, input: unknown) =>
+    handleUnobserve(event.sender, input)
+  )
 }

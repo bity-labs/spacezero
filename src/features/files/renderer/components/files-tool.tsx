@@ -124,6 +124,7 @@ function FilesToolSession({
   const reloadExternalDocument = useFilesStore((state) => state.reloadExternalDocument)
   const markExternalConflict = useFilesStore((state) => state.markExternalConflict)
   const markDeletedOnDisk = useFilesStore((state) => state.markDeletedOnDisk)
+  const markExternalReadFailed = useFilesStore((state) => state.markExternalReadFailed)
   const discardDirtyTabsInPath = useFilesStore((state) => state.discardDirtyTabsInPath)
   const rewritePaths = useFilesStore((state) => state.rewritePaths)
   const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
@@ -139,6 +140,7 @@ function FilesToolSession({
   const restoredRootRef = useRef(false)
   const searchRequestRef = useRef(0)
   const activeSearchRequestIdRef = useRef<string | null>(null)
+  const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
 
@@ -382,10 +384,20 @@ function FilesToolSession({
         }
       }
       markSaving(sessionId, saveRequest)
-      const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
-      if (result.status === 'saved') markSaved(sessionId, result.document, saveRequest)
+      try {
+        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        if (result.status === 'conflict') {
+          markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          markExternalConflict(sessionId, document.relativePath, result.document.revision)
+          return
+        }
+        markSaved(sessionId, result.document, saveRequest)
+        refreshActiveSearch()
+      } catch (error) {
+        markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+      }
     },
-    [ipcContext, markSaved, markSaving, sessionId]
+    [ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
   )
 
   const recreateDeletedFile = useCallback(
@@ -402,10 +414,20 @@ function FilesToolSession({
         }
       }
       markSaving(sessionId, saveRequest)
-      const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
-      if (result.status === 'saved') markSaved(sessionId, result.document, saveRequest)
+      try {
+        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        if (result.status === 'conflict') {
+          markSaveFailed(sessionId, saveConflictMessage, saveRequest)
+          markExternalConflict(sessionId, document.relativePath, result.document.revision)
+          return
+        }
+        markSaved(sessionId, result.document, saveRequest)
+        refreshActiveSearch()
+      } catch (error) {
+        markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
+      }
     },
-    [ipcContext, markSaved, markSaving, sessionId]
+    [ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
   )
 
   const prepareDirtyOperation = useCallback(
@@ -563,22 +585,60 @@ function FilesToolSession({
     const subscriptionId = `${sessionId}:files-observation`
     let closed = false
     void window.spacezero.files.observe({ context: ipcContext, subscriptionId })
-    const refreshOpenTab = async (relativePath: string): Promise<void> => {
-      const tab = useFilesStore
+    const refreshOpenTab = async (relativePath: string, deleted: boolean): Promise<void> => {
+      const observedReadSequence = (observedDocumentReadSequencesRef.current.get(relativePath) ?? 0) + 1
+      observedDocumentReadSequencesRef.current.set(relativePath, observedReadSequence)
+      const observedTab = useFilesStore
         .getState()
         .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
-      if (!tab || tab.status !== 'ready') return
+      if (!observedTab || observedTab.status !== 'ready') return
+      if (deleted) {
+        markDeletedOnDisk(sessionId, relativePath)
+        return
+      }
       try {
         const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
-        if (closed) return
-        if (tab.dirty || tab.externalStatus) {
+        if (
+          closed ||
+          observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence
+        ) {
+          return
+        }
+        const latestTab = useFilesStore
+          .getState()
+          .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
+        if (!latestTab || latestTab.status !== 'ready') return
+        if (latestTab.revision !== observedTab.revision && !latestTab.externalStatus) return
+        if (latestTab.dirty || latestTab.externalStatus) {
           markExternalConflict(sessionId, relativePath, document.revision)
         } else {
           reloadCleanExternalDocument(sessionId, document)
         }
-      } catch {
-        if (!closed) markDeletedOnDisk(sessionId, relativePath)
+      } catch (error) {
+        if (
+          closed ||
+          observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence
+        ) {
+          return
+        }
+        if (isFilesNotFoundError(error)) {
+          markDeletedOnDisk(sessionId, relativePath)
+        } else {
+          markExternalReadFailed(sessionId, relativePath, externalReadErrorMessage(error))
+        }
       }
+    }
+    const refreshAffectedTree = (relativePath: string | null): void => {
+      if (!relativePath) {
+        void loadRoot()
+        return
+      }
+      const parentPath = parentDirectoryPath(relativePath)
+      if (!parentPath) {
+        void loadRoot()
+        return
+      }
+      void loadDirectory(parentPath)
     }
     const unsubscribeEvents = window.spacezero.files.onObservationEvent((event) => {
       if (event.subscriptionId !== subscriptionId || event.contextKey !== sessionId) return
@@ -586,17 +646,16 @@ function FilesToolSession({
         window.console.warn('Files watcher error', event.message)
         return
       }
-      invalidateSearchResults()
-      void loadRoot()
-      for (const expandedPath of expandedPathsRef.current) void loadDirectory(expandedPath)
-      if (event.relativePath) void refreshOpenTab(event.relativePath)
+      refreshActiveSearch()
+      refreshAffectedTree(event.relativePath)
+      if (event.relativePath) void refreshOpenTab(event.relativePath, event.kind === 'deleted')
     })
     return () => {
       closed = true
       unsubscribeEvents()
       void window.spacezero.files.unobserve({ subscriptionId })
     }
-  }, [invalidateSearchResults, ipcContext, loadDirectory, loadRoot, markDeletedOnDisk, markExternalConflict, reloadCleanExternalDocument, sessionId])
+  }, [ipcContext, loadDirectory, loadRoot, markDeletedOnDisk, markExternalConflict, markExternalReadFailed, refreshActiveSearch, reloadCleanExternalDocument, sessionId])
 
   useEffect(() => {
     if (rootState.status !== 'ready' || restoredRootRef.current) return
@@ -1732,6 +1791,18 @@ function saveErrorMessage(error: unknown): string {
   if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
   if (code.includes('files.notEditableText')) return 'This file is not editable text.'
   return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function isFilesNotFoundError(error: unknown): boolean {
+  return error instanceof Error && error.message.includes('files.notFound')
+}
+
+function externalReadErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.inaccessible')) {
+    return 'Space Zero cannot access this file. Check its permissions and try again.'
+  }
+  return 'Couldn’t reload this file from disk. Your changes are still in memory.'
 }
 
 function fileOperationErrorMessage(error: unknown): string {

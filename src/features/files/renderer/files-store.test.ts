@@ -474,22 +474,27 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('reloads a clean external document while preserving tab identity', () => {
+  it('reloads a clean external document while preserving tab identity and valid editor mode', () => {
     const store = useFilesStore.getState()
-    expect(store.beginOpenTab('session-external-clean', 'src/index.ts', 'permanent', 1)).toBe(true)
-    store.finishOpenTab('session-external-clean', textDocument('src/index.ts', 'old'), 1)
+    expect(store.beginOpenTab('session-external-clean', 'README.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-external-clean', textDocument('README.md', '# old'), 1)
+    store.setEditorMode('session-external-clean', 'README.md', 'source')
+    const editorStateKey = useFilesStore.getState().contexts['session-external-clean'].tabs[0]
+      .editorStateKey
 
     store.reloadCleanExternalDocument('session-external-clean', {
-      ...textDocument('src/index.ts', 'new'),
+      ...textDocument('README.md', '# new'),
       revision: 'new-revision'
     })
 
     expect(useFilesStore.getState().contexts['session-external-clean'].tabs[0]).toMatchObject({
-      relativePath: 'src/index.ts',
-      content: 'new',
-      draft: 'new',
+      relativePath: 'README.md',
+      content: '# new',
+      draft: '# new',
       dirty: false,
-      revision: 'new-revision'
+      revision: 'new-revision',
+      editorMode: 'source',
+      editorStateKey
     })
   })
 
