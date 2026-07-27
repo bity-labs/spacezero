@@ -1164,6 +1164,96 @@ describe('Files Tool', () => {
     expect(openDocument).toHaveBeenCalledTimes(2)
   })
 
+  it('creates a file through the shared Files contract, refreshes the tree, and opens the new file', async () => {
+    let entries = [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }]
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    const createEntry = vi.fn(async () => {
+      entries = [
+        ...entries,
+        { name: 'new-note.md', relativePath: 'new-note.md', kind: 'file' as const }
+      ]
+    })
+    window.spacezero.files.createEntry = createEntry
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 0,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'new-revision',
+      content: '',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    vi.spyOn(window, 'prompt').mockReturnValue('new-note.md')
+
+    render(<FilesTool sessionId="session-1" />)
+    await screen.findByText('README.md')
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-1' },
+        relativePath: 'new-note.md',
+        kind: 'file'
+      })
+    )
+    expect(await screen.findByRole('tab', { name: /new-note\.md/ })).toBeInTheDocument()
+  })
+
+  it('requires a dirty choice before rename, saves first, and rewrites tab model identity', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'draft.md', relativePath: 'draft.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 6,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Old',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn(async ({ content }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'draft.md',
+        relativePath: 'draft.md',
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    const moveEntry = vi.fn(async () => undefined)
+    window.spacezero.files.saveDocument = saveDocument
+    window.spacezero.files.moveEntry = moveEntry
+    vi.spyOn(window, 'prompt').mockReturnValueOnce('renamed.md').mockReturnValueOnce('save')
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('draft.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: '# Draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+
+    await waitFor(() => expect(moveEntry).toHaveBeenCalledTimes(1))
+    expect(saveDocument).toHaveBeenCalledTimes(1)
+    expect(moveEntry).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      sourcePath: 'draft.md',
+      destinationPath: 'renamed.md'
+    })
+    expect(
+      screen.getByLabelText('Rich Markdown editor').closest('.rich-markdown-editor')
+    ).toHaveAttribute('data-document-relative-path', 'renamed.md')
+  })
+
   it('saves every dirty tab in the active context and reports mixed Save All outcomes per file', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },

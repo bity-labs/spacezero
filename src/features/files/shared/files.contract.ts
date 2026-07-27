@@ -2,6 +2,9 @@ export const FILES_IPC_CHANNELS = {
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
   saveDocument: 'files:saveDocument',
+  createEntry: 'files:createEntry',
+  moveEntry: 'files:moveEntry',
+  trashEntry: 'files:trashEntry',
   revealInSystemFileManager: 'files:revealInSystemFileManager',
   search: 'files:search',
   cancelSearch: 'files:cancelSearch',
@@ -39,6 +42,23 @@ export type SaveFilesDocumentRequest = {
   relativePath: string
   content: string
   expectedRevision: string
+}
+
+export type CreateFilesEntryRequest = {
+  context: FilesContext
+  relativePath: string
+  kind: 'file' | 'folder'
+}
+
+export type MoveFilesEntryRequest = {
+  context: FilesContext
+  sourcePath: string
+  destinationPath: string
+}
+
+export type TrashFilesEntryRequest = {
+  context: FilesContext
+  relativePath: string
 }
 
 export type SearchFilesRequest = {
@@ -99,8 +119,7 @@ export type FilesMetadataDocument = FilesDocumentBase & {
 export type FilesDocument = FilesTextDocument | FilesImageDocument | FilesMetadataDocument
 
 export type SaveFilesDocumentResult =
-  | { status: 'saved'; document: FilesTextDocument }
-  | { status: 'conflict'; document: FilesDocument }
+  { status: 'saved'; document: FilesTextDocument } | { status: 'conflict'; document: FilesDocument }
 
 export type FilesSearchSnippet = {
   line: number
@@ -138,6 +157,9 @@ export type FilesAPI = {
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>
+  createEntry: (request: CreateFilesEntryRequest) => Promise<void>
+  moveEntry: (request: MoveFilesEntryRequest) => Promise<void>
+  trashEntry: (request: TrashFilesEntryRequest) => Promise<void>
   revealInSystemFileManager: (request: RevealFilesEntryRequest) => Promise<void>
   search: (request: SearchFilesRequest) => Promise<FilesSearchResult[]>
   cancelSearch: (request: CancelFilesSearchRequest) => Promise<void>

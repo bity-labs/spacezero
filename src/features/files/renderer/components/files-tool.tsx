@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaretDown, CaretRight, MagnifyingGlass, SidebarSimple, X } from '@phosphor-icons/react'
+import {
+  CaretDown,
+  CaretRight,
+  MagnifyingGlass,
+  Plus,
+  SidebarSimple,
+  X
+} from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
 import {
@@ -112,6 +119,9 @@ function FilesToolSession({
   const markSaving = useFilesStore((state) => state.markSaving)
   const markSaveFailed = useFilesStore((state) => state.markSaveFailed)
   const markSaved = useFilesStore((state) => state.markSaved)
+  const discardDirtyTabsInPath = useFilesStore((state) => state.discardDirtyTabsInPath)
+  const rewritePaths = useFilesStore((state) => state.rewritePaths)
+  const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
   const [searchQuery, setSearchQuery] = useState('')
   const [includeIgnoredSearch, setIncludeIgnoredSearch] = useState(false)
@@ -325,6 +335,100 @@ function FilesToolSession({
     await Promise.all(dirtyDocuments.map((document) => saveDocumentSnapshot(document)))
   }, [context.tabs, saveDocumentSnapshot])
 
+  const prepareDirtyOperation = useCallback(
+    async (relativePath: string): Promise<boolean> => {
+      const dirtyTabs =
+        useFilesStore
+          .getState()
+          .contexts[sessionId]?.tabs.filter(
+            (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+              tab.status === 'ready' &&
+              tab.dirty &&
+              isPathAffectedBy(tab.relativePath, relativePath)
+          ) ?? []
+      if (dirtyTabs.length === 0) return true
+      const choice = window
+        .prompt(
+          `Save, discard, or cancel before changing ${relativePath}? Type save, discard, or cancel.`,
+          'cancel'
+        )
+        ?.trim()
+        .toLowerCase()
+      if (choice === 'save') {
+        const results = await Promise.all(dirtyTabs.map((tab) => saveDocumentSnapshot(tab)))
+        return results.every(Boolean)
+      }
+      if (choice === 'discard') {
+        discardDirtyTabsInPath(sessionId, relativePath)
+        return true
+      }
+      return false
+    },
+    [discardDirtyTabsInPath, saveDocumentSnapshot, sessionId]
+  )
+
+  const createEntry = useCallback(
+    async (kind: 'file' | 'folder', parentPath = ''): Promise<void> => {
+      const name = window.prompt(`New ${kind} name`)
+      if (!name?.trim()) return
+      const relativePath = joinRelativePath(parentPath, name.trim())
+      try {
+        await window.spacezero.files.createEntry({ context: ipcContext, relativePath, kind })
+        invalidateSearchResults()
+        await loadRoot()
+        setSelectedPath(sessionId, relativePath)
+        if (kind === 'file') await openFile(relativePath, 'permanent')
+      } catch (error) {
+        window.alert(fileOperationErrorMessage(error))
+      }
+    },
+    [invalidateSearchResults, ipcContext, loadRoot, openFile, sessionId, setSelectedPath]
+  )
+
+  const moveEntry = useCallback(
+    async (sourcePath: string, destinationPath?: string): Promise<void> => {
+      const targetPath = destinationPath ?? window.prompt('Move to relative path', sourcePath)
+      if (!targetPath?.trim() || targetPath.trim() === sourcePath) return
+      if (!(await prepareDirtyOperation(sourcePath))) return
+      try {
+        await window.spacezero.files.moveEntry({
+          context: ipcContext,
+          sourcePath,
+          destinationPath: targetPath.trim()
+        })
+        rewritePaths(sessionId, sourcePath, targetPath.trim())
+        invalidateSearchResults()
+        await loadRoot()
+      } catch (error) {
+        window.alert(fileOperationErrorMessage(error))
+      }
+    },
+    [invalidateSearchResults, ipcContext, loadRoot, prepareDirtyOperation, rewritePaths, sessionId]
+  )
+
+  const trashEntry = useCallback(
+    async (relativePath: string): Promise<void> => {
+      if (!window.confirm(`Move ${relativePath} to Trash?`)) return
+      if (!(await prepareDirtyOperation(relativePath))) return
+      try {
+        await window.spacezero.files.trashEntry({ context: ipcContext, relativePath })
+        closeTabsInPath(sessionId, relativePath)
+        invalidateSearchResults()
+        await loadRoot()
+      } catch (error) {
+        window.alert(fileOperationErrorMessage(error))
+      }
+    },
+    [
+      closeTabsInPath,
+      invalidateSearchResults,
+      ipcContext,
+      loadRoot,
+      prepareDirtyOperation,
+      sessionId
+    ]
+  )
+
   const requestCloseTab = useCallback(
     (targetSessionId: string, relativePath: string): void => {
       const tab = useFilesStore
@@ -421,6 +525,13 @@ function FilesToolSession({
     () => Object.fromEntries(context.expandedPaths.map((path) => [path, true])),
     [context.expandedPaths]
   )
+  const selectedTreeItem = useMemo(
+    () =>
+      context.selectedPath && rootState.status === 'ready'
+        ? findTreeItem(rootState.items, context.selectedPath)
+        : null,
+    [context.selectedPath, rootState]
+  )
 
   function startResize(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault()
@@ -473,14 +584,43 @@ function FilesToolSession({
                 <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Explorer
                 </span>
-                <button
-                  aria-label="Collapse Files explorer"
-                  className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                  type="button"
-                  onClick={() => setExplorerCollapsed(sessionId, true)}
-                >
-                  <SidebarSimple aria-hidden className="size-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    aria-label="New file"
+                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    type="button"
+                    onClick={() =>
+                      void createEntry(
+                        'file',
+                        selectedDirectoryPath(context.selectedPath, rootState)
+                      )
+                    }
+                  >
+                    <Plus aria-hidden className="size-3" />
+                    <span className="sr-only">New file</span>
+                  </button>
+                  <button
+                    aria-label="New folder"
+                    className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                    type="button"
+                    onClick={() =>
+                      void createEntry(
+                        'folder',
+                        selectedDirectoryPath(context.selectedPath, rootState)
+                      )
+                    }
+                  >
+                    Folder
+                  </button>
+                  <button
+                    aria-label="Collapse Files explorer"
+                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    type="button"
+                    onClick={() => setExplorerCollapsed(sessionId, true)}
+                  >
+                    <SidebarSimple aria-hidden className="size-4" />
+                  </button>
+                </div>
               </div>
               <form
                 className="flex items-center gap-1"
@@ -526,6 +666,62 @@ function FilesToolSession({
                 />
                 Include ignored files
               </label>
+              {selectedTreeItem && selectedTreeItem.kind !== 'status' ? (
+                <div className="flex flex-wrap items-center gap-1 border-t pt-2 text-xs">
+                  <span
+                    aria-label={`Selected ${selectedTreeItem.relativePath}`}
+                    className="mr-1 min-w-0 truncate text-muted-foreground"
+                    title={selectedTreeItem.relativePath}
+                  />
+                  {selectedTreeItem.kind !== 'symlink' ? (
+                    <>
+                      <button
+                        className="rounded-md border px-2 py-1 hover:bg-accent"
+                        type="button"
+                        onClick={() => void moveEntry(selectedTreeItem.relativePath)}
+                      >
+                        Move
+                      </button>
+                      <button
+                        className="rounded-md border px-2 py-1 hover:bg-accent"
+                        type="button"
+                        onClick={() => {
+                          const destinationPath = window.prompt(
+                            'Rename to relative path',
+                            selectedTreeItem.relativePath
+                          )
+                          if (destinationPath?.trim()) {
+                            void moveEntry(selectedTreeItem.relativePath, destinationPath.trim())
+                          }
+                        }}
+                      >
+                        Rename
+                      </button>
+                      <button
+                        className="rounded-md border px-2 py-1 hover:bg-accent"
+                        type="button"
+                        onClick={() => void trashEntry(selectedTreeItem.relativePath)}
+                      >
+                        Trash
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    className="rounded-md border px-2 py-1 hover:bg-accent"
+                    type="button"
+                    onClick={() =>
+                      void window.spacezero.files
+                        .revealInSystemFileManager({
+                          context: ipcContext,
+                          relativePath: selectedTreeItem.relativePath
+                        })
+                        .catch((error) => window.alert(filesErrorMessage(error)))
+                    }
+                  >
+                    Reveal selected item
+                  </button>
+                </div>
+              ) : null}
             </header>
             <div ref={treeContainerRef} className="min-h-0 flex-1 overflow-hidden">
               {searchState.status !== 'idle' ? (
@@ -549,9 +745,6 @@ function FilesToolSession({
                   key={sessionId}
                   aria-label={treeLabel}
                   data={rootState.items}
-                  disableDrag
-                  disableDrop
-                  disableEdit
                   disableMultiSelection
                   height={treeHeight}
                   idAccessor="id"
@@ -570,6 +763,16 @@ function FilesToolSession({
                       setSelectedPath(sessionId, item.relativePath)
                     }
                   }}
+                  onMove={({ dragIds, parentId }) => {
+                    const sourcePath = dragIds[0]
+                    if (!sourcePath) return
+                    const destinationPath = joinRelativePath(parentId ?? '', pathName(sourcePath))
+                    void moveEntry(sourcePath, destinationPath)
+                  }}
+                  onRename={({ id, name }) => {
+                    const destinationPath = joinRelativePath(parentDirectoryPath(id), name)
+                    void moveEntry(id, destinationPath)
+                  }}
                   onToggle={(id) => {
                     const expanded = !context.expandedPaths.includes(id)
                     setExpanded(sessionId, id, expanded)
@@ -580,8 +783,11 @@ function FilesToolSession({
                     <FilesTreeRow
                       {...props}
                       ipcContext={ipcContext}
+                      onCreate={createEntry}
+                      onMove={moveEntry}
                       onOpenPermanent={(relativePath) => openFile(relativePath, 'permanent')}
                       onRetry={loadDirectory}
+                      onTrash={trashEntry}
                     />
                   )}
                 </Tree>
@@ -892,7 +1098,10 @@ function FilesEditorPanel({
               draggable={false}
             />
           </div>
-          <p>{document.mediaType} · {formatBytes(document.size)} · Modified {formatTimestamp(document.modifiedAt)}</p>
+          <p>
+            {document.mediaType} · {formatBytes(document.size)} · Modified{' '}
+            {formatTimestamp(document.modifiedAt)}
+          </p>
         </div>
       )
     }
@@ -902,7 +1111,9 @@ function FilesEditorPanel({
         <p className="font-medium text-foreground">{document.name}</p>
         <p>{metadataMessage(document.contentKind, document.classification)}</p>
         <p>{document.relativePath}</p>
-        <p>{formatBytes(document.size)} · Modified {formatTimestamp(document.modifiedAt)}</p>
+        <p>
+          {formatBytes(document.size)} · Modified {formatTimestamp(document.modifiedAt)}
+        </p>
         <p>Classification: {metadataClassificationLabel(document.classification)}</p>
         <FilesRevealButton ipcContext={ipcContext} relativePath={document.relativePath} />
       </div>
@@ -1077,13 +1288,19 @@ function FilesTreeRow({
   node,
   style,
   dragHandle,
+  onCreate,
+  onMove,
   onOpenPermanent,
   onRetry,
+  onTrash,
   ipcContext
 }: NodeRendererProps<FilesTreeItem> & {
   ipcContext: FilesContext
+  onCreate: (kind: 'file' | 'folder', parentPath?: string) => Promise<void>
+  onMove: (sourcePath: string, destinationPath?: string) => Promise<void>
   onOpenPermanent: (relativePath: string) => Promise<void>
   onRetry: (relativePath: string) => Promise<void>
+  onTrash: (relativePath: string) => Promise<void>
 }): React.JSX.Element {
   const item = node.data
   if (item.kind === 'status') {
@@ -1107,7 +1324,7 @@ function FilesTreeRow({
   return (
     <div
       ref={dragHandle}
-      className={`flex cursor-default items-center gap-1 pr-2 text-sm outline-none ${node.isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'}`}
+      className={`group flex cursor-default items-center gap-1 pr-2 text-sm outline-none ${node.isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'}`}
       style={style}
       title={item.kind === 'symlink' ? `${item.name} — Symbolic link` : item.name}
       onClick={() => node.select()}
@@ -1136,12 +1353,63 @@ function FilesTreeRow({
       )}
       <FilesIcon name={item.name} kind={item.kind} expanded={node.isOpen} />
       <span className="truncate">{item.name}</span>
-      {item.kind === 'symlink' ? (
-        <>
-          <span className="sr-only">Symbolic link</span>
-          <FilesRevealButton ipcContext={ipcContext} relativePath={item.relativePath} compact />
-        </>
-      ) : null}
+      <span
+        aria-hidden="true"
+        className="ml-auto hidden items-center gap-1 group-hover:flex group-focus-within:flex"
+      >
+        {item.kind === 'directory' ? (
+          <button
+            className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+            tabIndex={-1}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              void onCreate('file', item.relativePath)
+            }}
+          >
+            New
+          </button>
+        ) : null}
+        {item.kind !== 'symlink' ? (
+          <>
+            <button
+              className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              tabIndex={-1}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                void onMove(item.relativePath)
+              }}
+            >
+              Move
+            </button>
+            <button
+              className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              tabIndex={-1}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                node.edit()
+              }}
+            >
+              Rename
+            </button>
+            <button
+              className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              tabIndex={-1}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                void onTrash(item.relativePath)
+              }}
+            >
+              Trash
+            </button>
+          </>
+        ) : null}
+        {item.kind === 'symlink' ? <span className="sr-only">Symbolic link</span> : null}
+        <FilesRevealButton ipcContext={ipcContext} relativePath={item.relativePath} compact />
+      </span>
     </div>
   )
 }
@@ -1157,7 +1425,11 @@ function FilesRevealButton({
 }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null)
   return (
-    <span className={compact ? 'ml-auto inline-flex items-center' : 'inline-flex flex-col items-center gap-1'}>
+    <span
+      className={
+        compact ? 'ml-auto inline-flex items-center' : 'inline-flex flex-col items-center gap-1'
+      }
+    >
       <button
         className={
           compact
@@ -1245,6 +1517,37 @@ function replaceDirectoryChildren(
   })
 }
 
+function selectedDirectoryPath(selectedPath: string | null, rootState: RootState): string {
+  if (!selectedPath || rootState.status !== 'ready') return ''
+  const selectedItem = findTreeItem(rootState.items, selectedPath)
+  if (selectedItem?.kind === 'directory') return selectedItem.relativePath
+  return selectedPath.includes('/') ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : ''
+}
+
+function findTreeItem(items: FilesTreeItem[], relativePath: string): FilesTreeItem | null {
+  for (const item of items) {
+    if (item.relativePath === relativePath) return item
+    if (item.kind !== 'status' && item.children) {
+      const child = findTreeItem(item.children, relativePath)
+      if (child) return child
+    }
+  }
+  return null
+}
+
+function joinRelativePath(parentPath: string, name: string): string {
+  return parentPath ? `${parentPath}/${name}` : name
+}
+
+function parentDirectoryPath(relativePath: string): string {
+  const index = relativePath.lastIndexOf('/')
+  return index < 0 ? '' : relativePath.slice(0, index)
+}
+
+function isPathAffectedBy(candidatePath: string, relativePath: string): boolean {
+  return candidatePath === relativePath || candidatePath.startsWith(`${relativePath}/`)
+}
+
 function filesErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : ''
   if (code.includes('files.worktreeMissing') || code.includes('files.worktreeInvalid')) {
@@ -1264,6 +1567,20 @@ function saveErrorMessage(error: unknown): string {
   if (code.includes('files.contentTooLarge')) return 'This file is too large to save from Files.'
   if (code.includes('files.notEditableText')) return 'This file is not editable text.'
   return 'Couldn’t save this file. Your changes are still in memory.'
+}
+
+function fileOperationErrorMessage(error: unknown): string {
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.collision')) return 'An item already exists at that path.'
+  if (code.includes('files.invalidPath') || code.includes('files.invalidDestination')) {
+    return 'Use a valid path inside this Files root.'
+  }
+  if (code.includes('files.gitProtected')) return 'Files cannot change .git internals.'
+  if (code.includes('files.symlink')) return 'Symbolic links cannot be changed from Files.'
+  if (code.includes('files.directoryMoveIntoSelf')) return 'A folder cannot be moved inside itself.'
+  if (code.includes('files.trashFailed'))
+    return 'Could not move this item to Trash. It was not deleted.'
+  return 'The file operation failed. No local Files state was changed.'
 }
 
 function searchErrorMessage(error: unknown): string {

@@ -6,11 +6,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   createCancelFilesSearchHandler,
+  createCreateFilesEntryHandler,
   createListFilesDirectoryHandler,
+  createMoveFilesEntryHandler,
   createOpenFilesDocumentHandler,
   createRevealFilesEntryHandler,
   createSaveFilesDocumentHandler,
-  createSearchFilesHandler
+  createSearchFilesHandler,
+  createTrashFilesEntryHandler
 } from './files.ipc'
 import { openFilesDocument } from './files-document.adapter'
 
@@ -55,6 +58,59 @@ describe('Files IPC', () => {
     } finally {
       await rm(rootPath, { recursive: true, force: true })
     }
+  })
+
+  it('validates renderer input before create, move, and Trash operations', async () => {
+    const createEntry = vi.fn(async () => undefined)
+    const moveEntry = vi.fn(async () => undefined)
+    const trashEntry = vi.fn(async () => undefined)
+
+    await expect(
+      createCreateFilesEntryHandler({ createEntry })({
+        context: projectContext,
+        relativePath: 'src/new.ts',
+        kind: 'file'
+      })
+    ).resolves.toBeUndefined()
+    await expect(
+      createMoveFilesEntryHandler({ moveEntry })({
+        context: knowledgeBaseContext,
+        sourcePath: 'src/new.ts',
+        destinationPath: 'src/main.ts'
+      })
+    ).resolves.toBeUndefined()
+    await expect(
+      createTrashFilesEntryHandler({ trashEntry })({
+        context: projectContext,
+        relativePath: 'src/main.ts'
+      })
+    ).resolves.toBeUndefined()
+
+    await expect(
+      createCreateFilesEntryHandler({ createEntry })({
+        context: projectContext,
+        relativePath: '.git/config',
+        kind: 'file'
+      })
+    ).rejects.toThrow()
+    await expect(
+      createMoveFilesEntryHandler({ moveEntry })({
+        context: knowledgeBaseContext,
+        sourcePath: 'src/new.ts',
+        destinationPath: '../main.ts'
+      })
+    ).rejects.toThrow()
+    await expect(
+      createTrashFilesEntryHandler({ trashEntry })({
+        context: projectContext,
+        relativePath: 'link',
+        rootPath: '/tmp'
+      })
+    ).rejects.toThrow()
+
+    expect(createEntry).toHaveBeenCalledTimes(1)
+    expect(moveEntry).toHaveBeenCalledTimes(1)
+    expect(trashEntry).toHaveBeenCalledTimes(1)
   })
 
   it('validates renderer input before revealing a context entry', async () => {

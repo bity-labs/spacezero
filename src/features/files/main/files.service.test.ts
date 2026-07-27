@@ -48,6 +48,9 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
         lineEnding: 'lf'
       }
     }),
+    createEntry: async () => undefined,
+    moveEntry: async () => undefined,
+    trashEntry: async () => undefined,
     revealEntry: async () => undefined,
     search: async () => [],
     ...overrides
@@ -292,6 +295,48 @@ describe('Files service', () => {
       relativePath: 'README.md',
       content: 'updated',
       expectedRevision: 'revision-1'
+    })
+  })
+
+  it('creates, moves, and trashes entries through both authenticated roots', async () => {
+    const createEntry = vi.fn(async () => undefined)
+    const moveEntry = vi.fn(async () => undefined)
+    const trashEntry = vi.fn(async () => undefined)
+    const knowledgeBaseRootProvider = { getVerifiedRoot: vi.fn(async () => '/verified/kb') }
+    const service = createTestService({
+      createEntry,
+      moveEntry,
+      trashEntry,
+      knowledgeBaseRootProvider
+    })
+
+    await service.createEntry({ context: projectContext, relativePath: 'src/new.ts', kind: 'file' })
+    await service.moveEntry({
+      context: projectContext,
+      sourcePath: 'src/new.ts',
+      destinationPath: 'src/main.ts'
+    })
+    await service.trashEntry({ context: projectContext, relativePath: 'src/main.ts' })
+    await service.createEntry({
+      context: knowledgeBaseContext,
+      relativePath: 'notes',
+      kind: 'folder'
+    })
+
+    expect(createEntry).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      relativePath: 'src/new.ts',
+      kind: 'file'
+    })
+    expect(moveEntry).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      sourcePath: 'src/new.ts',
+      destinationPath: 'src/main.ts'
+    })
+    expect(trashEntry).toHaveBeenCalledWith('/worktrees/project-1/session-1', {
+      relativePath: 'src/main.ts'
+    })
+    expect(createEntry).toHaveBeenCalledWith('/verified/kb', {
+      relativePath: 'notes',
+      kind: 'folder'
     })
   })
 
