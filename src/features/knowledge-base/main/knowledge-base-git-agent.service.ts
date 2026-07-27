@@ -9,9 +9,9 @@ import {
   sanitizeGitRemoteUrl,
   toRedactedGitError
 } from './knowledge-base-git-security'
+import type { KnowledgeBaseHost as KnowledgeBaseGitHost } from './knowledge-base.service'
 import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
 import type { KnowledgeBaseRootProvider } from './knowledge-base-root.provider'
-import type { KnowledgeBaseGitHost } from './knowledge-base-sync.service'
 
 const knowledgeBaseGitPathSchema = z
   .string()

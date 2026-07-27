@@ -189,28 +189,23 @@ describe('createKnowledgeBaseService', () => {
       rootPath: '/home/builder/SpaceZero/knowledge-base',
       configuredAt: new Date(0).toISOString()
     }
-    const clearSyncState = vi.fn(async () => undefined)
     const service = createKnowledgeBaseService({
       configurationRepository,
       host: createHost(),
-      rootPath: '/home/builder/SpaceZero/knowledge-base',
-      clearSyncState
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
 
     await expect(service.reset()).resolves.toEqual({ setupState: 'unconfigured' })
-    expect(clearSyncState).toHaveBeenCalledTimes(1)
     expect(configurationRepository.value).toBeUndefined()
   })
 
   it('creates, initializes, commits, and persists the default Knowledge Base', async () => {
     const configurationRepository = createConfigurationRepository()
     const host = createHost()
-    const clearSyncState = vi.fn(async () => undefined)
     const service = createKnowledgeBaseService({
       configurationRepository,
       host,
       rootPath: '/home/builder/SpaceZero/knowledge-base',
-      clearSyncState,
       now: () => new Date('2026-07-16T10:00:00.000Z')
     })
 
@@ -219,7 +214,6 @@ describe('createKnowledgeBaseService', () => {
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
 
-    expect(clearSyncState).toHaveBeenCalledTimes(1)
     expect(host.createDirectory).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
     expect(host.writeTextFile).toHaveBeenCalledWith(
       '/home/builder/SpaceZero/knowledge-base/AGENTS.md',

@@ -34,29 +34,15 @@ import {
   type KnowledgeBaseRootProvider
 } from './knowledge-base-root.provider'
 import { createKnowledgeBaseConfigurationRepository } from './knowledge-base-settings.repository'
-import {
-  createKnowledgeBaseSyncCoordinator,
-  createKnowledgeBaseSyncScheduler,
-  type KnowledgeBaseSyncCoordinator,
-  type KnowledgeBaseSyncScheduler
-} from './knowledge-base-sync-coordinator'
-import { createKnowledgeBaseSyncStateRepository } from './knowledge-base-sync.repository'
-import {
-  createKnowledgeBaseSyncService,
-  type KnowledgeBaseSyncService
-} from './knowledge-base-sync.service'
 
 type KnowledgeBaseApplicationService = KnowledgeBaseService &
   KnowledgeBaseFilesService &
-  KnowledgeBaseSyncService &
   KnowledgeBaseRecoveryService
 
 const operationCoordinator = createKnowledgeBaseOperationCoordinator()
 
 let service: KnowledgeBaseApplicationService | undefined
 let rootProvider: KnowledgeBaseRootProvider | undefined
-let syncCoordinator: KnowledgeBaseSyncCoordinator | undefined
-let syncScheduler: KnowledgeBaseSyncScheduler | undefined
 let projectsService: KnowledgeBaseProjectsService | undefined
 let mentionsService: KnowledgeBaseMentionsService | undefined
 let gitAgentService: KnowledgeBaseGitAgentService | undefined
@@ -64,13 +50,11 @@ let gitAgentService: KnowledgeBaseGitAgentService | undefined
 export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
   if (!service) {
     const configurationRepository = createKnowledgeBaseConfigurationRepository()
-    const syncStateRepository = createKnowledgeBaseSyncStateRepository()
     const host = createKnowledgeBaseHost()
     const knowledgeBaseService = createKnowledgeBaseService({
       configurationRepository,
       host,
       rootPath: getKnowledgeBaseSetupPath,
-      clearSyncState: () => syncStateRepository.clear(),
       onConfigurationChange: () => rootProvider?.invalidate()
     })
     rootProvider = createKnowledgeBaseRootProvider({
@@ -81,19 +65,13 @@ export function getKnowledgeBaseService(): KnowledgeBaseApplicationService {
       ...createKnowledgeBaseFilesService({
         rootProvider,
         operations: operationCoordinator
-      }),
-      ...createKnowledgeBaseSyncService({
-        rootProvider,
-        syncStateRepository,
-        host
       })
     }
     service = {
       ...coreService,
       ...createKnowledgeBaseRecoveryService({
         service: coreService,
-        openPath: (path) => shell.openPath(path),
-        openExternal: (url) => shell.openExternal(url)
+        openPath: (path) => shell.openPath(path)
       })
     }
   }
@@ -136,21 +114,6 @@ export function getKnowledgeBaseProjectsService(): KnowledgeBaseProjectsService 
     operations: operationCoordinator
   })
   return projectsService
-}
-
-export function getKnowledgeBaseSyncCoordinator(): KnowledgeBaseSyncCoordinator {
-  syncCoordinator ??= createKnowledgeBaseSyncCoordinator(
-    getKnowledgeBaseService(),
-    operationCoordinator
-  )
-  return syncCoordinator
-}
-
-export function getKnowledgeBaseSyncScheduler(): KnowledgeBaseSyncScheduler {
-  syncScheduler ??= createKnowledgeBaseSyncScheduler({
-    sync: () => getKnowledgeBaseSyncCoordinator().sync()
-  })
-  return syncScheduler
 }
 
 export async function getKnowledgeBaseSetupPath(): Promise<string> {

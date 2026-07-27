@@ -1,16 +1,24 @@
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
+import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import {
+  basename,
+  extname,
+  isAbsolute,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+  win32
+} from 'node:path'
 
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../shared/knowledge-base.model'
 import type {
   KnowledgeBaseDocument,
-  KnowledgeBaseDocumentCheck,
   KnowledgeBaseImageImport,
   KnowledgeBaseImagePreview,
   KnowledgeBaseSaveResult,
-  KnowledgeBaseSearchResult,
   KnowledgeBaseTreeItem
 } from '../shared/knowledge-base.model'
 import type { KnowledgeBaseOperationCoordinator } from './knowledge-base-operation-coordinator'
@@ -42,7 +50,6 @@ const TEXT_EXTENSIONS = new Set([
 export type KnowledgeBaseFilesService = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
-  search: (request: { query: string }) => Promise<KnowledgeBaseSearchResult[]>
   importImage: (request: {
     documentRelativePath: string
     fileName: string
@@ -52,19 +59,11 @@ export type KnowledgeBaseFilesService = {
     documentRelativePath: string
     markdownPath: string
   }) => Promise<KnowledgeBaseImagePreview>
-  createItem: (request: { relativePath: string; kind: 'file' | 'folder' }) => Promise<void>
-  renameItem: (request: { relativePath: string; newName: string }) => Promise<void>
-  moveItem: (request: { sourcePath: string; destinationPath: string }) => Promise<void>
-  deleteItem: (request: { relativePath: string }) => Promise<void>
   saveDocument: (request: {
     relativePath: string
     content: string
     expectedRevision: string
   }) => Promise<KnowledgeBaseSaveResult>
-  checkDocument: (request: {
-    relativePath: string
-    revision: string
-  }) => Promise<KnowledgeBaseDocumentCheck>
 }
 
 export function createKnowledgeBaseFilesService({
@@ -84,14 +83,6 @@ export function createKnowledgeBaseFilesService({
     async openDocument(request) {
       const rootPath = await rootProvider.getVerifiedRoot()
       return openKnowledgeBaseDocument(rootPath, request.relativePath)
-    },
-
-    async search(request) {
-      const query = request.query.trim()
-      if (!query) return []
-      const rootPath = await rootProvider.getVerifiedRoot()
-      const canonicalRoot = await realpath(rootPath)
-      return searchDirectory(canonicalRoot, '', query.toLowerCase())
     },
 
     async importImage(request) {
@@ -161,45 +152,6 @@ export function createKnowledgeBaseFilesService({
       }
     },
 
-    async createItem(request) {
-      const rootPath = await rootProvider.getVerifiedRoot()
-      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
-      await assertParentPathInsideRoot(rootPath, absolutePath)
-      if (await pathExists(absolutePath)) {
-        throw new Error('A Knowledge Base item already exists at this path.')
-      }
-
-      if (request.kind === 'folder') {
-        await mkdir(absolutePath)
-      } else {
-        await writeFile(absolutePath, '', { encoding: 'utf8', flag: 'wx' })
-      }
-    },
-
-    async renameItem(request) {
-      assertValidItemName(request.newName)
-      const relativePath = request.relativePath.trim()
-      const parentPath = posix.dirname(relativePath)
-      const destinationPath = parentPath === '.' ? request.newName.trim() : `${parentPath}/${request.newName.trim()}`
-      await moveKnowledgeBaseItem(rootProvider, relativePath, destinationPath)
-    },
-
-    async moveItem(request) {
-      await moveKnowledgeBaseItem(
-        rootProvider,
-        request.sourcePath,
-        request.destinationPath
-      )
-    },
-
-    async deleteItem(request) {
-      const rootPath = await rootProvider.getVerifiedRoot()
-      const { absolutePath } = resolveKnowledgeBaseRelativePath(rootPath, request.relativePath)
-      await lstat(absolutePath)
-      await assertExistingPathInsideRoot(rootPath, absolutePath)
-      await rm(absolutePath, { recursive: true })
-    },
-
     async saveDocument(request) {
       const rootPath = await rootProvider.getVerifiedRoot()
       const currentDocument = await openKnowledgeBaseDocument(rootPath, request.relativePath)
@@ -217,24 +169,12 @@ export function createKnowledgeBaseFilesService({
         status: 'saved',
         document: await openKnowledgeBaseDocument(rootPath, request.relativePath)
       }
-    },
-
-    async checkDocument(request) {
-      const rootPath = await rootProvider.getVerifiedRoot()
-      const document = await openKnowledgeBaseDocument(rootPath, request.relativePath)
-      return document.revision === request.revision
-        ? { changed: false }
-        : { changed: true, document }
     }
   }
 
   return {
     ...service,
     importImage: (request) => operations.runExclusive(() => service.importImage(request)),
-    createItem: (request) => operations.runExclusive(() => service.createItem(request)),
-    renameItem: (request) => operations.runExclusive(() => service.renameItem(request)),
-    moveItem: (request) => operations.runExclusive(() => service.moveItem(request)),
-    deleteItem: (request) => operations.runExclusive(() => service.deleteItem(request)),
     saveDocument: (request) => operations.runExclusive(() => service.saveDocument(request))
   }
 }
@@ -329,10 +269,7 @@ async function openKnowledgeBaseDocument(
   rootPath: string,
   requestedPath: string
 ): Promise<KnowledgeBaseDocument> {
-  const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(
-    rootPath,
-    requestedPath
-  )
+  const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(rootPath, requestedPath)
   const details = await lstat(absolutePath)
   if (details.isSymbolicLink()) {
     throw new Error('Symbolic links cannot be opened from the Knowledge Base.')
@@ -422,7 +359,10 @@ function hashRevision(content: string | Buffer): string {
   return createHash('sha256').update(content).digest('hex')
 }
 
-async function readTree(rootPath: string, relativeDirectory: string): Promise<KnowledgeBaseTreeItem[]> {
+async function readTree(
+  rootPath: string,
+  relativeDirectory: string
+): Promise<KnowledgeBaseTreeItem[]> {
   const directoryPath = relativeDirectory
     ? join(rootPath, ...relativeDirectory.split('/'))
     : rootPath
@@ -431,9 +371,7 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
 
   for (const entry of entries) {
     if (entry.name.toLowerCase() === '.git' || entry.isSymbolicLink()) continue
-    const relativePath = relativeDirectory
-      ? `${relativeDirectory}/${entry.name}`
-      : entry.name
+    const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name
     const absolutePath = join(directoryPath, entry.name)
 
     if (entry.isDirectory()) {
@@ -464,123 +402,14 @@ async function readTree(rootPath: string, relativeDirectory: string): Promise<Kn
   })
 }
 
-async function moveKnowledgeBaseItem(
-  rootProvider: Pick<KnowledgeBaseRootProvider, 'getVerifiedRoot'>,
-  sourcePath: string,
-  destinationPath: string
-): Promise<void> {
-  const rootPath = await rootProvider.getVerifiedRoot()
-  const source = resolveKnowledgeBaseRelativePath(rootPath, sourcePath)
-  const destination = resolveKnowledgeBaseRelativePath(rootPath, destinationPath)
-  await lstat(source.absolutePath)
-  await assertExistingPathInsideRoot(rootPath, source.absolutePath)
-  await assertParentPathInsideRoot(rootPath, destination.absolutePath)
-  if (await pathExists(destination.absolutePath)) {
-    throw new Error('A Knowledge Base item already exists at the destination.')
-  }
-  await rename(source.absolutePath, destination.absolutePath)
-}
-
-function assertValidItemName(input: string): void {
-  const name = input.trim()
-  if (name.includes('/') || name.includes('\\')) {
-    throw new Error('Knowledge Base item names cannot contain path separators.')
-  }
-  if (!name || name === '.' || name === '..' || name.includes('\0')) {
-    throw new Error('Knowledge Base item name is invalid.')
-  }
-  if (name.toLowerCase() === '.git') {
-    throw new Error('Knowledge Base Git internals are protected.')
-  }
-}
-
-async function assertParentPathInsideRoot(rootPath: string, targetPath: string): Promise<void> {
-  const [canonicalRoot, canonicalParent] = await Promise.all([
-    realpath(rootPath),
-    realpath(dirname(targetPath))
-  ])
-  await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, canonicalParent)
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path)
-    return true
-  } catch (error) {
-    if (isNodeError(error) && error.code === 'ENOENT') return false
-    throw error
-  }
-}
-
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error
 }
 
-async function searchDirectory(
-  rootPath: string,
-  relativeDirectory: string,
-  normalizedQuery: string
-): Promise<KnowledgeBaseSearchResult[]> {
-  const directoryPath = relativeDirectory
-    ? join(rootPath, ...relativeDirectory.split('/'))
-    : rootPath
-  const entries = await readdir(directoryPath, { withFileTypes: true })
-  const results: KnowledgeBaseSearchResult[] = []
-
-  for (const entry of entries) {
-    if (entry.name.toLowerCase() === '.git' || entry.isSymbolicLink()) continue
-    const relativePath = relativeDirectory
-      ? `${relativeDirectory}/${entry.name}`
-      : entry.name
-    const absolutePath = join(directoryPath, entry.name)
-
-    if (entry.isDirectory()) {
-      results.push(...(await searchDirectory(rootPath, relativePath, normalizedQuery)))
-      continue
-    }
-    if (!entry.isFile()) continue
-
-    const details = await lstat(absolutePath)
-    if (details.size > MAX_KNOWLEDGE_BASE_TEXT_FILE_BYTES) continue
-    const content = await readFile(absolutePath)
-    if (detectContentKind(relativePath, content) === 'binary') continue
-
-    const text = content.toString('utf8')
-    const contentIndex = text.toLowerCase().indexOf(normalizedQuery)
-    if (contentIndex >= 0) {
-      results.push({
-        name: entry.name,
-        relativePath,
-        matchType: 'content',
-        snippet: createSearchSnippet(text, contentIndex, normalizedQuery.length)
-      })
-    } else if (entry.name.toLowerCase().includes(normalizedQuery)) {
-      results.push({ name: entry.name, relativePath, matchType: 'filename' })
-    }
-  }
-
-  return results.sort((left, right) => left.relativePath.localeCompare(right.relativePath))
-}
-
-function createSearchSnippet(text: string, matchIndex: number, queryLength: number): string {
-  const lineStart = text.lastIndexOf('\n', matchIndex - 1) + 1
-  const nextLineBreak = text.indexOf('\n', matchIndex + queryLength)
-  const lineEnd = nextLineBreak === -1 ? text.length : nextLineBreak
-  const line = text.slice(lineStart, lineEnd).trim()
-  if (line.length <= 180) return line
-
-  const indexInLine = matchIndex - lineStart
-  const start = Math.max(0, indexInLine - 70)
-  const end = Math.min(line.length, indexInLine + queryLength + 70)
-  return `${start > 0 ? '…' : ''}${line.slice(start, end)}${end < line.length ? '…' : ''}`
-}
-
-function detectContentKind(
-  relativePath: string,
-  content: Buffer
-): 'markdown' | 'text' | 'binary' {
+function detectContentKind(relativePath: string, content: Buffer): 'markdown' | 'text' | 'binary' {
   const extensionKind = getContentKindFromExtension(relativePath)
-  if (extensionKind === 'markdown') return content.includes(0) || !isUtf8(content) ? 'binary' : 'markdown'
+  if (extensionKind === 'markdown')
+    return content.includes(0) || !isUtf8(content) ? 'binary' : 'markdown'
   if (content.includes(0) || !isUtf8(content)) return 'binary'
   return extensionKind === 'text' || content.length === 0 ? 'text' : 'text'
 }
@@ -625,5 +454,8 @@ async function getCanonicalGitPath(canonicalRoot: string): Promise<string | unde
 
 function isPathWithinRoot(rootPath: string, targetPath: string): boolean {
   const pathFromRoot = relative(rootPath, targetPath)
-  return pathFromRoot === '' || (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== '..' && !isAbsolute(pathFromRoot))
+  return (
+    pathFromRoot === '' ||
+    (!pathFromRoot.startsWith(`..${sep}`) && pathFromRoot !== '..' && !isAbsolute(pathFromRoot))
+  )
 }

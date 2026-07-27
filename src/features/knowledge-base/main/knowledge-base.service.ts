@@ -48,14 +48,12 @@ export function createKnowledgeBaseService({
   configurationRepository,
   host,
   rootPath,
-  clearSyncState = async () => undefined,
   onConfigurationChange = () => undefined,
   now = () => new Date()
 }: {
   configurationRepository: KnowledgeBaseConfigurationRepository
   host: KnowledgeBaseHost
   rootPath: string | (() => Promise<string>)
-  clearSyncState?: () => Promise<void>
   onConfigurationChange?: () => void
   now?: () => Date
 }): KnowledgeBaseService {
@@ -107,7 +105,6 @@ export function createKnowledgeBaseService({
     async createNew() {
       const setupRootPath = await resolveSetupRootPath(rootPath)
       await assertCanConfigure(configurationRepository, host, setupRootPath)
-      await clearSyncState()
 
       let created = false
       try {
@@ -133,7 +130,6 @@ export function createKnowledgeBaseService({
     },
 
     async reset() {
-      await clearSyncState()
       await configurationRepository.clear()
       onConfigurationChange()
       return { setupState: 'unconfigured' }
@@ -144,7 +140,6 @@ export function createKnowledgeBaseService({
       await assertCanConfigure(configurationRepository, host, setupRootPath)
       const gitUrl = request.gitUrl.trim()
       if (!gitUrl) throw new Error('Git repository URL is required.')
-      await clearSyncState()
 
       await host.ensureParentDirectory(setupRootPath)
       try {

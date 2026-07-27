@@ -1,22 +1,34 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
-import { toExternalGitRemoteUrl } from './knowledge-base-recovery.service'
+import { createKnowledgeBaseRecoveryService } from './knowledge-base-recovery.service'
 
-describe('toExternalGitRemoteUrl', () => {
-  it('normalizes HTTPS and SSH Git remotes for external recovery', () => {
-    expect(toExternalGitRemoteUrl('https://github.com/bity-labs/spacezero.git')).toBe(
-      'https://github.com/bity-labs/spacezero'
-    )
-    expect(toExternalGitRemoteUrl('git@github.com:bity-labs/spacezero.git')).toBe(
-      'https://github.com/bity-labs/spacezero'
-    )
-    expect(toExternalGitRemoteUrl('ssh://git@github.com/bity-labs/spacezero.git')).toBe(
-      'https://github.com/bity-labs/spacezero'
-    )
+describe('createKnowledgeBaseRecoveryService', () => {
+  it('reveals the configured Knowledge Base folder', async () => {
+    const openPath = vi.fn(async () => '')
+    const service = createKnowledgeBaseRecoveryService({
+      service: {
+        getStatus: async () => ({
+          setupState: 'configured',
+          rootPath: '/home/builder/SpaceZero/knowledge-base'
+        })
+      },
+      openPath
+    })
+
+    await expect(service.openFolder()).resolves.toBeUndefined()
+    expect(openPath).toHaveBeenCalledWith('/home/builder/SpaceZero/knowledge-base')
   })
 
-  it('rejects local or unsupported remotes instead of passing them to the shell', () => {
-    expect(toExternalGitRemoteUrl('/tmp/knowledge.git')).toBeUndefined()
-    expect(toExternalGitRemoteUrl('file:///tmp/knowledge.git')).toBeUndefined()
+  it('does not reveal an unavailable Knowledge Base path', async () => {
+    const openPath = vi.fn(async () => '')
+    const service = createKnowledgeBaseRecoveryService({
+      service: {
+        getStatus: async () => ({ setupState: 'unconfigured' })
+      },
+      openPath
+    })
+
+    await expect(service.openFolder()).rejects.toThrow('Knowledge Base is not configured.')
+    expect(openPath).not.toHaveBeenCalled()
   })
 })
