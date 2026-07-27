@@ -680,11 +680,6 @@ export function BrowserTool({
           ) : null}
         </div>
       ) : null}
-      {!activeTab?.url ? (
-        <div className="pointer-events-none absolute inset-x-0 top-24 text-center text-sm text-muted-foreground">
-          Enter a URL or search terms to open a secure Browser page.
-        </div>
-      ) : null}
       <div ref={surfaceRef} aria-label="Browser page surface" className="min-h-0 flex-1" />
       {downloads.length > 0 ? (
         <div
