@@ -75,19 +75,22 @@ export function createSessionCleanupService({
     }
   }
 
-  async function deleteProjectSessions(projectId: string): Promise<void> {
+  async function deleteProjectSessions(projectId: string): Promise<string[]> {
     const normalizedProjectId = projectId.trim()
     const sessions = await repository.listByProjectIdIncludingArchived(normalizedProjectId)
     await closeTerminalsForDeletion({
       operationKey: `delete-project:${normalizedProjectId}`,
       sessions
     })
+    const deletedSessionIds: string[] = []
     for (const session of sessions) {
       const project = session.projectId
         ? await repository.findProjectById(session.projectId)
         : undefined
       await deleteStoredSession(session, project)
+      deletedSessionIds.push(session.id)
     }
+    return deletedSessionIds
   }
 
   async function deleteStoredSession(

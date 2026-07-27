@@ -1,4 +1,5 @@
 import type { SessionsService } from '../../sessions/main/sessions.service'
+import type { DeleteProjectResult } from '../shared'
 import type { ProjectsService } from './projects.service'
 import {
   withProjectLifecycleLock as runWithProjectLifecycleLock,
@@ -14,7 +15,7 @@ type ArchiveProjectLifecycleDependencies = {
 }
 
 type DeleteProjectLifecycleDependencies = {
-  sessionCleanupService: { deleteProjectSessions: (projectId: string) => Promise<void> }
+  sessionCleanupService: { deleteProjectSessions: (projectId: string) => Promise<string[]> }
   projectsService: Pick<ProjectsService, 'deleteProject'>
   withProjectLifecycleLock?: ProjectLifecycleLock
 }
@@ -49,10 +50,11 @@ export async function deleteProjectLifecycle(
     projectsService,
     withProjectLifecycleLock = runWithProjectLifecycleLock
   }: DeleteProjectLifecycleDependencies
-): Promise<void> {
+): Promise<DeleteProjectResult> {
   const normalizedProjectId = projectId.trim()
-  await withProjectLifecycleLock(normalizedProjectId, async () => {
-    await sessionCleanupService.deleteProjectSessions(normalizedProjectId)
+  return withProjectLifecycleLock(normalizedProjectId, async () => {
+    const deletedSessionIds = await sessionCleanupService.deleteProjectSessions(normalizedProjectId)
     await projectsService.deleteProject(normalizedProjectId)
+    return { deletedSessionIds }
   })
 }

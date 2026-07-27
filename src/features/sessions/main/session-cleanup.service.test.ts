@@ -172,7 +172,7 @@ describe('Session cleanup service', () => {
     await vi.waitFor(() => expect(events).toEqual(['terminal-start']))
     expect(releaseTerminals).toBeDefined()
     releaseTerminals?.()
-    await deletion
+    await expect(deletion).resolves.toEqual(['session-1'])
 
     expect(events).toEqual([
       'terminal-start',
@@ -221,7 +221,10 @@ describe('Session cleanup service', () => {
       closeTerminalsForDeletion
     })
 
-    await service.deleteProjectSessions('project-1')
+    await expect(service.deleteProjectSessions('project-1')).resolves.toEqual([
+      'session-1',
+      'session-2'
+    ])
 
     expect(closeTerminalsForDeletion).toHaveBeenCalledTimes(1)
     expect(events).toEqual([
