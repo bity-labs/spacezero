@@ -49,6 +49,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
       }
     }),
     revealEntry: async () => undefined,
+    search: async () => [],
     ...overrides
   })
 }
@@ -125,6 +126,93 @@ describe('Files service', () => {
       content: 'updated',
       expectedRevision: 'revision-1'
     })
+  })
+
+  it('searches through the same authenticated managed worktree without renderer-selected roots', async () => {
+    const search = vi.fn(async () => [
+      { kind: 'filename' as const, relativePath: 'README.md', name: 'README.md' }
+    ])
+    const service = createTestService({ search })
+
+    await expect(
+      service.search({
+        context: projectContext,
+        query: 'readme',
+        includeIgnored: false,
+        requestId: 'search-1'
+      })
+    ).resolves.toEqual([{ kind: 'filename', relativePath: 'README.md', name: 'README.md' }])
+
+    expect(search).toHaveBeenCalledWith(
+      '/worktrees/project-1/session-1',
+      {
+        query: 'readme',
+        includeIgnored: false
+      },
+      { signal: expect.any(AbortSignal) }
+    )
+  })
+
+  it('aborts an in-flight search when superseded in the same context', async () => {
+    const signals: AbortSignal[] = []
+    let resolveFirst!: (results: []) => void
+    const firstSearch = new Promise<[]>((resolve) => {
+      resolveFirst = resolve
+    })
+    const search = vi
+      .fn()
+      .mockImplementationOnce((_rootPath, _request, options: { signal?: AbortSignal }) => {
+        signals.push(options.signal!)
+        return firstSearch
+      })
+      .mockImplementationOnce(async (_rootPath, _request, options: { signal?: AbortSignal }) => {
+        signals.push(options.signal!)
+        return []
+      })
+    const service = createTestService({ search })
+
+    const first = service.search({
+      context: projectContext,
+      query: 'first',
+      includeIgnored: false,
+      requestId: 'search-1'
+    })
+    await service.search({
+      context: projectContext,
+      query: 'second',
+      includeIgnored: false,
+      requestId: 'search-2'
+    })
+
+    expect(signals[0]?.aborted).toBe(true)
+    expect(signals[1]?.aborted).toBe(false)
+    resolveFirst([])
+    await expect(first).resolves.toEqual([])
+  })
+
+  it('aborts an in-flight search when explicitly canceled', async () => {
+    let signal: AbortSignal | undefined
+    const search = vi.fn(
+      (_rootPath: string, _request: unknown, _options?: { signal?: AbortSignal }) =>
+        new Promise<[]>((_resolve) => undefined)
+    )
+    const service = createTestService({
+      search: (rootPath, request, options) => {
+        signal = options?.signal
+        return search(rootPath, request, options)
+      }
+    })
+
+    void service.search({
+      context: projectContext,
+      query: 'needle',
+      includeIgnored: false,
+      requestId: 'search-1'
+    })
+    await vi.waitFor(() => expect(signal).toBeDefined())
+    await service.cancelSearch({ context: projectContext, requestId: 'search-1' })
+
+    expect(signal?.aborted).toBe(true)
   })
 
   it('resolves Knowledge Base Files from the verified Knowledge Base repository', async () => {

@@ -96,7 +96,12 @@ beforeEach(async () => {
           lineEnding: 'lf'
         }
       }),
-      revealInSystemFileManager: async () => undefined
+      revealInSystemFileManager: async () => undefined,
+      search: async () => [],
+      cancelSearch: async () => undefined,
+      observe: async ({ subscriptionId }) => ({ subscriptionId }),
+      unobserve: async () => undefined,
+      onObservationEvent: () => () => undefined
     },
     git: {
       getReview: async () => ({
