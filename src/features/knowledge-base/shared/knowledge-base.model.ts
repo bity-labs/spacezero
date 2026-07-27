@@ -14,14 +14,6 @@ export type KnowledgeBaseConfiguration = {
   configuredAt: string
 }
 
-export type KnowledgeBaseSyncStatus = {
-  remoteState: 'local-only' | 'configured'
-  remoteUrl?: string
-  syncState: 'idle' | 'syncing' | 'error' | 'conflict'
-  lastSyncAt?: string
-  lastSyncError?: string
-}
-
 export type KnowledgeBaseContentKind = 'folder' | 'markdown' | 'text' | 'binary'
 
 export type KnowledgeBaseTreeItem = {
@@ -32,13 +24,6 @@ export type KnowledgeBaseTreeItem = {
   size?: number
   modifiedAt?: string
   children?: KnowledgeBaseTreeItem[]
-}
-
-export type KnowledgeBaseSearchResult = {
-  name: string
-  relativePath: string
-  matchType: 'filename' | 'content'
-  snippet?: string
 }
 
 export type KnowledgeBaseDocument = {
@@ -64,7 +49,3 @@ export type KnowledgeBaseImageImport = {
 export type KnowledgeBaseSaveResult =
   | { status: 'saved'; document: KnowledgeBaseDocument }
   | { status: 'conflict'; document: KnowledgeBaseDocument }
-
-export type KnowledgeBaseDocumentCheck =
-  | { changed: false }
-  | { changed: true; document: KnowledgeBaseDocument }

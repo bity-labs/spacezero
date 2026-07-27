@@ -151,54 +151,13 @@ beforeEach(async () => {
         setupState: 'configured',
         rootPath: '/home/builder/SpaceZero/knowledge-base'
       }),
-      getTree: async () => [],
-      openDocument: async ({ relativePath }) => ({
-        name: relativePath.split('/').at(-1) ?? relativePath,
-        relativePath,
-        contentKind: 'text',
-        size: 0,
-        modifiedAt: new Date(0).toISOString(),
-        revision: 'test-revision',
-        content: ''
-      }),
-      search: async () => [],
       importImage: async ({ fileName }) => ({
         assetRelativePath: `assets/img/${fileName}`,
         markdownPath: `../assets/img/${fileName}`,
         altText: fileName.replace(/\.[^.]+$/, '')
       }),
       loadImage: async () => ({ dataUrl: 'data:image/png;base64,' }),
-      createItem: async () => undefined,
-      renameItem: async () => undefined,
-      moveItem: async () => undefined,
-      deleteItem: async () => undefined,
-      saveDocument: async ({ relativePath, content }) => ({
-        status: 'saved',
-        document: {
-          name: relativePath.split('/').at(-1) ?? relativePath,
-          relativePath,
-          contentKind: 'text',
-          size: content.length,
-          modifiedAt: new Date(0).toISOString(),
-          revision: 'saved-test-revision',
-          content
-        }
-      }),
-      checkDocument: async () => ({ changed: false }),
-      getSyncStatus: async () => ({ remoteState: 'local-only', syncState: 'idle' }),
-      addRemote: async ({ gitUrl }) => ({
-        remoteState: 'configured',
-        remoteUrl: gitUrl,
-        syncState: 'idle'
-      }),
-      syncNow: async () => ({
-        remoteState: 'configured',
-        remoteUrl: 'https://example.com/knowledge-base.git',
-        syncState: 'idle',
-        lastSyncAt: new Date(0).toISOString()
-      }),
-      openFolder: async () => undefined,
-      openRemote: async () => undefined
+      openFolder: async () => undefined
     },
     onboarding: {
       getStatus: async () => ({ completed: true }),
