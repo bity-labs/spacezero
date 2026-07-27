@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 
-import type { CreateEmptyProjectRequest, Project, UpdateProjectRequest } from '../../shared'
+import type {
+  CreateEmptyProjectRequest,
+  DeleteProjectResult,
+  Project,
+  UpdateProjectRequest
+} from '../../shared'
 import { consumeProjectOpenRequest } from '../project-open-request'
 
 type ProjectStatus = 'loading' | 'ready' | 'error'
@@ -18,7 +23,7 @@ export function useProjects(): {
   addProjectFromFolder: () => Promise<Project | null>
   updateProject: (request: UpdateProjectRequest) => Promise<Project>
   archiveProject: (projectId: string) => Promise<void>
-  deleteProject: (projectId: string) => Promise<void>
+  deleteProject: (projectId: string) => Promise<DeleteProjectResult>
 } {
   const [projects, setProjects] = useState<Project[]>([])
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
@@ -134,8 +139,9 @@ export function useProjects(): {
 
   const deleteProject = useCallback(
     async (projectId: string) => {
-      await window.spacezero.projects.delete({ projectId })
+      const result = await window.spacezero.projects.delete({ projectId })
       removeProjectFromState(projectId)
+      return result
     },
     [removeProjectFromState]
   )

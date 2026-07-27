@@ -16,6 +16,7 @@ describe('live terminal last-window close coordination', () => {
       countLiveTerminals: vi.fn(() => 2),
       closeAllForWindow: vi.fn(async () => undefined)
     }
+    const resetQuitAttempt = vi.fn()
     const handler = createLiveTerminalLastWindowCloseHandler({
       platform: 'linux',
       getWindowCount: () => 1,
@@ -28,6 +29,7 @@ describe('live terminal last-window close coordination', () => {
       setQuitConfirmed: () => {
         quitConfirmed = true
       },
+      resetQuitAttempt,
       logError: vi.fn()
     })
 
@@ -38,6 +40,7 @@ describe('live terminal last-window close coordination', () => {
     expect(terminalService.closeAllForWindow).not.toHaveBeenCalled()
     expect(window.close).not.toHaveBeenCalled()
     expect(quitConfirmed).toBe(false)
+    expect(resetQuitAttempt).toHaveBeenCalledWith(window)
     expect(inProgress).toBe(false)
   })
 

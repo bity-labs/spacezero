@@ -28,3 +28,7 @@ export type UpdateProjectRequest = {
   name: string
   path: string
 }
+
+export type DeleteProjectResult = {
+  deletedSessionIds: string[]
+}

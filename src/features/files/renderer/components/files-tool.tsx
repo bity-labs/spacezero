@@ -18,6 +18,7 @@ import type { FilesContext, FilesEntry, FilesSearchResult } from '../../shared'
 import {
   createDefaultFilesContext,
   getActiveFilesTab,
+  getFilesEditorViewState,
   isMarkdownDocumentPath,
   isMdxPath,
   useFilesStore,
@@ -26,6 +27,7 @@ import {
   type FilesTabDropPosition,
   type FilesTabState
 } from '../files-store'
+import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
 import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
@@ -356,7 +358,15 @@ function FilesToolSession({
         return false
       }
     },
-    [invalidateSearchResults, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, sessionId]
+    [
+      invalidateSearchResults,
+      ipcContext,
+      markExternalConflict,
+      markSaveFailed,
+      markSaved,
+      markSaving,
+      sessionId
+    ]
   )
 
   const saveActiveDocument = useCallback(async (): Promise<void> => {
@@ -374,7 +384,10 @@ function FilesToolSession({
 
   const reloadFromDisk = useCallback(
     async (relativePath: string): Promise<void> => {
-      const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
+      const document = await window.spacezero.files.openDocument({
+        context: ipcContext,
+        relativePath
+      })
       reloadExternalDocument(sessionId, document)
       invalidateObservedPathGeneration(relativePath)
     },
@@ -398,7 +411,10 @@ function FilesToolSession({
       }
       markSaving(sessionId, saveRequest)
       try {
-        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        const result = await window.spacezero.files.saveDocument({
+          context: ipcContext,
+          ...saveRequest
+        })
         if (result.status === 'conflict') {
           markSaveFailed(sessionId, saveConflictMessage, saveRequest)
           markExternalConflict(sessionId, document.relativePath, result.document.revision)
@@ -411,7 +427,16 @@ function FilesToolSession({
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
       }
     },
-    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+    [
+      invalidateObservedPathGeneration,
+      ipcContext,
+      markExternalConflict,
+      markSaveFailed,
+      markSaved,
+      markSaving,
+      refreshActiveSearch,
+      sessionId
+    ]
   )
 
   const recreateDeletedFile = useCallback(
@@ -429,7 +454,10 @@ function FilesToolSession({
       }
       markSaving(sessionId, saveRequest)
       try {
-        const result = await window.spacezero.files.saveDocument({ context: ipcContext, ...saveRequest })
+        const result = await window.spacezero.files.saveDocument({
+          context: ipcContext,
+          ...saveRequest
+        })
         if (result.status === 'conflict') {
           markSaveFailed(sessionId, saveConflictMessage, saveRequest)
           markExternalConflict(sessionId, document.relativePath, result.document.revision)
@@ -442,7 +470,16 @@ function FilesToolSession({
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
       }
     },
-    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+    [
+      invalidateObservedPathGeneration,
+      ipcContext,
+      markExternalConflict,
+      markSaveFailed,
+      markSaved,
+      markSaving,
+      refreshActiveSearch,
+      sessionId
+    ]
   )
 
   const prepareDirtyOperation = useCallback(
@@ -514,7 +551,14 @@ function FilesToolSession({
         window.alert(fileOperationErrorMessage(error))
       }
     },
-    [ipcContext, prepareDirtyOperation, refreshActiveSearch, revealTreePath, rewritePaths, sessionId]
+    [
+      ipcContext,
+      prepareDirtyOperation,
+      refreshActiveSearch,
+      revealTreePath,
+      rewritePaths,
+      sessionId
+    ]
   )
 
   const trashEntry = useCallback(
@@ -597,11 +641,54 @@ function FilesToolSession({
   }, [cancelActiveSearch, invalidateSearchResults, loadRoot, sessionId])
 
   useEffect(() => {
+    const restoredTabs =
+      useFilesStore
+        .getState()
+        .contexts[sessionId]?.tabs.filter(
+          (tab) =>
+            tab.status === 'loading' &&
+            typeof tab.openRequestId === 'number' &&
+            tab.openRequestId < 0
+        ) ?? []
+    if (restoredTabs.length === 0) return
+    let cancelled = false
+    void (async () => {
+      await Promise.all(
+        restoredTabs.map(async (tab) => {
+          if (tab.openRequestId === undefined) return
+          try {
+            const document = await window.spacezero.files.openDocument({
+              context: ipcContext,
+              relativePath: tab.relativePath
+            })
+            if (cancelled) return
+            useFilesStore.getState().finishOpenTab(sessionId, document, tab.openRequestId)
+          } catch (error) {
+            if (cancelled) return
+            useFilesStore
+              .getState()
+              .failOpenTab(
+                sessionId,
+                tab.relativePath,
+                restoredOpenErrorMessage(error),
+                tab.openRequestId
+              )
+          }
+        })
+      )
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ipcContext, sessionId])
+
+  useEffect(() => {
     const subscriptionId = `${sessionId}:files-observation`
     let closed = false
     void window.spacezero.files.observe({ context: ipcContext, subscriptionId })
     const refreshOpenTab = async (relativePath: string, deleted: boolean): Promise<void> => {
-      const observedReadSequence = (observedDocumentReadSequencesRef.current.get(relativePath) ?? 0) + 1
+      const observedReadSequence =
+        (observedDocumentReadSequencesRef.current.get(relativePath) ?? 0) + 1
       observedDocumentReadSequencesRef.current.set(relativePath, observedReadSequence)
       const observedGeneration = observedPathGenerationsRef.current.get(relativePath) ?? 0
       const observedTab = useFilesStore
@@ -628,7 +715,10 @@ function FilesToolSession({
         return latestTab
       }
       try {
-        const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
+        const document = await window.spacezero.files.openDocument({
+          context: ipcContext,
+          relativePath
+        })
         const latestTab = getCurrentObservedTab()
         if (!latestTab) return
         if (latestTab.dirty || latestTab.externalStatus) {
@@ -673,7 +763,17 @@ function FilesToolSession({
       unsubscribeEvents()
       void window.spacezero.files.unobserve({ subscriptionId })
     }
-  }, [ipcContext, loadDirectory, loadRoot, markDeletedOnDisk, markExternalConflict, markExternalReadFailed, refreshActiveSearch, reloadCleanExternalDocument, sessionId])
+  }, [
+    ipcContext,
+    loadDirectory,
+    loadRoot,
+    markDeletedOnDisk,
+    markExternalConflict,
+    markExternalReadFailed,
+    refreshActiveSearch,
+    reloadCleanExternalDocument,
+    sessionId
+  ])
 
   useEffect(() => {
     if (rootState.status !== 'ready' || restoredRootRef.current) return
@@ -1249,7 +1349,9 @@ function FilesEditorPanel({
   onSave: () => void | Promise<void>
   onReloadFromDisk: (relativePath: string) => void | Promise<void>
   onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
-  onRecreateDeletedFile: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onRecreateDeletedFile: (
+    document: Extract<FilesTabState, { status: 'ready' }>
+  ) => void | Promise<void>
   onCloseDeletedTab: (relativePath: string) => void
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
@@ -1348,12 +1450,28 @@ function FilesReadyEditorPanel({
   onSave: () => void | Promise<void>
   onReloadFromDisk: (relativePath: string) => void | Promise<void>
   onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
-  onRecreateDeletedFile: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
+  onRecreateDeletedFile: (
+    document: Extract<FilesTabState, { status: 'ready' }>
+  ) => void | Promise<void>
   onCloseDeletedTab: (relativePath: string) => void
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
   const onSaveRef = useRef(onSave)
   const editorRef = useRef<Parameters<FilesMonacoEditorMount>[0] | null>(null)
+  const richScrollContainerRef = useRef<HTMLElement | null>(null)
+  const flushEditorViewState = useCallback(() => {
+    const editor = editorRef.current
+    const viewState = typeof editor?.saveViewState === 'function' ? editor.saveViewState() : null
+    if (viewState) {
+      useFilesStore.getState().setMonacoViewState(sessionId, document.relativePath, viewState)
+    }
+    const richScrollContainer = richScrollContainerRef.current
+    if (richScrollContainer) {
+      useFilesStore
+        .getState()
+        .setRichScrollTop(sessionId, document.relativePath, richScrollContainer.scrollTop)
+    }
+  }, [document.relativePath, sessionId])
   useEffect(() => {
     onSaveRef.current = onSave
   }, [onSave])
@@ -1361,12 +1479,34 @@ function FilesReadyEditorPanel({
     () => ({ minimap: { enabled: false }, scrollBeyondLastLine: false }),
     []
   )
-  const handleEditorMount = useCallback<FilesMonacoEditorMount>((editor, monaco) => {
-    editorRef.current = editor
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-      void onSaveRef.current()
-    })
-  }, [])
+  const handleEditorMount = useCallback<FilesMonacoEditorMount>(
+    (editor, monaco) => {
+      editorRef.current = editor
+      const savedViewState = getFilesEditorViewState(
+        sessionId,
+        document.relativePath
+      )?.monacoViewState
+      if (savedViewState) {
+        editor.restoreViewState(savedViewState as Parameters<typeof editor.restoreViewState>[0])
+      }
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+        void onSaveRef.current()
+      })
+    },
+    [document.relativePath, sessionId]
+  )
+
+  useEffect(() => {
+    return registerFilesEditorViewStateFlush(flushEditorViewState)
+  }, [flushEditorViewState])
+
+  useEffect(() => {
+    return () => {
+      flushEditorViewState()
+      editorRef.current = null
+      richScrollContainerRef.current = null
+    }
+  }, [flushEditorViewState])
 
   useEffect(() => {
     if (document.targetLine === undefined) return
@@ -1460,19 +1600,35 @@ function FilesReadyEditorPanel({
           <span className="flex shrink-0 items-center gap-2">
             {document.externalStatus.kind === 'conflict' ? (
               <>
-                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onReloadFromDisk(document.relativePath)}>
+                <button
+                  className="rounded-md border px-2 py-1 hover:bg-background"
+                  type="button"
+                  onClick={() => void onReloadFromDisk(document.relativePath)}
+                >
                   Reload from disk
                 </button>
-                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onOverwriteDisk(document)}>
+                <button
+                  className="rounded-md border px-2 py-1 hover:bg-background"
+                  type="button"
+                  onClick={() => void onOverwriteDisk(document)}
+                >
                   Overwrite disk
                 </button>
               </>
             ) : (
               <>
-                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => void onRecreateDeletedFile(document)}>
+                <button
+                  className="rounded-md border px-2 py-1 hover:bg-background"
+                  type="button"
+                  onClick={() => void onRecreateDeletedFile(document)}
+                >
                   Recreate file
                 </button>
-                <button className="rounded-md border px-2 py-1 hover:bg-background" type="button" onClick={() => onCloseDeletedTab(document.relativePath)}>
+                <button
+                  className="rounded-md border px-2 py-1 hover:bg-background"
+                  type="button"
+                  onClick={() => onCloseDeletedTab(document.relativePath)}
+                >
                   Close tab
                 </button>
               </>
@@ -1496,8 +1652,17 @@ function FilesReadyEditorPanel({
             key={`${sessionId}:${document.editorStateKey}`}
             documentRelativePath={document.relativePath}
             imageAdapter={richImageAdapter}
+            initialScrollTop={
+              getFilesEditorViewState(sessionId, document.relativePath)?.richScrollTop ?? 0
+            }
             markdown={document.draft}
             onChange={onChange}
+            onScrollContainerChange={(element) => {
+              richScrollContainerRef.current = element
+            }}
+            onScrollTopChange={(scrollTop) => {
+              useFilesStore.getState().setRichScrollTop(sessionId, document.relativePath, scrollTop)
+            }}
           />
         ) : (
           <FilesMonacoEditor
@@ -1802,6 +1967,17 @@ function filesErrorMessage(error: unknown): string {
     return 'Space Zero cannot access this directory. Check its permissions and try again.'
   }
   return 'Couldn’t read this directory. Try again.'
+}
+
+function restoredOpenErrorMessage(error: unknown): string {
+  if (isFilesNotFoundError(error))
+    return 'This restored file no longer exists. Close the tab or choose another file.'
+  const code = error instanceof Error ? error.message : ''
+  if (code.includes('files.contentTooLarge'))
+    return 'This restored file is too large to edit. Reveal it or close the tab.'
+  if (code.includes('files.notEditableText'))
+    return 'This restored file is no longer editable text. Reveal it or close the tab.'
+  return 'Couldn’t restore this file. Other restored tabs are still available.'
 }
 
 function saveErrorMessage(error: unknown): string {

@@ -15,6 +15,10 @@ import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
 import { createLiveTerminalLastWindowCloseHandler } from './live-terminal-window-close'
 import {
+  createQuitLifecycleCoordinator,
+  confirmFilesExitForWindow
+} from './quit-lifecycle-coordinator'
+import {
   findSpaceZeroOAuthUrl,
   registerSpaceZeroProtocol,
   routeSpaceZeroOAuthUrl
@@ -23,7 +27,19 @@ import {
 log.initialize()
 
 let terminalQuitInProgress = false
-let terminalQuitConfirmed = false
+const filesExitConfirmedWindows = new WeakSet<BrowserWindow>()
+const quitLifecycleCoordinator = createQuitLifecycleCoordinator({
+  getWindows: () => BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed()),
+  getTerminalService,
+  confirmTerminalQuit: (count) => shouldProceedWithLiveTerminalTermination({ count, purpose: 'quit' }),
+  quit: () => app.quit(),
+  finishQuit: () => {
+    disposeBrowserIpcResources()
+    stopAgentUtilityProcessHost()
+    closeDatabase()
+  },
+  logError: (message, error) => log.error(message, error)
+})
 
 registerSpaceZeroProtocol()
 
@@ -73,6 +89,28 @@ function createWindow(): void {
     mainWindow.show()
   })
 
+  mainWindow.on('close', (event) => {
+    if (quitLifecycleCoordinator.isFilesQuitConfirmed()) return
+    if (quitLifecycleCoordinator.isFilesQuitInProgress()) return
+    if (event.defaultPrevented) return
+    if (filesExitConfirmedWindows.has(mainWindow)) {
+      filesExitConfirmedWindows.delete(mainWindow)
+      return
+    }
+    event.preventDefault()
+    void (async () => {
+      try {
+        const confirmed = await confirmFilesExitForWindow(mainWindow)
+        if (!confirmed || mainWindow.isDestroyed()) return
+      } catch (error) {
+        log.error('Files exit guard failed; blocking window close', error)
+        return
+      }
+      filesExitConfirmedWindows.add(mainWindow)
+      mainWindow.close()
+    })()
+  })
+
   mainWindow.webContents.setWindowOpenHandler((details) => {
     if (isAllowedGitHubRepositoryUrl(details.url)) void shell.openExternal(details.url)
     return { action: 'deny' }
@@ -96,8 +134,10 @@ app.whenReady().then(() => {
     setQuitInProgress: (inProgress) => {
       terminalQuitInProgress = inProgress
     },
-    setQuitConfirmed: () => {
-      terminalQuitConfirmed = true
+    setQuitConfirmed: () => undefined,
+    resetQuitAttempt: (window) => {
+      quitLifecycleCoordinator.resetFilesExitAttempt()
+      filesExitConfirmedWindows.delete(window as BrowserWindow)
     },
     logError: (error) => log.error('Terminal shutdown before last window close failed', error)
   })
@@ -121,35 +161,4 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', (event) => {
-  if (!terminalQuitConfirmed) {
-    const terminalService = getTerminalService()
-    const liveCount = terminalService.countLiveTerminals()
-    if (liveCount > 0) {
-      event.preventDefault()
-      if (terminalQuitInProgress) return
-      terminalQuitInProgress = true
-      void (async () => {
-        try {
-          const confirmed = await shouldProceedWithLiveTerminalTermination({
-            count: liveCount,
-            purpose: 'quit'
-          })
-          if (!confirmed) return
-          await terminalService.closeAll()
-          terminalQuitConfirmed = true
-          app.quit()
-        } catch (error) {
-          log.error('Terminal shutdown before quit failed', error)
-        } finally {
-          terminalQuitInProgress = false
-        }
-      })()
-      return
-    }
-  }
-
-  disposeBrowserIpcResources()
-  stopAgentUtilityProcessHost()
-  closeDatabase()
-})
+app.on('before-quit', (event) => quitLifecycleCoordinator.handleBeforeQuit(event))

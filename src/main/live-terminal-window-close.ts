@@ -20,6 +20,7 @@ export function createLiveTerminalLastWindowCloseHandler({
   isQuitInProgress,
   setQuitInProgress,
   setQuitConfirmed,
+  resetQuitAttempt,
   logError
 }: {
   platform?: NodeJS.Platform
@@ -29,6 +30,7 @@ export function createLiveTerminalLastWindowCloseHandler({
   isQuitInProgress: () => boolean
   setQuitInProgress: (inProgress: boolean) => void
   setQuitConfirmed: () => void
+  resetQuitAttempt?: (window: LiveTerminalWindow) => void
   logError: (error: unknown) => void
 }): (window: LiveTerminalWindow, event: LiveTerminalWindowCloseEvent) => void {
   const confirmedWindows = new WeakSet<LiveTerminalWindow>()
@@ -48,12 +50,16 @@ export function createLiveTerminalLastWindowCloseHandler({
     void (async () => {
       try {
         const confirmed = await confirmQuit(liveCount)
-        if (!confirmed) return
+        if (!confirmed) {
+          resetQuitAttempt?.(window)
+          return
+        }
         await terminalService.closeAllForWindow(window.id)
         setQuitConfirmed()
         confirmedWindows.add(window)
         window.close()
       } catch (error) {
+        resetQuitAttempt?.(window)
         logError(error)
       } finally {
         setQuitInProgress(false)

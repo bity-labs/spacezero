@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
+import { useFilesStore } from '../../files/renderer/files-store'
 import { WorkspaceSessionHostSurface } from '../../sessions/renderer'
 import type { WorkspaceSession } from '../../sessions/shared'
 import type { KnowledgeBaseStatus } from '../shared'
@@ -62,6 +64,7 @@ export function KnowledgeBasePage({
     setError(null)
     try {
       setStatus(await window.spacezero.knowledgeBase.reset())
+      useFilesStore.getState().clearContext(KNOWLEDGE_BASE_FILES_CONTEXT_KEY)
     } catch (resetError) {
       setError(getErrorMessage(resetError, 'Unable to reset Knowledge Base configuration.'))
     } finally {
