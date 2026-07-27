@@ -24,6 +24,9 @@ log.initialize()
 
 let terminalQuitInProgress = false
 let terminalQuitConfirmed = false
+let filesQuitInProgress = false
+let filesQuitConfirmed = false
+const filesExitConfirmedWindows = new WeakSet<BrowserWindow>()
 
 registerSpaceZeroProtocol()
 
@@ -50,6 +53,21 @@ app.on('open-url', (event, url) => {
   void routeSpaceZeroOAuthUrl(url)
 })
 
+async function confirmFilesExitForAllWindows(): Promise<boolean> {
+  const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed())
+  for (const window of windows) {
+    const confirmed = await Promise.race([
+      window.webContents.executeJavaScript(
+        'window.spacezeroConfirmFilesExit ? window.spacezeroConfirmFilesExit() : true',
+        true
+      ),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000))
+    ])
+    if (!confirmed) return false
+  }
+  return true
+}
+
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -71,6 +89,32 @@ function createWindow(): void {
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  mainWindow.on('close', (event) => {
+    if (filesQuitConfirmed || filesQuitInProgress) return
+    if (filesExitConfirmedWindows.has(mainWindow)) {
+      filesExitConfirmedWindows.delete(mainWindow)
+      return
+    }
+    event.preventDefault()
+    void (async () => {
+      try {
+        const confirmed = await Promise.race([
+          mainWindow.webContents.executeJavaScript(
+            'window.spacezeroConfirmFilesExit ? window.spacezeroConfirmFilesExit() : true',
+            true
+          ),
+          new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2000))
+        ])
+        if (!confirmed || mainWindow.isDestroyed()) return
+      } catch (error) {
+        log.error('Files exit guard failed; allowing window close', error)
+        if (mainWindow.isDestroyed()) return
+      }
+      filesExitConfirmedWindows.add(mainWindow)
+      mainWindow.close()
+    })()
   })
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
@@ -122,6 +166,25 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
+  if (!filesQuitConfirmed) {
+    event.preventDefault()
+    if (filesQuitInProgress) return
+    filesQuitInProgress = true
+    void (async () => {
+      try {
+        const confirmed = await confirmFilesExitForAllWindows()
+        if (!confirmed) return
+        filesQuitConfirmed = true
+        app.quit()
+      } catch (error) {
+        log.error('Files shutdown before quit failed', error)
+      } finally {
+        filesQuitInProgress = false
+      }
+    })()
+    return
+  }
+
   if (!terminalQuitConfirmed) {
     const terminalService = getTerminalService()
     const liveCount = terminalService.countLiveTerminals()
