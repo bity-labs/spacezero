@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useState,
-  type KeyboardEvent,
-  type PointerEvent
-} from 'react'
+import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   BookOpenText,
   CalendarBlank,
@@ -19,6 +13,7 @@ import {
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
+import { useFilesStore } from '../../features/files/renderer/files-store'
 import { KnowledgeBasePage } from '../../features/knowledge-base/renderer'
 import type { AppCommand } from '../../features/app-commands/renderer/app-command.model'
 import { useCommandPaletteController } from '../../features/command-palette/renderer/command-palette-controller'
@@ -295,6 +290,7 @@ export function WorkspaceShell(): React.JSX.Element {
   async function handleDeleteSession(sessionId: string): Promise<void> {
     if (!window.confirm('Delete this session permanently? This cannot be undone.')) return
     await deleteSession(sessionId)
+    useFilesStore.getState().clearContext(sessionId)
     if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
   }
 

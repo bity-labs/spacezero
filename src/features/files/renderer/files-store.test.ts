@@ -479,8 +479,8 @@ describe('Files renderer state', () => {
     expect(store.beginOpenTab('session-external-clean', 'README.md', 'permanent', 1)).toBe(true)
     store.finishOpenTab('session-external-clean', textDocument('README.md', '# old'), 1)
     store.setEditorMode('session-external-clean', 'README.md', 'source')
-    const editorStateKey = useFilesStore.getState().contexts['session-external-clean'].tabs[0]
-      .editorStateKey
+    const editorStateKey =
+      useFilesStore.getState().contexts['session-external-clean'].tabs[0].editorStateKey
 
     store.reloadCleanExternalDocument('session-external-clean', {
       ...textDocument('README.md', '# new'),
@@ -500,7 +500,9 @@ describe('Files renderer state', () => {
 
   it('preserves dirty buffers and blocks normal save after external modification', () => {
     const store = useFilesStore.getState()
-    expect(store.beginOpenTab('session-external-conflict', 'src/index.ts', 'permanent', 1)).toBe(true)
+    expect(store.beginOpenTab('session-external-conflict', 'src/index.ts', 'permanent', 1)).toBe(
+      true
+    )
     store.finishOpenTab('session-external-conflict', textDocument('src/index.ts', 'saved'), 1)
     store.updateDraft('session-external-conflict', 'local draft')
 
@@ -534,15 +536,77 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('restores each Project Session explorer width and collapsed state without restoring tabs', async () => {
+  it('keeps restored missing paths actionable without blocking other restored tabs', async () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-restore', 'missing.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-restore', textDocument('missing.md'), 1)
+    expect(store.beginOpenTab('session-restore', 'ok.md', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('session-restore', textDocument('ok.md'), 2)
+    const persisted = window.localStorage.getItem('spacezero.files')
+
+    useFilesStore.setState({ contexts: {} })
+    window.localStorage.setItem('spacezero.files', persisted!)
+    await useFilesStore.persist.rehydrate()
+    const [missing, ok] = useFilesStore.getState().contexts['session-restore'].tabs
+
+    useFilesStore
+      .getState()
+      .failOpenTab(
+        'session-restore',
+        'missing.md',
+        'This restored file no longer exists.',
+        missing.openRequestId!
+      )
+    useFilesStore
+      .getState()
+      .finishOpenTab('session-restore', textDocument('ok.md'), ok.openRequestId!)
+
+    expect(useFilesStore.getState().contexts['session-restore'].tabs).toMatchObject([
+      {
+        relativePath: 'missing.md',
+        status: 'error',
+        message: 'This restored file no longer exists.'
+      },
+      { relativePath: 'ok.md', status: 'ready', draft: 'ok.md saved', dirty: false }
+    ])
+  })
+
+  it('clears one deleted Files context without affecting another context', () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-1', 'one.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('one.ts'), 1)
+    expect(store.beginOpenTab('knowledge-base', 'notes.md', 'permanent', 2)).toBe(true)
+    store.finishOpenTab('knowledge-base', textDocument('notes.md'), 2)
+
+    store.clearContext('session-1')
+
+    expect(useFilesStore.getState().contexts['session-1']).toBeUndefined()
+    expect(useFilesStore.getState().contexts['knowledge-base']).toMatchObject({
+      tabs: [{ relativePath: 'notes.md' }]
+    })
+  })
+
+  it('restores permanent working-set references without persisted file contents or preview tabs', async () => {
     const store = useFilesStore.getState()
     store.setExplorerWidth('session-1', 320)
     store.setExplorerCollapsed('session-1', true)
+    store.setExpanded('session-1', 'src', true)
     expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
     store.finishOpenTab('session-1', textDocument('src/index.ts'), 1)
+    store.setEditorMode('session-1', 'src/index.ts', 'source')
+    store.setMonacoViewState('session-1', 'src/index.ts', {
+      cursorState: [{ position: { lineNumber: 2, column: 3 } }]
+    })
+    expect(store.beginOpenTab('session-1', 'preview.txt', 'preview', 2)).toBe(true)
+    store.finishOpenTab('session-1', textDocument('preview.txt', 'preview content'), 2)
+    store.activateTab('session-1', 'src/index.ts')
+    store.updateDraft('session-1', 'unsaved draft')
     const persisted = window.localStorage.getItem('spacezero.files')
     expect(persisted).toContain('"explorerWidth":320')
+    expect(persisted).toContain('src/index.ts')
+    expect(persisted).not.toContain('preview.txt')
     expect(persisted).not.toContain('src/index.ts saved')
+    expect(persisted).not.toContain('unsaved draft')
 
     useFilesStore.setState({ contexts: {} })
     window.localStorage.setItem('spacezero.files', persisted!)
@@ -551,8 +615,21 @@ describe('Files renderer state', () => {
     expect(useFilesStore.getState().contexts['session-1']).toMatchObject({
       explorerWidth: 320,
       explorerCollapsed: true,
-      tabs: [],
-      activeTabPath: null
+      expandedPaths: ['src'],
+      activeTabPath: 'src/index.ts',
+      tabs: [
+        {
+          relativePath: 'src/index.ts',
+          status: 'loading',
+          preview: false,
+          restoreEditorMode: 'source'
+        }
+      ],
+      editorViewStates: {
+        'src/index.ts': {
+          monacoViewState: { cursorState: [{ position: { lineNumber: 2, column: 3 } }] }
+        }
+      }
     })
   })
 })

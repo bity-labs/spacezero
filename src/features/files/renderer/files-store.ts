@@ -24,6 +24,7 @@ type FilesTabBase = {
   targetLine?: number
   locationRequestId?: number
   editorStateKey: string
+  restoreEditorMode?: FilesEditorMode
 }
 
 export type FilesTabState =
@@ -39,12 +40,16 @@ export type FilesTabState =
         saveRequest?: FilesSaveRequestSnapshot
         editorMode: FilesEditorMode
         externalStatus?:
-          | { kind: 'conflict'; diskRevision: string }
-          | { kind: 'deleted'; missingRevision: string }
+          { kind: 'conflict'; diskRevision: string } | { kind: 'deleted'; missingRevision: string }
       })
   | (Exclude<FilesDocument, FilesTextDocument> & FilesTabBase & { status: 'metadata' })
 
 export type FilesActiveDocumentState = FilesTabState
+
+export type FilesEditorViewState = {
+  monacoViewState?: unknown
+  richScrollTop?: number
+}
 
 export type FilesContextState = {
   explorerWidth: number
@@ -53,12 +58,20 @@ export type FilesContextState = {
   expandedPaths: string[]
   tabs: FilesTabState[]
   activeTabPath: string | null
+  editorViewStates: Record<string, FilesEditorViewState>
 }
 
 export type FilesOpenTabIntent = 'preview' | 'permanent'
 export type FilesTabDropPosition = 'before' | 'after'
 
-type PersistedFilesContextState = Omit<FilesContextState, 'tabs' | 'activeTabPath'>
+type PersistedFilesTabReference = {
+  relativePath: string
+  editorMode?: FilesEditorMode
+}
+
+type PersistedFilesContextState = Omit<FilesContextState, 'tabs'> & {
+  tabs: PersistedFilesTabReference[]
+}
 
 type FilesStore = {
   contexts: Record<string, FilesContextState>
@@ -107,8 +120,12 @@ type FilesStore = {
   markDeletedOnDisk: (sessionId: string, relativePath: string) => void
   markExternalReadFailed: (sessionId: string, relativePath: string, message: string) => void
   discardDirtyTabsInPath: (sessionId: string, relativePath: string) => void
+  discardAllDirtyTabs: (sessionId: string) => void
   rewritePaths: (sessionId: string, sourcePath: string, destinationPath: string) => void
   closeTabsInPath: (sessionId: string, relativePath: string) => void
+  setMonacoViewState: (sessionId: string, relativePath: string, viewState: unknown) => void
+  setRichScrollTop: (sessionId: string, relativePath: string, scrollTop: number) => void
+  clearContext: (sessionId: string) => void
 }
 
 const DEFAULT_EXPLORER_WIDTH = 260
@@ -203,7 +220,8 @@ const useFilesStore = create<FilesStore>()(
                     tab.preview,
                     tab.targetLine,
                     tab.locationRequestId,
-                    tab.editorStateKey
+                    tab.editorStateKey,
+                    tab.restoreEditorMode
                   )
                 : candidate
             )
@@ -431,24 +449,11 @@ const useFilesStore = create<FilesStore>()(
           }))
         ),
       discardDirtyTabsInPath: (sessionId, relativePath) =>
-        set((state) => {
-          const context = state.contexts[sessionId] ?? createDefaultContext()
-          return updateContext(state, sessionId, {
-            tabs: context.tabs.map((tab) =>
-              isPathAffectedBy(tab.relativePath, relativePath) && tab.status === 'ready'
-                ? {
-                    ...tab,
-                    draft: tab.content,
-                    dirty: false,
-                    saveStatus: 'idle',
-                    error: undefined,
-                    saveRequest: undefined,
-                    externalStatus: undefined
-                  }
-                : tab
-            )
-          })
-        }),
+        set((state) =>
+          discardDirtyTabs(state, sessionId, (path) => isPathAffectedBy(path, relativePath))
+        ),
+      discardAllDirtyTabs: (sessionId) =>
+        set((state) => discardDirtyTabs(state, sessionId, () => true)),
       rewritePaths: (sessionId, sourcePath, destinationPath) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
@@ -462,6 +467,12 @@ const useFilesStore = create<FilesStore>()(
             activeTabPath: context.activeTabPath
               ? rewrite(context.activeTabPath)
               : context.activeTabPath,
+            editorViewStates: Object.fromEntries(
+              Object.entries(context.editorViewStates).map(([path, viewState]) => [
+                rewrite(path),
+                viewState
+              ])
+            ),
             tabs: context.tabs.map((tab) => ({
               ...tab,
               relativePath: rewrite(tab.relativePath),
@@ -493,8 +504,24 @@ const useFilesStore = create<FilesStore>()(
           return updateContext(state, sessionId, {
             tabs,
             activeTabPath,
-            selectedPath
+            selectedPath,
+            editorViewStates: Object.fromEntries(
+              Object.entries(context.editorViewStates).filter(
+                ([path]) => !isPathAffectedBy(path, relativePath)
+              )
+            )
           })
+        }),
+      setMonacoViewState: (sessionId, relativePath, monacoViewState) =>
+        set((state) => setEditorViewState(state, sessionId, relativePath, { monacoViewState })),
+      setRichScrollTop: (sessionId, relativePath, richScrollTop) =>
+        set((state) => setEditorViewState(state, sessionId, relativePath, { richScrollTop })),
+      clearContext: (sessionId) =>
+        set((state) => {
+          if (!(sessionId in state.contexts)) return state
+          const contexts = { ...state.contexts }
+          delete contexts[sessionId]
+          return { contexts }
         })
     }),
     {
@@ -517,10 +544,34 @@ const useFilesStore = create<FilesStore>()(
         return {
           ...currentState,
           contexts: Object.fromEntries(
-            Object.entries(persistedContexts).map(([sessionId, context]) => [
-              sessionId,
-              { ...createDefaultContext(), ...context, tabs: [], activeTabPath: null }
-            ])
+            Object.entries(persistedContexts).map(([sessionId, context]) => {
+              const restoredTabs = Array.isArray(context.tabs)
+                ? context.tabs.map((tab, index) =>
+                    loadingTab(
+                      tab.relativePath,
+                      false,
+                      restoredOpenRequestId(index),
+                      undefined,
+                      tab.editorMode
+                    )
+                  )
+                : []
+              const restoredActiveTabPath = restoredTabs.some(
+                (tab) => tab.relativePath === context.activeTabPath
+              )
+                ? context.activeTabPath
+                : (restoredTabs[0]?.relativePath ?? null)
+              return [
+                sessionId,
+                {
+                  ...createDefaultContext(),
+                  ...context,
+                  tabs: restoredTabs,
+                  activeTabPath: restoredActiveTabPath,
+                  editorViewStates: sanitizeEditorViewStates(context.editorViewStates)
+                }
+              ]
+            })
           )
         }
       }
@@ -539,6 +590,28 @@ function updateContext(
       [sessionId]: { ...(state.contexts[sessionId] ?? createDefaultContext()), ...update }
     }
   }
+}
+
+function setEditorViewState(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  relativePath: string,
+  update: FilesEditorViewState
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  return updateContext(state, sessionId, {
+    editorViewStates: {
+      ...context.editorViewStates,
+      [relativePath]: { ...context.editorViewStates[relativePath], ...update }
+    }
+  })
+}
+
+export function getFilesEditorViewState(
+  sessionId: string,
+  relativePath: string
+): FilesEditorViewState | undefined {
+  return useFilesStore.getState().contexts[sessionId]?.editorViewStates[relativePath]
 }
 
 export function createDefaultFilesContext(): FilesContextState {
@@ -595,6 +668,29 @@ function updateActiveReadyTab(
   })
 }
 
+function discardDirtyTabs(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  matchesPath: (relativePath: string) => boolean
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  return updateContext(state, sessionId, {
+    tabs: context.tabs.map((tab) =>
+      matchesPath(tab.relativePath) && tab.status === 'ready'
+        ? {
+            ...tab,
+            draft: tab.content,
+            dirty: false,
+            saveStatus: 'idle',
+            error: undefined,
+            saveRequest: undefined,
+            externalStatus: undefined
+          }
+        : tab
+    )
+  })
+}
+
 function updateMatchingReadyTab(
   state: Pick<FilesStore, 'contexts'>,
   sessionId: string,
@@ -640,11 +736,25 @@ function matchesSaveRequest(
 }
 
 function toPersistedContext(context: FilesContextState): PersistedFilesContextState {
+  const permanentTabs = context.tabs.filter((tab) => !tab.preview)
+  const activeTabPath = permanentTabs.some((tab) => tab.relativePath === context.activeTabPath)
+    ? context.activeTabPath
+    : (permanentTabs[0]?.relativePath ?? null)
   return {
     explorerWidth: context.explorerWidth,
     explorerCollapsed: context.explorerCollapsed,
     selectedPath: context.selectedPath,
-    expandedPaths: context.expandedPaths
+    expandedPaths: context.expandedPaths,
+    tabs: permanentTabs.map((tab) => ({
+      relativePath: tab.relativePath,
+      editorMode: tab.status === 'ready' ? tab.editorMode : tab.restoreEditorMode
+    })),
+    activeTabPath,
+    editorViewStates: Object.fromEntries(
+      Object.entries(context.editorViewStates).filter(([relativePath]) =>
+        permanentTabs.some((tab) => tab.relativePath === relativePath)
+      )
+    )
   }
 }
 
@@ -655,7 +765,8 @@ function createDefaultContext(): FilesContextState {
     selectedPath: null,
     expandedPaths: [],
     tabs: [],
-    activeTabPath: null
+    activeTabPath: null,
+    editorViewStates: {}
   }
 }
 
@@ -663,7 +774,8 @@ function loadingTab(
   relativePath: string,
   preview: boolean,
   openRequestId: number,
-  targetLine?: number
+  targetLine?: number,
+  restoreEditorMode?: FilesEditorMode
 ): Extract<FilesTabState, { status: 'loading' }> {
   return {
     relativePath,
@@ -673,6 +785,7 @@ function loadingTab(
     openRequestId,
     targetLine,
     locationRequestId: openRequestId,
+    restoreEditorMode,
     status: 'loading'
   }
 }
@@ -751,7 +864,10 @@ function closeTabIfAllowed(
   return updateContext(state, sessionId, {
     tabs,
     activeTabPath,
-    selectedPath: activeTabPath ?? context.selectedPath
+    selectedPath: activeTabPath ?? context.selectedPath,
+    editorViewStates: Object.fromEntries(
+      Object.entries(context.editorViewStates).filter(([path]) => path !== relativePath)
+    )
   })
 }
 
@@ -777,6 +893,15 @@ export function isMarkdownDocumentPath(relativePath: string): boolean {
 
 export function isMdxPath(relativePath: string): boolean {
   return relativePath.toLowerCase().endsWith('.mdx')
+}
+
+function restoredOpenRequestId(index: number): number {
+  return -(index + 1)
+}
+
+function sanitizeEditorViewStates(editorViewStates: unknown): Record<string, FilesEditorViewState> {
+  if (!editorViewStates || typeof editorViewStates !== 'object') return {}
+  return editorViewStates as Record<string, FilesEditorViewState>
 }
 
 function parentDirectoryPath(relativePath: string): string {
