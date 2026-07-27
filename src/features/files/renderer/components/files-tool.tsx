@@ -141,8 +141,13 @@ function FilesToolSession({
   const searchRequestRef = useRef(0)
   const activeSearchRequestIdRef = useRef<string | null>(null)
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
+  const observedPathGenerationsRef = useRef(new Map<string, number>())
+  const searchStateRef = useRef(searchState)
+  const includeIgnoredSearchRef = useRef(includeIgnoredSearch)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
+  searchStateRef.current = searchState
+  includeIgnoredSearchRef.current = includeIgnoredSearch
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
@@ -301,10 +306,17 @@ function FilesToolSession({
   }, [invalidateSearchResults])
 
   const refreshActiveSearch = useCallback((): void => {
-    const state = searchState
+    const state = searchStateRef.current
     if (state.status === 'idle') return
-    void performSearch(state.query, includeIgnoredSearch)
-  }, [includeIgnoredSearch, performSearch, searchState])
+    void performSearch(state.query, includeIgnoredSearchRef.current)
+  }, [performSearch])
+
+  const invalidateObservedPathGeneration = useCallback((relativePath: string): void => {
+    observedPathGenerationsRef.current.set(
+      relativePath,
+      (observedPathGenerationsRef.current.get(relativePath) ?? 0) + 1
+    )
+  }, [])
 
   const revealTreePath = useCallback(
     async (relativePath: string): Promise<void> => {
@@ -364,8 +376,9 @@ function FilesToolSession({
     async (relativePath: string): Promise<void> => {
       const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
       reloadExternalDocument(sessionId, document)
+      invalidateObservedPathGeneration(relativePath)
     },
-    [ipcContext, reloadExternalDocument, sessionId]
+    [invalidateObservedPathGeneration, ipcContext, reloadExternalDocument, sessionId]
   )
 
   const overwriteDisk = useCallback(
@@ -392,12 +405,13 @@ function FilesToolSession({
           return
         }
         markSaved(sessionId, result.document, saveRequest)
+        invalidateObservedPathGeneration(document.relativePath)
         refreshActiveSearch()
       } catch (error) {
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
       }
     },
-    [ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
   )
 
   const recreateDeletedFile = useCallback(
@@ -422,12 +436,13 @@ function FilesToolSession({
           return
         }
         markSaved(sessionId, result.document, saveRequest)
+        invalidateObservedPathGeneration(document.relativePath)
         refreshActiveSearch()
       } catch (error) {
         markSaveFailed(sessionId, saveErrorMessage(error), saveRequest)
       }
     },
-    [ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
+    [invalidateObservedPathGeneration, ipcContext, markExternalConflict, markSaveFailed, markSaved, markSaving, refreshActiveSearch, sessionId]
   )
 
   const prepareDirtyOperation = useCallback(
@@ -588,6 +603,7 @@ function FilesToolSession({
     const refreshOpenTab = async (relativePath: string, deleted: boolean): Promise<void> => {
       const observedReadSequence = (observedDocumentReadSequencesRef.current.get(relativePath) ?? 0) + 1
       observedDocumentReadSequencesRef.current.set(relativePath, observedReadSequence)
+      const observedGeneration = observedPathGenerationsRef.current.get(relativePath) ?? 0
       const observedTab = useFilesStore
         .getState()
         .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
@@ -596,31 +612,33 @@ function FilesToolSession({
         markDeletedOnDisk(sessionId, relativePath)
         return
       }
-      try {
-        const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
-        if (
-          closed ||
-          observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence
-        ) {
-          return
+      const getCurrentObservedTab = (): Extract<FilesTabState, { status: 'ready' }> | null => {
+        if (closed) return null
+        if (observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence) {
+          return null
+        }
+        if ((observedPathGenerationsRef.current.get(relativePath) ?? 0) !== observedGeneration) {
+          return null
         }
         const latestTab = useFilesStore
           .getState()
           .contexts[sessionId]?.tabs.find((candidate) => candidate.relativePath === relativePath)
-        if (!latestTab || latestTab.status !== 'ready') return
-        if (latestTab.revision !== observedTab.revision && !latestTab.externalStatus) return
+        if (!latestTab || latestTab.status !== 'ready') return null
+        if (latestTab.revision !== observedTab.revision && !latestTab.externalStatus) return null
+        return latestTab
+      }
+      try {
+        const document = await window.spacezero.files.openDocument({ context: ipcContext, relativePath })
+        const latestTab = getCurrentObservedTab()
+        if (!latestTab) return
         if (latestTab.dirty || latestTab.externalStatus) {
           markExternalConflict(sessionId, relativePath, document.revision)
         } else {
           reloadCleanExternalDocument(sessionId, document)
         }
       } catch (error) {
-        if (
-          closed ||
-          observedDocumentReadSequencesRef.current.get(relativePath) !== observedReadSequence
-        ) {
-          return
-        }
+        const latestTab = getCurrentObservedTab()
+        if (!latestTab) return
         if (isFilesNotFoundError(error)) {
           markDeletedOnDisk(sessionId, relativePath)
         } else {
