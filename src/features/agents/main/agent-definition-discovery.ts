@@ -9,17 +9,22 @@ import type {
 import { parseAgentDefinitionMarkdown } from './agent-definition-parser'
 
 const SCOPE_PRECEDENCE = {
-  spacezero: 0,
-  user: 1,
-  bundled: 2
+  project: 0,
+  spacezero: 1,
+  user: 2,
+  bundled: 3
 } as const
+
+type InternalCatalogEntry = AgentDefinitionCatalogEntry & { sourceOrder?: number }
 
 export async function discoverGlobalAgentDefinitions({
   sources
 }: {
   sources: AgentDefinitionSource[]
 }): Promise<AgentDefinitionCatalogEntry[]> {
-  const entries = (await Promise.all(sources.map(readSourceEntries))).flat()
+  const entries = (
+    await Promise.all(sources.map((source, index) => readSourceEntries(source, index)))
+  ).flat()
   return applyAgentDefinitionShadowing(entries)
 }
 
@@ -35,29 +40,35 @@ export function applyAgentDefinitionShadowing(
     validEntriesById.set(entry.id, existing)
   }
 
-  const winningScopeById = new Map<string, AgentDefinitionCatalogEntry['scope']>()
+  const winningEntryById = new Map<string, AgentDefinitionCatalogEntry>()
 
   for (const [id, definitions] of validEntriesById.entries()) {
     const [winner] = definitions.sort(
       (a, b) =>
-        SCOPE_PRECEDENCE[a.scope] - SCOPE_PRECEDENCE[b.scope] || a.path.localeCompare(b.path)
+        SCOPE_PRECEDENCE[a.scope] - SCOPE_PRECEDENCE[b.scope] ||
+        ((a as InternalCatalogEntry).sourceOrder ?? 0) -
+          ((b as InternalCatalogEntry).sourceOrder ?? 0) ||
+        a.path.localeCompare(b.path)
     )
-    if (winner) winningScopeById.set(id, winner.scope)
+    if (winner) winningEntryById.set(id, winner)
   }
 
   return entries
     .map((entry) => {
-      if (entry.status !== 'valid') return entry
+      const publicEntry = { ...(entry as InternalCatalogEntry) }
+      delete publicEntry.sourceOrder
+      if (entry.status !== 'valid') return publicEntry
 
-      const winningScope = winningScopeById.get(entry.id)
-      if (!winningScope || winningScope === entry.scope) return entry
-      return { ...entry, shadowedBy: winningScope }
+      const winningEntry = winningEntryById.get(entry.id)
+      if (!winningEntry || winningEntry === entry) return publicEntry
+      return { ...publicEntry, shadowedBy: winningEntry.scope }
     })
     .sort((a, b) => Number(Boolean(a.shadowedBy)) - Number(Boolean(b.shadowedBy)))
 }
 
 async function readSourceEntries(
-  source: AgentDefinitionSource
+  source: AgentDefinitionSource,
+  sourceOrder: number
 ): Promise<AgentDefinitionCatalogEntry[]> {
   if (source.scope === 'bundled') return readBundledEntries(source.definitions)
 
@@ -78,18 +89,22 @@ async function readSourceEntries(
     markdownFilenames.map(async (filename) => {
       const definitionPath = join(directory, filename)
       try {
-        return parseAgentDefinitionMarkdown({
-          id: basename(filename, extname(filename)),
-          scope: source.scope,
-          path: definitionPath,
-          markdown: await readFile(definitionPath, 'utf8')
-        })
+        return {
+          ...parseAgentDefinitionMarkdown({
+            id: basename(filename, extname(filename)),
+            scope: source.scope,
+            path: definitionPath,
+            markdown: await readFile(definitionPath, 'utf8')
+          }),
+          sourceOrder
+        }
       } catch {
         return {
           id: basename(filename, extname(filename)),
           scope: source.scope,
           path: definitionPath,
           status: 'invalid' as const,
+          sourceOrder,
           diagnostics: [
             {
               severity: 'error' as const,

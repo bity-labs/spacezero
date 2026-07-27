@@ -80,7 +80,8 @@ export const githubPullRequestReviewCreateRequestSchema = githubPullRequestReque
 
 export const startGitHubCloneRequestSchema = z.object({
   repositoryId: repositoryIdSchema,
-  existingProjectId: z.string().trim().min(1).max(128).optional()
+  existingProjectId: z.string().trim().min(1).max(128).optional(),
+  agentResourcesTrusted: z.boolean().default(false)
 })
 
 export const cancelGitHubCloneRequestSchema = z.object({

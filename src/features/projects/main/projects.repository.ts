@@ -32,6 +32,7 @@ export function createProjectsRepository(): ProjectsRepository {
           githubName: project.githubName,
           githubUrl: project.githubUrl,
           githubLinkedAt: project.githubLinkedAt,
+          agentResourcesTrusted: project.agentResourcesTrusted,
           updatedAt: project.updatedAt,
           archivedAt: project.archivedAt
         })

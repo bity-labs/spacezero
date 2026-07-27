@@ -8,7 +8,11 @@ import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { getSessionCleanupService } from '../../sessions/main/session-cleanup.runtime'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
-import { createEmptyProjectRequestSchema, updateProjectRequestSchema } from '../shared'
+import {
+  addProjectFromFolderRequestSchema,
+  createEmptyProjectRequestSchema,
+  updateProjectRequestSchema
+} from '../shared'
 import { archiveProjectLifecycle, deleteProjectLifecycle } from './project-lifecycle-orchestration'
 import { createProjectPathAdapter } from './project-path.adapter'
 import { createProjectsRepository } from './projects.repository'
@@ -31,7 +35,9 @@ export function registerProjectsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.projects.createEmpty, (_event, request: unknown) =>
     projectsService.createEmptyProject(createEmptyProjectRequestSchema.parse(request))
   )
-  ipcMain.handle(IPC_CHANNELS.projects.addFromFolder, () => projectsService.addProjectFromFolder())
+  ipcMain.handle(IPC_CHANNELS.projects.addFromFolder, (_event, request: unknown) =>
+    projectsService.addProjectFromFolder(addProjectFromFolderRequestSchema.parse(request))
+  )
   ipcMain.handle(IPC_CHANNELS.projects.update, (_event, request: unknown) =>
     projectsService.updateProject(updateProjectRequestSchema.parse(request))
   )

@@ -182,6 +182,7 @@ export function createGitHubRepositorySetupService({
         managedRoot: projectsPath,
         destination,
         accessToken: credential.accessToken,
+        agentResourcesTrusted: request.agentResourcesTrusted === true,
         abortController,
         emit
       }).finally(() => {
@@ -200,6 +201,7 @@ export function createGitHubRepositorySetupService({
     managedRoot,
     destination,
     accessToken,
+    agentResourcesTrusted,
     abortController,
     emit
   }: {
@@ -208,6 +210,7 @@ export function createGitHubRepositorySetupService({
     managedRoot: string
     destination: string
     accessToken: string
+    agentResourcesTrusted: boolean
     abortController: AbortController
     emit: EmitCloneProgress
   }): Promise<void> {
@@ -240,7 +243,8 @@ export function createGitHubRepositorySetupService({
         repositoryId: repository.id,
         nodeId: repository.nodeId,
         owner: repository.owner,
-        htmlUrl: repository.htmlUrl
+        htmlUrl: repository.htmlUrl,
+        agentResourcesTrusted
       })
       if (abortController.signal.aborted) {
         try {

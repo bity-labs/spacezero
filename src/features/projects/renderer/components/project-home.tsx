@@ -11,6 +11,7 @@ import {
 } from '../../../github/renderer'
 import type { ProjectSession } from '../../../sessions/shared'
 import type { Project } from '../../shared'
+import { AgentResourceTrustCheckbox } from './agent-resource-trust-checkbox'
 import { projectSessionSetupErrorMessage } from '../project-session-error-message'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -57,6 +58,8 @@ export function ProjectHome({
   const [isLoadingOptions, setIsLoadingOptions] = useState(false)
   const [isSavingLink, setIsSavingLink] = useState(false)
   const [isStartingSession, setIsStartingSession] = useState(false)
+  const [isSavingTrust, setIsSavingTrust] = useState(false)
+  const [trustError, setTrustError] = useState<string | null>(null)
   const [sessionSetupError, setSessionSetupError] = useState<string | null>(null)
 
   async function startSession(): Promise<void> {
@@ -86,6 +89,25 @@ export function ProjectHome({
       setLinkError('Unable to load authorized GitHub repositories.')
     } finally {
       setIsLoadingOptions(false)
+    }
+  }
+
+  async function updateAgentResourceTrust(trusted: boolean): Promise<void> {
+    setIsSavingTrust(true)
+    setTrustError(null)
+    try {
+      const updatedProject = await window.spacezero.projects.update({
+        id: displayProject.id,
+        name: displayProject.name,
+        path: displayProject.path,
+        agentResourcesTrusted: trusted
+      })
+      setDisplayProject(updatedProject)
+      onProjectLinked(updatedProject)
+    } catch {
+      setTrustError('Unable to update project agent-resource trust.')
+    } finally {
+      setIsSavingTrust(false)
     }
   }
 
@@ -170,6 +192,12 @@ export function ProjectHome({
         ) : null}
         {view === 'overview' ? (
           <>
+            <ProjectAgentResourceTrustCard
+              project={displayProject}
+              isSaving={isSavingTrust}
+              error={trustError}
+              onChange={(trusted) => void updateAgentResourceTrust(trusted)}
+            />
             <GitHubProjectState
               project={displayProject}
               connection={connection}
@@ -238,6 +266,33 @@ export function ProjectHome({
         )}
       </div>
     </div>
+  )
+}
+
+function ProjectAgentResourceTrustCard({
+  project,
+  isSaving,
+  error,
+  onChange
+}: {
+  project: Project
+  isSaving: boolean
+  error: string | null
+  onChange: (trusted: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Card className="gap-3 p-6">
+      <AgentResourceTrustCheckbox
+        checked={project.agentResourcesTrusted === true}
+        disabled={isSaving}
+        onCheckedChange={onChange}
+      />
+      <p className="text-xs text-muted-foreground">
+        Changes apply to new or explicitly reloaded Project Sessions. Live Sessions keep their
+        currently loaded resources.
+      </p>
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+    </Card>
   )
 }
 

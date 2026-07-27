@@ -35,6 +35,7 @@ import { FILES_IPC_CHANNELS, type FilesAPI } from '../features/files/shared/file
 import { GIT_IPC_CHANNELS, type GitAPI } from '../features/git/shared/git.contract'
 import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
+  AddProjectFromFolderRequest,
   CreateEmptyProjectRequest,
   DeleteProjectResult,
   Project,
@@ -166,6 +167,7 @@ export const IPC_CHANNELS = {
   },
   agents: {
     getGlobalDefinitions: 'agents:getGlobalDefinitions',
+    getSessionDefinitions: 'agents:getSessionDefinitions',
     openDefinitionsFolder: 'agents:openDefinitionsFolder'
   },
   agent: {
@@ -302,7 +304,7 @@ export type SpaceZeroAPI = {
   projects: {
     list: () => Promise<Project[]>
     createEmpty: (request: CreateEmptyProjectRequest) => Promise<Project>
-    addFromFolder: () => Promise<Project | null>
+    addFromFolder: (request?: AddProjectFromFolderRequest) => Promise<Project | null>
     update: (request: UpdateProjectRequest) => Promise<Project>
     archive: (request: { projectId: string }) => Promise<void>
     delete: (request: { projectId: string }) => Promise<DeleteProjectResult>
@@ -316,6 +318,7 @@ export type SpaceZeroAPI = {
   }
   agents: {
     getGlobalDefinitions: () => Promise<AgentDefinitionCatalogEntry[]>
+    getSessionDefinitions: (request: { sessionId: string }) => Promise<AgentDefinitionCatalogEntry[]>
     openDefinitionsFolder: (request: OpenAgentDefinitionsFolderRequest) => Promise<void>
   }
   agent: {

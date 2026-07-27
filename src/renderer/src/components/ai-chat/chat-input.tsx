@@ -62,6 +62,8 @@ export type ChatInputAgentDefinition = {
   name: string
   description: string
   scope: AgentDefinitionScope
+  disabled?: boolean
+  unavailableReason?: string
 }
 
 export type ChatInputActiveAgentDefinition = {
@@ -133,7 +135,10 @@ export function ChatInput({
   )
   const activeAgentDefinitionId = selectedAgentDefinitionId ?? uncontrolledAgentDefinitionId
   const selectedAgentDefinition = useMemo(
-    () => agentDefinitions.find((definition) => definition.id === activeAgentDefinitionId),
+    () =>
+      agentDefinitions.find(
+        (definition) => definition.id === activeAgentDefinitionId && !definition.disabled
+      ),
     [activeAgentDefinitionId, agentDefinitions]
   )
   const showAgentDefinitionPicker =
@@ -375,12 +380,15 @@ export function ChatInput({
                           <ModelSelectorItem
                             key={`${definition.scope}:${definition.id}`}
                             data-checked={definition.id === activeAgentDefinitionId}
-                            onSelect={() => handleAgentDefinitionChange(definition.id)}
+                            disabled={definition.disabled}
+                            onSelect={() => {
+                              if (!definition.disabled) handleAgentDefinitionChange(definition.id)
+                            }}
                           >
                             <div className="min-w-0 flex-1 text-left">
                               <ModelSelectorName>{definition.name}</ModelSelectorName>
                               <p className="truncate text-xs text-muted-foreground">
-                                {definition.description}
+                                {definition.unavailableReason ?? definition.description}
                               </p>
                             </div>
                             <span className="ml-auto shrink-0 text-[10px] uppercase text-muted-foreground">
