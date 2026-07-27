@@ -2,17 +2,20 @@ import { watch } from 'node:fs'
 import type { FSWatcher } from 'node:fs'
 
 import type {
+  CreateFilesEntryRequest,
   FilesContext,
   FilesDocument,
   FilesEntry,
   FilesObservationEvent,
   FilesSearchResult,
   ListFilesDirectoryRequest,
+  MoveFilesEntryRequest,
   OpenFilesDocumentRequest,
   RevealFilesEntryRequest,
   SaveFilesDocumentRequest,
   SaveFilesDocumentResult,
-  SearchFilesRequest
+  SearchFilesRequest,
+  TrashFilesEntryRequest
 } from '../shared'
 
 export type FilesRepository = {
@@ -68,6 +71,9 @@ export function createFilesService({
   readDirectory,
   openDocument,
   saveDocument,
+  createEntry,
+  moveEntry,
+  trashEntry,
   revealEntry,
   search
 }: {
@@ -81,6 +87,12 @@ export function createFilesService({
     rootPath: string,
     request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
+  createEntry: (
+    rootPath: string,
+    request: Omit<CreateFilesEntryRequest, 'context'>
+  ) => Promise<void>
+  moveEntry: (rootPath: string, request: Omit<MoveFilesEntryRequest, 'context'>) => Promise<void>
+  trashEntry: (rootPath: string, request: Omit<TrashFilesEntryRequest, 'context'>) => Promise<void>
   revealEntry: (rootPath: string, relativePath: string) => Promise<void>
   search: (
     rootPath: string,
@@ -109,6 +121,29 @@ export function createFilesService({
           content: request.content,
           expectedRevision: request.expectedRevision
         })
+      return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async createEntry(request: CreateFilesEntryRequest): Promise<void> {
+      const root = await resolveFilesRoot(request.context)
+      const write = () =>
+        createEntry(root.path, { relativePath: request.relativePath, kind: request.kind })
+      return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async moveEntry(request: MoveFilesEntryRequest): Promise<void> {
+      const root = await resolveFilesRoot(request.context)
+      const write = () =>
+        moveEntry(root.path, {
+          sourcePath: request.sourcePath,
+          destinationPath: request.destinationPath
+        })
+      return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async trashEntry(request: TrashFilesEntryRequest): Promise<void> {
+      const root = await resolveFilesRoot(request.context)
+      const write = () => trashEntry(root.path, { relativePath: request.relativePath })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
     },
 

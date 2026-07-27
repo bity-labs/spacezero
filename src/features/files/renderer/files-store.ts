@@ -94,6 +94,9 @@ type FilesStore = {
     document: FilesTextDocument,
     request: FilesSaveRequestSnapshot
   ) => void
+  discardDirtyTabsInPath: (sessionId: string, relativePath: string) => void
+  rewritePaths: (sessionId: string, sourcePath: string, destinationPath: string) => void
+  closeTabsInPath: (sessionId: string, relativePath: string) => void
 }
 
 const DEFAULT_EXPLORER_WIDTH = 260
@@ -117,7 +120,14 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
-      beginOpenTab: (sessionId, relativePath, intent, openRequestId, targetLine, revalidateExisting = false) => {
+      beginOpenTab: (
+        sessionId,
+        relativePath,
+        intent,
+        openRequestId,
+        targetLine,
+        revalidateExisting = false
+      ) => {
         let shouldOpen = false
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
@@ -327,7 +337,67 @@ const useFilesStore = create<FilesStore>()(
               saveRequest: undefined
             }
           })
-        )
+        ),
+      discardDirtyTabsInPath: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(state, sessionId, {
+            tabs: context.tabs.map((tab) =>
+              isPathAffectedBy(tab.relativePath, relativePath) && tab.status === 'ready'
+                ? {
+                    ...tab,
+                    draft: tab.content,
+                    dirty: false,
+                    saveStatus: 'idle',
+                    error: undefined,
+                    saveRequest: undefined
+                  }
+                : tab
+            )
+          })
+        }),
+      rewritePaths: (sessionId, sourcePath, destinationPath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const rewrite = (path: string): string =>
+            rewriteAffectedPath(path, sourcePath, destinationPath)
+          return updateContext(state, sessionId, {
+            selectedPath: context.selectedPath
+              ? rewrite(context.selectedPath)
+              : context.selectedPath,
+            expandedPaths: context.expandedPaths.map(rewrite),
+            activeTabPath: context.activeTabPath
+              ? rewrite(context.activeTabPath)
+              : context.activeTabPath,
+            tabs: context.tabs.map((tab) => ({
+              ...tab,
+              relativePath: rewrite(tab.relativePath),
+              name: pathName(rewrite(tab.relativePath))
+            }))
+          })
+        }),
+      closeTabsInPath: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId] ?? createDefaultContext()
+          const activeIndex = context.tabs.findIndex(
+            (tab) => tab.relativePath === context.activeTabPath
+          )
+          const tabs = context.tabs.filter(
+            (tab) => !isPathAffectedBy(tab.relativePath, relativePath)
+          )
+          const activeTabPath =
+            context.activeTabPath && isPathAffectedBy(context.activeTabPath, relativePath)
+              ? (tabs[activeIndex]?.relativePath ??
+                tabs[activeIndex - 1]?.relativePath ??
+                tabs[0]?.relativePath ??
+                null)
+              : context.activeTabPath
+          return updateContext(state, sessionId, {
+            tabs,
+            activeTabPath,
+            selectedPath: activeTabPath ?? context.selectedPath
+          })
+        })
     }),
     {
       name: 'spacezero.files',
@@ -520,6 +590,22 @@ function toTabDocument(
         locationRequestId,
         status: 'metadata'
       }
+}
+
+function isPathAffectedBy(candidatePath: string, relativePath: string): boolean {
+  return candidatePath === relativePath || candidatePath.startsWith(`${relativePath}/`)
+}
+
+function rewriteAffectedPath(
+  candidatePath: string,
+  sourcePath: string,
+  destinationPath: string
+): string {
+  if (candidatePath === sourcePath) return destinationPath
+  if (candidatePath.startsWith(`${sourcePath}/`)) {
+    return `${destinationPath}${candidatePath.slice(sourcePath.length)}`
+  }
+  return candidatePath
 }
 
 function canReplacePreviewTab(tab: FilesTabState): boolean {

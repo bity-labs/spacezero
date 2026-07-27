@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   cancelFilesSearchRequestSchema,
+  createFilesEntryRequestSchema,
   listFilesDirectoryRequestSchema,
+  moveFilesEntryRequestSchema,
   openFilesDocumentRequestSchema,
   revealFilesEntryRequestSchema,
   saveFilesDocumentRequestSchema,
-  searchFilesRequestSchema
+  searchFilesRequestSchema,
+  trashFilesEntryRequestSchema
 } from './files.schema'
 
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
@@ -144,6 +147,59 @@ describe('Files IPC schemas', () => {
         relativePath: 'README',
         content: 'x'.repeat(2 * 1024 * 1024 + 1),
         expectedRevision: 'revision-1'
+      })
+    ).toThrow()
+  })
+
+  it('requires file operations to use authenticated context identity and relative entry paths', () => {
+    expect(
+      createFilesEntryRequestSchema.parse({
+        context: projectContext,
+        relativePath: 'src/new.ts',
+        kind: 'file'
+      })
+    ).toEqual({ context: projectContext, relativePath: 'src/new.ts', kind: 'file' })
+    expect(
+      createFilesEntryRequestSchema.parse({
+        context: knowledgeBaseContext,
+        relativePath: 'notes',
+        kind: 'folder'
+      })
+    ).toEqual({ context: knowledgeBaseContext, relativePath: 'notes', kind: 'folder' })
+    expect(
+      moveFilesEntryRequestSchema.parse({
+        context: projectContext,
+        sourcePath: 'src/old.ts',
+        destinationPath: 'src/new.ts'
+      })
+    ).toEqual({ context: projectContext, sourcePath: 'src/old.ts', destinationPath: 'src/new.ts' })
+    expect(
+      trashFilesEntryRequestSchema.parse({ context: projectContext, relativePath: 'src/new.ts' })
+    ).toEqual({ context: projectContext, relativePath: 'src/new.ts' })
+
+    for (const input of [
+      { context: projectContext, relativePath: '', kind: 'file' },
+      { context: projectContext, relativePath: '../outside', kind: 'file' },
+      { context: projectContext, relativePath: '.git/config', kind: 'file' },
+      { context: projectContext, relativePath: 'src/new.ts', kind: 'symlink' },
+      { context: projectContext, relativePath: 'src/new.ts', rootPath: '/tmp', kind: 'file' }
+    ]) {
+      expect(() => createFilesEntryRequestSchema.parse(input)).toThrow()
+    }
+
+    for (const input of [
+      { context: projectContext, sourcePath: '', destinationPath: 'new.ts' },
+      { context: projectContext, sourcePath: 'old.ts', destinationPath: '../new.ts' },
+      { context: projectContext, sourcePath: '.git/config', destinationPath: 'config' },
+      { context: projectContext, sourcePath: 'old.ts', destinationPath: 'new.ts', rootPath: '/tmp' }
+    ]) {
+      expect(() => moveFilesEntryRequestSchema.parse(input)).toThrow()
+    }
+
+    expect(() =>
+      trashFilesEntryRequestSchema.parse({
+        context: projectContext,
+        relativePath: '/tmp/secret.txt'
       })
     ).toThrow()
   })

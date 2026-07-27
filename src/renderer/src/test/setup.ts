@@ -96,6 +96,9 @@ beforeEach(async () => {
           lineEnding: 'lf'
         }
       }),
+      createEntry: async () => undefined,
+      moveEntry: async () => undefined,
+      trashEntry: async () => undefined,
       revealInSystemFileManager: async () => undefined,
       search: async () => [],
       cancelSearch: async () => undefined,
