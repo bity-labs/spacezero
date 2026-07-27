@@ -1,5 +1,7 @@
 import { watch } from 'node:fs'
 import type { FSWatcher } from 'node:fs'
+import { lstat } from 'node:fs/promises'
+import { isAbsolute, normalize, resolve, sep, win32 } from 'node:path'
 
 import type {
   CreateFilesEntryRequest,
@@ -188,10 +190,32 @@ export function createFilesService({
       const root = await resolveFilesRoot(context)
       const contextKey = filesContextKey(context)
       let watcher: FSWatcher | null = null
+      const pendingEvents = new Map<string, NodeJS.Timeout>()
+      const emitChangedPath = (eventType: string, filename: string | Buffer | null): void => {
+        const relativePath = normalizeWatchedRelativePath(filename?.toString() ?? null)
+        if (relativePath === 'protected') return
+        const key = `${eventType}:${relativePath ?? ''}`
+        const previous = pendingEvents.get(key)
+        if (previous) clearTimeout(previous)
+        pendingEvents.set(
+          key,
+          setTimeout(() => {
+            pendingEvents.delete(key)
+            void classifyWatchedEvent(root.path, eventType, relativePath)
+              .then((kind) => onEvent({ kind, contextKey, relativePath }))
+              .catch((error) => {
+                onEvent({
+                  kind: 'watch-error',
+                  contextKey,
+                  relativePath,
+                  message: error instanceof Error ? error.message : String(error)
+                })
+              })
+          }, 50)
+        )
+      }
       try {
-        watcher = watch(root.path, { recursive: true }, (_eventType, filename) => {
-          onEvent({ kind: 'changed', contextKey, relativePath: filename?.toString() ?? null })
-        })
+        watcher = watch(root.path, { recursive: true }, emitChangedPath)
         watcher.on('error', (error) => {
           onEvent({ kind: 'watch-error', contextKey, relativePath: null, message: error.message })
         })
@@ -203,7 +227,11 @@ export function createFilesService({
           message: error instanceof Error ? error.message : String(error)
         })
       }
-      return () => watcher?.close()
+      return () => {
+        for (const timeout of pendingEvents.values()) clearTimeout(timeout)
+        pendingEvents.clear()
+        watcher?.close()
+      }
     }
   }
 
@@ -259,4 +287,40 @@ function filesSearchKey(context: FilesContext, requestId: string): string {
 
 function filesContextKey(context: FilesContext): string {
   return context.kind === 'project-session' ? context.sessionId : context.contextKey
+}
+
+function normalizeWatchedRelativePath(filename: string | null): string | null | 'protected' {
+  if (!filename) return null
+  const normalized = normalize(filename).split(sep).join('/')
+  if (normalized.split('/').some((segment) => segment.toLowerCase() === '.git')) {
+    return 'protected'
+  }
+  if (
+    !normalized ||
+    normalized === '.' ||
+    normalized.includes('\0') ||
+    normalized.startsWith('../') ||
+    normalized.includes('/../') ||
+    isAbsolute(normalized) ||
+    win32.isAbsolute(normalized) ||
+    /^[a-z]:/i.test(normalized)
+  ) {
+    return null
+  }
+  return normalized
+}
+
+async function classifyWatchedEvent(
+  rootPath: string,
+  eventType: string,
+  relativePath: string | null
+): Promise<'created' | 'modified' | 'deleted'> {
+  if (!relativePath) return 'modified'
+  try {
+    await lstat(resolve(rootPath, relativePath))
+    return eventType === 'rename' ? 'created' : 'modified'
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return 'deleted'
+    throw error
+  }
 }

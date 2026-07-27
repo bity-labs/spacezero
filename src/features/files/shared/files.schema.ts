@@ -60,7 +60,20 @@ export const saveFilesDocumentRequestSchema = z
     context: filesContextSchema,
     relativePath: relativeFilePathSchema,
     content: z.string().max(2 * 1024 * 1024),
-    expectedRevision: z.string().trim().min(1)
+    expectedRevision: z.string().trim().min(1),
+    conflictResolution: z
+      .discriminatedUnion('kind', [
+        z
+          .object({ kind: z.literal('overwrite'), acknowledgedRevision: z.string().trim().min(1) })
+          .strict(),
+        z
+          .object({
+            kind: z.literal('recreate'),
+            acknowledgedMissingRevision: z.string().trim().min(1)
+          })
+          .strict()
+      ])
+      .optional()
   })
   .strict()
 

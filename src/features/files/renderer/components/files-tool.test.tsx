@@ -394,7 +394,7 @@ describe('Files Tool', () => {
       observationListener?.({
         subscriptionId: 'session-1:files-observation',
         contextKey: 'session-1',
-        kind: 'changed',
+        kind: 'modified',
         relativePath: 'README.md'
       })
     )
@@ -1599,7 +1599,7 @@ describe('Files Tool', () => {
     fireEvent.change(editor, { target: { value: 'draft' } })
     fireEvent.keyDown(editor, { key: 's', metaKey: true })
 
-    expect(await screen.findByText(/changed on disk/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
     expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
   })
