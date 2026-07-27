@@ -55,23 +55,9 @@ const api: SpaceZeroAPI = {
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.reset),
     createNew: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createNew),
     cloneFromGit: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.cloneFromGit, request),
-    getTree: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getTree),
-    openDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openDocument, request),
-    search: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.search, request),
     importImage: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.importImage, request),
     loadImage: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.loadImage, request),
-    createItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createItem, request),
-    renameItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.renameItem, request),
-    moveItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.moveItem, request),
-    deleteItem: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.deleteItem, request),
-    saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.saveDocument, request),
-    checkDocument: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.checkDocument, request),
-    getSyncStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getSyncStatus),
-    addRemote: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.addRemote, request),
-    syncNow: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.syncNow),
-    openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openFolder),
-    openRemote: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openRemote)
+    openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openFolder)
   },
   onboarding: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.getStatus),

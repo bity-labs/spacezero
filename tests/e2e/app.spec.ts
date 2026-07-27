@@ -755,6 +755,26 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled()
     await expect(window.getByRole('button', { name: 'Git', exact: true })).toBeEnabled()
     await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
+    expect(
+      await window.evaluate(() => {
+        const legacyMethods = [
+          'getTree',
+          'openDocument',
+          'search',
+          'createItem',
+          'renameItem',
+          'moveItem',
+          'deleteItem',
+          'saveDocument',
+          'checkDocument',
+          'getSyncStatus',
+          'addRemote',
+          'syncNow',
+          'openRemote'
+        ]
+        return legacyMethods.filter((method) => method in window.spacezero.knowledgeBase)
+      })
+    ).toEqual([])
     await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
     await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
     await expect(window.getByText('AGENTS.md')).toBeVisible()

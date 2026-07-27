@@ -356,24 +356,18 @@ describe('ChatInput', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getTree = async () => [
-      {
-        name: 'decisions',
-        relativePath: 'decisions',
-        kind: 'folder',
-        contentKind: 'folder',
-        children: [
-          {
-            name: 'architecture.md',
-            relativePath: 'decisions/architecture.md',
-            kind: 'file',
-            contentKind: 'markdown',
-            size: 10,
-            modifiedAt: new Date(0).toISOString()
-          }
-        ]
-      }
-    ]
+    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) =>
+      relativePath === ''
+        ? [{ name: 'decisions', relativePath: 'decisions', kind: 'directory' as const }]
+        : [
+            {
+              name: 'architecture.md',
+              relativePath: 'decisions/architecture.md',
+              kind: 'file' as const
+            }
+          ]
+    )
+    window.spacezero.files.listDirectory = listDirectory
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
@@ -384,6 +378,14 @@ describe('ChatInput', () => {
       await screen.findByRole('option', { name: '@kb/decisions/architecture.md' })
     ).toBeInTheDocument()
     expect(screen.getByRole('option', { name: '@kb/decisions/' })).toBeInTheDocument()
+    expect(listDirectory).toHaveBeenCalledWith({
+      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      relativePath: ''
+    })
+    expect(listDirectory).toHaveBeenCalledWith({
+      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+      relativePath: 'decisions'
+    })
     fireEvent.click(screen.getByRole('option', { name: '@kb/decisions/' }))
     expect(input).toHaveValue('Review @kb/decisions/ ')
 
@@ -401,24 +403,10 @@ describe('ChatInput', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getTree = async () => [
-      {
-        name: 'Design Notes',
-        relativePath: 'Design Notes',
-        kind: 'folder',
-        contentKind: 'folder',
-        children: [
-          {
-            name: 'README.md',
-            relativePath: 'Design Notes/README.md',
-            kind: 'file',
-            contentKind: 'markdown',
-            size: 10,
-            modifiedAt: new Date(0).toISOString()
-          }
-        ]
-      }
-    ]
+    window.spacezero.files.listDirectory = async ({ relativePath }) =>
+      relativePath === ''
+        ? [{ name: 'Design Notes', relativePath: 'Design Notes', kind: 'directory' }]
+        : [{ name: 'README.md', relativePath: 'Design Notes/README.md', kind: 'file' }]
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
