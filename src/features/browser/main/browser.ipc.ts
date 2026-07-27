@@ -17,6 +17,7 @@ import {
 import { createKnowledgeBaseChatRepository } from '../../knowledge-base/main/knowledge-base-chat.repository'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { BrowserDownloadsService } from './browser-downloads.service'
+import { createBrowserFaviconLoader } from './browser-favicon-loader'
 import { BrowserService } from './browser.service'
 import { createBrowserTabsRepository } from './browser-tabs.repository'
 import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
@@ -59,7 +60,8 @@ const browserService = new BrowserService(
   {
     openExternal: (url) => shell.openExternal(url)
   },
-  createBrowserTabsRepository(getDatabase)
+  createBrowserTabsRepository(getDatabase),
+  createBrowserFaviconLoader()
 )
 browserViewAdapter.setService(browserService)
 
