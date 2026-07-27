@@ -121,7 +121,8 @@ export function createFilesService({
         saveDocument(root.path, {
           relativePath: request.relativePath,
           content: request.content,
-          expectedRevision: request.expectedRevision
+          expectedRevision: request.expectedRevision,
+          ...(request.conflictResolution ? { conflictResolution: request.conflictResolution } : {})
         })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
     },

@@ -327,7 +327,7 @@ describe('Files Tool', () => {
     resolveSecond?.([{ kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }])
   })
 
-  it('invalidates active search results after saves and external Files observation events', async () => {
+  it('invalidates active search results after saves and refreshes them after external Files observation events', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
     ])
@@ -399,8 +399,82 @@ describe('Files Tool', () => {
       })
     )
 
-    await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
-    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    await waitFor(() => expect(window.spacezero.files.search).toHaveBeenCalledTimes(3))
+    expect(screen.getByLabelText('Search files')).toHaveDisplayValue('needle')
+    expect(screen.getByLabelText('Search results')).toBeInTheDocument()
+  })
+
+  it('refreshes only affected observation ancestry while preserving active search and context isolation', async () => {
+    useFilesStore.getState().setExpanded('session-1', 'src', true)
+    useFilesStore.getState().setExpanded('session-1', 'docs', true)
+    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
+      if (relativePath === '') {
+        return [
+          { name: 'src', relativePath: 'src', kind: 'directory' as const },
+          { name: 'docs', relativePath: 'docs', kind: 'directory' as const }
+        ]
+      }
+      if (relativePath === 'src') {
+        return [{ name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const }]
+      }
+      return [{ name: 'guide.md', relativePath: 'docs/guide.md', kind: 'file' as const }]
+    })
+    window.spacezero.files.listDirectory = listDirectory
+    window.spacezero.files.search = vi.fn(async () => [
+      { kind: 'filename' as const, relativePath: 'src/index.ts', name: 'index.ts' }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'content',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] = []
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListeners.push(listener)
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    expect(await screen.findByText('index.ts')).toBeInTheDocument()
+    expect(await screen.findByText('guide.md')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'index' } })
+    fireEvent.submit(screen.getByRole('search'))
+    expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
+    const callsBeforeObservation = listDirectory.mock.calls.length
+
+    act(() => {
+      observationListeners.at(-1)?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'knowledge-base',
+        kind: 'modified',
+        relativePath: 'docs/guide.md'
+      })
+    })
+    await Promise.resolve()
+    expect(listDirectory).toHaveBeenCalledTimes(callsBeforeObservation)
+
+    act(() => {
+      observationListeners.at(-1)?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'modified',
+        relativePath: 'src/index.ts'
+      })
+    })
+
+    await waitFor(() => expect(window.spacezero.files.search).toHaveBeenCalledTimes(2))
+    const callsAfterObservation = listDirectory.mock.calls
+      .slice(callsBeforeObservation)
+      .map(([request]) => request.relativePath)
+    expect(callsAfterObservation).toEqual(['src'])
+    expect(screen.getByLabelText('Search files')).toHaveDisplayValue('index')
+    expect(screen.getByLabelText('Search results')).toBeInTheDocument()
   })
 
   it('reloads persisted expanded directories parent-first after remounting', async () => {
@@ -1602,6 +1676,291 @@ describe('Files Tool', () => {
     await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
     expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+  })
+
+  it('completes confirmed overwrite and recreate resolutions through the component save path', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'conflict' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 8,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'disk-revision',
+          content: 'external',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+      .mockResolvedValueOnce({
+        status: 'saved' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 5,
+          modifiedAt: new Date(2).toISOString(),
+          revision: 'overwrite-revision',
+          content: 'draft',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+      .mockResolvedValueOnce({
+        status: 'saved' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 9,
+          modifiedAt: new Date(3).toISOString(),
+          revision: 'recreate-revision',
+          content: 'recreated',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+    window.spacezero.files.saveDocument = saveDocument
+    let observationListener:
+      Parameters<typeof window.spacezero.files.onObservationEvent>[0] | undefined
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListener = listener
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'draft' }
+    })
+    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+    fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(saveDocument).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'README.md',
+      content: 'draft',
+      expectedRevision: 'revision-1',
+      conflictResolution: { kind: 'overwrite', acknowledgedRevision: 'disk-revision' }
+    })
+
+    act(() =>
+      observationListener?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'deleted',
+        relativePath: 'README.md'
+      })
+    )
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'recreated' }
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
+
+    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    expect(saveDocument).toHaveBeenNthCalledWith(3, {
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'README.md',
+      content: 'recreated',
+      expectedRevision: 'overwrite-revision',
+      conflictResolution: { kind: 'recreate', acknowledgedMissingRevision: 'overwrite-revision' }
+    })
+    confirm.mockRestore()
+  })
+
+  it('keeps resolution drafts actionable when overwrite conflicts and recreate save rejects', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'conflict' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 8,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'disk-revision',
+          content: 'external',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+      .mockResolvedValueOnce({
+        status: 'conflict' as const,
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text' as const,
+          size: 10,
+          modifiedAt: new Date(2).toISOString(),
+          revision: 'newer-revision',
+          content: 'newer disk',
+          hasBom: false,
+          lineEnding: 'lf' as const
+        }
+      })
+      .mockRejectedValueOnce(new Error('files.writeFailed'))
+    let observationListener:
+      Parameters<typeof window.spacezero.files.onObservationEvent>[0] | undefined
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListener = listener
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'draft' }
+    })
+    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+    fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
+
+    await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
+    expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+
+    act(() =>
+      observationListener?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'deleted',
+        relativePath: 'README.md'
+      })
+    )
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: 'recreate draft' }
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
+
+    expect(
+      await screen.findByText('Couldn’t save this file. Your changes are still in memory.')
+    ).toBeInTheDocument()
+    expect(screen.getByDisplayValue('recreate draft')).toBeInTheDocument()
+  })
+
+  it('applies only the latest observation read and treats non-delete failures as reload errors', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    let resolveStale:
+      | ((document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>) => void)
+      | undefined
+    const staleRead = new Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>(
+      (resolve) => {
+        resolveStale = resolve
+      }
+    )
+    window.spacezero.files.openDocument = vi
+      .fn()
+      .mockResolvedValueOnce({
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 5,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-1',
+        content: 'saved',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      .mockImplementationOnce(async () => staleRead)
+      .mockResolvedValueOnce({
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 6,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-3',
+        content: 'latest',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+      .mockRejectedValueOnce(new Error('files.inaccessible'))
+    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] = []
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListeners.push(listener)
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('saved')
+
+    act(() => {
+      observationListeners.at(-1)?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'modified',
+        relativePath: 'README.md'
+      })
+      observationListeners.at(-1)?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'modified',
+        relativePath: 'README.md'
+      })
+    })
+    expect(await screen.findByDisplayValue('latest')).toBeInTheDocument()
+    resolveStale?.({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text',
+      size: 5,
+      modifiedAt: new Date(2).toISOString(),
+      revision: 'revision-2',
+      content: 'stale',
+      hasBom: false,
+      lineEnding: 'lf'
+    })
+    await Promise.resolve()
+    expect(screen.getByDisplayValue('latest')).toBeInTheDocument()
+
+    act(() => {
+      observationListeners.at(-1)?.({
+        subscriptionId: 'session-1:files-observation',
+        contextKey: 'session-1',
+        kind: 'modified',
+        relativePath: 'README.md'
+      })
+    })
+    expect(
+      await screen.findByText('Space Zero cannot access this file. Check its permissions and try again.')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Deleted on disk. Your buffer is still open.')).not.toBeInTheDocument()
   })
 
   it('opens an external Files location in the matching context, reveals the requested line, and preserves dirty buffers', async () => {
