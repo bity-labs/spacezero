@@ -6,6 +6,7 @@
   "author": "Bity Labs",
   "homepage": "https://spacezero.dev",
   "type": "module",
+  "packageManager": "pnpm@10.28.1",
   "scripts": {
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
