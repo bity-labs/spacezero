@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
+import { useColorMode } from '@renderer/color-mode-provider'
 import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
@@ -1532,6 +1533,8 @@ function FilesReadyEditorPanel({
     document.editorMode === 'rich'
       ? 'rich'
       : 'source'
+  const { resolvedTheme } = useColorMode()
+  const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
   const language = getFilesEditorLanguage(document.relativePath)
   const richImageAdapter = useMemo(
     () => createRichImageAdapter?.(document.relativePath),
@@ -1670,7 +1673,7 @@ function FilesReadyEditorPanel({
             language={language}
             options={editorOptions}
             path={createFilesMonacoModelPath(sessionId, document.relativePath)}
-            theme="vs-dark"
+            theme={monacoTheme}
             value={document.draft}
             onChange={(value) => onChange(value ?? '')}
             onMount={handleEditorMount}

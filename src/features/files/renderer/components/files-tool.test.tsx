@@ -9,6 +9,11 @@ const monacoMock = vi.hoisted(() => ({
   saveViewState: vi.fn<() => unknown>(() => ({ cursorState: [{ position: { lineNumber: 4, column: 2 } }] }))
 }))
 
+const colorModeMock = vi.hoisted(() => ({
+  resolvedTheme: 'light' as 'light' | 'dark',
+  updateThemePreference: vi.fn()
+}))
+
 vi.mock('./files-icon', () => ({
   FilesIcon: () => <span aria-hidden="true" />
 }))
@@ -18,12 +23,14 @@ vi.mock('./files-monaco-editor', () => ({
     value,
     language,
     path,
+    theme,
     onChange,
     onMount
   }: {
     value?: string
     language?: string
     path?: string
+    theme?: string
     onChange?: (value: string | undefined) => void
     onMount?: (
       editor: {
@@ -56,6 +63,7 @@ vi.mock('./files-monaco-editor', () => ({
         aria-label="Monaco editor"
         data-language={language}
         data-model-path={path}
+        data-theme={theme}
         value={value ?? ''}
         onChange={(event) => onChange?.(event.currentTarget.value)}
         onKeyDown={(event) => {
@@ -72,6 +80,14 @@ vi.mock('./files-monaco-editor', () => ({
 
 vi.mock('../lib/monaco-environment', () => ({
   configureFilesMonacoEnvironment: vi.fn()
+}))
+
+vi.mock('@renderer/color-mode-provider', () => ({
+  useColorMode: () => ({
+    themePreference: 'system',
+    resolvedTheme: colorModeMock.resolvedTheme,
+    updateThemePreference: colorModeMock.updateThemePreference
+  })
 }))
 
 vi.mock('@renderer/components/rich-markdown-editor', async () => {
@@ -165,6 +181,8 @@ function requestContextKey(
 
 describe('Files Tool', () => {
   beforeEach(() => {
+    colorModeMock.resolvedTheme = 'light'
+    colorModeMock.updateThemePreference.mockClear()
     monacoMock.saveCommand = undefined
     monacoMock.revealLineInCenter.mockClear()
     monacoMock.setPosition.mockClear()
@@ -993,6 +1011,33 @@ describe('Files Tool', () => {
       'flex-1',
       'overflow-hidden'
     )
+  })
+
+  it('passes the resolved app theme to Monaco and updates open source editors', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }: { relativePath: string }) => ({
+      name: 'app.ts',
+      relativePath,
+      contentKind: 'text' as const,
+      size: 21,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'export const app = 1\n',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    const view = render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('app.ts'))
+
+    expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs')
+
+    colorModeMock.resolvedTheme = 'dark'
+    view.rerender(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs-dark')
   })
 
   it('opens a text file in Monaco with context-scoped model identity and explicit save', async () => {
