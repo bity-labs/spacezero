@@ -6,6 +6,7 @@ import type { AiChatThinkingLevel } from './ai-chat.types'
 
 export type ThinkingSelectorProps = {
   value: AiChatThinkingLevel
+  availableLevels?: readonly AiChatThinkingLevel[]
   disabled?: boolean
   onChange: (value: AiChatThinkingLevel) => void
   className?: string
@@ -17,7 +18,8 @@ const thinkingLevels: readonly AiChatThinkingLevel[] = [
   'low',
   'medium',
   'high',
-  'xhigh'
+  'xhigh',
+  'max'
 ]
 
 const thinkingLevelLabels: Record<AiChatThinkingLevel, string> = {
@@ -26,12 +28,19 @@ const thinkingLevelLabels: Record<AiChatThinkingLevel, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',
-  xhigh: 'X-High'
+  xhigh: 'X-High',
+  max: 'Max'
 }
 
-export function ThinkingSelector({ value, disabled = false, onChange, className }: ThinkingSelectorProps) {
+export function ThinkingSelector({
+  value,
+  availableLevels = thinkingLevels,
+  disabled = false,
+  onChange,
+  className
+}: ThinkingSelectorProps) {
   const handleClick = () => {
-    onChange(getNextThinkingLevel(value))
+    onChange(getNextThinkingLevel(value, availableLevels))
   }
 
   return (
@@ -50,9 +59,13 @@ export function ThinkingSelector({ value, disabled = false, onChange, className 
   )
 }
 
-export function getNextThinkingLevel(value: AiChatThinkingLevel): AiChatThinkingLevel {
-  const currentIndex = thinkingLevels.indexOf(value)
-  const nextIndex = (currentIndex + 1) % thinkingLevels.length
+export function getNextThinkingLevel(
+  value: AiChatThinkingLevel,
+  availableLevels: readonly AiChatThinkingLevel[] = thinkingLevels
+): AiChatThinkingLevel {
+  const levels = availableLevels.length > 0 ? availableLevels : thinkingLevels
+  const currentIndex = levels.indexOf(value)
+  const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % levels.length
 
-  return thinkingLevels[nextIndex]
+  return levels[nextIndex]
 }

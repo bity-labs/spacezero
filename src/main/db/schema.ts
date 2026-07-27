@@ -30,7 +30,7 @@ export const sessions = sqliteTable('sessions', {
   modelProvider: text('model_provider'),
   modelId: text('model_id'),
   thinkingLevel: text('thinking_level', {
-    enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+    enum: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
   }),
   worktreePath: text('worktree_path'),
   worktreeBranch: text('worktree_branch'),
