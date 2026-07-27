@@ -40,7 +40,7 @@ export function applyAgentDefinitionShadowing(
     validEntriesById.set(entry.id, existing)
   }
 
-  const winningScopeById = new Map<string, AgentDefinitionCatalogEntry['scope']>()
+  const winningEntryById = new Map<string, AgentDefinitionCatalogEntry>()
 
   for (const [id, definitions] of validEntriesById.entries()) {
     const [winner] = definitions.sort(
@@ -50,7 +50,7 @@ export function applyAgentDefinitionShadowing(
           ((b as InternalCatalogEntry).sourceOrder ?? 0) ||
         a.path.localeCompare(b.path)
     )
-    if (winner) winningScopeById.set(id, winner.scope)
+    if (winner) winningEntryById.set(id, winner)
   }
 
   return entries
@@ -59,9 +59,9 @@ export function applyAgentDefinitionShadowing(
       delete publicEntry.sourceOrder
       if (entry.status !== 'valid') return publicEntry
 
-      const winningScope = winningScopeById.get(entry.id)
-      if (!winningScope || winningScope === entry.scope) return publicEntry
-      return { ...publicEntry, shadowedBy: winningScope }
+      const winningEntry = winningEntryById.get(entry.id)
+      if (!winningEntry || winningEntry === entry) return publicEntry
+      return { ...publicEntry, shadowedBy: winningEntry.scope }
     })
     .sort((a, b) => Number(Boolean(a.shadowedBy)) - Number(Boolean(b.shadowedBy)))
 }
