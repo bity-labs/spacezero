@@ -6,39 +6,40 @@ on:
       - 'v*-beta.*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: macos-beta-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  release-macos-beta:
-    name: Build, sign, notarize, and publish macOS beta
+  package-macos-beta:
+    name: Build, sign, notarize, and verify macOS beta artifacts
     runs-on: macos-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      CSC_LINK: ${{ secrets.CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
-      APPLE_ISSUER: ${{ secrets.APPLE_ISSUER }}
       SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
       SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
     steps:
       - name: Check out release tag
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d
         with:
+          version: 10.28.1
           run_install: false
 
+      - name: Assert pnpm version
+        run: test "$(pnpm --version)" = "10.28.1"
+
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
           cache: pnpm
@@ -55,25 +56,66 @@ jobs:
       - name: Build renderer and main bundles
         run: pnpm build
 
-      - name: Write temporary App Store Connect API key
-        id: apple-api-key
+      - name: Package, Developer ID sign, and notarize artifacts without publishing
         shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_ISSUER: ${{ secrets.APPLE_ISSUER }}
         run: |
           set -euo pipefail
           umask 077
           key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          cleanup() {
+            rm -f "$key_path"
+          }
+          trap cleanup EXIT HUP INT TERM
           printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
-          echo "APPLE_API_KEY=$key_path" >> "$GITHUB_ENV"
-          echo "APPLE_API_ISSUER=$APPLE_ISSUER" >> "$GITHUB_ENV"
+          export APPLE_API_KEY="$key_path"
+          export APPLE_API_ISSUER="$APPLE_ISSUER"
+          pnpm exec electron-builder --mac --publish never -c.forceCodeSigning=true
 
-      - name: Build, Developer ID sign, notarize, and publish artifacts
-        run: pnpm exec electron-builder --mac --publish always -c.forceCodeSigning=true
+      - name: Verify complete macOS release artifact set
+        run: node scripts/verify-macos-release-artifacts.mjs
 
-      - name: Remove temporary App Store Connect API key
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "${APPLE_API_KEY:-}" ]; then
-            rm -f "$APPLE_API_KEY"
-          fi
+      - name: Upload verified macOS release artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: macos-beta-release-artifacts
+          path: |
+            dist/*.dmg
+            dist/*.dmg.blockmap
+            dist/*.zip
+            dist/*.zip.blockmap
+            dist/beta-mac.yml
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-macos-beta:
+    name: Publish verified macOS beta artifacts
+    needs: package-macos-beta
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out release scripts
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Download verified macOS release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: macos-beta-release-artifacts
+          path: dist
+
+      - name: Verify downloaded macOS release artifact set
+        run: node scripts/verify-macos-release-artifacts.mjs
+
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/publish-macos-beta-release.mjs
