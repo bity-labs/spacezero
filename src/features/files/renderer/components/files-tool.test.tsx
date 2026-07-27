@@ -1585,6 +1585,36 @@ describe('Files Tool', () => {
     expect(await screen.findByDisplayValue('session-one')).toBeInTheDocument()
   })
 
+  it('renders safe image previews with bounded metadata and main-owned Reveal', async () => {
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgo='
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'photo.png', relativePath: 'photo.png', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'photo.png',
+      relativePath: 'photo.png',
+      contentKind: 'image' as const,
+      classification: 'image' as const,
+      mediaType: 'image/png' as const,
+      dataUrl,
+      size: 9,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1'
+    }))
+    window.spacezero.files.revealInSystemFileManager = vi.fn(async () => undefined)
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('photo.png'))
+
+    const image = await screen.findByRole('img', { name: 'photo.png' })
+    expect(image).toHaveAttribute('src', dataUrl)
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal in system file manager' }))
+    expect(window.spacezero.files.revealInSystemFileManager).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'photo.png'
+    })
+  })
+
   it('opens binary and oversized files as non-editable metadata', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'archive.bin', relativePath: 'archive.bin', kind: 'file' as const }
@@ -1593,6 +1623,7 @@ describe('Files Tool', () => {
       name: 'archive.bin',
       relativePath: 'archive.bin',
       contentKind: 'binary' as const,
+      classification: 'binary' as const,
       size: 1024,
       modifiedAt: new Date(0).toISOString(),
       revision: 'revision-1'

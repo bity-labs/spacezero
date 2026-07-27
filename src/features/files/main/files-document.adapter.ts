@@ -1,11 +1,19 @@
 import { isUtf8 } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { lstat, readFile, realpath, writeFile } from 'node:fs/promises'
+import { lstat, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { basename, isAbsolute, relative, resolve, sep, win32 } from 'node:path'
+import { TextDecoder } from 'node:util'
 
 import type { FilesDocument, SaveFilesDocumentRequest, SaveFilesDocumentResult } from '../shared'
 
 export const MAX_FILES_TEXT_FILE_BYTES = 2 * 1024 * 1024
+export const MAX_FILES_IMAGE_FILE_BYTES = 10 * 1024 * 1024
+
+const OVERSIZED_CLASSIFICATION_CHUNK_BYTES = 64 * 1024
+
+type SupportedImageSignature = {
+  mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+}
 
 type TextMetadata = {
   hasBom: boolean
@@ -53,21 +61,46 @@ async function openFilesDocumentUnsafe(
     modifiedAt: details.mtime.toISOString()
   }
 
-  if (details.size > MAX_FILES_TEXT_FILE_BYTES) {
+  const metadataRevision = hashRevision(`${details.size}:${details.mtimeMs}`)
+  const imageSignature = await readSupportedImageSignature(absolutePath)
+  if (imageSignature && details.size > MAX_FILES_IMAGE_FILE_BYTES) {
     return {
       ...baseDocument,
       contentKind: 'oversized',
-      revision: hashRevision(`${details.size}:${details.mtimeMs}`)
+      classification: 'oversized-image',
+      revision: metadataRevision
+    }
+  }
+
+  if (details.size > MAX_FILES_TEXT_FILE_BYTES && !imageSignature) {
+    const isOversizedText = await isUtf8TextFile(absolutePath)
+    return {
+      ...baseDocument,
+      contentKind: isOversizedText ? 'oversized' : 'binary',
+      classification: isOversizedText ? 'oversized-text' : 'binary',
+      revision: metadataRevision
     }
   }
 
   const bytes = await readFile(absolutePath)
   const revision = hashRevision(bytes)
+  if (imageSignature) {
+    return {
+      ...baseDocument,
+      contentKind: 'image',
+      classification: 'image',
+      mediaType: imageSignature.mediaType,
+      dataUrl: `data:${imageSignature.mediaType};base64,${bytes.toString('base64')}`,
+      revision
+    }
+  }
+
   const text = decodeEditableUtf8(bytes)
   if (!text) {
     return {
       ...baseDocument,
       contentKind: 'binary',
+      classification: 'binary',
       revision
     }
   }
@@ -179,6 +212,83 @@ async function withSaveLock<T>(key: SaveLockKey, operation: () => Promise<T>): P
   } finally {
     release()
     if (saveLocks.get(key) === chained) saveLocks.delete(key)
+  }
+}
+
+async function readSupportedImageSignature(absolutePath: string): Promise<SupportedImageSignature | null> {
+  const file = await open(absolutePath, 'r')
+  try {
+    const header = Buffer.alloc(32)
+    const { bytesRead } = await file.read(header, 0, header.byteLength, 0)
+    return detectSupportedImageSignature(header.subarray(0, bytesRead))
+  } finally {
+    await file.close()
+  }
+}
+
+function detectSupportedImageSignature(bytes: Buffer): SupportedImageSignature | null {
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a
+  ) {
+    return { mediaType: 'image/png' }
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { mediaType: 'image/jpeg' }
+  }
+  if (
+    bytes.length >= 6 &&
+    bytes.subarray(0, 6).equals(Buffer.from('GIF87a', 'ascii'))
+  ) {
+    return { mediaType: 'image/gif' }
+  }
+  if (
+    bytes.length >= 6 &&
+    bytes.subarray(0, 6).equals(Buffer.from('GIF89a', 'ascii'))
+  ) {
+    return { mediaType: 'image/gif' }
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes.subarray(0, 4).equals(Buffer.from('RIFF', 'ascii')) &&
+    bytes.subarray(8, 12).equals(Buffer.from('WEBP', 'ascii'))
+  ) {
+    return { mediaType: 'image/webp' }
+  }
+  return null
+}
+
+async function isUtf8TextFile(absolutePath: string): Promise<boolean> {
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const file = await open(absolutePath, 'r')
+  try {
+    const buffer = Buffer.alloc(OVERSIZED_CLASSIFICATION_CHUNK_BYTES)
+    while (true) {
+      const { bytesRead } = await file.read(buffer, 0, buffer.byteLength, null)
+      if (bytesRead === 0) break
+      const chunk = buffer.subarray(0, bytesRead)
+      if (chunk.includes(0)) return false
+      if (!decodeUtf8Chunk(decoder, chunk, true)) return false
+    }
+    return decodeUtf8Chunk(decoder, undefined, false)
+  } finally {
+    await file.close()
+  }
+}
+
+function decodeUtf8Chunk(decoder: TextDecoder, chunk: Buffer | undefined, stream: boolean): boolean {
+  try {
+    decoder.decode(chunk, { stream })
+    return true
+  } catch {
+    return false
   }
 }
 

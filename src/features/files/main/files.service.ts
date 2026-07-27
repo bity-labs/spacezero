@@ -5,13 +5,14 @@ import type {
   FilesContext,
   FilesDocument,
   FilesEntry,
+  FilesObservationEvent,
+  FilesSearchResult,
   ListFilesDirectoryRequest,
   OpenFilesDocumentRequest,
+  RevealFilesEntryRequest,
   SaveFilesDocumentRequest,
   SaveFilesDocumentResult,
-  SearchFilesRequest,
-  FilesSearchResult,
-  FilesObservationEvent
+  SearchFilesRequest
 } from '../shared'
 
 export type FilesRepository = {
@@ -67,6 +68,7 @@ export function createFilesService({
   readDirectory,
   openDocument,
   saveDocument,
+  revealEntry,
   search
 }: {
   repository: FilesRepository
@@ -79,6 +81,7 @@ export function createFilesService({
     rootPath: string,
     request: Omit<SaveFilesDocumentRequest, 'context'>
   ) => Promise<SaveFilesDocumentResult>
+  revealEntry: (rootPath: string, relativePath: string) => Promise<void>
   search: (
     rootPath: string,
     request: Omit<SearchFilesRequest, 'context' | 'requestId'>,
@@ -107,6 +110,11 @@ export function createFilesService({
           expectedRevision: request.expectedRevision
         })
       return root.coordinated && operations ? operations.runExclusive(write) : write()
+    },
+
+    async revealInSystemFileManager(request: RevealFilesEntryRequest): Promise<void> {
+      const root = await resolveFilesRoot(request.context)
+      return revealEntry(root.path, request.relativePath)
     },
 
     async search(request: SearchFilesRequest): Promise<FilesSearchResult[]> {
