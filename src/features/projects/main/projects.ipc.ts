@@ -46,7 +46,7 @@ export function registerProjectsIpc(): void {
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
-    await deleteProjectLifecycle(projectId, {
+    return deleteProjectLifecycle(projectId, {
       sessionCleanupService: getSessionCleanupService(),
       projectsService
     })

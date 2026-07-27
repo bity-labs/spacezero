@@ -36,6 +36,7 @@ import { GIT_IPC_CHANNELS, type GitAPI } from '../features/git/shared/git.contra
 import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
 import type {
   CreateEmptyProjectRequest,
+  DeleteProjectResult,
   Project,
   UpdateProjectRequest
 } from '../features/projects/shared/project.model'
@@ -304,7 +305,7 @@ export type SpaceZeroAPI = {
     addFromFolder: () => Promise<Project | null>
     update: (request: UpdateProjectRequest) => Promise<Project>
     archive: (request: { projectId: string }) => Promise<void>
-    delete: (request: { projectId: string }) => Promise<void>
+    delete: (request: { projectId: string }) => Promise<DeleteProjectResult>
   }
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
