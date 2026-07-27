@@ -20,6 +20,7 @@ type FilesTabBase = {
   openRequestId?: number
   targetLine?: number
   locationRequestId?: number
+  editorStateKey: string
 }
 
 export type FilesTabState =
@@ -186,7 +187,13 @@ const useFilesStore = create<FilesStore>()(
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((candidate) =>
               candidate === tab
-                ? toTabDocument(document, tab.preview, tab.targetLine, tab.locationRequestId)
+                ? toTabDocument(
+                    document,
+                    tab.preview,
+                    tab.targetLine,
+                    tab.locationRequestId,
+                    tab.editorStateKey
+                  )
                 : candidate
             )
           })
@@ -208,6 +215,7 @@ const useFilesStore = create<FilesStore>()(
               return {
                 relativePath,
                 name: pathName(relativePath),
+                editorStateKey: tab.editorStateKey,
                 status: 'error' as const,
                 message,
                 preview: tab.preview,
@@ -327,6 +335,7 @@ const useFilesStore = create<FilesStore>()(
               activeDocument.draft === request.content ? document.content : activeDocument.draft
             return {
               ...document,
+              editorStateKey: activeDocument.editorStateKey,
               status: 'ready',
               draft,
               dirty: draft !== document.content,
@@ -392,10 +401,15 @@ const useFilesStore = create<FilesStore>()(
                 tabs[0]?.relativePath ??
                 null)
               : context.activeTabPath
+          const selectedPath = context.selectedPath
+            ? isPathAffectedBy(context.selectedPath, relativePath)
+              ? (activeTabPath ?? parentDirectoryPath(relativePath)) || null
+              : context.selectedPath
+            : activeTabPath
           return updateContext(state, sessionId, {
             tabs,
             activeTabPath,
-            selectedPath: activeTabPath ?? context.selectedPath
+            selectedPath
           })
         })
     }),
@@ -451,11 +465,13 @@ export function toReadyDocument(
   document: FilesTextDocument,
   preview = false,
   targetLine?: number,
-  locationRequestId?: number
+  locationRequestId?: number,
+  editorStateKey = `${document.relativePath}:ready`
 ): Extract<FilesTabState, { status: 'ready' }> {
   return {
     ...document,
     name: document.name,
+    editorStateKey,
     preview,
     targetLine,
     locationRequestId,
@@ -566,6 +582,7 @@ function loadingTab(
   return {
     relativePath,
     name: pathName(relativePath),
+    editorStateKey: `${relativePath}:${openRequestId}`,
     preview,
     openRequestId,
     targetLine,
@@ -578,13 +595,15 @@ function toTabDocument(
   document: FilesDocument,
   preview: boolean,
   targetLine?: number,
-  locationRequestId?: number
+  locationRequestId?: number,
+  editorStateKey = `${document.relativePath}:ready`
 ): FilesTabState {
   return document.contentKind === 'text'
-    ? toReadyDocument(document, preview, targetLine, locationRequestId)
+    ? toReadyDocument(document, preview, targetLine, locationRequestId, editorStateKey)
     : {
         ...document,
         name: document.name,
+        editorStateKey,
         preview,
         targetLine,
         locationRequestId,
@@ -664,6 +683,11 @@ export function isMarkdownDocumentPath(relativePath: string): boolean {
 
 export function isMdxPath(relativePath: string): boolean {
   return relativePath.toLowerCase().endsWith('.mdx')
+}
+
+function parentDirectoryPath(relativePath: string): string {
+  const index = relativePath.lastIndexOf('/')
+  return index < 0 ? '' : relativePath.slice(0, index)
 }
 
 function pathName(relativePath: string): string {
