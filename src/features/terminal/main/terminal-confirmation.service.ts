@@ -2,7 +2,7 @@ import * as electron from 'electron'
 
 import { getTerminalSettings } from '../../settings/main/terminal-settings.service'
 
-export type TerminalConfirmationPurpose = 'close-tab' | 'quit' | 'delete-context'
+export type TerminalConfirmationPurpose = 'close-tab' | 'quit' | 'archive-context' | 'delete-context'
 
 const terminalTerminationOperations = new Map<string, Promise<unknown>>()
 
@@ -68,6 +68,7 @@ export async function shouldProceedWithLiveTerminalTermination({
 
 function confirmationButton(purpose: TerminalConfirmationPurpose): string {
   if (purpose === 'quit') return 'Quit and Terminate Terminals'
+  if (purpose === 'archive-context') return 'Archive and Terminate Terminals'
   if (purpose === 'delete-context') return 'Delete and Terminate Terminals'
   return 'Close Terminal'
 }
@@ -75,6 +76,7 @@ function confirmationButton(purpose: TerminalConfirmationPurpose): string {
 function confirmationMessage(purpose: TerminalConfirmationPurpose, count: number): string {
   const terminalLabel = count === 1 ? 'live terminal' : `${count} live terminals`
   if (purpose === 'quit') return `Quit Space Zero and terminate ${terminalLabel}?`
+  if (purpose === 'archive-context') return `Archive this context and terminate ${terminalLabel}?`
   if (purpose === 'delete-context') return `Delete this context and terminate ${terminalLabel}?`
   return `Close this ${terminalLabel} and terminate its shell?`
 }
@@ -83,6 +85,9 @@ function confirmationDetail(purpose: TerminalConfirmationPurpose, count: number)
   const terminalLabel = count === 1 ? 'terminal process tree' : 'terminal process trees'
   if (purpose === 'quit') {
     return `Space Zero will terminate ${count === 1 ? 'the' : 'all'} ${terminalLabel} before quitting. Terminal tabs can restore as fresh shells next time.`
+  }
+  if (purpose === 'archive-context') {
+    return `Space Zero will terminate ${count === 1 ? 'the' : 'all'} ${terminalLabel} and archive this context.`
   }
   if (purpose === 'delete-context') {
     return `Space Zero will terminate ${count === 1 ? 'the' : 'all'} ${terminalLabel} and remove Terminal metadata for this context.`

@@ -42,6 +42,22 @@ describe('terminal native confirmation service', () => {
     )
   })
 
+  it('uses archive wording for archived contexts with live terminals', async () => {
+    const { shouldProceedWithLiveTerminalTermination, showMessageBox } = await loadConfirmationService()
+
+    await expect(
+      shouldProceedWithLiveTerminalTermination({ count: 1, purpose: 'archive-context' })
+    ).resolves.toBe(true)
+
+    expect(showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buttons: ['Cancel', 'Archive and Terminate Terminals'],
+        message: 'Archive this context and terminate live terminal?',
+        detail: expect.stringContaining('archive this context')
+      })
+    )
+  })
+
   it('skips the native dialog when the persisted preference disables confirmation', async () => {
     const { shouldProceedWithLiveTerminalTermination, showMessageBox } = await loadConfirmationService({
       enabled: false
