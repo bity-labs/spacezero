@@ -14,6 +14,18 @@ const colorModeMock = vi.hoisted(() => ({
   updateThemePreference: vi.fn()
 }))
 
+const appCommandMock = vi.hoisted(() => ({
+  registeredCommands: [] as Array<{ id: string; title: string; handler: () => void | Promise<void> }>
+}))
+
+vi.mock('../../../app-commands/renderer/app-command-context', () => ({
+  useRegisterAppCommands: (
+    commands: Array<{ id: string; title: string; handler: () => void | Promise<void> }>
+  ) => {
+    appCommandMock.registeredCommands = commands
+  }
+}))
+
 vi.mock('./files-icon', () => ({
   FilesIcon: () => <span aria-hidden="true" />
 }))
@@ -188,6 +200,12 @@ function searchFilesInput(): HTMLInputElement {
   return screen.getByRole('textbox', { name: 'Search files' }) as HTMLInputElement
 }
 
+function invokeRegisteredSaveAllCommand(): void {
+  const command = appCommandMock.registeredCommands.find(({ id }) => id.startsWith('files.save-all.'))
+  if (!command) throw new Error('expected Files Save All command to be registered')
+  void command.handler()
+}
+
 describe('Files Tool', () => {
   beforeEach(() => {
     colorModeMock.resolvedTheme = 'light'
@@ -197,6 +215,7 @@ describe('Files Tool', () => {
     monacoMock.setPosition.mockClear()
     monacoMock.focus.mockClear()
     monacoMock.saveViewState.mockClear()
+    appCommandMock.registeredCommands = []
   })
 
   it('loads only the visible directory and lazily expands folders through the Project Session API', async () => {
@@ -813,7 +832,8 @@ describe('Files Tool', () => {
     expect(screen.queryByLabelText('Monaco editor')).not.toBeInTheDocument()
 
     fireEvent.change(richEditor, { target: { value: '## Rich draft' } })
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /●\s*README\.md/ })).toBeInTheDocument()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Source' }))
 
     const sourceEditor = await screen.findByLabelText('Monaco editor')
@@ -833,7 +853,10 @@ describe('Files Tool', () => {
       content: '## Source draft',
       expectedRevision: 'revision-1'
     })
-    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+    )
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
   })
 
   it('uses the stable Knowledge Base context for shared Files reads, rich editing, and explicit save', async () => {
@@ -1149,7 +1172,8 @@ describe('Files Tool', () => {
     expect(editor).toHaveAttribute('data-language', 'json')
     expect(editor).toHaveAttribute('data-model-path', 'spacezero-files://session-1/package.json')
     fireEvent.change(editor, { target: { value: '{"name":"updated"}\n' } })
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /●\s*package\.json/ })).toBeInTheDocument()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
     expect(saveDocument).not.toHaveBeenCalled()
 
     fireEvent.keyDown(editor, { key: 's', metaKey: true })
@@ -1161,7 +1185,10 @@ describe('Files Tool', () => {
       content: '{"name":"updated"}\n',
       expectedRevision: 'revision-1'
     })
-    expect(await screen.findByText('Saved')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /package\.json/ })).not.toHaveTextContent('●')
+    )
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
     expect(screen.queryByText('Pin preview')).not.toBeInTheDocument()
   })
 
@@ -2016,6 +2043,59 @@ describe('Files Tool', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  it('hides tab strip scrollbars while preserving active tab scrolling and dirty-only tab indicators', async () => {
+    const scrollIntoView = vi.fn()
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView
+    window.spacezero.files.listDirectory = vi.fn(async () =>
+      ['one.txt', 'two.txt', 'three.txt', 'four.txt'].map((name) => ({
+        name,
+        relativePath: name,
+        kind: 'file' as const
+      }))
+    )
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `${relativePath} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    try {
+      render(<FilesTool sessionId="session-tabs" />)
+      for (const fileName of ['one.txt', 'two.txt', 'three.txt', 'four.txt']) {
+        fireEvent.click(await screen.findByText(fileName))
+        fireEvent.doubleClick(await screen.findByRole('tab', { name: new RegExp(fileName) }))
+      }
+
+      const tabList = screen.getByRole('tablist', { name: 'Open files' })
+      expect(tabList).toHaveClass('[scrollbar-width:none]')
+      expect(tabList).toHaveClass('[&::-webkit-scrollbar]:hidden')
+      expect(tabList).toHaveClass('overflow-x-auto')
+      expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Save All' })).not.toBeInTheDocument()
+      expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /one\.txt/ })).not.toHaveTextContent('●')
+
+      fireEvent.click(screen.getByRole('tab', { name: /two\.txt/ }))
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+      fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+        target: { value: 'two draft' }
+      })
+
+      expect(screen.getByRole('tab', { name: /●\s*two\.txt/ })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: /one\.txt/ })).not.toHaveTextContent('●')
+      expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    }
+  })
+
   it('saves every dirty tab in the active context and reports mixed Save All outcomes per file', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
@@ -2060,7 +2140,8 @@ describe('Files Tool', () => {
       target: { value: 'two draft' }
     })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Save All' }))
+    expect(screen.queryByRole('button', { name: 'Save All' })).not.toBeInTheDocument()
+    invokeRegisteredSaveAllCommand()
 
     await waitFor(() => expect(window.spacezero.files.saveDocument).toHaveBeenCalledTimes(2))
     expect(window.spacezero.files.saveDocument).toHaveBeenCalledWith({
@@ -2130,7 +2211,8 @@ describe('Files Tool', () => {
     fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
       target: { value: 'session two draft' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Save All' }))
+    expect(screen.queryByRole('button', { name: 'Save All' })).not.toBeInTheDocument()
+    invokeRegisteredSaveAllCommand()
 
     await waitFor(() => expect(window.spacezero.files.saveDocument).toHaveBeenCalledTimes(1))
     expect(window.spacezero.files.saveDocument).toHaveBeenCalledWith({
@@ -2250,7 +2332,8 @@ describe('Files Tool', () => {
 
     await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
     expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /●\s*README\.md/ })).toBeInTheDocument()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
   })
 
   it('completes confirmed overwrite and recreate resolutions through the component save path', async () => {
@@ -2329,7 +2412,10 @@ describe('Files Tool', () => {
     fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
 
-    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+    )
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
     expect(saveDocument).toHaveBeenNthCalledWith(2, {
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'README.md',
@@ -2351,7 +2437,10 @@ describe('Files Tool', () => {
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
 
-    await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+    )
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
     expect(saveDocument).toHaveBeenNthCalledWith(3, {
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'README.md',
@@ -2426,7 +2515,8 @@ describe('Files Tool', () => {
 
     await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
     expect(screen.getByDisplayValue('draft')).toBeInTheDocument()
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /●\s*README\.md/ })).toBeInTheDocument()
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
 
     act(() =>
       observationListener?.({
@@ -2635,7 +2725,10 @@ describe('Files Tool', () => {
         )
         fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
         expect(await screen.findByDisplayValue('overwrite draft')).toBeInTheDocument()
-        await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+        await waitFor(() =>
+          expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+        )
+        expect(screen.queryByText('Saved')).not.toBeInTheDocument()
       } else {
         fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
           target: { value: 'recreate draft' }
@@ -2643,7 +2736,10 @@ describe('Files Tool', () => {
         act(() => useFilesStore.getState().markDeletedOnDisk(sessionId, 'README.md'))
         fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
         expect(await screen.findByDisplayValue('recreate draft')).toBeInTheDocument()
-        await waitFor(() => expect(screen.getByText('Saved')).toBeInTheDocument())
+        await waitFor(() =>
+          expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+        )
+        expect(screen.queryByText('Saved')).not.toBeInTheDocument()
       }
 
       await act(async () => {
