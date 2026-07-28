@@ -1069,6 +1069,35 @@ describe('BrowserService', () => {
     })
   })
 
+  it('does not apply an old-document favicon after same-URL committed navigation', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    let resolveLoad: (faviconUrl: string | null) => void = () => {}
+    const faviconLoader: BrowserFaviconLoader = {
+      load: () => new Promise((resolve) => (resolveLoad = resolve))
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://a.example/' })
+    service.markNavigationCommitted(state.activeTabId, 'https://a.example/')
+    await service.navigate({ ...projectContext, tabId: state.activeTabId, input: 'https://b.example/' })
+    const oldDocumentFavicon = service.markFaviconChanged(state.activeTabId, [
+      'https://a.example/favicon.png'
+    ])
+    service.markNavigationCommitted(state.activeTabId, 'https://b.example/')
+    resolveLoad('data:image/png;base64,b2xkLWljb24=')
+    await oldDocumentFavicon
+
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [{ url: 'https://b.example/', faviconUrl: null }]
+    })
+  })
+
   it('hides and cleans up native content by context lifecycle', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(adapter, createContextRepository())
