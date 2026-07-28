@@ -262,7 +262,7 @@ describe('Files Tool', () => {
 
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('treeitem', { name: 'app.ts' }))
-    expect(await screen.findByRole('button', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.queryByText(/^Explorer$/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
@@ -1484,7 +1484,7 @@ describe('Files Tool', () => {
     expect(openDocument).toHaveBeenCalledTimes(2)
   })
 
-  it('hides selected tree-item actions after selecting a directory before switching to search', async () => {
+  it('does not show inline tree-item actions when selecting a directory or switching to search', async () => {
     window.spacezero.files.listDirectory = vi.fn(async ({ relativePath }) =>
       relativePath === ''
         ? [
@@ -1500,12 +1500,12 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-search-selected-actions" />)
     await screen.findByText('notes')
     fireEvent.click(screen.getByRole('treeitem', { name: 'notes' }))
-    expect(screen.getByRole('button', { name: 'New file in notes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'New folder in notes' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Trash' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Reveal selected item' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New file in notes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New folder in notes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Move' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Trash' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reveal selected item' })).not.toBeInTheDocument()
 
     enterSearchView()
     fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
@@ -1631,21 +1631,26 @@ describe('Files Tool', () => {
     )
   })
 
-  it('opens nested New File and New Folder dialogs from a directory with the matching destination', async () => {
-    let nestedChildrenLoaded = false
-    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
-      if (relativePath === '') return [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
-      if (relativePath === 'src') {
-        nestedChildrenLoaded = true
-        return [
-          { name: 'new.txt', relativePath: 'src/new.txt', kind: 'file' as const },
-          { name: 'components', relativePath: 'src/components', kind: 'directory' as const }
-        ]
-      }
+  it('opens context-menu New File and New Folder dialogs as siblings of the selected entry', async () => {
+    const rootEntries = [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
+    let srcEntries: Array<{ name: string; relativePath: string; kind: 'file' | 'directory' }> = [
+      { name: 'old.txt', relativePath: 'src/old.txt', kind: 'file' }
+    ]
+    window.spacezero.files.listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
+      if (relativePath === '') return rootEntries
+      if (relativePath === 'src') return srcEntries
       return []
     })
-    window.spacezero.files.listDirectory = listDirectory
-    const createEntry = vi.fn(async () => undefined)
+    const createEntry = vi.fn(async ({ relativePath, kind }: { relativePath: string; kind: 'file' | 'folder' }) => {
+      srcEntries = [
+        ...srcEntries,
+        {
+          name: relativePath.split('/').at(-1) ?? relativePath,
+          relativePath,
+          kind: kind === 'folder' ? 'directory' : 'file'
+        }
+      ]
+    })
     window.spacezero.files.createEntry = createEntry
     window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
       name: relativePath.split('/').at(-1) ?? relativePath,
@@ -1659,10 +1664,20 @@ describe('Files Tool', () => {
       lineEnding: 'lf' as const
     }))
 
-    render(<FilesTool sessionId="session-nested-create" />)
-    await screen.findByText('src')
-    fireEvent.click(screen.getByRole('treeitem', { name: 'src' }))
-    fireEvent.click(screen.getByRole('button', { name: 'New file in src' }))
+    render(<FilesTool sessionId="session-sibling-create" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'src' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
+    await screen.findByRole('treeitem', { name: 'old.txt' })
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    let menu = await screen.findByRole('menu')
+    expect(within(menu).getByRole('menuitem', { name: 'New File' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Show in Finder' })).toBeInTheDocument()
+    expect(within(menu).queryByRole('menuitem', { name: 'Move' })).not.toBeInTheDocument()
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'New File' }))
 
     let dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
@@ -1672,16 +1687,15 @@ describe('Files Tool', () => {
 
     await waitFor(() =>
       expect(createEntry).toHaveBeenCalledWith({
-        context: { kind: 'project-session', sessionId: 'session-nested-create' },
+        context: { kind: 'project-session', sessionId: 'session-sibling-create' },
         relativePath: 'src/new.txt',
         kind: 'file'
       })
     )
-    expect(await screen.findByRole('treeitem', { name: 'new.txt' })).toBeInTheDocument()
-    expect(nestedChildrenLoaded).toBe(true)
 
-    fireEvent.click(screen.getByRole('treeitem', { name: 'src' }))
-    fireEvent.click(screen.getByRole('button', { name: 'New folder in src' }))
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    menu = await screen.findByRole('menu')
+    fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Folder' }))
     dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('heading', { name: 'New Folder' })).toBeInTheDocument()
     expect(within(dialog).getByText('Create in src')).toBeInTheDocument()
@@ -1692,14 +1706,73 @@ describe('Files Tool', () => {
 
     await waitFor(() =>
       expect(createEntry).toHaveBeenLastCalledWith({
-        context: { kind: 'project-session', sessionId: 'session-nested-create' },
+        context: { kind: 'project-session', sessionId: 'session-sibling-create' },
         relativePath: 'src/components',
         kind: 'folder'
       })
     )
-    expect(useFilesStore.getState().contexts['session-nested-create'].selectedPath).toBe(
-      'src/components'
+  })
+
+  it('uses context-menu Delete and Show in Finder actions for the selected entry', async () => {
+    let entries = [{ name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }]
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    const trashEntry = vi.fn(async () => {
+      entries = []
+    })
+    const revealInSystemFileManager = vi.fn(async () => undefined)
+    window.spacezero.files.trashEntry = trashEntry
+    window.spacezero.files.revealInSystemFileManager = revealInSystemFileManager
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<FilesTool sessionId="session-context-actions" />)
+    await screen.findByRole('treeitem', { name: 'old.txt' })
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Show in Finder' }))
+    await waitFor(() =>
+      expect(revealInSystemFileManager).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-context-actions' },
+        relativePath: 'old.txt'
+      })
     )
+
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+    await waitFor(() =>
+      expect(trashEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-context-actions' },
+        relativePath: 'old.txt'
+      })
+    )
+    expect(window.confirm).toHaveBeenCalledWith('Move old.txt to Trash?')
+  })
+
+  it('keeps the rename dialog open for unchanged names and filesystem failures', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }
+    ])
+    const moveEntry = vi.fn(async () => {
+      throw new Error('files.collision')
+    })
+    window.spacezero.files.moveEntry = moveEntry
+
+    render(<FilesTool sessionId="session-rename-validation" />)
+    fireEvent.contextMenu((await screen.findByRole('treeitem', { name: 'old.txt' })).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveFocus()
+    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue('old.txt')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    expect(await within(dialog).findByText('Choose a different name.')).toBeInTheDocument()
+    expect(moveEntry).not.toHaveBeenCalled()
+
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
+      target: { value: 'existing.txt' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    expect(await within(dialog).findByText('An item already exists at that path.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('opens a root New Folder dialog and creates the folder after confirmation', async () => {
@@ -1828,14 +1901,21 @@ describe('Files Tool', () => {
     const moveEntry = vi.fn(async () => undefined)
     window.spacezero.files.saveDocument = saveDocument
     window.spacezero.files.moveEntry = moveEntry
-    vi.spyOn(window, 'prompt').mockReturnValueOnce('renamed.md').mockReturnValueOnce('save')
+    vi.spyOn(window, 'prompt').mockReturnValueOnce('save')
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('draft.md'))
     fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
       target: { value: '# Draft' }
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
+    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'draft.md' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('draft.md'), { clientX: 8, clientY: 8 })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue('draft.md')
+    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
+      target: { value: 'renamed.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
 
     await waitFor(() => expect(moveEntry).toHaveBeenCalledTimes(1))
     expect(saveDocument).toHaveBeenCalledTimes(1)
