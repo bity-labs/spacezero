@@ -6,7 +6,7 @@ import { createManagedProjectAgentSession } from '../../agent-workspace/main/age
 import { getBrowserService } from '../../browser/main/browser.ipc'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
-import { createProjectSessionRequestSchema } from '../shared'
+import { createProjectSessionRequestSchema, renameSessionTitleRequestSchema } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
@@ -43,6 +43,10 @@ export function registerSessionsIpc(): void {
       resolveSkillPaths: resolveAgentSkillPaths
     })
     return session
+  })
+  ipcMain.handle(IPC_CHANNELS.sessions.rename, async (_event, input: unknown) => {
+    const { sessionId, title } = renameSessionTitleRequestSchema.parse(input)
+    return sessionsService.renameSession(sessionId, title)
   })
   ipcMain.handle(IPC_CHANNELS.sessions.archive, async (_event, input: unknown) => {
     const { sessionId } = sessionIdRequestSchema.parse(input)
