@@ -971,10 +971,10 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('one.md'))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# One')
-    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+    fireEvent.doubleClick(screen.getByRole('tab', { name: /one\.md\s*preview/ }))
     fireEvent.click(screen.getByText('two.md'))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Two')
-    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+    fireEvent.doubleClick(screen.getByRole('tab', { name: /two\.md\s*preview/ }))
 
     fireEvent.click(screen.getByRole('tab', { name: 'one.md' }))
 
@@ -1096,7 +1096,7 @@ describe('Files Tool', () => {
     expect(screen.queryByText('Pin preview')).not.toBeInTheDocument()
   })
 
-  it('replaces clean previews, pins explicitly, and activates duplicates without another read', async () => {
+  it('replaces clean previews, pins on tab double-click, and activates duplicates without another read', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
       { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
@@ -1125,7 +1125,12 @@ describe('Files Tool', () => {
     expect(await screen.findByRole('tab', { name: /two\.txt\s*preview/ })).toBeInTheDocument()
     expect(screen.queryByRole('tab', { name: /one\.txt\s*preview/ })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pin preview' }))
+    expect(screen.queryByRole('button', { name: 'Pin preview' })).not.toBeInTheDocument()
+    fireEvent.doubleClick(screen.getByRole('tab', { name: /two\.txt\s*preview/ }))
+    const pinnedTwoTab = screen.getByRole('tab', { name: 'two.txt' })
+    expect(pinnedTwoTab).toHaveAttribute('aria-selected', 'true')
+    expect(pinnedTwoTab).not.toHaveClass('italic')
+    fireEvent.doubleClick(pinnedTwoTab)
     expect(screen.getByRole('tab', { name: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
 
     fireEvent.click(screen.getByText('one.txt'))
@@ -1136,6 +1141,41 @@ describe('Files Tool', () => {
     fireEvent.click(screen.getByRole('treeitem', { name: 'two.txt' }))
     expect(screen.getByRole('tab', { name: 'two.txt' })).toHaveAttribute('aria-selected', 'true')
     expect(openDocument).toHaveBeenCalledTimes(3)
+  })
+
+  it('single-clicking a preview tab only activates it without pinning it', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.txt', relativePath: 'one.txt', kind: 'file' as const },
+      { name: 'two.txt', relativePath: 'two.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `${relativePath} saved`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('one.txt'))
+    const onePreviewTab = await screen.findByRole('tab', { name: /one\.txt\s*preview/ })
+    fireEvent.doubleClick(onePreviewTab)
+    fireEvent.click(screen.getByText('two.txt'))
+    const twoPreviewTab = await screen.findByRole('tab', { name: /two\.txt\s*preview/ })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'one.txt' }))
+    expect(screen.getByRole('tab', { name: 'one.txt' })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(twoPreviewTab)
+
+    expect(screen.getByRole('tab', { name: /two\.txt\s*preview/ })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
+    expect(screen.queryByRole('tab', { name: 'two.txt' })).not.toBeInTheDocument()
   })
 
   it('supports readable overflow tabs, drag reordering, close selection, and active scroll', async () => {
