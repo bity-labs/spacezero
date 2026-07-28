@@ -26,6 +26,7 @@ async function setupRuntime({
   sessions: StoredSession[]
   runWithConfirmation: (request: {
     operationKey: string
+    purpose: 'archive-context' | 'delete-context'
     countLiveTerminals: () => number | Promise<number>
     run: () => Promise<unknown>
   }) => Promise<unknown>
@@ -38,6 +39,11 @@ async function setupRuntime({
       storedSessions.find((session) => session.id === sessionId)
     ),
     findProjectById: vi.fn(async () => ({ id: 'project-1', path: '/repos/spacezero' })),
+    update: vi.fn(async (nextSession: StoredSession) => {
+      const index = storedSessions.findIndex((session) => session.id === nextSession.id)
+      if (index >= 0) storedSessions[index] = nextSession
+      return nextSession
+    }),
     listByProjectIdIncludingArchived: vi.fn(async () => [...storedSessions]),
     deleteById: vi.fn(async (sessionId: string) => {
       const index = storedSessions.findIndex((session) => session.id === sessionId)
@@ -72,9 +78,8 @@ async function setupRuntime({
   }))
 
   const { getSessionCleanupService } = await import('./session-cleanup.runtime')
-  const { deleteProjectLifecycle } = await import(
-    '../../projects/main/project-lifecycle-orchestration'
-  )
+  const { deleteProjectLifecycle } =
+    await import('../../projects/main/project-lifecycle-orchestration')
   return {
     service: getSessionCleanupService(),
     sameService: getSessionCleanupService(),
@@ -92,9 +97,37 @@ describe('Session cleanup runtime coordination', () => {
     vi.restoreAllMocks()
   })
 
+  it('uses archive-specific terminal confirmation wording for Session archive cleanup', async () => {
+    const runWithConfirmation = vi.fn(async (request) => {
+      expect(request.operationKey).toBe('archive-session:session-1')
+      expect(request.purpose).toBe('archive-context')
+      expect(await request.countLiveTerminals()).toBe(1)
+      return request.run()
+    })
+    const harness = await setupRuntime({
+      sessions: [createStoredSession('session-1')],
+      runWithConfirmation
+    })
+
+    await harness.service.archiveSession('session-1')
+
+    expect(runWithConfirmation).toHaveBeenCalledTimes(1)
+    expect(harness.closeTerminalContext).toHaveBeenCalledTimes(1)
+    expect(harness.repository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'session-1',
+        worktreePath: null,
+        worktreeBranch: null,
+        worktreeBaseRevision: null,
+        archivedAt: expect.any(Date)
+      })
+    )
+  })
+
   it('cancels one aggregate multi-Session Project decision before destructive cleanup', async () => {
     const runWithConfirmation = vi.fn(async (request) => {
       expect(request.operationKey).toBe('delete-project:project-1')
+      expect(request.purpose).toBe('delete-context')
       expect(await request.countLiveTerminals()).toBe(2)
       throw new Error('terminal.confirmationCancelled')
     })

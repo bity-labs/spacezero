@@ -20,12 +20,12 @@ export function getSessionCleanupService(): ReturnType<typeof createSessionClean
     },
     deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
     removeTranscript: (path) => rm(path, { force: true }),
-    closeTerminalsForDeletion: async ({ operationKey, sessions }) => {
+    closeTerminalsForDeletion: async ({ operationKey, purpose, sessions }) => {
       const contexts = sessions.flatMap((session) => terminalContextForSession(session) ?? [])
       const terminalService = getTerminalService()
       await runWithLiveTerminalConfirmation({
         operationKey,
-        purpose: 'delete-context',
+        purpose,
         countLiveTerminals: () =>
           contexts.reduce(
             (count, context) => count + (terminalService.countLiveTerminalsForContext(context) ?? 0),

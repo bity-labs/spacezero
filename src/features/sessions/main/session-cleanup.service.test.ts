@@ -21,6 +21,147 @@ function createStoredSession(overrides: Partial<StoredSession> = {}): StoredSess
 }
 
 describe('Session cleanup service', () => {
+  it('archives a managed Project Session only after runtime resources and worktree are removed', async () => {
+    const archivedAt = new Date('2026-07-20T00:00:00.000Z')
+    const session = createStoredSession()
+    const events: string[] = []
+    const update = vi.fn(async (nextSession: StoredSession) => {
+      events.push('metadata')
+      return nextSession
+    })
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update,
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => undefined
+      },
+      worktrees: {
+        remove: async () => {
+          events.push('worktree')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility')
+      },
+      removeTranscript: async () => undefined,
+      closeTerminalsForSession: async () => {
+        events.push('terminal')
+      },
+      closeBrowsersForSession: async () => {
+        events.push('browser')
+      },
+      now: () => archivedAt
+    })
+
+    await service.archiveSession('session-1')
+
+    expect(events).toEqual(['terminal', 'browser', 'utility', 'worktree', 'metadata'])
+    expect(update).toHaveBeenCalledWith({
+      ...session,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null,
+      archivedAt,
+      updatedAt: archivedAt
+    })
+  })
+
+  it('does not mark a Project Session archived when worktree cleanup fails', async () => {
+    const session = createStoredSession()
+    const update = vi.fn(async (nextSession: StoredSession) => nextSession)
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update,
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById: async () => undefined
+      },
+      worktrees: {
+        remove: async () => {
+          throw new Error('session.worktreeRemoveFailed')
+        }
+      },
+      deleteUtilitySession: async () => undefined,
+      removeTranscript: async () => undefined
+    })
+
+    await expect(service.archiveSession('session-1')).rejects.toThrow(
+      'session.worktreeRemoveFailed'
+    )
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('keeps the archived row when Project Session archive cleanup succeeds', async () => {
+    const session = createStoredSession()
+    const deleteById = vi.fn(async () => undefined)
+    const update = vi.fn(async (nextSession: StoredSession) => nextSession)
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => session,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update,
+        listByProjectIdIncludingArchived: async () => [session],
+        deleteById
+      },
+      worktrees: { remove: vi.fn(async () => undefined) },
+      deleteUtilitySession: async () => undefined,
+      removeTranscript: async () => undefined
+    })
+
+    await service.archiveSession('session-1')
+
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id, archivedAt: expect.any(Date) })
+    )
+    expect(deleteById).not.toHaveBeenCalled()
+  })
+
+  it('deletes a newly archived managed Project Session without retrying worktree cleanup', async () => {
+    const session = createStoredSession()
+    let storedSession: StoredSession | undefined = session
+    const deleteById = vi.fn(async (sessionId: string) => {
+      if (storedSession?.id === sessionId) storedSession = undefined
+    })
+    const removeTranscript = vi.fn(async () => undefined)
+    const removeWorktree = vi.fn(async () => {
+      if (removeWorktree.mock.calls.length > 1) throw new Error('session.worktreeRemoveFailed')
+    })
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => storedSession,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: vi.fn(async (nextSession: StoredSession) => {
+          storedSession = nextSession
+          return nextSession
+        }),
+        listByProjectIdIncludingArchived: async () => (storedSession ? [storedSession] : []),
+        deleteById
+      },
+      worktrees: { remove: removeWorktree },
+      deleteUtilitySession: async () => undefined,
+      removeTranscript
+    })
+
+    await service.archiveSession('session-1')
+    expect(storedSession).toMatchObject({
+      id: session.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null,
+      archivedAt: expect.any(Date)
+    })
+
+    await service.deleteSession('session-1')
+
+    expect(removeWorktree).toHaveBeenCalledTimes(1)
+    expect(deleteById).toHaveBeenCalledWith('session-1')
+    expect(removeTranscript).toHaveBeenCalledWith('/transcripts/session-1.jsonl')
+    expect(storedSession).toBeUndefined()
+  })
+
   it('retains Session metadata when verified worktree cleanup fails', async () => {
     const session = createStoredSession()
     const deleteById = vi.fn(async () => undefined)
@@ -34,6 +175,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById
       },
@@ -64,6 +206,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -99,6 +242,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -145,6 +289,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -195,8 +340,9 @@ describe('Session cleanup service', () => {
       })
     ]
     const events: string[] = []
-    const closeTerminalsForDeletion = vi.fn(async ({ operationKey, sessions: affected }) => {
+    const closeTerminalsForDeletion = vi.fn(async ({ operationKey, purpose, sessions: affected }) => {
       expect(operationKey).toBe('delete-project:project-1')
+      expect(purpose).toBe('delete-context')
       expect(affected).toEqual(sessions)
       events.push('terminal-confirmation')
     })
@@ -204,6 +350,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async (sessionId) => sessions.find((session) => session.id === sessionId),
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => sessions,
         deleteById: async (sessionId) => {
           events.push(`metadata:${sessionId}`)
@@ -248,6 +395,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async (sessionId) => sessions.find((session) => session.id === sessionId),
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => sessions,
         deleteById
       },
@@ -282,6 +430,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => storedSession,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => (storedSession ? [storedSession] : []),
         deleteById
       },
@@ -329,6 +478,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -360,6 +510,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById
       },
@@ -382,6 +533,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById
       },
@@ -406,6 +558,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -437,6 +590,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById: async () => {
           events.push('metadata')
@@ -475,6 +629,7 @@ describe('Session cleanup service', () => {
         findSessionById: async (sessionId) =>
           [legacySession, managedSession].find((session) => session.id === sessionId),
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [legacySession, managedSession],
         deleteById: async (sessionId) => {
           deletedSessionIds.push(sessionId)
@@ -509,6 +664,7 @@ describe('Session cleanup service', () => {
       repository: {
         findSessionById: async () => session,
         findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: async (nextSession) => nextSession,
         listByProjectIdIncludingArchived: async () => [session],
         deleteById
       },
