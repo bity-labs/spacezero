@@ -60,8 +60,58 @@ describe('GitTool', () => {
     expect(screen.getByText(/origin\/feature\/test/)).toHaveTextContent('2 ahead')
     expect(screen.getByText(/\+Changed/)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument()
+    const headerToggle = screen.getByRole('button', { name: 'Toggle diff' })
+    expect(headerToggle).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(headerToggle)
     await waitFor(() => expect(screen.queryByText(/\+Changed/)).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Toggle diff' })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+  })
+
+  it('toggles diffs from the header while keeping filename navigation independent', async () => {
+    const openFilesTool = vi.fn()
+    const openLocation = vi.fn(async () => ({ status: 'opened' as const }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'src/app.ts',
+          kind: 'untracked' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/src/app.ts b/src/app.ts\n+Changed\n'
+        }
+      ]
+    }))
+
+    render(<GitTool filesHandoff={{ openFilesTool, openLocation }} sessionId="session-1" />)
+
+    await screen.findByText(/\+Changed/)
+    expect(screen.getByText('untracked')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'src/app.ts' }))
+    expect(openLocation).toHaveBeenCalledWith({ relativePath: 'src/app.ts', line: undefined })
+    expect(openFilesTool).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/\+Changed/)).toBeInTheDocument()
+    const headerToggle = screen.getByRole('button', { name: 'Toggle diff' })
+    expect(headerToggle).toHaveAttribute('aria-expanded', 'true')
+
+    await userEvent.click(headerToggle)
+    await waitFor(() => expect(screen.queryByText(/\+Changed/)).not.toBeInTheDocument())
+
+    screen.getByRole('button', { name: 'Toggle diff' }).focus()
+    await userEvent.keyboard('{Enter}')
+    await screen.findByText(/\+Changed/)
+    expect(screen.getByRole('button', { name: 'Toggle diff' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    )
   })
 
   it('reviews Knowledge Base Git through the stable context key without Project Session composer actions', async () => {
@@ -139,7 +189,7 @@ describe('GitTool', () => {
     })
     expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle diff' }))
     await waitFor(() => expect(screen.queryByText(/\+staged/)).not.toBeInTheDocument())
     expect(getReview).toHaveBeenCalledTimes(3)
   })
@@ -169,11 +219,14 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" />)
 
-    expect(await screen.findByRole('status', { name: 'Unresolved Git conflicts' })).toHaveTextContent(
-      '1 conflicted file needs resolution before commit or push.'
-    )
+    expect(
+      await screen.findByRole('status', { name: 'Unresolved Git conflicts' })
+    ).toHaveTextContent('1 conflicted file needs resolution before commit or push.')
     const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ })
-    expect(fileButtons.map((button) => button.textContent)).toEqual(['conflicted.txt', 'normal.txt'])
+    expect(fileButtons.map((button) => button.textContent)).toEqual([
+      'conflicted.txt',
+      'normal.txt'
+    ])
     expect(screen.getByText('+<<<<<<< HEAD')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
@@ -238,7 +291,13 @@ describe('GitTool', () => {
       branch: 'feature/test',
       upstream: { kind: 'none' as const },
       files: [
-        { path: 'conflicted.txt', kind: 'conflicted' as const, binary: false, large: false, diff: null }
+        {
+          path: 'conflicted.txt',
+          kind: 'conflicted' as const,
+          binary: false,
+          large: false,
+          diff: null
+        }
       ]
     }))
 
@@ -265,7 +324,13 @@ describe('GitTool', () => {
         branch: 'feature/test',
         upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
         files: [
-          { path: 'conflicted.txt', kind: 'conflicted' as const, binary: false, large: false, diff: null }
+          {
+            path: 'conflicted.txt',
+            kind: 'conflicted' as const,
+            binary: false,
+            large: false,
+            diff: null
+          }
         ]
       })
       .mockResolvedValue({
@@ -273,7 +338,13 @@ describe('GitTool', () => {
         branch: 'feature/test',
         upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
         files: [
-          { path: 'resolved.txt', kind: 'modified' as const, binary: false, large: false, diff: '+resolved\n' }
+          {
+            path: 'resolved.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: '+resolved\n'
+          }
         ]
       })
 
@@ -285,7 +356,9 @@ describe('GitTool', () => {
     act(() => {
       projectionListener({ type: 'agent_start', sessionId: 'session-1', seq: 1 })
     })
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeDisabled())
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeDisabled()
+    )
 
     act(() => {
       projectionListener({ type: 'agent_end', sessionId: 'session-1', seq: 2 })
@@ -293,7 +366,9 @@ describe('GitTool', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled())
     expect(screen.queryByRole('button', { name: 'Resolve with agent' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('status', { name: 'Unresolved Git conflicts' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('status', { name: 'Unresolved Git conflicts' })
+    ).not.toBeInTheDocument()
     expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(2)
   })
 
@@ -406,7 +481,8 @@ describe('GitTool', () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
-    const initialLookup = deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentSession>>>()
+    const initialLookup =
+      deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentSession>>>()
     const session1 = {
       id: 'knowledge-base-session-1',
       kind: 'workspace' as const,
@@ -1141,7 +1217,7 @@ describe('GitTool', () => {
       }
     })
     await screen.findByText('branch-a-staged')
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle diff' }))
     await waitFor(() => expect(screen.queryByText('+a-staged')).not.toBeInTheDocument())
     const sessionAScroller = screen.getByLabelText('Git changed files')
     fireEvent.scroll(sessionAScroller, { target: { scrollTop: 44 } })
@@ -1375,7 +1451,7 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle diff' }))
     const scroller = screen.getByLabelText('Git changed files')
     fireEvent.scroll(scroller, { target: { scrollTop: 72 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'ship it')
@@ -1410,7 +1486,7 @@ describe('GitTool', () => {
     await screen.findByText('+uncommitted')
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
-    await userEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Toggle diff' }))
     await waitFor(() => expect(screen.queryByText('+staged')).not.toBeInTheDocument())
     fireEvent.scroll(screen.getByLabelText('Git changed files'), { target: { scrollTop: 91 } })
     await userEvent.type(screen.getByLabelText('Commit instructions'), 'not persisted')
