@@ -1045,7 +1045,10 @@ describe('GitTool', () => {
     render(<GitTool sessionId="session-1" />)
 
     await screen.findByText('No uncommitted changes')
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const refreshButton = screen.getByRole('button', { name: 'Refresh Git status' })
+    expect(refreshButton).toHaveAttribute('title', 'Refresh Git status')
+    expect(refreshButton).not.toHaveTextContent('Refresh')
+    await userEvent.click(refreshButton)
 
     await screen.findByText('+fresh')
     expect(window.spacezero.git.getReview).toHaveBeenCalledWith({
@@ -1054,6 +1057,111 @@ describe('GitTool', () => {
     })
     expect(window.spacezero.git).not.toHaveProperty('commit')
     expect(window.spacezero.git).not.toHaveProperty('push')
+  })
+
+  it('prevents duplicate manual refresh requests while showing refresh progress', async () => {
+    let resolveRefresh: ((value: GitReviewState) => void) | undefined
+    window.spacezero.git.getReview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: 'clean' as const,
+        branch: 'main',
+        upstream: { kind: 'none' as const },
+        files: [] as []
+      })
+      .mockImplementationOnce(
+        () =>
+          new Promise<GitReviewState>((resolve) => {
+            resolveRefresh = resolve
+          })
+      )
+
+    render(<GitTool sessionId="session-1" />)
+
+    await screen.findByText('No uncommitted changes')
+    const refreshButton = screen.getByRole('button', { name: 'Refresh Git status' })
+    await userEvent.click(refreshButton)
+
+    await waitFor(() => expect(refreshButton).toBeDisabled())
+    expect(screen.getByRole('status', { name: 'Refreshing Git status' })).toBeInTheDocument()
+    await userEvent.click(refreshButton)
+    expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(2)
+
+    act(() => {
+      resolveRefresh?.({
+        status: 'ok' as const,
+        branch: 'main',
+        upstream: { kind: 'none' as const },
+        files: [
+          {
+            path: 'fresh.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/fresh.txt b/fresh.txt\n+fresh\n'
+          }
+        ]
+      })
+    })
+
+    await screen.findByText('+fresh')
+    expect(refreshButton).toBeEnabled()
+  })
+
+  it('runs the latest filter refresh queued while the current filter request is pending', async () => {
+    const initialUncommitted = deferred<GitReviewState>()
+    window.spacezero.git.getReview = vi.fn(({ filter }: { filter: string }) => {
+      if (filter === 'uncommitted') return initialUncommitted.promise
+      return Promise.resolve({
+        status: 'ok' as const,
+        branch: 'new-staged',
+        upstream: { kind: 'none' as const },
+        files: [
+          {
+            path: 'new-staged.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/new-staged.txt b/new-staged.txt\n+new-staged\n'
+          }
+        ]
+      })
+    })
+
+    render(<GitTool sessionId="session-1" />)
+
+    await waitFor(() => expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+    await waitFor(() => expect(screen.getByText('Loading Git…')).toBeInTheDocument())
+
+    act(() => {
+      initialUncommitted.resolve({
+        status: 'ok' as const,
+        branch: 'old-uncommitted',
+        upstream: { kind: 'none' as const },
+        files: [
+          {
+            path: 'old-uncommitted.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/old-uncommitted.txt b/old-uncommitted.txt\n+old-uncommitted\n'
+          }
+        ]
+      })
+    })
+
+    await waitFor(() =>
+      expect(window.spacezero.git.getReview).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-1' },
+        filter: 'staged'
+      })
+    )
+    await screen.findByText('new-staged')
+    expect(screen.getByText('+new-staged')).toBeInTheDocument()
+    expect(screen.queryByText('old-uncommitted')).not.toBeInTheDocument()
+    expect(screen.queryByText('+old-uncommitted')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('debounces repository observation and refreshes on app focus', async () => {
@@ -1312,7 +1420,7 @@ describe('GitTool', () => {
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
   })
 
-  it('surfaces immediate setup and later watch errors while preserving Refresh and context isolation', async () => {
+  it('surfaces immediate setup and later watch errors while preserving manual refresh and context isolation', async () => {
     const observationListeners: Array<(event: GitObservationEvent) => void> = []
     window.spacezero.git.onObservationEvent = vi.fn((listener) => {
       observationListeners.push(listener)
@@ -1368,8 +1476,8 @@ describe('GitTool', () => {
       resolveInitialObserve?.({ subscriptionId: 'sub-a' })
     })
     await screen.findByText(/Git auto-refresh unavailable: missing managed worktree/)
-    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.getByRole('button', { name: 'Refresh Git status' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh Git status' }))
     window.dispatchEvent(new Event('focus'))
     await waitFor(() =>
       expect(
@@ -1393,8 +1501,8 @@ describe('GitTool', () => {
     })
 
     await screen.findByText(/Git auto-refresh unavailable: native watcher stopped/)
-    expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled()
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(screen.getByRole('button', { name: 'Refresh Git status' })).toBeEnabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh Git status' }))
     window.dispatchEvent(new Event('focus'))
     await waitFor(() =>
       expect(

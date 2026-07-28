@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowClockwise } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
 import type { WorkspaceSession } from '../../../sessions/shared'
@@ -188,9 +189,15 @@ function GitToolSession({
   const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
   const [instructions, setInstructionsState] = useState(initialMemory.instructions)
   const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const refreshSequence = useRef(0)
+  const refreshInFlight = useRef(false)
+  const queuedRefresh = useRef<{ showLoading: boolean } | null>(null)
+  const refreshRef = useRef<(({ showLoading }?: { showLoading?: boolean }) => Promise<void>) | null>(
+    null
+  )
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const gitPromptRunPending = useRef(false)
@@ -225,41 +232,70 @@ function GitToolSession({
 
   const refresh = useCallback(
     async ({ showLoading = false }: { showLoading?: boolean } = {}) => {
-      const requestId = (refreshSequence.current += 1)
-      if (showLoading) {
-        setState(null)
-        setActionState(null)
+      if (refreshInFlight.current) {
+        refreshSequence.current += 1
+        queuedRefresh.current = {
+          showLoading: queuedRefresh.current?.showLoading === true || showLoading
+        }
+        if (showLoading) {
+          setState(null)
+          setActionState(null)
+        }
+        return
       }
-      const selectedReviewPromise = window.spacezero.git.getReview({
-        context,
-        filter
-      })
-      const actionReviewPromise =
-        !hasAgentSession || filter === 'uncommitted'
-          ? selectedReviewPromise
-          : window.spacezero.git.getReview({ context, filter: 'uncommitted' })
-      const [selectedReview, actionReview] = await Promise.all([
-        selectedReviewPromise,
-        actionReviewPromise
-      ])
-      if (requestId !== refreshSequence.current) return
-      setState(selectedReview)
-      setActionState(actionReview)
-      if (selectedReview.status === 'ok') {
-        const memory = getGitViewMemory(gitMemoryKey)
-        setExpandedPaths(
-          new Set(
-            selectedReview.files
-              .map((file) => file.path)
-              .filter((filePath) => !memory.collapsedPaths.has(filePath))
+
+      refreshInFlight.current = true
+      setIsRefreshing(true)
+      const requestId = (refreshSequence.current += 1)
+      try {
+        if (showLoading) {
+          setState(null)
+          setActionState(null)
+        }
+        const selectedReviewPromise = window.spacezero.git.getReview({
+          context,
+          filter
+        })
+        const actionReviewPromise =
+          !hasAgentSession || filter === 'uncommitted'
+            ? selectedReviewPromise
+            : window.spacezero.git.getReview({ context, filter: 'uncommitted' })
+        const [selectedReview, actionReview] = await Promise.all([
+          selectedReviewPromise,
+          actionReviewPromise
+        ])
+        if (requestId !== refreshSequence.current) return
+        setState(selectedReview)
+        setActionState(actionReview)
+        if (selectedReview.status === 'ok') {
+          const memory = getGitViewMemory(gitMemoryKey)
+          setExpandedPaths(
+            new Set(
+              selectedReview.files
+                .map((file) => file.path)
+                .filter((filePath) => !memory.collapsedPaths.has(filePath))
+            )
           )
-        )
-      } else if (selectedReview.status === 'clean') {
-        setExpandedPaths(new Set())
+        } else if (selectedReview.status === 'clean') {
+          setExpandedPaths(new Set())
+        }
+      } finally {
+        refreshInFlight.current = false
+        const nextRefresh = queuedRefresh.current
+        queuedRefresh.current = null
+        if (nextRefresh) {
+          void refreshRef.current?.(nextRefresh)
+        } else {
+          setIsRefreshing(false)
+        }
       }
     },
     [context, filter, gitMemoryKey, hasAgentSession, setExpandedPaths]
   )
+
+  useLayoutEffect(() => {
+    refreshRef.current = refresh
+  }, [refresh])
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -375,6 +411,7 @@ function GitToolSession({
     return (
       <GitShell
         filter={filter}
+        isRefreshing={isRefreshing}
         onFilterChange={setFilter}
         onRefresh={() => void refresh()}
         watchDiagnostic={watchDiagnostic}
@@ -387,6 +424,7 @@ function GitToolSession({
     return (
       <GitShell
         filter={filter}
+        isRefreshing={isRefreshing}
         onFilterChange={setFilter}
         onRefresh={() => void refresh()}
         watchDiagnostic={watchDiagnostic}
@@ -399,6 +437,7 @@ function GitToolSession({
     return (
       <GitShell
         filter={filter}
+        isRefreshing={isRefreshing}
         onFilterChange={setFilter}
         onRefresh={() => void refresh()}
         watchDiagnostic={watchDiagnostic}
@@ -411,6 +450,7 @@ function GitToolSession({
     return (
       <GitShell
         filter={filter}
+        isRefreshing={isRefreshing}
         onFilterChange={setFilter}
         onRefresh={() => void refresh()}
         watchDiagnostic={watchDiagnostic}
@@ -423,6 +463,7 @@ function GitToolSession({
   return (
     <GitShell
       filter={filter}
+      isRefreshing={isRefreshing}
       onFilterChange={(nextFilter) => {
         setFilter(nextFilter)
       }}
@@ -563,6 +604,7 @@ function GitConflictResolver({
 
 function GitShell({
   filter,
+  isRefreshing,
   onFilterChange,
   onRefresh,
   state,
@@ -570,6 +612,7 @@ function GitShell({
   children
 }: {
   filter: GitChangeFilter
+  isRefreshing: boolean
   onFilterChange: (filter: GitChangeFilter) => void
   onRefresh: () => void
   state?: Extract<GitReviewState, { status: 'ok' | 'clean' }>
@@ -596,8 +639,22 @@ function GitShell({
                 {state.files.length === 0 ? 'Clean' : `${state.files.length} changed`}
               </span>
             ) : null}
-            <Button size="sm" type="button" variant="outline" onClick={onRefresh}>
-              Refresh
+            <Button
+              aria-label="Refresh Git status"
+              disabled={isRefreshing}
+              size="icon-sm"
+              title="Refresh Git status"
+              type="button"
+              variant="outline"
+              onClick={onRefresh}
+            >
+              <ArrowClockwise
+                aria-hidden="true"
+                className={isRefreshing ? 'size-4 animate-spin' : 'size-4'}
+              />
+              {isRefreshing ? (
+                <span aria-label="Refreshing Git status" className="sr-only" role="status" />
+              ) : null}
             </Button>
           </div>
         </div>
@@ -606,7 +663,7 @@ function GitShell({
             className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
             role="status"
           >
-            Git auto-refresh unavailable: {watchDiagnostic} You can still use Refresh.
+            Git auto-refresh unavailable: {watchDiagnostic} You can still refresh manually.
           </div>
         ) : null}
         <div className="mt-3 flex gap-2" role="tablist" aria-label="Changes filter">
