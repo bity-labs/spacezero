@@ -43,3 +43,12 @@ export const saveKnowledgeBaseDocumentRequestSchema = z.object({
   content: z.string().max(2 * 1024 * 1024, 'Knowledge Base document is too large'),
   expectedRevision: z.string().min(1, 'Document revision is required')
 })
+
+export const createKnowledgeBaseDocumentRequestSchema = z.object({
+  relativePath: z.string().trim().min(1, 'Knowledge Base path is required'),
+  content: z.string().max(2 * 1024 * 1024, 'Knowledge Base document is too large')
+})
+
+export const createKnowledgeBaseFolderRequestSchema = z.object({
+  relativePath: z.string().trim().min(1, 'Knowledge Base path is required')
+})
