@@ -284,6 +284,7 @@ function ProjectSessionSidebarRow({
         <>
           <button
             type="button"
+            data-session-switch-target="true"
             className={cn(
               'flex w-full items-center gap-2 rounded-md px-2 py-1.5 pr-16 text-left text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
               active ? 'bg-sidebar-accent text-sidebar-accent-foreground' : null

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { BrowserClearDataResult } from '../../features/browser/shared'
@@ -354,6 +355,8 @@ describe('App', () => {
   })
 
   it('clears active Session title editing state and stale drafts when switching sessions', async () => {
+    const user = userEvent.setup()
+    const rename = vi.fn(window.spacezero.sessions.rename)
     window.spacezero.sessions.listWorkspaceSessions = async () => [
       {
         id: 'workspace-session-1',
@@ -372,23 +375,27 @@ describe('App', () => {
         updatedAt: new Date(0).toISOString()
       }
     ]
+    window.spacezero.sessions.rename = rename
 
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
-      target: { value: 'Unsaved draft' }
-    })
+    await user.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    const draftInput = screen.getByRole('textbox', { name: 'Rename Workspace Session' })
+    await user.clear(draftInput)
+    await user.type(draftInput, 'Unsaved draft')
 
-    fireEvent.click(screen.getByRole('button', { name: /Workspace Session 2/ }))
+    await user.click(screen.getByRole('button', { name: /Workspace Session 2/ }))
 
+    await waitFor(() => expect(rename).not.toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Unsaved draft/ })).not.toBeInTheDocument()
     await waitFor(() =>
       expect(
         screen.queryByRole('textbox', { name: 'Rename Workspace Session' })
       ).not.toBeInTheDocument()
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
     expect(screen.getByRole('textbox', { name: 'Rename Workspace Session' })).toHaveValue(
       'Workspace Session 2'
     )
