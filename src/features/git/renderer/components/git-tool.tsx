@@ -118,9 +118,7 @@ function KnowledgeBaseGitTool({
   }, [])
 
   if (!sessionId) {
-    return (
-      <GitToolSession key={context.contextKey} context={context} filesHandoff={filesHandoff} />
-    )
+    return <GitToolSession key={context.contextKey} context={context} filesHandoff={filesHandoff} />
   }
 
   return (
@@ -143,7 +141,9 @@ function KnowledgeBaseGitToolSession({
   sessionId: string
 }): React.JSX.Element {
   const agentSession = useAgentSession(sessionId)
-  return <GitToolSession agentSession={agentSession} context={context} filesHandoff={filesHandoff} />
+  return (
+    <GitToolSession agentSession={agentSession} context={context} filesHandoff={filesHandoff} />
+  )
 }
 
 function ProjectGitTool({
@@ -661,10 +661,17 @@ function GitDiffCard({
   }
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      <div className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
-        <div className="min-w-0">
+      <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
+        <button
+          aria-expanded={expanded}
+          aria-label="Toggle diff"
+          className="absolute inset-0 z-0 cursor-pointer rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          type="button"
+          onClick={onToggle}
+        />
+        <div className="pointer-events-none relative z-10 min-w-0">
           <button
-            className={`block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
+            className={`pointer-events-auto block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
             disabled={!canOpenInFiles}
             title={filesHandoffUnavailableMessage(file, filesHandoff)}
             type="button"
@@ -678,17 +685,10 @@ function GitDiffCard({
             </div>
           ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-2">
           <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
             {file.kind}
           </span>
-          <button
-            className="rounded border px-2 py-0.5 text-xs text-muted-foreground hover:bg-accent"
-            type="button"
-            onClick={onToggle}
-          >
-            {expanded ? 'Collapse' : 'Expand'}
-          </button>
         </div>
       </div>
       {expanded ? (
