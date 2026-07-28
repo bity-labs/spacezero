@@ -1,4 +1,4 @@
-import { CaretDownIcon } from '@phosphor-icons/react'
+import { CaretDownIcon, Sparkle } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
@@ -493,8 +493,12 @@ export function ChatInput({
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => selectSkill(skill)}
             >
+              <Sparkle
+                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">/skill:{skill.name}</span>
+                <span className="block text-sm font-medium">{skill.name}</span>
                 <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                   {skill.description}
                 </span>
