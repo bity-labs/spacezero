@@ -173,6 +173,17 @@ const api: SpaceZeroAPI = {
       return () => ipcRenderer.off(IPC_CHANNELS.terminal.event, handler)
     }
   },
+  update: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.update.getStatus),
+    checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.update.checkForUpdates),
+    onStatusChange: (listener) => {
+      const handler = (_event: IpcRendererEvent, payload: unknown): void => {
+        listener(payload as Parameters<typeof listener>[0])
+      }
+      ipcRenderer.on(IPC_CHANNELS.update.statusChanged, handler)
+      return () => ipcRenderer.off(IPC_CHANNELS.update.statusChanged, handler)
+    }
+  },
   browser: {
     getState: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.getState, request),
     navigate: (request) => ipcRenderer.invoke(IPC_CHANNELS.browser.navigate, request),

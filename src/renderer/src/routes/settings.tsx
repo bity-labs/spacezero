@@ -5,6 +5,7 @@ import {
   Cube,
   FolderOpen,
   GearSix,
+  Info,
   Key,
   Plus,
   Plugs,
@@ -23,6 +24,7 @@ import { THINKING_LEVELS } from '@shared/model-settings'
 import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
 import type { TerminalSettings } from '@shared/terminal-settings'
+import type { UpdateStatus } from '../../../features/updates/shared'
 import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
 import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
@@ -60,7 +62,7 @@ import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'account' | 'general' | 'models' | 'skills' | 'agents'
+type SettingsSectionId = 'account' | 'general' | 'models' | 'skills' | 'agents' | 'about'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -71,7 +73,8 @@ export const Route = createFileRoute('/settings')({
     search.section === 'account' ||
     search.section === 'models' ||
     search.section === 'skills' ||
-    search.section === 'agents'
+    search.section === 'agents' ||
+    search.section === 'about'
       ? { section: search.section }
       : {},
   component: SettingsPage
@@ -82,7 +85,8 @@ const settingsNavigation = [
   { id: 'general', translationKey: 'general', icon: GearSix },
   { id: 'models', translationKey: 'models', icon: Cube },
   { id: 'agents', translationKey: 'agents', icon: UserCircle },
-  { id: 'skills', translationKey: 'skills', icon: Sparkle }
+  { id: 'skills', translationKey: 'skills', icon: Sparkle },
+  { id: 'about', translationKey: 'about', icon: Info }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
   translationKey: string
@@ -253,6 +257,8 @@ function SettingsPage(): React.JSX.Element {
             <SkillsSettingsSection />
           ) : selectedSection === 'agents' ? (
             <AgentsSettingsSection />
+          ) : selectedSection === 'about' ? (
+            <AboutSettingsSection />
           ) : (
             <ModelsSettingsSection />
           )}
@@ -260,6 +266,29 @@ function SettingsPage(): React.JSX.Element {
       </main>
     </div>
   )
+}
+
+function getUpdateStateLabel(
+  status: UpdateStatus | null,
+  t: ReturnType<typeof useTranslation>['t'],
+  loadError: boolean
+): string {
+  if (loadError) return t('settings.about.states.error')
+  if (!status) return t('settings.about.loading')
+
+  return t(`settings.about.states.${status.state}`)
+}
+
+function formatUpdateCheckedAt(
+  lastCheckedAt: string | null | undefined,
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (!lastCheckedAt) return t('settings.about.neverChecked')
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(new Date(lastCheckedAt))
 }
 
 function AccountSettingsSection(): React.JSX.Element {
@@ -278,6 +307,132 @@ function AccountSettingsSection(): React.JSX.Element {
           </div>
           <AccountSettings />
         </section>
+      </div>
+    </>
+  )
+}
+
+function AboutSettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const isChecking = updateStatus?.state === 'checking'
+
+  useEffect(() => {
+    let isCurrent = true
+    const unsubscribe = window.spacezero.update.onStatusChange((status) => {
+      if (!isCurrent) return
+      setLoadError(false)
+      setUpdateStatus(status)
+    })
+
+    window.spacezero.update
+      .getStatus()
+      .then((status) => {
+        if (!isCurrent) return
+        setUpdateStatus(status)
+      })
+      .catch(() => {
+        if (!isCurrent) return
+        setLoadError(true)
+      })
+
+    return () => {
+      isCurrent = false
+      unsubscribe()
+    }
+  }, [])
+
+  async function handleCheckForUpdates(): Promise<void> {
+    setLoadError(false)
+    setUpdateStatus((status) =>
+      status ? { ...status, state: 'checking', errorMessage: null } : status
+    )
+
+    try {
+      const status = await window.spacezero.update.checkForUpdates()
+      setUpdateStatus(status)
+    } catch {
+      setLoadError(true)
+    }
+  }
+
+  return (
+    <>
+      <h2 className="mb-6 text-xl font-medium">{t('settings.about.title')}</h2>
+      <div className="space-y-8">
+        <SettingsSection title={t('settings.about.updatesSectionTitle')}>
+          <div className="space-y-4 rounded-xl border bg-card p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium">{t('settings.about.versionLabel')}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {updateStatus?.currentVersion ?? t('settings.about.loading')}
+                </p>
+              </div>
+              {updateStatus ? (
+                <Badge variant="secondary">{t('settings.about.betaChannel')}</Badge>
+              ) : null}
+            </div>
+
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">{t('settings.about.updateStateLabel')}</dt>
+                <dd className="mt-1 font-medium">
+                  {getUpdateStateLabel(updateStatus, t, loadError)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('settings.about.lastCheckedLabel')}</dt>
+                <dd className="mt-1 font-medium">
+                  {formatUpdateCheckedAt(updateStatus?.lastCheckedAt, t)}
+                </dd>
+              </div>
+              {updateStatus?.availableVersion ? (
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t('settings.about.availableVersionLabel')}
+                  </dt>
+                  <dd className="mt-1 font-medium">{updateStatus.availableVersion}</dd>
+                </div>
+              ) : null}
+              {updateStatus?.downloadedVersion ? (
+                <div>
+                  <dt className="text-muted-foreground">
+                    {t('settings.about.downloadedVersionLabel')}
+                  </dt>
+                  <dd className="mt-1 font-medium">{updateStatus.downloadedVersion}</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            {loadError || updateStatus?.state === 'error' ? (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {updateStatus?.errorMessage ?? t('settings.about.loadError')}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={() => void handleCheckForUpdates()} disabled={isChecking}>
+                {isChecking
+                  ? t('settings.about.checkingAction')
+                  : t('settings.about.checkAction')}
+              </Button>
+              <a
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                href={
+                  updateStatus?.releaseNotesUrl ?? 'https://github.com/bity-labs/spacezero/releases'
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                {t('settings.about.releaseNotesAction')}
+              </a>
+            </div>
+          </div>
+        </SettingsSection>
       </div>
     </>
   )
