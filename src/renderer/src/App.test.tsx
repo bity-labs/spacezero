@@ -1111,6 +1111,86 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/settings')
   })
 
+  it('does not show restart affordances when no update is downloaded', async () => {
+    render(<App />)
+
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Restart to update Space Zero' })).not.toBeInTheDocument()
+  })
+
+  it('shows downloaded update state in the sidebar and Settings/About', async () => {
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state: 'update-downloaded',
+      availableVersion: '0.1.0-beta.2',
+      downloadedVersion: '0.1.0-beta.2',
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: 'Restart to update Space Zero' })).toHaveTextContent(
+      'Update ready'
+    )
+    fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'About' }))
+
+    expect(await screen.findByText('Update downloaded')).toBeInTheDocument()
+    expect(screen.getByText('Restart to update to 0.1.0-beta.2')).toBeInTheDocument()
+  })
+
+  it('cancels and confirms restart/apply after active Project Session, Workspace Session, and Terminal warnings', async () => {
+    const applyDownloadedUpdate = vi.fn(async ({ confirmActiveWork } = {}) => ({
+      status: confirmActiveWork ? ('applying' as const) : ('needs-confirmation' as const),
+      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 1 },
+      updateStatus: {
+        currentVersion: '0.1.0-beta.1',
+        releaseChannel: 'beta' as const,
+        lastCheckedAt: '2026-01-02T03:04:05.000Z',
+        state: 'update-downloaded' as const,
+        availableVersion: '0.1.0-beta.2',
+        downloadedVersion: '0.1.0-beta.2',
+        errorMessage: null,
+        releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+      }
+    }))
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state: 'update-downloaded',
+      availableVersion: '0.1.0-beta.2',
+      downloadedVersion: '0.1.0-beta.2',
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+    window.spacezero.update.applyDownloadedUpdate = applyDownloadedUpdate
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart to update Space Zero' }))
+
+    expect(await screen.findByRole('heading', { name: 'Restart and apply update?' })).toBeInTheDocument()
+    expect(screen.getByText(/1 active Project Session/)).toBeInTheDocument()
+    expect(screen.getByText(/1 active Workspace Session/)).toBeInTheDocument()
+    expect(screen.getByText(/1 active Terminal tab/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('heading', { name: 'Restart and apply update?' })).not.toBeInTheDocument()
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Restart to update Space Zero' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart and apply update' }))
+
+    expect(applyDownloadedUpdate).toHaveBeenNthCalledWith(1, { confirmActiveWork: false })
+    expect(applyDownloadedUpdate).toHaveBeenNthCalledWith(2, { confirmActiveWork: false })
+    expect(applyDownloadedUpdate).toHaveBeenNthCalledWith(3, { confirmActiveWork: true })
+  })
+
   it('shows About update status and manually checks for updates from Settings', async () => {
     const checkForUpdates = vi.fn(async () => ({
       currentVersion: '0.1.0-beta.1',

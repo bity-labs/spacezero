@@ -176,6 +176,8 @@ const api: SpaceZeroAPI = {
   update: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.update.getStatus),
     checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.update.checkForUpdates),
+    applyDownloadedUpdate: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.update.applyDownloadedUpdate, request),
     onStatusChange: (listener) => {
       const handler = (_event: IpcRendererEvent, payload: unknown): void => {
         listener(payload as Parameters<typeof listener>[0])

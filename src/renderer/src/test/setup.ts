@@ -472,6 +472,20 @@ beforeEach(async () => {
         errorMessage: null,
         releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
       }),
+      applyDownloadedUpdate: async () => ({
+        status: 'no-downloaded-update',
+        activeWork: { projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 },
+        updateStatus: {
+          currentVersion: '0.1.0-beta.1',
+          releaseChannel: 'beta',
+          lastCheckedAt: null,
+          state: 'idle',
+          availableVersion: null,
+          downloadedVersion: null,
+          errorMessage: null,
+          releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+        }
+      }),
       onStatusChange: () => () => undefined
     },
     browser: {
