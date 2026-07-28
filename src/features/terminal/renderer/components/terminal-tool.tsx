@@ -269,7 +269,9 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     xterm.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
       void shortcutManager.handleKeyDown(event)
-      return !event.defaultPrevented
+      if (!event.defaultPrevented) return true
+      event.stopPropagation()
+      return false
     })
     const linkProvider = registerTerminalLinkProvider(xterm, openTerminalLink)
 
