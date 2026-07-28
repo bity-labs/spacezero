@@ -266,6 +266,11 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
 
     if (containerRef.current) xterm.open(containerRef.current)
 
+    xterm.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+      void shortcutManager.handleKeyDown(event)
+      return !event.defaultPrevented
+    })
     const linkProvider = registerTerminalLinkProvider(xterm, openTerminalLink)
 
     const dataSubscription = xterm.onData((data) => {
@@ -356,6 +361,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     applyTerminalEvent,
     openTerminalLink,
     resizeTerminal,
+    shortcutManager,
     terminalContext,
     terminalContextKey,
     viewportByTerminal
@@ -449,6 +455,12 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   )
   useRegisterAppCommands(commands)
   useRegisterKeyboardShortcuts(terminalShortcutDefinitions)
+
+  useEffect(() => {
+    return () => {
+      shortcutManager.setContext({ terminalFocused: false })
+    }
+  }, [shortcutManager])
 
   return (
     <>

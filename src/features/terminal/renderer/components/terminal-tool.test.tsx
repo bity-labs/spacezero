@@ -1082,8 +1082,9 @@ describe('TerminalTool', () => {
 
     render(<TerminalTool context={context} />)
 
-    await user.click(await screen.findByRole('tab', { name: 'Select terminal tab zsh' }))
-    await user.keyboard('{Control>}t{/Control}')
+    await waitFor(() => expect(lastTerminal?.getInputElement()).toBeTruthy())
+    await user.click(lastTerminal!.getInputElement()!)
+    act(() => lastTerminal?.emitKeyDown('t', '\u0014'))
     await waitFor(() =>
       expect(create).toHaveBeenLastCalledWith({
         context,
@@ -1094,16 +1095,66 @@ describe('TerminalTool', () => {
     )
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(2))
 
-    await user.keyboard('{Control>}w{/Control}')
+    act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
     await waitFor(() =>
       expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
     )
     expect(close).not.toHaveBeenCalled()
 
     vi.mocked(window.confirm).mockReturnValue(true)
-    await user.keyboard('{Control>}w{/Control}')
+    act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
     await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context }))
     expect(writeInput).not.toHaveBeenCalled()
+  })
+
+  it('clears Terminal shortcut focus when the Terminal Tool unmounts without a blur', async () => {
+    const user = userEvent.setup()
+    const create = vi.fn(async () => ({
+      status: 'running' as const,
+      terminalId: 'terminal-1',
+      tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+      activeTerminalId: 'terminal-1'
+    }))
+    const close = vi.fn(async () => undefined)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create,
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    const mounted = render(
+      <>
+        <button type="button">Outside Terminal</button>
+        <TerminalTool context={context} />
+      </>
+    )
+
+    await waitFor(() => expect(lastTerminal?.getInputElement()).toBeTruthy())
+    await user.click(lastTerminal!.getInputElement()!)
+    mounted.rerender(<button type="button">Outside Terminal</button>)
+    mounted.rerender(
+      <>
+        <button type="button">Outside Terminal</button>
+        <TerminalTool context={context} />
+      </>
+    )
+    await screen.findByRole('tab', { name: 'Select terminal tab zsh' })
+    await user.click(screen.getByRole('button', { name: 'Outside Terminal' }))
+    await user.keyboard('{Control>}t{/Control}')
+    await user.keyboard('{Control>}w{/Control}')
+
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(close).not.toHaveBeenCalled()
   })
 
   it('does not run Terminal tab shortcuts while focus is outside the Terminal Tool', async () => {
@@ -1520,7 +1571,12 @@ class FakeXTerm {
     if (deferWriteCallbacks) pendingWriteCallbacks.push(callback)
     else callback()
   })
-  readonly open = vi.fn()
+  private inputElement: HTMLTextAreaElement | null = null
+  private keyEventHandler: ((event: KeyboardEvent) => boolean) | null = null
+  readonly open = vi.fn((container: HTMLElement) => {
+    this.inputElement = document.createElement('textarea')
+    container.appendChild(this.inputElement)
+  })
   readonly loadAddon = vi.fn()
   readonly dispose = vi.fn()
   readonly scrollToLine = vi.fn((line: number) => {
@@ -1572,9 +1628,28 @@ class FakeXTerm {
     )
   }
 
+  attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
+    this.keyEventHandler = handler
+  }
+
   onData(listener: (data: string) => void): { dispose: () => void } {
     this.dataListener = listener
     return { dispose: vi.fn() }
+  }
+
+  getInputElement(): HTMLTextAreaElement | null {
+    return this.inputElement
+  }
+
+  emitKeyDown(key: string, data: string): void {
+    const event = new KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true
+    })
+    if (this.keyEventHandler?.(event) === false) return
+    this.dataListener?.(data)
   }
 
   emitData(data: string): void {
