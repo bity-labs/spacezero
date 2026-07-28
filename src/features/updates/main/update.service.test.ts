@@ -1,8 +1,18 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+
+vi.mock('electron-updater', () => ({
+  default: {
+    autoUpdater: {
+      checkForUpdates: vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
+      on: vi.fn()
+    }
+  }
+}))
 
 import { UpdateService, type UpdaterAdapter } from './update.service'
 
 class FakeUpdater implements UpdaterAdapter {
+  autoDownload = false
   readonly checkForUpdates = vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined)
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>()
 
@@ -18,6 +28,9 @@ class FakeUpdater implements UpdaterAdapter {
 }
 
 describe('UpdateService', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
   it('exposes current beta version and release notes source before checking', () => {
     const service = new UpdateService({
       currentVersion: '0.1.0-beta.1',
@@ -52,6 +65,82 @@ describe('UpdateService', () => {
     expect(status.state).toBe('no-update-available')
     expect(status.lastCheckedAt).toBe('2026-01-02T03:04:05.000Z')
     expect(status.errorMessage).toBeNull()
+  })
+
+  it('checks on launch and periodically while automatic checks are running', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater
+    })
+
+    service.startAutomaticChecks({ intervalMs: 1_000 })
+    await vi.waitFor(() => expect(updater.checkForUpdates).toHaveBeenCalledTimes(1))
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3)
+
+    service.stopAutomaticChecks()
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps automatic checks idempotent while the service is already running', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater
+    })
+
+    service.startAutomaticChecks({ intervalMs: 1_000 })
+    service.startAutomaticChecks({ intervalMs: 1_000 })
+    await vi.waitFor(() => expect(updater.checkForUpdates).toHaveBeenCalledTimes(1))
+
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(2)
+
+    service.stopAutomaticChecks()
+  })
+
+  it('enables background downloads before checking for public updates', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater
+    })
+
+    await service.checkForUpdates()
+
+    expect(updater.autoDownload).toBe(true)
+    expect(updater.checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it('safely mocks update checks without calling electron-updater when updates are disabled', async () => {
+    vi.useFakeTimers()
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      now: () => new Date('2026-01-02T03:04:05.000Z'),
+      updater,
+      updateChecksEnabled: false
+    })
+
+    service.startAutomaticChecks({ intervalMs: 1_000 })
+    await vi.advanceTimersByTimeAsync(1_000)
+    const status = await service.checkForUpdates()
+
+    expect(updater.autoDownload).toBe(false)
+    expect(updater.checkForUpdates).not.toHaveBeenCalled()
+    expect(status).toMatchObject({
+      state: 'no-update-available',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      errorMessage: null
+    })
   })
 
   it('records and publishes available, downloaded, and error update states from updater events', async () => {
