@@ -75,9 +75,15 @@ export type BrowserContextRepository = {
   getCurrentKnowledgeBaseSessionId: () => Promise<string | undefined>
 }
 
+export type BrowserFaviconLoader = {
+  load: (faviconUrls: string[], options?: { signal?: AbortSignal }) => Promise<string | null>
+}
+
 type BrowserRuntimeTab = BrowserTab & {
   restoredUrl: string | null
   hasLoadedRestoredUrl: boolean
+  faviconLoadSequence: number
+  faviconLoadAbortController: AbortController | null
 }
 
 type BrowserContextState = {
@@ -112,7 +118,8 @@ export class BrowserService {
     private readonly adapter: BrowserViewAdapter,
     private readonly contextRepository?: BrowserContextRepository,
     private readonly externalOpener?: BrowserExternalOpener,
-    private readonly tabsRepository?: BrowserTabsRepository
+    private readonly tabsRepository?: BrowserTabsRepository,
+    private readonly faviconLoader?: BrowserFaviconLoader
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -239,6 +246,7 @@ export class BrowserService {
     const closingIndex = context.tabs.findIndex((candidate) => candidate.id === request.tabId)
     const tab = context.tabs[closingIndex]
     if (tab) {
+      tab.faviconLoadAbortController?.abort()
       this.adapter.destroyView(tab.id)
       context.tabs = context.tabs.filter((candidate) => candidate.id !== request.tabId)
       if (context.activeTabId === request.tabId) {
@@ -358,12 +366,8 @@ export class BrowserService {
   ): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    if (found.tab.url !== url) {
-      found.tab.url = url
-      clearPageMetadata(found.tab)
-    } else {
-      found.tab.url = url
-    }
+    found.tab.url = url
+    clearPageMetadata(found.tab)
     found.tab.restoredUrl = null
     found.tab.hasLoadedRestoredUrl = true
     found.tab.error = null
@@ -405,11 +409,30 @@ export class BrowserService {
     this.publishState(found.context)
   }
 
-  markFaviconChanged(tabId: string, faviconUrls: string[]): void {
+  async markFaviconChanged(tabId: string, faviconUrls: string[]): Promise<void> {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    found.tab.faviconUrl = faviconUrls[0] ?? null
+    found.tab.faviconLoadAbortController?.abort()
+    const abortController = new AbortController()
+    found.tab.faviconLoadAbortController = abortController
+    const faviconLoadSequence = ++found.tab.faviconLoadSequence
+    found.tab.faviconUrl = null
     this.publishState(found.context)
+
+    const faviconUrl = this.faviconLoader
+      ? await this.faviconLoader.load(faviconUrls, { signal: abortController.signal })
+      : (faviconUrls[0] ?? null)
+    const current = this.findTabWithContext(tabId)
+    if (
+      !current ||
+      current.tab.faviconLoadSequence !== faviconLoadSequence ||
+      current.tab.faviconLoadAbortController !== abortController
+    ) {
+      return
+    }
+    current.tab.faviconLoadAbortController = null
+    current.tab.faviconUrl = faviconUrl
+    this.publishState(current.context)
   }
 
   openNativeRequestedTab(parentTabId: string, url: string): BrowserState | undefined {
@@ -527,7 +550,9 @@ export class BrowserService {
       canGoForward: false,
       error: null,
       restoredUrl: url,
-      hasLoadedRestoredUrl
+      hasLoadedRestoredUrl,
+      faviconLoadSequence: 0,
+      faviconLoadAbortController: null
     }
     this.adapter.createView(tab.id, {
       partition: BROWSER_PARTITION,
@@ -539,7 +564,10 @@ export class BrowserService {
   private closeContextKey(contextKey: string): void {
     const state = this.contexts.get(contextKey)
     if (!state) return
-    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    for (const tab of state.tabs) {
+      tab.faviconLoadAbortController?.abort()
+      this.adapter.destroyView(tab.id)
+    }
     this.contexts.delete(contextKey)
   }
 
@@ -763,9 +791,12 @@ function fallbackTitleForUrl(url: string | null): string | null {
   }
 }
 
-function clearPageMetadata(tab: BrowserTab): void {
+function clearPageMetadata(tab: BrowserRuntimeTab): void {
+  tab.faviconLoadAbortController?.abort()
+  tab.faviconLoadAbortController = null
   tab.title = null
   tab.faviconUrl = null
+  tab.faviconLoadSequence += 1
 }
 
 function toBrowserState(context: BrowserContextState): BrowserState {

@@ -475,6 +475,65 @@ describe('BrowserTool', () => {
     expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
   })
 
+  it('shows data favicons, updates them from state, and omits missing favicons cleanly', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', {
+        title: 'Example',
+        url: 'https://example.com/',
+        faviconUrl: 'data:image/png;base64,old'
+      }),
+      makeTab('browser-tab-2', { title: 'No icon', url: 'https://no-icon.example/' })
+    ])
+
+    renderBrowserTool()
+
+    const exampleTab = await screen.findByRole('tab', { name: 'Example' })
+    expect(exampleTab.querySelector('img')).toHaveAttribute('src', 'data:image/png;base64,old')
+    expect(screen.getByRole('tab', { name: 'No icon' }).querySelector('img')).toBeNull()
+
+    act(() => {
+      browser.emitBrowserEvent({
+        type: 'state-changed',
+        contextKey,
+        state: {
+          contextKey,
+          activeTabId: 'browser-tab-1',
+          tabs: [
+            makeTab('browser-tab-1', {
+              title: 'Example',
+              url: 'https://example.com/',
+              faviconUrl: 'data:image/png;base64,new'
+            }),
+            makeTab('browser-tab-2', { title: 'No icon', url: 'https://no-icon.example/' })
+          ]
+        }
+      })
+    })
+
+    expect(screen.getByRole('tab', { name: 'Example' }).querySelector('img')).toHaveAttribute(
+      'src',
+      'data:image/png;base64,new'
+    )
+  })
+
+  it('hides a favicon image if the sanitized favicon source still fails to load', async () => {
+    installBrowserApi({}, [
+      makeTab('browser-tab-1', {
+        title: 'Example',
+        url: 'https://example.com/',
+        faviconUrl: 'data:image/png;base64,broken'
+      })
+    ])
+
+    renderBrowserTool()
+
+    const favicon = (await screen.findByRole('tab', { name: 'Example' })).querySelector('img')
+    expect(favicon).not.toBeNull()
+    fireEvent.error(favicon as HTMLImageElement)
+
+    expect(favicon).toHaveStyle({ display: 'none' })
+  })
+
   it('selects inactive tabs with roving tab keyboard navigation and keeps close controls separate', async () => {
     const browser = installBrowserApi({}, [
       makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),

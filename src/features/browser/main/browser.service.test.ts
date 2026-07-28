@@ -6,6 +6,7 @@ import {
   BrowserService,
   normalizeBrowserUrl,
   type BrowserContextRepository,
+  type BrowserFaviconLoader,
   type BrowserPersistedTab,
   type BrowserTabsRepository,
   type BrowserViewAdapter
@@ -368,7 +369,7 @@ describe('BrowserService', () => {
     const service = new BrowserService(adapter, createContextRepository())
     const state = await service.navigate({ ...workspaceContext, input: 'https://example.com/' })
     service.markTitleChanged(state.activeTabId, 'Example')
-    service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
 
     let current = await service.navigate({
       ...workspaceContext,
@@ -383,7 +384,7 @@ describe('BrowserService', () => {
     })
 
     service.markTitleChanged(state.activeTabId, 'Untitled Previous')
-    service.markFaviconChanged(state.activeTabId, ['https://untitled.example/favicon.ico'])
+    await service.markFaviconChanged(state.activeTabId, ['https://untitled.example/favicon.ico'])
     service.markNavigationFailed(state.activeTabId, 'Host unavailable')
     current = await service.getState(workspaceContext)
     expect(current.tabs[0]).toMatchObject({
@@ -400,7 +401,7 @@ describe('BrowserService', () => {
     const service = new BrowserService(adapter, createContextRepository())
     const state = await service.navigate({ ...workspaceContext, input: 'https://example.com/' })
     service.markTitleChanged(state.activeTabId, 'Example')
-    service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
 
     service.markNavigationCommitted(state.activeTabId, 'https://other.example/', {
       canGoBack: true,
@@ -1007,12 +1008,128 @@ describe('BrowserService', () => {
     const state = await service.navigate({ ...workspaceContext, input: 'https://example.com/path' })
 
     service.markTitleChanged(state.activeTabId, '')
-    service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.ico'])
 
     const current = await service.getState(workspaceContext)
     expect(current.tabs[0]).toMatchObject({
       title: 'example.com',
       faviconUrl: 'https://example.com/favicon.ico'
+    })
+  })
+
+  it('stores securely loaded favicon data in the matching tab only', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const faviconLoader: BrowserFaviconLoader = {
+      load: async () => 'data:image/png;base64,aWNvbg=='
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://example.com/path' })
+    await service.createTab({ ...projectContext, input: 'https://other.example/' })
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/favicon.png'])
+
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [
+        { id: state.activeTabId, faviconUrl: 'data:image/png;base64,aWNvbg==' },
+        { faviconUrl: null }
+      ]
+    })
+  })
+
+  it('does not apply a favicon if navigation changes before secure loading completes', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    let resolveLoad: (faviconUrl: string | null) => void = () => {}
+    const faviconLoader: BrowserFaviconLoader = {
+      load: () => new Promise((resolve) => (resolveLoad = resolve))
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://example.com/path' })
+    const faviconPromise = service.markFaviconChanged(state.activeTabId, [
+      'https://example.com/favicon.png'
+    ])
+    service.markNavigationCommitted(state.activeTabId, 'https://other.example/')
+    resolveLoad('data:image/png;base64,aWNvbg==')
+    await faviconPromise
+
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [{ url: 'https://other.example/', faviconUrl: null }]
+    })
+  })
+
+  it('aborts a superseded favicon load before starting the replacement for the same tab', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    let firstSignal: AbortSignal | undefined
+    let resolveFirst: (faviconUrl: string | null) => void = () => {}
+    const faviconLoader: BrowserFaviconLoader = {
+      load: vi.fn((async (_faviconUrls, options) => {
+        if (!firstSignal) {
+          firstSignal = options?.signal
+          return new Promise<string | null>((resolve) => (resolveFirst = resolve))
+        }
+        return 'data:image/png;base64,bmV3LWljb24='
+      }) satisfies BrowserFaviconLoader['load'])
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://example.com/path' })
+    const firstFavicon = service.markFaviconChanged(state.activeTabId, [
+      'https://example.com/old.png'
+    ])
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/new.png'])
+    resolveFirst('data:image/png;base64,b2xkLWljb24=')
+    await firstFavicon
+
+    expect(firstSignal?.aborted).toBe(true)
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [{ faviconUrl: 'data:image/png;base64,bmV3LWljb24=' }]
+    })
+  })
+
+  it('does not apply an old-document favicon after same-URL committed navigation', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    let resolveLoad: (faviconUrl: string | null) => void = () => {}
+    const faviconLoader: BrowserFaviconLoader = {
+      load: () => new Promise((resolve) => (resolveLoad = resolve))
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://a.example/' })
+    service.markNavigationCommitted(state.activeTabId, 'https://a.example/')
+    await service.navigate({ ...projectContext, tabId: state.activeTabId, input: 'https://b.example/' })
+    const oldDocumentFavicon = service.markFaviconChanged(state.activeTabId, [
+      'https://a.example/favicon.png'
+    ])
+    service.markNavigationCommitted(state.activeTabId, 'https://b.example/')
+    resolveLoad('data:image/png;base64,b2xkLWljb24=')
+    await oldDocumentFavicon
+
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [{ url: 'https://b.example/', faviconUrl: null }]
     })
   })
 
