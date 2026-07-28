@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowClockwise } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
@@ -194,6 +194,10 @@ function GitToolSession({
   const [handoffError, setHandoffError] = useState<string | null>(null)
   const refreshSequence = useRef(0)
   const refreshInFlight = useRef(false)
+  const queuedRefresh = useRef<{ showLoading: boolean } | null>(null)
+  const refreshRef = useRef<(({ showLoading }?: { showLoading?: boolean }) => Promise<void>) | null>(
+    null
+  )
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const gitPromptRunPending = useRef(false)
@@ -228,7 +232,18 @@ function GitToolSession({
 
   const refresh = useCallback(
     async ({ showLoading = false }: { showLoading?: boolean } = {}) => {
-      if (refreshInFlight.current) return
+      if (refreshInFlight.current) {
+        refreshSequence.current += 1
+        queuedRefresh.current = {
+          showLoading: queuedRefresh.current?.showLoading === true || showLoading
+        }
+        if (showLoading) {
+          setState(null)
+          setActionState(null)
+        }
+        return
+      }
+
       refreshInFlight.current = true
       setIsRefreshing(true)
       const requestId = (refreshSequence.current += 1)
@@ -265,14 +280,22 @@ function GitToolSession({
           setExpandedPaths(new Set())
         }
       } finally {
-        if (requestId === refreshSequence.current) {
-          refreshInFlight.current = false
+        refreshInFlight.current = false
+        const nextRefresh = queuedRefresh.current
+        queuedRefresh.current = null
+        if (nextRefresh) {
+          void refreshRef.current?.(nextRefresh)
+        } else {
           setIsRefreshing(false)
         }
       }
     },
     [context, filter, gitMemoryKey, hasAgentSession, setExpandedPaths]
   )
+
+  useLayoutEffect(() => {
+    refreshRef.current = refresh
+  }, [refresh])
 
   useEffect(() => {
     const timer = setTimeout(() => {

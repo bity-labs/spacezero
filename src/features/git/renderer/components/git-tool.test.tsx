@@ -1108,6 +1108,62 @@ describe('GitTool', () => {
     expect(refreshButton).toBeEnabled()
   })
 
+  it('runs the latest filter refresh queued while the current filter request is pending', async () => {
+    const initialUncommitted = deferred<GitReviewState>()
+    window.spacezero.git.getReview = vi.fn(({ filter }: { filter: string }) => {
+      if (filter === 'uncommitted') return initialUncommitted.promise
+      return Promise.resolve({
+        status: 'ok' as const,
+        branch: 'new-staged',
+        upstream: { kind: 'none' as const },
+        files: [
+          {
+            path: 'new-staged.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/new-staged.txt b/new-staged.txt\n+new-staged\n'
+          }
+        ]
+      })
+    })
+
+    render(<GitTool sessionId="session-1" />)
+
+    await waitFor(() => expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+    await waitFor(() => expect(screen.getByText('Loading Git…')).toBeInTheDocument())
+
+    act(() => {
+      initialUncommitted.resolve({
+        status: 'ok' as const,
+        branch: 'old-uncommitted',
+        upstream: { kind: 'none' as const },
+        files: [
+          {
+            path: 'old-uncommitted.txt',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/old-uncommitted.txt b/old-uncommitted.txt\n+old-uncommitted\n'
+          }
+        ]
+      })
+    })
+
+    await waitFor(() =>
+      expect(window.spacezero.git.getReview).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-1' },
+        filter: 'staged'
+      })
+    )
+    await screen.findByText('new-staged')
+    expect(screen.getByText('+new-staged')).toBeInTheDocument()
+    expect(screen.queryByText('old-uncommitted')).not.toBeInTheDocument()
+    expect(screen.queryByText('+old-uncommitted')).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
+  })
+
   it('debounces repository observation and refreshes on app focus', async () => {
     const observationListeners: Array<(event: GitObservationEvent) => void> = []
     window.spacezero.git.observe = vi.fn(async () => ({ subscriptionId: 'sub-1' }))
