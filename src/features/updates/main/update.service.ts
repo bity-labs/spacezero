@@ -239,9 +239,7 @@ function hasActiveWork(activeWork: UpdateActiveWorkSummary): boolean {
 }
 
 async function getCurrentActiveWork(): Promise<UpdateActiveWorkSummary> {
-  const sessions = await getAgentUtilityProcessHost()
-    .listSessions()
-    .catch(() => [])
+  const sessions = await getAgentUtilityProcessHost().listSessions()
   return {
     projectSessions: sessions.filter(
       (session) =>

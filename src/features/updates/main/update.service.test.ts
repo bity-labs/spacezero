@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { countLiveTerminals, listAgentSessions } = vi.hoisted(() => ({
+  countLiveTerminals: vi.fn<() => number>(),
+  listAgentSessions: vi.fn<() => Promise<unknown[]>>()
+}))
 
 vi.mock('electron-updater', () => ({
   default: {
@@ -7,6 +12,18 @@ vi.mock('electron-updater', () => ({
       on: vi.fn()
     }
   }
+}))
+
+vi.mock('../../agent-workspace/main/agent-utility-process', () => ({
+  getAgentUtilityProcessHost: () => ({
+    listSessions: listAgentSessions
+  })
+}))
+
+vi.mock('../../terminal/main/terminal.runtime', () => ({
+  getTerminalService: () => ({
+    countLiveTerminals
+  })
 }))
 
 import { UpdateService, type UpdaterAdapter } from './update.service'
@@ -29,8 +46,14 @@ class FakeUpdater implements UpdaterAdapter {
 }
 
 describe('UpdateService', () => {
+  beforeEach(() => {
+    listAgentSessions.mockResolvedValue([])
+    countLiveTerminals.mockReturnValue(0)
+  })
+
   afterEach(() => {
     vi.useRealTimers()
+    vi.clearAllMocks()
   })
   it('exposes current beta version and release notes source before checking', () => {
     const service = new UpdateService({
@@ -202,6 +225,21 @@ describe('UpdateService', () => {
       updateStatus: service.getStatus()
     })
     expect(updater.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed when production session discovery rejects before applying a downloaded update', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater
+    })
+    listAgentSessions.mockRejectedValueOnce(new Error('utility unavailable'))
+    updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
+
+    await expect(service.applyDownloadedUpdate()).rejects.toThrow('utility unavailable')
+    expect(listAgentSessions).toHaveBeenCalledTimes(1)
+    expect(countLiveTerminals).not.toHaveBeenCalled()
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
   })
 
   it('does not apply updates when nothing has been downloaded', async () => {
