@@ -2,6 +2,8 @@
 
 Space Zero public macOS beta artifacts are published by GitHub Actions from version tags. Do not run the first public release by building and uploading artifacts from a local machine.
 
+For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md).
+
 ## Trigger and version rule
 
 Push a beta SemVer tag whose version exactly matches `package.json`:
