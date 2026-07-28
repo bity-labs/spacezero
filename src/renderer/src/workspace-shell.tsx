@@ -781,6 +781,7 @@ function WorkspaceBreadcrumb({
                 <DropdownMenuTrigger
                   className="titlebar-control inline-flex items-center gap-1 rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   aria-label="Switch Project Session"
+                  data-session-switch-target="true"
                 >
                   <span>{projectSession.title}</span>
                   <CaretDown className="h-3 w-3" aria-hidden="true" />
@@ -795,6 +796,7 @@ function WorkspaceBreadcrumb({
                       <DropdownMenuItem
                         key={session.id}
                         aria-current={isActive ? 'page' : undefined}
+                        data-session-switch-target="true"
                         onClick={() => {
                           if (!isActive) onSelectProjectSession(session)
                         }}
@@ -853,6 +855,8 @@ function WorkspaceBreadcrumb({
   )
 }
 
+const SESSION_SWITCH_TARGET_SELECTOR = '[data-session-switch-target="true"]'
+
 function InlineSessionTitleEditor({
   title,
   label,
@@ -910,6 +914,13 @@ function InlineSessionTitleEditor({
 
   function handleBlur(event: FocusEvent<HTMLInputElement>): void {
     if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.cancelRename) {
+      return
+    }
+    if (
+      event.relatedTarget instanceof HTMLElement &&
+      event.relatedTarget.closest(SESSION_SWITCH_TARGET_SELECTOR)
+    ) {
+      cancelEditing()
       return
     }
     void saveDraft()
