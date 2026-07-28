@@ -1503,6 +1503,79 @@ describe('App', () => {
     ])
   })
 
+  it('filters global Agent Skills by skill name from Skills Settings', async () => {
+    let globalSkills: AgentGlobalSkill[] = [
+      {
+        name: 'code-review',
+        description: 'Review code changes.',
+        scope: 'user',
+        path: '/skills/code-review/SKILL.md',
+        enabled: true
+      },
+      {
+        name: 'Debug Tools',
+        description: 'Find bugs quickly.',
+        scope: 'spacezero',
+        path: '/skills/debug-tools/SKILL.md',
+        enabled: false
+      },
+      {
+        name: 'ship-it',
+        description: 'Prepare a release.',
+        scope: 'user',
+        path: '/skills/ship-it/SKILL.md',
+        enabled: true
+      }
+    ]
+    const toggleRequests: Array<{ path: string; enabled: boolean }> = []
+    window.spacezero.agent.getGlobalSkills = async () => globalSkills
+    window.spacezero.agent.setGlobalSkillEnabled = async (request) => {
+      toggleRequests.push(request)
+      globalSkills = globalSkills.map((skill) =>
+        skill.path === request.path ? { ...skill, enabled: request.enabled } : skill
+      )
+      return globalSkills
+    }
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'skills' } })
+    })
+    render(<App />)
+
+    const searchInput = await screen.findByRole('searchbox', {
+      name: 'Search global skills by name'
+    })
+    expect(screen.getByText('code-review')).toBeInTheDocument()
+    expect(screen.getByText('Debug Tools')).toBeInTheDocument()
+    expect(screen.getByText('ship-it')).toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: 'debug' } })
+    expect(screen.queryByText('code-review')).not.toBeInTheDocument()
+    expect(screen.getByText('Debug Tools')).toBeInTheDocument()
+    expect(screen.queryByText('ship-it')).not.toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: 'DEBUG' } })
+    expect(screen.getByText('Debug Tools')).toBeInTheDocument()
+    expect(screen.queryByText('code-review')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Enable Debug Tools' }))
+    await waitFor(() =>
+      expect(screen.getByRole('switch', { name: 'Disable Debug Tools' })).toBeInTheDocument()
+    )
+    expect(toggleRequests).toEqual([{ path: '/skills/debug-tools/SKILL.md', enabled: true }])
+
+    fireEvent.change(searchInput, { target: { value: '' } })
+    expect(screen.getByText('code-review')).toBeInTheDocument()
+    expect(screen.getByText('Debug Tools')).toBeInTheDocument()
+    expect(screen.getByText('ship-it')).toBeInTheDocument()
+
+    fireEvent.change(searchInput, { target: { value: 'missing' } })
+    expect(screen.getByText('No global skills match that search.')).toBeInTheDocument()
+    expect(screen.queryByText('code-review')).not.toBeInTheDocument()
+    expect(screen.queryByText('Debug Tools')).not.toBeInTheDocument()
+    expect(screen.queryByText('ship-it')).not.toBeInTheDocument()
+  })
+
   it('blocks overlapping global Agent Skill toggles while an update is pending', async () => {
     const globalSkills: AgentGlobalSkill[] = [
       {
