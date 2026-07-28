@@ -179,6 +179,15 @@ function requestContextKey(
     : request.context.contextKey
 }
 
+function enterSearchView(): HTMLInputElement {
+  fireEvent.click(screen.getByRole('button', { name: 'Search files' }))
+  return screen.getByRole('textbox', { name: 'Search files' }) as HTMLInputElement
+}
+
+function searchFilesInput(): HTMLInputElement {
+  return screen.getByRole('textbox', { name: 'Search files' }) as HTMLInputElement
+}
+
 describe('Files Tool', () => {
   beforeEach(() => {
     colorModeMock.resolvedTheme = 'light'
@@ -252,7 +261,22 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    expect(screen.queryByText(/^Explorer$/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(screen.queryByRole('search')).not.toBeInTheDocument()
+    expect(screen.queryByText('Include ignored files')).not.toBeInTheDocument()
+
+    enterSearchView()
+    await waitFor(() => expect(searchFilesInput()).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
 
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
@@ -261,7 +285,7 @@ describe('Files Tool', () => {
       expect.objectContaining({
         context: { kind: 'project-session', sessionId: 'session-1' },
         query: 'needle',
-        includeIgnored: false,
+        includeIgnored: true,
         requestId: expect.any(String)
       })
     )
@@ -272,7 +296,7 @@ describe('Files Tool', () => {
     expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
     expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Return to file tree' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tree view' }))
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     expect(screen.getAllByText('app.ts').length).toBeGreaterThan(0)
   })
@@ -300,22 +324,25 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     await screen.findByRole('tree', { name: 'Project files' })
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'first' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'first' } })
     fireEvent.submit(screen.getByRole('search'))
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'second' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'second' } })
     fireEvent.submit(screen.getByRole('search'))
     resolveFirst?.([{ kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }])
 
     await waitFor(() => expect(screen.getAllByText('second.txt')).toHaveLength(2))
     expect(screen.queryByText('first.txt')).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'broken' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'broken' } })
     fireEvent.submit(screen.getByRole('search'))
 
     expect(
       await screen.findByText('Couldn’t search these files. Adjust the query or try again.')
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Return to file tree' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Tree view' }))
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
   })
 
@@ -348,12 +375,14 @@ describe('Files Tool', () => {
     const view = render(<FilesTool sessionId="session-1" />)
     await screen.findByRole('tree', { name: 'Project files' })
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'first' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'first' } })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
     const firstRequestId = search.mock.calls[0]?.[0].requestId
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'second' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'second' } })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(cancelSearch).toHaveBeenCalledWith({
@@ -362,7 +391,7 @@ describe('Files Tool', () => {
       })
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Return to file tree' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Tree view' }))
     await waitFor(() => expect(cancelSearch).toHaveBeenCalledTimes(2))
     view.unmount()
     expect(cancelSearch).toHaveBeenCalledTimes(2)
@@ -416,7 +445,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     await screen.findByRole('tree', { name: 'Project files' })
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
@@ -429,7 +459,8 @@ describe('Files Tool', () => {
     await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'needle' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
@@ -443,7 +474,7 @@ describe('Files Tool', () => {
     )
 
     await waitFor(() => expect(window.spacezero.files.search).toHaveBeenCalledTimes(3))
-    expect(screen.getByLabelText('Search files')).toHaveDisplayValue('needle')
+    expect(searchFilesInput()).toHaveDisplayValue('needle')
     expect(screen.getByLabelText('Search results')).toBeInTheDocument()
   })
 
@@ -499,7 +530,8 @@ describe('Files Tool', () => {
     expect(await screen.findByText('guide.md')).toBeInTheDocument()
     fireEvent.click(screen.getByText('index.ts'))
     expect(await screen.findByLabelText('Monaco editor')).toHaveValue('content')
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'index' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'index' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
     const callsBeforeObservation = listDirectory.mock.calls.length
@@ -529,7 +561,7 @@ describe('Files Tool', () => {
       .slice(callsBeforeObservation)
       .map(([request]) => request.relativePath)
     expect(callsAfterObservation).toEqual(['src'])
-    expect(screen.getByLabelText('Search files')).toHaveDisplayValue('index')
+    expect(searchFilesInput()).toHaveDisplayValue('index')
     expect(screen.getByLabelText('Search results')).toBeInTheDocument()
 
     resolveObservedRead?.({
@@ -1465,7 +1497,8 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-search-move" />)
     await screen.findByText('old.txt')
     fireEvent.click(screen.getByText('old.txt'))
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'old' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
@@ -1504,7 +1537,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-search-trash" />)
     await screen.findByText('old.txt')
-    fireEvent.change(screen.getByLabelText('Search files'), { target: { value: 'old' } })
+    enterSearchView()
+    fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
