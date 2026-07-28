@@ -137,8 +137,8 @@ export const PromptInput = ({
         onChange={handleFileChange}
         type="file"
       />
-      <form className={cn('w-full', className)} onSubmit={handleSubmit} {...props}>
-        <InputGroup data-disabled={disabled} className="h-auto overflow-hidden">
+      <form className="w-full" onSubmit={handleSubmit} {...props}>
+        <InputGroup data-disabled={disabled} className={cn('h-auto overflow-hidden', className)}>
           {children}
         </InputGroup>
       </form>
