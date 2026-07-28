@@ -141,6 +141,6 @@ export type TerminalAPI = {
   unsubscribe: (request: TerminalUnsubscribeRequest) => Promise<void>
   writeInput: (request: TerminalWriteInputRequest) => Promise<void>
   resize: (request: TerminalResizeRequest) => Promise<void>
-  close: (request: TerminalCloseRequest) => Promise<void>
+  close: (request: TerminalCloseRequest) => Promise<TerminalTabsSnapshot>
   onEvent: (listener: (event: TerminalEvent) => void) => () => void
 }
