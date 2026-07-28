@@ -340,12 +340,13 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   )
   expect(richEditorMetrics.contentOverflowY).toBe('auto')
 
-  await window.getByRole('button', { name: 'Pin preview' }).click()
+  await expect(window.getByRole('button', { name: 'Pin preview' })).toHaveCount(0)
+  await window.getByRole('tab', { name: /README\.md\s*preview/ }).dblclick()
   await window.getByText('NOTES.md').click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
     'Second note'
   )
-  await window.getByRole('button', { name: 'Pin preview' }).click()
+  await window.getByRole('tab', { name: /NOTES\.md\s*preview/ }).dblclick()
   await window.getByRole('tab', { name: 'README.md' }).click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
     'Bundled editor'
