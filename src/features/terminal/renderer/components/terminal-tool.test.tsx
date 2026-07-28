@@ -1,7 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
+import { act, render as rtlRender, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
+import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { TerminalTool } from './terminal-tool'
 import type { TerminalEvent, TerminalSubscribeResult } from '../../shared'
 
@@ -36,6 +39,22 @@ const terminalApiDefaults = {
     activeTerminalId: terminalId
   })),
   reorderTabs: vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
+}
+
+function withProviders(ui: ReactNode): ReactElement {
+  return (
+    <AppCommandProvider>
+      <KeyboardShortcutsProvider>{ui}</KeyboardShortcutsProvider>
+    </AppCommandProvider>
+  )
+}
+
+function render(ui: ReactNode): ReturnType<typeof rtlRender> {
+  const result = rtlRender(withProviders(ui))
+  return {
+    ...result,
+    rerender: (nextUi: ReactNode) => result.rerender(withProviders(nextUi))
+  }
 }
 
 describe('TerminalTool', () => {
@@ -1020,6 +1039,112 @@ describe('TerminalTool', () => {
       terminalId: activeTerminalId,
       context
     })
+  })
+
+  it('runs focus-scoped mod+t and mod+w through stable Terminal command identities without writing shell input', async () => {
+    const user = userEvent.setup()
+    let activeTerminalId = 'terminal-1'
+    const tabs = [
+      { terminalId: 'terminal-1', title: 'zsh' },
+      { terminalId: 'terminal-2', title: 'zsh' }
+    ]
+    const create = vi.fn(async ({ forceNew }) => {
+      activeTerminalId = forceNew ? 'terminal-2' : 'terminal-1'
+      return {
+        status: 'running' as const,
+        terminalId: activeTerminalId,
+        tabs: forceNew ? tabs : [tabs[0]!],
+        activeTerminalId
+      }
+    })
+    const close = vi.fn(async () => undefined)
+    const writeInput = vi.fn(async () => undefined)
+    window.confirm = vi.fn(() => false)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create,
+      selectTab: vi.fn(async ({ terminalId }) => {
+        activeTerminalId = terminalId
+        return { tabs, activeTerminalId }
+      }),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput,
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await user.click(await screen.findByRole('tab', { name: 'Select terminal tab zsh' }))
+    await user.keyboard('{Control>}t{/Control}')
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith({
+        context,
+        cols: 100,
+        rows: 30,
+        forceNew: true
+      })
+    )
+    await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(2))
+
+    await user.keyboard('{Control>}w{/Control}')
+    await waitFor(() =>
+      expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
+    )
+    expect(close).not.toHaveBeenCalled()
+
+    vi.mocked(window.confirm).mockReturnValue(true)
+    await user.keyboard('{Control>}w{/Control}')
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context }))
+    expect(writeInput).not.toHaveBeenCalled()
+  })
+
+  it('does not run Terminal tab shortcuts while focus is outside the Terminal Tool', async () => {
+    const user = userEvent.setup()
+    const create = vi.fn(async () => ({
+      status: 'running' as const,
+      terminalId: 'terminal-1',
+      tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
+      activeTerminalId: 'terminal-1'
+    }))
+    const close = vi.fn(async () => undefined)
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create,
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(
+      <>
+        <button type="button">Outside Terminal</button>
+        <TerminalTool context={context} />
+      </>
+    )
+
+    await screen.findByRole('tab', { name: 'Select terminal tab zsh' })
+    await user.click(screen.getByRole('button', { name: 'Outside Terminal' }))
+    await user.keyboard('{Control>}t{/Control}')
+    await user.keyboard('{Control>}w{/Control}')
+
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(close).not.toHaveBeenCalled()
   })
 
   it('renders folder-based labels from main snapshots and updates them from validated cwd events without using shell titles', async () => {

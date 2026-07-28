@@ -11,6 +11,11 @@ export const TERMINAL_IPC_CHANNELS = {
   event: 'terminal:event'
 } as const
 
+export const TERMINAL_COMMAND_IDS = {
+  newTab: 'terminal.newTab',
+  closeActiveTab: 'terminal.closeActiveTab'
+} as const
+
 export type TerminalContext =
   | { kind: 'project-session'; sessionId: string }
   | { kind: 'workspace-session'; sessionId: string }
