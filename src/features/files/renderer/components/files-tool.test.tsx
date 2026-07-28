@@ -1566,6 +1566,66 @@ describe('Files Tool', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('opens Knowledge Base root create dialogs with the matching destination and context', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+    const createEntry = vi.fn(async () => undefined)
+    window.spacezero.files.createEntry = createEntry
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 0,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'new-revision',
+      content: '',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(
+      <FilesTool
+        contextKey="knowledge-base"
+        ipcContext={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }}
+        treeLabel="Files"
+      />
+    )
+    await screen.findByText('This worktree is empty.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in Knowledge Base root')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenCalledWith({
+        context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+        relativePath: 'new-note.md',
+        kind: 'file'
+      })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in Knowledge Base root')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: 'notes' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenLastCalledWith({
+        context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+        relativePath: 'notes',
+        kind: 'folder'
+      })
+    )
+  })
+
   it('opens nested New File and New Folder dialogs from a directory with the matching destination', async () => {
     let nestedChildrenLoaded = false
     const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
@@ -1697,6 +1757,38 @@ describe('Files Tool', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      code: 'files.inaccessible',
+      message: 'Space Zero cannot access this destination. Check directory permissions and try again.'
+    },
+    {
+      code: 'files.notFound',
+      message: 'The destination folder no longer exists. Refresh the explorer and try again.'
+    }
+  ])('keeps the New File dialog open with recovery guidance after $code create failures', async ({
+    code,
+    message
+  }) => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+    window.spacezero.files.createEntry = vi.fn(async () => {
+      throw new Error(code)
+    })
+
+    render(<FilesTool sessionId={`session-create-${code}`} />)
+    await screen.findByText('This worktree is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    expect(await within(dialog).findByText(message)).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('requires a dirty choice before rename, saves first, and rewrites tab model identity', async () => {
