@@ -6,7 +6,7 @@ import {
   type ComponentType,
   type ReactNode
 } from 'react'
-import { CaretDoubleRight, DotsSixVertical, Sidebar } from '@phosphor-icons/react'
+import { DotsSixVertical, Sidebar } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
 
@@ -36,12 +36,15 @@ export type ToolPaneConfiguration = {
 
 type ToolPaneShellProps = ToolPaneConfiguration & {
   children: ReactNode
+  showInlineHeaderSwitcher?: boolean
 }
+
+export const TOOL_PANE_COLLAPSED_HEADER_WIDTH = 48
 
 const TOOL_PANE_DEFAULT_RATIO = 0.6
 const TOOL_PANE_MIN_WIDTH = 400
 const CHAT_MIN_WIDTH = 360
-const TOOL_PANE_HANDLE_WIDTH = 4
+export const TOOL_PANE_HANDLE_WIDTH = 4
 const TOOL_PANE_RESIZE_STEP = 24
 
 export function ToolPaneShell({
@@ -49,7 +52,8 @@ export function ToolPaneShell({
   capabilities,
   defaultToolId,
   tools,
-  children
+  children,
+  showInlineHeaderSwitcher = true
 }: ToolPaneShellProps): React.JSX.Element {
   const configuration = { contextKey, capabilities, defaultToolId, tools }
   const controller = useToolPaneController(configuration)
@@ -60,12 +64,7 @@ export function ToolPaneShell({
   const activeTool = controller.activeTool
   const isOpen = controller.isOpen
   const { minWidth, maxWidth } = getToolPaneWidthLimits(containerWidth)
-  const defaultWidth = clampToolPaneWidth(
-    Math.round(containerWidth * TOOL_PANE_DEFAULT_RATIO),
-    minWidth,
-    maxWidth
-  )
-  const renderedWidth = clampToolPaneWidth(savedState?.width ?? defaultWidth, minWidth, maxWidth)
+  const renderedWidth = getRenderedToolPaneWidth(containerWidth, savedState?.width)
 
   useLayoutEffect(() => {
     const container = containerRef.current
@@ -153,13 +152,16 @@ export function ToolPaneShell({
               width: renderedWidth
             }}
           >
-            <ToolSwitcher
-              activeToolId={activeTool.id}
-              orientation="horizontal"
-              tools={tools}
-              onCollapse={controller.collapse}
-              onSelect={controller.selectTool}
-            />
+            {showInlineHeaderSwitcher ? (
+              <div className="flex h-11 shrink-0 items-center border-b px-2">
+                <ToolSwitcher
+                  activeToolId={activeTool.id}
+                  orientation="horizontal"
+                  tools={tools}
+                  onSelect={controller.selectTool}
+                />
+              </div>
+            ) : null}
             <div className="min-h-0 flex-1 overflow-auto">
               {activeTool.render?.({ contextKey, capabilities })}
             </div>
@@ -177,6 +179,33 @@ export function ToolPaneShell({
   )
 }
 
+export function ToolPaneHeaderControls({
+  configuration
+}: {
+  configuration: ToolPaneConfiguration | null
+}): React.JSX.Element {
+  const controller = useToolPaneController(configuration)
+
+  return (
+    <div
+      aria-label="Tool Pane header controls"
+      className="titlebar-control flex h-full w-full min-w-0 flex-1 items-center justify-between gap-2"
+    >
+      {configuration && controller.isOpen && controller.activeTool ? (
+        <ToolSwitcher
+          activeToolId={controller.activeTool.id}
+          orientation="horizontal"
+          tools={configuration.tools}
+          onSelect={controller.selectTool}
+        />
+      ) : (
+        <div aria-hidden="true" className="min-w-0 flex-1" />
+      )}
+      <ToolPaneToggleButton configuration={configuration} />
+    </div>
+  )
+}
+
 export function ToolPaneToggleButton({
   configuration
 }: {
@@ -188,7 +217,7 @@ export function ToolPaneToggleButton({
     <Button
       aria-label="Toggle Tool Pane"
       aria-pressed={controller.isOpen}
-      className="titlebar-control text-muted-foreground"
+      className="titlebar-control shrink-0 text-muted-foreground"
       disabled={!controller.canOpen && !controller.isOpen}
       size="icon-sm"
       variant="ghost"
@@ -258,6 +287,19 @@ function resolveActiveTool(
   )
 }
 
+export function getRenderedToolPaneWidth(
+  containerWidth: number,
+  savedWidth: number | null | undefined
+): number {
+  const { minWidth, maxWidth } = getToolPaneWidthLimits(containerWidth)
+  const defaultWidth = clampToolPaneWidth(
+    Math.round(containerWidth * TOOL_PANE_DEFAULT_RATIO),
+    minWidth,
+    maxWidth
+  )
+  return clampToolPaneWidth(savedWidth ?? defaultWidth, minWidth, maxWidth)
+}
+
 function getToolPaneWidthLimits(containerWidth: number): { minWidth: number; maxWidth: number } {
   const maxWidth = Math.max(0, containerWidth - CHAT_MIN_WIDTH - TOOL_PANE_HANDLE_WIDTH)
   return { minWidth: Math.min(TOOL_PANE_MIN_WIDTH, maxWidth), maxWidth }
@@ -271,13 +313,11 @@ function ToolSwitcher({
   activeToolId,
   orientation,
   tools,
-  onCollapse,
   onSelect
 }: {
   activeToolId: ToolId | null
   orientation: 'horizontal' | 'vertical'
   tools: readonly ToolDescriptor[]
-  onCollapse?: () => void
   onSelect: (toolId: ToolId) => void
 }): React.JSX.Element {
   return (
@@ -287,7 +327,7 @@ function ToolSwitcher({
       className={
         orientation === 'vertical'
           ? 'absolute right-2 top-2 z-10 flex flex-col gap-1 rounded-lg border bg-background p-1 shadow-sm'
-          : 'flex h-11 shrink-0 items-center gap-1 border-b px-2'
+          : 'flex min-w-0 items-center gap-1'
       }
       role="toolbar"
     >
@@ -307,16 +347,6 @@ function ToolSwitcher({
           </button>
         )
       })}
-      {onCollapse ? (
-        <button
-          aria-label="Collapse Tool Pane"
-          className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          type="button"
-          onClick={onCollapse}
-        >
-          <CaretDoubleRight aria-hidden className="size-4" />
-        </button>
-      ) : null}
     </div>
   )
 }
