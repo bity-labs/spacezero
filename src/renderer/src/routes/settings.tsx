@@ -320,6 +320,11 @@ function AboutSettingsSection(): React.JSX.Element {
 
   useEffect(() => {
     let isCurrent = true
+    const unsubscribe = window.spacezero.update.onStatusChange((status) => {
+      if (!isCurrent) return
+      setLoadError(false)
+      setUpdateStatus(status)
+    })
 
     window.spacezero.update
       .getStatus()
@@ -334,6 +339,7 @@ function AboutSettingsSection(): React.JSX.Element {
 
     return () => {
       isCurrent = false
+      unsubscribe()
     }
   }, [])
 
