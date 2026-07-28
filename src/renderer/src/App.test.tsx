@@ -275,6 +275,39 @@ describe('App', () => {
     )
   })
 
+  it('renames the active Workspace Session from the breadcrumb and immediately updates visible titles', async () => {
+    let storedSession: WorkspaceSession = {
+      id: 'workspace-session-1',
+      kind: 'workspace',
+      title: 'Workspace Session 1',
+      status: 'idle',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    window.spacezero.sessions.listWorkspaceSessions = async () => [storedSession]
+    window.spacezero.sessions.rename = async ({ sessionId, title }) => {
+      storedSession = { ...storedSession, id: sessionId, title, updatedAt: new Date(1).toISOString() }
+      return storedSession
+    }
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    const input = screen.getByRole('textbox', { name: 'Rename Workspace Session' })
+    expect(input).toHaveValue('Workspace Session 1')
+
+    fireEvent.change(input, { target: { value: '  Breadcrumb Rename  ' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+        'WorkspaceBreadcrumb Rename'
+      )
+    )
+    expect(screen.getByRole('button', { name: /Breadcrumb Rename/ })).toBeInTheDocument()
+  })
+
   it('hides workspace session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
     window.spacezero.sessions.listWorkspaceSessions = async () => [
       {

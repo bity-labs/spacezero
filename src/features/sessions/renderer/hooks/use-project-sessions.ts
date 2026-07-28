@@ -12,6 +12,7 @@ export function useProjectSessions(): {
   refreshSessions: () => Promise<void>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   upsertProjectSession: (session: ProjectSession) => void
+  renameProjectSession: (sessionId: string, title: string) => Promise<ProjectSession>
   archiveSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
 } {
@@ -71,6 +72,15 @@ export function useProjectSessions(): {
     })
   }, [])
 
+  const renameProjectSession = useCallback(async (sessionId: string, title: string) => {
+    const renamedSession = await window.spacezero.sessions.rename({ sessionId, title })
+    if (renamedSession.kind !== 'project') throw new Error('Renamed Session was not a Project Session')
+    setSessions((currentSessions) =>
+      currentSessions.map((session) => (session.id === sessionId ? renamedSession : session))
+    )
+    return renamedSession
+  }, [])
+
   const archiveSession = useCallback(async (sessionId: string) => {
     await window.spacezero.sessions.archive({ sessionId })
     setSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
@@ -89,5 +99,16 @@ export function useProjectSessions(): {
     return grouped
   }, [sessions])
 
-  return { sessions, sessionsByProjectId, status, error, refreshSessions, createProjectSession, upsertProjectSession, archiveSession, deleteSession }
+  return {
+    sessions,
+    sessionsByProjectId,
+    status,
+    error,
+    refreshSessions,
+    createProjectSession,
+    upsertProjectSession,
+    renameProjectSession,
+    archiveSession,
+    deleteSession
+  }
 }

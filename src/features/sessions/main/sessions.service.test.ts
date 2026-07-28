@@ -83,6 +83,85 @@ function createMemoryRepository({
 }
 
 describe('createSessionsService', () => {
+  it('renames a Project Session with a trimmed title and updates the timestamp', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const renamedAt = new Date('2026-07-11T00:00:00.000Z')
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'session-1',
+          projectId: 'project-1',
+          title: 'Session 1',
+          status: 'idle',
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => renamedAt })
+
+    await expect(service.renameSession(' session-1 ', '  Renamed Session  ')).resolves.toMatchObject({
+      id: 'session-1',
+      kind: 'project',
+      title: 'Renamed Session',
+      updatedAt: renamedAt.toISOString()
+    })
+    await expect(repository.findSessionById('session-1')).resolves.toMatchObject({
+      title: 'Renamed Session',
+      updatedAt: renamedAt
+    })
+  })
+
+  it('rejects empty renamed titles without replacing the stored title', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'workspace-session-1',
+          projectId: null,
+          title: 'Workspace Session 1',
+          status: 'idle',
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => new Date('2026-07-11T00:00:00.000Z') })
+
+    await expect(service.renameSession('workspace-session-1', '   ')).rejects.toThrow(
+      'Session title is required'
+    )
+    await expect(repository.findSessionById('workspace-session-1')).resolves.toMatchObject({
+      title: 'Workspace Session 1',
+      updatedAt: createdAt
+    })
+  })
+
+  it('renames a Workspace Session through the same service boundary', async () => {
+    const createdAt = new Date('2026-07-10T00:00:00.000Z')
+    const renamedAt = new Date('2026-07-11T00:00:00.000Z')
+    const repository = createMemoryRepository({
+      sessions: [
+        {
+          id: 'workspace-session-1',
+          projectId: null,
+          title: 'Workspace Session 1',
+          status: 'idle',
+          createdAt,
+          updatedAt: createdAt
+        }
+      ]
+    })
+    const service = createSessionsService({ repository, now: () => renamedAt })
+
+    await expect(service.renameSession('workspace-session-1', 'Renamed Workspace')).resolves.toMatchObject({
+      id: 'workspace-session-1',
+      kind: 'workspace',
+      title: 'Renamed Workspace',
+      updatedAt: renamedAt.toISOString()
+    })
+  })
+
   it('archives sessions so active lists no longer include them', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const archiveTime = new Date('2026-07-11T00:00:00.000Z')
