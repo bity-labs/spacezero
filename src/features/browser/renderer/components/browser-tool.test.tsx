@@ -482,6 +482,34 @@ describe('BrowserTool', () => {
     expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
   })
 
+  it('closes active and inactive Browser tabs with middle-click without selecting them first', async () => {
+    const browser = installBrowserApi({}, [
+      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
+      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' }),
+      makeTab('browser-tab-3', { title: 'Third', url: 'https://third.example/' })
+    ])
+
+    renderBrowserTool()
+
+    const second = await screen.findByRole('tab', { name: 'Second', selected: false })
+    fireEvent.mouseDown(second, { button: 1 })
+    fireEvent(second, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+
+    await waitFor(() =>
+      expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' })
+    )
+    expect(browser.selectTab).not.toHaveBeenCalled()
+
+    const first = await screen.findByRole('tab', { name: 'First', selected: true })
+    fireEvent.mouseDown(first, { button: 1 })
+    fireEvent(first, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+
+    await waitFor(() =>
+      expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
+    )
+    expect(browser.selectTab).not.toHaveBeenCalled()
+  })
+
   it('shows data favicons, updates them from state, and omits missing favicons cleanly', async () => {
     const browser = installBrowserApi({}, [
       makeTab('browser-tab-1', {
