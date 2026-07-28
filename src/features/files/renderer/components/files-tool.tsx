@@ -14,6 +14,16 @@ import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
+import { Button } from '@renderer/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@renderer/components/ui/dialog'
+import { Input } from '@renderer/components/ui/input'
 import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
 import type { FilesContext, FilesEntry, FilesSearchResult } from '../../shared'
 import {
@@ -60,6 +70,14 @@ type SearchState =
   | { status: 'loading'; query: string }
   | { status: 'ready'; query: string; results: FilesSearchResult[] }
   | { status: 'error'; query: string; message: string }
+
+type CreateDialogState = {
+  kind: 'file' | 'folder'
+  parentPath: string
+  name: string
+  error: string | null
+  status: 'idle' | 'submitting'
+}
 
 const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
@@ -137,6 +155,8 @@ function FilesToolSession({
   const [searchState, setSearchState] = useState<SearchState>({ status: 'idle' })
   const [treeHeight, setTreeHeight] = useState(480)
   const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
+  const [createDialog, setCreateDialog] = useState<CreateDialogState | null>(null)
+  const createInputRef = useRef<HTMLInputElement>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
@@ -515,22 +535,41 @@ function FilesToolSession({
     [discardDirtyTabsInPath, saveDocumentSnapshot, sessionId]
   )
 
-  const createEntry = useCallback(
-    async (kind: 'file' | 'folder', parentPath = ''): Promise<void> => {
-      const name = window.prompt(`New ${kind} name`)
-      if (!name?.trim()) return
-      const relativePath = joinRelativePath(parentPath, name.trim())
-      try {
-        await window.spacezero.files.createEntry({ context: ipcContext, relativePath, kind })
-        await revealTreePath(relativePath)
-        refreshActiveSearch()
-        if (kind === 'file') await openFile(relativePath, 'permanent')
-      } catch (error) {
-        window.alert(fileOperationErrorMessage(error))
-      }
-    },
-    [ipcContext, openFile, refreshActiveSearch, revealTreePath]
-  )
+  const openCreateDialog = useCallback((kind: 'file' | 'folder', parentPath = ''): void => {
+    setCreateDialog({ kind, parentPath, name: '', error: null, status: 'idle' })
+  }, [])
+
+  useEffect(() => {
+    if (!createDialog) return
+    const focusTimeout = window.setTimeout(() => createInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(focusTimeout)
+  }, [createDialog?.kind, createDialog?.parentPath])
+
+  const confirmCreateEntry = useCallback(async (): Promise<void> => {
+    const dialog = createDialog
+    if (!dialog || dialog.status === 'submitting') return
+    const name = dialog.name.trim()
+    const validationError = createEntryNameError(dialog.kind, name)
+    if (validationError) {
+      setCreateDialog({ ...dialog, name, error: validationError })
+      return
+    }
+    const relativePath = joinRelativePath(dialog.parentPath, name)
+    setCreateDialog({ ...dialog, name, error: null, status: 'submitting' })
+    try {
+      await window.spacezero.files.createEntry({
+        context: ipcContext,
+        relativePath,
+        kind: dialog.kind
+      })
+      await revealTreePath(relativePath)
+      refreshActiveSearch()
+      if (dialog.kind === 'file') await openFile(relativePath, 'permanent')
+      setCreateDialog(null)
+    } catch (error) {
+      setCreateDialog({ ...dialog, name, error: fileOperationErrorMessage(error), status: 'idle' })
+    }
+  }, [createDialog, ipcContext, openFile, refreshActiveSearch, revealTreePath])
 
   const moveEntry = useCallback(
     async (sourcePath: string, destinationPath?: string): Promise<void> => {
@@ -868,12 +907,7 @@ function FilesToolSession({
                     aria-label="New file"
                     className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
                     type="button"
-                    onClick={() =>
-                      void createEntry(
-                        'file',
-                        selectedDirectoryPath(context.selectedPath, rootState)
-                      )
-                    }
+                    onClick={() => openCreateDialog('file')}
                   >
                     <Plus aria-hidden className="size-3" />
                     <span className="sr-only">New file</span>
@@ -882,12 +916,7 @@ function FilesToolSession({
                     aria-label="New folder"
                     className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
                     type="button"
-                    onClick={() =>
-                      void createEntry(
-                        'folder',
-                        selectedDirectoryPath(context.selectedPath, rootState)
-                      )
-                    }
+                    onClick={() => openCreateDialog('folder')}
                   >
                     Folder
                   </button>
@@ -952,6 +981,26 @@ function FilesToolSession({
                     className="mr-1 min-w-0 truncate text-muted-foreground"
                     title={selectedTreeItem.relativePath}
                   />
+                  {selectedTreeItem.kind === 'directory' ? (
+                    <>
+                      <button
+                        aria-label={`New file in ${selectedTreeItem.relativePath}`}
+                        className="rounded-md border px-2 py-1 hover:bg-accent"
+                        type="button"
+                        onClick={() => openCreateDialog('file', selectedTreeItem.relativePath)}
+                      >
+                        New file
+                      </button>
+                      <button
+                        aria-label={`New folder in ${selectedTreeItem.relativePath}`}
+                        className="rounded-md border px-2 py-1 hover:bg-accent"
+                        type="button"
+                        onClick={() => openCreateDialog('folder', selectedTreeItem.relativePath)}
+                      >
+                        New folder
+                      </button>
+                    </>
+                  ) : null}
                   {selectedTreeItem.kind !== 'symlink' ? (
                     <>
                       <button
@@ -1062,7 +1111,7 @@ function FilesToolSession({
                     <FilesTreeRow
                       {...props}
                       ipcContext={ipcContext}
-                      onCreate={createEntry}
+                      onCreate={async (kind, parentPath) => openCreateDialog(kind, parentPath)}
                       onMove={moveEntry}
                       onOpenPermanent={(relativePath) => openFile(relativePath, 'permanent')}
                       onRetry={loadDirectory}
@@ -1123,7 +1172,84 @@ function FilesToolSession({
           />
         ) : null}
       </div>
+      <CreateEntryDialog
+        inputRef={createInputRef}
+        state={createDialog}
+        onCancel={() => setCreateDialog(null)}
+        onChange={(name) =>
+          setCreateDialog((dialog) => (dialog ? { ...dialog, name, error: null } : dialog))
+        }
+        onSubmit={() => void confirmCreateEntry()}
+      />
     </section>
+  )
+}
+
+function CreateEntryDialog({
+  inputRef,
+  state,
+  onCancel,
+  onChange,
+  onSubmit
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>
+  state: CreateDialogState | null
+  onCancel: () => void
+  onChange: (name: string) => void
+  onSubmit: () => void
+}): React.JSX.Element | null {
+  if (!state) return null
+  const title = state.kind === 'file' ? 'New File' : 'New Folder'
+  const placeholder = state.kind === 'file' ? 'File name' : 'Folder name'
+  const destination = formatCreateDestination(state.parentPath)
+  const isSubmitting = state.status === 'submitting'
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !isSubmitting) onCancel()
+      }}
+    >
+      <DialogContent showCloseButton={!isSubmitting}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>Create in {destination}</DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSubmit()
+          }}
+        >
+          <div className="grid gap-2">
+            <Input
+              ref={inputRef}
+              aria-describedby={state.error ? 'files-create-error' : undefined}
+              aria-invalid={state.error ? true : undefined}
+              disabled={isSubmitting}
+              placeholder={placeholder}
+              value={state.name}
+              onChange={(event) => onChange(event.currentTarget.value)}
+            />
+            {state.error ? (
+              <p id="files-create-error" className="text-xs text-destructive">
+                {state.error}
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button disabled={isSubmitting} type="button" variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button disabled={isSubmitting} type="submit">
+              Create
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -1747,21 +1873,37 @@ function FilesTreeRow({
         className="ml-auto hidden items-center gap-1 group-hover:flex group-focus-within:flex"
       >
         {item.kind === 'directory' ? (
-          <button
-            className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
-            tabIndex={-1}
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              void onCreate('file', item.relativePath)
-            }}
-          >
-            New
-          </button>
+          <>
+            <button
+              aria-label={`New file in ${item.relativePath}`}
+              className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              tabIndex={-1}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                void onCreate('file', item.relativePath)
+              }}
+            >
+              New
+            </button>
+            <button
+              aria-label={`New folder in ${item.relativePath}`}
+              className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
+              tabIndex={-1}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                void onCreate('folder', item.relativePath)
+              }}
+            >
+              Folder
+            </button>
+          </>
         ) : null}
         {item.kind !== 'symlink' ? (
           <>
             <button
+              aria-label={`Move ${item.relativePath}`}
               className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
               tabIndex={-1}
               type="button"
@@ -1773,6 +1915,7 @@ function FilesTreeRow({
               Move
             </button>
             <button
+              aria-label={`Rename ${item.relativePath}`}
               className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
               tabIndex={-1}
               type="button"
@@ -1784,6 +1927,7 @@ function FilesTreeRow({
               Rename
             </button>
             <button
+              aria-label={`Trash ${item.relativePath}`}
               className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground"
               tabIndex={-1}
               type="button"
@@ -1820,6 +1964,7 @@ function FilesRevealButton({
       }
     >
       <button
+        aria-label={compact ? `Reveal ${relativePath} in system file manager` : undefined}
         className={
           compact
             ? 'rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-background/80 hover:text-foreground'
@@ -1906,13 +2051,6 @@ function replaceDirectoryChildren(
   })
 }
 
-function selectedDirectoryPath(selectedPath: string | null, rootState: RootState): string {
-  if (!selectedPath || rootState.status !== 'ready') return ''
-  const selectedItem = findTreeItem(rootState.items, selectedPath)
-  if (selectedItem?.kind === 'directory') return selectedItem.relativePath
-  return selectedPath.includes('/') ? selectedPath.slice(0, selectedPath.lastIndexOf('/')) : ''
-}
-
 function findTreeItem(items: FilesTreeItem[], relativePath: string): FilesTreeItem | null {
   for (const item of items) {
     if (item.relativePath === relativePath) return item
@@ -1922,6 +2060,26 @@ function findTreeItem(items: FilesTreeItem[], relativePath: string): FilesTreeIt
     }
   }
   return null
+}
+
+function createEntryNameError(kind: 'file' | 'folder', name: string): string | null {
+  if (!name) return `Enter a ${kind} name.`
+  if (
+    name.includes('/') ||
+    name.includes('\\') ||
+    name.includes('\0') ||
+    name.includes(':') ||
+    name === '.' ||
+    name === '..' ||
+    name.toLowerCase().replace(/[ .]+$/u, '') === '.git'
+  ) {
+    return `Use a valid ${kind} name.`
+  }
+  return null
+}
+
+function formatCreateDestination(parentPath: string): string {
+  return parentPath || 'project root'
 }
 
 function joinRelativePath(parentPath: string, name: string): string {
