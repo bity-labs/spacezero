@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Key, RocketLaunch } from '@phosphor-icons/react'
 
 import type { LicenseActivationStatus } from '../../license-activation/shared'
+import type { OnboardingStatus } from '../shared'
 import { AccountSettings, RepositorySetup } from '../../github/renderer'
 import { requestProjectOpen } from '../../projects/renderer/project-open-request'
 import { Button } from '@renderer/components/ui/button'
@@ -15,7 +16,7 @@ export function Onboarding({
   onComplete
 }: {
   initialActivationStatus?: LicenseActivationStatus
-  onComplete: () => void
+  onComplete: (status: OnboardingStatus) => void
 }): React.JSX.Element {
   const [step, setStep] = useState<OnboardingStep>(initialActivationStatus ? 'activation' : 'welcome')
   const [activation, setActivation] = useState<LicenseActivationStatus | null>(initialActivationStatus ?? null)
@@ -42,9 +43,9 @@ export function Onboarding({
     setIsFinishing(true)
     setError(null)
     try {
-      await window.spacezero.onboarding.complete()
+      const status = await window.spacezero.onboarding.complete()
       if (projectId) requestProjectOpen(projectId)
-      onComplete()
+      onComplete(status)
     } catch {
       setError('Activate Space Zero before completing onboarding.')
     } finally {

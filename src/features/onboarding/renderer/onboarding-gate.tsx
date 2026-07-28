@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { LicenseActivationStatus } from '../../license-activation/shared'
+import type { OnboardingStatus } from '../shared'
 import { Onboarding } from './onboarding'
 import { Button } from '@renderer/components/ui/button'
 
@@ -12,11 +13,11 @@ export function OnboardingGate({ children }: { children: React.ReactNode }): Rea
   const [blockedActivation, setBlockedActivation] = useState<LicenseActivationStatus | null>(null)
   const [nextActivationCheckAt, setNextActivationCheckAt] = useState<number | null>(null)
 
-  async function loadStatus(): Promise<void> {
+  async function loadStatus(knownStatus?: OnboardingStatus): Promise<void> {
     setError(false)
     try {
       const [status, activation] = await Promise.all([
-        window.spacezero.onboarding.getStatus(),
+        knownStatus ?? window.spacezero.onboarding.getStatus(),
         window.spacezero.licenseActivation.getStatus()
       ])
       const canShowWorkspace = status.completed && activation.canEnterWorkspace
@@ -72,7 +73,7 @@ export function OnboardingGate({ children }: { children: React.ReactNode }): Rea
   }
 
   if (!completed) {
-    return <Onboarding initialActivationStatus={blockedActivation ?? undefined} onComplete={() => setCompleted(true)} />
+    return <Onboarding initialActivationStatus={blockedActivation ?? undefined} onComplete={(status) => void loadStatus(status)} />
   }
   return <>{children}</>
 }
