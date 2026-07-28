@@ -10,6 +10,7 @@ export type LicenseActivationState =
   | 'grace-expired'
   | 'unsupported-version'
   | 'storage-unavailable'
+  | 'configuration-error'
 
 export type LicenseActivationStatus = {
   mode: LicenseActivationMode

@@ -77,6 +77,14 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
     }
   }
 
+  async function openExternalStatusUrl(url: string): Promise<void> {
+    try {
+      await window.spacezero.browser.openUrlInDefaultBrowser({ url })
+    } catch {
+      setError('Unable to open this link. Copy it from your license email and try again.')
+    }
+  }
+
   async function startConnection(): Promise<void> {
     setError(null)
     try {
@@ -100,6 +108,9 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
       setError('Unable to verify GitHub access. Retry or skip for now.')
     }
   }
+
+  const renewalUrl = activation?.renewalUrl
+  const updateUrl = activation?.updateUrl
 
   return (
     <main
@@ -143,17 +154,30 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
                 {activation.message}
               </div>
             ) : (
-              <Input
-                aria-label="License key"
-                value={licenseKey}
-                onChange={(event) => setLicenseKey(event.target.value)}
-                placeholder="Enter your license key"
-              />
+              <>
+                {activation && !error ? <p className="text-sm text-muted-foreground">{activation.message}</p> : null}
+                <Input
+                  aria-label="License key"
+                  value={licenseKey}
+                  onChange={(event) => setLicenseKey(event.target.value)}
+                  placeholder="Enter your license key"
+                />
+              </>
             )}
             <div className="flex flex-wrap gap-2 border-t pt-4">
               <Button disabled={isActivating} onClick={() => void activate()}>
                 {activation?.mode === 'development-bypass' ? 'Continue with development bypass' : 'Activate'}
               </Button>
+              {renewalUrl ? (
+                <Button variant="outline" onClick={() => void openExternalStatusUrl(renewalUrl)}>
+                  Renew or reactivate
+                </Button>
+              ) : null}
+              {updateUrl ? (
+                <Button variant="outline" onClick={() => void openExternalStatusUrl(updateUrl)}>
+                  Update Space Zero
+                </Button>
+              ) : null}
             </div>
           </Card>
         ) : step === 'connection' ? (
