@@ -98,9 +98,53 @@ vi.mock('../../features/tool-pane/renderer', () => ({
   useToolPaneController: () => ({ toggle: vi.fn() })
 }))
 
-vi.mock('./components/app-shell/account-menu', () => ({ AccountMenu: () => <div /> }))
-vi.mock('./components/sidebar/app-sidebar', () => ({ AppSidebar: ({ children }: { children: React.ReactNode }) => <aside>{children}</aside> }))
+vi.mock('./components/app-shell/account-menu', () => ({
+  AccountMenu: ({ settingsLabel }: { settingsLabel: string }) => <button type="button">{settingsLabel}</button>
+}))
+vi.mock('./components/sidebar/app-sidebar', () => ({
+  AppSidebar: ({
+    header,
+    footer,
+    children
+  }: {
+    header?: React.ReactNode
+    footer?: React.ReactNode
+    children: React.ReactNode
+  }) => (
+    <aside>
+      {header}
+      {children}
+      {footer}
+    </aside>
+  )
+}))
+vi.mock('./components/sidebar/sidebar-nav-item', () => ({
+  SidebarNavItem: ({ label, onClick }: { label: string; onClick?: () => void }) => (
+    <button type="button" onClick={onClick}>
+      {label}
+    </button>
+  )
+}))
 vi.mock('./hooks/use-sidebar-resize', () => ({ useSidebarResize: () => ({ handlePointerDown: vi.fn(), isResizing: false }) }))
+
+describe('WorkspaceShell sidebar navigation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+  })
+
+  it('does not show placeholder navigation while keeping functional sidebar entries', () => {
+    render(<WorkspaceShell />)
+
+    expect(screen.getByRole('button', { name: 'Knowledge Base' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'workspace.sidebar.newAgent' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'workspace.openAppSettings' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'workspace.sidebar.search' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'workspace.sidebar.automations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'workspace.sidebar.customize' })).not.toBeInTheDocument()
+  })
+})
 
 describe('WorkspaceShell project deletion Files cleanup', () => {
   beforeEach(() => {
