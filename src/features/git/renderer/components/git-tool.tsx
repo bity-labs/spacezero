@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowClockwise } from '@phosphor-icons/react'
+import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
 import type { WorkspaceSession } from '../../../sessions/shared'
@@ -305,22 +305,6 @@ function GitToolSession({
   }, [refresh])
 
   useEffect(() => {
-    if (!hasAgentSession) return
-    let canceled = false
-    void window.spacezero.settings
-      .getGitActionSettings()
-      .then((settings) => {
-        if (!canceled) setPrimaryAction(settings.primaryGitAction)
-      })
-      .catch(() => {
-        // Keep the product default when the preference cannot be loaded.
-      })
-    return () => {
-      canceled = true
-    }
-  }, [hasAgentSession])
-
-  useEffect(() => {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current)
     }
@@ -401,10 +385,8 @@ function GitToolSession({
   const actions = useMemo(() => getActionAvailability(actionState), [actionState])
   const conflictFiles = useMemo(() => getConflictFiles(actionState), [actionState])
   const hasConflicts = conflictFiles.length > 0
-  const alternateAction = primaryAction === 'commit' ? 'commit-and-push' : 'commit'
   const busy = currentAgentStatus === 'running'
   const primaryDisabled = busy || !actions[primaryAction]
-  const alternateDisabled = busy || !actions[alternateAction]
   const resolveDisabled = busy || !hasConflicts
 
   if (!state) {
@@ -529,8 +511,7 @@ function GitToolSession({
           />
         ) : (
           <GitCommitComposer
-            alternateAction={alternateAction}
-            alternateDisabled={alternateDisabled}
+            actionAvailability={actions}
             busy={busy}
             instructions={instructions}
             menuOpen={menuOpen}
@@ -538,6 +519,10 @@ function GitToolSession({
             primaryDisabled={primaryDisabled}
             onInstructionsChange={setInstructions}
             onMenuOpenChange={setMenuOpen}
+            onPrimaryActionChange={(action) => {
+              setPrimaryAction(action)
+              setMenuOpen(false)
+            }}
             onSubmit={(action) => {
               setMenuOpen(false)
               gitPromptRunPending.current = true
@@ -773,9 +758,10 @@ function GitDiffCard({
   )
 }
 
+const COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit']
+
 function GitCommitComposer({
-  alternateAction,
-  alternateDisabled,
+  actionAvailability,
   busy,
   instructions,
   menuOpen,
@@ -783,10 +769,10 @@ function GitCommitComposer({
   primaryDisabled,
   onInstructionsChange,
   onMenuOpenChange,
+  onPrimaryActionChange,
   onSubmit
 }: {
-  alternateAction: GitComposerAction
-  alternateDisabled: boolean
+  actionAvailability: Record<GitComposerAction, boolean>
   busy: boolean
   instructions: string
   menuOpen: boolean
@@ -794,8 +780,16 @@ function GitCommitComposer({
   primaryDisabled: boolean
   onInstructionsChange: (instructions: string) => void
   onMenuOpenChange: (open: boolean) => void
+  onPrimaryActionChange: (action: GitComposerAction) => void
   onSubmit: (action: GitComposerAction) => void
 }): React.JSX.Element {
+  const firstMenuItemRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    if (!menuOpen) return
+    firstMenuItemRef.current?.focus()
+  }, [menuOpen])
+
   return (
     <footer className="shrink-0 space-y-3 border-t bg-background p-4">
       <Textarea
@@ -805,39 +799,61 @@ function GitCommitComposer({
         value={instructions}
         onChange={(event) => onInstructionsChange(event.target.value)}
       />
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs text-muted-foreground">
-          Sends a normal prompt to this Project Session agent. The agent will inspect fresh Git
-          state.
-        </p>
-        <div className="relative flex shrink-0 items-center gap-2">
-          <Button disabled={primaryDisabled} type="button" onClick={() => onSubmit(primaryAction)}>
+      <div className="flex items-center justify-end gap-3">
+        <div className="relative flex shrink-0 items-center" role="group" aria-label="Git commit action">
+          <Button
+            className="rounded-r-none"
+            disabled={primaryDisabled}
+            type="button"
+            onClick={() => onSubmit(primaryAction)}
+          >
             {formatActionLabel(primaryAction)}
           </Button>
           <Button
             aria-expanded={menuOpen}
             aria-haspopup="menu"
+            aria-label="Choose Git commit action"
+            className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
             disabled={busy}
+            size="icon"
+            title="Choose Git commit action"
             type="button"
-            variant="outline"
+            variant="default"
             onClick={() => onMenuOpenChange(!menuOpen)}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowDown') {
+                event.preventDefault()
+                onMenuOpenChange(true)
+              }
+            }}
           >
-            More
+            <DotsThree aria-hidden="true" className="size-5" weight="bold" />
           </Button>
           {menuOpen ? (
             <div
               className="absolute bottom-11 right-0 z-10 min-w-40 rounded-md border bg-popover p-1 shadow-md"
               role="menu"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  onMenuOpenChange(false)
+                }
+              }}
             >
-              <button
-                className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                disabled={alternateDisabled}
-                role="menuitem"
-                type="button"
-                onClick={() => onSubmit(alternateAction)}
-              >
-                {formatActionLabel(alternateAction)}
-              </button>
+              {COMPOSER_ACTIONS.map((action, index) => (
+                <button
+                  key={action}
+                  ref={index === 0 ? firstMenuItemRef : undefined}
+                  aria-current={primaryAction === action ? 'true' : undefined}
+                  className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  disabled={busy || !actionAvailability[action]}
+                  role="menuitem"
+                  type="button"
+                  onClick={() => onPrimaryActionChange(action)}
+                >
+                  {formatActionLabel(action)}
+                </button>
+              ))}
             </div>
           ) : null}
         </div>
