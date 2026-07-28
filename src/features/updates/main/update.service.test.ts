@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 vi.mock('electron-updater', () => ({
   default: {
     autoUpdater: {
-      checkForUpdates: vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined),
+      checkForUpdates: vi.fn<() => Promise<null>>().mockResolvedValue(null),
       on: vi.fn()
     }
   }
@@ -13,7 +13,7 @@ import { UpdateService, type UpdaterAdapter } from './update.service'
 
 class FakeUpdater implements UpdaterAdapter {
   autoDownload = false
-  readonly checkForUpdates = vi.fn<() => Promise<unknown>>().mockResolvedValue(undefined)
+  readonly checkForUpdates = vi.fn<() => ReturnType<UpdaterAdapter['checkForUpdates']>>().mockResolvedValue(null)
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>()
 
   on(event: string, listener: (...args: unknown[]) => void): void {
@@ -141,6 +141,42 @@ describe('UpdateService', () => {
       lastCheckedAt: '2026-01-02T03:04:05.000Z',
       errorMessage: null
     })
+  })
+
+  it('consumes background download failures from automatic update checks', async () => {
+    const updater = new FakeUpdater()
+    const downloadError = new Error('background download failed')
+    let rejectDownload: (error: Error) => void = () => undefined
+    const downloadPromise = new Promise<Array<string>>((_, reject) => {
+      rejectDownload = reject
+    })
+    updater.checkForUpdates.mockResolvedValue({
+      isUpdateAvailable: true,
+      updateInfo: { version: '0.1.0-beta.2' },
+      versionInfo: { version: '0.1.0-beta.2' },
+      downloadPromise
+    })
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      now: () => new Date('2026-01-02T03:04:05.000Z'),
+      updater
+    })
+    const states: string[] = []
+    service.onStatusChange((status) => states.push(status.state))
+
+    const status = await service.checkForUpdates()
+    updater.emit('error', downloadError)
+    rejectDownload(downloadError)
+
+    await vi.waitFor(() => {
+      expect(service.getStatus()).toMatchObject({
+        state: 'error',
+        lastCheckedAt: '2026-01-02T03:04:05.000Z',
+        errorMessage: 'background download failed'
+      })
+    })
+    expect(status.lastCheckedAt).toBe('2026-01-02T03:04:05.000Z')
+    expect(states).toContain('error')
   })
 
   it('records and publishes available, downloaded, and error update states from updater events', async () => {
