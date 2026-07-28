@@ -7,6 +7,7 @@ import type {
 
 type StoredEntitlement = LicenseBackendStatusResponse & {
   activatedAt: string
+  licenseKey: string
 }
 
 export type LicenseEntitlementStore = {
@@ -28,8 +29,16 @@ export type LicenseActivationConfig = {
   now?: () => Date
 }
 
+export class LicenseActivationConfigurationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'LicenseActivationConfigurationError'
+  }
+}
+
 const DEVELOPMENT_MESSAGE = 'Development build activation bypass is enabled.'
 const INACTIVE_MESSAGE = 'Enter a license key to activate Space Zero.'
+const MAX_OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000
 
 export function createLicenseActivationService({
   backend,
@@ -90,31 +99,41 @@ export function createLicenseActivationService({
     }
   }
 
-  function statusFromStoredEntitlement(entitlement: StoredEntitlement): LicenseActivationStatus {
+  function offlineStatusFromStoredEntitlement(entitlement: StoredEntitlement): LicenseActivationStatus {
     const backendStatus = statusFromBackendResponse(entitlement)
     if (!backendStatus.canEnterWorkspace) return backendStatus
 
     const currentTime = now().getTime()
-    const recheckAfter = Date.parse(entitlement.recheckAfter)
-    if (Number.isFinite(recheckAfter) && currentTime <= recheckAfter) return backendStatus
+    const effectiveGraceEndsAt = effectiveGraceDeadline(entitlement)
+    if (effectiveGraceEndsAt === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
 
-    const graceEndsAt = Date.parse(entitlement.graceEndsAt)
-    if (Number.isFinite(graceEndsAt) && currentTime <= graceEndsAt) {
+    if (currentTime < effectiveGraceEndsAt) {
       return {
         ...backendStatus,
         state: 'grace-period',
         canEnterWorkspace: true,
         message: 'Space Zero is using cached activation while offline.',
-        graceEndsAt: entitlement.graceEndsAt
+        graceEndsAt: new Date(effectiveGraceEndsAt).toISOString()
       }
     }
 
-    return {
-      ...backendStatus,
-      state: 'grace-expired',
-      canEnterWorkspace: false,
-      message: 'Cached activation has expired. Reconnect and reactivate Space Zero.',
-      graceEndsAt: entitlement.graceEndsAt
+    return graceExpiredStatus(backendStatus, new Date(effectiveGraceEndsAt).toISOString())
+  }
+
+  async function refreshStoredEntitlement(entitlement: StoredEntitlement): Promise<LicenseActivationStatus> {
+    try {
+      const response = await backend.checkStatus({
+        licenseKey: entitlement.licenseKey,
+        appVersion: config.appVersion
+      })
+      const status = statusFromBackendResponse(response)
+      if (status.canEnterWorkspace) {
+        await store.save({ ...response, activatedAt: entitlement.activatedAt, licenseKey: entitlement.licenseKey })
+      }
+      return status
+    } catch (error) {
+      if (error instanceof LicenseActivationConfigurationError) return configurationErrorStatus(config.mode)
+      return offlineStatusFromStoredEntitlement(entitlement)
     }
   }
 
@@ -133,28 +152,82 @@ export function createLicenseActivationService({
         }
       }
 
-      return statusFromStoredEntitlement(entitlement)
+      const backendStatus = statusFromBackendResponse(entitlement)
+      if (!backendStatus.canEnterWorkspace) return backendStatus
+
+      const currentTime = now().getTime()
+      const effectiveGraceEndsAt = effectiveGraceDeadline(entitlement)
+      if (effectiveGraceEndsAt === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
+      if (currentTime >= effectiveGraceEndsAt) {
+        return graceExpiredStatus(backendStatus, new Date(effectiveGraceEndsAt).toISOString())
+      }
+
+      const recheckAfter = parseTimestamp(entitlement.recheckAfter)
+      if (recheckAfter === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
+      if (currentTime <= recheckAfter) return backendStatus
+
+      return refreshStoredEntitlement(entitlement)
     },
 
-    async activate(request: ActivateLicenseRequest): Promise<LicenseActivationStatus> {
+    async activate(request: unknown): Promise<LicenseActivationStatus> {
       if (config.mode === 'development-bypass') return developmentStatus()
       if (!store.isProtected()) return storageUnavailableStatus(config.mode)
 
-      const licenseKey = request.licenseKey.trim()
-      if (!licenseKey) {
-        return {
-          mode: config.mode,
-          state: 'invalid',
-          canEnterWorkspace: false,
-          message: 'Enter a license key to activate Space Zero.'
-        }
-      }
+      const licenseKey = parseLicenseKey(request)
+      if (!licenseKey) return invalidActivationRequestStatus(config.mode)
 
-      const response = await backend.checkStatus({ licenseKey, appVersion: config.appVersion })
-      const status = statusFromBackendResponse(response)
-      if (status.canEnterWorkspace) await store.save({ ...response, activatedAt: now().toISOString() })
-      return status
+      try {
+        const response = await backend.checkStatus({ licenseKey, appVersion: config.appVersion })
+        const status = statusFromBackendResponse(response)
+        if (status.canEnterWorkspace) await store.save({ ...response, activatedAt: now().toISOString(), licenseKey })
+        return status
+      } catch (error) {
+        if (error instanceof LicenseActivationConfigurationError) return configurationErrorStatus(config.mode)
+        throw error
+      }
     }
+  }
+}
+
+function parseTimestamp(value: string): number | null {
+  const time = Date.parse(value)
+  return Number.isFinite(time) ? time : null
+}
+
+function effectiveGraceDeadline(entitlement: StoredEntitlement): number | null {
+  const activatedAt = parseTimestamp(entitlement.activatedAt)
+  const graceEndsAt = parseTimestamp(entitlement.graceEndsAt)
+  if (activatedAt === null || graceEndsAt === null) return null
+
+  const maxGraceEndsAt = activatedAt + MAX_OFFLINE_GRACE_MS
+  if (!Number.isFinite(maxGraceEndsAt)) return null
+  return Math.min(graceEndsAt, maxGraceEndsAt)
+}
+
+function graceExpiredStatus(status: LicenseActivationStatus, graceEndsAt: string): LicenseActivationStatus {
+  return {
+    ...status,
+    state: 'grace-expired',
+    canEnterWorkspace: false,
+    message: 'Cached activation has expired. Reconnect and reactivate Space Zero.',
+    graceEndsAt
+  }
+}
+
+function parseLicenseKey(request: unknown): string | null {
+  if (!request || typeof request !== 'object' || !('licenseKey' in request)) return null
+  const licenseKey = (request as ActivateLicenseRequest).licenseKey
+  if (typeof licenseKey !== 'string' || licenseKey.length > 4096) return null
+  const trimmed = licenseKey.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function invalidActivationRequestStatus(mode: LicenseActivationMode): LicenseActivationStatus {
+  return {
+    mode,
+    state: 'invalid',
+    canEnterWorkspace: false,
+    message: 'Enter a license key to activate Space Zero.'
   }
 }
 
@@ -170,5 +243,14 @@ function storageUnavailableStatus(mode: LicenseActivationMode): LicenseActivatio
     state: 'storage-unavailable',
     canEnterWorkspace: false,
     message: 'Secure license storage is unavailable on this device.'
+  }
+}
+
+function configurationErrorStatus(mode: LicenseActivationMode): LicenseActivationStatus {
+  return {
+    mode,
+    state: 'configuration-error',
+    canEnterWorkspace: false,
+    message: 'License Activation is not configured for this Space Zero build.'
   }
 }

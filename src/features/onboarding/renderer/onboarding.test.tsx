@@ -79,6 +79,59 @@ describe('Onboarding repository setup', () => {
     expect(onComplete).not.toHaveBeenCalled()
   })
 
+  it('shows renewal/reactivation action for expired and revoked license statuses', async () => {
+    const openUrlInDefaultBrowser = vi.fn(async () => undefined)
+    window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
+    window.spacezero.licenseActivation.getStatus = async () => ({
+      mode: 'required',
+      state: 'expired',
+      canEnterWorkspace: false,
+      message: 'This license is expired. Renew or reactivate to continue.',
+      renewalUrl: 'https://spacezero.dev/renew'
+    })
+    window.spacezero.licenseActivation.activate = async () => ({
+      mode: 'required',
+      state: 'revoked',
+      canEnterWorkspace: false,
+      message: 'This license was revoked. Reactivate with a valid license.',
+      renewalUrl: 'https://spacezero.dev/reactivate'
+    })
+
+    render(<Onboarding onComplete={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Get started' }))
+    const renewButton = await screen.findByRole('button', { name: 'Renew or reactivate' })
+    fireEvent.click(renewButton)
+    expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/renew' })
+
+    fireEvent.change(screen.getByLabelText('License key'), { target: { value: 'revoked-key' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate' }))
+    expect(await screen.findByText('This license was revoked. Reactivate with a valid license.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Renew or reactivate' }))
+    expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/reactivate' })
+  })
+
+  it('shows update action for unsupported builds while retaining license key retry', async () => {
+    const openUrlInDefaultBrowser = vi.fn(async () => undefined)
+    window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
+    window.spacezero.licenseActivation.getStatus = async () => ({
+      mode: 'required',
+      state: 'unsupported-version',
+      canEnterWorkspace: false,
+      message: 'This Space Zero build is no longer supported. Update to continue.',
+      updateUrl: 'https://spacezero.dev/download'
+    })
+
+    render(<Onboarding onComplete={() => undefined} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Get started' }))
+    expect(await screen.findByLabelText('License key')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Update Space Zero' }))
+
+    expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/download' })
+    expect(screen.getByRole('button', { name: 'Activate' })).toBeInTheDocument()
+  })
+
   it('lets development bypass continue into GitHub connection', async () => {
     window.spacezero.licenseActivation.getStatus = async () => ({
       mode: 'development-bypass',
