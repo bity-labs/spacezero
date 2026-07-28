@@ -889,7 +889,16 @@ function SkillsSettingsSection(): React.JSX.Element {
   const [skills, setSkills] = useState<AgentGlobalSkill[] | null>(null)
   const [error, setError] = useState(false)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
+  const [skillSearchQuery, setSkillSearchQuery] = useState('')
   const updatePendingRef = useRef(false)
+  const filteredSkills = useMemo(() => {
+    if (skills === null) return null
+
+    const normalizedQuery = skillSearchQuery.trim().toLocaleLowerCase()
+    if (!normalizedQuery) return skills
+
+    return skills.filter((skill) => skill.name.toLocaleLowerCase().includes(normalizedQuery))
+  }, [skillSearchQuery, skills])
 
   useEffect(() => {
     let isCurrent = true
@@ -954,34 +963,54 @@ function SkillsSettingsSection(): React.JSX.Element {
           ) : skills.length === 0 ? (
             <p className="px-4 pb-4 text-sm text-muted-foreground">{t('settings.skills.empty')}</p>
           ) : (
-            skills.map((skill) => (
-              <div
-                key={skill.path}
-                className="flex items-center gap-4 border-t border-border/70 px-4 py-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium">{skill.name}</p>
-                    <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
-                      {skill.scope}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
-                  <p className="mt-2 truncate text-[11px] text-muted-foreground" title={skill.path}>
-                    {t('settings.skills.path', { path: skill.path })}
-                  </p>
-                </div>
-                <Switch
-                  checked={skill.enabled}
-                  disabled={pendingPath !== null}
-                  aria-label={t(
-                    skill.enabled ? 'settings.skills.disable' : 'settings.skills.enable',
-                    { name: skill.name }
-                  )}
-                  onCheckedChange={(enabled) => void handleSkillEnabledChange(skill, enabled)}
+            <>
+              <div className="px-4 py-4">
+                <Input
+                  type="search"
+                  value={skillSearchQuery}
+                  aria-label={t('settings.skills.searchLabel')}
+                  placeholder={t('settings.skills.searchPlaceholder')}
+                  onChange={(event) => setSkillSearchQuery(event.target.value)}
                 />
               </div>
-            ))
+              {filteredSkills?.length === 0 ? (
+                <p className="border-t border-border/70 px-4 py-4 text-sm text-muted-foreground">
+                  {t('settings.skills.noSearchResults')}
+                </p>
+              ) : (
+                filteredSkills?.map((skill) => (
+                  <div
+                    key={skill.path}
+                    className="flex items-center gap-4 border-t border-border/70 px-4 py-4"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium">{skill.name}</p>
+                        <Badge variant="secondary" className="shrink-0 text-[10px] uppercase">
+                          {skill.scope}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">{skill.description}</p>
+                      <p
+                        className="mt-2 truncate text-[11px] text-muted-foreground"
+                        title={skill.path}
+                      >
+                        {t('settings.skills.path', { path: skill.path })}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={skill.enabled}
+                      disabled={pendingPath !== null}
+                      aria-label={t(
+                        skill.enabled ? 'settings.skills.disable' : 'settings.skills.enable',
+                        { name: skill.name }
+                      )}
+                      onCheckedChange={(enabled) => void handleSkillEnabledChange(skill, enabled)}
+                    />
+                  </div>
+                ))
+              )}
+            </>
           )}
           {error ? (
             <p className="px-4 pb-4 text-sm text-destructive">{t('settings.skills.error')}</p>
