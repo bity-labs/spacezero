@@ -604,9 +604,9 @@ function FilesToolSession({
   }, [createDialog, ipcContext, openFile, refreshActiveSearch, revealTreePath])
 
   const applyMoveEntry = useCallback(
-    async (sourcePath: string, destinationPath: string): Promise<void> => {
-      if (!destinationPath.trim() || destinationPath.trim() === sourcePath) return
-      if (!(await prepareDirtyOperation(sourcePath))) return
+    async (sourcePath: string, destinationPath: string): Promise<boolean> => {
+      if (!destinationPath.trim() || destinationPath.trim() === sourcePath) return false
+      if (!(await prepareDirtyOperation(sourcePath))) return false
       await window.spacezero.files.moveEntry({
         context: ipcContext,
         sourcePath,
@@ -617,6 +617,7 @@ function FilesToolSession({
       rewritePaths(sessionId, sourcePath, destination)
       await revealTreePath(destination)
       refreshActiveSearch()
+      return true
     },
     [
       ipcContext,
@@ -672,8 +673,17 @@ function FilesToolSession({
     const destinationPath = joinRelativePath(dialog.parentPath, name)
     setRenameDialog({ ...dialog, name, error: null, status: 'submitting' })
     try {
-      await applyMoveEntry(dialog.sourcePath, destinationPath)
-      setRenameDialog(null)
+      const moved = await applyMoveEntry(dialog.sourcePath, destinationPath)
+      if (moved) {
+        setRenameDialog(null)
+        return
+      }
+      setRenameDialog({
+        ...dialog,
+        name,
+        error: 'Save or discard changes before renaming.',
+        status: 'idle'
+      })
     } catch (error) {
       setRenameDialog({
         ...dialog,
@@ -1956,7 +1966,24 @@ function FilesTreeRow({
     </ContextMenuTrigger>
   )
 
-  if (item.kind === 'symlink') return <ContextMenu>{row}</ContextMenu>
+  if (item.kind === 'symlink') {
+    return (
+      <ContextMenu>
+        {row}
+        <ContextMenuContent aria-label={`${item.relativePath} actions`}>
+          <ContextMenuItem
+            onClick={() =>
+              void window.spacezero.files
+                .revealInSystemFileManager({ context: ipcContext, relativePath: item.relativePath })
+                .catch((error) => window.alert(filesErrorMessage(error)))
+            }
+          >
+            Show in Finder
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    )
+  }
 
   const siblingParentPath = parentDirectoryPath(item.relativePath)
 
