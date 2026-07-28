@@ -98,7 +98,11 @@ import {
   type TerminalAPI
 } from '../features/terminal/shared/terminal.contract'
 import { BROWSER_IPC_CHANNELS, type BrowserAPI } from '../features/browser/shared/browser.contract'
-import type { UpdateStatus } from '../features/updates/shared'
+import type {
+  ApplyDownloadedUpdateRequest,
+  ApplyDownloadedUpdateResult,
+  UpdateStatus
+} from '../features/updates/shared'
 
 export const IPC_CHANNELS = {
   app: {
@@ -208,6 +212,7 @@ export const IPC_CHANNELS = {
   update: {
     getStatus: 'update:getStatus',
     checkForUpdates: 'update:checkForUpdates',
+    applyDownloadedUpdate: 'update:applyDownloadedUpdate',
     statusChanged: 'update:statusChanged'
   },
   settings: {
@@ -377,6 +382,9 @@ export type SpaceZeroAPI = {
   update: {
     getStatus: () => Promise<UpdateStatus>
     checkForUpdates: () => Promise<UpdateStatus>
+    applyDownloadedUpdate: (
+      request?: ApplyDownloadedUpdateRequest
+    ) => Promise<ApplyDownloadedUpdateResult>
     onStatusChange: (listener: (status: UpdateStatus) => void) => () => void
   }
   settings: {

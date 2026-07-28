@@ -1,4 +1,9 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { countLiveTerminals, listAgentSessions } = vi.hoisted(() => ({
+  countLiveTerminals: vi.fn<() => number>(),
+  listAgentSessions: vi.fn<() => Promise<unknown[]>>()
+}))
 
 vi.mock('electron-updater', () => ({
   default: {
@@ -9,11 +14,24 @@ vi.mock('electron-updater', () => ({
   }
 }))
 
+vi.mock('../../agent-workspace/main/agent-utility-process', () => ({
+  getAgentUtilityProcessHost: () => ({
+    listSessions: listAgentSessions
+  })
+}))
+
+vi.mock('../../terminal/main/terminal.runtime', () => ({
+  getTerminalService: () => ({
+    countLiveTerminals
+  })
+}))
+
 import { UpdateService, type UpdaterAdapter } from './update.service'
 
 class FakeUpdater implements UpdaterAdapter {
   autoDownload = false
   readonly checkForUpdates = vi.fn<() => ReturnType<UpdaterAdapter['checkForUpdates']>>().mockResolvedValue(null)
+  readonly quitAndInstall = vi.fn()
   private readonly listeners = new Map<string, Array<(...args: unknown[]) => void>>()
 
   on(event: string, listener: (...args: unknown[]) => void): void {
@@ -28,8 +46,14 @@ class FakeUpdater implements UpdaterAdapter {
 }
 
 describe('UpdateService', () => {
+  beforeEach(() => {
+    listAgentSessions.mockResolvedValue([])
+    countLiveTerminals.mockReturnValue(0)
+  })
+
   afterEach(() => {
     vi.useRealTimers()
+    vi.clearAllMocks()
   })
   it('exposes current beta version and release notes source before checking', () => {
     const service = new UpdateService({
@@ -177,6 +201,74 @@ describe('UpdateService', () => {
     })
     expect(status.lastCheckedAt).toBe('2026-01-02T03:04:05.000Z')
     expect(states).toContain('error')
+  })
+
+  it('requires confirmation before applying a downloaded update when active work is present', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater,
+      activeWorkProvider: async () => ({ projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 })
+    })
+    updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
+
+    await expect(service.applyDownloadedUpdate()).resolves.toEqual({
+      status: 'needs-confirmation',
+      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 },
+      updateStatus: service.getStatus()
+    })
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+
+    await expect(service.applyDownloadedUpdate({ confirmActiveWork: true })).resolves.toEqual({
+      status: 'applying',
+      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 },
+      updateStatus: service.getStatus()
+    })
+    expect(updater.quitAndInstall).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed when production session discovery rejects before applying a downloaded update', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater
+    })
+    listAgentSessions.mockRejectedValueOnce(new Error('utility unavailable'))
+    updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
+
+    await expect(service.applyDownloadedUpdate()).rejects.toThrow('utility unavailable')
+    expect(listAgentSessions).toHaveBeenCalledTimes(1)
+    expect(countLiveTerminals).not.toHaveBeenCalled()
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('does not apply updates when nothing has been downloaded', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater,
+      activeWorkProvider: async () => ({ projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 })
+    })
+
+    await expect(service.applyDownloadedUpdate()).resolves.toMatchObject({
+      status: 'no-downloaded-update',
+      activeWork: { projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 },
+      updateStatus: { state: 'idle' }
+    })
+    expect(updater.quitAndInstall).not.toHaveBeenCalled()
+  })
+
+  it('applies a downloaded update immediately when no sessions or terminals are active', async () => {
+    const updater = new FakeUpdater()
+    const service = new UpdateService({
+      currentVersion: '0.1.0-beta.1',
+      updater,
+      activeWorkProvider: async () => ({ projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 })
+    })
+    updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
+
+    await expect(service.applyDownloadedUpdate()).resolves.toMatchObject({ status: 'applying' })
+    expect(updater.quitAndInstall).toHaveBeenCalledTimes(1)
   })
 
   it('records and publishes available, downloaded, and error update states from updater events', async () => {
