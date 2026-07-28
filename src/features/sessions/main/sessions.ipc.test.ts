@@ -3,8 +3,13 @@ import { EventEmitter } from 'node:events'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { StoredSession } from './sessions.service'
-import { createTerminalService, type PtyProcess, type TerminalPtyAdapter } from '../../terminal/main/terminal.service'
+import {
+  createTerminalService,
+  type PtyProcess,
+  type TerminalPtyAdapter
+} from '../../terminal/main/terminal.service'
 
+const archiveChannel = 'sessions:archive'
 const deleteChannel = 'sessions:delete'
 const renameChannel = 'sessions:rename'
 
@@ -50,7 +55,9 @@ async function setupSessionsIpcHarness({
     findSessionById: vi.fn(async (sessionId: string) =>
       storedSession?.id === sessionId ? storedSession : undefined
     ),
-    findProjectById: vi.fn(async () => undefined),
+    findProjectById: vi.fn(async (projectId: string) =>
+      projectId === session.projectId ? { id: projectId, path: '/repos/spacezero' } : undefined
+    ),
     update: vi.fn(async (nextSession: StoredSession) => {
       storedSession = nextSession
       return nextSession
@@ -81,14 +88,20 @@ async function setupSessionsIpcHarness({
 
   vi.doMock('electron', () => ({
     ipcMain: {
-      handle: vi.fn((channel: string, handler: (event: unknown, input: unknown) => Promise<unknown>) => {
-        handlers.set(channel, handler)
-      })
+      handle: vi.fn(
+        (channel: string, handler: (event: unknown, input: unknown) => Promise<unknown>) => {
+          handlers.set(channel, handler)
+        }
+      )
     }
   }))
   vi.doMock('./sessions.repository', () => ({ createSessionsRepository: () => repository }))
+  const removeWorktree = vi.fn(async () => {
+    events.push('worktree')
+  })
+
   vi.doMock('./managed-worktree.runtime', () => ({
-    getManagedWorktreeService: () => ({ remove: vi.fn(async () => undefined) })
+    getManagedWorktreeService: () => ({ remove: removeWorktree })
   }))
   vi.doMock('../../agent-workspace/main/agent-utility-process', () => ({
     getAgentUtilityProcessHost: () => utilityHost
@@ -116,11 +129,23 @@ async function setupSessionsIpcHarness({
 
   const { registerSessionsIpc } = await import('./sessions.ipc')
   registerSessionsIpc()
+  const archiveSession = handlers.get(archiveChannel)
+  if (!archiveSession) throw new Error('archive handler was not registered')
   const deleteSession = handlers.get(deleteChannel)
   if (!deleteSession) throw new Error('delete handler was not registered')
   const renameSession = handlers.get(renameChannel)
   if (!renameSession) throw new Error('rename handler was not registered')
-  return { deleteSession, renameSession, events, ptys, repository, terminalService, utilityHost }
+  return {
+    archiveSession,
+    deleteSession,
+    renameSession,
+    events,
+    ptys,
+    repository,
+    terminalService,
+    utilityHost,
+    removeWorktree
+  }
 }
 
 describe('Sessions IPC terminal cleanup mapping', () => {
@@ -132,16 +157,65 @@ describe('Sessions IPC terminal cleanup mapping', () => {
     const session = createStoredSession()
     const { renameSession, repository } = await setupSessionsIpcHarness({ session })
 
-    await expect(renameSession({}, { sessionId: ` ${session.id} `, title: '  Better name  ' })).resolves.toMatchObject({
+    await expect(
+      renameSession({}, { sessionId: ` ${session.id} `, title: '  Better name  ' })
+    ).resolves.toMatchObject({
       id: session.id,
       title: 'Better name',
       kind: 'workspace'
     })
 
-    expect(repository.update).toHaveBeenCalledWith(expect.objectContaining({
-      id: session.id,
-      title: 'Better name'
-    }))
+    expect(repository.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: session.id,
+        title: 'Better name'
+      })
+    )
+  })
+
+  it('archives a Project Session through cleanup while preserving the Session row', async () => {
+    const session = createStoredSession({
+      id: 'project-session-1',
+      projectId: 'project-1',
+      worktreePath: '/worktrees/project-session-1',
+      worktreeBranch: 'spacezero/session-project-session-1',
+      worktreeBaseRevision: 'a'.repeat(40)
+    })
+    const {
+      archiveSession,
+      events,
+      ptys,
+      repository,
+      terminalService,
+      utilityHost,
+      removeWorktree
+    } = await setupSessionsIpcHarness({ session })
+    const created = await terminalService.create({
+      ownerWindowId: 1,
+      request: { context: { kind: 'project-session', sessionId: session.id } }
+    })
+    if (created.status !== 'running') throw new Error('expected running terminal')
+
+    await archiveSession({}, { sessionId: session.id })
+
+    expect(ptys).toHaveLength(1)
+    expect(ptys[0]?.killed).toBe(true)
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: session.id })
+    expect(removeWorktree).toHaveBeenCalledWith({
+      projectPath: '/repos/spacezero',
+      projectId: 'project-1',
+      sessionId: session.id,
+      worktree: {
+        path: '/worktrees/project-session-1',
+        branch: 'spacezero/session-project-session-1',
+        baseRevision: 'a'.repeat(40)
+      }
+    })
+    expect(repository.update).toHaveBeenCalledWith(
+      expect.objectContaining({ id: session.id, archivedAt: expect.any(Date) })
+    )
+    expect(repository.deleteById).not.toHaveBeenCalled()
+    expect(events).toEqual(['utility', 'worktree'])
   })
 
   it('rejects whitespace-only renamed titles at the IPC boundary', async () => {

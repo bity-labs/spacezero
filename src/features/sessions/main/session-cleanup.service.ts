@@ -4,7 +4,11 @@ import type { SessionWorktree } from '../shared'
 
 type SessionCleanupRepository = Pick<
   SessionsRepository,
-  'findSessionById' | 'findProjectById' | 'listByProjectIdIncludingArchived' | 'deleteById'
+  | 'findSessionById'
+  | 'findProjectById'
+  | 'listByProjectIdIncludingArchived'
+  | 'update'
+  | 'deleteById'
 >
 
 type StoredProject = Awaited<ReturnType<SessionCleanupRepository['findProjectById']>>
@@ -24,7 +28,8 @@ export function createSessionCleanupService({
     for (const session of sessions) await closeTerminalsForSession(session)
   },
   closeBrowsersForSession = async () => undefined,
-  withProjectLifecycleLock = async (_projectId, operation) => operation()
+  withProjectLifecycleLock = async (_projectId, operation) => operation(),
+  now = () => new Date()
 }: {
   repository: SessionCleanupRepository
   worktrees: Pick<ManagedWorktreeService, 'remove'>
@@ -34,8 +39,48 @@ export function createSessionCleanupService({
   closeTerminalsForDeletion?: (request: TerminalDeletionRequest) => Promise<void>
   closeBrowsersForSession?: (session: StoredSession) => Promise<void>
   withProjectLifecycleLock?: ProjectLifecycleLock
+  now?: () => Date
 }) {
   const deleteOperationsBySession = new Map<string, Promise<void>>()
+  const archiveOperationsBySession = new Map<string, Promise<void>>()
+
+  async function archiveSession(sessionId: string): Promise<void> {
+    const normalizedSessionId = sessionId.trim()
+    const pending = archiveOperationsBySession.get(normalizedSessionId)
+    if (pending) return pending
+
+    const operation = (async () => {
+      const session = await repository.findSessionById(normalizedSessionId)
+      if (!session) throw new Error('Session not found')
+
+      const archiveCurrentSession = async (): Promise<void> => {
+        const currentSession = await repository.findSessionById(normalizedSessionId)
+        if (!currentSession) return
+        const project = currentSession.projectId
+          ? await repository.findProjectById(currentSession.projectId)
+          : undefined
+        await closeTerminalsForDeletion({
+          operationKey: `archive-session:${currentSession.id}`,
+          sessions: [currentSession]
+        })
+        await archiveStoredSession(currentSession, project)
+      }
+
+      if (session.projectId) {
+        await withProjectLifecycleLock(session.projectId, archiveCurrentSession)
+        return
+      }
+      await archiveCurrentSession()
+    })()
+    archiveOperationsBySession.set(normalizedSessionId, operation)
+    try {
+      await operation
+    } finally {
+      if (archiveOperationsBySession.get(normalizedSessionId) === operation) {
+        archiveOperationsBySession.delete(normalizedSessionId)
+      }
+    }
+  }
 
   async function deleteSession(sessionId: string): Promise<void> {
     const normalizedSessionId = sessionId.trim()
@@ -93,23 +138,25 @@ export function createSessionCleanupService({
     return deletedSessionIds
   }
 
+  async function archiveStoredSession(
+    session: StoredSession,
+    project: StoredProject
+  ): Promise<void> {
+    await closeBrowsersForSession(session)
+    await deleteUtilitySession({ sessionId: session.id })
+    await removeStoredWorktree(session, project)
+
+    const timestamp = now()
+    await repository.update({ ...session, archivedAt: timestamp, updatedAt: timestamp })
+  }
+
   async function deleteStoredSession(
     session: StoredSession,
     project: StoredProject
   ): Promise<void> {
     await closeBrowsersForSession(session)
     await deleteUtilitySession({ sessionId: session.id })
-
-    const worktree = readStoredWorktree(session)
-    if (worktree) {
-      if (!session.projectId || !project) throw new Error('session.worktreeProjectMissing')
-      await worktrees.remove({
-        projectPath: project.path,
-        projectId: session.projectId,
-        sessionId: session.id,
-        worktree
-      })
-    }
+    await removeStoredWorktree(session, project)
 
     await repository.deleteById(session.id)
     if (session.transcriptPath) {
@@ -117,7 +164,22 @@ export function createSessionCleanupService({
     }
   }
 
-  return { deleteSession, deleteProjectSessions }
+  async function removeStoredWorktree(
+    session: StoredSession,
+    project: StoredProject
+  ): Promise<void> {
+    const worktree = readStoredWorktree(session)
+    if (!worktree) return
+    if (!session.projectId || !project) throw new Error('session.worktreeProjectMissing')
+    await worktrees.remove({
+      projectPath: project.path,
+      projectId: session.projectId,
+      sessionId: session.id,
+      worktree
+    })
+  }
+
+  return { archiveSession, deleteSession, deleteProjectSessions }
 }
 
 function readStoredWorktree(session: StoredSession): SessionWorktree | undefined {
