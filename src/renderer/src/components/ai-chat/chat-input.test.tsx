@@ -334,6 +334,69 @@ describe('ChatInput', () => {
     expect(handleThinkingChange).toHaveBeenCalledWith('high')
   })
 
+  it('limits thinking selection to the selected model supported levels', () => {
+    const handleThinkingChange = vi.fn()
+    render(
+      <ChatInput
+        models={[
+          {
+            id: 'limited-reasoning',
+            label: 'Limited Reasoning',
+            supportedThinkingLevels: ['off', 'low']
+          }
+        ]}
+        selectedModelId="limited-reasoning"
+        thinkingLevel="medium"
+        onThinkingChange={handleThinkingChange}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thinking: Low' }))
+
+    expect(handleThinkingChange).toHaveBeenCalledWith('off')
+  })
+
+  it('shows only Off for non-reasoning models', () => {
+    const handleThinkingChange = vi.fn()
+    render(
+      <ChatInput
+        models={[{ id: 'fast', label: 'Fast', supportedThinkingLevels: ['off'] }]}
+        selectedModelId="fast"
+        thinkingLevel="high"
+        onThinkingChange={handleThinkingChange}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thinking: Off' }))
+
+    expect(handleThinkingChange).toHaveBeenCalledWith('off')
+  })
+
+  it('shows Max for max-capable models after X-High', () => {
+    const handleThinkingChange = vi.fn()
+    render(
+      <ChatInput
+        models={[
+          {
+            id: 'max-reasoning',
+            label: 'Max Reasoning',
+            supportedThinkingLevels: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+          }
+        ]}
+        selectedModelId="max-reasoning"
+        thinkingLevel="xhigh"
+        onThinkingChange={handleThinkingChange}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Thinking: X-High' }))
+
+    expect(handleThinkingChange).toHaveBeenCalledWith('max')
+  })
+
   it('selects a model via keyboard when the selector is open', async () => {
     const handleModelChange = vi.fn()
     render(

@@ -42,10 +42,21 @@ import {
 
 export type ChatInputStatus = 'ready' | 'submitted' | 'streaming' | 'error'
 
+const thinkingLevels: readonly AiChatThinkingLevel[] = [
+  'off',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
+]
+
 export type ChatInputModel = {
   id: string
   label: string
   provider?: string
+  supportedThinkingLevels?: AiChatThinkingLevel[]
 }
 
 export type ChatInputSubmit = {
@@ -149,6 +160,10 @@ export function ChatInput({
     [inputValue, isSkillMenuDismissed, skills]
   )
   const selectedSkill = skillSuggestions[Math.min(activeSkillIndex, skillSuggestions.length - 1)]
+  const availableThinkingLevels = selectedModel?.supportedThinkingLevels ?? thinkingLevels
+  const activeThinkingLevel = thinkingLevel
+    ? clampThinkingLevel(thinkingLevel, availableThinkingLevels)
+    : undefined
   const activeKnowledgeBaseMention = getActiveKnowledgeBaseMentionQuery(inputValue)
   const isKnowledgeBaseMentionActive = activeKnowledgeBaseMention !== undefined
   const knowledgeBaseMentionOptions = useMemo(
@@ -448,9 +463,10 @@ export function ChatInput({
                   </ModelSelectorContent>
                 </ModelSelector>
               ) : null}
-              {thinkingLevel && onThinkingChange ? (
+              {activeThinkingLevel && onThinkingChange ? (
                 <ThinkingSelector
-                  value={thinkingLevel}
+                  value={activeThinkingLevel}
+                  availableLevels={availableThinkingLevels}
                   disabled={isRunning}
                   onChange={onThinkingChange}
                 />
@@ -528,4 +544,27 @@ function getSkillCommandQuery(value: string): string | null {
   if (normalizedCommand.startsWith('skill:')) return command.slice('skill:'.length)
 
   return command
+}
+
+function clampThinkingLevel(
+  requestedLevel: AiChatThinkingLevel,
+  availableLevels: readonly AiChatThinkingLevel[]
+): AiChatThinkingLevel {
+  const levels = availableLevels.length > 0 ? availableLevels : thinkingLevels
+  if (levels.includes(requestedLevel)) return requestedLevel
+
+  const requestedIndex = thinkingLevels.indexOf(requestedLevel)
+  if (requestedIndex === -1) return levels[0]
+
+  for (let index = requestedIndex; index < thinkingLevels.length; index += 1) {
+    const candidate = thinkingLevels[index]
+    if (levels.includes(candidate)) return candidate
+  }
+
+  for (let index = requestedIndex - 1; index >= 0; index -= 1) {
+    const candidate = thinkingLevels[index]
+    if (levels.includes(candidate)) return candidate
+  }
+
+  return levels[0]
 }

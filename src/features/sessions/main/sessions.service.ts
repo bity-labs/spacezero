@@ -110,7 +110,12 @@ export type SessionsService = {
   ) => Promise<WorkspaceSession>
   archiveSession: (sessionId: string) => Promise<void>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
-  updateAgentModel: (sessionId: string, provider: string, modelId: string) => Promise<void>
+  updateAgentModel: (
+    sessionId: string,
+    provider: string,
+    modelId: string,
+    thinkingLevel?: ThinkingLevel
+  ) => Promise<void>
   updateAgentThinkingLevel: (sessionId: string, level: ThinkingLevel) => Promise<void>
 }
 
@@ -250,13 +255,14 @@ export function createSessionsService({
       return sessions
     },
 
-    async updateAgentModel(sessionId, provider, modelId) {
+    async updateAgentModel(sessionId, provider, modelId, thinkingLevel) {
       const session = await repository.findSessionById(sessionId.trim())
       if (!session) throw new Error('Session not found')
       await repository.update({
         ...session,
         modelProvider: provider,
         modelId,
+        ...(thinkingLevel ? { thinkingLevel } : {}),
         updatedAt: now()
       })
     },

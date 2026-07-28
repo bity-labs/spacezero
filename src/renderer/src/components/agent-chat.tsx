@@ -299,7 +299,8 @@ function toChatInputModel(model: AvailableModel): ChatInputModel {
   return {
     id: encodeModelId(model.providerId, model.modelId),
     label: model.modelLabel,
-    provider: model.providerId
+    provider: model.providerId,
+    supportedThinkingLevels: model.supportedThinkingLevels as AiChatThinkingLevel[] | undefined
   }
 }
 

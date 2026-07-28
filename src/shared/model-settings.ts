@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 import { providerIdSchema } from './model-auth'
 
-export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export const THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
 
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 
@@ -40,6 +40,7 @@ export type AvailableModel = {
   description?: string
   contextWindow?: number
   supportsThinking?: boolean
+  supportedThinkingLevels?: ThinkingLevel[]
 }
 
 export const thinkingLevelSchema = z.enum(THINKING_LEVELS)
