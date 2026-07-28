@@ -10,8 +10,11 @@ export function OnboardingGate({ children }: { children: React.ReactNode }): Rea
   async function loadStatus(): Promise<void> {
     setError(false)
     try {
-      const status = await window.spacezero.onboarding.getStatus()
-      setCompleted(status.completed)
+      const [status, activation] = await Promise.all([
+        window.spacezero.onboarding.getStatus(),
+        window.spacezero.licenseActivation.getStatus()
+      ])
+      setCompleted(status.completed && activation.canEnterWorkspace)
     } catch {
       setError(true)
     }

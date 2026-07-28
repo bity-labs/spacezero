@@ -27,7 +27,8 @@ describe('App', () => {
     const firstLaunch = render(<App />)
 
     expect(await screen.findByRole('main', { name: 'Space Zero onboarding' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Get started' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
 
     firstLaunch.unmount()
@@ -108,7 +109,7 @@ describe('App', () => {
 
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Connect GitHub' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Get started' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Set up a Project' }))
     fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Open Project' }))

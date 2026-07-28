@@ -31,6 +31,7 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   type KnowledgeBaseAPI
 } from '../features/knowledge-base/shared/knowledge-base.contract'
+import type { LicenseActivationAPI } from '../features/license-activation/shared'
 import { FILES_IPC_CHANNELS, type FilesAPI } from '../features/files/shared/files.contract'
 import { GIT_IPC_CHANNELS, type GitAPI } from '../features/git/shared/git.contract'
 import type { OnboardingStatus } from '../features/onboarding/shared/onboarding.model'
@@ -109,6 +110,10 @@ export const IPC_CHANNELS = {
   files: FILES_IPC_CHANNELS,
   git: GIT_IPC_CHANNELS,
   knowledgeBase: KNOWLEDGE_BASE_IPC_CHANNELS,
+  licenseActivation: {
+    getStatus: 'licenseActivation:getStatus',
+    activate: 'licenseActivation:activate'
+  },
   onboarding: {
     getStatus: 'onboarding:getStatus',
     complete: 'onboarding:complete'
@@ -240,6 +245,7 @@ export type SpaceZeroAPI = {
   files: FilesAPI
   git: GitAPI
   knowledgeBase: KnowledgeBaseAPI
+  licenseActivation: LicenseActivationAPI
   onboarding: {
     getStatus: () => Promise<OnboardingStatus>
     complete: () => Promise<OnboardingStatus>

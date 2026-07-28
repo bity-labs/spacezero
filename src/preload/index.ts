@@ -59,6 +59,10 @@ const api: SpaceZeroAPI = {
     loadImage: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.loadImage, request),
     openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.openFolder)
   },
+  licenseActivation: {
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.licenseActivation.getStatus),
+    activate: (request) => ipcRenderer.invoke(IPC_CHANNELS.licenseActivation.activate, request)
+  },
   onboarding: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.getStatus),
     complete: () => ipcRenderer.invoke(IPC_CHANNELS.onboarding.complete)
