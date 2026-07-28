@@ -76,13 +76,14 @@ export type BrowserContextRepository = {
 }
 
 export type BrowserFaviconLoader = {
-  load: (faviconUrls: string[]) => Promise<string | null>
+  load: (faviconUrls: string[], options?: { signal?: AbortSignal }) => Promise<string | null>
 }
 
 type BrowserRuntimeTab = BrowserTab & {
   restoredUrl: string | null
   hasLoadedRestoredUrl: boolean
   faviconLoadSequence: number
+  faviconLoadAbortController: AbortController | null
 }
 
 type BrowserContextState = {
@@ -245,6 +246,7 @@ export class BrowserService {
     const closingIndex = context.tabs.findIndex((candidate) => candidate.id === request.tabId)
     const tab = context.tabs[closingIndex]
     if (tab) {
+      tab.faviconLoadAbortController?.abort()
       this.adapter.destroyView(tab.id)
       context.tabs = context.tabs.filter((candidate) => candidate.id !== request.tabId)
       if (context.activeTabId === request.tabId) {
@@ -410,15 +412,25 @@ export class BrowserService {
   async markFaviconChanged(tabId: string, faviconUrls: string[]): Promise<void> {
     const found = this.findTabWithContext(tabId)
     if (!found) return
+    found.tab.faviconLoadAbortController?.abort()
+    const abortController = new AbortController()
+    found.tab.faviconLoadAbortController = abortController
     const faviconLoadSequence = ++found.tab.faviconLoadSequence
     found.tab.faviconUrl = null
     this.publishState(found.context)
 
     const faviconUrl = this.faviconLoader
-      ? await this.faviconLoader.load(faviconUrls)
+      ? await this.faviconLoader.load(faviconUrls, { signal: abortController.signal })
       : (faviconUrls[0] ?? null)
     const current = this.findTabWithContext(tabId)
-    if (!current || current.tab.faviconLoadSequence !== faviconLoadSequence) return
+    if (
+      !current ||
+      current.tab.faviconLoadSequence !== faviconLoadSequence ||
+      current.tab.faviconLoadAbortController !== abortController
+    ) {
+      return
+    }
+    current.tab.faviconLoadAbortController = null
     current.tab.faviconUrl = faviconUrl
     this.publishState(current.context)
   }
@@ -539,7 +551,8 @@ export class BrowserService {
       error: null,
       restoredUrl: url,
       hasLoadedRestoredUrl,
-      faviconLoadSequence: 0
+      faviconLoadSequence: 0,
+      faviconLoadAbortController: null
     }
     this.adapter.createView(tab.id, {
       partition: BROWSER_PARTITION,
@@ -551,7 +564,10 @@ export class BrowserService {
   private closeContextKey(contextKey: string): void {
     const state = this.contexts.get(contextKey)
     if (!state) return
-    for (const tab of state.tabs) this.adapter.destroyView(tab.id)
+    for (const tab of state.tabs) {
+      tab.faviconLoadAbortController?.abort()
+      this.adapter.destroyView(tab.id)
+    }
     this.contexts.delete(contextKey)
   }
 
@@ -776,6 +792,8 @@ function fallbackTitleForUrl(url: string | null): string | null {
 }
 
 function clearPageMetadata(tab: BrowserRuntimeTab): void {
+  tab.faviconLoadAbortController?.abort()
+  tab.faviconLoadAbortController = null
   tab.title = null
   tab.faviconUrl = null
   tab.faviconLoadSequence += 1

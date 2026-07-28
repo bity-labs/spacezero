@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createBrowserFaviconLoader, type BrowserFaviconFetch } from './browser-favicon-loader'
+import {
+  createBrowserFaviconLoader,
+  MAX_FAVICON_CANDIDATES,
+  type BrowserFaviconFetch
+} from './browser-favicon-loader'
 
 function makeResponse(body: string, contentType: string, ok = true): Pick<Response, 'body' | 'headers' | 'ok'> {
   return new Response(body, {
@@ -45,6 +49,23 @@ describe('createBrowserFaviconLoader', () => {
     ).resolves.toBeNull()
   })
 
+  it('limits candidate fetch chains before trying attacker-controlled favicon URLs without bound', async () => {
+    const fetchFavicon = vi.fn<BrowserFaviconFetch>(async () => makeResponse('not found', 'text/plain', false))
+    const loader = createBrowserFaviconLoader(fetchFavicon)
+    const faviconUrls = Array.from(
+      { length: MAX_FAVICON_CANDIDATES + 20 },
+      (_, index) => `https://example.com/favicon-${index}.png`
+    )
+
+    await expect(loader.load(faviconUrls)).resolves.toBeNull()
+
+    expect(fetchFavicon).toHaveBeenCalledTimes(MAX_FAVICON_CANDIDATES)
+    expect(fetchFavicon).not.toHaveBeenCalledWith(
+      `https://example.com/favicon-${MAX_FAVICON_CANDIDATES}.png`,
+      expect.anything()
+    )
+  })
+
   it('cancels streamed favicon responses when they exceed the byte ceiling', async () => {
     let cancelCalled = false
     const chunk: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(64 * 1024))
@@ -70,6 +91,24 @@ describe('createBrowserFaviconLoader', () => {
 
     expect(cancelCalled).toBe(true)
     expect(fetchFavicon.mock.calls[0]?.[1].signal).toMatchObject({ aborted: true })
+  })
+
+  it('stops candidate work when the caller aborts a superseded load', async () => {
+    const abortController = new AbortController()
+    const fetchFavicon = vi.fn<BrowserFaviconFetch>(async (_url, init) => {
+      if (init.signal?.aborted) throw new Error('superseded')
+      return makeResponse('not found', 'text/plain', false)
+    })
+    const loader = createBrowserFaviconLoader(fetchFavicon)
+    abortController.abort()
+
+    await expect(
+      loader.load(['https://example.com/one.png', 'https://example.com/two.png'], {
+        signal: abortController.signal
+      })
+    ).resolves.toBeNull()
+
+    expect(fetchFavicon).not.toHaveBeenCalled()
   })
 
   it('passes through supported data image favicons without network access', async () => {
