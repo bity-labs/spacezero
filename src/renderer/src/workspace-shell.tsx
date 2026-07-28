@@ -1,4 +1,11 @@
-import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent
+} from 'react'
 import {
   BookOpenText,
   DotsSixVertical,
@@ -43,9 +50,13 @@ import {
   createKnowledgeBaseToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration,
   createWorkspaceSessionToolPaneConfiguration,
+  getRenderedToolPaneWidth,
+  ToolPaneHeaderControls,
+  TOOL_PANE_COLLAPSED_HEADER_WIDTH,
+  TOOL_PANE_HANDLE_WIDTH,
   ToolPaneShell,
-  ToolPaneToggleButton,
   useToolPaneController,
+  useToolPaneStore,
   type ToolPaneConfiguration
 } from '../../features/tool-pane/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
@@ -72,6 +83,8 @@ const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-tool-pane', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
+const RESIZE_HANDLE_WIDTH = TOOL_PANE_HANDLE_WIDTH
+
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
   const leftPanelWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
@@ -91,6 +104,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const [isKnowledgeBaseConfigured, setKnowledgeBaseConfigured] = useState(false)
   const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [sidebarSessionError, setSidebarSessionError] = useState<string | null>(null)
   const [projectHomeRequest, setProjectHomeRequest] = useState<
@@ -150,6 +164,16 @@ export function WorkspaceShell(): React.JSX.Element {
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
+  useLayoutEffect(() => {
+    function updateWindowWidth(): void {
+      setWindowWidth(window.innerWidth)
+    }
+
+    window.addEventListener('resize', updateWindowWidth)
+    updateWindowWidth()
+    return () => window.removeEventListener('resize', updateWindowWidth)
+  }, [])
+
   const toolPaneConfiguration = useMemo<ToolPaneConfiguration | null>(() => {
     if (activePrimaryView === 'knowledge-base') {
       return isKnowledgeBaseConfigured ? createKnowledgeBaseToolPaneConfiguration() : null
@@ -163,6 +187,9 @@ export function WorkspaceShell(): React.JSX.Element {
     return null
   }, [activePrimaryView, activeProjectSession, activeWorkspaceSession, isKnowledgeBaseConfigured])
   const toolPaneController = useToolPaneController(toolPaneConfiguration)
+  const savedToolPaneWidth = useToolPaneStore((state) =>
+    toolPaneConfiguration ? state.contexts[toolPaneConfiguration.contextKey]?.width : null
+  )
 
   const runInWorkspaceView = useCallback((action: () => void | Promise<void>): void => {
     setActivePrimaryView('workspace')
@@ -332,10 +359,17 @@ export function WorkspaceShell(): React.JSX.Element {
     .filter(Boolean)
     .join(' ')
 
+  const toolPaneContainerWidth = Math.max(
+    0,
+    windowWidth - (isLeftPanelOpen ? leftPanelWidth + RESIZE_HANDLE_WIDTH : 0)
+  )
+  const toolPaneHeaderWidth = toolPaneController.isOpen
+    ? `${getRenderedToolPaneWidth(toolPaneContainerWidth, savedToolPaneWidth)}px`
+    : `${TOOL_PANE_COLLAPSED_HEADER_WIDTH}px`
   const titlebarGridTemplateColumns = [
     isLeftPanelOpen ? `${leftPanelWidth}px` : 'minmax(0, 1fr)',
     'minmax(0, 1fr)',
-    '48px'
+    toolPaneHeaderWidth
   ].join(' ')
 
   return (
@@ -386,8 +420,8 @@ export function WorkspaceShell(): React.JSX.Element {
           />
         </div>
 
-        <div className="flex h-full w-full items-center justify-end px-2">
-          <ToolPaneToggleButton configuration={toolPaneConfiguration} />
+        <div className="flex h-full w-full min-w-0 items-center px-2">
+          <ToolPaneHeaderControls configuration={toolPaneConfiguration} />
         </div>
       </header>
 
@@ -541,7 +575,7 @@ export function WorkspaceShell(): React.JSX.Element {
           ) : null}
           {activePrimaryView === 'knowledge-base' ? (
             toolPaneConfiguration ? (
-              <ToolPaneShell {...toolPaneConfiguration}>
+              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
                 <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
               </ToolPaneShell>
             ) : (
@@ -549,7 +583,7 @@ export function WorkspaceShell(): React.JSX.Element {
             )
           ) : activeTab ? (
             toolPaneConfiguration ? (
-              <ToolPaneShell {...toolPaneConfiguration}>
+              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
                 <SessionWorkspaceTabSurface
                   tab={activeTab}
                   projects={projects}
