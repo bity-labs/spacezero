@@ -155,7 +155,8 @@ describe('BrowserTool', () => {
 
     const input = await screen.findByLabelText('Browser URL')
     await waitFor(() => expect(input).toHaveFocus())
-    expect(screen.getByText('Enter a URL or search terms to open a secure Browser page.')).toBeInTheDocument()
+    expect(screen.queryByText('Enter a URL or search terms to open a secure Browser page.')).not.toBeInTheDocument()
+    expect(input).toHaveAttribute('placeholder', 'Enter a URL or search terms')
 
     await user.type(input, 'localhost:4173')
     await user.click(screen.getByRole('button', { name: 'Go' }))
@@ -599,8 +600,8 @@ describe('BrowserTool', () => {
     await user.click(await screen.findByRole('button', { name: /Close example.com/ }))
 
     expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
-    expect(await screen.findByText('Enter a URL or search terms to open a secure Browser page.')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Browser URL')).toHaveFocus())
+    expect(screen.queryByText('Enter a URL or search terms to open a secure Browser page.')).not.toBeInTheDocument()
   })
 
   it('runs focus-scoped mod+t and mod+w through stable Browser command identities', async () => {
