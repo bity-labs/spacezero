@@ -408,12 +408,17 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
       if (idToClose === terminalId && nextActive) {
         await window.spacezero.terminal.selectTab({ terminalId: nextActive, context: terminalContext })
       }
-      await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
+      const closeSnapshot = await window.spacezero.terminal.close({
+        terminalId: idToClose,
+        context: terminalContext
+      })
       setTabs((currentTabs) => {
-        const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
-        if (idToClose === terminalId && nextActive) focusActiveTerminalAfterCloseRef.current = true
-        updateActiveTerminal(nextActive)
-        setStatus(nextActive ? 'running' : 'empty')
+        const nextTabs =
+          closeSnapshot?.tabs ?? currentTabs.filter((tab) => tab.terminalId !== idToClose)
+        const nextActiveId = closeSnapshot?.activeTerminalId ?? nextActive
+        if (idToClose === terminalId && nextActiveId) focusActiveTerminalAfterCloseRef.current = true
+        updateActiveTerminal(nextActiveId)
+        setStatus(nextActiveId ? 'running' : 'empty')
         return nextTabs
       })
     },

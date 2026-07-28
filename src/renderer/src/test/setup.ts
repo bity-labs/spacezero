@@ -456,7 +456,7 @@ beforeEach(async () => {
       unsubscribe: async () => undefined,
       writeInput: async () => undefined,
       resize: async () => undefined,
-      close: async () => undefined,
+      close: async () => ({ tabs: [], activeTerminalId: null }),
       onEvent: () => () => undefined
     },
     update: {
