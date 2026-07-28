@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Key, RocketLaunch } from '@phosphor-icons/react'
 
 import type { LicenseActivationStatus } from '../../license-activation/shared'
+import type { OnboardingStatus } from '../shared'
 import { AccountSettings, RepositorySetup } from '../../github/renderer'
 import { requestProjectOpen } from '../../projects/renderer/project-open-request'
 import { Button } from '@renderer/components/ui/button'
@@ -10,9 +11,15 @@ import { Input } from '@renderer/components/ui/input'
 
 type OnboardingStep = 'welcome' | 'activation' | 'connection' | 'project-offer' | 'project-setup'
 
-export function Onboarding({ onComplete }: { onComplete: () => void }): React.JSX.Element {
-  const [step, setStep] = useState<OnboardingStep>('welcome')
-  const [activation, setActivation] = useState<LicenseActivationStatus | null>(null)
+export function Onboarding({
+  initialActivationStatus,
+  onComplete
+}: {
+  initialActivationStatus?: LicenseActivationStatus
+  onComplete: (status: OnboardingStatus) => void
+}): React.JSX.Element {
+  const [step, setStep] = useState<OnboardingStep>(initialActivationStatus ? 'activation' : 'welcome')
+  const [activation, setActivation] = useState<LicenseActivationStatus | null>(initialActivationStatus ?? null)
   const [licenseKey, setLicenseKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
@@ -20,6 +27,8 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
   const [isProjectSetupBusy, setIsProjectSetupBusy] = useState(false)
 
   useEffect(() => {
+    if (initialActivationStatus) return
+
     async function loadActivation(): Promise<void> {
       try {
         setActivation(await window.spacezero.licenseActivation.getStatus())
@@ -28,15 +37,15 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
       }
     }
     void loadActivation()
-  }, [])
+  }, [initialActivationStatus])
 
   async function finish(projectId?: string): Promise<void> {
     setIsFinishing(true)
     setError(null)
     try {
-      await window.spacezero.onboarding.complete()
+      const status = await window.spacezero.onboarding.complete()
       if (projectId) requestProjectOpen(projectId)
-      onComplete()
+      onComplete(status)
     } catch {
       setError('Activate Space Zero before completing onboarding.')
     } finally {

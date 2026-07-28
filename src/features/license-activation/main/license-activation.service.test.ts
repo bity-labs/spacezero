@@ -74,6 +74,50 @@ describe('license activation service', () => {
     expect(backend.checkStatus).toHaveBeenCalledWith({ licenseKey: 'license-key', appVersion })
   })
 
+  it('maps backend license and version policy states to workspace access decisions', async () => {
+    const cases: Array<{
+      name: string
+      response: LicenseBackendStatusResponse
+      expected: Partial<{ state: string; canEnterWorkspace: boolean; renewalUrl: string; updateUrl: string }>
+    }> = [
+      {
+        name: 'supported active license',
+        response: activeResponse,
+        expected: { state: 'active', canEnterWorkspace: true }
+      },
+      {
+        name: 'invalid license',
+        response: { ...activeResponse, licenseState: 'invalid', renewalUrl: 'https://spacezero.dev/reactivate' },
+        expected: { state: 'invalid', canEnterWorkspace: false, renewalUrl: 'https://spacezero.dev/reactivate' }
+      },
+      {
+        name: 'expired license',
+        response: { ...activeResponse, licenseState: 'expired', renewalUrl: 'https://spacezero.dev/renew' },
+        expected: { state: 'expired', canEnterWorkspace: false, renewalUrl: 'https://spacezero.dev/renew' }
+      },
+      {
+        name: 'revoked license',
+        response: { ...activeResponse, licenseState: 'revoked', renewalUrl: 'https://spacezero.dev/reactivate' },
+        expected: { state: 'revoked', canEnterWorkspace: false, renewalUrl: 'https://spacezero.dev/reactivate' }
+      },
+      {
+        name: 'unsupported app version',
+        response: { ...activeResponse, versionSupported: false, updateUrl: 'https://spacezero.dev/download' },
+        expected: { state: 'unsupported-version', canEnterWorkspace: false, updateUrl: 'https://spacezero.dev/download' }
+      }
+    ]
+
+    for (const testCase of cases) {
+      const service = createLicenseActivationService({
+        backend: { checkStatus: async () => testCase.response },
+        config: { mode: 'required', appVersion, now: () => new Date('2026-01-01T00:00:00.000Z') },
+        store: createStore()
+      })
+
+      await expect(service.activate({ licenseKey: `${testCase.name}-key` })).resolves.toMatchObject(testCase.expected)
+    }
+  })
+
   it('rejects failed backend activation without allowing workspace entry', async () => {
     const service = createLicenseActivationService({
       backend: {

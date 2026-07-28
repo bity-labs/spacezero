@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import type { LicenseActivationStatus } from '../../license-activation/shared'
+import type { OnboardingStatus } from '../shared'
 import { Onboarding } from './onboarding'
 import { Button } from '@renderer/components/ui/button'
 
@@ -9,19 +10,23 @@ const MIN_ACTIVATION_RECHECK_DELAY_MS = 1000
 export function OnboardingGate({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [completed, setCompleted] = useState<boolean | null>(null)
   const [error, setError] = useState(false)
+  const [blockedActivation, setBlockedActivation] = useState<LicenseActivationStatus | null>(null)
   const [nextActivationCheckAt, setNextActivationCheckAt] = useState<number | null>(null)
 
-  async function loadStatus(): Promise<void> {
+  async function loadStatus(knownStatus?: OnboardingStatus): Promise<void> {
     setError(false)
     try {
       const [status, activation] = await Promise.all([
-        window.spacezero.onboarding.getStatus(),
+        knownStatus ?? window.spacezero.onboarding.getStatus(),
         window.spacezero.licenseActivation.getStatus()
       ])
-      setCompleted(status.completed && activation.canEnterWorkspace)
+      const canShowWorkspace = status.completed && activation.canEnterWorkspace
+      setCompleted(canShowWorkspace)
+      setBlockedActivation(status.completed && !activation.canEnterWorkspace ? activation : null)
       setNextActivationCheckAt(nextRecheckTime(status.completed, activation))
     } catch {
       setError(true)
+      setBlockedActivation(null)
       setNextActivationCheckAt(null)
     }
   }
@@ -67,7 +72,9 @@ export function OnboardingGate({ children }: { children: React.ReactNode }): Rea
     return <main className="min-h-screen bg-background" aria-label="Loading Space Zero" />
   }
 
-  if (!completed) return <Onboarding onComplete={() => setCompleted(true)} />
+  if (!completed) {
+    return <Onboarding initialActivationStatus={blockedActivation ?? undefined} onComplete={(status) => void loadStatus(status)} />
+  }
   return <>{children}</>
 }
 
