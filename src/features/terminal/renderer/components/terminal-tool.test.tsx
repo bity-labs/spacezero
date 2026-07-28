@@ -1111,6 +1111,72 @@ describe('TerminalTool', () => {
     expect(writeInput).not.toHaveBeenCalled()
   })
 
+  it.each([
+    {
+      name: 'first',
+      initialActiveTerminalId: 'terminal-1',
+      expectedSequentialCloses: ['terminal-1', 'terminal-2']
+    },
+    {
+      name: 'middle',
+      initialActiveTerminalId: 'terminal-2',
+      expectedSequentialCloses: ['terminal-2', 'terminal-3']
+    },
+    {
+      name: 'last',
+      initialActiveTerminalId: 'terminal-3',
+      expectedSequentialCloses: ['terminal-3', 'terminal-2']
+    }
+  ])(
+    'focuses the next Terminal after closing the active $name tab so repeated mod+w closes tabs sequentially',
+    async ({ initialActiveTerminalId, expectedSequentialCloses }) => {
+      const user = userEvent.setup()
+      const tabs = [
+        { terminalId: 'terminal-1', title: 'one' },
+        { terminalId: 'terminal-2', title: 'two' },
+        { terminalId: 'terminal-3', title: 'three' }
+      ]
+      window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+        confirmBeforeClosingLiveTerminals: false
+      }))
+      const close = vi.fn(async () => undefined)
+      window.spacezero.terminal = {
+        ...terminalApiDefaults,
+        create: vi.fn(async () => ({
+          status: 'running' as const,
+          terminalId: initialActiveTerminalId,
+          tabs,
+          activeTerminalId: initialActiveTerminalId
+        })),
+        subscribe: vi.fn(async ({ terminalId }) => ({
+          terminalId,
+          events: [],
+          oldestSequence: 1,
+          nextSequence: 1
+        })),
+        unsubscribe: vi.fn(async () => undefined),
+        writeInput: vi.fn(async () => undefined),
+        resize: vi.fn(async () => undefined),
+        close,
+        onEvent: vi.fn(() => () => undefined)
+      }
+
+      render(<TerminalTool context={context} />)
+
+      await waitFor(() => expect(lastTerminal?.getInputElement()).toBeTruthy())
+      await user.click(lastTerminal!.getInputElement()!)
+      await user.keyboard('{Control>}w{/Control}')
+
+      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[0], context }))
+      await waitFor(() => expect(lastTerminal?.focus).toHaveBeenCalled())
+      await user.keyboard('{Control>}w{/Control}')
+
+      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[1], context }))
+      expect(close).toHaveBeenCalledTimes(2)
+      expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
+    }
+  )
+
   it('clears Terminal shortcut focus when the Terminal Tool unmounts without a blur', async () => {
     const user = userEvent.setup()
     const create = vi.fn(async () => ({
@@ -1591,8 +1657,14 @@ class FakeXTerm {
     )
     container.appendChild(this.inputElement)
   })
+  readonly focus = vi.fn(() => {
+    this.inputElement?.focus()
+  })
   readonly loadAddon = vi.fn()
-  readonly dispose = vi.fn()
+  readonly dispose = vi.fn(() => {
+    this.inputElement?.remove()
+    this.inputElement = null
+  })
   readonly scrollToLine = vi.fn((line: number) => {
     this.buffer.active.viewportY = line
   })
