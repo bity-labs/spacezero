@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { resetToolPaneStore, useToolPaneStore } from './tool-pane-store'
 import {
+  ToolPaneHeaderControls,
   ToolPaneShell,
   ToolPaneToggleButton,
   type ToolDescriptor,
@@ -54,47 +55,58 @@ describe('ToolPaneShell', () => {
     expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
   })
 
-  it('opens the selected tool and moves the Tool Switcher into the Tool Pane header', async () => {
+  it('opens the selected tool and renders the expanded Tool Switcher in the shared header controls', async () => {
     const user = userEvent.setup()
 
     render(
-      <ToolPaneShell
-        contextKey="workspace-session:session-1"
-        capabilities={{ kind: 'workspace-session', sessionId: 'session-1' }}
-        defaultToolId="browser"
-        tools={tools}
-      >
-        <div>Chat</div>
-      </ToolPaneShell>
+      <>
+        <ToolPaneHeaderControls configuration={configuration} />
+        <ToolPaneShell
+          contextKey="workspace-session:session-1"
+          capabilities={{ kind: 'workspace-session', sessionId: 'session-1' }}
+          defaultToolId="browser"
+          tools={tools}
+          showInlineHeaderSwitcher={false}
+        >
+          <div>Chat</div>
+        </ToolPaneShell>
+      </>
     )
 
     await user.click(screen.getByRole('button', { name: 'Browser' }))
 
-    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toHaveTextContent(
-      'Browser for workspace-session:session-1'
-    )
-    expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
-      'aria-orientation',
-      'horizontal'
-    )
+    const pane = screen.getByRole('complementary', { name: 'Tool Pane' })
+    const headerControls = screen.getByLabelText('Tool Pane header controls')
+    const switcher = screen.getByRole('toolbar', { name: 'Tool Switcher' })
+    const toggle = screen.getByRole('button', { name: 'Toggle Tool Pane' })
+
+    expect(pane).toHaveTextContent('Browser for workspace-session:session-1')
+    expect(switcher).toHaveAttribute('aria-orientation', 'horizontal')
+    expect(headerControls).toContainElement(switcher)
+    expect(headerControls).toContainElement(toggle)
+    expect(pane).not.toContainElement(switcher)
   })
 
-  it('collapses from the expanded Tool Switcher', async () => {
+  it('collapses from the shared header toggle', async () => {
     const user = userEvent.setup()
 
     render(
-      <ToolPaneShell
-        contextKey="workspace-session:session-1"
-        capabilities={{ kind: 'workspace-session', sessionId: 'session-1' }}
-        defaultToolId="browser"
-        tools={tools}
-      >
-        <div>Chat</div>
-      </ToolPaneShell>
+      <>
+        <ToolPaneHeaderControls configuration={configuration} />
+        <ToolPaneShell
+          contextKey="workspace-session:session-1"
+          capabilities={{ kind: 'workspace-session', sessionId: 'session-1' }}
+          defaultToolId="browser"
+          tools={tools}
+          showInlineHeaderSwitcher={false}
+        >
+          <div>Chat</div>
+        </ToolPaneShell>
+      </>
     )
 
     await user.click(screen.getByRole('button', { name: 'Browser' }))
-    await user.click(screen.getByRole('button', { name: 'Collapse Tool Pane' }))
+    await user.click(screen.getByRole('button', { name: 'Toggle Tool Pane' }))
 
     expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
     expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
@@ -139,13 +151,28 @@ describe('ToolPaneShell', () => {
     expect(useToolPaneStore.getState().contexts['workspace-session:session-1']?.width).toBe(618)
   })
 
-  it('uses the same shell state from the top-right toggle and collapse action', async () => {
+  it('uses the same shell state from the top-right toggle and header Tool Switcher', async () => {
     const user = userEvent.setup()
+    const switchableTools: readonly ToolDescriptor[] = [
+      {
+        id: 'files',
+        label: 'Files',
+        available: true,
+        icon: () => null,
+        render: () => <div>Files content</div>
+      },
+      ...tools
+    ]
+    const switchableConfiguration = {
+      ...configuration,
+      defaultToolId: 'files' as const,
+      tools: switchableTools
+    }
 
     render(
       <>
-        <ToolPaneToggleButton configuration={configuration} />
-        <ToolPaneShell {...configuration}>
+        <ToolPaneHeaderControls configuration={switchableConfiguration} />
+        <ToolPaneShell {...switchableConfiguration} showInlineHeaderSwitcher={false}>
           <div>Chat</div>
         </ToolPaneShell>
       </>
@@ -158,7 +185,11 @@ describe('ToolPaneShell', () => {
     expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
     expect(toggle).toHaveAttribute('aria-pressed', 'true')
 
-    await user.click(screen.getByRole('button', { name: 'Collapse Tool Pane' }))
+    await user.click(screen.getByRole('button', { name: 'Browser' }))
+    expect(screen.queryByText('Files content')).not.toBeInTheDocument()
+    expect(screen.getByText('Browser for workspace-session:session-1')).toBeInTheDocument()
+
+    await user.click(toggle)
     expect(toggle).toHaveAttribute('aria-pressed', 'false')
   })
 
