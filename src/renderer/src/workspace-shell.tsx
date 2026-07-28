@@ -526,7 +526,9 @@ export function WorkspaceShell(): React.JSX.Element {
                     status={workspaceSessionsStatus}
                     error={workspaceSessionsError}
                     onSelectSession={openWorkspaceSession}
-                    onRenameSession={(session, title) => handleRenameWorkspaceSession(session, title)}
+                    onRenameSession={(session, title) =>
+                      handleRenameWorkspaceSession(session, title)
+                    }
                     onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
                     onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
                   />
@@ -629,11 +631,6 @@ export function WorkspaceShell(): React.JSX.Element {
               <AlertDescription>{projectsWarning}</AlertDescription>
             </Alert>
           ) : null}
-          {sidebarSessionError ? (
-            <Alert className="m-4 mb-0 w-auto" variant="destructive">
-              <AlertDescription>{sidebarSessionError}</AlertDescription>
-            </Alert>
-          ) : null}
           {activePrimaryView === 'knowledge-base' ? (
             toolPaneConfiguration ? (
               <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
@@ -677,6 +674,15 @@ export function WorkspaceShell(): React.JSX.Element {
           )}
         </section>
       </div>
+      {sidebarSessionError ? (
+        <div
+          aria-label="Session rename error"
+          className="titlebar-control fixed bottom-4 right-4 z-50 max-w-sm rounded-md border border-destructive/40 bg-destructive px-4 py-3 text-sm text-destructive-foreground shadow-lg"
+          role="alert"
+        >
+          {sidebarSessionError}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -775,6 +781,7 @@ function WorkspaceBreadcrumb({
                 <DropdownMenuTrigger
                   className="titlebar-control inline-flex items-center gap-1 rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   aria-label="Switch Project Session"
+                  data-session-switch-target="true"
                 >
                   <span>{projectSession.title}</span>
                   <CaretDown className="h-3 w-3" aria-hidden="true" />
@@ -789,6 +796,7 @@ function WorkspaceBreadcrumb({
                       <DropdownMenuItem
                         key={session.id}
                         aria-current={isActive ? 'page' : undefined}
+                        data-session-switch-target="true"
                         onClick={() => {
                           if (!isActive) onSelectProjectSession(session)
                         }}
@@ -805,6 +813,7 @@ function WorkspaceBreadcrumb({
                 </DropdownMenuContent>
               </DropdownMenu>
               <InlineSessionTitleEditor
+                key={projectSession.id}
                 title={projectSession.title}
                 label="Rename Project Session"
                 onSave={onRenameSession}
@@ -833,6 +842,7 @@ function WorkspaceBreadcrumb({
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               <InlineSessionTitleEditor
+                key={workspaceSession.id}
                 title={workspaceSession.title}
                 label="Rename Workspace Session"
                 onSave={onRenameSession}
@@ -844,6 +854,8 @@ function WorkspaceBreadcrumb({
     </Breadcrumb>
   )
 }
+
+const SESSION_SWITCH_TARGET_SELECTOR = '[data-session-switch-target="true"]'
 
 function InlineSessionTitleEditor({
   title,
@@ -904,6 +916,13 @@ function InlineSessionTitleEditor({
     if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.cancelRename) {
       return
     }
+    if (
+      event.relatedTarget instanceof HTMLElement &&
+      event.relatedTarget.closest(SESSION_SWITCH_TARGET_SELECTOR)
+    ) {
+      cancelEditing()
+      return
+    }
     void saveDraft()
   }
 
@@ -929,7 +948,11 @@ function InlineSessionTitleEditor({
             }
           }}
         />
-        {error ? <span className="sr-only" role="alert">{error}</span> : null}
+        {error ? (
+          <span className="sr-only" role="alert">
+            {error}
+          </span>
+        ) : null}
       </span>
     )
   }

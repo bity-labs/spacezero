@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { BrowserClearDataResult } from '../../features/browser/shared'
@@ -286,7 +287,12 @@ describe('App', () => {
     }
     window.spacezero.sessions.listWorkspaceSessions = async () => [storedSession]
     window.spacezero.sessions.rename = async ({ sessionId, title }) => {
-      storedSession = { ...storedSession, id: sessionId, title, updatedAt: new Date(1).toISOString() }
+      storedSession = {
+        ...storedSession,
+        id: sessionId,
+        title,
+        updatedAt: new Date(1).toISOString()
+      }
       return storedSession
     }
 
@@ -306,6 +312,134 @@ describe('App', () => {
       )
     )
     expect(screen.getByRole('button', { name: /Breadcrumb Rename/ })).toBeInTheDocument()
+  })
+
+  it('shows failed active Session rename errors as a bottom-right toast without replacing main content', async () => {
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.rename = async () => {
+      throw new Error('Rename failed')
+    }
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
+      target: { value: 'Broken Rename' }
+    })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
+      key: 'Enter'
+    })
+
+    const toast = await screen.findByRole('alert', {
+      name: 'Session rename error'
+    })
+    expect(toast).toHaveTextContent('Unable to rename Session. Check the title and try again.')
+    expect(toast).toHaveClass('bottom-4')
+    expect(toast).toHaveClass('right-4')
+    expect(screen.getByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    expect(
+      screen.queryByText('Unable to rename Session. Check the title and try again.', {
+        selector: 'section [role="alert"] *'
+      })
+    ).not.toBeInTheDocument()
+  })
+
+  it('clears active Session title editing state and stale drafts when switching sessions', async () => {
+    const user = userEvent.setup()
+    const rename = vi.fn(window.spacezero.sessions.rename)
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      },
+      {
+        id: 'workspace-session-2',
+        kind: 'workspace',
+        title: 'Workspace Session 2',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.rename = rename
+
+    render(<App />)
+
+    await user.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    const draftInput = screen.getByRole('textbox', { name: 'Rename Workspace Session' })
+    await user.clear(draftInput)
+    await user.type(draftInput, 'Unsaved draft')
+
+    await user.click(screen.getByRole('button', { name: /Workspace Session 2/ }))
+
+    await waitFor(() => expect(rename).not.toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Unsaved draft/ })).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('textbox', { name: 'Rename Workspace Session' })
+      ).not.toBeInTheDocument()
+    )
+    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    expect(screen.getByRole('textbox', { name: 'Rename Workspace Session' })).toHaveValue(
+      'Workspace Session 2'
+    )
+  })
+
+  it('cancels active Session title editing with Escape and restores the persisted title', async () => {
+    const rename = vi.fn(async ({ sessionId, title }) => ({
+      id: sessionId,
+      kind: 'workspace' as const,
+      title,
+      status: 'idle' as const,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(1).toISOString()
+    }))
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.rename = rename
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
+      target: { value: 'Unsaved Escape Draft' }
+    })
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
+      key: 'Escape'
+    })
+
+    await waitFor(() => expect(rename).not.toHaveBeenCalled())
+    expect(
+      screen.queryByRole('textbox', { name: 'Rename Workspace Session' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session 1'
+    )
   })
 
   it('hides workspace session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
@@ -902,7 +1036,9 @@ describe('App', () => {
       .getByText('Workspace Sessions')
       .closest('[data-sidebar="group"]')
     expect(workspaceSection).toHaveClass('max-h-[45%]')
-    expect(within(workspaceSection as HTMLElement).getByText('Workspace Sessions')).toBeInTheDocument()
+    expect(
+      within(workspaceSection as HTMLElement).getByText('Workspace Sessions')
+    ).toBeInTheDocument()
 
     const workspaceList = screen.getByRole('list', { name: 'Workspace session list' })
     const scrollArea = workspaceList.parentElement
@@ -1178,7 +1314,9 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Restart to update Space Zero' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Restart to update Space Zero' })
+    ).not.toBeInTheDocument()
   })
 
   it('shows downloaded update state in the sidebar and Settings/About', async () => {
@@ -1195,9 +1333,9 @@ describe('App', () => {
 
     render(<App />)
 
-    expect(await screen.findByRole('button', { name: 'Restart to update Space Zero' })).toHaveTextContent(
-      'Update ready'
-    )
+    expect(
+      await screen.findByRole('button', { name: 'Restart to update Space Zero' })
+    ).toHaveTextContent('Update ready')
     fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
     fireEvent.click(await screen.findByRole('link', { name: 'About' }))
 
@@ -1236,14 +1374,18 @@ describe('App', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Restart to update Space Zero' }))
 
-    expect(await screen.findByRole('heading', { name: 'Restart and apply update?' })).toBeInTheDocument()
+    expect(
+      await screen.findByRole('heading', { name: 'Restart and apply update?' })
+    ).toBeInTheDocument()
     expect(screen.getByText(/1 active Project Session/)).toBeInTheDocument()
     expect(screen.getByText(/1 active Workspace Session/)).toBeInTheDocument()
     expect(screen.getByText(/1 active Terminal tab/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() =>
-      expect(screen.queryByRole('heading', { name: 'Restart and apply update?' })).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('heading', { name: 'Restart and apply update?' })
+      ).not.toBeInTheDocument()
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Restart to update Space Zero' }))
@@ -1381,7 +1523,8 @@ describe('App', () => {
       releaseChannel: 'beta',
       lastCheckedAt: '2026-01-02T03:04:05.000Z',
       state,
-      availableVersion: state === 'update-available' || state === 'update-downloaded' ? '0.1.0-beta.2' : null,
+      availableVersion:
+        state === 'update-available' || state === 'update-downloaded' ? '0.1.0-beta.2' : null,
       downloadedVersion: state === 'update-downloaded' ? '0.1.0-beta.2' : null,
       errorMessage: state === 'error' ? 'GitHub releases unavailable' : null,
       releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
@@ -1393,9 +1536,12 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByText(label)).toBeInTheDocument()
-    if (state === 'update-available') expect(screen.getByText('Available version')).toBeInTheDocument()
-    if (state === 'update-downloaded') expect(screen.getByText('Downloaded version')).toBeInTheDocument()
-    if (state === 'error') expect(screen.getByText('GitHub releases unavailable')).toBeInTheDocument()
+    if (state === 'update-available')
+      expect(screen.getByText('Available version')).toBeInTheDocument()
+    if (state === 'update-downloaded')
+      expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+    if (state === 'error')
+      expect(screen.getByText('GitHub releases unavailable')).toBeInTheDocument()
   })
 
   it('confirms and cancels Clear Browser Data in Settings without clearing the profile', async () => {
