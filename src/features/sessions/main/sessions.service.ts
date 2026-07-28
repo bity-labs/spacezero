@@ -4,6 +4,7 @@ import { nanoid } from 'nanoid'
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
+  Session,
   SessionGitHubSource,
   SessionStatus,
   SessionWorktree,
@@ -108,6 +109,7 @@ export type SessionsService = {
   createWorkspaceAgentSession: (
     request: CreateWorkspaceAgentSessionRequest
   ) => Promise<WorkspaceSession>
+  renameSession: (sessionId: string, title: string) => Promise<Session>
   archiveSession: (sessionId: string) => Promise<void>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
   updateAgentModel: (
@@ -236,6 +238,17 @@ export function createSessionsService({
       )
     },
 
+    async renameSession(sessionId, title) {
+      const session = await repository.findSessionById(sessionId.trim())
+      if (!session) throw new Error('Session not found')
+      const updatedSession = await repository.update({
+        ...session,
+        title: normalizeRenameTitle(title),
+        updatedAt: now()
+      })
+      return updatedSession.projectId ? toProjectSession(updatedSession) : toWorkspaceSession(updatedSession)
+    },
+
     async archiveSession(sessionId) {
       const session = await repository.findSessionById(sessionId.trim())
       if (!session) throw new Error('Session not found')
@@ -283,6 +296,12 @@ function serializeAgentDefinitionSnapshot(
 
 function normalizeTitle(title: string): string {
   const normalized = title.trim().replace(/\s+/g, ' ')
+  if (!normalized) throw new Error('Session title is required')
+  return normalized
+}
+
+function normalizeRenameTitle(title: string): string {
+  const normalized = title.trim()
   if (!normalized) throw new Error('Session title is required')
   return normalized
 }

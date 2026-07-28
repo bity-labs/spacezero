@@ -108,6 +108,7 @@ vi.mock('../../features/sessions/renderer', () => ({
   WorkspaceSessionList: () => <div />,
   getFocusedSessionTab: () => mocks.state.activeTab,
   syncProjectSessionTabs: (layout: unknown) => layout,
+  syncSessionTabs: (layout: unknown) => layout,
   useProjectSessions: () => ({
     sessions: mocks.state.sessions,
     sessionsByProjectId: new Map<string, TestProjectSession[]>([
@@ -117,6 +118,7 @@ vi.mock('../../features/sessions/renderer', () => ({
     error: null,
     refreshSessions: mocks.refreshSessions,
     upsertProjectSession: vi.fn(),
+    renameProjectSession: vi.fn(),
     archiveSession: vi.fn(),
     deleteSession: vi.fn()
   }),
@@ -132,6 +134,7 @@ vi.mock('../../features/sessions/renderer', () => ({
     status: 'ready',
     error: null,
     upsertWorkspaceSession: vi.fn(),
+    renameWorkspaceSession: vi.fn(),
     archiveWorkspaceSession: vi.fn(),
     deleteWorkspaceSession: vi.fn()
   })
