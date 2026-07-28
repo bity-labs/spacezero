@@ -1,7 +1,10 @@
 import { z } from 'zod'
 
 import { defineWorkspaceTool } from '../../agent-workspace/main/workspace-tool.model'
+import type { WorkspaceToolResult } from '../../agent-workspace/shared/workspace-tool.model'
 import {
+  createKnowledgeBaseDocumentRequestSchema,
+  createKnowledgeBaseFolderRequestSchema,
   knowledgeBasePathRequestSchema,
   saveKnowledgeBaseDocumentRequestSchema
 } from '../shared'
@@ -19,7 +22,7 @@ import { getKnowledgeBaseGitAgentService, getKnowledgeBaseService } from './inde
 
 export type KnowledgeBaseToolService = Pick<
   KnowledgeBaseFilesService,
-  'getTree' | 'openDocument' | 'saveDocument'
+  'getTree' | 'openDocument' | 'saveDocument' | 'createDocument' | 'createFolder'
 >
 
 export function createKnowledgeBaseTools(
@@ -85,6 +88,44 @@ export function createKnowledgeBaseTools(
         ok: true,
         data: await service.saveDocument(input)
       })
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.createDocument',
+      description:
+        'Create a new Knowledge Base text or Markdown document at a relative @kb path. Does not overwrite existing files or folders.',
+      safetyLevel: 'write',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: createKnowledgeBaseDocumentRequestSchema.strict(),
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          relativePath: { type: 'string' },
+          content: { type: 'string' }
+        },
+        required: ['relativePath', 'content']
+      },
+      confirmationSummary: (input) =>
+        `Create Knowledge Base document ${input.relativePath}`,
+      handler: async (input) => toKnowledgeBaseCreateToolResult(service.createDocument(input))
+    }),
+    defineWorkspaceTool({
+      name: 'knowledgeBase.createFolder',
+      description:
+        'Create a new Knowledge Base folder at a relative @kb path. Does not overwrite existing files or folders.',
+      safetyLevel: 'write',
+      kind: 'app-state',
+      domain: 'knowledge-base',
+      inputSchema: createKnowledgeBaseFolderRequestSchema.strict(),
+      agentParameters: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { relativePath: { type: 'string' } },
+        required: ['relativePath']
+      },
+      confirmationSummary: (input) => `Create Knowledge Base folder ${input.relativePath}`,
+      handler: async (input) => toKnowledgeBaseCreateToolResult(service.createFolder(input))
     }),
     defineWorkspaceTool({
       name: 'knowledgeBase.git.inspect',
@@ -239,4 +280,32 @@ export function createKnowledgeBaseTools(
       handler: async (input) => ({ ok: true, data: await gitService.abortConflictResolution(input) })
     })
   ]
+}
+
+async function toKnowledgeBaseCreateToolResult(
+  result: Promise<unknown>
+): Promise<WorkspaceToolResult> {
+  try {
+    return { ok: true, data: await result }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      ok: false,
+      error: {
+        code: classifyKnowledgeBaseCreateError(message),
+        message
+      }
+    }
+  }
+}
+
+function classifyKnowledgeBaseCreateError(message: string): string {
+  if (
+    message.startsWith('Knowledge Base is unavailable') ||
+    message === 'Knowledge Base is not configured.'
+  ) {
+    return 'unavailable-root'
+  }
+  if (message.startsWith('Knowledge Base ')) return 'validation-error'
+  return 'create-failed'
 }
