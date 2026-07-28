@@ -1174,6 +1174,7 @@ function FilesToolSession({
       </div>
       <CreateEntryDialog
         inputRef={createInputRef}
+        rootLabel={createRootDestinationLabel(ipcContext)}
         state={createDialog}
         onCancel={() => setCreateDialog(null)}
         onChange={(name) =>
@@ -1187,12 +1188,14 @@ function FilesToolSession({
 
 function CreateEntryDialog({
   inputRef,
+  rootLabel,
   state,
   onCancel,
   onChange,
   onSubmit
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>
+  rootLabel: string
   state: CreateDialogState | null
   onCancel: () => void
   onChange: (name: string) => void
@@ -1201,7 +1204,7 @@ function CreateEntryDialog({
   if (!state) return null
   const title = state.kind === 'file' ? 'New File' : 'New Folder'
   const placeholder = state.kind === 'file' ? 'File name' : 'Folder name'
-  const destination = formatCreateDestination(state.parentPath)
+  const destination = formatCreateDestination(state.parentPath, rootLabel)
   const isSubmitting = state.status === 'submitting'
 
   return (
@@ -2078,8 +2081,12 @@ function createEntryNameError(kind: 'file' | 'folder', name: string): string | n
   return null
 }
 
-function formatCreateDestination(parentPath: string): string {
-  return parentPath || 'project root'
+function createRootDestinationLabel(context: FilesContext): string {
+  return context.kind === 'knowledge-base' ? 'Knowledge Base root' : 'project root'
+}
+
+function formatCreateDestination(parentPath: string, rootLabel: string): string {
+  return parentPath || rootLabel
 }
 
 function joinRelativePath(parentPath: string, name: string): string {
@@ -2152,6 +2159,12 @@ function externalReadErrorMessage(error: unknown): string {
 function fileOperationErrorMessage(error: unknown): string {
   const code = error instanceof Error ? error.message : ''
   if (code.includes('files.collision')) return 'An item already exists at that path.'
+  if (code.includes('files.notFound')) {
+    return 'The destination folder no longer exists. Refresh the explorer and try again.'
+  }
+  if (code.includes('files.inaccessible')) {
+    return 'Space Zero cannot access this destination. Check directory permissions and try again.'
+  }
   if (code.includes('files.invalidPath') || code.includes('files.invalidDestination')) {
     return 'Use a valid path inside this Files root.'
   }
