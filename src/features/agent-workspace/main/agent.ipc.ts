@@ -154,9 +154,10 @@ export function registerAgentIpc(): void {
     const request = setAgentModelRequestSchema.parse(input)
     const state = await getAgentUtilityProcessHost().setModel(request)
     await createSessionsService({ repository: createSessionsRepository() }).updateAgentModel(
-      request.sessionId,
-      request.provider,
-      request.modelId
+      state.sessionId,
+      state.modelProvider ?? request.provider,
+      state.modelId ?? request.modelId,
+      state.thinkingLevel
     )
     return state
   })
@@ -164,9 +165,11 @@ export function registerAgentIpc(): void {
   ipcMain.handle(IPC_CHANNELS.agent.setThinkingLevel, async (_event, input) => {
     const request = setAgentThinkingLevelRequestSchema.parse(input)
     const state = await getAgentUtilityProcessHost().setThinkingLevel(request)
-    await createSessionsService({
-      repository: createSessionsRepository()
-    }).updateAgentThinkingLevel(request.sessionId, request.level)
+    if (state.thinkingLevel) {
+      await createSessionsService({
+        repository: createSessionsRepository()
+      }).updateAgentThinkingLevel(state.sessionId, state.thinkingLevel)
+    }
     return state
   })
 }

@@ -254,7 +254,7 @@ describe('createPiAgentSessionFactory', () => {
         expect(session.isStreaming).toBe(false)
         expect(session.modelProvider).toBe('faux')
         expect(session.modelId).toBe('faux-1')
-        expect(session.thinkingLevel).toBe('off')
+        expect(session.thinkingLevel).toBe('medium')
         expect(session.sessionFile).toContain(join(tempDir, 'agent', 'sessions'))
       } finally {
         session.dispose()

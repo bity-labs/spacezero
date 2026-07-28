@@ -15,6 +15,7 @@ import {
   type ResourceDiagnostic,
   type ToolDefinition
 } from '@earendil-works/pi-coding-agent'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import { fauxProvider } from '@earendil-works/pi-ai/providers/faux'
 
 import type {
@@ -99,7 +100,7 @@ export function createPiAgentRuntime({
   const modelRegistry = ModelRegistry.create(authStorage, join(agentDir, 'models.json'))
   const faux = fauxProvider({
     provider: FAUX_PROVIDER_ID,
-    models: [{ id: FAUX_MODEL_ID, name: 'Faux Model' }]
+    models: [{ id: FAUX_MODEL_ID, name: 'Faux Model', reasoning: true }]
   })
   configureFauxProvider?.(faux)
 
@@ -416,7 +417,8 @@ function getAvailableModelsFromRegistry(modelRegistry: ModelRegistry): Available
       modelId: model.id,
       modelLabel: model.name,
       contextWindow: model.contextWindow,
-      supportsThinking: model.reasoning
+      supportsThinking: model.reasoning,
+      supportedThinkingLevels: getSupportedThinkingLevels(model) as ThinkingLevel[]
     }))
 }
 
@@ -951,8 +953,7 @@ function adaptAgentSession({
   toolNames: string[]
   activeDelegations: ActiveDelegations
 }): CreatedPiAgentSession {
-  let preferredThinkingLevel =
-    initialThinkingLevel ?? (session.thinkingLevel as ThinkingLevel | undefined)
+  if (initialThinkingLevel) session.setThinkingLevel(initialThinkingLevel)
 
   return {
     sessionId: session.sessionId,
@@ -967,7 +968,7 @@ function adaptAgentSession({
       return session.model?.id ?? FAUX_MODEL_ID
     },
     get thinkingLevel() {
-      return preferredThinkingLevel
+      return session.thinkingLevel as ThinkingLevel | undefined
     },
     get systemPrompt() {
       return session.systemPrompt
@@ -979,10 +980,8 @@ function adaptAgentSession({
     skills: toAgentSkillDescriptors(session.resourceLoader.getSkills().skills, skillPaths),
     setModel: async ({ provider, modelId }) => {
       await session.setModel(findConfiguredModel(modelRegistry, provider, modelId))
-      if (preferredThinkingLevel) session.setThinkingLevel(preferredThinkingLevel)
     },
     setThinkingLevel: (level) => {
-      preferredThinkingLevel = level
       session.setThinkingLevel(level)
     },
     prompt: (message) => session.prompt(message),

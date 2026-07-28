@@ -101,6 +101,18 @@ describe('resolveAgentDefinitionForSession', () => {
     ])
   })
 
+  it('accepts max thinking values at use time', async () => {
+    await expect(
+      resolveAgentDefinitionForSession(
+        { id: 'reviewer' },
+        {
+          resolveSources: async () => [],
+          discoverDefinitions: async () => [validDefinition({ thinking: 'max' })]
+        }
+      )
+    ).resolves.toMatchObject({ thinkingLevel: 'max' })
+  })
+
   it('rejects malformed model and thinking values at use time', async () => {
     await expect(
       resolveAgentDefinitionForSession(
