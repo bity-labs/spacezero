@@ -1,14 +1,12 @@
 import { useCallback, useMemo, useState, type KeyboardEvent, type PointerEvent } from 'react'
 import {
   BookOpenText,
-  CalendarBlank,
   DotsSixVertical,
   FolderPlus,
   FunnelSimple,
   MagnifyingGlass,
   PaperPlaneTilt,
-  Sidebar,
-  SquaresFour
+  Sidebar
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
@@ -413,9 +411,6 @@ export function WorkspaceShell(): React.JSX.Element {
                   active={activePrimaryView === 'workspace' && activeTab?.kind === 'workspace'}
                   onClick={() => void handleNewWorkspaceSession()}
                 />
-                <SidebarNavItem icon={MagnifyingGlass} label={t('workspace.sidebar.search')} />
-                <SidebarNavItem icon={CalendarBlank} label={t('workspace.sidebar.automations')} />
-                <SidebarNavItem icon={SquaresFour} label={t('workspace.sidebar.customize')} />
               </SidebarMenu>
             }
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
