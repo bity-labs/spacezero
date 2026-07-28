@@ -10,6 +10,7 @@ import {
 import { disposeBrowserIpcResources } from '../features/browser/main'
 import { shouldProceedWithLiveTerminalTermination } from '../features/terminal/main/terminal-confirmation.service'
 import { getTerminalService } from '../features/terminal/main/terminal.runtime'
+import { getUpdateService } from '../features/updates/main'
 import { closeDatabase, getDatabase } from './db'
 import { isAllowedGitHubRepositoryUrl } from './external-url-policy'
 import { registerIpcHandlers } from './ipc'
@@ -148,6 +149,7 @@ app.whenReady().then(() => {
   })
 
   registerIpcHandlers()
+  getUpdateService().startAutomaticChecks()
   getAgentUtilityProcessHost().start()
   getDatabase()
   createWindow()
