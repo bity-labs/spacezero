@@ -4,6 +4,53 @@ import { describe, expect, it, vi } from 'vitest'
 import { AccountSettings } from './account-settings'
 
 describe('AccountSettings', () => {
+  it('shows account-shaped placeholders while GitHub connection is loading instead of stale identity', async () => {
+    let resolveConnection: (
+      connection: Awaited<ReturnType<typeof window.spacezero.github.getConnection>>
+    ) => void = () => undefined
+    window.spacezero.github.getConnection = () =>
+      new Promise((resolve) => {
+        resolveConnection = resolve
+      })
+
+    render(<AccountSettings />)
+
+    expect(screen.getByRole('status', { name: 'Loading GitHub account' })).toBeInTheDocument()
+    expect(screen.getByTestId('github-account-loading-card')).toBeInTheDocument()
+    expect(screen.queryByText(/Loading GitHub account…/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect GitHub' })).not.toBeInTheDocument()
+
+    resolveConnection({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: []
+    })
+
+    expect(await screen.findByText('@octocat')).toBeInTheDocument()
+    expect(screen.queryByTestId('github-account-loading-card')).not.toBeInTheDocument()
+  })
+
+  it('keeps GitHub error state distinct from loading placeholders', async () => {
+    window.spacezero.github.getConnection = async () => {
+      throw new Error('boom')
+    }
+
+    render(<AccountSettings />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unable to read the GitHub connection.'
+    )
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+    expect(screen.queryByTestId('github-account-loading-card')).not.toBeInTheDocument()
+  })
+
   it('authorizes in the system browser and shows identity as requiring repository access', async () => {
     const copiedFlows: string[] = []
     const openedFlows: string[] = []

@@ -119,7 +119,7 @@ export function AccountSettings(): React.JSX.Element {
   }
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading GitHub account…</p>
+    return <GitHubAccountLoadingPlaceholder />
   }
 
   const identity =
@@ -244,6 +244,41 @@ export function AccountSettings(): React.JSX.Element {
           </Button>
         </Card>
       )}
+    </div>
+  )
+}
+
+function GitHubAccountLoadingPlaceholder(): React.JSX.Element {
+  return (
+    <div className="space-y-4" role="status" aria-label="Loading GitHub account">
+      <Card className="gap-4 p-5" data-testid="github-account-loading-card" aria-hidden="true">
+        <div className="flex items-center gap-3">
+          <div className="size-11 animate-pulse rounded-full bg-muted" />
+          <div className="space-y-2">
+            <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+            <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="h-3 w-full max-w-md animate-pulse rounded bg-muted" />
+          <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+        </div>
+        <div className="space-y-3 border-t pt-4">
+          <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+          <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+            <div className="space-y-2">
+              <div className="h-4 w-24 animate-pulse rounded bg-muted" />
+              <div className="h-3 w-32 animate-pulse rounded bg-muted" />
+            </div>
+            <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 border-t pt-4">
+          <div className="h-9 w-48 animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-44 animate-pulse rounded-md bg-muted" />
+          <div className="h-9 w-24 animate-pulse rounded-md bg-muted" />
+        </div>
+      </Card>
     </div>
   )
 }

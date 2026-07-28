@@ -17,6 +17,8 @@ export function useGitHubConnection(): {
 
   const refresh = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
     setError(null)
+    setConnection(null)
+    setIsLoading(true)
     try {
       setConnection(
         await (force
