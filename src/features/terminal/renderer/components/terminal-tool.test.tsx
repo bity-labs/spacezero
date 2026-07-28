@@ -699,7 +699,9 @@ describe('TerminalTool', () => {
     )
     act(() => pendingWriteCallbacks.shift()?.())
 
-    expect(await screen.findByRole('button', { name: 'New Terminal' })).toBeVisible()
+    await waitFor(() =>
+      expect(screen.getAllByRole('button', { name: 'New Terminal' }).at(-1)).toBeVisible()
+    )
     expect(screen.queryByText('Starting terminal…')).not.toBeInTheDocument()
   })
 
@@ -961,6 +963,65 @@ describe('TerminalTool', () => {
     }
   })
 
+  it('keeps overflowing terminal tabs scrollable and exposes a fixed compact new-terminal control', async () => {
+    const user = userEvent.setup()
+    let activeTerminalId = 'terminal-1'
+    const tabs = Array.from({ length: 12 }, (_, index) => ({
+      terminalId: `terminal-${index + 1}`,
+      title: `shell-${index + 1}`
+    }))
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async ({ forceNew }) => {
+        if (forceNew) activeTerminalId = 'terminal-13'
+        const nextTabs = forceNew
+          ? [...tabs, { terminalId: 'terminal-13', title: 'shell-13' }]
+          : tabs
+        return {
+          status: 'running' as const,
+          terminalId: activeTerminalId,
+          tabs: nextTabs,
+          activeTerminalId
+        }
+      }),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    const tablist = await screen.findByRole('tablist', { name: 'Terminal tabs' })
+    expect(tablist).toHaveClass('overflow-x-auto')
+    expect(tablist).toHaveClass('no-scrollbar')
+    expect(tablist).toHaveClass('flex-1')
+
+    const newTerminalButton = screen.getByRole('button', { name: 'New Terminal' })
+    expect(newTerminalButton).toHaveAttribute('title', 'New Terminal')
+    expect(newTerminalButton).toHaveClass('shrink-0')
+    expect(newTerminalButton).not.toHaveTextContent('New Terminal')
+    expect(newTerminalButton).not.toBe(tablist.querySelector('button'))
+
+    await user.click(newTerminalButton)
+    await waitFor(() =>
+      expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
+        context,
+        cols: 100,
+        rows: 30,
+        forceNew: true
+      })
+    )
+    await screen.findByRole('tab', { name: 'Select terminal tab shell-13', selected: true })
+  })
+
   it('adds, selects, reorders, and closes accessible terminal tabs without stealing focus', async () => {
     const user = userEvent.setup()
     let activeTerminalId = 'terminal-1'
@@ -1005,7 +1066,7 @@ describe('TerminalTool', () => {
 
     await screen.findByRole('tab', { name: 'Select terminal tab zsh', selected: true })
     expect(document.activeElement).not.toBe(screen.getByLabelText('Terminal output'))
-    await user.click(screen.getByRole('button', { name: 'Add terminal tab' }))
+    await user.click(screen.getByRole('button', { name: 'New Terminal' }))
     await waitFor(() =>
       expect(window.spacezero.terminal.create).toHaveBeenLastCalledWith({
         context,
@@ -1804,7 +1865,7 @@ describe('TerminalTool', () => {
 
     const mounted = render(<TerminalTool context={context} />)
     expect(await screen.findByRole('button', { name: 'Close Terminal' })).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Add terminal tab' }))
+    await user.click(screen.getByRole('button', { name: 'New Terminal' }))
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
     expect(screen.getByRole('button', { name: 'Close Terminal' })).toBeVisible()
 
