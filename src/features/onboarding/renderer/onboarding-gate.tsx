@@ -4,6 +4,8 @@ import type { LicenseActivationStatus } from '../../license-activation/shared'
 import { Onboarding } from './onboarding'
 import { Button } from '@renderer/components/ui/button'
 
+const MIN_ACTIVATION_RECHECK_DELAY_MS = 1000
+
 export function OnboardingGate({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [completed, setCompleted] = useState<boolean | null>(null)
   const [error, setError] = useState(false)
@@ -33,7 +35,7 @@ export function OnboardingGate({ children }: { children: React.ReactNode }): Rea
 
   useEffect(() => {
     if (nextActivationCheckAt === null) return undefined
-    const delay = Math.max(0, nextActivationCheckAt - Date.now())
+    const delay = Math.max(MIN_ACTIVATION_RECHECK_DELAY_MS, nextActivationCheckAt - Date.now())
     const timeout = window.setTimeout(() => void loadStatus(), delay)
     return () => window.clearTimeout(timeout)
   }, [nextActivationCheckAt])

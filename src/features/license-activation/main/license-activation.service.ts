@@ -36,9 +36,17 @@ export class LicenseActivationConfigurationError extends Error {
   }
 }
 
+export class LicenseActivationTransportError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'LicenseActivationTransportError'
+  }
+}
+
 const DEVELOPMENT_MESSAGE = 'Development build activation bypass is enabled.'
 const INACTIVE_MESSAGE = 'Enter a license key to activate Space Zero.'
 const MAX_OFFLINE_GRACE_MS = 7 * 24 * 60 * 60 * 1000
+const OFFLINE_RETRY_MS = 5 * 60 * 1000
 
 export function createLicenseActivationService({
   backend,
@@ -99,6 +107,16 @@ export function createLicenseActivationService({
     }
   }
 
+  function statusFromFreshBackendResponse(
+    response: LicenseBackendStatusResponse,
+    validationBaseline: Date
+  ): LicenseActivationStatus {
+    const status = statusFromBackendResponse(response)
+    if (!status.canEnterWorkspace) return status
+
+    return hasValidActiveTiming(response, validationBaseline) ? status : configurationErrorStatus(status.mode)
+  }
+
   function offlineStatusFromStoredEntitlement(entitlement: StoredEntitlement): LicenseActivationStatus {
     const backendStatus = statusFromBackendResponse(entitlement)
     if (!backendStatus.canEnterWorkspace) return backendStatus
@@ -108,11 +126,13 @@ export function createLicenseActivationService({
     if (effectiveGraceEndsAt === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
 
     if (currentTime < effectiveGraceEndsAt) {
+      const nextRetryAt = Math.min(currentTime + OFFLINE_RETRY_MS, effectiveGraceEndsAt)
       return {
         ...backendStatus,
         state: 'grace-period',
         canEnterWorkspace: true,
         message: 'Space Zero is using cached activation while offline.',
+        recheckAfter: new Date(nextRetryAt).toISOString(),
         graceEndsAt: new Date(effectiveGraceEndsAt).toISOString()
       }
     }
@@ -121,20 +141,29 @@ export function createLicenseActivationService({
   }
 
   async function refreshStoredEntitlement(entitlement: StoredEntitlement): Promise<LicenseActivationStatus> {
+    let response: LicenseBackendStatusResponse
     try {
-      const response = await backend.checkStatus({
+      response = await backend.checkStatus({
         licenseKey: entitlement.licenseKey,
         appVersion: config.appVersion
       })
-      const status = statusFromBackendResponse(response)
-      if (status.canEnterWorkspace) {
-        await store.save({ ...response, activatedAt: entitlement.activatedAt, licenseKey: entitlement.licenseKey })
-      }
-      return status
     } catch (error) {
       if (error instanceof LicenseActivationConfigurationError) return configurationErrorStatus(config.mode)
-      return offlineStatusFromStoredEntitlement(entitlement)
+      if (error instanceof LicenseActivationTransportError) return offlineStatusFromStoredEntitlement(entitlement)
+      return configurationErrorStatus(config.mode)
     }
+
+    const validationBaseline = now()
+    const status = statusFromFreshBackendResponse(response, validationBaseline)
+    if (!status.canEnterWorkspace) return status
+
+    try {
+      await store.save({ ...response, activatedAt: validationBaseline.toISOString(), licenseKey: entitlement.licenseKey })
+    } catch {
+      return storageUnavailableStatus(config.mode)
+    }
+
+    return status
   }
 
   return {
@@ -157,16 +186,15 @@ export function createLicenseActivationService({
 
       const currentTime = now().getTime()
       const effectiveGraceEndsAt = effectiveGraceDeadline(entitlement)
-      if (effectiveGraceEndsAt === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
-      if (currentTime >= effectiveGraceEndsAt) {
-        return graceExpiredStatus(backendStatus, new Date(effectiveGraceEndsAt).toISOString())
+      const recheckAfter = parseTimestamp(entitlement.recheckAfter)
+      if (effectiveGraceEndsAt === null || recheckAfter === null) {
+        return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
+      }
+      if (currentTime >= recheckAfter || currentTime >= effectiveGraceEndsAt) {
+        return refreshStoredEntitlement(entitlement)
       }
 
-      const recheckAfter = parseTimestamp(entitlement.recheckAfter)
-      if (recheckAfter === null) return graceExpiredStatus(backendStatus, entitlement.graceEndsAt)
-      if (currentTime <= recheckAfter) return backendStatus
-
-      return refreshStoredEntitlement(entitlement)
+      return backendStatus
     },
 
     async activate(request: unknown): Promise<LicenseActivationStatus> {
@@ -178,15 +206,35 @@ export function createLicenseActivationService({
 
       try {
         const response = await backend.checkStatus({ licenseKey, appVersion: config.appVersion })
-        const status = statusFromBackendResponse(response)
-        if (status.canEnterWorkspace) await store.save({ ...response, activatedAt: now().toISOString(), licenseKey })
+        const validationBaseline = now()
+        const status = statusFromFreshBackendResponse(response, validationBaseline)
+        if (!status.canEnterWorkspace) return status
+
+        try {
+          await store.save({ ...response, activatedAt: validationBaseline.toISOString(), licenseKey })
+        } catch {
+          return storageUnavailableStatus(config.mode)
+        }
+
         return status
       } catch (error) {
         if (error instanceof LicenseActivationConfigurationError) return configurationErrorStatus(config.mode)
-        throw error
+        if (error instanceof LicenseActivationTransportError) throw error
+        return configurationErrorStatus(config.mode)
       }
     }
   }
+}
+
+function hasValidActiveTiming(response: LicenseBackendStatusResponse, validationBaseline: Date): boolean {
+  const baseline = validationBaseline.getTime()
+  const recheckAfter = parseTimestamp(response.recheckAfter)
+  const graceEndsAt = parseTimestamp(response.graceEndsAt)
+  if (!Number.isFinite(baseline) || recheckAfter === null || graceEndsAt === null) return false
+  if (recheckAfter > graceEndsAt) return false
+
+  const effectiveGraceEndsAt = Math.min(graceEndsAt, baseline + MAX_OFFLINE_GRACE_MS)
+  return Number.isFinite(effectiveGraceEndsAt) && baseline < effectiveGraceEndsAt
 }
 
 function parseTimestamp(value: string): number | null {

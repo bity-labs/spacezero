@@ -1,10 +1,16 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { OnboardingGate } from './onboarding-gate'
 
 describe('OnboardingGate', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('rechecks activation while an already-open app crosses the recheck boundary', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'))
     window.spacezero.onboarding.getStatus = async () => ({ completed: true })
     window.spacezero.licenseActivation.getStatus = vi
       .fn()
@@ -31,7 +37,10 @@ describe('OnboardingGate', () => {
 
     expect(await screen.findByText('Workspace')).toBeInTheDocument()
 
-    await waitFor(() => expect(window.spacezero.licenseActivation.getStatus).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    await waitFor(() => expect(window.spacezero.licenseActivation.getStatus).toHaveBeenCalledTimes(3))
     expect(await screen.findByRole('heading', { name: 'Activate Space Zero' })).toBeInTheDocument()
     expect(screen.queryByText('Workspace')).not.toBeInTheDocument()
   })

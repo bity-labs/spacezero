@@ -1,14 +1,25 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createLicenseActivationService, type LicenseEntitlementStore } from './license-activation.service'
+import {
+  createLicenseActivationService,
+  LicenseActivationTransportError,
+  type LicenseEntitlementStore
+} from './license-activation.service'
 import type { LicenseBackendStatusResponse } from '../shared'
 
-function createStore({ protectedStorage = true }: { protectedStorage?: boolean } = {}): LicenseEntitlementStore {
+function createStore({
+  protectedStorage = true,
+  saveError,
+  failAfterSaves = 0
+}: { protectedStorage?: boolean; saveError?: Error; failAfterSaves?: number } = {}): LicenseEntitlementStore {
   let entitlement: Awaited<ReturnType<LicenseEntitlementStore['load']>> = null
+  let saveCount = 0
   return {
     isProtected: () => protectedStorage,
     load: async () => entitlement,
     save: async (nextEntitlement) => {
+      saveCount += 1
+      if (saveError && saveCount > failAfterSaves) throw saveError
       entitlement = nextEntitlement
     }
   }
@@ -148,7 +159,7 @@ describe('license activation service', () => {
     await store.save({ ...activeResponse, activatedAt: '2026-01-01T00:00:00.000Z', licenseKey: 'license-key' })
 
     const graceService = createLicenseActivationService({
-      backend: { checkStatus: async () => { throw new Error('offline') } },
+      backend: { checkStatus: async () => { throw new LicenseActivationTransportError('offline') } },
       config: {
         mode: 'required',
         appVersion,
@@ -158,11 +169,12 @@ describe('license activation service', () => {
     })
     await expect(graceService.getStatus()).resolves.toMatchObject({
       state: 'grace-period',
-      canEnterWorkspace: true
+      canEnterWorkspace: true,
+      recheckAfter: '2026-01-04T00:05:00.000Z'
     })
 
     const expiredService = createLicenseActivationService({
-      backend: { checkStatus: async () => { throw new Error('offline') } },
+      backend: { checkStatus: async () => { throw new LicenseActivationTransportError('offline') } },
       config: {
         mode: 'required',
         appVersion,
@@ -176,6 +188,71 @@ describe('license activation service', () => {
     })
   })
 
+  it('blocks authoritative refresh and cache-save failures instead of using cached grace', async () => {
+    const authoritativeFailureStore = createStore()
+    await authoritativeFailureStore.save({
+      ...activeResponse,
+      activatedAt: '2026-01-01T00:00:00.000Z',
+      licenseKey: 'license-key'
+    })
+    const authoritativeFailureService = createLicenseActivationService({
+      backend: { checkStatus: async () => { throw new Error('malformed backend response') } },
+      config: { mode: 'required', appVersion, now: () => new Date('2026-01-02T00:00:01.000Z') },
+      store: authoritativeFailureStore
+    })
+    await expect(authoritativeFailureService.getStatus()).resolves.toMatchObject({
+      state: 'configuration-error',
+      canEnterWorkspace: false
+    })
+
+    const saveFailureStore = createStore({ saveError: new Error('storage write failed'), failAfterSaves: 1 })
+    await saveFailureStore.save({ ...activeResponse, activatedAt: '2026-01-01T00:00:00.000Z', licenseKey: 'license-key' })
+    const saveFailureService = createLicenseActivationService({
+      backend: { checkStatus: async () => activeResponse },
+      config: { mode: 'required', appVersion, now: () => new Date('2026-01-02T00:00:01.000Z') },
+      store: saveFailureStore
+    })
+    await expect(saveFailureService.getStatus()).resolves.toMatchObject({
+      state: 'storage-unavailable',
+      canEnterWorkspace: false
+    })
+  })
+
+  it('attempts online refresh at the grace boundary and renews the validation baseline', async () => {
+    const store = createStore()
+    await store.save({ ...activeResponse, activatedAt: '2026-01-01T00:00:00.000Z', licenseKey: 'license-key' })
+    const backend = {
+      checkStatus: vi.fn(async () => ({
+        ...activeResponse,
+        recheckAfter: '2026-01-09T00:00:00.000Z',
+        graceEndsAt: '2026-01-15T00:00:00.000Z'
+      }))
+    }
+    const service = createLicenseActivationService({
+      backend,
+      config: { mode: 'required', appVersion, now: () => new Date('2026-01-08T00:00:00.000Z') },
+      store
+    })
+
+    await expect(service.getStatus()).resolves.toMatchObject({
+      state: 'active',
+      canEnterWorkspace: true,
+      recheckAfter: '2026-01-09T00:00:00.000Z'
+    })
+    expect(backend.checkStatus).toHaveBeenCalledWith({ licenseKey: 'license-key', appVersion })
+
+    const offlineAfterOriginalGraceService = createLicenseActivationService({
+      backend: { checkStatus: async () => { throw new LicenseActivationTransportError('offline') } },
+      config: { mode: 'required', appVersion, now: () => new Date('2026-01-12T00:00:00.000Z') },
+      store
+    })
+    await expect(offlineAfterOriginalGraceService.getStatus()).resolves.toMatchObject({
+      state: 'grace-period',
+      canEnterWorkspace: true,
+      graceEndsAt: '2026-01-15T00:00:00.000Z'
+    })
+  })
+
   it('bounds offline cache validity to the earliest server grace and seven days from activation', async () => {
     const afterServerGraceStore = createStore()
     await afterServerGraceStore.save({
@@ -186,7 +263,7 @@ describe('license activation service', () => {
       licenseKey: 'license-key'
     })
     const afterServerGraceService = createLicenseActivationService({
-      backend: { checkStatus: async () => activeResponse },
+      backend: { checkStatus: async () => { throw new LicenseActivationTransportError('offline') } },
       config: { mode: 'required', appVersion, now: () => new Date('2026-01-04T00:00:00.000Z') },
       store: afterServerGraceStore
     })
@@ -205,7 +282,7 @@ describe('license activation service', () => {
       licenseKey: 'license-key'
     })
     const longServerGraceService = createLicenseActivationService({
-      backend: { checkStatus: async () => { throw new Error('offline') } },
+      backend: { checkStatus: async () => { throw new LicenseActivationTransportError('offline') } },
       config: { mode: 'required', appVersion, now: () => new Date('2026-01-08T00:00:00.000Z') },
       store: longServerGraceStore
     })
@@ -235,6 +312,29 @@ describe('license activation service', () => {
       state: 'grace-expired',
       canEnterWorkspace: false
     })
+  })
+
+  it('rejects active backend responses with malformed or expired timing metadata without saving', async () => {
+    const responses: LicenseBackendStatusResponse[] = [
+      { ...activeResponse, recheckAfter: 'not-a-date' },
+      { ...activeResponse, recheckAfter: '2026-01-09T00:00:00.000Z', graceEndsAt: '2026-01-08T00:00:00.000Z' },
+      { ...activeResponse, recheckAfter: '2026-01-01T00:05:00.000Z', graceEndsAt: '2026-01-01T00:00:00.000Z' }
+    ]
+
+    for (const response of responses) {
+      const store = createStore()
+      const service = createLicenseActivationService({
+        backend: { checkStatus: async () => response },
+        config: { mode: 'required', appVersion, now: () => new Date('2026-01-01T00:00:00.000Z') },
+        store
+      })
+
+      await expect(service.activate({ licenseKey: 'license-key' })).resolves.toMatchObject({
+        state: 'configuration-error',
+        canEnterWorkspace: false
+      })
+      await expect(store.load()).resolves.toBeNull()
+    }
   })
 
   it('rejects malformed activation payloads before the backend is called', async () => {
