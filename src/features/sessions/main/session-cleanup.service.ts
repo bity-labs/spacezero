@@ -15,6 +15,7 @@ type StoredProject = Awaited<ReturnType<SessionCleanupRepository['findProjectByI
 type ProjectLifecycleLock = <T>(projectId: string, operation: () => Promise<T>) => Promise<T>
 type TerminalDeletionRequest = {
   operationKey: string
+  purpose: 'archive-context' | 'delete-context'
   sessions: readonly StoredSession[]
 }
 
@@ -61,6 +62,7 @@ export function createSessionCleanupService({
           : undefined
         await closeTerminalsForDeletion({
           operationKey: `archive-session:${currentSession.id}`,
+          purpose: 'archive-context',
           sessions: [currentSession]
         })
         await archiveStoredSession(currentSession, project)
@@ -99,6 +101,7 @@ export function createSessionCleanupService({
           : undefined
         await closeTerminalsForDeletion({
           operationKey: `delete-session:${currentSession.id}`,
+          purpose: 'delete-context',
           sessions: [currentSession]
         })
         await deleteStoredSession(currentSession, project)
@@ -125,6 +128,7 @@ export function createSessionCleanupService({
     const sessions = await repository.listByProjectIdIncludingArchived(normalizedProjectId)
     await closeTerminalsForDeletion({
       operationKey: `delete-project:${normalizedProjectId}`,
+      purpose: 'delete-context',
       sessions
     })
     const deletedSessionIds: string[] = []
@@ -147,7 +151,14 @@ export function createSessionCleanupService({
     await removeStoredWorktree(session, project)
 
     const timestamp = now()
-    await repository.update({ ...session, archivedAt: timestamp, updatedAt: timestamp })
+    await repository.update({
+      ...session,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null,
+      archivedAt: timestamp,
+      updatedAt: timestamp
+    })
   }
 
   async function deleteStoredSession(

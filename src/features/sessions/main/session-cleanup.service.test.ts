@@ -60,6 +60,9 @@ describe('Session cleanup service', () => {
     expect(events).toEqual(['terminal', 'browser', 'utility', 'worktree', 'metadata'])
     expect(update).toHaveBeenCalledWith({
       ...session,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null,
       archivedAt,
       updatedAt: archivedAt
     })
@@ -114,6 +117,49 @@ describe('Session cleanup service', () => {
       expect.objectContaining({ id: session.id, archivedAt: expect.any(Date) })
     )
     expect(deleteById).not.toHaveBeenCalled()
+  })
+
+  it('deletes a newly archived managed Project Session without retrying worktree cleanup', async () => {
+    const session = createStoredSession()
+    let storedSession: StoredSession | undefined = session
+    const deleteById = vi.fn(async (sessionId: string) => {
+      if (storedSession?.id === sessionId) storedSession = undefined
+    })
+    const removeTranscript = vi.fn(async () => undefined)
+    const removeWorktree = vi.fn(async () => {
+      if (removeWorktree.mock.calls.length > 1) throw new Error('session.worktreeRemoveFailed')
+    })
+    const service = createSessionCleanupService({
+      repository: {
+        findSessionById: async () => storedSession,
+        findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+        update: vi.fn(async (nextSession: StoredSession) => {
+          storedSession = nextSession
+          return nextSession
+        }),
+        listByProjectIdIncludingArchived: async () => (storedSession ? [storedSession] : []),
+        deleteById
+      },
+      worktrees: { remove: removeWorktree },
+      deleteUtilitySession: async () => undefined,
+      removeTranscript
+    })
+
+    await service.archiveSession('session-1')
+    expect(storedSession).toMatchObject({
+      id: session.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null,
+      archivedAt: expect.any(Date)
+    })
+
+    await service.deleteSession('session-1')
+
+    expect(removeWorktree).toHaveBeenCalledTimes(1)
+    expect(deleteById).toHaveBeenCalledWith('session-1')
+    expect(removeTranscript).toHaveBeenCalledWith('/transcripts/session-1.jsonl')
+    expect(storedSession).toBeUndefined()
   })
 
   it('retains Session metadata when verified worktree cleanup fails', async () => {
@@ -294,8 +340,9 @@ describe('Session cleanup service', () => {
       })
     ]
     const events: string[] = []
-    const closeTerminalsForDeletion = vi.fn(async ({ operationKey, sessions: affected }) => {
+    const closeTerminalsForDeletion = vi.fn(async ({ operationKey, purpose, sessions: affected }) => {
       expect(operationKey).toBe('delete-project:project-1')
+      expect(purpose).toBe('delete-context')
       expect(affected).toEqual(sessions)
       events.push('terminal-confirmation')
     })
