@@ -527,6 +527,16 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
                       aria-selected={tab.terminalId === terminalId}
                       aria-label={`Select terminal tab ${tab.title}`}
                       onClick={() => void selectTerminal(tab.terminalId)}
+                      onMouseDown={(event) => {
+                        if (event.button !== 1) return
+                        event.preventDefault()
+                      }}
+                      onAuxClick={(event) => {
+                        if (event.button !== 1) return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        void closeTerminal(tab.terminalId)
+                      }}
                       className="px-2 py-1 text-xs"
                     >
                       {tab.title}
