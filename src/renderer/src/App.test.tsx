@@ -850,6 +850,36 @@ describe('App', () => {
     )
   })
 
+  it('bounds overflowing workspace sessions inside their own scrollable sidebar section', async () => {
+    const workspaceSessions: WorkspaceSession[] = Array.from({ length: 24 }, (_, index) => ({
+      id: `workspace-session-${index + 1}`,
+      kind: 'workspace',
+      title: `Workspace Session ${index + 1}`,
+      status: 'idle',
+      createdAt: new Date(index).toISOString(),
+      updatedAt: new Date(index).toISOString()
+    }))
+    window.spacezero.sessions.listWorkspaceSessions = async () => workspaceSessions
+
+    render(<App />)
+
+    expect(await screen.findByRole('button', { name: /Workspace Session 24/ })).toBeInTheDocument()
+
+    const workspaceSection = screen
+      .getByText('Workspace Sessions')
+      .closest('[data-sidebar="group"]')
+    expect(workspaceSection).toHaveClass('max-h-[45%]')
+    expect(within(workspaceSection as HTMLElement).getByText('Workspace Sessions')).toBeInTheDocument()
+
+    const workspaceList = screen.getByRole('list', { name: 'Workspace session list' })
+    const scrollArea = workspaceList.parentElement
+    expect(scrollArea).toHaveClass('min-h-0', 'overflow-y-auto', 'overflow-x-hidden')
+    expect(scrollArea).toContainElement(workspaceList)
+
+    const projectsSection = screen.getByText('Projects').closest('[data-sidebar="group"]')
+    expect(projectsSection).toHaveClass('min-h-0', 'flex-1', 'overflow-hidden')
+  })
+
   it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
     const workspaceSessions: WorkspaceSession[] = [
       {

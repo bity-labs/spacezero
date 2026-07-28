@@ -416,7 +416,7 @@ export function WorkspaceShell(): React.JSX.Element {
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
             <SidebarGroup
-              className="mt-8 shrink-0"
+              className="mt-8 min-h-0 max-h-[45%] shrink-0"
               aria-label={t('sessions.workspaceList.sectionLabel')}
             >
               <SidebarSectionHeader
@@ -426,15 +426,17 @@ export function WorkspaceShell(): React.JSX.Element {
                 onToggle={() => setWorkspaceSessionsExpanded((expanded) => !expanded)}
               />
               {isWorkspaceSessionsExpanded ? (
-                <WorkspaceSessionList
-                  workspaceSessions={workspaceSessions}
-                  activeSessionId={activeWorkspaceSession?.id ?? null}
-                  status={workspaceSessionsStatus}
-                  error={workspaceSessionsError}
-                  onSelectSession={openWorkspaceSession}
-                  onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
-                  onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
-                />
+                <div className="min-h-0 overflow-x-hidden overflow-y-auto">
+                  <WorkspaceSessionList
+                    workspaceSessions={workspaceSessions}
+                    activeSessionId={activeWorkspaceSession?.id ?? null}
+                    status={workspaceSessionsStatus}
+                    error={workspaceSessionsError}
+                    onSelectSession={openWorkspaceSession}
+                    onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
+                    onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
+                  />
+                </div>
               ) : null}
             </SidebarGroup>
 
