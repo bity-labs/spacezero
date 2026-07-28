@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { GitHubConnection } from '../../shared'
 
@@ -14,19 +14,29 @@ export function useGitHubConnection(): {
   const [connection, setConnection] = useState<GitHubConnection | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const refreshRequestId = useRef(0)
 
   const refresh = useCallback(async ({ force = false }: { force?: boolean } = {}) => {
+    const requestId = refreshRequestId.current + 1
+    refreshRequestId.current = requestId
     setError(null)
+    setConnection(null)
+    setIsLoading(true)
     try {
-      setConnection(
-        await (force
-          ? window.spacezero.github.refreshConnection()
-          : window.spacezero.github.getConnection())
-      )
+      const nextConnection = await (force
+        ? window.spacezero.github.refreshConnection()
+        : window.spacezero.github.getConnection())
+      if (refreshRequestId.current === requestId) {
+        setConnection(nextConnection)
+      }
     } catch {
-      setError('Unable to read the GitHub connection.')
+      if (refreshRequestId.current === requestId) {
+        setError('Unable to read the GitHub connection.')
+      }
     } finally {
-      setIsLoading(false)
+      if (refreshRequestId.current === requestId) {
+        setIsLoading(false)
+      }
     }
   }, [])
 

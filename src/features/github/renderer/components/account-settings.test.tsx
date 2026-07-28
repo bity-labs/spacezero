@@ -1,9 +1,127 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { GitHubConnection } from '../../shared'
+import { GITHUB_CONNECTION_CHANGED_EVENT } from '../hooks/use-github-connection'
 import { AccountSettings } from './account-settings'
 
 describe('AccountSettings', () => {
+  it('keeps stale refresh completions from restoring a prior identity or ending loading', async () => {
+    const accountA: GitHubConnection = {
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: []
+    }
+    const accountB: GitHubConnection = {
+      status: 'connected',
+      identity: {
+        id: '84',
+        login: 'hubot',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/84?v=4',
+        profileUrl: 'https://github.com/hubot'
+      },
+      installations: [],
+      repositories: []
+    }
+    let resolveStaleRefresh: (connection: GitHubConnection) => void = () => undefined
+    let resolveLatestRefresh: (connection: GitHubConnection) => void = () => undefined
+    let requestIndex = 0
+    window.spacezero.github.getConnection = () => {
+      requestIndex += 1
+      if (requestIndex === 1) return Promise.resolve(accountA)
+      if (requestIndex === 2) {
+        return new Promise((resolve) => {
+          resolveStaleRefresh = resolve
+        })
+      }
+      return new Promise((resolve) => {
+        resolveLatestRefresh = resolve
+      })
+    }
+
+    render(<AccountSettings />)
+
+    expect(await screen.findByText('@octocat')).toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(new Event(GITHUB_CONNECTION_CHANGED_EVENT))
+    })
+    expect(await screen.findByRole('status', { name: 'Loading GitHub account' })).toBeInTheDocument()
+    expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(new Event(GITHUB_CONNECTION_CHANGED_EVENT))
+    })
+    await act(async () => {
+      resolveStaleRefresh(accountA)
+    })
+
+    expect(screen.getByRole('status', { name: 'Loading GitHub account' })).toBeInTheDocument()
+    expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
+    expect(screen.queryByText('@hubot')).not.toBeInTheDocument()
+
+    await act(async () => {
+      resolveLatestRefresh(accountB)
+    })
+
+    expect(await screen.findByText('@hubot')).toBeInTheDocument()
+    expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('github-account-loading-card')).not.toBeInTheDocument()
+  })
+
+  it('shows account-shaped placeholders while GitHub connection is loading instead of stale identity', async () => {
+    let resolveConnection: (
+      connection: Awaited<ReturnType<typeof window.spacezero.github.getConnection>>
+    ) => void = () => undefined
+    window.spacezero.github.getConnection = () =>
+      new Promise((resolve) => {
+        resolveConnection = resolve
+      })
+
+    render(<AccountSettings />)
+
+    expect(screen.getByRole('status', { name: 'Loading GitHub account' })).toBeInTheDocument()
+    expect(screen.getByTestId('github-account-loading-card')).toBeInTheDocument()
+    expect(screen.queryByText(/Loading GitHub account…/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('@octocat')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect GitHub' })).not.toBeInTheDocument()
+
+    resolveConnection({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: []
+    })
+
+    expect(await screen.findByText('@octocat')).toBeInTheDocument()
+    expect(screen.queryByTestId('github-account-loading-card')).not.toBeInTheDocument()
+  })
+
+  it('keeps GitHub error state distinct from loading placeholders', async () => {
+    window.spacezero.github.getConnection = async () => {
+      throw new Error('boom')
+    }
+
+    render(<AccountSettings />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Unable to read the GitHub connection.'
+    )
+    expect(screen.getByRole('button', { name: 'Connect GitHub' })).toBeInTheDocument()
+    expect(screen.queryByTestId('github-account-loading-card')).not.toBeInTheDocument()
+  })
+
   it('authorizes in the system browser and shows identity as requiring repository access', async () => {
     const copiedFlows: string[] = []
     const openedFlows: string[] = []

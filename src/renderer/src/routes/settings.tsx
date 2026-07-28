@@ -34,7 +34,6 @@ import { SettingsRow } from '../../../features/settings/renderer/components/sett
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../components/sidebar/sidebar-layout'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
-import { SidebarSearch } from '../components/sidebar/sidebar-search'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
@@ -166,21 +165,7 @@ function SettingsPage(): React.JSX.Element {
             <div className="mac-traffic-light-space shrink-0" />
           </div>
         }
-        footer={
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full justify-start gap-2 text-muted-foreground"
-            >
-              <Cube className="h-4 w-4" aria-hidden="true" />
-              {t('settings.upgradeToPro')}
-            </Button>
-            <div className="mt-3">
-              <AccountMenu settingsLabel={t('settings.closeSettings')} />
-            </div>
-          </>
-        }
+        footer={<AccountMenu settingsLabel={t('settings.closeSettings')} />}
       >
         <Link
           className={buttonVariants({
@@ -193,13 +178,6 @@ function SettingsPage(): React.JSX.Element {
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           {t('settings.backToWorkspace')}
         </Link>
-
-        <SidebarSearch
-          label={t('settings.search.label')}
-          className="mb-5"
-          inputClassName="h-9 bg-muted pl-9"
-          placeholder={t('settings.search.placeholder')}
-        />
 
         <SidebarMenu aria-label={t('settings.navigationLabel')}>
           {navigationItems.map((item) => {
@@ -418,9 +396,7 @@ function AboutSettingsSection(): React.JSX.Element {
             <div className="flex flex-wrap items-center gap-3">
               <UpdateRestartControl placement="settings" />
               <Button onClick={() => void handleCheckForUpdates()} disabled={isChecking}>
-                {isChecking
-                  ? t('settings.about.checkingAction')
-                  : t('settings.about.checkAction')}
+                {isChecking ? t('settings.about.checkingAction') : t('settings.about.checkAction')}
               </Button>
               <a
                 className={buttonVariants({ variant: 'outline', size: 'sm' })}
