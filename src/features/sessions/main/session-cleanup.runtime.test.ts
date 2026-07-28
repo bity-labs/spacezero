@@ -38,6 +38,11 @@ async function setupRuntime({
       storedSessions.find((session) => session.id === sessionId)
     ),
     findProjectById: vi.fn(async () => ({ id: 'project-1', path: '/repos/spacezero' })),
+    update: vi.fn(async (nextSession: StoredSession) => {
+      const index = storedSessions.findIndex((session) => session.id === nextSession.id)
+      if (index >= 0) storedSessions[index] = nextSession
+      return nextSession
+    }),
     listByProjectIdIncludingArchived: vi.fn(async () => [...storedSessions]),
     deleteById: vi.fn(async (sessionId: string) => {
       const index = storedSessions.findIndex((session) => session.id === sessionId)
@@ -72,9 +77,8 @@ async function setupRuntime({
   }))
 
   const { getSessionCleanupService } = await import('./session-cleanup.runtime')
-  const { deleteProjectLifecycle } = await import(
-    '../../projects/main/project-lifecycle-orchestration'
-  )
+  const { deleteProjectLifecycle } =
+    await import('../../projects/main/project-lifecycle-orchestration')
   return {
     service: getSessionCleanupService(),
     sameService: getSessionCleanupService(),
