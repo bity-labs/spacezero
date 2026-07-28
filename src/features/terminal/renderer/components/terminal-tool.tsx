@@ -5,15 +5,36 @@ import '@xterm/xterm/css/xterm.css'
 
 import { Button } from '@renderer/components/ui/button'
 
+import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
+import {
+  useKeyboardShortcutsManager,
+  useRegisterKeyboardShortcuts
+} from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { BrowserContext } from '../../../browser/shared'
-import type {
-  TerminalContext,
-  TerminalDiagnostic,
-  TerminalEvent,
-  TerminalOutputEvent,
-  TerminalTab,
-  TerminalUnsubscribeRequest
+import {
+  TERMINAL_COMMAND_IDS,
+  type TerminalContext,
+  type TerminalDiagnostic,
+  type TerminalEvent,
+  type TerminalOutputEvent,
+  type TerminalTab,
+  type TerminalUnsubscribeRequest
 } from '../../shared'
+
+const terminalShortcutDefinitions = [
+  {
+    commandId: TERMINAL_COMMAND_IDS.newTab,
+    defaultKeybinding: { normalized: 'mod+t' },
+    when: (ctx: { terminalFocused: boolean }) => ctx.terminalFocused,
+    allowInTextInput: true
+  },
+  {
+    commandId: TERMINAL_COMMAND_IDS.closeActiveTab,
+    defaultKeybinding: { normalized: 'mod+w' },
+    when: (ctx: { terminalFocused: boolean }) => ctx.terminalFocused,
+    allowInTextInput: true
+  }
+] as const
 
 type TerminalBrowserHandoff = {
   contextKey: string
@@ -39,6 +60,7 @@ const viewportByContext = new Map<string, Map<string, number>>()
 export function TerminalTool({ context, browserHandoff }: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
+  const shortcutManager = useKeyboardShortcutsManager()
   const fitAddonRef = useRef<FitAddon | null>(null)
   const terminalIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<SubscriptionState | null>(null)
@@ -177,7 +199,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         setFallbackUrl(url)
       }
     },
-    [browserHandoff, setFallbackUrl]
+    [browserHandoff, setFallbackUrl, viewportByTerminal]
   )
 
   useEffect(() => {
@@ -244,6 +266,13 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
 
     if (containerRef.current) xterm.open(containerRef.current)
 
+    xterm.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+      void shortcutManager.handleKeyDown(event)
+      if (!event.defaultPrevented) return true
+      event.stopPropagation()
+      return false
+    })
     const linkProvider = registerTerminalLinkProvider(xterm, openTerminalLink)
 
     const dataSubscription = xterm.onData((data) => {
@@ -334,6 +363,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     applyTerminalEvent,
     openTerminalLink,
     resizeTerminal,
+    shortcutManager,
     terminalContext,
     terminalContextKey,
     viewportByTerminal
@@ -349,23 +379,31 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     updateActiveTerminal(snapshot.activeTerminalId)
   }
 
-  async function closeTerminal(idToClose: string): Promise<void> {
-    const settings = await window.spacezero.settings.getTerminalSettings()
-    if (
-      settings.confirmBeforeClosingLiveTerminals &&
-      !window.confirm('Close this live terminal and terminate its shell?')
-    ) {
-      return
-    }
-    await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
-    setTabs((currentTabs) => {
-      const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
-      const nextActive = idToClose === terminalId ? (nextTabs[0]?.terminalId ?? null) : terminalId
-      updateActiveTerminal(nextActive)
-      setStatus(nextActive ? 'running' : 'empty')
-      return nextTabs
-    })
-  }
+  const closeTerminal = useCallback(
+    async (idToClose: string): Promise<void> => {
+      const settings = await window.spacezero.settings.getTerminalSettings()
+      if (
+        settings.confirmBeforeClosingLiveTerminals &&
+        !window.confirm('Close this live terminal and terminate its shell?')
+      ) {
+        return
+      }
+      await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
+      setTabs((currentTabs) => {
+        const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
+        const nextActive = idToClose === terminalId ? (nextTabs[0]?.terminalId ?? null) : terminalId
+        updateActiveTerminal(nextActive)
+        setStatus(nextActive ? 'running' : 'empty')
+        return nextTabs
+      })
+    },
+    [terminalContext, terminalId, updateActiveTerminal]
+  )
+
+  const closeActiveTerminal = useCallback(async (): Promise<void> => {
+    if (!terminalId) return
+    await closeTerminal(terminalId)
+  }, [closeTerminal, terminalId])
 
   async function reorderTabs(targetTerminalId: string): Promise<void> {
     const draggedTerminalId = draggedTerminalIdRef.current
@@ -398,9 +436,46 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     setFallbackUrl(null)
   }
 
+  const commands = useMemo(
+    () => [
+      {
+        id: TERMINAL_COMMAND_IDS.newTab,
+        title: 'New Terminal',
+        category: 'Terminal',
+        keywords: ['new', 'tab', 'shell'],
+        handler: startTerminal
+      },
+      {
+        id: TERMINAL_COMMAND_IDS.closeActiveTab,
+        title: 'Close Terminal Tab',
+        category: 'Terminal',
+        keywords: ['close', 'tab', 'shell'],
+        handler: closeActiveTerminal
+      }
+    ],
+    [startTerminal, closeActiveTerminal]
+  )
+  useRegisterAppCommands(commands)
+  useRegisterKeyboardShortcuts(terminalShortcutDefinitions)
+
+  useEffect(() => {
+    return () => {
+      shortcutManager.setContext({ terminalFocused: false })
+    }
+  }, [shortcutManager])
+
   return (
     <>
-      <section aria-label="Terminal" className="flex h-full min-h-0 flex-col bg-background">
+      <section
+        aria-label="Terminal"
+        className="flex h-full min-h-0 flex-col bg-background"
+        onFocusCapture={() => shortcutManager.setContext({ terminalFocused: true })}
+        onBlurCapture={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) {
+            shortcutManager.setContext({ terminalFocused: false })
+          }
+        }}
+      >
         <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
           <div className="flex min-w-0 items-center gap-2">
             <div className="shrink-0 text-sm font-medium">Terminal</div>
