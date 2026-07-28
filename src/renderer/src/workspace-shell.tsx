@@ -634,13 +634,23 @@ function WorkspaceBreadcrumb({
   workspaceSession: WorkspaceSession | null
   onOpenProjectSessionSource: (session: ProjectSession) => void
 }): React.JSX.Element {
+  if (knowledgeBaseActive) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList className="justify-start text-xs">
+          <BreadcrumbItem>
+            <BreadcrumbPage>Knowledge Base</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    )
+  }
+
   return (
     <Breadcrumb>
       <BreadcrumbList className="justify-start text-xs">
         <BreadcrumbItem>
-          <BreadcrumbPage>
-            {knowledgeBaseActive ? 'Knowledge Base' : (project?.name ?? 'Workspace')}
-          </BreadcrumbPage>
+          <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
         </BreadcrumbItem>
         {projectSession ? (
           <>
