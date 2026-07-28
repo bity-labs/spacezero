@@ -5,6 +5,7 @@ import { registerFilesIpc } from '../../features/files/main/files.ipc'
 import { registerGitIpc } from '../../features/git/main/git.ipc'
 import { registerGitHubIpc } from '../../features/github/main/github.ipc'
 import { registerKnowledgeBaseIpc } from '../../features/knowledge-base/main/knowledge-base.ipc'
+import { registerLicenseActivationIpc } from '../../features/license-activation/main/license-activation.ipc'
 import { registerOnboardingIpc } from '../../features/onboarding/main/onboarding.ipc'
 import { registerProjectsIpc } from '../../features/projects/main/projects.ipc'
 import { registerSessionsIpc } from '../../features/sessions/main/sessions.ipc'
@@ -27,6 +28,7 @@ export function registerIpcHandlers(): void {
   registerGitIpc()
   registerGitHubIpc()
   registerKnowledgeBaseIpc()
+  registerLicenseActivationIpc()
   registerOnboardingIpc()
   registerProjectsIpc()
   registerSessionsIpc()
