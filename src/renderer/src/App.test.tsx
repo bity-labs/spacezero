@@ -1278,6 +1278,18 @@ describe('App', () => {
     expect(window.location.hash).toBe('#/')
   })
 
+  it('shows simplified Settings controls with no search or upgrade affordance', async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+
+    expect(await screen.findByRole('main', { name: 'Settings' })).toBeInTheDocument()
+    expect(screen.queryByRole('searchbox', { name: 'Search Settings' })).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Search settings')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Upgrade to Pro' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Close settings' })).toBeInTheDocument()
+  })
+
   it('shows only implemented Settings categories and opens the account area from the sidebar', async () => {
     render(<App />)
 
