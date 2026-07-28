@@ -93,9 +93,11 @@ vi.mock('../../features/tool-pane/renderer', () => ({
   createKnowledgeBaseToolPaneConfiguration: vi.fn(),
   createProjectSessionToolPaneConfiguration: vi.fn(),
   createWorkspaceSessionToolPaneConfiguration: vi.fn(),
+  ToolPaneHeaderControls: () => <button type="button">Toggle tool pane</button>,
   ToolPaneShell: () => <div />,
   ToolPaneToggleButton: () => <button type="button">Toggle tool pane</button>,
-  useToolPaneController: () => ({ toggle: vi.fn() })
+  useToolPaneController: () => ({ isOpen: false, toggle: vi.fn() }),
+  useToolPaneStore: (selector: (state: { contexts: Record<string, { width: number | null }> }) => unknown) => selector({ contexts: {} })
 }))
 
 vi.mock('./components/app-shell/account-menu', () => ({

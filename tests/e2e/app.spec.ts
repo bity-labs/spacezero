@@ -1302,7 +1302,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     }, { fixtureUrl })
   ).toBe(true)
 
-  await window.getByRole('button', { name: 'Collapse Tool Pane' }).click()
+  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
   await expect.poll(async () =>
     electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
       const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
