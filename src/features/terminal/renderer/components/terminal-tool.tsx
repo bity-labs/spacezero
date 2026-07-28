@@ -403,20 +403,21 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
       ) {
         return
       }
+      const nextActive =
+        idToClose === terminalId ? chooseTerminalToActivateAfterClose(tabs, idToClose) : terminalId
+      if (idToClose === terminalId && nextActive) {
+        await window.spacezero.terminal.selectTab({ terminalId: nextActive, context: terminalContext })
+      }
       await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
       setTabs((currentTabs) => {
         const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
-        const nextActive =
-          idToClose === terminalId
-            ? chooseTerminalToActivateAfterClose(currentTabs, idToClose)
-            : terminalId
         if (idToClose === terminalId && nextActive) focusActiveTerminalAfterCloseRef.current = true
         updateActiveTerminal(nextActive)
         setStatus(nextActive ? 'running' : 'empty')
         return nextTabs
       })
     },
-    [terminalContext, terminalId, updateActiveTerminal]
+    [tabs, terminalContext, terminalId, updateActiveTerminal]
   )
 
   const closeActiveTerminal = useCallback(async (): Promise<void> => {

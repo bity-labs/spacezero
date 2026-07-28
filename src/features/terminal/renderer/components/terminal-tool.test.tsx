@@ -59,6 +59,7 @@ function render(ui: ReactNode): ReturnType<typeof rtlRender> {
 
 describe('TerminalTool', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     lastTerminal = null
     allTerminals = []
     terminalEventListener = null
@@ -1036,7 +1037,7 @@ describe('TerminalTool', () => {
     await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
     expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
     expect(window.spacezero.terminal.close).toHaveBeenCalledWith({
-      terminalId: activeTerminalId,
+      terminalId: 'terminal-1',
       context
     })
   })
@@ -1105,7 +1106,7 @@ describe('TerminalTool', () => {
 
     vi.mocked(window.confirm).mockReturnValue(true)
     act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
-    await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context }))
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: 'terminal-2', context }))
     expect(window.confirm).toHaveBeenCalledTimes(2)
     expect(close).toHaveBeenCalledTimes(1)
     expect(writeInput).not.toHaveBeenCalled()
@@ -1174,6 +1175,73 @@ describe('TerminalTool', () => {
       await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[1], context }))
       expect(close).toHaveBeenCalledTimes(2)
       expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    { name: 'middle', initialActiveTerminalId: 'terminal-2', expectedActiveTerminalId: 'terminal-3' },
+    { name: 'last', initialActiveTerminalId: 'terminal-3', expectedActiveTerminalId: 'terminal-2' }
+  ])(
+    'keeps the adjacent $name-tab close selection synchronized with main state across remount',
+    async ({ initialActiveTerminalId, expectedActiveTerminalId }) => {
+      const user = userEvent.setup()
+      let tabs = [
+        { terminalId: 'terminal-1', title: 'one' },
+        { terminalId: 'terminal-2', title: 'two' },
+        { terminalId: 'terminal-3', title: 'three' }
+      ]
+      let activeTerminalId = initialActiveTerminalId
+      window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+        confirmBeforeClosingLiveTerminals: false
+      }))
+      const selectTab = vi.fn(async ({ terminalId }) => {
+        activeTerminalId = terminalId
+        return { tabs, activeTerminalId }
+      })
+      const close = vi.fn(async ({ terminalId }) => {
+        tabs = tabs.filter((tab) => tab.terminalId !== terminalId)
+        if (activeTerminalId === terminalId) activeTerminalId = tabs[0]?.terminalId ?? null
+      })
+      window.spacezero.terminal = {
+        ...terminalApiDefaults,
+        create: vi.fn(async () => {
+          if (!activeTerminalId) return { status: 'empty' as const, terminalId: null, tabs, activeTerminalId }
+          return { status: 'running' as const, terminalId: activeTerminalId, tabs, activeTerminalId }
+        }),
+        selectTab,
+        subscribe: vi.fn(async ({ terminalId }) => ({
+          terminalId,
+          events: [],
+          oldestSequence: 1,
+          nextSequence: 1
+        })),
+        unsubscribe: vi.fn(async () => undefined),
+        writeInput: vi.fn(async () => undefined),
+        resize: vi.fn(async () => undefined),
+        close,
+        onEvent: vi.fn(() => () => undefined)
+      }
+
+      const mounted = render(<TerminalTool context={context} />)
+
+      await user.click(await screen.findByRole('button', { name: 'Close Terminal' }))
+
+      await waitFor(() =>
+        expect(selectTab).toHaveBeenCalledWith({ terminalId: expectedActiveTerminalId, context })
+      )
+      await screen.findByRole('tab', {
+        name: `Select terminal tab ${expectedActiveTerminalId === 'terminal-3' ? 'three' : 'two'}`,
+        selected: true
+      })
+
+      mounted.rerender(<button type="button">Terminal hidden</button>)
+      mounted.rerender(<TerminalTool context={context} />)
+
+      await screen.findByRole('tab', {
+        name: `Select terminal tab ${expectedActiveTerminalId === 'terminal-3' ? 'three' : 'two'}`,
+        selected: true
+      })
+      expect(activeTerminalId).toBe(expectedActiveTerminalId)
     }
   )
 
