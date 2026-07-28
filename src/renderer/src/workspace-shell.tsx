@@ -8,6 +8,7 @@ import {
 } from 'react'
 import {
   BookOpenText,
+  CaretDown,
   DotsSixVertical,
   FolderPlus,
   FunnelSimple,
@@ -73,6 +74,12 @@ import {
   BreadcrumbSeparator
 } from './components/ui/breadcrumb'
 import { Button } from './components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from './components/ui/dropdown-menu'
 import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
 import { cn } from './lib/utils'
@@ -307,6 +314,14 @@ export function WorkspaceShell(): React.JSX.Element {
     })
   }
 
+  function handleOpenProjectHome(project: Project): void {
+    runInWorkspaceView(() => {
+      setProjectHomeRequest(null)
+      selectProject(project)
+      resetSessionWorkspaceLayout()
+    })
+  }
+
   async function handleArchiveSession(sessionId: string): Promise<void> {
     await archiveSession(sessionId)
     if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
@@ -416,6 +431,13 @@ export function WorkspaceShell(): React.JSX.Element {
             project={activeSessionProject ?? activeProject}
             projectSession={activeProjectSession}
             workspaceSession={activeWorkspaceSession}
+            projectSessions={
+              activeProjectSession
+                ? sessions.filter((session) => session.projectId === activeProjectSession.projectId)
+                : []
+            }
+            onOpenProjectHome={handleOpenProjectHome}
+            onSelectProjectSession={handleSelectSession}
             onOpenProjectSessionSource={handleOpenSessionSource}
           />
         </div>
@@ -657,12 +679,18 @@ function WorkspaceBreadcrumb({
   project,
   projectSession,
   workspaceSession,
+  projectSessions,
+  onOpenProjectHome,
+  onSelectProjectSession,
   onOpenProjectSessionSource
 }: {
   knowledgeBaseActive: boolean
   project: Project | null
   projectSession: ProjectSession | null
   workspaceSession: WorkspaceSession | null
+  projectSessions: readonly ProjectSession[]
+  onOpenProjectHome: (project: Project) => void
+  onSelectProjectSession: (session: ProjectSession) => void
   onOpenProjectSessionSource: (session: ProjectSession) => void
 }): React.JSX.Element {
   if (knowledgeBaseActive) {
@@ -677,17 +705,64 @@ function WorkspaceBreadcrumb({
     )
   }
 
+  const projectSessionOptions = projectSession
+    ? projectSessions.filter((session) => session.projectId === projectSession.projectId)
+    : []
+
   return (
     <Breadcrumb>
       <BreadcrumbList className="justify-start text-xs">
         <BreadcrumbItem>
-          <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
+          {project && projectSession ? (
+            <button
+              type="button"
+              className="titlebar-control rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              aria-label={`Open Project Home for ${project.name}`}
+              onClick={() => onOpenProjectHome(project)}
+            >
+              {project.name}
+            </button>
+          ) : (
+            <BreadcrumbPage>{project?.name ?? 'Workspace'}</BreadcrumbPage>
+          )}
         </BreadcrumbItem>
         {projectSession ? (
           <>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>{projectSession.title}</BreadcrumbPage>
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="titlebar-control inline-flex items-center gap-1 rounded-sm text-foreground hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  aria-label="Switch Project Session"
+                >
+                  <span>{projectSession.title}</span>
+                  <CaretDown className="h-3 w-3" aria-hidden="true" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent className="min-w-52" align="start">
+                  <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
+                    Project Sessions
+                  </div>
+                  {projectSessionOptions.map((session) => {
+                    const isActive = session.id === projectSession.id
+                    return (
+                      <DropdownMenuItem
+                        key={session.id}
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() => {
+                          if (!isActive) onSelectProjectSession(session)
+                        }}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                        {isActive ? (
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            Current
+                          </span>
+                        ) : null}
+                      </DropdownMenuItem>
+                    )
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </BreadcrumbItem>
           </>
         ) : null}
