@@ -396,14 +396,18 @@ describe('Terminal service', () => {
     const second = await service.create({ ownerWindowId: 1, request: { context, forceNew: true } })
     if (first.status !== 'running' || second.status !== 'running') throw new Error('expected tabs')
 
-    await service.close({ ownerWindowId: 1, request: { terminalId: first.terminalId, context } })
+    const closeSnapshot = await service.close({
+      ownerWindowId: 1,
+      request: { terminalId: first.terminalId, context }
+    })
     expect(ptys.map((pty) => pty.killed)).toEqual([true, false])
-    await expect(
-      service.listTabs({ ownerWindowId: 1, request: { context } })
-    ).resolves.toMatchObject({
+    expect(closeSnapshot).toMatchObject({
       activeTerminalId: second.terminalId,
       tabs: [{ terminalId: second.terminalId, title: 'session-1' }]
     })
+    await expect(
+      service.listTabs({ ownerWindowId: 1, request: { context } })
+    ).resolves.toMatchObject(closeSnapshot)
 
     ptys[1]?.emitExit(0)
     await expect(service.create({ ownerWindowId: 1, request: { context } })).resolves.toMatchObject({

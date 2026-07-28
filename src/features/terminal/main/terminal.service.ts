@@ -573,9 +573,10 @@ export function createTerminalService({
   }: {
     ownerWindowId: number
     request: TerminalCloseRequest
-  }): Promise<void> {
+  }): Promise<TerminalTabsSnapshot> {
     const terminal = requireTerminal(ownerWindowId, request.terminalId, request.context)
     await closeTerminalRecord(terminal, { markEmpty: true })
+    return snapshot(ownerWindowId, request.context)
   }
 
   async function closeAllForWindow(ownerWindowId: number): Promise<void> {

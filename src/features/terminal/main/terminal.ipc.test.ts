@@ -43,7 +43,10 @@ describe('Terminal IPC boundary', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined)
+      close: vi.fn(async () => ({
+        tabs: [{ terminalId: 'terminal-2', title: 'zsh' }],
+        activeTerminalId: 'terminal-2'
+      }))
     }
     const handlers = createTerminalHandlers(service)
 
@@ -74,7 +77,7 @@ describe('Terminal IPC boundary', () => {
     ).resolves.toBeUndefined()
     await expect(
       handlers.close(event, { terminalId: 'terminal-1', context })
-    ).resolves.toBeUndefined()
+    ).resolves.toMatchObject({ activeTerminalId: 'terminal-2' })
 
     expect(service.listTabs).toHaveBeenCalledWith({
       ownerWindowId: 7,
