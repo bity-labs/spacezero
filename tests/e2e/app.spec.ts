@@ -1,4 +1,4 @@
-import { expect, test, _electron as electron, type ElectronApplication } from '@playwright/test'
+import { expect, test, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
@@ -30,6 +30,53 @@ async function launchPackagedApp(userDataPath: string): Promise<ElectronApplicat
     executablePath: executablePath!,
     args: [`--user-data-dir=${userDataPath}`]
   })
+}
+
+async function setMainWindowSize(
+  electronApp: ElectronApplication,
+  width: number,
+  height: number
+): Promise<void> {
+  await electronApp.evaluate(
+    ({ BrowserWindow }, size) => {
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      mainWindow.setSize(size.width, size.height)
+    },
+    { width, height }
+  )
+}
+
+async function expectToolPaneHeaderGeometryAligned(window: Page): Promise<void> {
+  await expect
+    .poll(async () => window.getByRole('complementary', { name: 'Tool Pane' }).boundingBox())
+    .not.toBeNull()
+  const geometry = await window.evaluate(() => {
+    const pane = document.querySelector('[aria-label="Tool Pane"]')?.getBoundingClientRect()
+    const header = document
+      .querySelector('[aria-label="Tool Pane header controls"]')
+      ?.getBoundingClientRect()
+    const switcher = document
+      .querySelector('[aria-label="Tool Switcher"]')
+      ?.getBoundingClientRect()
+    const toggle = document
+      .querySelector('[aria-label="Toggle Tool Pane"]')
+      ?.getBoundingClientRect()
+
+    if (!pane || !header || !switcher || !toggle) return null
+    return {
+      paneLeft: pane.left,
+      paneRight: pane.right,
+      headerWidth: header.width,
+      paneWidth: pane.width,
+      switcherLeft: switcher.left,
+      toggleRight: toggle.right
+    }
+  })
+
+  expect(geometry).not.toBeNull()
+  expect(geometry!.headerWidth).toBeGreaterThan(geometry!.paneWidth - 24)
+  expect(Math.abs(geometry!.switcherLeft - geometry!.paneLeft)).toBeLessThanOrEqual(12)
+  expect(Math.abs(geometry!.toggleRight - geometry!.paneRight)).toBeLessThanOrEqual(12)
 }
 
 function resolvePackagedExecutablePath(): string | undefined {
@@ -780,8 +827,14 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
         return legacyMethods.filter((method) => method in window.spacezero.knowledgeBase)
       })
     ).toEqual([])
+    await setMainWindowSize(electronApp, 1280, 900)
     await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
     await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
+    await expectToolPaneHeaderGeometryAligned(window)
+    await window.getByRole('separator', { name: 'Resize Tool Pane' }).press('ArrowRight')
+    await expectToolPaneHeaderGeometryAligned(window)
+    await setMainWindowSize(electronApp, 960, 900)
+    await expectToolPaneHeaderGeometryAligned(window)
     await expect(window.getByText('AGENTS.md')).toBeVisible()
     await window.getByText('AGENTS.md').click()
     await expect(window.getByRole('button', { name: 'Rich' })).toBeVisible()
@@ -815,8 +868,10 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await electronApp.close()
     electronApp = await launchKnowledgeBaseApp()
     window = await electronApp.firstWindow()
+    await setMainWindowSize(electronApp, 960, 900)
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
+    await expectToolPaneHeaderGeometryAligned(window)
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('tree', { name: 'Files' })).toBeVisible()
     await expect

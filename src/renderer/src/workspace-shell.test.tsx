@@ -93,8 +93,12 @@ vi.mock('../../features/tool-pane/renderer', () => ({
   createKnowledgeBaseToolPaneConfiguration: vi.fn(),
   createProjectSessionToolPaneConfiguration: vi.fn(),
   createWorkspaceSessionToolPaneConfiguration: vi.fn(),
+  getRenderedToolPaneWidth: (containerWidth: number, savedWidth: number | null | undefined) =>
+    savedWidth ?? Math.round(containerWidth * 0.6),
   ToolPaneHeaderControls: () => <button type="button">Toggle tool pane</button>,
   ToolPaneShell: () => <div />,
+  TOOL_PANE_COLLAPSED_HEADER_WIDTH: 48,
+  TOOL_PANE_HANDLE_WIDTH: 4,
   ToolPaneToggleButton: () => <button type="button">Toggle tool pane</button>,
   useToolPaneController: () => ({ isOpen: false, toggle: vi.fn() }),
   useToolPaneStore: (selector: (state: { contexts: Record<string, { width: number | null }> }) => unknown) => selector({ contexts: {} })

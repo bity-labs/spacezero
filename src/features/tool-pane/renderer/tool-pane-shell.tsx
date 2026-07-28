@@ -39,10 +39,12 @@ type ToolPaneShellProps = ToolPaneConfiguration & {
   showInlineHeaderSwitcher?: boolean
 }
 
+export const TOOL_PANE_COLLAPSED_HEADER_WIDTH = 48
+
 const TOOL_PANE_DEFAULT_RATIO = 0.6
 const TOOL_PANE_MIN_WIDTH = 400
 const CHAT_MIN_WIDTH = 360
-const TOOL_PANE_HANDLE_WIDTH = 4
+export const TOOL_PANE_HANDLE_WIDTH = 4
 const TOOL_PANE_RESIZE_STEP = 24
 
 export function ToolPaneShell({
@@ -62,12 +64,7 @@ export function ToolPaneShell({
   const activeTool = controller.activeTool
   const isOpen = controller.isOpen
   const { minWidth, maxWidth } = getToolPaneWidthLimits(containerWidth)
-  const defaultWidth = clampToolPaneWidth(
-    Math.round(containerWidth * TOOL_PANE_DEFAULT_RATIO),
-    minWidth,
-    maxWidth
-  )
-  const renderedWidth = clampToolPaneWidth(savedState?.width ?? defaultWidth, minWidth, maxWidth)
+  const renderedWidth = getRenderedToolPaneWidth(containerWidth, savedState?.width)
 
   useLayoutEffect(() => {
     const container = containerRef.current
@@ -192,7 +189,7 @@ export function ToolPaneHeaderControls({
   return (
     <div
       aria-label="Tool Pane header controls"
-      className="titlebar-control flex h-full min-w-0 items-center justify-between gap-2"
+      className="titlebar-control flex h-full w-full min-w-0 flex-1 items-center justify-between gap-2"
     >
       {configuration && controller.isOpen && controller.activeTool ? (
         <ToolSwitcher
@@ -288,6 +285,19 @@ function resolveActiveTool(
     availableTools[0] ??
     null
   )
+}
+
+export function getRenderedToolPaneWidth(
+  containerWidth: number,
+  savedWidth: number | null | undefined
+): number {
+  const { minWidth, maxWidth } = getToolPaneWidthLimits(containerWidth)
+  const defaultWidth = clampToolPaneWidth(
+    Math.round(containerWidth * TOOL_PANE_DEFAULT_RATIO),
+    minWidth,
+    maxWidth
+  )
+  return clampToolPaneWidth(savedWidth ?? defaultWidth, minWidth, maxWidth)
 }
 
 function getToolPaneWidthLimits(containerWidth: number): { minWidth: number; maxWidth: number } {
