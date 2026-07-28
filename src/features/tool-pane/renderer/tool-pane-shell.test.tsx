@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { resetToolPaneStore, useToolPaneStore } from './tool-pane-store'
 import {
+  getRenderedToolPaneWidth,
   ToolPaneHeaderControls,
   ToolPaneShell,
   ToolPaneToggleButton,
@@ -85,6 +86,15 @@ describe('ToolPaneShell', () => {
     expect(headerControls).toContainElement(switcher)
     expect(headerControls).toContainElement(toggle)
     expect(pane).not.toContainElement(switcher)
+    expect(headerControls).toHaveClass('w-full')
+    expect(headerControls).toHaveClass('flex-1')
+  })
+
+  it('uses the shared clamped pane width for default and persisted header tracks', () => {
+    expect(getRenderedToolPaneWidth(1024, undefined)).toBe(614)
+    expect(getRenderedToolPaneWidth(696, undefined)).toBe(332)
+    expect(getRenderedToolPaneWidth(696, 638)).toBe(332)
+    expect(getRenderedToolPaneWidth(1024, 450)).toBe(450)
   })
 
   it('collapses from the shared header toggle', async () => {
