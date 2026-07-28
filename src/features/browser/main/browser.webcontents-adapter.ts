@@ -111,9 +111,9 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     view.webContents.on('page-title-updated', (_event, title) =>
       this.service?.markTitleChanged(tabId, title)
     )
-    view.webContents.on('page-favicon-updated', (_event, favicons) =>
-      this.service?.markFaviconChanged(tabId, favicons)
-    )
+    view.webContents.on('page-favicon-updated', (_event, favicons) => {
+      void this.service?.markFaviconChanged(tabId, favicons)
+    })
     view.webContents.on('did-create-window', (childWindow, details) =>
       this.trackAuthenticationChildWindow(tabId, childWindow as BrowserChildWindow, details)
     )
