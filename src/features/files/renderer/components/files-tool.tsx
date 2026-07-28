@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CaretDown,
   CaretRight,
+  FilePlus,
+  FolderSimplePlus,
   MagnifyingGlass,
-  Plus,
   SidebarSimple,
-  X
+  TreeStructure
 } from '@phosphor-icons/react'
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
@@ -64,6 +65,8 @@ type RootState =
   | { status: 'loading' }
   | { status: 'ready'; items: FilesTreeItem[] }
   | { status: 'error'; message: string }
+
+type ExplorerView = 'tree' | 'search'
 
 type SearchState =
   | { status: 'idle' }
@@ -150,13 +153,14 @@ function FilesToolSession({
   const rewritePaths = useFilesStore((state) => state.rewritePaths)
   const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
+  const [explorerView, setExplorerView] = useState<ExplorerView>('tree')
   const [searchQuery, setSearchQuery] = useState('')
-  const [includeIgnoredSearch, setIncludeIgnoredSearch] = useState(false)
   const [searchState, setSearchState] = useState<SearchState>({ status: 'idle' })
   const [treeHeight, setTreeHeight] = useState(480)
   const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState<CreateDialogState | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
@@ -166,11 +170,9 @@ function FilesToolSession({
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const observedPathGenerationsRef = useRef(new Map<string, number>())
   const searchStateRef = useRef(searchState)
-  const includeIgnoredSearchRef = useRef(includeIgnoredSearch)
   const activeDocument = getActiveFilesTab(context)
   expandedPathsRef.current = context.expandedPaths
   searchStateRef.current = searchState
-  includeIgnoredSearchRef.current = includeIgnoredSearch
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
@@ -274,10 +276,11 @@ function FilesToolSession({
     searchRequestRef.current += 1
     setSearchQuery('')
     setSearchState({ status: 'idle' })
+    setExplorerView('tree')
   }, [cancelActiveSearch])
 
   const performSearch = useCallback(
-    async (query: string, includeIgnored: boolean): Promise<void> => {
+    async (query: string): Promise<void> => {
       const normalizedQuery = query.trim()
       cancelActiveSearch()
       const requestSequence = searchRequestRef.current + 1
@@ -294,7 +297,7 @@ function FilesToolSession({
         const results = await window.spacezero.files.search({
           context: ipcContext,
           query: normalizedQuery,
-          includeIgnored,
+          includeIgnored: true,
           requestId
         })
         if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
@@ -324,14 +327,10 @@ function FilesToolSession({
     [cancelActiveSearch, ipcContext, sessionId]
   )
 
-  const clearSearch = useCallback((): void => {
-    invalidateSearchResults()
-  }, [invalidateSearchResults])
-
   const refreshActiveSearch = useCallback((): void => {
     const state = searchStateRef.current
     if (state.status === 'idle') return
-    void performSearch(state.query, includeIgnoredSearchRef.current)
+    void performSearch(state.query)
   }, [performSearch])
 
   const invalidateObservedPathGeneration = useCallback((relativePath: string): void => {
@@ -544,6 +543,12 @@ function FilesToolSession({
     const focusTimeout = window.setTimeout(() => createInputRef.current?.focus(), 0)
     return () => window.clearTimeout(focusTimeout)
   }, [createDialog?.kind, createDialog?.parentPath])
+
+  useEffect(() => {
+    if (explorerView !== 'search') return
+    const focusTimeout = window.setTimeout(() => searchInputRef.current?.focus(), 0)
+    return () => window.clearTimeout(focusTimeout)
+  }, [explorerView])
 
   const confirmCreateEntry = useCallback(async (): Promise<void> => {
     const dialog = createDialog
@@ -863,6 +868,11 @@ function FilesToolSession({
     window.addEventListener('pointerup', stop, { once: true })
   }
 
+  const selectTreeView = useCallback((): void => {
+    cancelActiveSearch()
+    setExplorerView('tree')
+  }, [cancelActiveSearch])
+
   function resizeWithKeyboard(event: React.KeyboardEvent<HTMLDivElement>): void {
     const direction = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
     if (!direction) return
@@ -886,6 +896,7 @@ function FilesToolSession({
         <button
           aria-label="Expand Files explorer"
           className="m-2 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+          title="Expand Files explorer"
           type="button"
           onClick={() => setExplorerCollapsed(sessionId, false)}
         >
@@ -898,31 +909,52 @@ function FilesToolSession({
             style={{ width: clampExplorerWidth(context.explorerWidth) }}
           >
             <header className="flex shrink-0 flex-col gap-2 border-b p-2">
-              <div className="flex h-7 items-center justify-between">
-                <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                  Explorer
-                </span>
+              <div className="flex h-7 items-center justify-between gap-2">
+                <div className="flex items-center gap-1" aria-label="Files explorer views">
+                  <button
+                    aria-label="Tree view"
+                    aria-pressed={explorerView === 'tree'}
+                    className={explorerViewButtonClass(explorerView === 'tree')}
+                    title="Tree view"
+                    type="button"
+                    onClick={selectTreeView}
+                  >
+                    <TreeStructure aria-hidden className="size-4" />
+                  </button>
+                  <button
+                    aria-label="Search files"
+                    aria-pressed={explorerView === 'search'}
+                    className={explorerViewButtonClass(explorerView === 'search')}
+                    title="Search files"
+                    type="button"
+                    onClick={() => setExplorerView('search')}
+                  >
+                    <MagnifyingGlass aria-hidden className="size-4" />
+                  </button>
+                </div>
                 <div className="flex items-center gap-1">
                   <button
                     aria-label="New file"
                     className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    title="New file"
                     type="button"
                     onClick={() => openCreateDialog('file')}
                   >
-                    <Plus aria-hidden className="size-3" />
-                    <span className="sr-only">New file</span>
+                    <FilePlus aria-hidden className="size-4" />
                   </button>
                   <button
                     aria-label="New folder"
-                    className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    title="New folder"
                     type="button"
                     onClick={() => openCreateDialog('folder')}
                   >
-                    Folder
+                    <FolderSimplePlus aria-hidden className="size-4" />
                   </button>
                   <button
                     aria-label="Collapse Files explorer"
                     className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    title="Collapse Files explorer"
                     type="button"
                     onClick={() => setExplorerCollapsed(sessionId, true)}
                   >
@@ -930,50 +962,31 @@ function FilesToolSession({
                   </button>
                 </div>
               </div>
-              <form
-                className="flex items-center gap-1"
-                role="search"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  void performSearch(searchQuery, includeIgnoredSearch)
-                }}
-              >
-                <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
-                  <MagnifyingGlass
-                    aria-hidden
-                    className="mr-1 size-3 shrink-0 text-muted-foreground"
-                  />
-                  <input
-                    aria-label="Search files"
-                    className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                    placeholder="Search files"
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                  />
-                </div>
-                {searchState.status !== 'idle' ? (
-                  <button
-                    aria-label="Return to file tree"
-                    className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    type="button"
-                    onClick={clearSearch}
-                  >
-                    <X aria-hidden className="size-3" />
-                  </button>
-                ) : null}
-              </form>
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  checked={includeIgnoredSearch}
-                  type="checkbox"
-                  onChange={(event) => {
-                    const checked = event.target.checked
-                    setIncludeIgnoredSearch(checked)
-                    if (searchState.status !== 'idle') void performSearch(searchQuery, checked)
+              {explorerView === 'search' ? (
+                <form
+                  className="flex items-center gap-1"
+                  role="search"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    void performSearch(searchQuery)
                   }}
-                />
-                Include ignored files
-              </label>
+                >
+                  <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
+                    <MagnifyingGlass
+                      aria-hidden
+                      className="mr-1 size-3 shrink-0 text-muted-foreground"
+                    />
+                    <input
+                      ref={searchInputRef}
+                      aria-label="Search files"
+                      className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                      placeholder="Search files"
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                    />
+                  </div>
+                </form>
+              ) : null}
               {selectedTreeItem && selectedTreeItem.kind !== 'status' ? (
                 <div className="flex flex-wrap items-center gap-1 border-t pt-2 text-xs">
                   <span
@@ -1052,7 +1065,7 @@ function FilesToolSession({
               ) : null}
             </header>
             <div ref={treeContainerRef} className="min-h-0 flex-1 overflow-hidden">
-              {searchState.status !== 'idle' ? (
+              {explorerView === 'search' ? (
                 <FilesSearchResults
                   state={searchState}
                   onOpen={(result) => {
@@ -1060,7 +1073,7 @@ function FilesToolSession({
                       result.kind === 'content' ? result.snippets[0]?.line : undefined
                     void openFile(result.relativePath, 'preview', targetLine)
                   }}
-                  onRetry={() => void performSearch(searchQuery, includeIgnoredSearch)}
+                  onRetry={() => void performSearch(searchQuery)}
                 />
               ) : rootState.status === 'loading' ? (
                 <FilesState message="Loading files…" />
@@ -2224,6 +2237,13 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} bytes`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
+}
+
+function explorerViewButtonClass(isActive: boolean): string {
+  const base = 'flex size-7 items-center justify-center rounded-md hover:bg-accent'
+  return isActive
+    ? `${base} bg-accent text-accent-foreground ring-1 ring-ring`
+    : `${base} text-muted-foreground`
 }
 
 function clampExplorerWidth(width: number): number {
