@@ -59,6 +59,7 @@ function render(ui: ReactNode): ReturnType<typeof rtlRender> {
 
 describe('TerminalTool', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     lastTerminal = null
     allTerminals = []
     terminalEventListener = null
@@ -86,7 +87,7 @@ describe('TerminalTool', () => {
       unsubscribe,
       writeInput,
       resize,
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -150,7 +151,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -219,7 +220,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -282,7 +283,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
     window.spacezero.browser.openUrlInDefaultBrowser = vi.fn(async () => undefined)
@@ -321,7 +322,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -356,7 +357,7 @@ describe('TerminalTool', () => {
       unsubscribe,
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => removeEventListener)
     }
 
@@ -397,7 +398,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -452,7 +453,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -523,7 +524,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -577,7 +578,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -629,7 +630,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -680,7 +681,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -728,7 +729,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -767,7 +768,7 @@ describe('TerminalTool', () => {
       .fn()
       .mockResolvedValueOnce({ status: 'running' as const, terminalId: 'terminal-1' })
       .mockResolvedValueOnce({ status: 'empty' as const, terminalId: null })
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -807,7 +808,7 @@ describe('TerminalTool', () => {
 
   it('asks before closing a live terminal and returns to the New Terminal state on close or exit', async () => {
     const user = userEvent.setup()
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.confirm = vi.fn(() => true)
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -845,7 +846,7 @@ describe('TerminalTool', () => {
 
   it('skips close confirmation when terminal safety preference is disabled', async () => {
     const user = userEvent.setup()
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.confirm = vi.fn(() => true)
     window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
       confirmBeforeClosingLiveTerminals: false
@@ -876,7 +877,7 @@ describe('TerminalTool', () => {
 
   it('leaves a live terminal intact when close confirmation is cancelled', async () => {
     const user = userEvent.setup()
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.confirm = vi.fn(() => false)
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -925,7 +926,7 @@ describe('TerminalTool', () => {
       unsubscribe,
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -996,7 +997,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1036,7 +1037,7 @@ describe('TerminalTool', () => {
     await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
     expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
     expect(window.spacezero.terminal.close).toHaveBeenCalledWith({
-      terminalId: activeTerminalId,
+      terminalId: 'terminal-1',
       context
     })
   })
@@ -1057,7 +1058,7 @@ describe('TerminalTool', () => {
         activeTerminalId
       }
     })
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     const writeInput = vi.fn(async () => undefined)
     window.confirm = vi.fn(() => false)
     window.spacezero.terminal = {
@@ -1105,10 +1106,221 @@ describe('TerminalTool', () => {
 
     vi.mocked(window.confirm).mockReturnValue(true)
     act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
-    await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context }))
+    await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: 'terminal-2', context }))
     expect(window.confirm).toHaveBeenCalledTimes(2)
     expect(close).toHaveBeenCalledTimes(1)
     expect(writeInput).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    {
+      name: 'first',
+      initialActiveTerminalId: 'terminal-1',
+      expectedSequentialCloses: ['terminal-1', 'terminal-2']
+    },
+    {
+      name: 'middle',
+      initialActiveTerminalId: 'terminal-2',
+      expectedSequentialCloses: ['terminal-2', 'terminal-3']
+    },
+    {
+      name: 'last',
+      initialActiveTerminalId: 'terminal-3',
+      expectedSequentialCloses: ['terminal-3', 'terminal-2']
+    }
+  ])(
+    'focuses the next Terminal after closing the active $name tab so repeated mod+w closes tabs sequentially',
+    async ({ initialActiveTerminalId, expectedSequentialCloses }) => {
+      const user = userEvent.setup()
+      const tabs = [
+        { terminalId: 'terminal-1', title: 'one' },
+        { terminalId: 'terminal-2', title: 'two' },
+        { terminalId: 'terminal-3', title: 'three' }
+      ]
+      window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+        confirmBeforeClosingLiveTerminals: false
+      }))
+      const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
+      window.spacezero.terminal = {
+        ...terminalApiDefaults,
+        create: vi.fn(async () => ({
+          status: 'running' as const,
+          terminalId: initialActiveTerminalId,
+          tabs,
+          activeTerminalId: initialActiveTerminalId
+        })),
+        subscribe: vi.fn(async ({ terminalId }) => ({
+          terminalId,
+          events: [],
+          oldestSequence: 1,
+          nextSequence: 1
+        })),
+        unsubscribe: vi.fn(async () => undefined),
+        writeInput: vi.fn(async () => undefined),
+        resize: vi.fn(async () => undefined),
+        close,
+        onEvent: vi.fn(() => () => undefined)
+      }
+
+      render(<TerminalTool context={context} />)
+
+      await waitFor(() => expect(lastTerminal?.getInputElement()).toBeTruthy())
+      await user.click(lastTerminal!.getInputElement()!)
+      await user.keyboard('{Control>}w{/Control}')
+
+      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[0], context }))
+      await waitFor(() => expect(lastTerminal?.focus).toHaveBeenCalled())
+      await user.keyboard('{Control>}w{/Control}')
+
+      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[1], context }))
+      expect(close).toHaveBeenCalledTimes(2)
+      expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
+    }
+  )
+
+  it.each([
+    { name: 'middle', initialActiveTerminalId: 'terminal-2', expectedActiveTerminalId: 'terminal-3' },
+    { name: 'last', initialActiveTerminalId: 'terminal-3', expectedActiveTerminalId: 'terminal-2' }
+  ])(
+    'keeps the adjacent $name-tab close selection synchronized with main state across remount',
+    async ({ initialActiveTerminalId, expectedActiveTerminalId }) => {
+      const user = userEvent.setup()
+      let tabs = [
+        { terminalId: 'terminal-1', title: 'one' },
+        { terminalId: 'terminal-2', title: 'two' },
+        { terminalId: 'terminal-3', title: 'three' }
+      ]
+      let activeTerminalId = initialActiveTerminalId
+      window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+        confirmBeforeClosingLiveTerminals: false
+      }))
+      const selectTab = vi.fn(async ({ terminalId }) => {
+        activeTerminalId = terminalId
+        return { tabs, activeTerminalId }
+      })
+      const close = vi.fn(async ({ terminalId }) => {
+        tabs = tabs.filter((tab) => tab.terminalId !== terminalId)
+        if (activeTerminalId === terminalId) activeTerminalId = tabs[0]?.terminalId ?? null
+        return { tabs, activeTerminalId }
+      })
+      window.spacezero.terminal = {
+        ...terminalApiDefaults,
+        create: vi.fn(async () => {
+          if (!activeTerminalId) return { status: 'empty' as const, terminalId: null, tabs, activeTerminalId }
+          return { status: 'running' as const, terminalId: activeTerminalId, tabs, activeTerminalId }
+        }),
+        selectTab,
+        subscribe: vi.fn(async ({ terminalId }) => ({
+          terminalId,
+          events: [],
+          oldestSequence: 1,
+          nextSequence: 1
+        })),
+        unsubscribe: vi.fn(async () => undefined),
+        writeInput: vi.fn(async () => undefined),
+        resize: vi.fn(async () => undefined),
+        close,
+        onEvent: vi.fn(() => () => undefined)
+      }
+
+      const mounted = render(<TerminalTool context={context} />)
+
+      await user.click(await screen.findByRole('button', { name: 'Close Terminal' }))
+
+      await waitFor(() =>
+        expect(selectTab).toHaveBeenCalledWith({ terminalId: expectedActiveTerminalId, context })
+      )
+      await screen.findByRole('tab', {
+        name: `Select terminal tab ${expectedActiveTerminalId === 'terminal-3' ? 'three' : 'two'}`,
+        selected: true
+      })
+
+      mounted.rerender(<button type="button">Terminal hidden</button>)
+      mounted.rerender(<TerminalTool context={context} />)
+
+      await screen.findByRole('tab', {
+        name: `Select terminal tab ${expectedActiveTerminalId === 'terminal-3' ? 'three' : 'two'}`,
+        selected: true
+      })
+      expect(activeTerminalId).toBe(expectedActiveTerminalId)
+    }
+  )
+
+  it('keeps the close selection synchronized when the preferred adjacent tab exits before close resolves', async () => {
+    const user = userEvent.setup()
+    let tabs = [
+      { terminalId: 'terminal-1', title: 'one' },
+      { terminalId: 'terminal-2', title: 'two' },
+      { terminalId: 'terminal-3', title: 'three' }
+    ]
+    let activeTerminalId: string | null = 'terminal-2'
+    let resolveClose: ((value: { tabs: typeof tabs; activeTerminalId: string | null }) => void) | null =
+      null
+    window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+      confirmBeforeClosingLiveTerminals: false
+    }))
+    const selectTab = vi.fn(async ({ terminalId }) => {
+      activeTerminalId = terminalId
+      return { tabs, activeTerminalId }
+    })
+    const close = vi.fn(
+      async ({ terminalId }): Promise<{ tabs: typeof tabs; activeTerminalId: string | null }> => {
+        tabs = tabs.filter((tab) => tab.terminalId !== terminalId)
+        if (activeTerminalId === terminalId) activeTerminalId = tabs[0]?.terminalId ?? null
+        return new Promise((resolve) => {
+          resolveClose = resolve
+        })
+      }
+    )
+    const subscribe = vi.fn(async ({ terminalId }) => ({
+      terminalId,
+      events: [],
+      oldestSequence: 1,
+      nextSequence: 1
+    }))
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: activeTerminalId ?? 'terminal-1',
+        tabs,
+        activeTerminalId
+      })),
+      selectTab,
+      subscribe,
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close,
+      onEvent: vi.fn((listener) => {
+        terminalEventListener = listener
+        return () => undefined
+      })
+    }
+
+    render(<TerminalTool context={context} />)
+
+    await screen.findByRole('tab', { name: 'Select terminal tab two', selected: true })
+    await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
+    await waitFor(() => expect(selectTab).toHaveBeenCalledWith({ terminalId: 'terminal-3', context }))
+    await waitFor(() => expect(resolveClose).toBeTruthy())
+
+    act(() => {
+      tabs = tabs.filter((tab) => tab.terminalId !== 'terminal-3')
+      activeTerminalId = 'terminal-1'
+      terminalEventListener?.({ type: 'exit', terminalId: 'terminal-3', exitCode: 0, signal: null })
+    })
+
+    await act(async () => {
+      resolveClose?.({ tabs, activeTerminalId })
+    })
+
+    await screen.findByRole('tab', { name: 'Select terminal tab one', selected: true })
+    expect(screen.queryByRole('tab', { name: 'Select terminal tab three' })).not.toBeInTheDocument()
+    expect(activeTerminalId).toBe('terminal-1')
+    expect(subscribe).not.toHaveBeenCalledWith(
+      expect.objectContaining({ terminalId: 'terminal-3' })
+    )
   })
 
   it('clears Terminal shortcut focus when the Terminal Tool unmounts without a blur', async () => {
@@ -1119,7 +1331,7 @@ describe('TerminalTool', () => {
       tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
       activeTerminalId: 'terminal-1'
     }))
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.spacezero.terminal = {
       ...terminalApiDefaults,
       create,
@@ -1169,7 +1381,7 @@ describe('TerminalTool', () => {
       tabs: [{ terminalId: 'terminal-1', title: 'zsh' }],
       activeTerminalId: 'terminal-1'
     }))
-    const close = vi.fn(async () => undefined)
+    const close = vi.fn(async () => ({ tabs: [], activeTerminalId: null }))
     window.spacezero.terminal = {
       ...terminalApiDefaults,
       create,
@@ -1224,7 +1436,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -1285,7 +1497,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1314,7 +1526,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1345,7 +1557,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -1394,7 +1606,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn((listener) => {
         terminalEventListener = listener
         return () => undefined
@@ -1439,7 +1651,7 @@ describe('TerminalTool', () => {
       unsubscribe,
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1483,7 +1695,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1521,7 +1733,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1557,7 +1769,7 @@ describe('TerminalTool', () => {
       unsubscribe: vi.fn(async () => undefined),
       writeInput: vi.fn(async () => undefined),
       resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => undefined),
+      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
       onEvent: vi.fn(() => () => undefined)
     }
 
@@ -1591,8 +1803,14 @@ class FakeXTerm {
     )
     container.appendChild(this.inputElement)
   })
+  readonly focus = vi.fn(() => {
+    this.inputElement?.focus()
+  })
   readonly loadAddon = vi.fn()
-  readonly dispose = vi.fn()
+  readonly dispose = vi.fn(() => {
+    this.inputElement?.remove()
+    this.inputElement = null
+  })
   readonly scrollToLine = vi.fn((line: number) => {
     this.buffer.active.viewportY = line
   })

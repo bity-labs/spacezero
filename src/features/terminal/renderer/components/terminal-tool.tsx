@@ -57,6 +57,15 @@ type SubscriptionState = {
 
 const viewportByContext = new Map<string, Map<string, number>>()
 
+function chooseTerminalToActivateAfterClose(
+  tabs: TerminalTab[],
+  terminalIdToClose: string
+): string | null {
+  const closedIndex = tabs.findIndex((tab) => tab.terminalId === terminalIdToClose)
+  if (closedIndex < 0) return tabs[0]?.terminalId ?? null
+  return tabs[closedIndex + 1]?.terminalId ?? tabs[closedIndex - 1]?.terminalId ?? null
+}
+
 export function TerminalTool({ context, browserHandoff }: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
@@ -66,6 +75,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const subscriptionRef = useRef<SubscriptionState | null>(null)
   const lastSequenceByTerminalRef = useRef(new Map<string, number>())
   const draggedTerminalIdRef = useRef<string | null>(null)
+  const focusActiveTerminalAfterCloseRef = useRef(false)
   const forceCreateRequestedRef = useRef(false)
   const previousTerminalContextKeyRef = useRef<string | null>(null)
   const terminalContextKind = context.kind
@@ -265,6 +275,11 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     terminalIdRef.current = terminalId
 
     if (containerRef.current) xterm.open(containerRef.current)
+    if (focusActiveTerminalAfterCloseRef.current) {
+      focusActiveTerminalAfterCloseRef.current = false
+      xterm.focus()
+      shortcutManager.setContext({ terminalFocused: true })
+    }
 
     xterm.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
@@ -388,16 +403,26 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
       ) {
         return
       }
-      await window.spacezero.terminal.close({ terminalId: idToClose, context: terminalContext })
+      const nextActive =
+        idToClose === terminalId ? chooseTerminalToActivateAfterClose(tabs, idToClose) : terminalId
+      if (idToClose === terminalId && nextActive) {
+        await window.spacezero.terminal.selectTab({ terminalId: nextActive, context: terminalContext })
+      }
+      const closeSnapshot = await window.spacezero.terminal.close({
+        terminalId: idToClose,
+        context: terminalContext
+      })
       setTabs((currentTabs) => {
-        const nextTabs = currentTabs.filter((tab) => tab.terminalId !== idToClose)
-        const nextActive = idToClose === terminalId ? (nextTabs[0]?.terminalId ?? null) : terminalId
-        updateActiveTerminal(nextActive)
-        setStatus(nextActive ? 'running' : 'empty')
+        const nextTabs =
+          closeSnapshot?.tabs ?? currentTabs.filter((tab) => tab.terminalId !== idToClose)
+        const nextActiveId = closeSnapshot?.activeTerminalId ?? nextActive
+        if (idToClose === terminalId && nextActiveId) focusActiveTerminalAfterCloseRef.current = true
+        updateActiveTerminal(nextActiveId)
+        setStatus(nextActiveId ? 'running' : 'empty')
         return nextTabs
       })
     },
-    [terminalContext, terminalId, updateActiveTerminal]
+    [tabs, terminalContext, terminalId, updateActiveTerminal]
   )
 
   const closeActiveTerminal = useCallback(async (): Promise<void> => {
