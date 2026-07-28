@@ -457,7 +457,8 @@ beforeEach(async () => {
         downloadedVersion: null,
         errorMessage: null,
         releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
-      })
+      }),
+      onStatusChange: () => () => undefined
     },
     browser: {
       getState: async ({ contextKey }) => ({

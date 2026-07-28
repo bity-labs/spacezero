@@ -202,7 +202,8 @@ export const IPC_CHANNELS = {
   browser: BROWSER_IPC_CHANNELS,
   update: {
     getStatus: 'update:getStatus',
-    checkForUpdates: 'update:checkForUpdates'
+    checkForUpdates: 'update:checkForUpdates',
+    statusChanged: 'update:statusChanged'
   },
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
@@ -370,6 +371,7 @@ export type SpaceZeroAPI = {
   update: {
     getStatus: () => Promise<UpdateStatus>
     checkForUpdates: () => Promise<UpdateStatus>
+    onStatusChange: (listener: (status: UpdateStatus) => void) => () => void
   }
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>

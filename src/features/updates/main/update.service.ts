@@ -14,6 +14,8 @@ type UpdateServiceOptions = {
   updater?: UpdaterAdapter
 }
 
+type UpdateStatusListener = (status: UpdateStatus) => void
+
 export const GITHUB_RELEASE_NOTES_URL = 'https://github.com/bity-labs/spacezero/releases'
 
 const UPDATE_ERROR_MESSAGE = 'Unable to check for updates.'
@@ -22,6 +24,7 @@ export class UpdateService {
   private readonly currentVersion: string
   private readonly now: () => Date
   private readonly updater: UpdaterAdapter
+  private readonly listeners = new Set<UpdateStatusListener>()
   private status: UpdateStatus
 
   constructor({
@@ -35,24 +38,24 @@ export class UpdateService {
     this.status = this.createStatus('idle')
 
     this.updater.on('checking-for-update', () => {
-      this.status = this.createStatus('checking', { lastCheckedAt: this.nowIso(), clearError: true })
+      this.updateStatus('checking', { lastCheckedAt: this.nowIso(), clearError: true })
     })
     this.updater.on('update-available', (info) => {
-      this.status = this.createStatus('update-available', {
+      this.updateStatus('update-available', {
         lastCheckedAt: this.status.lastCheckedAt ?? this.nowIso(),
         availableVersion: readVersion(info) ?? this.status.availableVersion,
         clearError: true
       })
     })
     this.updater.on('update-not-available', () => {
-      this.status = this.createStatus('no-update-available', {
+      this.updateStatus('no-update-available', {
         lastCheckedAt: this.status.lastCheckedAt ?? this.nowIso(),
         clearError: true
       })
     })
     this.updater.on('update-downloaded', (info) => {
       const version = readVersion(info) ?? this.status.availableVersion
-      this.status = this.createStatus('update-downloaded', {
+      this.updateStatus('update-downloaded', {
         lastCheckedAt: this.status.lastCheckedAt ?? this.nowIso(),
         availableVersion: version,
         downloadedVersion: version,
@@ -60,7 +63,7 @@ export class UpdateService {
       })
     })
     this.updater.on('error', (error) => {
-      this.status = this.createStatus('error', {
+      this.updateStatus('error', {
         lastCheckedAt: this.status.lastCheckedAt ?? this.nowIso(),
         errorMessage: error instanceof Error ? error.message : UPDATE_ERROR_MESSAGE
       })
@@ -71,19 +74,32 @@ export class UpdateService {
     return this.status
   }
 
+  onStatusChange(listener: UpdateStatusListener): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
   async checkForUpdates(): Promise<UpdateStatus> {
-    this.status = this.createStatus('checking', { lastCheckedAt: this.nowIso(), clearError: true })
+    this.updateStatus('checking', { lastCheckedAt: this.nowIso(), clearError: true })
 
     try {
       await this.updater.checkForUpdates()
     } catch (error) {
-      this.status = this.createStatus('error', {
+      this.updateStatus('error', {
         lastCheckedAt: this.status.lastCheckedAt,
         errorMessage: error instanceof Error ? error.message : UPDATE_ERROR_MESSAGE
       })
     }
 
     return this.status
+  }
+
+  private updateStatus(
+    state: UpdateStatus['state'],
+    overrides: Partial<UpdateStatus> & { clearError?: boolean } = {}
+  ): void {
+    this.status = this.createStatus(state, overrides)
+    for (const listener of this.listeners) listener(this.status)
   }
 
   private createStatus(

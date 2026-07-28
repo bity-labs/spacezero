@@ -54,13 +54,15 @@ describe('UpdateService', () => {
     expect(status.errorMessage).toBeNull()
   })
 
-  it('records available, downloaded, and error update states from updater events', async () => {
+  it('records and publishes available, downloaded, and error update states from updater events', async () => {
     const updater = new FakeUpdater()
     const service = new UpdateService({
       currentVersion: '0.1.0-beta.1',
       now: () => new Date('2026-01-02T03:04:05.000Z'),
       updater
     })
+    const states: string[] = []
+    const unsubscribe = service.onStatusChange((status) => states.push(status.state))
 
     updater.emit('update-available', { version: '0.1.0-beta.2' })
     expect(service.getStatus()).toMatchObject({
@@ -83,5 +85,10 @@ describe('UpdateService', () => {
       state: 'error',
       errorMessage: 'GitHub releases unavailable'
     })
+    expect(states).toEqual(['update-available', 'update-downloaded', 'error'])
+
+    unsubscribe()
+    updater.emit('update-not-available')
+    expect(states).toEqual(['update-available', 'update-downloaded', 'error'])
   })
 })
