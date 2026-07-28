@@ -562,6 +562,16 @@ export function BrowserTool({
                 tabIndex={selected ? 0 : -1}
                 type="button"
                 onClick={() => void selectTab(tab.id)}
+                onMouseDown={(event) => {
+                  if (event.button !== 1) return
+                  event.preventDefault()
+                }}
+                onAuxClick={(event) => {
+                  if (event.button !== 1) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  void closeTab(tab.id)
+                }}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault()
