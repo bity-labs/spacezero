@@ -159,6 +159,20 @@ beforeEach(async () => {
       loadImage: async () => ({ dataUrl: 'data:image/png;base64,' }),
       openFolder: async () => undefined
     },
+    licenseActivation: {
+      getStatus: async () => ({
+        mode: 'development-bypass',
+        state: 'active',
+        canEnterWorkspace: true,
+        message: 'Development build activation bypass is enabled.'
+      }),
+      activate: async () => ({
+        mode: 'development-bypass',
+        state: 'active',
+        canEnterWorkspace: true,
+        message: 'Development build activation bypass is enabled.'
+      })
+    },
     onboarding: {
       getStatus: async () => ({ completed: true }),
       complete: async () => ({ completed: true })

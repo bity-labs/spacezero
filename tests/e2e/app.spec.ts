@@ -61,7 +61,8 @@ test('skips first-run onboarding and launches the sandboxed Electron app shell',
   let window = await electronApp.firstWindow()
 
   await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toBeVisible()
-  await window.getByRole('button', { name: 'Skip' }).click()
+  await window.getByRole('button', { name: 'Get started' }).click()
+  await window.getByRole('button', { name: 'Skip for now' }).click()
   await expect(window.getByRole('main', { name: 'Main workspace' })).toBeVisible()
 
   const sandbox = await electronApp.evaluate(({ BrowserWindow }) => {
@@ -196,7 +197,7 @@ test('composes simulated GitHub connection and one Project setup without network
     BrowserWindow.getAllWindows()[0]?.webContents.reload()
   })
 
-  await window.getByRole('button', { name: 'Connect GitHub' }).click()
+  await window.getByRole('button', { name: 'Get started' }).click()
   await window.getByRole('button', { name: 'Set up a Project' }).click()
   await window.getByRole('radio', { name: /bity-labs\/spacezero/ }).click()
   await window.getByRole('button', { name: 'Open Project' }).click()
@@ -309,7 +310,8 @@ test('opens a Project Session text file in bundled Monaco without network loadin
     { projectPath }
   )
 
-  await window.getByRole('button', { name: 'Skip' }).click()
+  await window.getByRole('button', { name: 'Get started' }).click()
+  await window.getByRole('button', { name: 'Skip for now' }).click()
   await window.getByRole('button', { name: 'files-e2e', exact: true }).click()
   await window.getByRole('button', { name: 'Files E2E' }).click()
   await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
@@ -545,7 +547,8 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       BrowserWindow.getAllWindows()[0]?.webContents.reload()
     }, { sessionId })
 
-    await window.getByRole('button', { name: 'Skip' }).click()
+    await window.getByRole('button', { name: 'Get started' }).click()
+    await window.getByRole('button', { name: 'Skip for now' }).click()
     await window.getByRole('button', { name: 'Terminal Browser E2E' }).click()
     await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
     await window.getByRole('button', { name: 'Terminal', exact: true }).click()
@@ -738,7 +741,8 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
   try {
     let window = await electronApp.firstWindow()
     await expect(window.getByRole('main', { name: 'Space Zero onboarding' })).toBeVisible()
-    await window.getByRole('button', { name: 'Skip' }).click()
+    await window.getByRole('button', { name: 'Get started' }).click()
+    await window.getByRole('button', { name: 'Skip for now' }).click()
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByRole('heading', { name: 'Set up your Knowledge Base' })).toBeVisible()
 
