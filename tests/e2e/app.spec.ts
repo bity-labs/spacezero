@@ -365,7 +365,9 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await expect(window.getByRole('tree', { name: 'Project files' })).toBeVisible()
   await window.getByText('package.json').click()
   await expect(window.locator('.monaco-editor')).toBeVisible()
-  await expect(window.getByText('Saved')).toBeVisible()
+  await expect(window.getByRole('button', { name: 'Save' })).toHaveCount(0)
+  await expect(window.getByRole('button', { name: 'Save All' })).toHaveCount(0)
+  await expect(window.getByText('Saved')).toHaveCount(0)
 
   await window.getByText('README.md').click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toBeVisible()

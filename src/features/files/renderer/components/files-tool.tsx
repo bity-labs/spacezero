@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   CaretDown,
   CaretRight,
@@ -11,6 +11,8 @@ import {
 import { Tree, type NodeRendererProps } from 'react-arborist'
 
 import { useColorMode } from '@renderer/color-mode-provider'
+import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
+import type { AppCommand } from '../../../app-commands/renderer/app-command.model'
 import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
@@ -180,6 +182,7 @@ function FilesToolSession({
   const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
+  const saveAllCommandInstanceId = useId()
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
@@ -419,6 +422,25 @@ function FilesToolSession({
     )
     await Promise.all(dirtyDocuments.map((document) => saveDocumentSnapshot(document)))
   }, [context.tabs, saveDocumentSnapshot])
+
+  const saveAllDirtyDocumentsRef = useRef(saveAllDirtyDocuments)
+  useEffect(() => {
+    saveAllDirtyDocumentsRef.current = saveAllDirtyDocuments
+  }, [saveAllDirtyDocuments])
+
+  const filesCommands = useMemo<readonly AppCommand[]>(
+    () => [
+      {
+        id: `files.save-all.${saveAllCommandInstanceId}`,
+        title: 'Save All',
+        category: 'Files',
+        keywords: ['dirty', 'documents', 'tabs'],
+        handler: () => void saveAllDirtyDocumentsRef.current()
+      }
+    ],
+    [saveAllCommandInstanceId]
+  )
+  useRegisterAppCommands(filesCommands)
 
   const reloadFromDisk = useCallback(
     async (relativePath: string): Promise<void> => {
@@ -1165,7 +1187,6 @@ function FilesToolSession({
           onClose={requestCloseTab}
           onPromote={promoteTab}
           onReorder={reorderTabs}
-          onSaveAll={saveAllDirtyDocuments}
         />
         <FilesEditorPanel
           document={activeDocument}
@@ -1453,8 +1474,7 @@ function FilesTabStrip({
   onActivate,
   onClose,
   onPromote,
-  onReorder,
-  onSaveAll
+  onReorder
 }: {
   activeTabPath: string | null
   sessionId: string
@@ -1468,7 +1488,6 @@ function FilesTabStrip({
     targetPath: string,
     dropPosition: FilesTabDropPosition
   ) => void
-  onSaveAll: () => void | Promise<void>
 }): React.JSX.Element | null {
   const activeTabRef = useRef<HTMLButtonElement | null>(null)
   const draggedPathRef = useRef<string | null>(null)
@@ -1479,11 +1498,13 @@ function FilesTabStrip({
 
   if (tabs.length === 0) return null
 
-  const dirtyCount = tabs.filter((tab) => tab.status === 'ready' && tab.dirty).length
-
   return (
     <div className="flex h-10 shrink-0 border-b bg-background">
-      <div aria-label="Open files" className="flex min-w-0 flex-1 overflow-x-auto" role="tablist">
+      <div
+        aria-label="Open files"
+        className="flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+      >
         {tabs.map((tab) => {
           const active = tab.relativePath === activeTabPath
           const dirty = tab.status === 'ready' && tab.dirty
@@ -1533,14 +1554,6 @@ function FilesTabStrip({
           )
         })}
       </div>
-      <button
-        className="m-1 shrink-0 rounded-md border px-2 text-xs text-foreground hover:bg-accent disabled:opacity-50"
-        disabled={dirtyCount === 0}
-        type="button"
-        onClick={() => void onSaveAll()}
-      >
-        Save All
-      </button>
     </div>
   )
 }
@@ -1765,7 +1778,6 @@ function FilesReadyEditorPanel({
         <div className="min-w-0">
           <span className="font-medium">{document.name}</span>
           {document.preview ? <span className="ml-2 text-muted-foreground">Preview</span> : null}
-          {document.dirty ? <span className="ml-2 text-amber-600">Unsaved changes</span> : null}
         </div>
         <div className="flex items-center gap-3 text-muted-foreground">
           {supportsRichMode ? (
@@ -1790,16 +1802,6 @@ function FilesReadyEditorPanel({
               </button>
             </div>
           ) : null}
-          {document.saveStatus === 'saving' ? <span>Saving…</span> : null}
-          {!document.dirty && document.saveStatus !== 'saving' ? <span>Saved</span> : null}
-          <button
-            className="rounded-md border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
-            disabled={document.saveStatus === 'saving' || Boolean(document.externalStatus)}
-            type="button"
-            onClick={() => void onSave()}
-          >
-            Save
-          </button>
         </div>
       </header>
       {document.externalStatus ? (
