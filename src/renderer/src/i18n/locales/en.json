@@ -189,6 +189,7 @@
       "agents": "Agents",
       "models": "Models",
       "skills": "Skills",
+      "about": "About",
       "cloudAgents": "Cloud Agents"
     },
     "account": {
@@ -200,6 +201,30 @@
       "title": "Upgrade to Pro",
       "description": "Unlock premium models, workspace features, and more.",
       "upgrade": "Upgrade"
+    },
+    "about": {
+      "title": "About",
+      "updatesSectionTitle": "About & Updates",
+      "versionLabel": "Installed version",
+      "betaChannel": "Beta channel",
+      "updateStateLabel": "Update state",
+      "lastCheckedLabel": "Last checked",
+      "availableVersionLabel": "Available version",
+      "downloadedVersionLabel": "Downloaded version",
+      "loading": "Loading update status…",
+      "neverChecked": "Never checked",
+      "loadError": "Could not load update status.",
+      "checkAction": "Check for updates",
+      "checkingAction": "Checking…",
+      "releaseNotesAction": "GitHub Release notes",
+      "states": {
+        "idle": "Not checked yet",
+        "checking": "Checking for updates…",
+        "update-available": "Update available",
+        "update-downloaded": "Update downloaded",
+        "no-update-available": "No update available",
+        "error": "Update check failed"
+      }
     },
     "pullRequests": {
       "sectionTitle": "Pull Requests",
