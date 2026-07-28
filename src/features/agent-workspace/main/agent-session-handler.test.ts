@@ -142,7 +142,9 @@ describe('createProjectAgentSession', () => {
         projectId: 'project-1',
         cwd: '/worktrees/session-1',
         workspaceTools: expect.arrayContaining([
-          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' })
+          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
+          expect.objectContaining({ name: 'knowledgeBase.createDocument', safetyLevel: 'write' }),
+          expect.objectContaining({ name: 'knowledgeBase.createFolder', safetyLevel: 'write' })
         ]),
         appendSystemPrompt: [expect.stringContaining('not configured')],
         defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
@@ -1679,6 +1681,14 @@ describe('createWorkspaceAgentSession', () => {
           }),
           expect.objectContaining({
             name: 'knowledgeBase.saveDocument',
+            safetyLevel: 'write'
+          }),
+          expect.objectContaining({
+            name: 'knowledgeBase.createDocument',
+            safetyLevel: 'write'
+          }),
+          expect.objectContaining({
+            name: 'knowledgeBase.createFolder',
             safetyLevel: 'write'
           })
         ]),

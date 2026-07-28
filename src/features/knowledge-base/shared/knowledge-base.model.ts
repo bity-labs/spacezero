@@ -49,3 +49,11 @@ export type KnowledgeBaseImageImport = {
 export type KnowledgeBaseSaveResult =
   | { status: 'saved'; document: KnowledgeBaseDocument }
   | { status: 'conflict'; document: KnowledgeBaseDocument }
+
+export type KnowledgeBaseCreateDocumentResult =
+  | { status: 'created'; document: KnowledgeBaseDocument }
+  | { status: 'collision'; relativePath: string }
+
+export type KnowledgeBaseCreateFolderResult =
+  | { status: 'created'; relativePath: string; kind: 'folder' }
+  | { status: 'collision'; relativePath: string }
