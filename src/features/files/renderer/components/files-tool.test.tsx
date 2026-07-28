@@ -1201,8 +1201,9 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [])
 
     render(<FilesTool sessionId="session-1" />)
-    await screen.findByText('This worktree is empty.')
-    expect(screen.getByRole('tablist', { name: 'Open files' })).toHaveClass('overflow-x-auto')
+    expect(await screen.findByRole('tablist', { name: 'Open files' })).toHaveClass(
+      'overflow-x-auto'
+    )
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
 
     const threeTabWrapper = screen.getByRole('tab', { name: 'three.txt' }).parentElement!
@@ -1515,48 +1516,7 @@ describe('Files Tool', () => {
     expect(await screen.findByText('No results for “old”.')).toBeInTheDocument()
   })
 
-  it('creates inside a collapsed nested directory, loads the created entry, and selects it', async () => {
-    let nestedChildrenLoaded = false
-    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
-      if (relativePath === '') return [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
-      if (relativePath === 'src') {
-        return [{ name: 'nested', relativePath: 'src/nested', kind: 'directory' as const }]
-      }
-      if (relativePath === 'src/nested') {
-        nestedChildrenLoaded = true
-        return [{ name: 'new.txt', relativePath: 'src/nested/new.txt', kind: 'file' as const }]
-      }
-      return []
-    })
-    window.spacezero.files.listDirectory = listDirectory
-    window.spacezero.files.createEntry = vi.fn(async () => undefined)
-    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
-      name: 'new.txt',
-      relativePath,
-      contentKind: 'text' as const,
-      size: 0,
-      modifiedAt: new Date(0).toISOString(),
-      revision: 'revision-1',
-      content: '',
-      hasBom: false,
-      lineEnding: 'lf' as const
-    }))
-    vi.spyOn(window, 'prompt').mockReturnValue('new.txt')
-    useFilesStore.getState().setExpanded('session-collapsed-create', 'src', true)
-    useFilesStore.getState().setSelectedPath('session-collapsed-create', 'src/nested')
-
-    render(<FilesTool sessionId="session-collapsed-create" />)
-    await screen.findByText('nested')
-    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
-
-    expect(await screen.findByText('new.txt')).toBeInTheDocument()
-    expect(nestedChildrenLoaded).toBe(true)
-    expect(useFilesStore.getState().contexts['session-collapsed-create'].selectedPath).toBe(
-      'src/nested/new.txt'
-    )
-  })
-
-  it('creates a file through the shared Files contract, refreshes the tree, and opens the new file', async () => {
+  it('opens a root New File dialog, validates the name, creates after confirmation, and opens the new file', async () => {
     let entries = [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }]
     window.spacezero.files.listDirectory = vi.fn(async () => entries)
     const createEntry = vi.fn(async () => {
@@ -1577,11 +1537,23 @@ describe('Files Tool', () => {
       hasBom: false,
       lineEnding: 'lf' as const
     }))
-    vi.spyOn(window, 'prompt').mockReturnValue('new-note.md')
 
     render(<FilesTool sessionId="session-1" />)
     await screen.findByText('README.md')
     fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in project root')).toBeInTheDocument()
+    expect(within(dialog).getByPlaceholderText('File name')).toHaveFocus()
+    expect(createEntry).not.toHaveBeenCalled()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+    expect(await within(dialog).findByText('Enter a file name.')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
       expect(createEntry).toHaveBeenCalledWith({
@@ -1591,6 +1563,232 @@ describe('Files Tool', () => {
       })
     )
     expect(await screen.findByRole('tab', { name: /new-note\.md/ })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('opens Knowledge Base root create dialogs with the matching destination and context', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+    const createEntry = vi.fn(async () => undefined)
+    window.spacezero.files.createEntry = createEntry
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 0,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'new-revision',
+      content: '',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(
+      <FilesTool
+        contextKey="knowledge-base"
+        ipcContext={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }}
+        treeLabel="Files"
+      />
+    )
+    await screen.findByText('This worktree is empty.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in Knowledge Base root')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenCalledWith({
+        context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+        relativePath: 'new-note.md',
+        kind: 'file'
+      })
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in Knowledge Base root')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: 'notes' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenLastCalledWith({
+        context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
+        relativePath: 'notes',
+        kind: 'folder'
+      })
+    )
+  })
+
+  it('opens nested New File and New Folder dialogs from a directory with the matching destination', async () => {
+    let nestedChildrenLoaded = false
+    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
+      if (relativePath === '') return [{ name: 'src', relativePath: 'src', kind: 'directory' as const }]
+      if (relativePath === 'src') {
+        nestedChildrenLoaded = true
+        return [
+          { name: 'new.txt', relativePath: 'src/new.txt', kind: 'file' as const },
+          { name: 'components', relativePath: 'src/components', kind: 'directory' as const }
+        ]
+      }
+      return []
+    })
+    window.spacezero.files.listDirectory = listDirectory
+    const createEntry = vi.fn(async () => undefined)
+    window.spacezero.files.createEntry = createEntry
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 0,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-nested-create" />)
+    await screen.findByText('src')
+    fireEvent.click(screen.getByRole('treeitem', { name: 'src' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New file in src' }))
+
+    let dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in src')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), { target: { value: 'new.txt' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-nested-create' },
+        relativePath: 'src/new.txt',
+        kind: 'file'
+      })
+    )
+    expect(await screen.findByRole('treeitem', { name: 'new.txt' })).toBeInTheDocument()
+    expect(nestedChildrenLoaded).toBe(true)
+
+    fireEvent.click(screen.getByRole('treeitem', { name: 'src' }))
+    fireEvent.click(screen.getByRole('button', { name: 'New folder in src' }))
+    dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in src')).toBeInTheDocument()
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: 'components' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenLastCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-nested-create' },
+        relativePath: 'src/components',
+        kind: 'folder'
+      })
+    )
+    expect(useFilesStore.getState().contexts['session-nested-create'].selectedPath).toBe(
+      'src/components'
+    )
+  })
+
+  it('opens a root New Folder dialog and creates the folder after confirmation', async () => {
+    let entries: Array<{ name: string; relativePath: string; kind: 'directory' }> = []
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    const createEntry = vi.fn(async () => {
+      entries = [{ name: 'notes', relativePath: 'notes', kind: 'directory' }]
+    })
+    window.spacezero.files.createEntry = createEntry
+
+    render(<FilesTool sessionId="session-root-folder-create" />)
+    await screen.findByText('This worktree is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('heading', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Create in project root')).toBeInTheDocument()
+    expect(within(dialog).getByPlaceholderText('Folder name')).toHaveFocus()
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: 'notes' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() =>
+      expect(createEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-root-folder-create' },
+        relativePath: 'notes',
+        kind: 'folder'
+      })
+    )
+    expect(await screen.findByRole('treeitem', { name: 'notes' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('keeps the New Folder dialog open with actionable validation after invalid names and creation failures', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+    const createEntry = vi.fn(async () => {
+      throw new Error('files.collision')
+    })
+    window.spacezero.files.createEntry = createEntry
+
+    render(<FilesTool sessionId="session-create-error" />)
+    await screen.findByText('This worktree is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'New folder' }))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: '../bad' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+    expect(await within(dialog).findByText('Use a valid folder name.')).toBeInTheDocument()
+    expect(createEntry).not.toHaveBeenCalled()
+
+    fireEvent.change(within(dialog).getByPlaceholderText('Folder name'), {
+      target: { value: 'existing' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    expect(await within(dialog).findByText('An item already exists at that path.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      code: 'files.inaccessible',
+      message: 'Space Zero cannot access this destination. Check directory permissions and try again.'
+    },
+    {
+      code: 'files.notFound',
+      message: 'The destination folder no longer exists. Refresh the explorer and try again.'
+    }
+  ])('keeps the New File dialog open with recovery guidance after $code create failures', async ({
+    code,
+    message
+  }) => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+    window.spacezero.files.createEntry = vi.fn(async () => {
+      throw new Error(code)
+    })
+
+    render(<FilesTool sessionId={`session-create-${code}`} />)
+    await screen.findByText('This worktree is empty.')
+    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new-note.md' }
+    })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    expect(await within(dialog).findByText(message)).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
   it('requires a dirty choice before rename, saves first, and rewrites tab model identity', async () => {
