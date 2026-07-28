@@ -261,6 +261,8 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('treeitem', { name: 'app.ts' }))
+    expect(await screen.findByRole('button', { name: 'Rename' })).toBeInTheDocument()
     expect(screen.queryByText(/^Explorer$/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
@@ -272,6 +274,10 @@ describe('Files Tool', () => {
 
     enterSearchView()
     await waitFor(() => expect(searchFilesInput()).toHaveFocus())
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Trash' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reveal selected item' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Selected app.ts')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -1478,76 +1484,41 @@ describe('Files Tool', () => {
     expect(openDocument).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps active search coherent after a move by refreshing results without clearing the query', async () => {
-    window.spacezero.files.listDirectory = vi.fn(async () => [
-      { name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }
-    ])
-    const search = vi
-      .fn()
-      .mockResolvedValueOnce([
-        { kind: 'filename' as const, relativePath: 'old.txt', name: 'old.txt' }
-      ])
-      .mockResolvedValueOnce([
-        { kind: 'filename' as const, relativePath: 'new.txt', name: 'new.txt' }
-      ])
-    window.spacezero.files.search = search
-    window.spacezero.files.moveEntry = vi.fn(async () => undefined)
-    vi.spyOn(window, 'prompt').mockReturnValue('new.txt')
-
-    render(<FilesTool sessionId="session-search-move" />)
-    await screen.findByText('old.txt')
-    fireEvent.click(screen.getByText('old.txt'))
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
-    fireEvent.submit(screen.getByRole('search'))
-    expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Rename' }))
-
-    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
-    expect(screen.getByDisplayValue('old')).toBeInTheDocument()
-    expect(
-      within(screen.getByLabelText('Search results')).getByRole('button', { name: /new.txt/ })
-    ).toBeInTheDocument()
-    expect(
-      within(screen.getByLabelText('Search results')).queryByRole('button', { name: /old.txt/ })
-    ).not.toBeInTheDocument()
-  })
-
-  it('keeps active search coherent after Trash by refreshing results and selecting a valid fallback', async () => {
+  it('hides selected tree-item actions after selecting a directory before switching to search', async () => {
     window.spacezero.files.listDirectory = vi.fn(async ({ relativePath }) =>
       relativePath === ''
         ? [
             { name: 'notes', relativePath: 'notes', kind: 'directory' as const },
-            { name: 'keep.txt', relativePath: 'keep.txt', kind: 'file' as const }
+            { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
           ]
         : [{ name: 'old.txt', relativePath: 'notes/old.txt', kind: 'file' as const }]
     )
-    const search = vi
-      .fn()
-      .mockResolvedValueOnce([
-        { kind: 'filename' as const, relativePath: 'notes/old.txt', name: 'old.txt' }
-      ])
-      .mockResolvedValueOnce([])
-    window.spacezero.files.search = search
-    window.spacezero.files.trashEntry = vi.fn(async () => undefined)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-    useFilesStore.getState().setExpanded('session-search-trash', 'notes', true)
-    useFilesStore.getState().setSelectedPath('session-search-trash', 'notes/old.txt')
+    window.spacezero.files.search = vi.fn(async () => [
+      { kind: 'filename' as const, relativePath: 'notes/old.txt', name: 'old.txt' }
+    ])
 
-    render(<FilesTool sessionId="session-search-trash" />)
-    await screen.findByText('old.txt')
+    render(<FilesTool sessionId="session-search-selected-actions" />)
+    await screen.findByText('notes')
+    fireEvent.click(screen.getByRole('treeitem', { name: 'notes' }))
+    expect(screen.getByRole('button', { name: 'New file in notes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New folder in notes' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rename' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Trash' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reveal selected item' })).toBeInTheDocument()
+
     enterSearchView()
     fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
     fireEvent.submit(screen.getByRole('search'))
+
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Trash' }))
-
-    await waitFor(() => expect(search).toHaveBeenCalledTimes(2))
     expect(screen.getByDisplayValue('old')).toBeInTheDocument()
-    expect(useFilesStore.getState().contexts['session-search-trash'].selectedPath).toBe('notes')
-    expect(await screen.findByText('No results for “old”.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New file in notes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New folder in notes' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Move' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Trash' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reveal selected item' })).not.toBeInTheDocument()
   })
 
   it('opens a root New File dialog, validates the name, creates after confirmation, and opens the new file', async () => {

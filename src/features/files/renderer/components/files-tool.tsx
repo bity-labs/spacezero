@@ -987,7 +987,7 @@ function FilesToolSession({
                   </div>
                 </form>
               ) : null}
-              {selectedTreeItem && selectedTreeItem.kind !== 'status' ? (
+              {explorerView === 'tree' && selectedTreeItem && selectedTreeItem.kind !== 'status' ? (
                 <div className="flex flex-wrap items-center gap-1 border-t pt-2 text-xs">
                   <span
                     aria-label={`Selected ${selectedTreeItem.relativePath}`}
