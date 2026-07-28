@@ -1069,6 +1069,41 @@ describe('BrowserService', () => {
     })
   })
 
+  it('aborts a superseded favicon load before starting the replacement for the same tab', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    let firstSignal: AbortSignal | undefined
+    let resolveFirst: (faviconUrl: string | null) => void = () => {}
+    const faviconLoader: BrowserFaviconLoader = {
+      load: vi.fn((async (_faviconUrls, options) => {
+        if (!firstSignal) {
+          firstSignal = options?.signal
+          return new Promise<string | null>((resolve) => (resolveFirst = resolve))
+        }
+        return 'data:image/png;base64,bmV3LWljb24='
+      }) satisfies BrowserFaviconLoader['load'])
+    }
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      faviconLoader
+    )
+
+    const state = await service.navigate({ ...projectContext, input: 'https://example.com/path' })
+    const firstFavicon = service.markFaviconChanged(state.activeTabId, [
+      'https://example.com/old.png'
+    ])
+    await service.markFaviconChanged(state.activeTabId, ['https://example.com/new.png'])
+    resolveFirst('data:image/png;base64,b2xkLWljb24=')
+    await firstFavicon
+
+    expect(firstSignal?.aborted).toBe(true)
+    expect(await service.getState(projectContext)).toMatchObject({
+      tabs: [{ faviconUrl: 'data:image/png;base64,bmV3LWljb24=' }]
+    })
+  })
+
   it('does not apply an old-document favicon after same-URL committed navigation', async () => {
     const adapter = new FakeBrowserViewAdapter()
     let resolveLoad: (faviconUrl: string | null) => void = () => {}

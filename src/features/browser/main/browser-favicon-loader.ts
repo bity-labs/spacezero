@@ -2,6 +2,7 @@ import type { BrowserFaviconLoader } from './browser.service'
 
 const MAX_FAVICON_BYTES = 128 * 1024
 const FAVICON_FETCH_TIMEOUT_MS = 5_000
+export const MAX_FAVICON_CANDIDATES = 8
 
 const SUPPORTED_FAVICON_MIME_TYPES = new Set([
   'image/png',
@@ -19,9 +20,10 @@ export type BrowserFaviconFetch = (
 
 export function createBrowserFaviconLoader(fetchFavicon: BrowserFaviconFetch = fetch): BrowserFaviconLoader {
   return {
-    async load(faviconUrls) {
-      for (const faviconUrl of faviconUrls) {
-        const dataUrl = await loadOneFavicon(faviconUrl, fetchFavicon)
+    async load(faviconUrls, options) {
+      for (const faviconUrl of faviconUrls.slice(0, MAX_FAVICON_CANDIDATES)) {
+        if (options?.signal?.aborted) return null
+        const dataUrl = await loadOneFavicon(faviconUrl, fetchFavicon, options?.signal)
         if (dataUrl) return dataUrl
       }
       return null
@@ -31,14 +33,18 @@ export function createBrowserFaviconLoader(fetchFavicon: BrowserFaviconFetch = f
 
 async function loadOneFavicon(
   faviconUrl: string,
-  fetchFavicon: BrowserFaviconFetch
+  fetchFavicon: BrowserFaviconFetch,
+  signal?: AbortSignal
 ): Promise<string | null> {
   const parsedUrl = parseSupportedFaviconUrl(faviconUrl)
   if (!parsedUrl) return null
   if (parsedUrl.protocol === 'data:') return supportedDataUrl(faviconUrl)
 
   const abortController = new AbortController()
-  const timeout = setTimeout(() => abortController.abort(), FAVICON_FETCH_TIMEOUT_MS)
+  const abort = () => abortController.abort()
+  if (signal?.aborted) return null
+  signal?.addEventListener('abort', abort, { once: true })
+  const timeout = setTimeout(abort, FAVICON_FETCH_TIMEOUT_MS)
   try {
     const response = await fetchFavicon(parsedUrl.toString(), {
       headers: {
@@ -60,6 +66,7 @@ async function loadOneFavicon(
     return null
   } finally {
     clearTimeout(timeout)
+    signal?.removeEventListener('abort', abort)
   }
 }
 
