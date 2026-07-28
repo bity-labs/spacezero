@@ -18,3 +18,30 @@ export type UpdateStatus = {
   errorMessage: string | null
   releaseNotesUrl: string
 }
+
+export type UpdateActiveWorkSummary = {
+  projectSessions: number
+  workspaceSessions: number
+  terminalTabs: number
+}
+
+export type ApplyDownloadedUpdateRequest = {
+  confirmActiveWork?: boolean
+}
+
+export type ApplyDownloadedUpdateResult =
+  | {
+      status: 'needs-confirmation'
+      activeWork: UpdateActiveWorkSummary
+      updateStatus: UpdateStatus
+    }
+  | {
+      status: 'applying'
+      activeWork: UpdateActiveWorkSummary
+      updateStatus: UpdateStatus
+    }
+  | {
+      status: 'no-downloaded-update'
+      activeWork: UpdateActiveWorkSummary
+      updateStatus: UpdateStatus
+    }

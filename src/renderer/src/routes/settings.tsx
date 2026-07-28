@@ -25,6 +25,7 @@ import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
 import type { TerminalSettings } from '@shared/terminal-settings'
 import type { UpdateStatus } from '../../../features/updates/shared'
+import { UpdateRestartControl } from '../../../features/updates/renderer'
 import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/agent-skill.model'
 import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
@@ -415,6 +416,7 @@ function AboutSettingsSection(): React.JSX.Element {
             ) : null}
 
             <div className="flex flex-wrap items-center gap-3">
+              <UpdateRestartControl placement="settings" />
               <Button onClick={() => void handleCheckForUpdates()} disabled={isChecking}>
                 {isChecking
                   ? t('settings.about.checkingAction')
