@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react'
-import { act, render as rtlRender, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render as rtlRender, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -1040,6 +1040,71 @@ describe('TerminalTool', () => {
       terminalId: 'terminal-1',
       context
     })
+  })
+
+  it('closes active and inactive Terminal tabs with middle-click without selecting them first', async () => {
+    let activeTerminalId = 'terminal-1'
+    let tabs = [
+      { terminalId: 'terminal-1', title: 'one' },
+      { terminalId: 'terminal-2', title: 'two' },
+      { terminalId: 'terminal-3', title: 'three' }
+    ]
+    window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
+      confirmBeforeClosingLiveTerminals: false
+    }))
+    window.spacezero.terminal = {
+      ...terminalApiDefaults,
+      create: vi.fn(async () => ({
+        status: 'running' as const,
+        terminalId: activeTerminalId,
+        tabs,
+        activeTerminalId
+      })),
+      selectTab: vi.fn(async ({ terminalId }) => {
+        activeTerminalId = terminalId
+        return { tabs, activeTerminalId }
+      }),
+      subscribe: vi.fn(async ({ terminalId }) => ({
+        terminalId,
+        events: [],
+        oldestSequence: 1,
+        nextSequence: 1
+      })),
+      unsubscribe: vi.fn(async () => undefined),
+      writeInput: vi.fn(async () => undefined),
+      resize: vi.fn(async () => undefined),
+      close: vi.fn(async ({ terminalId }) => {
+        tabs = tabs.filter((tab) => tab.terminalId !== terminalId)
+        if (activeTerminalId === terminalId) activeTerminalId = tabs[0]?.terminalId ?? null
+        return { tabs, activeTerminalId }
+      }),
+      onEvent: vi.fn(() => () => undefined)
+    }
+
+    render(<TerminalTool context={context} />)
+
+    const inactiveTab = await screen.findByRole('tab', {
+      name: 'Select terminal tab two',
+      selected: false
+    })
+    fireEvent.mouseDown(inactiveTab, { button: 1 })
+    fireEvent(inactiveTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+
+    await waitFor(() =>
+      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: 'terminal-2', context })
+    )
+    expect(window.spacezero.terminal.selectTab).not.toHaveBeenCalled()
+
+    const activeTab = await screen.findByRole('tab', {
+      name: 'Select terminal tab one',
+      selected: true
+    })
+    fireEvent.mouseDown(activeTab, { button: 1 })
+    fireEvent(activeTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+
+    await waitFor(() =>
+      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: 'terminal-1', context })
+    )
   })
 
   it('runs focus-scoped mod+t and mod+w through stable Terminal command identities without writing shell input', async () => {
