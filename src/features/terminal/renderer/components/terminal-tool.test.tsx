@@ -1093,17 +1093,21 @@ describe('TerminalTool', () => {
         forceNew: true
       })
     )
+    expect(create).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(screen.getAllByRole('tab')).toHaveLength(2))
 
     act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
     await waitFor(() =>
       expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
     )
+    expect(window.confirm).toHaveBeenCalledTimes(1)
     expect(close).not.toHaveBeenCalled()
 
     vi.mocked(window.confirm).mockReturnValue(true)
     act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
     await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: activeTerminalId, context }))
+    expect(window.confirm).toHaveBeenCalledTimes(2)
+    expect(close).toHaveBeenCalledTimes(1)
     expect(writeInput).not.toHaveBeenCalled()
   })
 
@@ -1573,8 +1577,18 @@ class FakeXTerm {
   })
   private inputElement: HTMLTextAreaElement | null = null
   private keyEventHandler: ((event: KeyboardEvent) => boolean) | null = null
+  private keyDataByKey = new Map<string, string>()
   readonly open = vi.fn((container: HTMLElement) => {
     this.inputElement = document.createElement('textarea')
+    this.inputElement.addEventListener(
+      'keydown',
+      (event) => {
+        if (this.keyEventHandler?.(event) === false) return
+        const data = this.keyDataByKey.get(event.key)
+        if (data) this.dataListener?.(data)
+      },
+      { capture: true }
+    )
     container.appendChild(this.inputElement)
   })
   readonly loadAddon = vi.fn()
@@ -1642,14 +1656,16 @@ class FakeXTerm {
   }
 
   emitKeyDown(key: string, data: string): void {
-    const event = new KeyboardEvent('keydown', {
-      key,
-      ctrlKey: true,
-      bubbles: true,
-      cancelable: true
-    })
-    if (this.keyEventHandler?.(event) === false) return
-    this.dataListener?.(data)
+    this.keyDataByKey.set(key, data)
+    this.inputElement?.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key,
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    )
+    this.keyDataByKey.delete(key)
   }
 
   emitData(data: string): void {
