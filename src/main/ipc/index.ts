@@ -10,6 +10,7 @@ import { registerProjectsIpc } from '../../features/projects/main/projects.ipc'
 import { registerSessionsIpc } from '../../features/sessions/main/sessions.ipc'
 import { registerSettingsIpc } from '../../features/settings/main/settings.ipc'
 import { registerTerminalIpc } from '../../features/terminal/main/terminal.ipc'
+import { registerUpdateIpc } from '../../features/updates/main'
 import { registerAppIpc } from './app'
 import { registerDbIpc } from './db'
 
@@ -32,6 +33,7 @@ export function registerIpcHandlers(): void {
   registerSessionsIpc()
   registerSettingsIpc()
   registerTerminalIpc()
+  registerUpdateIpc()
 
   registered = true
 }

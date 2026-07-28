@@ -994,6 +994,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
@@ -1010,6 +1011,78 @@ describe('App', () => {
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('shows About update status and manually checks for updates from Settings', async () => {
+    const checkForUpdates = vi.fn(async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta' as const,
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state: 'no-update-available' as const,
+      availableVersion: null,
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    }))
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: null,
+      state: 'idle',
+      availableVersion: null,
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+    window.spacezero.update.checkForUpdates = checkForUpdates
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'About' }))
+
+    expect(await screen.findByRole('heading', { name: 'About' })).toBeInTheDocument()
+    expect(screen.getByText('0.1.0-beta.1')).toBeInTheDocument()
+    expect(screen.getByText('Beta channel')).toBeInTheDocument()
+    expect(screen.getByText('Not checked yet')).toBeInTheDocument()
+    expect(screen.getByText('Never checked')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'GitHub Release notes' })).toHaveAttribute(
+      'href',
+      'https://github.com/bity-labs/spacezero/releases'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }))
+
+    expect(await screen.findByText('No update available')).toBeInTheDocument()
+    expect(checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['checking', 'Checking for updates…'],
+    ['update-available', 'Update available'],
+    ['update-downloaded', 'Update downloaded'],
+    ['error', 'Update check failed']
+  ] as const)('renders the %s About update state', async (state, label) => {
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state,
+      availableVersion: state === 'update-available' || state === 'update-downloaded' ? '0.1.0-beta.2' : null,
+      downloadedVersion: state === 'update-downloaded' ? '0.1.0-beta.2' : null,
+      errorMessage: state === 'error' ? 'GitHub releases unavailable' : null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'about' } })
+    })
+    render(<App />)
+
+    expect(await screen.findByText(label)).toBeInTheDocument()
+    if (state === 'update-available') expect(screen.getByText('Available version')).toBeInTheDocument()
+    if (state === 'update-downloaded') expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+    if (state === 'error') expect(screen.getByText('GitHub releases unavailable')).toBeInTheDocument()
   })
 
   it('confirms and cancels Clear Browser Data in Settings without clearing the profile', async () => {

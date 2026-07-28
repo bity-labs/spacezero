@@ -97,6 +97,7 @@ import {
   type TerminalAPI
 } from '../features/terminal/shared/terminal.contract'
 import { BROWSER_IPC_CHANNELS, type BrowserAPI } from '../features/browser/shared/browser.contract'
+import type { UpdateStatus } from '../features/updates/shared'
 
 export const IPC_CHANNELS = {
   app: {
@@ -199,6 +200,10 @@ export const IPC_CHANNELS = {
   },
   terminal: TERMINAL_IPC_CHANNELS,
   browser: BROWSER_IPC_CHANNELS,
+  update: {
+    getStatus: 'update:getStatus',
+    checkForUpdates: 'update:checkForUpdates'
+  },
   settings: {
     getLanguageSettings: 'settings:getLanguageSettings',
     updateLanguagePreference: 'settings:updateLanguagePreference',
@@ -362,6 +367,10 @@ export type SpaceZeroAPI = {
   }
   terminal: TerminalAPI
   browser: BrowserAPI
+  update: {
+    getStatus: () => Promise<UpdateStatus>
+    checkForUpdates: () => Promise<UpdateStatus>
+  }
   settings: {
     getLanguageSettings: () => Promise<LanguageSettings>
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
