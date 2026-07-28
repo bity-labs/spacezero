@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { BrowserClearDataResult } from '../../features/browser/shared'
 import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
+import type { UpdateStatus } from '../../features/updates/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
 import { App } from './App'
@@ -1091,6 +1092,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
     expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
@@ -1107,6 +1109,150 @@ describe('App', () => {
     expect(screen.queryByText('Pull Requests')).not.toBeInTheDocument()
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings')
+  })
+
+  it('shows About update status and manually checks for updates from Settings', async () => {
+    const checkForUpdates = vi.fn(async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta' as const,
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state: 'no-update-available' as const,
+      availableVersion: null,
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    }))
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: null,
+      state: 'idle',
+      availableVersion: null,
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+    window.spacezero.update.checkForUpdates = checkForUpdates
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'About' }))
+
+    expect(await screen.findByRole('heading', { name: 'About' })).toBeInTheDocument()
+    expect(screen.getByText('0.1.0-beta.1')).toBeInTheDocument()
+    expect(screen.getByText('Beta channel')).toBeInTheDocument()
+    expect(screen.getByText('Not checked yet')).toBeInTheDocument()
+    expect(screen.getByText('Never checked')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'GitHub Release notes' })).toHaveAttribute(
+      'href',
+      'https://github.com/bity-labs/spacezero/releases'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }))
+
+    expect(await screen.findByText('No update available')).toBeInTheDocument()
+    expect(checkForUpdates).toHaveBeenCalledTimes(1)
+  })
+
+  it('reflects asynchronous update lifecycle changes while About remains mounted', async () => {
+    let statusChangeListener: ((status: UpdateStatus) => void) | undefined
+    window.spacezero.update.onStatusChange = (listener) => {
+      statusChangeListener = listener
+      return () => {
+        statusChangeListener = undefined
+      }
+    }
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: null,
+      state: 'idle',
+      availableVersion: null,
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+    window.spacezero.update.checkForUpdates = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state: 'update-available',
+      availableVersion: '0.1.0-beta.2',
+      downloadedVersion: null,
+      errorMessage: null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'about' } })
+    })
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
+
+    expect(await screen.findByText('Update available')).toBeInTheDocument()
+    expect(screen.getByText('Available version')).toBeInTheDocument()
+
+    act(() => {
+      statusChangeListener?.({
+        currentVersion: '0.1.0-beta.1',
+        releaseChannel: 'beta',
+        lastCheckedAt: '2026-01-02T03:04:05.000Z',
+        state: 'update-downloaded',
+        availableVersion: '0.1.0-beta.2',
+        downloadedVersion: '0.1.0-beta.2',
+        errorMessage: null,
+        releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+      })
+    })
+
+    expect(await screen.findByText('Update downloaded')).toBeInTheDocument()
+    expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+
+    act(() => {
+      statusChangeListener?.({
+        currentVersion: '0.1.0-beta.1',
+        releaseChannel: 'beta',
+        lastCheckedAt: '2026-01-02T03:04:05.000Z',
+        state: 'error',
+        availableVersion: '0.1.0-beta.2',
+        downloadedVersion: null,
+        errorMessage: 'Download failed',
+        releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+      })
+    })
+
+    expect(await screen.findByText('Update check failed')).toBeInTheDocument()
+    expect(screen.getByText('Download failed')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['checking', 'Checking for updates…'],
+    ['update-available', 'Update available'],
+    ['update-downloaded', 'Update downloaded'],
+    ['error', 'Update check failed']
+  ] as const)('renders the %s About update state', async (state, label) => {
+    window.spacezero.update.getStatus = async () => ({
+      currentVersion: '0.1.0-beta.1',
+      releaseChannel: 'beta',
+      lastCheckedAt: '2026-01-02T03:04:05.000Z',
+      state,
+      availableVersion: state === 'update-available' || state === 'update-downloaded' ? '0.1.0-beta.2' : null,
+      downloadedVersion: state === 'update-downloaded' ? '0.1.0-beta.2' : null,
+      errorMessage: state === 'error' ? 'GitHub releases unavailable' : null,
+      releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+    })
+
+    await act(async () => {
+      await router.navigate({ to: '/settings', search: { section: 'about' } })
+    })
+    render(<App />)
+
+    expect(await screen.findByText(label)).toBeInTheDocument()
+    if (state === 'update-available') expect(screen.getByText('Available version')).toBeInTheDocument()
+    if (state === 'update-downloaded') expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+    if (state === 'error') expect(screen.getByText('GitHub releases unavailable')).toBeInTheDocument()
   })
 
   it('confirms and cancels Clear Browser Data in Settings without clearing the profile', async () => {

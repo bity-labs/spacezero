@@ -6,7 +6,8 @@ describe('external URL policy', () => {
   it.each([
     'https://github.com/bity-labs/spacezero',
     'https://github.com/bity-labs/spacezero/',
-    'https://github.com/octocat/hello_world.js'
+    'https://github.com/octocat/hello_world.js',
+    'https://github.com/bity-labs/spacezero/releases'
   ])('allows the intended GitHub repository URL %s', (url) => {
     expect(isAllowedGitHubRepositoryUrl(url)).toBe(true)
   })

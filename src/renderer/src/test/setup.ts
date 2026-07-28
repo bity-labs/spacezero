@@ -451,6 +451,29 @@ beforeEach(async () => {
       close: async () => undefined,
       onEvent: () => () => undefined
     },
+    update: {
+      getStatus: async () => ({
+        currentVersion: '0.1.0-beta.1',
+        releaseChannel: 'beta',
+        lastCheckedAt: null,
+        state: 'idle',
+        availableVersion: null,
+        downloadedVersion: null,
+        errorMessage: null,
+        releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+      }),
+      checkForUpdates: async () => ({
+        currentVersion: '0.1.0-beta.1',
+        releaseChannel: 'beta',
+        lastCheckedAt: new Date(0).toISOString(),
+        state: 'no-update-available',
+        availableVersion: null,
+        downloadedVersion: null,
+        errorMessage: null,
+        releaseNotesUrl: 'https://github.com/bity-labs/spacezero/releases'
+      }),
+      onStatusChange: () => () => undefined
+    },
     browser: {
       getState: async ({ contextKey }) => ({
         contextKey,

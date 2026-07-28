@@ -189,6 +189,7 @@
       "agents": "Agents",
       "models": "Modèles",
       "skills": "Compétences",
+      "about": "À propos",
       "cloudAgents": "Agents cloud"
     },
     "account": {
@@ -200,6 +201,30 @@
       "title": "Passer à Pro",
       "description": "Débloquez les modèles premium, les fonctionnalités d’espace de travail et plus encore.",
       "upgrade": "Mettre à niveau"
+    },
+    "about": {
+      "title": "À propos",
+      "updatesSectionTitle": "À propos et mises à jour",
+      "versionLabel": "Version installée",
+      "betaChannel": "Canal bêta",
+      "updateStateLabel": "État de mise à jour",
+      "lastCheckedLabel": "Dernière vérification",
+      "availableVersionLabel": "Version disponible",
+      "downloadedVersionLabel": "Version téléchargée",
+      "loading": "Chargement de l’état des mises à jour…",
+      "neverChecked": "Jamais vérifié",
+      "loadError": "Impossible de charger l’état des mises à jour.",
+      "checkAction": "Rechercher des mises à jour",
+      "checkingAction": "Recherche…",
+      "releaseNotesAction": "Notes de version GitHub",
+      "states": {
+        "idle": "Pas encore vérifié",
+        "checking": "Recherche de mises à jour…",
+        "update-available": "Mise à jour disponible",
+        "update-downloaded": "Mise à jour téléchargée",
+        "no-update-available": "Aucune mise à jour disponible",
+        "error": "Échec de la recherche de mise à jour"
+      }
     },
     "pullRequests": {
       "sectionTitle": "Pull requests",
