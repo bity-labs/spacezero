@@ -20,10 +20,7 @@
     "switchToLightMode": "Switch to light mode",
     "switchToDarkMode": "Switch to dark mode",
     "sidebar": {
-      "newAgent": "New Agent",
-      "search": "Search",
-      "automations": "Automations",
-      "customize": "Customize"
+      "newAgent": "New Agent"
     },
     "repositories": {
       "label": "Repositories",
