@@ -4,6 +4,17 @@ import userEvent from '@testing-library/user-event'
 import { ChatInput } from './chat-input'
 
 describe('ChatInput', () => {
+  it('applies custom composer surface styles to the bordered input group', () => {
+    render(<ChatInput className="rounded-2xl bg-muted/80" onSubmit={vi.fn()} />)
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    const inputGroup = input.closest('[data-slot="input-group"]')
+    const form = input.closest('form')
+
+    expect(inputGroup).toHaveClass('rounded-2xl', 'bg-muted/80')
+    expect(form).not.toHaveClass('rounded-2xl', 'bg-muted/80')
+  })
+
   it('submits entered text with Enter and clears the input', async () => {
     const handleSubmit = vi.fn()
     render(<ChatInput onSubmit={handleSubmit} />)
