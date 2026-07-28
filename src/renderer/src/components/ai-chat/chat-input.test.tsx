@@ -66,13 +66,16 @@ describe('ChatInput', () => {
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/' } })
 
-    expect(screen.getByRole('option', { name: /\/skill:code-review/ })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
+    const codeReviewOption = screen.getByRole('option', { name: /code-review/ })
+    expect(codeReviewOption).toBeInTheDocument()
+    expect(codeReviewOption).not.toHaveTextContent('/skill:code-review')
+    expect(codeReviewOption.querySelector('svg')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /debug/ })).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '/skill:' } })
 
-    expect(screen.getByRole('option', { name: /\/skill:code-review/ })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /code-review/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /debug/ })).toBeInTheDocument()
 
     fireEvent.keyDown(input, { key: 'ArrowDown' })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -125,8 +128,8 @@ describe('ChatInput', () => {
     await userEvent.type(input, '/f')
 
     expect(input).toHaveValue('/f')
-    expect(screen.getByRole('option', { name: /\/skill:format/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /\/skill:debug/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /format/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /debug/ })).not.toBeInTheDocument()
   })
 
   it('filters skill suggestions on every keystroke, including case-insensitive names', async () => {
@@ -147,8 +150,8 @@ describe('ChatInput', () => {
     await userEvent.type(input, 'cod')
 
     expect(input).toHaveValue('/skill:cod')
-    expect(screen.getByRole('option', { name: /\/skill:CodeReview/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /\/skill:Debug/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /CodeReview/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /Debug/ })).not.toBeInTheDocument()
   })
 
   it('matches skill descriptions and hides unrelated or unmatched queries', () => {
@@ -164,8 +167,8 @@ describe('ChatInput', () => {
 
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/skill:investigate' } })
-    expect(screen.getByRole('option', { name: /\/skill:debug/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /\/skill:code-review/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /debug/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /code-review/ })).not.toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '/skill:not-a-skill' } })
     expect(screen.queryByRole('listbox', { name: 'Available skills' })).not.toBeInTheDocument()
@@ -218,8 +221,8 @@ describe('ChatInput', () => {
     expect(screen.getAllByRole('option')).toHaveLength(2)
 
     fireEvent.input(input, { target: { value: '/skill:bet' } })
-    expect(screen.getByRole('option', { name: /\/skill:beta/ })).toBeInTheDocument()
-    expect(screen.queryByRole('option', { name: /\/skill:alpha/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /beta/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /alpha/ })).not.toBeInTheDocument()
   })
 
   it('submits entered text with the submit button', () => {
