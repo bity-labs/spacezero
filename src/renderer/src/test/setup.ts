@@ -417,6 +417,14 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      rename: async ({ sessionId, title }) => ({
+        id: sessionId,
+        kind: 'workspace',
+        title,
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }),
       archive: async () => undefined,
       delete: async () => undefined
     },

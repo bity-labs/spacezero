@@ -6,6 +6,7 @@ import type { StoredSession } from './sessions.service'
 import { createTerminalService, type PtyProcess, type TerminalPtyAdapter } from '../../terminal/main/terminal.service'
 
 const deleteChannel = 'sessions:delete'
+const renameChannel = 'sessions:rename'
 
 function createStoredSession(overrides: Partial<StoredSession> = {}): StoredSession {
   return {
@@ -50,6 +51,10 @@ async function setupSessionsIpcHarness({
       storedSession?.id === sessionId ? storedSession : undefined
     ),
     findProjectById: vi.fn(async () => undefined),
+    update: vi.fn(async (nextSession: StoredSession) => {
+      storedSession = nextSession
+      return nextSession
+    }),
     listByProjectIdIncludingArchived: vi.fn(async () => []),
     deleteById: vi.fn(async (sessionId: string) => {
       events.push('metadata')
@@ -113,12 +118,38 @@ async function setupSessionsIpcHarness({
   registerSessionsIpc()
   const deleteSession = handlers.get(deleteChannel)
   if (!deleteSession) throw new Error('delete handler was not registered')
-  return { deleteSession, events, ptys, repository, terminalService, utilityHost }
+  const renameSession = handlers.get(renameChannel)
+  if (!renameSession) throw new Error('rename handler was not registered')
+  return { deleteSession, renameSession, events, ptys, repository, terminalService, utilityHost }
 }
 
 describe('Sessions IPC terminal cleanup mapping', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+  })
+
+  it('renames Sessions through a typed IPC handler with trimmed input', async () => {
+    const session = createStoredSession()
+    const { renameSession, repository } = await setupSessionsIpcHarness({ session })
+
+    await expect(renameSession({}, { sessionId: ` ${session.id} `, title: '  Better name  ' })).resolves.toMatchObject({
+      id: session.id,
+      title: 'Better name',
+      kind: 'workspace'
+    })
+
+    expect(repository.update).toHaveBeenCalledWith(expect.objectContaining({
+      id: session.id,
+      title: 'Better name'
+    }))
+  })
+
+  it('rejects whitespace-only renamed titles at the IPC boundary', async () => {
+    const session = createStoredSession()
+    const { renameSession, repository } = await setupSessionsIpcHarness({ session })
+
+    await expect(renameSession({}, { sessionId: session.id, title: '   ' })).rejects.toThrow()
+    expect(repository.update).not.toHaveBeenCalled()
   })
 
   it('deletes a live Workspace Session through the workspace-session terminal context', async () => {

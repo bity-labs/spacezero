@@ -10,6 +10,7 @@ export function useWorkspaceSessions(): {
   error: string | null
   refreshWorkspaceSessions: () => Promise<void>
   upsertWorkspaceSession: (session: WorkspaceSession) => void
+  renameWorkspaceSession: (sessionId: string, title: string) => Promise<WorkspaceSession>
   archiveWorkspaceSession: (sessionId: string) => Promise<void>
   deleteWorkspaceSession: (sessionId: string) => Promise<void>
 } {
@@ -62,6 +63,17 @@ export function useWorkspaceSessions(): {
     })
   }, [])
 
+  const renameWorkspaceSession = useCallback(async (sessionId: string, title: string) => {
+    const renamedSession = await window.spacezero.sessions.rename({ sessionId, title })
+    if (renamedSession.kind !== 'workspace') {
+      throw new Error('Renamed Session was not a Workspace Session')
+    }
+    setWorkspaceSessions((currentSessions) =>
+      currentSessions.map((session) => (session.id === sessionId ? renamedSession : session))
+    )
+    return renamedSession
+  }, [])
+
   const archiveWorkspaceSession = useCallback(async (sessionId: string) => {
     await window.spacezero.sessions.archive({ sessionId })
     setWorkspaceSessions((currentSessions) => currentSessions.filter((session) => session.id !== sessionId))
@@ -78,6 +90,7 @@ export function useWorkspaceSessions(): {
     error,
     refreshWorkspaceSessions,
     upsertWorkspaceSession,
+    renameWorkspaceSession,
     archiveWorkspaceSession,
     deleteWorkspaceSession
   }

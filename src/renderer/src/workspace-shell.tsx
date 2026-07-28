@@ -2,7 +2,9 @@ import {
   useCallback,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
   type PointerEvent
 } from 'react'
@@ -14,6 +16,7 @@ import {
   FunnelSimple,
   MagnifyingGlass,
   PaperPlaneTilt,
+  PencilSimple,
   Sidebar
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
@@ -40,7 +43,7 @@ import {
   ProjectSessionHostSurface,
   WorkspaceSessionHostSurface,
   getFocusedSessionTab,
-  syncProjectSessionTabs,
+  syncSessionTabs,
   useProjectSessions,
   useSessionWorkspaceStore,
   useWorkspaceSessions,
@@ -145,6 +148,7 @@ export function WorkspaceShell(): React.JSX.Element {
     status: workspaceSessionsStatus,
     error: workspaceSessionsError,
     upsertWorkspaceSession,
+    renameWorkspaceSession,
     archiveWorkspaceSession,
     deleteWorkspaceSession
   } = useWorkspaceSessions()
@@ -155,12 +159,13 @@ export function WorkspaceShell(): React.JSX.Element {
     error: sessionsError,
     refreshSessions,
     upsertProjectSession,
+    renameProjectSession,
     archiveSession,
     deleteSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
-    () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
-    [sessionWorkspaceLayout, sessions]
+    () => syncSessionTabs(sessionWorkspaceLayout, sessions, workspaceSessions),
+    [sessionWorkspaceLayout, sessions, workspaceSessions]
   )
   const activeTab = getFocusedSessionTab(syncedSessionWorkspaceLayout)
   const activeProjectSession =
@@ -345,6 +350,37 @@ export function WorkspaceShell(): React.JSX.Element {
     if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
   }
 
+  async function handleRenameProjectSession(session: ProjectSession, title: string): Promise<void> {
+    setSidebarSessionError(null)
+    try {
+      await renameProjectSession(session.id, title)
+    } catch (error) {
+      setSidebarSessionError(sessionRenameErrorMessage(error))
+      throw error
+    }
+  }
+
+  async function handleRenameWorkspaceSession(
+    session: WorkspaceSession,
+    title: string
+  ): Promise<void> {
+    setSidebarSessionError(null)
+    try {
+      await renameWorkspaceSession(session.id, title)
+    } catch (error) {
+      setSidebarSessionError(sessionRenameErrorMessage(error))
+      throw error
+    }
+  }
+
+  async function handleRenameActiveSession(title: string): Promise<void> {
+    if (activeProjectSession) {
+      await handleRenameProjectSession(activeProjectSession, title)
+      return
+    }
+    if (activeWorkspaceSession) await handleRenameWorkspaceSession(activeWorkspaceSession, title)
+  }
+
   async function handleArchiveProject(project: Project): Promise<void> {
     await archiveProject(project.id)
     await refreshSessions()
@@ -439,6 +475,7 @@ export function WorkspaceShell(): React.JSX.Element {
             onOpenProjectHome={handleOpenProjectHome}
             onSelectProjectSession={handleSelectSession}
             onOpenProjectSessionSource={handleOpenSessionSource}
+            onRenameSession={handleRenameActiveSession}
           />
         </div>
 
@@ -489,6 +526,7 @@ export function WorkspaceShell(): React.JSX.Element {
                     status={workspaceSessionsStatus}
                     error={workspaceSessionsError}
                     onSelectSession={openWorkspaceSession}
+                    onRenameSession={(session, title) => handleRenameWorkspaceSession(session, title)}
                     onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
                     onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
                   />
@@ -545,6 +583,7 @@ export function WorkspaceShell(): React.JSX.Element {
                       })
                     }}
                     onSelectSession={handleSelectSession}
+                    onRenameSession={(session, title) => handleRenameProjectSession(session, title)}
                     onArchiveSession={(session) => void handleArchiveSession(session.id)}
                     onDeleteSession={(session) => void handleDeleteSession(session.id)}
                   />
@@ -682,7 +721,8 @@ function WorkspaceBreadcrumb({
   projectSessions,
   onOpenProjectHome,
   onSelectProjectSession,
-  onOpenProjectSessionSource
+  onOpenProjectSessionSource,
+  onRenameSession
 }: {
   knowledgeBaseActive: boolean
   project: Project | null
@@ -692,6 +732,7 @@ function WorkspaceBreadcrumb({
   onOpenProjectHome: (project: Project) => void
   onSelectProjectSession: (session: ProjectSession) => void
   onOpenProjectSessionSource: (session: ProjectSession) => void
+  onRenameSession: (title: string) => Promise<void>
 }): React.JSX.Element {
   if (knowledgeBaseActive) {
     return (
@@ -763,6 +804,12 @@ function WorkspaceBreadcrumb({
                   })}
                 </DropdownMenuContent>
               </DropdownMenu>
+              <InlineSessionTitleEditor
+                title={projectSession.title}
+                label="Rename Project Session"
+                onSave={onRenameSession}
+                showTitle={false}
+              />
             </BreadcrumbItem>
           </>
         ) : null}
@@ -785,13 +832,128 @@ function WorkspaceBreadcrumb({
           <>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>{workspaceSession.title}</BreadcrumbPage>
+              <InlineSessionTitleEditor
+                title={workspaceSession.title}
+                label="Rename Workspace Session"
+                onSave={onRenameSession}
+              />
             </BreadcrumbItem>
           </>
         ) : null}
       </BreadcrumbList>
     </Breadcrumb>
   )
+}
+
+function InlineSessionTitleEditor({
+  title,
+  label,
+  onSave,
+  showTitle = true
+}: {
+  title: string
+  label: string
+  onSave: (title: string) => Promise<void>
+  showTitle?: boolean
+}): React.JSX.Element {
+  const inputRef = useRef<HTMLInputElement | null>(null)
+  const [isEditing, setEditing] = useState(false)
+  const [draftTitle, setDraftTitle] = useState(title)
+  const [error, setError] = useState<string | null>(null)
+  const [isSaving, setSaving] = useState(false)
+
+  function startEditing(): void {
+    setDraftTitle(title)
+    setError(null)
+    setEditing(true)
+    window.setTimeout(() => inputRef.current?.select(), 0)
+  }
+
+  function cancelEditing(): void {
+    setDraftTitle(title)
+    setError(null)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  async function saveDraft(): Promise<void> {
+    const nextTitle = draftTitle.trim()
+    if (!nextTitle) {
+      setError('Enter a Session title before saving.')
+      setDraftTitle(title)
+      return
+    }
+    if (nextTitle === title) {
+      cancelEditing()
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(nextTitle)
+      setEditing(false)
+    } catch (error) {
+      setDraftTitle(title)
+      setError(sessionRenameErrorMessage(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function handleBlur(event: FocusEvent<HTMLInputElement>): void {
+    if (event.relatedTarget instanceof HTMLElement && event.relatedTarget.dataset.cancelRename) {
+      return
+    }
+    void saveDraft()
+  }
+
+  if (isEditing) {
+    return (
+      <span className="titlebar-control inline-flex min-w-40 items-center gap-1">
+        <input
+          ref={inputRef}
+          aria-label={label}
+          className="h-7 min-w-0 rounded-md border border-input bg-background px-2 text-xs text-foreground shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          disabled={isSaving}
+          value={draftTitle}
+          onBlur={handleBlur}
+          onChange={(event) => setDraftTitle(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              void saveDraft()
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              cancelEditing()
+            }
+          }}
+        />
+        {error ? <span className="sr-only" role="alert">{error}</span> : null}
+      </span>
+    )
+  }
+
+  return (
+    <span className="titlebar-control inline-flex items-center gap-1">
+      {showTitle ? <BreadcrumbPage>{title}</BreadcrumbPage> : null}
+      <button
+        type="button"
+        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        aria-label={label}
+        onClick={startEditing}
+      >
+        <PencilSimple className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </span>
+  )
+}
+
+function sessionRenameErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message === 'Session title is required') {
+    return 'Enter a Session title before saving.'
+  }
+  return 'Unable to rename Session. Check the title and try again.'
 }
 
 type ResizeHandleProps = {

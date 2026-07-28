@@ -43,3 +43,10 @@ export type CreateProjectSessionRequest = {
   projectId: string
   title?: string
 }
+
+export type RenameSessionTitleRequest = {
+  sessionId: string
+  title: string
+}
+
+export type Session = ProjectSession | WorkspaceSession

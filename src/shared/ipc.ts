@@ -80,6 +80,8 @@ import type {
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
+  RenameSessionTitleRequest,
+  Session,
   WorkspaceSession
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
@@ -172,6 +174,7 @@ export const IPC_CHANNELS = {
     listProjectSessions: 'sessions:listProjectSessions',
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
     createProjectSession: 'sessions:createProjectSession',
+    rename: 'sessions:rename',
     archive: 'sessions:archive',
     delete: 'sessions:delete'
   },
@@ -330,6 +333,7 @@ export type SpaceZeroAPI = {
     listProjectSessions: () => Promise<ProjectSession[]>
     listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+    rename: (request: RenameSessionTitleRequest) => Promise<Session>
     archive: (request: { sessionId: string }) => Promise<void>
     delete: (request: { sessionId: string }) => Promise<void>
   }

@@ -99,16 +99,28 @@ export function syncProjectSessionTabs(
   layout: SessionWorkspaceLayout,
   sessions: ProjectSession[]
 ): SessionWorkspaceLayout {
-  const sessionsById = new Map(sessions.map((session) => [session.id, session]))
+  return syncSessionTabs(layout, sessions, [])
+}
+
+export function syncSessionTabs(
+  layout: SessionWorkspaceLayout,
+  projectSessions: ProjectSession[],
+  workspaceSessions: WorkspaceSession[]
+): SessionWorkspaceLayout {
+  const projectSessionsById = new Map(projectSessions.map((session) => [session.id, session]))
+  const workspaceSessionsById = new Map(workspaceSessions.map((session) => [session.id, session]))
 
   return {
     ...layout,
     panels: layout.panels.map((panel) => ({
       ...panel,
       tabs: panel.tabs.map((tab) => {
-        if (tab.kind !== 'project') return tab
-        const session = sessionsById.get(tab.sessionId)
-        return session ? createProjectSessionWorkspaceTab(session) : tab
+        if (tab.kind === 'project') {
+          const session = projectSessionsById.get(tab.sessionId)
+          return session ? createProjectSessionWorkspaceTab(session) : tab
+        }
+        const session = workspaceSessionsById.get(tab.session.id)
+        return session ? createWorkspaceSessionWorkspaceTab(session) : tab
       })
     }))
   }
