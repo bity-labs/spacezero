@@ -214,6 +214,102 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Git' })).toBeEnabled()
   })
 
+  it('hides project session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
+    window.spacezero.projects.list = async () => [
+      {
+        id: 'project-1',
+        name: 'Space Zero',
+        path: '/Users/tiby/ws/dev/spacezero',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+    window.spacezero.sessions.listProjectSessions = async () => [
+      {
+        id: 'session-1',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Issue #120: Breadcrumb fix',
+        status: 'idle',
+        source: {
+          type: 'issue',
+          repositoryId: '1000',
+          repositoryNodeId: 'R_1000',
+          repositoryOwner: 'bity-labs',
+          repositoryName: 'spacezero',
+          repositoryFullName: 'bity-labs/spacezero',
+          number: 120,
+          url: 'https://github.com/bity-labs/spacezero/issues/120',
+          title: 'Breadcrumb fix'
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Space Zero' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Issue #120: Breadcrumb fix/ }))
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroIssue #120: Breadcrumb fixIssue #120'
+    )
+
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Workspace navigation' })).getByRole('button', {
+        name: 'Knowledge Base'
+      })
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      /^Knowledge Base$/
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Issue #120: Breadcrumb fix/ }))
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Space ZeroIssue #120: Breadcrumb fixIssue #120'
+    )
+  })
+
+  it('hides workspace session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
+    window.spacezero.sessions.listWorkspaceSessions = async () => [
+      {
+        id: 'workspace-session-1',
+        kind: 'workspace',
+        title: 'Workspace Session 1',
+        status: 'idle',
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }
+    ]
+
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session 1'
+    )
+
+    fireEvent.click(
+      within(screen.getByRole('menu', { name: 'Workspace navigation' })).getByRole('button', {
+        name: 'Knowledge Base'
+      })
+    )
+    expect(
+      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      /^Knowledge Base$/
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Workspace Session 1/ }))
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'WorkspaceWorkspace Session 1'
+    )
+  })
+
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
     render(<App />)
 
