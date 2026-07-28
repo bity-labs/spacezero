@@ -1,7 +1,9 @@
 import { app } from 'electron'
 import electronUpdater from 'electron-updater'
 
-import type { UpdateStatus } from '../shared'
+import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getTerminalService } from '../../terminal/main/terminal.runtime'
+import type { ApplyDownloadedUpdateResult, UpdateActiveWorkSummary, UpdateStatus } from '../shared'
 
 type UpdaterUpdateInfo = {
   version?: string
@@ -18,14 +20,18 @@ type UpdaterCheckResult = {
 export type UpdaterAdapter = {
   autoDownload?: boolean
   checkForUpdates: () => Promise<UpdaterCheckResult | null>
+  quitAndInstall?: () => void
   on: (event: string, listener: (...args: unknown[]) => void) => void
 }
+
+type ActiveWorkProvider = () => Promise<UpdateActiveWorkSummary>
 
 type UpdateServiceOptions = {
   currentVersion: string
   now?: () => Date
   updater?: UpdaterAdapter
   updateChecksEnabled?: boolean
+  activeWorkProvider?: ActiveWorkProvider
 }
 
 type AutomaticCheckOptions = {
@@ -45,6 +51,7 @@ export class UpdateService {
   private readonly now: () => Date
   private readonly updater: UpdaterAdapter
   private readonly updateChecksEnabled: boolean
+  private readonly activeWorkProvider: ActiveWorkProvider
   private readonly listeners = new Set<UpdateStatusListener>()
   private automaticCheckTimer: NodeJS.Timeout | null = null
   private status: UpdateStatus
@@ -53,12 +60,14 @@ export class UpdateService {
     currentVersion,
     now = () => new Date(),
     updater = electronUpdater.autoUpdater as unknown as UpdaterAdapter,
-    updateChecksEnabled = true
+    updateChecksEnabled = true,
+    activeWorkProvider = getCurrentActiveWork
   }: UpdateServiceOptions) {
     this.currentVersion = currentVersion
     this.now = now
     this.updater = updater
     this.updateChecksEnabled = updateChecksEnabled
+    this.activeWorkProvider = activeWorkProvider
     this.status = this.createStatus('idle')
 
     if (this.updateChecksEnabled) this.updater.autoDownload = true
@@ -119,6 +128,22 @@ export class UpdateService {
 
     clearInterval(this.automaticCheckTimer)
     this.automaticCheckTimer = null
+  }
+
+  async applyDownloadedUpdate({
+    confirmActiveWork = false
+  }: { confirmActiveWork?: boolean } = {}): Promise<ApplyDownloadedUpdateResult> {
+    const activeWork = await this.activeWorkProvider()
+    if (this.status.state !== 'update-downloaded') {
+      return { status: 'no-downloaded-update', activeWork, updateStatus: this.status }
+    }
+
+    if (!confirmActiveWork && hasActiveWork(activeWork)) {
+      return { status: 'needs-confirmation', activeWork, updateStatus: this.status }
+    }
+
+    this.updater.quitAndInstall?.()
+    return { status: 'applying', activeWork, updateStatus: this.status }
   }
 
   async checkForUpdates(): Promise<UpdateStatus> {
@@ -205,4 +230,25 @@ function readVersion(info: unknown): string | null {
   if (!info || typeof info !== 'object') return null
   const version = (info as { version?: unknown }).version
   return typeof version === 'string' && version.length > 0 ? version : null
+}
+
+function hasActiveWork(activeWork: UpdateActiveWorkSummary): boolean {
+  return (
+    activeWork.projectSessions > 0 || activeWork.workspaceSessions > 0 || activeWork.terminalTabs > 0
+  )
+}
+
+async function getCurrentActiveWork(): Promise<UpdateActiveWorkSummary> {
+  const sessions = await getAgentUtilityProcessHost().listSessions()
+  return {
+    projectSessions: sessions.filter(
+      (session) =>
+        (session.kind === 'project' || Boolean(session.projectId)) && session.status === 'running'
+    ).length,
+    workspaceSessions: sessions.filter(
+      (session) =>
+        (session.kind === 'workspace' || !session.projectId) && session.status === 'running'
+    ).length,
+    terminalTabs: getTerminalService().countLiveTerminals()
+  }
 }

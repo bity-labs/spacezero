@@ -2,6 +2,7 @@ import { Link, useRouterState } from '@tanstack/react-router'
 import { GearSix } from '@phosphor-icons/react'
 
 import { useGitHubConnection } from '../../../../features/github/renderer'
+import { UpdateRestartControl } from '../../../../features/updates/renderer'
 import { cn } from '../../lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
 import { buttonVariants } from '../ui/button'
@@ -42,6 +43,8 @@ export function AccountMenu({
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm leading-5 text-muted-foreground">{resolvedUsername}</p>
       </div>
+
+      <UpdateRestartControl placement="sidebar" />
 
       <Link
         to={resolvedSettingsTo}
