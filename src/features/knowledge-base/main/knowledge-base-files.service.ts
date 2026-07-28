@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises'
 import {
   basename,
+  dirname,
   extname,
   isAbsolute,
   join,
@@ -15,6 +16,8 @@ import {
 
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../shared/knowledge-base.model'
 import type {
+  KnowledgeBaseCreateDocumentResult,
+  KnowledgeBaseCreateFolderResult,
   KnowledgeBaseDocument,
   KnowledgeBaseImageImport,
   KnowledgeBaseImagePreview,
@@ -50,6 +53,11 @@ const TEXT_EXTENSIONS = new Set([
 export type KnowledgeBaseFilesService = {
   getTree: () => Promise<KnowledgeBaseTreeItem[]>
   openDocument: (request: { relativePath: string }) => Promise<KnowledgeBaseDocument>
+  createDocument: (request: {
+    relativePath: string
+    content: string
+  }) => Promise<KnowledgeBaseCreateDocumentResult>
+  createFolder: (request: { relativePath: string }) => Promise<KnowledgeBaseCreateFolderResult>
   importImage: (request: {
     documentRelativePath: string
     fileName: string
@@ -83,6 +91,55 @@ export function createKnowledgeBaseFilesService({
     async openDocument(request) {
       const rootPath = await rootProvider.getVerifiedRoot()
       return openKnowledgeBaseDocument(rootPath, request.relativePath)
+    },
+
+    async createDocument(request) {
+      const rootPath = await rootProvider.getVerifiedRoot()
+      const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(
+        rootPath,
+        request.relativePath
+      )
+      await assertParentDirectoryAllowed(rootPath, absolutePath)
+
+      try {
+        await writeFile(absolutePath, request.content, { encoding: 'utf8', flag: 'wx' })
+      } catch (error) {
+        if (isNodeError(error) && error.code === 'EEXIST') {
+          return { status: 'collision', relativePath }
+        }
+        throw error
+      }
+
+      await assertExistingPathInsideRoot(rootPath, absolutePath)
+      return {
+        status: 'created',
+        document: await openKnowledgeBaseDocument(rootPath, relativePath)
+      }
+    },
+
+    async createFolder(request) {
+      const rootPath = await rootProvider.getVerifiedRoot()
+      const { absolutePath, relativePath } = resolveKnowledgeBaseRelativePath(
+        rootPath,
+        request.relativePath
+      )
+      await assertParentDirectoryAllowed(rootPath, absolutePath)
+
+      try {
+        await mkdir(absolutePath)
+      } catch (error) {
+        if (isNodeError(error) && error.code === 'EEXIST') {
+          return { status: 'collision', relativePath }
+        }
+        throw error
+      }
+
+      const details = await lstat(absolutePath)
+      if (details.isSymbolicLink() || !details.isDirectory()) {
+        throw new Error('Knowledge Base path is not a folder.')
+      }
+      await assertExistingPathInsideRoot(rootPath, absolutePath)
+      return { status: 'created', relativePath, kind: 'folder' }
     },
 
     async importImage(request) {
@@ -174,6 +231,8 @@ export function createKnowledgeBaseFilesService({
 
   return {
     ...service,
+    createDocument: (request) => operations.runExclusive(() => service.createDocument(request)),
+    createFolder: (request) => operations.runExclusive(() => service.createFolder(request)),
     importImage: (request) => operations.runExclusive(() => service.importImage(request)),
     saveDocument: (request) => operations.runExclusive(() => service.saveDocument(request))
   }
@@ -427,6 +486,19 @@ async function assertExistingPathInsideRoot(rootPath: string, targetPath: string
     realpath(targetPath)
   ])
   await assertKnowledgeBaseCanonicalPathAllowed(canonicalRoot, canonicalTarget)
+}
+
+async function assertParentDirectoryAllowed(rootPath: string, targetPath: string): Promise<void> {
+  const parentPath = dirname(targetPath)
+  const details = await lstat(parentPath)
+  if (details.isSymbolicLink()) {
+    await assertExistingPathInsideRoot(rootPath, parentPath)
+    throw new Error('Knowledge Base path is outside the configured root.')
+  }
+  if (!details.isDirectory()) {
+    throw new Error('Knowledge Base parent path is not a folder.')
+  }
+  await assertExistingPathInsideRoot(rootPath, parentPath)
 }
 
 export async function assertKnowledgeBaseCanonicalPathAllowed(

@@ -7,7 +7,7 @@ import { createKnowledgeBaseTools } from './knowledge-base.tools'
 
 function createFilesService(): Pick<
   KnowledgeBaseFilesService,
-  'getTree' | 'openDocument' | 'saveDocument'
+  'getTree' | 'openDocument' | 'saveDocument' | 'createDocument' | 'createFolder'
 > {
   const getTree: KnowledgeBaseFilesService['getTree'] = vi.fn(async () => [])
   const openDocument: KnowledgeBaseFilesService['openDocument'] = vi.fn(
@@ -35,7 +35,24 @@ function createFilesService(): Pick<
       }
     })
   )
-  return { getTree, openDocument, saveDocument }
+  const createDocument: KnowledgeBaseFilesService['createDocument'] = vi.fn(
+    async ({ relativePath, content }) => ({
+      status: 'created' as const,
+      document: {
+        name: relativePath.split('/').at(-1) ?? relativePath,
+        relativePath,
+        contentKind: relativePath.endsWith('.md') ? ('markdown' as const) : ('text' as const),
+        size: content.length,
+        modifiedAt: new Date(2).toISOString(),
+        revision: 'revision-created',
+        content
+      }
+    })
+  )
+  const createFolder: KnowledgeBaseFilesService['createFolder'] = vi.fn(
+    async ({ relativePath }) => ({ status: 'created' as const, relativePath, kind: 'folder' as const })
+  )
+  return { getTree, openDocument, saveDocument, createDocument, createFolder }
 }
 
 function createGitService(): KnowledgeBaseGitAgentService {
@@ -108,6 +125,16 @@ describe('createKnowledgeBaseTools', () => {
           name: 'knowledgeBase.saveDocument',
           domain: 'knowledge-base',
           safetyLevel: 'write'
+        }),
+        expect.objectContaining({
+          name: 'knowledgeBase.createDocument',
+          domain: 'knowledge-base',
+          safetyLevel: 'write'
+        }),
+        expect.objectContaining({
+          name: 'knowledgeBase.createFolder',
+          domain: 'knowledge-base',
+          safetyLevel: 'write'
         })
       ])
     )
@@ -148,6 +175,83 @@ describe('createKnowledgeBaseTools', () => {
       relativePath: 'note.md',
       content: '# Updated',
       expectedRevision: 'revision-1'
+    })
+  })
+
+  it('creates documents and folders through write-safe Knowledge Base tools', async () => {
+    const service = createFilesService()
+    const tools = createTools(service)
+    const createDocument = findTool(tools, 'knowledgeBase.createDocument')
+    const createFolder = findTool(tools, 'knowledgeBase.createFolder')
+
+    expect(createDocument.confirmationSummary?.({
+      relativePath: 'docs/new.md',
+      content: '# New\n'
+    })).toBe('Create Knowledge Base document docs/new.md')
+    expect(createFolder.confirmationSummary?.({ relativePath: 'docs/research' })).toBe(
+      'Create Knowledge Base folder docs/research'
+    )
+
+    await expect(
+      createDocument.handler({ relativePath: 'docs/new.md', content: '# New\n' })
+    ).resolves.toEqual({
+      ok: true,
+      data: expect.objectContaining({
+        status: 'created',
+        document: expect.objectContaining({ relativePath: 'docs/new.md', content: '# New\n' })
+      })
+    })
+    expect(service.createDocument).toHaveBeenCalledWith({
+      relativePath: 'docs/new.md',
+      content: '# New\n'
+    })
+
+    await expect(createFolder.handler({ relativePath: 'docs/research' })).resolves.toEqual({
+      ok: true,
+      data: { status: 'created', relativePath: 'docs/research', kind: 'folder' }
+    })
+    expect(service.createFolder).toHaveBeenCalledWith({ relativePath: 'docs/research' })
+  })
+
+  it('returns structured create outcomes for collisions, unavailable roots, and validation failures', async () => {
+    const service = createFilesService()
+    vi.mocked(service.createDocument).mockResolvedValueOnce({
+      status: 'collision',
+      relativePath: 'docs/existing.md'
+    })
+    const createDocument = findTool(createTools(service), 'knowledgeBase.createDocument')
+
+    await expect(
+      createDocument.handler({ relativePath: 'docs/existing.md', content: '# Existing\n' })
+    ).resolves.toEqual({
+      ok: true,
+      data: { status: 'collision', relativePath: 'docs/existing.md' }
+    })
+
+    vi.mocked(service.createDocument).mockRejectedValueOnce(
+      new Error('Knowledge Base is unavailable at /missing.')
+    )
+    await expect(
+      createDocument.handler({ relativePath: 'docs/new.md', content: '# New\n' })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'unavailable-root',
+        message: 'Knowledge Base is unavailable at /missing.'
+      }
+    })
+
+    vi.mocked(service.createDocument).mockRejectedValueOnce(
+      new Error('Knowledge Base path is outside the configured root.')
+    )
+    await expect(
+      createDocument.handler({ relativePath: '../outside.md', content: '# Outside\n' })
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        code: 'validation-error',
+        message: 'Knowledge Base path is outside the configured root.'
+      }
     })
   })
 

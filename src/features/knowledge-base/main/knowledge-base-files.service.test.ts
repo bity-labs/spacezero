@@ -300,6 +300,93 @@ describe('createKnowledgeBaseFilesService', () => {
     )
   })
 
+  it('creates a new text document without overwriting existing items', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(
+      service.createDocument({ relativePath: 'docs/new-note.md', content: '# New note\n' })
+    ).resolves.toMatchObject({
+      status: 'created',
+      document: {
+        relativePath: 'docs/new-note.md',
+        contentKind: 'markdown',
+        content: '# New note\n'
+      }
+    })
+    await expect(readFile(join(rootPath, 'docs', 'new-note.md'), 'utf8')).resolves.toBe(
+      '# New note\n'
+    )
+
+    await expect(
+      service.createDocument({ relativePath: 'docs/new-note.md', content: '# Overwrite\n' })
+    ).resolves.toEqual({ status: 'collision', relativePath: 'docs/new-note.md' })
+    await expect(readFile(join(rootPath, 'docs', 'new-note.md'), 'utf8')).resolves.toBe(
+      '# New note\n'
+    )
+  })
+
+  it('creates a new folder without overwriting existing items', async () => {
+    const { rootPath } = await createFixture()
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(service.createFolder({ relativePath: 'docs/research' })).resolves.toEqual({
+      status: 'created',
+      relativePath: 'docs/research',
+      kind: 'folder'
+    })
+    await expect(access(join(rootPath, 'docs', 'research'))).resolves.toBeUndefined()
+
+    await expect(service.createFolder({ relativePath: 'docs/research' })).resolves.toEqual({
+      status: 'collision',
+      relativePath: 'docs/research'
+    })
+  })
+
+  it('rejects create operations through traversal, Git internals, and parent symlinks', async () => {
+    const { rootPath, outsidePath } = await createFixture()
+    await symlink(outsidePath, join(rootPath, 'outside-link'))
+    await symlink(join(rootPath, '.git'), join(rootPath, 'git-link'))
+    const service = createKnowledgeBaseFilesService({
+      configurationRepository: configuredRepository(rootPath)
+    })
+
+    await expect(
+      service.createDocument({ relativePath: '../outside.md', content: '# Outside\n' })
+    ).rejects.toThrow('Knowledge Base path is outside the configured root.')
+    await expect(
+      service.createDocument({ relativePath: '.git/new.md', content: '# Secret\n' })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(
+      service.createDocument({ relativePath: 'git-link/new.md', content: '# Secret\n' })
+    ).rejects.toThrow('Knowledge Base Git internals are protected.')
+    await expect(service.createFolder({ relativePath: 'outside-link/folder' })).rejects.toThrow(
+      'Knowledge Base path is outside the configured root.'
+    )
+  })
+
+  it('fails closed when creating under an unavailable Knowledge Base root', async () => {
+    const rootProvider = createKnowledgeBaseRootProvider({
+      getStatus: async () => ({
+        setupState: 'unavailable',
+        rootPath: '/missing/knowledge-base',
+        reason: 'missing'
+      })
+    })
+    const service = createKnowledgeBaseFilesServiceImplementation({ rootProvider })
+
+    await expect(
+      service.createDocument({ relativePath: 'note.md', content: '# Note\n' })
+    ).rejects.toThrow('Knowledge Base is unavailable')
+    await expect(service.createFolder({ relativePath: 'notes' })).rejects.toThrow(
+      'Knowledge Base is unavailable'
+    )
+  })
+
   it('saves text with optimistic revision checks', async () => {
     const { rootPath } = await createFixture()
     const service = createKnowledgeBaseFilesService({
