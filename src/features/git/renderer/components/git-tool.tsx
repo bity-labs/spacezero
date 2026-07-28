@@ -695,22 +695,11 @@ function GitDiffCard({
         file.diff && !file.binary && !file.large ? (
           <pre className="max-h-[480px] overflow-auto border-t bg-muted/30 p-3 text-xs leading-5">
             <code>
-              {getFoldedDiffLines(file.diff).map((line, index) =>
-                line.targetLine && canOpenInFiles ? (
-                  <button
-                    key={`${index}:${line.text}`}
-                    className="block w-full whitespace-pre text-left hover:bg-accent/70"
-                    type="button"
-                    onClick={() => void openInFiles(line.targetLine)}
-                  >
-                    {line.text}
-                  </button>
-                ) : (
-                  <span key={`${index}:${line.text}`} className="block">
-                    {line.text}
-                  </span>
-                )
-              )}
+              {getFoldedDiffLines(file.diff).map((line, index) => (
+                <span key={`${index}:${line.text}`} className="block">
+                  {line.text}
+                </span>
+              ))}
             </code>
           </pre>
         ) : (
@@ -815,13 +804,12 @@ function GitStateMessage({
   )
 }
 
-type FoldedDiffLine = { text: string; targetLine?: number }
+type FoldedDiffLine = { text: string }
 
 function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
   const lines = diff.split('\n')
   const folded: FoldedDiffLine[] = []
   let newLineNumber: number | null = null
-  let syntheticAddedFile = false
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]
@@ -831,16 +819,9 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
       folded.push({ text: line })
       continue
     }
-    if (line === '--- /dev/null') {
-      syntheticAddedFile = true
-    } else if (syntheticAddedFile && line.startsWith('+++ ')) {
-      newLineNumber = 1
-    }
 
-    const targetLine = getDiffLineTarget(line, newLineNumber)
     if (line.startsWith(' ') && newLineNumber !== null) {
       const start = index
-      const startLineNumber = newLineNumber
       while (index < lines.length && lines[index].startsWith(' ')) {
         newLineNumber += 1
         index += 1
@@ -848,29 +829,18 @@ function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
       const unchanged = lines.slice(start, index)
       index -= 1
       if (unchanged.length <= UNCHANGED_CONTEXT_LINES * 2) {
-        folded.push(
-          ...unchanged.map((text, offset) => ({ text, targetLine: startLineNumber + offset }))
-        )
+        folded.push(...unchanged.map((text) => ({ text })))
         continue
       }
-      folded.push(
-        ...unchanged
-          .slice(0, UNCHANGED_CONTEXT_LINES)
-          .map((text, offset) => ({ text, targetLine: startLineNumber + offset }))
-      )
+      folded.push(...unchanged.slice(0, UNCHANGED_CONTEXT_LINES).map((text) => ({ text })))
       folded.push({
         text: `… ${unchanged.length - UNCHANGED_CONTEXT_LINES * 2} unchanged lines folded`
       })
-      const lastLinesStart = startLineNumber + unchanged.length - UNCHANGED_CONTEXT_LINES
-      folded.push(
-        ...unchanged
-          .slice(-UNCHANGED_CONTEXT_LINES)
-          .map((text, offset) => ({ text, targetLine: lastLinesStart + offset }))
-      )
+      folded.push(...unchanged.slice(-UNCHANGED_CONTEXT_LINES).map((text) => ({ text })))
       continue
     }
 
-    folded.push({ text: line, targetLine })
+    folded.push({ text: line })
     if (
       newLineNumber !== null &&
       !line.startsWith('-') &&
@@ -890,13 +860,6 @@ function getObservationErrorMessage(error: unknown): string {
   return trimmed.length > MAX_OBSERVATION_DIAGNOSTIC_LENGTH
     ? `${trimmed.slice(0, MAX_OBSERVATION_DIAGNOSTIC_LENGTH - 1)}…`
     : trimmed
-}
-
-function getDiffLineTarget(line: string, currentNewLine: number | null): number | undefined {
-  if (currentNewLine === null) return undefined
-  if (line.startsWith('+') && !line.startsWith('+++')) return currentNewLine
-  if (line.startsWith(' ')) return currentNewLine
-  return undefined
 }
 
 function isFilesHandoffSupported(file: GitFileDiff, filesHandoff?: GitFilesHandoff): boolean {
