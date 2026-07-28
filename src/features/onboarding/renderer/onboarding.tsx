@@ -10,9 +10,15 @@ import { Input } from '@renderer/components/ui/input'
 
 type OnboardingStep = 'welcome' | 'activation' | 'connection' | 'project-offer' | 'project-setup'
 
-export function Onboarding({ onComplete }: { onComplete: () => void }): React.JSX.Element {
-  const [step, setStep] = useState<OnboardingStep>('welcome')
-  const [activation, setActivation] = useState<LicenseActivationStatus | null>(null)
+export function Onboarding({
+  initialActivationStatus,
+  onComplete
+}: {
+  initialActivationStatus?: LicenseActivationStatus
+  onComplete: () => void
+}): React.JSX.Element {
+  const [step, setStep] = useState<OnboardingStep>(initialActivationStatus ? 'activation' : 'welcome')
+  const [activation, setActivation] = useState<LicenseActivationStatus | null>(initialActivationStatus ?? null)
   const [licenseKey, setLicenseKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [isFinishing, setIsFinishing] = useState(false)
@@ -20,6 +26,8 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
   const [isProjectSetupBusy, setIsProjectSetupBusy] = useState(false)
 
   useEffect(() => {
+    if (initialActivationStatus) return
+
     async function loadActivation(): Promise<void> {
       try {
         setActivation(await window.spacezero.licenseActivation.getStatus())
@@ -28,7 +36,7 @@ export function Onboarding({ onComplete }: { onComplete: () => void }): React.JS
       }
     }
     void loadActivation()
-  }, [])
+  }, [initialActivationStatus])
 
   async function finish(projectId?: string): Promise<void> {
     setIsFinishing(true)
