@@ -1,3 +1,10 @@
+import {
+  ArrowClockwiseIcon,
+  ArrowLeftIcon,
+  ArrowRightIcon,
+  PaperPlaneRightIcon,
+  XIcon
+} from '@phosphor-icons/react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -203,16 +210,6 @@ export function BrowserTool({
       setError(toErrorMessage(reason))
     }
   }, [activeTab?.canGoForward, contextKey, tabRequest])
-
-  const openInDefaultBrowser = useCallback(async (): Promise<void> => {
-    if (!activeTabUrl) return
-    setError(null)
-    try {
-      await window.spacezero.browser.openInDefaultBrowser(tabRequest())
-    } catch (reason) {
-      setError(toErrorMessage(reason))
-    }
-  }, [activeTabUrl, tabRequest])
 
   const openDownload = useCallback(async (downloadId: string): Promise<void> => {
     setError(null)
@@ -624,62 +621,66 @@ export function BrowserTool({
         <Button
           aria-label="Back"
           disabled={!activeTab?.canGoBack}
-          size="sm"
+          size="icon-sm"
+          title="Back"
           type="button"
-          variant="outline"
+          variant="ghost"
           onClick={() => void goBack()}
         >
-          ←
+          <ArrowLeftIcon aria-hidden="true" className="size-4" />
         </Button>
         <Button
           aria-label="Forward"
           disabled={!activeTab?.canGoForward}
-          size="sm"
+          size="icon-sm"
+          title="Forward"
           type="button"
-          variant="outline"
+          variant="ghost"
           onClick={() => void goForward()}
         >
-          →
+          <ArrowRightIcon aria-hidden="true" className="size-4" />
         </Button>
         <Button
-          aria-label={activeTab?.isLoading ? 'Stop' : 'Reload'}
+          aria-label={activeTab?.isLoading ? 'Stop loading' : 'Reload'}
           disabled={!activeTab?.url && !activeTab?.isLoading}
-          size="sm"
+          size="icon-sm"
+          title={activeTab?.isLoading ? 'Stop loading' : 'Reload'}
           type="button"
-          variant="outline"
+          variant="ghost"
           onClick={() => void reloadOrStop()}
         >
-          {activeTab?.isLoading ? 'Stop' : 'Reload'}
+          {activeTab?.isLoading ? (
+            <XIcon aria-hidden="true" className="size-4" />
+          ) : (
+            <ArrowClockwiseIcon aria-hidden="true" className="size-4" />
+          )}
         </Button>
-        <input
-          ref={inputRef}
-          aria-label="Browser URL"
-          className="h-8 min-w-0 flex-1 rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          placeholder="Enter a URL or search terms"
-          value={addressContextKey === contextKey ? address : ''}
-          onChange={(event) => {
-            isEditingAddressRef.current = true
-            setIsEditingAddress(true)
-            setAddress(event.target.value)
-            setAddressContextKey(contextKey)
-          }}
-        />
-        <Button size="sm" type="submit">
-          Go
-        </Button>
-        <Button
-          disabled={!activeTab?.url}
-          size="sm"
-          type="button"
-          variant="outline"
-          onClick={() => void openInDefaultBrowser()}
-        >
-          Open in default browser
-        </Button>
+        <div className="relative min-w-0 flex-1">
+          <input
+            ref={inputRef}
+            aria-label="Browser URL"
+            className="h-8 w-full min-w-0 rounded-md border bg-background px-3 pr-10 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            placeholder="Enter a URL or search terms"
+            value={addressContextKey === contextKey ? address : ''}
+            onChange={(event) => {
+              isEditingAddressRef.current = true
+              setIsEditingAddress(true)
+              setAddress(event.target.value)
+              setAddressContextKey(contextKey)
+            }}
+          />
+          <Button
+            aria-label="Go"
+            className="absolute right-0 top-0"
+            size="icon-sm"
+            title="Go"
+            type="submit"
+            variant="ghost"
+          >
+            <PaperPlaneRightIcon aria-hidden="true" className="size-4" />
+          </Button>
+        </div>
       </form>
-      {activeTab?.isLoading ? (
-        <p className="shrink-0 border-b px-3 py-2 text-sm text-muted-foreground">Loading…</p>
-      ) : null}
       {chromeError ? (
         <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2 text-sm text-destructive">
           <span>{chromeError}</span>
