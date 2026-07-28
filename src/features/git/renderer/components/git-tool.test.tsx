@@ -795,7 +795,7 @@ describe('GitTool', () => {
     }
   })
 
-  it('hands editable changed filenames and diff lines to Files before switching the shared Tool Pane', async () => {
+  it('keeps diff body clicks inert while filename and header controls keep their existing behavior', async () => {
     const openLocation = vi.fn(async () => ({ status: 'opened' as const }))
     const openFilesTool = vi.fn()
     window.spacezero.git.getReview = vi.fn(async () => ({
@@ -822,17 +822,31 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'src/app.ts' }))
+    const filename = await screen.findByRole('button', { name: 'src/app.ts' })
+    const hunkHeader = screen.getByText('@@ -9,2 +9,3 @@')
+    const unchangedLine = screen.getByText((_, element) => element?.textContent === ' context')
+    const changedLine = screen.getByText('+changed')
+    const diffBody = changedLine.closest('pre')
+    expect(diffBody).not.toBeNull()
+    expect(changedLine.closest('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: '+changed' })).not.toBeInTheDocument()
+
+    await userEvent.click(changedLine)
+    await userEvent.click(unchangedLine)
+    await userEvent.click(hunkHeader)
+    fireEvent.click(diffBody!)
+    expect(openLocation).not.toHaveBeenCalled()
+    expect(openFilesTool).not.toHaveBeenCalled()
+    expect(screen.getByText('+changed')).toBeInTheDocument()
+
+    await userEvent.click(filename)
     expect(openLocation).toHaveBeenCalledWith({ relativePath: 'src/app.ts', line: undefined })
     expect(openFilesTool).toHaveBeenCalledTimes(1)
 
-    await userEvent.click(screen.getByRole('button', { name: '+changed' }))
-    expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'src/app.ts', line: 10 })
-    expect(openFilesTool).toHaveBeenCalledTimes(2)
-
-    await userEvent.click(screen.getByRole('button', { name: '+second' }))
-    expect(openLocation).toHaveBeenLastCalledWith({ relativePath: 'new-note.md', line: 2 })
-    expect(openFilesTool).toHaveBeenCalledTimes(3)
+    const headerToggle = screen.getAllByRole('button', { name: 'Toggle diff' })[0]
+    expect(headerToggle).toHaveAttribute('aria-expanded', 'true')
+    await userEvent.click(headerToggle)
+    await waitFor(() => expect(screen.queryByText('@@ -9,2 +9,3 @@')).not.toBeInTheDocument())
   })
 
   it('lets Files determine non-deleted handoff support while keeping actual unsupported files in Git', async () => {
