@@ -173,14 +173,16 @@ describe('BrowserTool', () => {
     expect(screen.getByRole('button', { name: 'Forward' })).toBeDisabled()
   })
 
-  it('switches Reload to Stop while loading and invokes stop instead of reload', async () => {
+  it('switches Reload to a tooltip-backed Stop loading icon while loading and invokes stop', async () => {
     const browser = installBrowserApi({ url: 'https://example.com/', isLoading: true })
     const user = userEvent.setup()
 
     renderBrowserTool()
 
-    const stop = await screen.findByRole('button', { name: 'Stop' })
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    const stop = await screen.findByRole('button', { name: 'Stop loading' })
+    expect(stop).toHaveAttribute('title', 'Stop loading')
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    expect(screen.queryByText('Stop')).not.toBeInTheDocument()
     await user.click(stop)
 
     await waitFor(() => expect(browser.stop).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' }))
@@ -212,15 +214,18 @@ describe('BrowserTool', () => {
     await expectNavigateCalled(browser, 'https://down.example/')
   })
 
-  it('opens the active page in the default browser through the typed Browser API', async () => {
-    const browser = installBrowserApi({ url: 'https://example.com/' })
-    const user = userEvent.setup()
+  it('uses compact icon-only Browser toolbar controls and removes default-browser chrome', async () => {
+    installBrowserApi({ url: 'https://example.com/', canGoBack: true, canGoForward: true })
 
     renderBrowserTool()
 
-    await user.click(await screen.findByRole('button', { name: 'Open in default browser' }))
-
-    expect(browser.openInDefaultBrowser).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
+    expect(await screen.findByRole('button', { name: 'Back' })).toHaveAttribute('title', 'Back')
+    expect(screen.getByRole('button', { name: 'Forward' })).toHaveAttribute('title', 'Forward')
+    expect(screen.getByRole('button', { name: 'Reload' })).toHaveAttribute('title', 'Reload')
+    expect(screen.getByRole('button', { name: 'Go' })).toHaveAttribute('title', 'Go')
+    expect(screen.queryByRole('button', { name: 'Open in default browser' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Reload')).not.toBeInTheDocument()
+    expect(screen.queryByText('Go')).not.toBeInTheDocument()
   })
 
   it('shows safe Browser download completion metadata with main-owned actions', async () => {
@@ -228,7 +233,7 @@ describe('BrowserTool', () => {
     const user = userEvent.setup()
 
     renderBrowserTool()
-    await screen.findByRole('button', { name: 'Open in default browser' })
+    await screen.findByLabelText('Browser URL')
     await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
 
     act(() => {
@@ -259,7 +264,7 @@ describe('BrowserTool', () => {
     const user = userEvent.setup()
 
     const { unmount } = renderBrowserTool()
-    await screen.findByRole('button', { name: 'Open in default browser' })
+    await screen.findByLabelText('Browser URL')
     await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
     unmount()
 
@@ -396,7 +401,8 @@ describe('BrowserTool', () => {
     renderBrowserTool()
 
     const input = await screen.findByLabelText('Browser URL')
-    expect(await screen.findByText('Loading…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Stop loading' })).toBeInTheDocument()
+    expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
 
     act(() => {
       browser.emitBrowserEvent({
@@ -421,7 +427,7 @@ describe('BrowserTool', () => {
       })
     })
 
-    await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument())
     await waitFor(() => expect(input).toHaveValue('https://settled.example/'))
     expect(screen.getByRole('button', { name: 'Back' })).toBeEnabled()
 
