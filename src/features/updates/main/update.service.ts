@@ -3,9 +3,21 @@ import electronUpdater from 'electron-updater'
 
 import type { UpdateStatus } from '../shared'
 
+type UpdaterUpdateInfo = {
+  version?: string
+}
+
+type UpdaterCheckResult = {
+  readonly isUpdateAvailable: boolean
+  readonly updateInfo: UpdaterUpdateInfo
+  readonly downloadPromise?: Promise<unknown> | null
+  /** @deprecated electron-updater still includes this alias in the result contract. */
+  readonly versionInfo: UpdaterUpdateInfo
+}
+
 export type UpdaterAdapter = {
   autoDownload?: boolean
-  checkForUpdates: () => Promise<unknown>
+  checkForUpdates: () => Promise<UpdaterCheckResult | null>
   on: (event: string, listener: (...args: unknown[]) => void) => void
 }
 
@@ -121,7 +133,8 @@ export class UpdateService {
     }
 
     try {
-      await this.updater.checkForUpdates()
+      const result = await this.updater.checkForUpdates()
+      this.consumeDownloadPromise(result?.downloadPromise)
     } catch (error) {
       this.updateStatus('error', {
         lastCheckedAt: this.status.lastCheckedAt,
@@ -130,6 +143,17 @@ export class UpdateService {
     }
 
     return this.status
+  }
+
+  private consumeDownloadPromise(downloadPromise: Promise<unknown> | null | undefined): void {
+    if (!downloadPromise) return
+
+    void downloadPromise.catch((error) => {
+      this.updateStatus('error', {
+        lastCheckedAt: this.status.lastCheckedAt ?? this.nowIso(),
+        errorMessage: error instanceof Error ? error.message : UPDATE_ERROR_MESSAGE
+      })
+    })
   }
 
   private updateStatus(
