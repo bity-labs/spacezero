@@ -1097,6 +1097,7 @@ function FilesToolSession({
           tabs={context.tabs}
           onActivate={activateTab}
           onClose={requestCloseTab}
+          onPromote={promoteTab}
           onReorder={reorderTabs}
           onSaveAll={saveAllDirtyDocuments}
         />
@@ -1105,7 +1106,6 @@ function FilesToolSession({
           sessionId={sessionId}
           ipcContext={ipcContext}
           onChange={(draft) => updateDraft(sessionId, draft)}
-          onPin={(relativePath) => promoteTab(sessionId, relativePath)}
           createRichImageAdapter={createRichImageAdapter}
           onSave={saveActiveDocument}
           onReloadFromDisk={reloadFromDisk}
@@ -1232,6 +1232,7 @@ function FilesTabStrip({
   tabs,
   onActivate,
   onClose,
+  onPromote,
   onReorder,
   onSaveAll
 }: {
@@ -1240,6 +1241,7 @@ function FilesTabStrip({
   tabs: FilesTabState[]
   onActivate: (sessionId: string, relativePath: string) => void
   onClose: (sessionId: string, relativePath: string) => void
+  onPromote: (sessionId: string, relativePath: string) => void
   onReorder: (
     sessionId: string,
     sourcePath: string,
@@ -1290,6 +1292,7 @@ function FilesTabStrip({
                 role="tab"
                 type="button"
                 onClick={() => onActivate(sessionId, tab.relativePath)}
+                onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
               >
                 <span>{dirty ? '● ' : ''}</span>
                 <span>{tab.name}</span>
@@ -1331,7 +1334,6 @@ function FilesEditorPanel({
   document,
   sessionId,
   onChange,
-  onPin,
   createRichImageAdapter,
   onSave,
   onReloadFromDisk,
@@ -1346,7 +1348,6 @@ function FilesEditorPanel({
   ipcContext: FilesContext
   createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
-  onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
   onReloadFromDisk: (relativePath: string) => void | Promise<void>
   onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
@@ -1418,7 +1419,6 @@ function FilesEditorPanel({
       document={document}
       sessionId={sessionId}
       onChange={onChange}
-      onPin={onPin}
       createRichImageAdapter={createRichImageAdapter}
       onSave={onSave}
       onReloadFromDisk={onReloadFromDisk}
@@ -1434,7 +1434,6 @@ function FilesReadyEditorPanel({
   document,
   sessionId,
   onChange,
-  onPin,
   createRichImageAdapter,
   onSave,
   onReloadFromDisk,
@@ -1447,7 +1446,6 @@ function FilesReadyEditorPanel({
   sessionId: string
   createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
-  onPin: (relativePath: string) => void
   onSave: () => void | Promise<void>
   onReloadFromDisk: (relativePath: string) => void | Promise<void>
   onOverwriteDisk: (document: Extract<FilesTabState, { status: 'ready' }>) => void | Promise<void>
@@ -1574,15 +1572,6 @@ function FilesReadyEditorPanel({
           ) : null}
           {document.saveStatus === 'saving' ? <span>Saving…</span> : null}
           {!document.dirty && document.saveStatus !== 'saving' ? <span>Saved</span> : null}
-          {document.preview ? (
-            <button
-              className="rounded-md border px-2 py-1 text-foreground hover:bg-accent"
-              type="button"
-              onClick={() => onPin(document.relativePath)}
-            >
-              Pin preview
-            </button>
-          ) : null}
           <button
             className="rounded-md border px-2 py-1 text-foreground hover:bg-accent disabled:opacity-50"
             disabled={document.saveStatus === 'saving' || Boolean(document.externalStatus)}
