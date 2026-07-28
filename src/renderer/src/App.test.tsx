@@ -495,9 +495,10 @@ describe('App', () => {
     expect(screen.queryByText('Coming soon')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+    expect(await screen.findByText('No accessible repositories')).toBeInTheDocument()
     expect(
-      await screen.findByText('No authorized GitHub repositories are available.')
-    ).toBeInTheDocument()
+      screen.getByRole('link', { name: 'Configure GitHub repository access' })
+    ).toHaveAttribute('href', '/settings?section=account')
   })
 
   it('opens a cloned GitHub Project Home without starting a Session', async () => {
