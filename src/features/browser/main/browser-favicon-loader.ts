@@ -15,7 +15,7 @@ const SUPPORTED_FAVICON_MIME_TYPES = new Set([
 export type BrowserFaviconFetch = (
   url: string,
   init: RequestInit
-) => Promise<Pick<Response, 'arrayBuffer' | 'headers' | 'ok'>>
+) => Promise<Pick<Response, 'body' | 'headers' | 'ok'>>
 
 export function createBrowserFaviconLoader(fetchFavicon: BrowserFaviconFetch = fetch): BrowserFaviconLoader {
   return {
@@ -53,14 +53,50 @@ async function loadOneFavicon(
     const contentType = normalizeContentType(response.headers.get('content-type'))
     if (!contentType || !SUPPORTED_FAVICON_MIME_TYPES.has(contentType)) return null
 
-    const bytes = Buffer.from(await response.arrayBuffer())
-    if (bytes.byteLength === 0 || bytes.byteLength > MAX_FAVICON_BYTES) return null
-    return `data:${contentType};base64,${bytes.toString('base64')}`
+    const bytes = await readBoundedResponseBytes(response, abortController)
+    if (!bytes || bytes.byteLength === 0) return null
+    return `data:${contentType};base64,${Buffer.from(bytes).toString('base64')}`
   } catch {
     return null
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function readBoundedResponseBytes(
+  response: Pick<Response, 'body'>,
+  abortController: AbortController
+): Promise<Uint8Array | null> {
+  const reader = response.body?.getReader()
+  if (!reader) return null
+
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+
+      totalBytes += value.byteLength
+      if (totalBytes > MAX_FAVICON_BYTES) {
+        abortController.abort()
+        await reader.cancel()
+        return null
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const bytes = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes
 }
 
 function parseSupportedFaviconUrl(faviconUrl: string): URL | null {

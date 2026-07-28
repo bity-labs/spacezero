@@ -2,12 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createBrowserFaviconLoader, type BrowserFaviconFetch } from './browser-favicon-loader'
 
-function makeResponse(body: string, contentType: string, ok = true): Pick<Response, 'arrayBuffer' | 'headers' | 'ok'> {
-  return {
-    ok,
-    headers: new Headers({ 'content-type': contentType }),
-    arrayBuffer: async () => new TextEncoder().encode(body).buffer
-  }
+function makeResponse(body: string, contentType: string, ok = true): Pick<Response, 'body' | 'headers' | 'ok'> {
+  return new Response(body, {
+    headers: { 'content-type': contentType },
+    status: ok ? 200 : 404
+  })
 }
 
 describe('createBrowserFaviconLoader', () => {
@@ -44,6 +43,33 @@ describe('createBrowserFaviconLoader', () => {
     await expect(
       loader.load(['file:///tmp/favicon.png', 'https://example.com/favicon.svg'])
     ).resolves.toBeNull()
+  })
+
+  it('cancels streamed favicon responses when they exceed the byte ceiling', async () => {
+    let cancelCalled = false
+    const chunk: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(64 * 1024))
+    const overflowChunk: Uint8Array<ArrayBuffer> = new Uint8Array(new ArrayBuffer(1))
+    const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+      start(controller) {
+        controller.enqueue(chunk)
+        controller.enqueue(chunk)
+        controller.enqueue(overflowChunk)
+      },
+      cancel() {
+        cancelCalled = true
+      }
+    })
+    const fetchFavicon = vi.fn<BrowserFaviconFetch>(async () => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'image/png' }),
+      body
+    }))
+    const loader = createBrowserFaviconLoader(fetchFavicon)
+
+    await expect(loader.load(['https://example.com/oversized.png'])).resolves.toBeNull()
+
+    expect(cancelCalled).toBe(true)
+    expect(fetchFavicon.mock.calls[0]?.[1].signal).toMatchObject({ aborted: true })
   })
 
   it('passes through supported data image favicons without network access', async () => {

@@ -364,12 +364,8 @@ export class BrowserService {
   ): void {
     const found = this.findTabWithContext(tabId)
     if (!found) return
-    if (found.tab.url !== url) {
-      found.tab.url = url
-      clearPageMetadata(found.tab)
-    } else {
-      found.tab.url = url
-    }
+    found.tab.url = url
+    clearPageMetadata(found.tab)
     found.tab.restoredUrl = null
     found.tab.hasLoadedRestoredUrl = true
     found.tab.error = null
