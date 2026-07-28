@@ -2,14 +2,19 @@ import { z } from 'zod'
 
 import {
   LicenseActivationConfigurationError,
+  LicenseActivationTransportError,
   type LicenseActivationBackend
 } from './license-activation.service'
+
+const timestampSchema = z.string().refine((value) => Number.isFinite(Date.parse(value)), {
+  message: 'Expected a finite timestamp.'
+})
 
 const backendResponseSchema = z.object({
   licenseState: z.enum(['active', 'invalid', 'expired', 'revoked']),
   versionSupported: z.boolean(),
-  recheckAfter: z.string(),
-  graceEndsAt: z.string(),
+  recheckAfter: timestampSchema,
+  graceEndsAt: timestampSchema,
   renewalUrl: z.string().url().optional(),
   updateUrl: z.string().url().optional()
 })
@@ -23,11 +28,16 @@ export function createLicenseActivationBackend({ endpointUrl }: { endpointUrl?: 
         throw new LicenseActivationConfigurationError('License status endpoint is not configured.')
       }
 
-      const response = await fetch(parsedEndpointUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ licenseKey, appVersion })
-      })
+      let response: Response
+      try {
+        response = await fetch(parsedEndpointUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ licenseKey, appVersion })
+        })
+      } catch {
+        throw new LicenseActivationTransportError('License status endpoint is unavailable.')
+      }
 
       if (!response.ok) throw new Error(`License status request failed: ${response.status}`)
       return backendResponseSchema.parse(await response.json())

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createLicenseActivationBackend } from './license-activation.backend'
-import { LicenseActivationConfigurationError } from './license-activation.service'
+import { LicenseActivationConfigurationError, LicenseActivationTransportError } from './license-activation.service'
 
 const response = {
   licenseState: 'active',
@@ -29,6 +29,32 @@ describe('license activation backend', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ licenseKey: 'license-key', appVersion: '0.1.0-beta.1' })
     })
+  })
+
+  it('classifies fetch rejection as a transport failure', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('network unavailable')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const backend = createLicenseActivationBackend({ endpointUrl: 'https://license.test/status' })
+
+    await expect(
+      backend.checkStatus({ licenseKey: 'license-key', appVersion: '0.1.0-beta.1' })
+    ).rejects.toBeInstanceOf(LicenseActivationTransportError)
+  })
+
+  it('does not classify authoritative non-2xx or malformed responses as transport failures', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'revoked' }), { status: 403 })))
+    const failingBackend = createLicenseActivationBackend({ endpointUrl: 'https://license.test/status' })
+    await expect(
+      failingBackend.checkStatus({ licenseKey: 'license-key', appVersion: '0.1.0-beta.1' })
+    ).rejects.not.toBeInstanceOf(LicenseActivationTransportError)
+
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ licenseState: 'active' }), { status: 200 })))
+    const malformedBackend = createLicenseActivationBackend({ endpointUrl: 'https://license.test/status' })
+    await expect(
+      malformedBackend.checkStatus({ licenseKey: 'license-key', appVersion: '0.1.0-beta.1' })
+    ).rejects.not.toBeInstanceOf(LicenseActivationTransportError)
   })
 
   it('fails missing endpoint configuration explicitly instead of treating every key as invalid', async () => {
