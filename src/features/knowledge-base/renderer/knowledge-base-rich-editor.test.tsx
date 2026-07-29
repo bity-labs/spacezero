@@ -17,13 +17,16 @@ function ControlledKnowledgeBaseRichEditor({
   const [markdown, setMarkdown] = useState(initialMarkdown)
 
   return (
-    <KnowledgeBaseRichEditor
-      markdown={markdown}
-      onChange={(nextMarkdown) => {
-        setMarkdown(nextMarkdown)
-        onChange(nextMarkdown)
-      }}
-    />
+    <>
+      <KnowledgeBaseRichEditor
+        markdown={markdown}
+        onChange={(nextMarkdown) => {
+          setMarkdown(nextMarkdown)
+          onChange(nextMarkdown)
+        }}
+      />
+      <output data-testid="controlled-markdown-source">{markdown}</output>
+    </>
   )
 }
 
@@ -64,6 +67,20 @@ describe('KnowledgeBaseRichEditor', () => {
     )
     expect(screen.getByRole('button', { name: 'Add property' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent('Body')
+  })
+
+  it('does not emit or rewrite frontmatter when an unchanged property key loses focus', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const markdown = '---\nname :  Builder # retained comment\n---\n\nBody'
+    render(<ControlledKnowledgeBaseRichEditor initialMarkdown={markdown} onChange={onChange} />)
+
+    const key = await screen.findByRole('textbox', { name: 'Property key name' })
+    await user.click(key)
+    await user.tab()
+
+    expect(onChange).not.toHaveBeenCalled()
+    expect(screen.getByTestId('controlled-markdown-source').textContent).toBe(markdown)
   })
 
   it('edits property values and keys while preserving the Markdown body', async () => {
