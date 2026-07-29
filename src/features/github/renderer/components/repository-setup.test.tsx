@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GitHubCloneProgress } from '../../shared'
 import { RepositorySetup } from './repository-setup'
 
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => vi.fn()
+}))
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => {
@@ -26,6 +30,127 @@ const repository = {
 }
 
 describe('RepositorySetup', () => {
+  it('keeps the repository selection layout visible with card skeletons while loading', async () => {
+    const setupOptions = deferred<Awaited<ReturnType<typeof window.spacezero.github.listRepositorySetupOptions>>>()
+    window.spacezero.github.listRepositorySetupOptions = async () => setupOptions.promise
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    expect(screen.getByText('Choose one repository')).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading authorized repositories' })).toBeInTheDocument()
+    expect(screen.getAllByTestId('repository-card-skeleton')).toHaveLength(3)
+    expect(screen.queryByText('Loading authorized repositories…')).not.toBeInTheDocument()
+
+    setupOptions.resolve([{ repository }])
+    expect(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ })).toBeInTheDocument()
+  })
+
+  it('filters repositories by name and owner/name and restores the full list when search is cleared', async () => {
+    const secondRepository = {
+      ...repository,
+      id: '2000',
+      nodeId: 'R_2000',
+      owner: 'octocat',
+      name: 'Hello-World',
+      fullName: 'octocat/Hello-World',
+      htmlUrl: 'https://github.com/octocat/Hello-World',
+      cloneUrl: 'https://github.com/octocat/Hello-World.git'
+    }
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository },
+      { repository: secondRepository }
+    ]
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    const search = await screen.findByRole('searchbox', { name: 'Search repositories' })
+    expect(screen.getByRole('radio', { name: /bity-labs\/spacezero/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /octocat\/Hello-World/ })).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'hello' } })
+    expect(screen.queryByRole('radio', { name: /bity-labs\/spacezero/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /octocat\/Hello-World/ })).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'BITY-LABS/SPACE' } })
+    expect(screen.getByRole('radio', { name: /bity-labs\/spacezero/ })).toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: /octocat\/Hello-World/ })).not.toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: '' } })
+    expect(screen.getByRole('radio', { name: /bity-labs\/spacezero/ })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /octocat\/Hello-World/ })).toBeInTheDocument()
+  })
+
+  it('distinguishes no search matches from no accessible repositories', async () => {
+    window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    fireEvent.change(await screen.findByRole('searchbox', { name: 'Search repositories' }), {
+      target: { value: 'missing' }
+    })
+
+    expect(screen.getByText('No matching repositories')).toBeInTheDocument()
+    expect(screen.getByText('Try a different repository name or owner.')).toBeInTheDocument()
+    expect(screen.queryByText(/configure GitHub repository access/)).not.toBeInTheDocument()
+  })
+
+  it('explains empty GitHub repository access and links to account settings', async () => {
+    window.spacezero.github.listRepositorySetupOptions = async () => []
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    expect(await screen.findByText('No accessible repositories')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Install or configure the Space Zero GitHub App/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'Configure GitHub repository access' })
+    ).toHaveAttribute('href', '#/settings?section=account')
+  })
+
+  it('disables cloning when search hides the selected repository', async () => {
+    const secondRepository = {
+      ...repository,
+      id: '2000',
+      nodeId: 'R_2000',
+      owner: 'octocat',
+      name: 'Hello-World',
+      fullName: 'octocat/Hello-World',
+      htmlUrl: 'https://github.com/octocat/Hello-World',
+      cloneUrl: 'https://github.com/octocat/Hello-World.git'
+    }
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository },
+      { repository: secondRepository }
+    ]
+    const startClone = vi.fn(async () => ({
+      status: 'started' as const,
+      operationId: 'clone-1'
+    }))
+    window.spacezero.github.startClone = startClone
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeEnabled()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search repositories' }), {
+      target: { value: 'hello' }
+    })
+
+    expect(screen.queryByRole('radio', { name: /bity-labs\/spacezero/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /octocat\/Hello-World/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    expect(startClone).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search repositories' }), {
+      target: { value: '' }
+    })
+    expect(screen.getByRole('radio', { name: /bity-labs\/spacezero/ })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeEnabled()
+  })
+
   it('selects exactly one authorized repository and reports clone completion', async () => {
     window.spacezero.github.listRepositorySetupOptions = async () => [{ repository }]
     let progressListener: ((event: GitHubCloneProgress) => void) | undefined
