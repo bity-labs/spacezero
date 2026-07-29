@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  CaretDown,
-  CaretRight,
   FilePlus,
   FolderSimplePlus,
   MagnifyingGlass,
   SidebarSimple,
   TreeStructure
 } from '@phosphor-icons/react'
-import { Tree, type NodeRendererProps } from 'react-arborist'
+import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
+import type { ContextMenuItem, ContextMenuOpenContext, FileTreeRowDecoration } from '@pierre/trees'
 
 import { useColorMode } from '@renderer/color-mode-provider'
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -18,13 +17,6 @@ import {
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
 import { Button } from '@renderer/components/ui/button'
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuSeparator,
-  ContextMenuTrigger
-} from '@renderer/components/ui/context-menu'
 import {
   Dialog,
   DialogContent,
@@ -53,26 +45,13 @@ import { openFilesLocation } from '../files-open-location'
 import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
-import { FilesIcon } from './files-icon'
 import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
 
 configureFilesMonacoEnvironment()
 
-type FilesTreeItem =
-  | (FilesEntry & { id: string; children?: FilesTreeItem[] })
-  | {
-      id: string
-      name: string
-      relativePath: string
-      kind: 'status'
-      status: 'loading' | 'empty' | 'error'
-      message?: string
-      parentPath: string
-    }
-
 type RootState =
   | { status: 'loading' }
-  | { status: 'ready'; items: FilesTreeItem[] }
+  | { status: 'ready'; entries: FilesEntry[] }
   | { status: 'error'; message: string }
 
 type ExplorerView = 'tree' | 'search'
@@ -121,10 +100,15 @@ type RichImageAdapterFactory = (documentRelativePath: string) => RichMarkdownIma
 
 export function FilesTool(props: FilesToolProps): React.JSX.Element {
   const contextKey = 'sessionId' in props ? props.sessionId : props.contextKey
-  const ipcContext: FilesContext =
-    'sessionId' in props
-      ? { kind: 'project-session', sessionId: props.sessionId }
-      : props.ipcContext
+  const projectSessionId = 'sessionId' in props ? props.sessionId : null
+  const providedIpcContext = 'sessionId' in props ? null : props.ipcContext
+  const ipcContext: FilesContext = useMemo(
+    () =>
+      projectSessionId
+        ? { kind: 'project-session', sessionId: projectSessionId }
+        : (providedIpcContext as FilesContext),
+    [projectSessionId, providedIpcContext]
+  )
   return (
     <FilesToolSession
       key={contextKey}
@@ -192,21 +176,49 @@ function FilesToolSession({
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const observedPathGenerationsRef = useRef(new Map<string, number>())
   const searchStateRef = useRef(searchState)
+  const treeEntriesRef = useRef<FilesEntry[]>([])
+  const treeSelectionHandlerRef = useRef<(paths: readonly string[]) => void>(() => undefined)
+  const { model: treeModel } = useFileTree({
+    density: 'compact',
+    fileTreeSearchMode: 'hide-non-matches',
+    flattenEmptyDirectories: true,
+    id: `files-tree-${sessionId}`,
+    initialExpansion: 'closed',
+    initialExpandedPaths: context.expandedPaths,
+    initialSelectedPaths: context.selectedPath ? [context.selectedPath] : [],
+    paths: [],
+    search: false,
+    stickyFolders: true,
+    onSelectionChange: (paths) => treeSelectionHandlerRef.current(paths),
+    renderRowDecoration: ({ item }) =>
+      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current)
+  })
   const activeDocument = getActiveFilesTab(context)
-  expandedPathsRef.current = context.expandedPaths
-  searchStateRef.current = searchState
+  const treePaths = useMemo(
+    () => (rootState.status === 'ready' ? uniqueFilesTreePaths(rootState.entries) : []),
+    [rootState]
+  )
+  const treePathsKey = treePaths.join('\0')
+  const expandedPathsKey = context.expandedPaths.join('\0')
+
+  useEffect(() => {
+    expandedPathsRef.current = context.expandedPaths
+  }, [context.expandedPaths])
+
+  useEffect(() => {
+    searchStateRef.current = searchState
+  }, [searchState])
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
     restoredRootRef.current = false
     setRootState({ status: 'loading' })
     try {
-      const entries = await window.spacezero.files.listDirectory({
-        context: ipcContext,
-        relativePath: ''
+      const entries = await window.spacezero.files.listTree({
+        context: ipcContext
       })
       if (activeSessionRef.current !== requestedSession) return
-      setRootState({ status: 'ready', items: entries.map(toTreeItem) })
+      setRootState({ status: 'ready', entries })
     } catch (error) {
       if (activeSessionRef.current !== requestedSession) return
       setRootState({ status: 'error', message: filesErrorMessage(error) })
@@ -214,57 +226,10 @@ function FilesToolSession({
   }, [ipcContext, sessionId])
 
   const loadDirectory = useCallback(
-    async function loadDirectory(relativePath: string): Promise<void> {
-      const requestedSession = sessionId
-      setRootState((state) =>
-        state.status === 'ready'
-          ? {
-              status: 'ready',
-              items: replaceDirectoryChildren(state.items, relativePath, [
-                statusItem(relativePath, 'loading')
-              ])
-            }
-          : state
-      )
-      try {
-        const entries = await window.spacezero.files.listDirectory({
-          context: ipcContext,
-          relativePath
-        })
-        if (activeSessionRef.current !== requestedSession) return
-        setRootState((state) =>
-          state.status === 'ready'
-            ? {
-                status: 'ready',
-                items: replaceDirectoryChildren(
-                  state.items,
-                  relativePath,
-                  entries.length > 0 ? entries.map(toTreeItem) : [statusItem(relativePath, 'empty')]
-                )
-              }
-            : state
-        )
-
-        for (const entry of entries) {
-          if (entry.kind === 'directory' && expandedPathsRef.current.includes(entry.relativePath)) {
-            await loadDirectory(entry.relativePath)
-          }
-        }
-      } catch (error) {
-        if (activeSessionRef.current !== requestedSession) return
-        setRootState((state) =>
-          state.status === 'ready'
-            ? {
-                status: 'ready',
-                items: replaceDirectoryChildren(state.items, relativePath, [
-                  statusItem(relativePath, 'error', filesErrorMessage(error))
-                ])
-              }
-            : state
-        )
-      }
+    async function loadDirectory(_relativePath: string): Promise<void> {
+      await loadRoot()
     },
-    [ipcContext, sessionId]
+    [loadRoot]
   )
 
   const openFile = useCallback(
@@ -367,10 +332,13 @@ function FilesToolSession({
       const ancestors = ancestorDirectoryPaths(relativePath)
       for (const ancestor of ancestors) setExpanded(sessionId, ancestor, true)
       await loadRoot()
-      for (const ancestor of ancestors) await loadDirectory(ancestor)
       setSelectedPath(sessionId, relativePath)
+      treeModel.scrollToPath(toFilesTreePath(relativePath, treeEntriesRef.current), {
+        focus: false,
+        offset: 'nearest'
+      })
     },
-    [loadDirectory, loadRoot, sessionId, setExpanded, setSelectedPath]
+    [loadRoot, sessionId, setExpanded, setSelectedPath, treeModel]
   )
 
   const saveDocumentSnapshot = useCallback(
@@ -652,19 +620,6 @@ function FilesToolSession({
     ]
   )
 
-  const moveEntry = useCallback(
-    async (sourcePath: string, destinationPath?: string): Promise<void> => {
-      const targetPath = destinationPath ?? window.prompt('Move to relative path', sourcePath)
-      if (!targetPath?.trim() || targetPath.trim() === sourcePath) return
-      try {
-        await applyMoveEntry(sourcePath, targetPath.trim())
-      } catch (error) {
-        window.alert(fileOperationErrorMessage(error))
-      }
-    },
-    [applyMoveEntry]
-  )
-
   const openRenameDialog = useCallback((relativePath: string): void => {
     const originalName = pathName(relativePath)
     setRenameDialog({
@@ -788,6 +743,7 @@ function FilesToolSession({
 
   useEffect(() => {
     activeSessionRef.current = sessionId
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- session changes must reset local search before loading the new tree.
     invalidateSearchResults()
     void loadRoot()
     return () => {
@@ -932,15 +888,34 @@ function FilesToolSession({
   ])
 
   useEffect(() => {
-    if (rootState.status !== 'ready' || restoredRootRef.current) return
+    if (rootState.status !== 'ready') return
+    treeEntriesRef.current = rootState.entries
+    treeModel.resetPaths(treePaths, {
+      initialExpandedPaths: context.expandedPaths.map((path) =>
+        toFilesTreePath(path, rootState.entries)
+      )
+    })
     restoredRootRef.current = true
-    const expandedRoots = rootState.items.filter(
-      (item) => item.kind === 'directory' && expandedPathsRef.current.includes(item.relativePath)
-    )
-    void (async () => {
-      for (const item of expandedRoots) await loadDirectory(item.relativePath)
-    })()
-  }, [loadDirectory, rootState])
+  }, [context.expandedPaths, expandedPathsKey, rootState, treeModel, treePaths, treePathsKey])
+
+  useEffect(() => {
+    return treeModel.subscribe(() => {
+      const rows = treeModel.getVisibleRows(0, treeModel.getVisibleCount())
+      for (const row of rows) {
+        if (row.kind !== 'directory') continue
+        const relativePath = fromFilesTreePath(row.path)
+        if (!relativePath) continue
+        if (context.expandedPaths.includes(relativePath) !== row.isExpanded) {
+          setExpanded(sessionId, relativePath, row.isExpanded)
+        }
+      }
+    })
+  }, [context.expandedPaths, sessionId, setExpanded, treeModel])
+
+  useEffect(() => {
+    if (rootState.status !== 'ready' || !context.selectedPath) return
+    treeModel.getItem(toFilesTreePath(context.selectedPath, rootState.entries))?.select()
+  }, [context.selectedPath, rootState, treeModel])
 
   useEffect(() => {
     const element = treeContainerRef.current
@@ -955,10 +930,20 @@ function FilesToolSession({
     return () => observer.disconnect()
   }, [context.explorerCollapsed])
 
-  const initialOpenState = useMemo(
-    () => Object.fromEntries(context.expandedPaths.map((path) => [path, true])),
-    [context.expandedPaths]
-  )
+  useEffect(() => {
+    treeSelectionHandlerRef.current = (paths): void => {
+      const relativePath = fromFilesTreePath(paths[0] ?? '')
+      if (!relativePath) return
+      const entry = findTreeEntry(treeEntriesRef.current, relativePath)
+      if (!entry) return
+      if (entry.kind === 'file') {
+        void openFile(entry.relativePath, 'preview')
+      } else {
+        setSelectedPath(sessionId, entry.relativePath)
+      }
+    }
+  }, [openFile, sessionId, setSelectedPath])
+
   function startResize(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault()
     const startX = event.clientX
@@ -1106,59 +1091,33 @@ function FilesToolSession({
                 <FilesState message="Loading files…" />
               ) : rootState.status === 'error' ? (
                 <FilesState message={rootState.message} actionLabel="Retry" onAction={loadRoot} />
-              ) : rootState.items.length === 0 ? (
+              ) : rootState.entries.length === 0 ? (
                 <FilesState message="This worktree is empty." />
               ) : (
-                <Tree<FilesTreeItem>
+                <TreesFileTree
                   key={sessionId}
                   aria-label={treeLabel}
-                  data={rootState.items}
-                  disableMultiSelection
-                  height={treeHeight}
-                  idAccessor="id"
-                  indent={16}
-                  initialOpenState={initialOpenState}
-                  openByDefault={false}
-                  rowHeight={28}
-                  selection={context.selectedPath ?? undefined}
-                  width="100%"
-                  onSelect={(nodes) => {
-                    const item = nodes[0]?.data
-                    if (!item || item.kind === 'status') return
-                    if (item.kind === 'file') {
-                      void openFile(item.relativePath, 'preview')
-                    } else {
-                      setSelectedPath(sessionId, item.relativePath)
-                    }
+                  model={treeModel}
+                  style={{ height: treeHeight, width: '100%' }}
+                  onDoubleClick={() => {
+                    const relativePath = fromFilesTreePath(
+                      treeModel.getFocusedPath() ?? treeModel.getSelectedPaths()[0] ?? ''
+                    )
+                    const entry = findTreeEntry(treeEntriesRef.current, relativePath)
+                    if (entry?.kind === 'file') void openFile(entry.relativePath, 'permanent')
                   }}
-                  onMove={({ dragIds, parentId }) => {
-                    const sourcePath = dragIds[0]
-                    if (!sourcePath) return
-                    const destinationPath = joinRelativePath(parentId ?? '', pathName(sourcePath))
-                    void moveEntry(sourcePath, destinationPath)
-                  }}
-                  onRename={({ id, name }) => {
-                    const destinationPath = joinRelativePath(parentDirectoryPath(id), name)
-                    void moveEntry(id, destinationPath)
-                  }}
-                  onToggle={(id) => {
-                    const expanded = !context.expandedPaths.includes(id)
-                    setExpanded(sessionId, id, expanded)
-                    if (expanded) void loadDirectory(id)
-                  }}
-                >
-                  {(props) => (
-                    <FilesTreeRow
-                      {...props}
+                  renderContextMenu={(item, menuContext) => (
+                    <FilesTreeContextMenu
+                      item={item}
+                      menuContext={menuContext}
+                      entries={treeEntriesRef.current}
                       ipcContext={ipcContext}
                       onCreate={(kind, parentPath) => openCreateDialog(kind, parentPath)}
-                      onOpenPermanent={(relativePath) => openFile(relativePath, 'permanent')}
                       onRename={openRenameDialog}
-                      onRetry={loadDirectory}
                       onTrash={trashEntry}
                     />
                   )}
-                </Tree>
+                />
               )}
             </div>
           </div>
@@ -1896,127 +1855,114 @@ function FilesReadyEditorPanel({
   )
 }
 
-function FilesTreeRow({
-  node,
-  style,
-  dragHandle,
+function FilesTreeContextMenu({
+  item,
+  menuContext,
+  entries,
+  ipcContext,
   onCreate,
-  onOpenPermanent,
   onRename,
-  onRetry,
-  onTrash,
-  ipcContext
-}: NodeRendererProps<FilesTreeItem> & {
+  onTrash
+}: {
+  item: ContextMenuItem
+  menuContext: ContextMenuOpenContext
+  entries: FilesEntry[]
   ipcContext: FilesContext
   onCreate: (kind: 'file' | 'folder', parentPath?: string) => void
-  onOpenPermanent: (relativePath: string) => Promise<void>
   onRename: (relativePath: string) => void
-  onRetry: (relativePath: string) => Promise<void>
   onTrash: (relativePath: string) => Promise<void>
-}): React.JSX.Element {
-  const item = node.data
-  if (item.kind === 'status') {
+}): React.JSX.Element | null {
+  const relativePath = fromFilesTreePath(item.path)
+  const entry = findTreeEntry(entries, relativePath)
+  if (!entry) return null
+
+  const closeMenu = (): void => menuContext.close()
+  const revealEntry = (): void => {
+    closeMenu()
+    void window.spacezero.files
+      .revealInSystemFileManager({ context: ipcContext, relativePath: entry.relativePath })
+      .catch((error) => window.alert(filesErrorMessage(error)))
+  }
+
+  if (entry.kind === 'symlink') {
     return (
-      <div className="flex items-center gap-2 pr-2 text-xs text-muted-foreground" style={style}>
-        <span className="truncate">{item.message ?? statusMessage(item.status)}</span>
-        {item.status === 'error' ? (
-          <button
-            className="underline underline-offset-2"
-            type="button"
-            onClick={() => void onRetry(item.parentPath)}
-          >
-            Retry
-          </button>
-        ) : null}
+      <div
+        aria-label={`${entry.relativePath} actions`}
+        className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+      >
+        <button
+          className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
+          role="menuitem"
+          type="button"
+          onClick={revealEntry}
+        >
+          Show in Finder
+        </button>
       </div>
     )
   }
 
-  const expandable = item.kind === 'directory'
-  const row = (
-    <ContextMenuTrigger
-      ref={dragHandle}
-      className={`group flex cursor-default items-center gap-1 pr-2 text-sm outline-none ${node.isSelected ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/60'}`}
-      style={style}
-      title={item.kind === 'symlink' ? `${item.name} — Symbolic link` : item.name}
-      onClick={() => node.select()}
-      onDoubleClick={() => {
-        if (item.kind === 'file') void onOpenPermanent(item.relativePath)
-      }}
-    >
-      {expandable ? (
-        <button
-          aria-label={`${node.isOpen ? 'Collapse' : 'Expand'} ${item.name}`}
-          className="flex size-5 shrink-0 items-center justify-center"
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            node.toggle()
-          }}
-        >
-          {node.isOpen ? (
-            <CaretDown aria-hidden className="size-3" />
-          ) : (
-            <CaretRight aria-hidden className="size-3" />
-          )}
-        </button>
-      ) : (
-        <span className="size-5 shrink-0" />
-      )}
-      <FilesIcon name={item.name} kind={item.kind} expanded={node.isOpen} />
-      <span className="truncate">{item.name}</span>
-      {item.kind === 'symlink' ? <span className="sr-only">Symbolic link</span> : null}
-    </ContextMenuTrigger>
-  )
-
-  if (item.kind === 'symlink') {
-    return (
-      <ContextMenu>
-        {row}
-        <ContextMenuContent aria-label={`${item.relativePath} actions`}>
-          <ContextMenuItem
-            onClick={() =>
-              void window.spacezero.files
-                .revealInSystemFileManager({ context: ipcContext, relativePath: item.relativePath })
-                .catch((error) => window.alert(filesErrorMessage(error)))
-            }
-          >
-            Show in Finder
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    )
-  }
-
-  const siblingParentPath = parentDirectoryPath(item.relativePath)
-
+  const siblingParentPath = parentDirectoryPath(entry.relativePath)
   return (
-    <ContextMenu>
-      {row}
-      <ContextMenuContent aria-label={`${item.relativePath} actions`}>
-        <ContextMenuItem onClick={() => onCreate('file', siblingParentPath)}>
-          New File
-        </ContextMenuItem>
-        <ContextMenuItem onClick={() => onCreate('folder', siblingParentPath)}>
-          New Folder
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => onRename(item.relativePath)}>Rename</ContextMenuItem>
-        <ContextMenuItem variant="destructive" onClick={() => void onTrash(item.relativePath)}>
-          Delete
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          onClick={() =>
-            void window.spacezero.files
-              .revealInSystemFileManager({ context: ipcContext, relativePath: item.relativePath })
-              .catch((error) => window.alert(filesErrorMessage(error)))
-          }
-        >
-          Show in Finder
-        </ContextMenuItem>
-      </ContextMenuContent>
-    </ContextMenu>
+    <div
+      aria-label={`${entry.relativePath} actions`}
+      className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+    >
+      <button
+        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
+        role="menuitem"
+        type="button"
+        onClick={() => {
+          closeMenu()
+          onCreate('file', siblingParentPath)
+        }}
+      >
+        New File
+      </button>
+      <button
+        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
+        role="menuitem"
+        type="button"
+        onClick={() => {
+          closeMenu()
+          onCreate('folder', siblingParentPath)
+        }}
+      >
+        New Folder
+      </button>
+      <div className="my-1 h-px bg-border" role="separator" />
+      <button
+        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
+        role="menuitem"
+        type="button"
+        onClick={() => {
+          closeMenu()
+          onRename(entry.relativePath)
+        }}
+      >
+        Rename
+      </button>
+      <button
+        className="w-full rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-accent"
+        role="menuitem"
+        type="button"
+        onClick={() => {
+          closeMenu()
+          void onTrash(entry.relativePath)
+        }}
+      >
+        Delete
+      </button>
+      <div className="my-1 h-px bg-border" role="separator" />
+      <button
+        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
+        role="menuitem"
+        type="button"
+        onClick={revealEntry}
+      >
+        Show in Finder
+      </button>
+    </div>
   )
 }
 
@@ -2084,44 +2030,37 @@ function FilesState({
   )
 }
 
-function toTreeItem(entry: FilesEntry): FilesTreeItem {
-  return {
-    ...entry,
-    id: entry.relativePath,
-    ...(entry.kind === 'directory' ? { children: [statusItem(entry.relativePath, 'loading')] } : {})
-  }
+function toFilesTreePath(
+  entryOrPath: FilesEntry | string,
+  entries?: readonly FilesEntry[]
+): string {
+  const relativePath = typeof entryOrPath === 'string' ? entryOrPath : entryOrPath.relativePath
+  const entry =
+    typeof entryOrPath === 'string' ? findTreeEntry(entries ?? [], relativePath) : entryOrPath
+  return entry?.kind === 'directory' ? `${relativePath}/` : relativePath
 }
 
-function statusItem(
-  parentPath: string,
-  status: 'loading' | 'empty' | 'error',
-  message?: string
-): FilesTreeItem {
-  return {
-    id: `${parentPath}::${status}`,
-    name: status,
-    relativePath: `${parentPath}::${status}`,
-    kind: 'status',
-    status,
-    message,
-    parentPath
-  }
+function fromFilesTreePath(path: string): string {
+  return path.endsWith('/') ? path.slice(0, -1) : path
 }
 
-function replaceDirectoryChildren(
-  items: FilesTreeItem[],
-  relativePath: string,
-  children: FilesTreeItem[]
-): FilesTreeItem[] {
-  return items.map((item) => {
-    if (item.kind === 'status') return item
-    if (item.relativePath === relativePath && item.kind === 'directory') {
-      return { ...item, children }
-    }
-    return item.children
-      ? { ...item, children: replaceDirectoryChildren(item.children, relativePath, children) }
-      : item
-  })
+function uniqueFilesTreePaths(entries: readonly FilesEntry[]): string[] {
+  return Array.from(new Set(entries.map((entry) => toFilesTreePath(entry))))
+}
+
+function findTreeEntry(
+  entries: readonly FilesEntry[],
+  relativePath: string
+): FilesEntry | undefined {
+  return entries.find((entry) => entry.relativePath === relativePath)
+}
+
+function renderFilesTreeRowDecoration(
+  path: string,
+  entries: readonly FilesEntry[]
+): FileTreeRowDecoration | null {
+  const entry = findTreeEntry(entries, fromFilesTreePath(path))
+  return entry?.kind === 'symlink' ? { text: 'Symbolic link', title: 'Symbolic link' } : null
 }
 
 function createEntryNameError(kind: 'file' | 'folder', name: string): string | null {
@@ -2271,12 +2210,6 @@ function formatTimestamp(value: string): string {
   const timestamp = new Date(value)
   if (Number.isNaN(timestamp.getTime())) return value
   return timestamp.toLocaleString()
-}
-
-function statusMessage(status: 'loading' | 'empty' | 'error'): string {
-  if (status === 'loading') return 'Loading…'
-  if (status === 'empty') return 'Empty folder'
-  return 'Couldn’t read this directory.'
 }
 
 function formatBytes(bytes: number): string {

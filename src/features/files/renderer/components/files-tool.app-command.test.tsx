@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
 import { AppCommandRegistry } from '../../../app-commands/renderer/app-command-registry'
+import { openFilesLocation } from '../files-open-location'
 import { useFilesStore } from '../files-store'
 import { FILES_SAVE_ALL_COMMAND_ID, FilesTool } from './files-tool'
 
@@ -13,10 +14,6 @@ const monacoMock = vi.hoisted(() => ({
   focus: vi.fn<() => void>(),
   saveViewState: vi.fn<() => unknown>(() => ({ cursorState: [] })),
   restoreViewState: vi.fn<(state: unknown) => void>()
-}))
-
-vi.mock('./files-icon', () => ({
-  FilesIcon: () => <span aria-hidden="true" />
 }))
 
 vi.mock('./files-monaco-editor', () => ({
@@ -150,7 +147,14 @@ describe('Files Tool App Commands', () => {
     await waitFor(() =>
       expect(registry.list().map((command) => command.id)).toEqual([FILES_SAVE_ALL_COMMAND_ID])
     )
-    fireEvent.click(await screen.findByText('notes.txt'))
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-one',
+        ipcContext: { kind: 'project-session', sessionId: 'session-one' },
+        relativePath: 'notes.txt',
+        intent: 'preview'
+      })
+    })
     fireEvent.change(await screen.findByLabelText('Monaco editor'), {
       target: { value: 'session one draft' }
     })
@@ -164,7 +168,14 @@ describe('Files Tool App Commands', () => {
     await waitFor(() =>
       expect(registry.list().map((command) => command.id)).toEqual([FILES_SAVE_ALL_COMMAND_ID])
     )
-    fireEvent.click(await screen.findByText('notes.txt'))
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-two',
+        ipcContext: { kind: 'project-session', sessionId: 'session-two' },
+        relativePath: 'notes.txt',
+        intent: 'preview'
+      })
+    })
     fireEvent.change(await screen.findByLabelText('Monaco editor'), {
       target: { value: 'session two draft' }
     })
