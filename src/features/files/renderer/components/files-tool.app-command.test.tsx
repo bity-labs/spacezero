@@ -3,9 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
 import { AppCommandRegistry } from '../../../app-commands/renderer/app-command-registry'
+import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { openFilesLocation } from '../files-open-location'
 import { useFilesStore } from '../files-store'
-import { FILES_SAVE_ALL_COMMAND_ID, FilesTool } from './files-tool'
+import {
+  FILES_CLOSE_ACTIVE_TAB_COMMAND_ID,
+  FILES_SAVE_ALL_COMMAND_ID,
+  FilesTool
+} from './files-tool'
 
 const monacoMock = vi.hoisted(() => ({
   saveCommand: undefined as undefined | (() => void),
@@ -140,12 +145,17 @@ describe('Files Tool App Commands', () => {
     const registry = new AppCommandRegistry()
     const view = render(
       <AppCommandProvider registry={registry}>
-        <FilesTool sessionId="session-one" />
+        <KeyboardShortcutsProvider>
+          <FilesTool sessionId="session-one" />
+        </KeyboardShortcutsProvider>
       </AppCommandProvider>
     )
 
     await waitFor(() =>
-      expect(registry.list().map((command) => command.id)).toEqual([FILES_SAVE_ALL_COMMAND_ID])
+      expect(registry.list().map((command) => command.id)).toEqual([
+        FILES_SAVE_ALL_COMMAND_ID,
+        FILES_CLOSE_ACTIVE_TAB_COMMAND_ID
+      ])
     )
     await act(async () => {
       await openFilesLocation({
@@ -161,12 +171,17 @@ describe('Files Tool App Commands', () => {
 
     view.rerender(
       <AppCommandProvider registry={registry}>
-        <FilesTool sessionId="session-two" />
+        <KeyboardShortcutsProvider>
+          <FilesTool sessionId="session-two" />
+        </KeyboardShortcutsProvider>
       </AppCommandProvider>
     )
 
     await waitFor(() =>
-      expect(registry.list().map((command) => command.id)).toEqual([FILES_SAVE_ALL_COMMAND_ID])
+      expect(registry.list().map((command) => command.id)).toEqual([
+        FILES_SAVE_ALL_COMMAND_ID,
+        FILES_CLOSE_ACTIVE_TAB_COMMAND_ID
+      ])
     )
     await act(async () => {
       await openFilesLocation({
@@ -194,12 +209,17 @@ describe('Files Tool App Commands', () => {
 
     view.rerender(
       <AppCommandProvider registry={registry}>
-        <FilesTool sessionId="session-one" />
+        <KeyboardShortcutsProvider>
+          <FilesTool sessionId="session-one" />
+        </KeyboardShortcutsProvider>
       </AppCommandProvider>
     )
 
     await waitFor(() =>
-      expect(registry.list().map((command) => command.id)).toEqual([FILES_SAVE_ALL_COMMAND_ID])
+      expect(registry.list().map((command) => command.id)).toEqual([
+        FILES_SAVE_ALL_COMMAND_ID,
+        FILES_CLOSE_ACTIVE_TAB_COMMAND_ID
+      ])
     )
     expect(await screen.findByDisplayValue('session one draft')).toBeInTheDocument()
 
@@ -218,5 +238,48 @@ describe('Files Tool App Commands', () => {
     expect(sessionTwoTab?.status).toBe('ready')
     if (sessionTwoTab?.status !== 'ready') throw new Error('expected session two tab to be ready')
     expect(sessionTwoTab.dirty).toBe(false)
+  })
+
+  it('closes the active clean Files tab with the focus-scoped mod+w command', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'notes.txt', relativePath: 'notes.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'notes.txt',
+      relativePath: 'notes.txt',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    const registry = new AppCommandRegistry()
+    render(
+      <AppCommandProvider registry={registry}>
+        <KeyboardShortcutsProvider>
+          <FilesTool sessionId="session-close" />
+        </KeyboardShortcutsProvider>
+      </AppCommandProvider>
+    )
+
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-close',
+        ipcContext: { kind: 'project-session', sessionId: 'session-close' },
+        relativePath: 'notes.txt',
+        intent: 'permanent'
+      })
+    })
+    const tab = await screen.findByRole('tab', { name: 'notes.txt' })
+    tab.focus()
+    fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
+
+    await waitFor(() => expect(screen.queryByRole('tab', { name: 'notes.txt' })).toBeNull())
+    expect(registry.list().map((command) => command.id)).toContain(
+      FILES_CLOSE_ACTIVE_TAB_COMMAND_ID
+    )
   })
 })

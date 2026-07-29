@@ -1003,6 +1003,9 @@ describe('TerminalTool', () => {
     expect(tablist).toHaveClass('overflow-x-auto')
     expect(tablist).toHaveClass('no-scrollbar')
     expect(tablist).toHaveClass('flex-1')
+    fireEvent.wheel(tablist, { deltaY: 40 })
+    expect(tablist.scrollLeft).toBe(40)
+    expect(screen.getAllByRole('tab').every((tab) => tab.querySelector('svg'))).toBe(true)
 
     const newTerminalButton = screen.getByRole('button', { name: 'New Terminal' })
     expect(newTerminalButton).toHaveAttribute('title', 'New Terminal')
