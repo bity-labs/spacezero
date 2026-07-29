@@ -57,11 +57,18 @@ describe('Files renderer state', () => {
       textDocument('docs/lossy.mdx', `import X from './x'\n\n# Page`),
       3
     )
+    expect(store.beginOpenTab('session-1', 'docs/typed.md', 'permanent', 4)).toBe(true)
+    store.finishOpenTab(
+      'session-1',
+      textDocument('docs/typed.md', '---\ncount: 1\n---\n\n# Typed frontmatter'),
+      4
+    )
 
     expect(useFilesStore.getState().contexts['session-1'].tabs).toMatchObject([
       { relativePath: 'README.md', editorMode: 'rich' },
       { relativePath: 'docs/page.mdx', editorMode: 'rich' },
-      { relativePath: 'docs/lossy.mdx', editorMode: 'source' }
+      { relativePath: 'docs/lossy.mdx', editorMode: 'source' },
+      { relativePath: 'docs/typed.md', editorMode: 'source' }
     ])
   })
 
