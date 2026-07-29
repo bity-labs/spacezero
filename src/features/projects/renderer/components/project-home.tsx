@@ -4,8 +4,11 @@ import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@p
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
 import {
   IssuesView,
+  IssuesViewLoading,
   ProjectGitHubOverview,
+  ProjectGitHubOverviewLoading,
   PullRequestsView,
+  PullRequestsViewLoading,
   useGitHubConnection,
   useProjectRepository
 } from '../../../github/renderer'
@@ -211,28 +214,39 @@ export function ProjectHome({
               error={trustError}
               onChange={(trusted) => void updateAgentResourceTrust(trusted)}
             />
-            {!connectionLoading &&
-            connection?.status === 'connected' &&
-            displayProject.githubRepository ? (
-              <ProjectGitHubOverview
-                project={displayProject}
-                onOpenIssue={(number) => {
-                  setSelectedIssueNumber(number)
-                  setView('issues')
-                }}
-                onViewIssues={() => {
-                  setSelectedIssueNumber(null)
-                  setView('issues')
-                }}
-                onOpenPullRequest={(number) => {
-                  setSelectedPullRequestNumber(number)
-                  setView('pull-requests')
-                }}
-                onViewPullRequests={() => {
-                  setSelectedPullRequestNumber(null)
-                  setView('pull-requests')
-                }}
-              />
+            {displayProject.githubRepository ? (
+              connectionLoading ? (
+                <ProjectGitHubOverviewLoading
+                  onViewIssues={() => {
+                    setSelectedIssueNumber(null)
+                    setView('issues')
+                  }}
+                  onViewPullRequests={() => {
+                    setSelectedPullRequestNumber(null)
+                    setView('pull-requests')
+                  }}
+                />
+              ) : connection?.status === 'connected' ? (
+                <ProjectGitHubOverview
+                  project={displayProject}
+                  onOpenIssue={(number) => {
+                    setSelectedIssueNumber(number)
+                    setView('issues')
+                  }}
+                  onViewIssues={() => {
+                    setSelectedIssueNumber(null)
+                    setView('issues')
+                  }}
+                  onOpenPullRequest={(number) => {
+                    setSelectedPullRequestNumber(number)
+                    setView('pull-requests')
+                  }}
+                  onViewPullRequests={() => {
+                    setSelectedPullRequestNumber(null)
+                    setView('pull-requests')
+                  }}
+                />
+              ) : null
             ) : null}
           </div>
         ) : view === 'issues' ? (
@@ -240,6 +254,7 @@ export function ProjectHome({
             project={displayProject}
             connectionLoading={connectionLoading}
             connected={connection?.status === 'connected'}
+            loadingPlaceholder={<IssuesViewLoading />}
             onShowOverview={() => setView('overview')}
           >
             <IssuesView
@@ -254,6 +269,7 @@ export function ProjectHome({
             project={displayProject}
             connectionLoading={connectionLoading}
             connected={connection?.status === 'connected'}
+            loadingPlaceholder={<PullRequestsViewLoading />}
             onShowOverview={() => setView('overview')}
           >
             <PullRequestsView
@@ -346,15 +362,7 @@ function GitHubProjectState({
   onLinkRepository: () => void
 }): React.JSX.Element {
   if (connectionLoading) {
-    return (
-      <Card
-        className="p-6 text-sm text-muted-foreground"
-        role="region"
-        aria-label="GitHub repository"
-      >
-        Checking GitHub connection…
-      </Card>
-    )
+    return <GitHubRepositoryLoading />
   }
 
   if (connection?.status !== 'connected') {
@@ -438,15 +446,7 @@ function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.El
   const repository = useProjectRepository(project.id)
 
   if (repository.isLoading) {
-    return (
-      <Card
-        className="p-6 text-sm text-muted-foreground"
-        role="region"
-        aria-label="GitHub repository"
-      >
-        Loading repository status…
-      </Card>
-    )
+    return <GitHubRepositoryLoading />
   }
 
   if (repository.isError || !repository.data) {
@@ -501,25 +501,35 @@ function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.El
   )
 }
 
+function GitHubRepositoryLoading(): React.JSX.Element {
+  return (
+    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
+      <div className="space-y-3" role="status" aria-label="Loading GitHub repository">
+        <div className="h-5 w-2/5 animate-pulse rounded bg-muted" aria-hidden="true" />
+        <div className="h-3 w-3/5 animate-pulse rounded bg-muted" aria-hidden="true" />
+        <div className="h-3 w-4/5 animate-pulse rounded bg-muted" aria-hidden="true" />
+      </div>
+    </Card>
+  )
+}
+
 function GitHubWorkflowGate({
   project,
   connectionLoading,
   connected,
+  loadingPlaceholder,
   onShowOverview,
   children
 }: {
   project: Project
   connectionLoading: boolean
   connected: boolean
+  loadingPlaceholder: ReactNode
   onShowOverview: () => void
   children: ReactNode
 }): React.JSX.Element {
   if (connectionLoading) {
-    return (
-      <Card className="p-6" role="status">
-        <p className="text-sm text-muted-foreground">Loading GitHub connection…</p>
-      </Card>
-    )
+    return <>{loadingPlaceholder}</>
   }
   if (!connected) {
     return (

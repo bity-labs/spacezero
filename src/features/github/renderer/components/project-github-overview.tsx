@@ -9,6 +9,51 @@ import { githubReadErrorMessage } from '../github-error-messages'
 import { useProjectIssues } from '../hooks/use-project-issues'
 import { useProjectPullRequests } from '../hooks/use-project-pull-requests'
 
+export function ProjectGitHubOverviewLoading({
+  onViewIssues,
+  onViewPullRequests
+}: {
+  onViewIssues: () => void
+  onViewPullRequests: () => void
+}): React.JSX.Element {
+  return (
+    <>
+      <SummaryCard
+        title="Recent Issues"
+        description="Recent open Issues from the linked repository."
+        loadingLabel="Loading Recent Issues"
+        refreshLabel="Refresh Issues"
+        refreshing
+        loading
+        error={null}
+        emptyMessage="No Issues to show."
+        items={[]}
+        onRetry={() => undefined}
+        onRefresh={() => undefined}
+        onViewAll={onViewIssues}
+        viewAllLabel="View all Issues"
+        renderItem={() => null}
+      />
+      <SummaryCard
+        title="Open Pull Requests"
+        description="Open Pull Requests from the linked repository."
+        loadingLabel="Loading Open Pull Requests"
+        refreshLabel="Refresh Pull Requests"
+        refreshing
+        loading
+        error={null}
+        emptyMessage="No Pull Requests to show."
+        items={[]}
+        onRetry={() => undefined}
+        onRefresh={() => undefined}
+        onViewAll={onViewPullRequests}
+        viewAllLabel="View all Pull Requests"
+        renderItem={() => null}
+      />
+    </>
+  )
+}
+
 export function ProjectGitHubOverview({
   project,
   onOpenIssue,
