@@ -56,6 +56,129 @@ describe('ToolPaneShell', () => {
     expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
   })
 
+  it('shows the configured default Files tool for a fresh context that opts in', () => {
+    const filesTool: ToolDescriptor = {
+      id: 'files',
+      label: 'Files',
+      available: true,
+      icon: () => null,
+      render: () => <div>File explorer</div>
+    }
+    const defaultOpenConfiguration: ToolPaneConfiguration = {
+      ...configuration,
+      defaultToolId: 'files',
+      defaultOpen: true,
+      tools: [filesTool, ...tools]
+    }
+
+    render(
+      <ToolPaneShell {...defaultOpenConfiguration}>
+        <div>Chat</div>
+      </ToolPaneShell>
+    )
+
+    expect(screen.getByText('Chat')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toHaveTextContent(
+      'File explorer'
+    )
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('keeps an opt-in default open when resizing creates its saved state', () => {
+    const defaultOpenConfiguration: ToolPaneConfiguration = {
+      ...configuration,
+      defaultOpen: true
+    }
+
+    render(
+      <ToolPaneShell {...defaultOpenConfiguration}>
+        <div>Chat</div>
+      </ToolPaneShell>
+    )
+
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize Tool Pane' }), {
+      key: 'ArrowRight'
+    })
+
+    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
+    expect(useToolPaneStore.getState().contexts[configuration.contextKey]).toMatchObject({
+      isOpen: true
+    })
+  })
+
+  it('persists a collapse from an opt-in open default', async () => {
+    const user = userEvent.setup()
+    const defaultOpenConfiguration: ToolPaneConfiguration = {
+      ...configuration,
+      defaultOpen: true
+    }
+
+    render(
+      <>
+        <ToolPaneToggleButton configuration={defaultOpenConfiguration} />
+        <ToolPaneShell {...defaultOpenConfiguration}>
+          <div>Chat</div>
+        </ToolPaneShell>
+      </>
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Toggle Tool Pane' }))
+
+    expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
+    expect(useToolPaneStore.getState().contexts[configuration.contextKey]).toMatchObject({
+      isOpen: false
+    })
+  })
+
+  it('prefers saved collapsed and active-tool state over opt-in defaults', async () => {
+    const user = userEvent.setup()
+    const savedConfiguration: ToolPaneConfiguration = {
+      ...configuration,
+      defaultToolId: 'files',
+      defaultOpen: true,
+      tools: [
+        {
+          id: 'files',
+          label: 'Files',
+          available: true,
+          icon: () => null,
+          render: () => <div>File explorer</div>
+        },
+        ...tools
+      ]
+    }
+    useToolPaneStore.setState({
+      contexts: {
+        [configuration.contextKey]: {
+          isOpen: false,
+          width: 640,
+          activeToolId: 'browser'
+        }
+      }
+    })
+
+    render(
+      <>
+        <ToolPaneToggleButton configuration={savedConfiguration} />
+        <ToolPaneShell {...savedConfiguration}>
+          <div>Chat</div>
+        </ToolPaneShell>
+      </>
+    )
+
+    expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Browser' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Toggle Tool Pane' }))
+
+    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toHaveStyle({ width: '640px' })
+    expect(screen.getByText('Browser for workspace-session:session-1')).toBeInTheDocument()
+    expect(screen.queryByText('File explorer')).not.toBeInTheDocument()
+  })
+
   it('aligns the collapsed pane toggle with the vertical tool buttons without shrinking either click target', () => {
     render(
       <>

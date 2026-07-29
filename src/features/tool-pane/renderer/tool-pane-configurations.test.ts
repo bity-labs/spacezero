@@ -44,6 +44,7 @@ describe('Tool Pane contextual configurations', () => {
     expect(knowledgeBase).toMatchObject({
       contextKey: 'knowledge-base',
       defaultToolId: 'files',
+      defaultOpen: true,
       capabilities: { kind: 'knowledge-base' }
     })
     expect(knowledgeBase.tools.map((tool) => tool.id)).toEqual([
