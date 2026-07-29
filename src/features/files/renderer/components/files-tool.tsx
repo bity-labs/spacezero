@@ -6,6 +6,7 @@ import {
   SidebarSimple,
   TreeStructure
 } from '@phosphor-icons/react'
+import { preparePresortedFileTreeInput, type FileTreePreparedInput } from '@pierre/trees'
 import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
 import type { ContextMenuItem, ContextMenuOpenContext, FileTreeRowDecoration } from '@pierre/trees'
 
@@ -27,7 +28,7 @@ import {
 } from '@renderer/components/ui/dialog'
 import { Input } from '@renderer/components/ui/input'
 import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
-import type { FilesContext, FilesEntry, FilesSearchResult } from '../../shared'
+import type { FilesContext, FilesEntry, FilesSearchResult, FilesTree } from '../../shared'
 import {
   createDefaultFilesContext,
   getActiveFilesTab,
@@ -51,7 +52,7 @@ configureFilesMonacoEnvironment()
 
 type RootState =
   | { status: 'loading' }
-  | { status: 'ready'; entries: FilesEntry[] }
+  | { status: 'ready'; tree: FilesTree }
   | { status: 'error'; message: string }
 
 type ExplorerView = 'tree' | 'search'
@@ -194,11 +195,13 @@ function FilesToolSession({
       renderFilesTreeRowDecoration(item.path, treeEntriesRef.current)
   })
   const activeDocument = getActiveFilesTab(context)
-  const treePaths = useMemo(
-    () => (rootState.status === 'ready' ? uniqueFilesTreePaths(rootState.entries) : []),
+  const preparedTreeInput = useMemo<FileTreePreparedInput | null>(
+    () =>
+      rootState.status === 'ready'
+        ? preparePresortedFileTreeInput(rootState.tree.presortedPaths)
+        : null,
     [rootState]
   )
-  const treePathsKey = treePaths.join('\0')
   const expandedPathsKey = context.expandedPaths.join('\0')
 
   useEffect(() => {
@@ -214,11 +217,11 @@ function FilesToolSession({
     restoredRootRef.current = false
     setRootState({ status: 'loading' })
     try {
-      const entries = await window.spacezero.files.listTree({
+      const tree = await window.spacezero.files.listTree({
         context: ipcContext
       })
       if (activeSessionRef.current !== requestedSession) return
-      setRootState({ status: 'ready', entries })
+      setRootState({ status: 'ready', tree })
     } catch (error) {
       if (activeSessionRef.current !== requestedSession) return
       setRootState({ status: 'error', message: filesErrorMessage(error) })
@@ -888,15 +891,16 @@ function FilesToolSession({
   ])
 
   useEffect(() => {
-    if (rootState.status !== 'ready') return
-    treeEntriesRef.current = rootState.entries
-    treeModel.resetPaths(treePaths, {
+    if (rootState.status !== 'ready' || !preparedTreeInput) return
+    treeEntriesRef.current = rootState.tree.entries
+    treeModel.resetPaths({
+      preparedInput: preparedTreeInput,
       initialExpandedPaths: context.expandedPaths.map((path) =>
-        toFilesTreePath(path, rootState.entries)
+        toFilesTreePath(path, rootState.tree.entries)
       )
     })
     restoredRootRef.current = true
-  }, [context.expandedPaths, expandedPathsKey, rootState, treeModel, treePaths, treePathsKey])
+  }, [context.expandedPaths, expandedPathsKey, preparedTreeInput, rootState, treeModel])
 
   useEffect(() => {
     return treeModel.subscribe(() => {
@@ -914,7 +918,7 @@ function FilesToolSession({
 
   useEffect(() => {
     if (rootState.status !== 'ready' || !context.selectedPath) return
-    treeModel.getItem(toFilesTreePath(context.selectedPath, rootState.entries))?.select()
+    treeModel.getItem(toFilesTreePath(context.selectedPath, rootState.tree.entries))?.select()
   }, [context.selectedPath, rootState, treeModel])
 
   useEffect(() => {
@@ -1091,7 +1095,7 @@ function FilesToolSession({
                 <FilesState message="Loading files…" />
               ) : rootState.status === 'error' ? (
                 <FilesState message={rootState.message} actionLabel="Retry" onAction={loadRoot} />
-              ) : rootState.entries.length === 0 ? (
+              ) : rootState.tree.entries.length === 0 ? (
                 <FilesState message="This worktree is empty." />
               ) : (
                 <TreesFileTree
@@ -2042,10 +2046,6 @@ function toFilesTreePath(
 
 function fromFilesTreePath(path: string): string {
   return path.endsWith('/') ? path.slice(0, -1) : path
-}
-
-function uniqueFilesTreePaths(entries: readonly FilesEntry[]): string[] {
-  return Array.from(new Set(entries.map((entry) => toFilesTreePath(entry))))
 }
 
 function findTreeEntry(

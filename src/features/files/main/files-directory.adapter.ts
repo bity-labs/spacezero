@@ -1,7 +1,7 @@
 import { lstat, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
-import type { FilesEntry } from '../shared'
+import type { FilesEntry, FilesTree } from '../shared'
 
 const naturalNameCollator = new Intl.Collator('en', {
   numeric: true,
@@ -46,7 +46,7 @@ export async function readFilesDirectory(
   }
 }
 
-export async function readFilesTree(rootPath: string): Promise<FilesEntry[]> {
+export async function readFilesTree(rootPath: string): Promise<FilesTree> {
   const entries = await readFilesDirectory(rootPath, '')
   const tree: FilesEntry[] = []
 
@@ -55,7 +55,10 @@ export async function readFilesTree(rootPath: string): Promise<FilesEntry[]> {
     if (entry.kind === 'directory') tree.push(...(await readFilesTreeDirectory(rootPath, entry)))
   }
 
-  return tree
+  return {
+    entries: tree,
+    presortedPaths: tree.map(toExplorerPath)
+  }
 }
 
 async function readFilesTreeDirectory(
@@ -90,6 +93,10 @@ function assertInsideRoot(rootPath: string, candidatePath: string): void {
   if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     throw new Error('files.invalidPath')
   }
+}
+
+function toExplorerPath(entry: FilesEntry): string {
+  return entry.kind === 'directory' ? `${entry.relativePath}/` : entry.relativePath
 }
 
 function compareEntries(left: FilesEntry, right: FilesEntry): number {

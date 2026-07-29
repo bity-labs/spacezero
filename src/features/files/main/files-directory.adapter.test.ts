@@ -53,15 +53,26 @@ describe('Files directory adapter', () => {
     await writeFile(join(rootPath, 'src', 'components', 'button.tsx'), '')
     await symlink(join(rootPath, 'src'), join(rootPath, 'linked-src'))
 
-    await expect(readFilesTree(rootPath)).resolves.toEqual([
-      { name: 'empty', relativePath: 'empty', kind: 'directory' },
-      { name: 'src', relativePath: 'src', kind: 'directory' },
-      { name: 'components', relativePath: 'src/components', kind: 'directory' },
-      { name: 'button.tsx', relativePath: 'src/components/button.tsx', kind: 'file' },
-      { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' },
-      { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' },
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
-    ])
+    await expect(readFilesTree(rootPath)).resolves.toEqual({
+      entries: [
+        { name: 'empty', relativePath: 'empty', kind: 'directory' },
+        { name: 'src', relativePath: 'src', kind: 'directory' },
+        { name: 'components', relativePath: 'src/components', kind: 'directory' },
+        { name: 'button.tsx', relativePath: 'src/components/button.tsx', kind: 'file' },
+        { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' },
+        { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' },
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' }
+      ],
+      presortedPaths: [
+        'empty/',
+        'src/',
+        'src/components/',
+        'src/components/button.tsx',
+        'src/index.ts',
+        'linked-src',
+        'README.md'
+      ]
+    })
   })
 
   it('identifies symbolic links without following or expanding them', async () => {
