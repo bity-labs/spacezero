@@ -191,8 +191,10 @@ export function ToolPaneHeaderControls({
     <div
       aria-label="Tool Pane header controls"
       className={cn(
-        'flex h-full w-full min-w-0 flex-1 items-center justify-between gap-2 px-2',
-        configuration && controller.isOpen && controller.activeTool ? 'border-b border-l' : null
+        'flex h-full w-full min-w-0 flex-1 items-center justify-between',
+        configuration && controller.isOpen && controller.activeTool
+          ? 'gap-2 border-b border-l px-2'
+          : 'pr-3'
       )}
     >
       {configuration && controller.isOpen && controller.activeTool ? (
