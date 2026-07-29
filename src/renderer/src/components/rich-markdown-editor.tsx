@@ -38,7 +38,14 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 import { Input } from '@renderer/components/ui/input'
 import { Separator } from '@renderer/components/ui/separator'
-import { splitMarkdownDocument } from '@renderer/lib/rich-markdown'
+import { Textarea } from '@renderer/components/ui/textarea'
+import {
+  addMarkdownProperty,
+  parseMarkdownProperties,
+  splitMarkdownDocument,
+  updateMarkdownProperty,
+  type MarkdownProperty
+} from '@renderer/lib/rich-markdown'
 import './rich-markdown-editor.css'
 
 /** App-native adaptation of Tiptap's MIT-licensed Simple Editor template. */
@@ -66,7 +73,9 @@ export function RichMarkdownEditor({
   onScrollTopChange?: (scrollTop: number) => void
 }): React.JSX.Element {
   const { body, frontmatter } = splitMarkdownDocument(markdown)
+  const properties = parseMarkdownProperties(markdown)
   const frontmatterRef = useRef(frontmatter)
+  const markdownRef = useRef(markdown)
   const imageInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const onChangeRef = useRef(onChange)
@@ -75,6 +84,7 @@ export function RichMarkdownEditor({
   const [linkEditorOpen, setLinkEditorOpen] = useState(false)
   const [linkHref, setLinkHref] = useState('')
   const [linkError, setLinkError] = useState<string | null>(null)
+  const [propertyError, setPropertyError] = useState<string | null>(null)
   const imageExtension = useMemo(
     () => createRichMarkdownImageExtension(documentRelativePath, imageAdapter),
     [documentRelativePath, imageAdapter]
@@ -82,8 +92,26 @@ export function RichMarkdownEditor({
 
   useEffect(() => {
     frontmatterRef.current = frontmatter
+    markdownRef.current = markdown
     onChangeRef.current = onChange
-  }, [frontmatter, onChange])
+  }, [frontmatter, markdown, onChange])
+
+  const emitPropertyChange = (nextMarkdown: string): void => {
+    markdownRef.current = nextMarkdown
+    frontmatterRef.current = splitMarkdownDocument(nextMarkdown).frontmatter
+    setPropertyError(null)
+    onChangeRef.current(nextMarkdown)
+  }
+
+  const editProperty = (currentKey: string, property: MarkdownProperty): boolean => {
+    const result = updateMarkdownProperty(markdownRef.current, currentKey, property)
+    if (!result.ok) {
+      setPropertyError(result.error)
+      return false
+    }
+    emitPropertyChange(result.markdown)
+    return true
+  }
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current
@@ -122,8 +150,11 @@ export function RichMarkdownEditor({
         role: 'textbox'
       }
     },
-    onUpdate: ({ editor: currentEditor }) =>
-      onChangeRef.current(`${frontmatterRef.current}${currentEditor.getMarkdown()}`)
+    onUpdate: ({ editor: currentEditor }) => {
+      const nextMarkdown = `${frontmatterRef.current}${currentEditor.getMarkdown()}`
+      markdownRef.current = nextMarkdown
+      onChangeRef.current(nextMarkdown)
+    }
   })
 
   useEffect(() => {
@@ -441,13 +472,75 @@ export function RichMarkdownEditor({
         </div>
       ) : null}
 
-      <EditorContent
+      <div
         ref={scrollContainerRef}
-        editor={editor}
         className="rich-markdown-editor__content"
         onScroll={(event) => onScrollTopChange?.(event.currentTarget.scrollTop)}
-      />
+      >
+        {properties.status !== 'unsupported' ? (
+          <section
+            className="rich-markdown-editor__properties"
+            aria-labelledby="properties-heading"
+          >
+            <h2 id="properties-heading">Properties</h2>
+            {properties.properties.map((property, index) => (
+              <div className="rich-markdown-editor__property-row" key={index}>
+                <PropertyKeyInput
+                  key={property.key}
+                  property={property}
+                  onCommit={editProperty}
+                />
+                <Textarea
+                  aria-label={`Property value ${property.key}`}
+                  value={property.value}
+                  onChange={(event) =>
+                    editProperty(property.key, { ...property, value: event.currentTarget.value })
+                  }
+                />
+              </div>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const result = addMarkdownProperty(markdownRef.current)
+                if (result) emitPropertyChange(result.markdown)
+              }}
+            >
+              Add property
+            </Button>
+            {propertyError ? (
+              <p className="rich-markdown-editor__property-error" role="alert">
+                {propertyError}
+              </p>
+            ) : null}
+          </section>
+        ) : null}
+
+        <EditorContent editor={editor} />
+      </div>
     </div>
+  )
+}
+
+function PropertyKeyInput({
+  property,
+  onCommit
+}: {
+  property: MarkdownProperty
+  onCommit: (currentKey: string, property: MarkdownProperty) => boolean
+}): React.JSX.Element {
+  const [key, setKey] = useState(property.key)
+
+  return (
+    <Textarea
+      aria-label={`Property key ${property.key}`}
+      aria-invalid={!key.trim() || undefined}
+      value={key}
+      onChange={(event) => setKey(event.currentTarget.value)}
+      onBlur={() => onCommit(property.key, { ...property, key })}
+    />
   )
 }
 

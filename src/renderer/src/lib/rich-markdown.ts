@@ -1,5 +1,10 @@
+import { isMap, isScalar, parseDocument } from 'yaml'
+
 const FRONTMATTER_PATTERN =
   /^(?:\uFEFF)?---[\t ]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[\t ]*(?:(?:\r?\n){1,2}|$)/
+const FRONTMATTER_PARTS_PATTERN =
+  /^(?:\uFEFF)?---[\t ]*(\r?\n)([\s\S]*?)\r?\n(?:---|\.\.\.)[\t ]*(?:(?:\r?\n){1,2}|$)/
+const FRONTMATTER_OPENING_PATTERN = /^(?:\uFEFF)?---[\t ]*(?:\r?\n|$)/
 
 const RAW_HTML_OR_MDX_PATTERN =
   /<!--|<![A-Za-z[]|<>|<\/>|<\/?[A-Za-z_$][\w$-]*(?:[.:][A-Za-z_$][\w$-]*)*(?:\s+[^>]*|\/?)>/
@@ -20,6 +25,8 @@ export const RICH_MARKDOWN_FOOTNOTE_LIMITATION =
   'This document contains footnotes that rich mode cannot preserve. Use source mode to edit it safely.'
 export const RICH_MARKDOWN_SYNTAX_LIMITATION =
   'This document contains Markdown syntax that rich mode cannot preserve. Use source mode to edit it safely.'
+export const RICH_MARKDOWN_FRONTMATTER_LIMITATION =
+  'This document contains frontmatter that the properties editor cannot preserve. Use source mode to edit it safely.'
 
 export function splitMarkdownDocument(markdown: string): {
   frontmatter: string
@@ -35,10 +42,151 @@ export function splitMarkdownDocument(markdown: string): {
   }
 }
 
+export type MarkdownProperty = { key: string; value: string }
+
+export type MarkdownPropertiesResult =
+  | { status: 'none'; properties: [] }
+  | { status: 'supported'; properties: MarkdownProperty[] }
+  | { status: 'unsupported'; properties: [] }
+
+export function parseMarkdownProperties(markdown: string): MarkdownPropertiesResult {
+  const frontmatter = markdown.match(FRONTMATTER_PARTS_PATTERN)
+  if (!frontmatter) {
+    return FRONTMATTER_OPENING_PATTERN.test(markdown)
+      ? { status: 'unsupported', properties: [] }
+      : { status: 'none', properties: [] }
+  }
+
+  try {
+    const document = parseDocument(frontmatter[2], { uniqueKeys: true })
+    if (
+      document.errors.length > 0 ||
+      !isMap(document.contents) ||
+      document.contents.anchor ||
+      document.contents.tag
+    ) {
+      return { status: 'unsupported', properties: [] }
+    }
+
+    const properties: MarkdownProperty[] = []
+    for (const pair of document.contents.items) {
+      if (
+        !isScalar(pair.key) ||
+        !isScalar(pair.value) ||
+        pair.key.anchor ||
+        pair.key.tag ||
+        pair.value.anchor ||
+        pair.value.tag ||
+        typeof pair.key.value !== 'string' ||
+        typeof pair.value.value !== 'string'
+      ) {
+        return { status: 'unsupported', properties: [] }
+      }
+      properties.push({ key: pair.key.value, value: pair.value.value })
+    }
+
+    return { status: 'supported', properties }
+  } catch {
+    return { status: 'unsupported', properties: [] }
+  }
+}
+
+export function addMarkdownProperty(markdown: string): { key: string; markdown: string } | null {
+  const parsed = parseMarkdownProperties(markdown)
+  if (parsed.status === 'unsupported') return null
+
+  const lineEnding = markdown.includes('\r\n') ? '\r\n' : '\n'
+  const existingKeys = new Set(parsed.properties.map(({ key }) => key))
+  let key = 'property'
+  let suffix = 2
+  while (existingKeys.has(key)) key = `property-${suffix++}`
+
+  if (parsed.status === 'none') {
+    const bom = markdown.startsWith('\uFEFF') ? '\uFEFF' : ''
+    const body = bom ? markdown.slice(1) : markdown
+    return {
+      key,
+      markdown: `${bom}---${lineEnding}${key}: ""${lineEnding}---${lineEnding}${lineEnding}${body}`
+    }
+  }
+
+  const frontmatter = markdown.match(FRONTMATTER_PARTS_PATTERN)
+  if (!frontmatter) return null
+  const document = parseDocument(frontmatter[2], { uniqueKeys: true })
+  document.set(key, '')
+
+  return {
+    key,
+    markdown: replaceFrontmatterSource(markdown, frontmatter, String(document), frontmatter[1])
+  }
+}
+
+export type MarkdownPropertyUpdateResult =
+  { ok: true; markdown: string } | { ok: false; error: string }
+
+export function updateMarkdownProperty(
+  markdown: string,
+  currentKey: string,
+  property: MarkdownProperty
+): MarkdownPropertyUpdateResult {
+  const parsed = parseMarkdownProperties(markdown)
+  if (!property.key.trim()) return { ok: false, error: 'Property keys cannot be empty.' }
+  if (
+    parsed.status === 'supported' &&
+    property.key !== currentKey &&
+    parsed.properties.some(({ key }) => key === property.key)
+  ) {
+    return { ok: false, error: `A property named "${property.key}" already exists.` }
+  }
+
+  const frontmatter = markdown.match(FRONTMATTER_PARTS_PATTERN)
+  if (parsed.status !== 'supported' || !frontmatter) {
+    return { ok: false, error: 'These frontmatter properties cannot be edited in rich mode.' }
+  }
+
+  const document = parseDocument(frontmatter[2], { uniqueKeys: true })
+  if (!isMap(document.contents)) {
+    return { ok: false, error: 'These frontmatter properties cannot be edited in rich mode.' }
+  }
+
+  const pair = document.contents.items.find(
+    (item) => isScalar(item.key) && item.key.value === currentKey
+  )
+  if (!pair || !isScalar(pair.key) || !isScalar(pair.value)) {
+    return { ok: false, error: 'This property no longer exists.' }
+  }
+
+  pair.key.value = property.key
+  pair.value.value = property.value
+  return {
+    ok: true,
+    markdown: replaceFrontmatterSource(markdown, frontmatter, String(document), frontmatter[1])
+  }
+}
+
+function replaceFrontmatterSource(
+  markdown: string,
+  frontmatter: RegExpMatchArray,
+  source: string,
+  lineEnding: string
+): string {
+  const normalizedSource = source.replace(/\n$/, '').replace(/\n/g, lineEnding)
+  const sourceStart = frontmatter[0].indexOf(
+    frontmatter[2],
+    frontmatter[0].indexOf(frontmatter[1]) + frontmatter[1].length
+  )
+  const rewrittenFrontmatter = `${frontmatter[0].slice(0, sourceStart)}${normalizedSource}${frontmatter[0].slice(sourceStart + frontmatter[2].length)}`
+  return `${rewrittenFrontmatter}${markdown.slice(frontmatter[0].length)}`
+}
+
 export function getRichMarkdownLimitation(
   markdown: string,
   { isMdx = false }: { isMdx?: boolean } = {}
 ): string | null {
+  if (parseMarkdownProperties(markdown).status === 'unsupported') {
+    return RICH_MARKDOWN_FRONTMATTER_LIMITATION
+  }
+
   const { body } = splitMarkdownDocument(markdown)
   const prose = maskMarkdownCode(body)
   const containsUnsupportedMdx =

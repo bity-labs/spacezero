@@ -1,4 +1,4 @@
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -6,6 +6,26 @@ import userEvent from '@testing-library/user-event'
 import { KnowledgeBaseRichEditor as RichEditor } from './knowledge-base-rich-editor'
 
 type RichEditorProps = ComponentProps<typeof RichEditor>
+
+function ControlledKnowledgeBaseRichEditor({
+  initialMarkdown,
+  onChange
+}: {
+  initialMarkdown: string
+  onChange: (markdown: string) => void
+}): React.JSX.Element {
+  const [markdown, setMarkdown] = useState(initialMarkdown)
+
+  return (
+    <KnowledgeBaseRichEditor
+      markdown={markdown}
+      onChange={(nextMarkdown) => {
+        setMarkdown(nextMarkdown)
+        onChange(nextMarkdown)
+      }}
+    />
+  )
+}
 
 function KnowledgeBaseRichEditor({
   documentRelativePath = 'docs/note.md',
@@ -23,6 +43,103 @@ describe('KnowledgeBaseRichEditor', () => {
     expect(await screen.findByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent(
       'Durable note'
     )
+  })
+
+  it('shows existing string frontmatter as editable property rows above the Markdown body', async () => {
+    render(
+      <KnowledgeBaseRichEditor
+        markdown={'---\nname: Builder\ndescription: Agent workspace\n---\n\n# Body'}
+        onChange={vi.fn()}
+      />
+    )
+
+    expect(await screen.findByRole('heading', { name: 'Properties' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Property key name' })).toHaveValue('name')
+    expect(screen.getByRole('textbox', { name: 'Property value name' })).toHaveValue('Builder')
+    expect(screen.getByRole('textbox', { name: 'Property key description' })).toHaveValue(
+      'description'
+    )
+    expect(screen.getByRole('textbox', { name: 'Property value description' })).toHaveValue(
+      'Agent workspace'
+    )
+    expect(screen.getByRole('button', { name: 'Add property' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent('Body')
+  })
+
+  it('edits property values and keys while preserving the Markdown body', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ControlledKnowledgeBaseRichEditor
+        initialMarkdown={'---\nname: Builder\n---\n\n# Body\n\nKeep this line.'}
+        onChange={onChange}
+      />
+    )
+
+    const value = await screen.findByRole('textbox', { name: 'Property value name' })
+    await user.clear(value)
+    await user.type(value, 'Space Zero')
+    const key = screen.getByRole('textbox', { name: 'Property key name' })
+    await user.clear(key)
+    await user.type(key, 'displayName')
+    await user.tab()
+
+    expect(screen.getByRole('textbox', { name: 'Property key displayName' })).toHaveValue(
+      'displayName'
+    )
+    expect(onChange.mock.lastCall?.[0]).toBe(
+      '---\ndisplayName: "Space Zero"\n---\n\n# Body\n\nKeep this line.'
+    )
+    expect(screen.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent('Body')
+    expect(screen.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent(
+      'Keep this line.'
+    )
+  })
+
+  it('shows validation and leaves Markdown unchanged for duplicate or empty property keys', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <ControlledKnowledgeBaseRichEditor
+        initialMarkdown={'---\nname: Builder\ndescription: Workspace\n---\n\nBody'}
+        onChange={onChange}
+      />
+    )
+
+    const key = await screen.findByRole('textbox', { name: 'Property key name' })
+    await user.clear(key)
+    await user.type(key, 'description')
+    await user.tab()
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'A property named "description" already exists.'
+    )
+    expect(onChange).not.toHaveBeenCalled()
+
+    await user.click(key)
+    await user.clear(key)
+    await user.tab()
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Property keys cannot be empty.')
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('adds an editable empty string property to a document without frontmatter', async () => {
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <KnowledgeBaseRichEditor markdown={'# Body\n\nKeep this line.'} onChange={onChange} />
+    )
+    await screen.findByRole('textbox', { name: 'Rich Markdown editor' })
+
+    await user.click(screen.getByRole('button', { name: 'Add property' }))
+
+    const updatedMarkdown = onChange.mock.lastCall?.[0] as string
+    expect(updatedMarkdown).toBe('---\nproperty: ""\n---\n\n# Body\n\nKeep this line.')
+    rerender(<KnowledgeBaseRichEditor markdown={updatedMarkdown} onChange={onChange} />)
+    expect(screen.getByRole('textbox', { name: 'Property key property' })).toHaveValue('property')
+    expect(screen.getByRole('textbox', { name: 'Property value property' })).toHaveValue('')
+    expect(screen.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveTextContent('Body')
   })
 
   it('provides the Simple Editor formatting toolbar', async () => {
@@ -311,7 +428,7 @@ describe('KnowledgeBaseRichEditor', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('keeps YAML frontmatter intact while the rich body is edited', async () => {
+  it('keeps unsupported YAML frontmatter intact and unavailable to the properties UI', async () => {
     const user = userEvent.setup()
     const onChange = vi.fn()
     const frontmatter = '---\ntitle: Durable note\ntags:\n  - knowledge\n---\n\n'
@@ -320,6 +437,7 @@ describe('KnowledgeBaseRichEditor', () => {
 
     expect(editor).toHaveTextContent('Body')
     expect(editor).not.toHaveTextContent('title: Durable note')
+    expect(screen.queryByRole('heading', { name: 'Properties' })).not.toBeInTheDocument()
     editor.focus()
     await user.keyboard('updated ')
 
