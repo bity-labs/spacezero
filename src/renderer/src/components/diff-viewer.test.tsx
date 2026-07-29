@@ -49,7 +49,7 @@ vi.mock('@pierre/diffs/react', async () => {
 })
 
 describe('DiffViewer', () => {
-  it('wraps Pierre CodeView for controlled multi-file split diff lists', async () => {
+  it('wraps Pierre CodeView for controlled multi-file stacked diff lists', async () => {
     codeViewCalls.length = 0
     document.documentElement.classList.add('dark')
 
@@ -79,7 +79,7 @@ describe('DiffViewer', () => {
       options: {
         theme: 'pierre-dark',
         themeType: 'dark',
-        diffStyle: 'split',
+        diffStyle: 'unified',
         hunkSeparators: 'line-info-basic'
       }
     })
