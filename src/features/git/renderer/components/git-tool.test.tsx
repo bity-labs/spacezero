@@ -468,6 +468,8 @@ describe('GitTool', () => {
     const message = prompt.mock.calls[0]?.[0].message ?? ''
     expect(message).toContain('choose an appropriate commit message')
     expect(message).toContain('No upstream is currently configured')
+    expect(message).toContain('push the current branch with upstream tracking using `git push -u origin HEAD`')
+    expect(message).toContain('ask me for the required remote or upstream information')
     expect(message).not.toContain('diff --git')
     expect(message).not.toContain('+change')
   })

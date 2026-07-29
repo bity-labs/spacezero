@@ -963,7 +963,7 @@ function buildGitActionPrompt(
   if (action === 'commit-and-push') {
     lines.push(
       upstream.kind === 'none'
-        ? 'No upstream is currently configured in Space Zero Git status; commit locally if appropriate, explain why pushing cannot proceed, and ask me for the required remote or upstream information.'
+        ? 'No upstream is currently configured in Space Zero Git status; if a remote named origin exists, commit locally if appropriate, then push the current branch with upstream tracking using `git push -u origin HEAD`. If no origin remote exists or pushing fails because the destination is ambiguous or unauthorized, explain the issue and ask me for the required remote or upstream information.'
         : 'If pushing cannot proceed, explain the blocker in the normal Session transcript and ask me for the required information.'
     )
   }
