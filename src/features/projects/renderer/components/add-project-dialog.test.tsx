@@ -37,6 +37,27 @@ describe('AddProjectDialog', () => {
     )
   })
 
+  it('places the GitHub repository action beside Cancel in the dialog footer', () => {
+    render(
+      <AddProjectDialog
+        open
+        onOpenChange={() => undefined}
+        onCreateEmptyProject={async () => {
+          throw new Error('unused')
+        }}
+        onAddFromFolder={async () => null}
+        onGitHubProjectReady={async () => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
+
+    const footer = screen
+      .getByRole('button', { name: 'Cancel' })
+      .closest('[data-slot="dialog-footer"]')
+    expect(footer).toContainElement(screen.getByRole('button', { name: 'Clone repository' }))
+  })
+
   it('submits the explicit folder-registration trust choice without renderer-supplied paths', async () => {
     const onAddFromFolder = vi.fn(async () => ({
       id: 'project-1',

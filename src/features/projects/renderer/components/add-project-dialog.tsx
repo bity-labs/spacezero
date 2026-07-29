@@ -155,6 +155,14 @@ export function AddProjectDialog({
             agentResourcesTrusted={agentResourcesTrusted}
             onAgentResourcesTrustedChange={setAgentResourcesTrusted}
             onProjectReady={finishGitHubProject}
+            renderPrimaryAction={(primaryAction) => (
+              <DialogFooter>
+                <Button variant="outline" onClick={() => onOpenChange(false)}>
+                  {t('common.cancel')}
+                </Button>
+                {primaryAction}
+              </DialogFooter>
+            )}
           />
         ) : null}
 
@@ -167,20 +175,22 @@ export function AddProjectDialog({
 
         {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.cancel')}
-          </Button>
-          {selectedPath === 'folder' ? (
-            <Button disabled={isSaving} onClick={() => void addFolderProject()}>
-              {t('projects.add.folder.choose')}
+        {selectedPath === 'empty' || selectedPath === 'folder' ? (
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>
+              {t('common.cancel')}
             </Button>
-          ) : selectedPath === 'empty' ? (
-            <Button disabled={isSaving || !name.trim()} onClick={() => void createEmptyProject()}>
-              {t('projects.add.empty.create')}
-            </Button>
-          ) : null}
-        </DialogFooter>
+            {selectedPath === 'folder' ? (
+              <Button disabled={isSaving} onClick={() => void addFolderProject()}>
+                {t('projects.add.folder.choose')}
+              </Button>
+            ) : (
+              <Button disabled={isSaving || !name.trim()} onClick={() => void createEmptyProject()}>
+                {t('projects.add.empty.create')}
+              </Button>
+            )}
+          </DialogFooter>
+        ) : null}
       </DialogContent>
     </Dialog>
   )

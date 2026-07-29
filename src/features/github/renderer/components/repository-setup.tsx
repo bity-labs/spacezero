@@ -9,12 +9,14 @@ export function RepositorySetup({
   onProjectReady,
   onBusyChange,
   agentResourcesTrusted,
-  onAgentResourcesTrustedChange
+  onAgentResourcesTrustedChange,
+  renderPrimaryAction
 }: {
   onProjectReady: (projectId: string) => void | Promise<void>
   onBusyChange?: (busy: boolean) => void
   agentResourcesTrusted?: boolean
   onAgentResourcesTrustedChange?: (trusted: boolean) => void
+  renderPrimaryAction?: (primaryAction: React.ReactNode) => React.ReactNode
 }): React.JSX.Element {
   const [options, setOptions] = useState<GitHubRepositorySetupOption[] | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -141,6 +143,28 @@ export function RepositorySetup({
     await window.spacezero.github.cancelClone({ operationId: activeOperationId })
   }
 
+  const primaryAction = (
+    <Button
+      disabled={
+        !selectedOption ||
+        isStarting ||
+        cloneRunning ||
+        (matchingProjects.length > 1 && !selectedExistingProjectId)
+      }
+      onClick={() => void startClone()}
+    >
+      {isStarting
+        ? 'Starting…'
+        : selectedOption?.existingProject
+          ? 'Open Project'
+          : matchingProjects.length > 0
+            ? 'Link Project'
+            : cloneFailed
+              ? 'Retry clone'
+              : 'Clone repository'}
+    </Button>
+  )
+
   return (
     <div className="space-y-4">
       <section className="space-y-2" aria-labelledby="repository-setup-label">
@@ -263,25 +287,7 @@ export function RepositorySetup({
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
-      <Button
-        disabled={
-          !selectedOption ||
-          isStarting ||
-          cloneRunning ||
-          (matchingProjects.length > 1 && !selectedExistingProjectId)
-        }
-        onClick={() => void startClone()}
-      >
-        {isStarting
-          ? 'Starting…'
-          : selectedOption?.existingProject
-            ? 'Open Project'
-            : matchingProjects.length > 0
-              ? 'Link Project'
-              : cloneFailed
-                ? 'Retry clone'
-                : 'Clone repository'}
-      </Button>
+      {renderPrimaryAction ? renderPrimaryAction(primaryAction) : primaryAction}
     </div>
   )
 }
