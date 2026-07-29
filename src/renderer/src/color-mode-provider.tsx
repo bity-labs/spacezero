@@ -85,6 +85,10 @@ export function useColorMode(): ColorModeContextValue {
   return context
 }
 
+export function useOptionalColorMode(): ColorModeContextValue | null {
+  return useContext(ColorModeContext)
+}
+
 function getSystemPrefersDark(): boolean {
   return window.matchMedia(DARK_SCHEME_QUERY).matches
 }
