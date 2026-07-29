@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   FilePlus,
   FolderSimplePlus,
@@ -7,7 +7,12 @@ import {
   TreeStructure
 } from '@phosphor-icons/react'
 import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
-import type { ContextMenuItem, ContextMenuOpenContext, FileTreeRowDecoration } from '@pierre/trees'
+import type {
+  ContextMenuItem,
+  ContextMenuOpenContext,
+  FileTreeIcons,
+  FileTreeRowDecoration
+} from '@pierre/trees'
 
 import { useColorMode } from '@renderer/color-mode-provider'
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -86,6 +91,31 @@ export const FILES_SAVE_ALL_COMMAND_ID = 'files.save-all'
 
 const saveConflictMessage =
   'This file changed on disk. Reload from disk or review the external changes before saving.'
+
+const filesTreeIcons = { set: 'complete', colored: true } satisfies FileTreeIcons
+
+type FilesTreeHostStyle = CSSProperties & Record<`--${string}`, string | number>
+
+function createFilesTreeHostStyle(height: number): FilesTreeHostStyle {
+  return {
+    height,
+    width: '100%',
+    '--trees-bg-override': 'var(--background)',
+    '--trees-bg-muted-override': 'var(--muted)',
+    '--trees-fg-override': 'var(--foreground)',
+    '--trees-fg-muted-override': 'var(--muted-foreground)',
+    '--trees-selected-bg-override': 'var(--accent)',
+    '--trees-selected-fg-override': 'var(--accent-foreground)',
+    '--trees-selected-focused-border-color-override': 'var(--ring)',
+    '--trees-border-color-override': 'var(--border)',
+    '--trees-focus-ring-color-override': 'var(--ring)',
+    '--trees-input-bg-override': 'var(--background)',
+    '--trees-search-bg-override': 'var(--background)',
+    '--trees-indent-guide-bg-override': 'var(--border)',
+    '--trees-scrollbar-thumb-override': 'var(--muted-foreground)',
+    '--trees-font-family-override': 'var(--font-sans)'
+  }
+}
 
 type FilesToolProps =
   | { sessionId: string; treeLabel?: string; createRichImageAdapter?: RichImageAdapterFactory }
@@ -182,6 +212,7 @@ function FilesToolSession({
     density: 'compact',
     fileTreeSearchMode: 'hide-non-matches',
     flattenEmptyDirectories: true,
+    icons: filesTreeIcons,
     id: `files-tree-${sessionId}`,
     initialExpansion: 'closed',
     initialExpandedPaths: context.expandedPaths,
@@ -200,6 +231,7 @@ function FilesToolSession({
   )
   const treePathsKey = treePaths.join('\0')
   const expandedPathsKey = context.expandedPaths.join('\0')
+  const treeHostStyle = useMemo(() => createFilesTreeHostStyle(treeHeight), [treeHeight])
 
   useEffect(() => {
     expandedPathsRef.current = context.expandedPaths
@@ -1098,7 +1130,7 @@ function FilesToolSession({
                   key={sessionId}
                   aria-label={treeLabel}
                   model={treeModel}
-                  style={{ height: treeHeight, width: '100%' }}
+                  style={treeHostStyle}
                   onDoubleClick={() => {
                     const relativePath = fromFilesTreePath(
                       treeModel.getFocusedPath() ?? treeModel.getSelectedPaths()[0] ?? ''

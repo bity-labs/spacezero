@@ -25,7 +25,8 @@ const appCommandMock = vi.hoisted(() => ({
 }))
 
 const treesMock = vi.hoisted(() => ({
-  options: [] as Array<Record<string, unknown>>
+  options: [] as Array<Record<string, unknown>>,
+  renderProps: [] as Array<Record<string, unknown>>
 }))
 
 vi.mock('@pierre/trees/react', async () => {
@@ -180,7 +181,9 @@ vi.mock('@pierre/trees/react', async () => {
       }
     ) => React.ReactNode
     'aria-label'?: string
+    style?: Record<string, unknown>
   }): React.JSX.Element {
+    treesMock.renderProps.push(props)
     const [activeMenuPath, setActiveMenuPath] = React.useState<string | null>(null)
     const paths = model.__getPaths()
     const expanded = model.__getExpanded()
@@ -457,6 +460,7 @@ describe('Files Tool', () => {
     monacoMock.saveViewState.mockClear()
     appCommandMock.registeredCommands = []
     treesMock.options = []
+    treesMock.renderProps = []
   })
 
   it('configures Trees as the Files explorer renderer with compact sticky folder browsing', async () => {
@@ -472,7 +476,18 @@ describe('Files Tool', () => {
       density: 'compact',
       fileTreeSearchMode: 'hide-non-matches',
       flattenEmptyDirectories: true,
+      icons: { set: 'complete', colored: true },
       stickyFolders: true
+    })
+    expect(treesMock.renderProps.at(-1)?.style).toMatchObject({
+      '--trees-bg-override': 'var(--background)',
+      '--trees-fg-override': 'var(--foreground)',
+      '--trees-fg-muted-override': 'var(--muted-foreground)',
+      '--trees-selected-bg-override': 'var(--accent)',
+      '--trees-selected-fg-override': 'var(--accent-foreground)',
+      '--trees-border-color-override': 'var(--border)',
+      '--trees-focus-ring-color-override': 'var(--ring)',
+      '--trees-font-family-override': 'var(--font-sans)'
     })
   })
 
