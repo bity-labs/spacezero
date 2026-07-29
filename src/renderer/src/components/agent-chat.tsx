@@ -6,6 +6,7 @@ import {
   type AiChatMessage,
   type AiChatThinkingLevel,
   type ChatInputAgentDefinition,
+  type ChatInputCommand,
   type ChatInputModel
 } from '@renderer/components/ai-chat'
 import { cn } from '@renderer/lib/utils'
@@ -20,6 +21,7 @@ export type AgentChatProps = {
   sessionState?: AgentSessionState
   status?: 'idle' | 'running'
   placeholder?: string
+  commands?: ChatInputCommand[]
   composer?: ReactNode
   emptyState?: ReactNode
   className?: string
@@ -28,6 +30,7 @@ export type AgentChatProps = {
     text: string,
     options?: { agentDefinition?: AgentDefinitionReference }
   ) => void | Promise<void>
+  onCommand?: (commandName: string) => void | Promise<void>
   onAbort?: () => void
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   onOpenLink?: (url: string) => void | Promise<void>
@@ -39,11 +42,13 @@ export function AgentChat({
   sessionState,
   status = 'idle',
   placeholder,
+  commands,
   composer,
   emptyState,
   className,
   contentClassName,
   onSubmit,
+  onCommand,
   onAbort,
   onToolConfirmationResolve,
   onOpenLink
@@ -67,6 +72,7 @@ export function AgentChat({
     <ChatInput
       models={modelControls.models}
       skills={sessionState?.skills}
+      commands={commands}
       agentDefinitions={definitionControls.definitions}
       selectedAgentDefinitionId={definitionControls.selectedDefinitionId}
       activeAgentDefinition={sessionState?.agentDefinition}
@@ -77,6 +83,7 @@ export function AgentChat({
       thinkingLevel={modelControls.thinkingLevel}
       onModelChange={modelControls.setModel}
       onThinkingChange={modelControls.setThinkingLevel}
+      onCommand={onCommand}
       onSubmit={async ({ text, agentDefinitionId }) => {
         await onSubmit?.(
           text,

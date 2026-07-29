@@ -7,7 +7,11 @@ import type { Project } from '../../../projects/shared'
 import type { ProjectSession, WorkspaceSession } from '../../shared'
 import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
-import { type AiChatMessage, type AiChatToolCallPart } from '@renderer/components/ai-chat'
+import {
+  type AiChatMessage,
+  type AiChatToolCallPart,
+  type ChatInputCommand
+} from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
@@ -24,6 +28,8 @@ type WorkspaceSessionHostSurfaceProps = {
   emptyState?: string
   requireRuntimeReady?: boolean
   chatLinkContext?: BrowserContext
+  commands?: ChatInputCommand[]
+  onCommand?: (commandName: string) => void | Promise<void>
 }
 
 export function ProjectSessionHostSurface({
@@ -64,7 +70,9 @@ export function WorkspaceSessionHostSurface({
   placeholder = 'Ask about Space Zero…',
   emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.',
   requireRuntimeReady = false,
-  chatLinkContext = { kind: 'workspace-session', sessionId: session.id }
+  chatLinkContext = { kind: 'workspace-session', sessionId: session.id },
+  commands,
+  onCommand
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
@@ -120,6 +128,8 @@ export function WorkspaceSessionHostSurface({
       }
       emptyState={emptyState}
       chatLinkContext={chatLinkContext}
+      commands={commands}
+      onCommand={onCommand}
     />
   )
 }
@@ -139,6 +149,8 @@ type SessionHostFrameProps = {
   onToolConfirmationResolve?: (callId: string, approved: boolean) => void
   emptyState?: string
   chatLinkContext?: BrowserContext
+  commands?: ChatInputCommand[]
+  onCommand?: (commandName: string) => void | Promise<void>
 }
 
 function SessionHostFrame({
@@ -152,7 +164,9 @@ function SessionHostFrame({
   onAbort,
   onToolConfirmationResolve,
   emptyState,
-  chatLinkContext
+  chatLinkContext,
+  commands,
+  onCommand
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
   const [submissionError, setSubmissionError] = useState<string | undefined>(undefined)
@@ -213,7 +227,9 @@ function SessionHostFrame({
         }
         contentClassName="w-full px-6 pb-48 pt-12"
         placeholder={placeholder}
+        commands={commands}
         onSubmit={handleSubmit}
+        onCommand={onCommand}
         onAbort={onAbort}
         onToolConfirmationResolve={onToolConfirmationResolve}
         onOpenLink={openChatLink}
