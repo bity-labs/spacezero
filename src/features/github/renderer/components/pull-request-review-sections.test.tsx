@@ -14,6 +14,11 @@ type MockDiffViewerCall = {
     patch: string
     collapsed?: boolean
     version?: number
+    changeMetadata?: {
+      status: string
+      additions?: number
+      deletions?: number
+    }
   }>
 }
 
@@ -29,7 +34,20 @@ vi.mock('@renderer/components/diff-viewer', async () => {
       'div',
       { 'aria-label': props.ariaLabel, 'data-testid': 'shared-diff-viewer' },
       props.items.map((item) =>
-        React.createElement('pre', { key: item.id }, `${item.path}\n${item.patch}`)
+        React.createElement('div', { key: item.id }, [
+          React.createElement('span', { key: 'path' }, item.path),
+          React.createElement('pre', { key: 'patch' }, item.patch),
+          item.oldPath
+            ? React.createElement('span', { key: 'rename' }, `renamed from ${item.oldPath}`)
+            : null,
+          item.changeMetadata
+            ? React.createElement('span', { key: 'metadata' }, [
+                React.createElement('span', { key: 'status' }, item.changeMetadata.status),
+                React.createElement('span', { key: 'additions' }, `+${item.changeMetadata.additions}`),
+                React.createElement('span', { key: 'deletions' }, `−${item.changeMetadata.deletions}`)
+              ])
+            : null
+        ])
       )
     )
   })

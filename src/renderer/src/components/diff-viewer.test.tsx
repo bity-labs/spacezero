@@ -21,7 +21,15 @@ type MockCodeViewItem = {
 type MockCodeViewCall = {
   disableWorkerPool?: boolean
   items: MockCodeViewItem[]
-  options: { theme?: string; themeType?: string; diffStyle?: string; hunkSeparators?: string }
+  options: {
+    theme?: string
+    themeType?: string
+    diffStyle?: string
+    diffIndicators?: string
+    hunkSeparators?: string
+  }
+  renderCustomHeader?: (item: MockCodeViewItem) => ReactNode
+  renderHeaderPrefix?: (item: MockCodeViewItem) => ReactNode
   renderHeaderMetadata?: (item: MockCodeViewItem) => ReactNode
 }
 
@@ -38,9 +46,13 @@ vi.mock('@pierre/diffs/react', async () => {
       { 'data-testid': 'pierre-code-view' },
       props.items.map((item) =>
         React.createElement('section', { key: item.id }, [
-          React.createElement('div', { key: 'name' }, item.fileDiff.name),
-          React.createElement('pre', { key: 'patch' }, item.fileDiff.additionLines.join('\n')),
-          React.createElement('div', { key: 'metadata' }, props.renderHeaderMetadata?.(item))
+          React.createElement('div', { key: 'header' }, [
+            React.createElement(React.Fragment, { key: 'prefix' }, props.renderHeaderPrefix?.(item)),
+            React.createElement('span', { key: 'name' }, item.fileDiff.name),
+            React.createElement(React.Fragment, { key: 'custom' }, props.renderCustomHeader?.(item)),
+            React.createElement(React.Fragment, { key: 'metadata' }, props.renderHeaderMetadata?.(item))
+          ]),
+          React.createElement('pre', { key: 'patch' }, item.fileDiff.additionLines.join('\n'))
         ])
       )
     )
@@ -80,11 +92,14 @@ describe('DiffViewer', () => {
         theme: 'pierre-dark',
         themeType: 'dark',
         diffStyle: 'unified',
+        diffIndicators: 'none',
         hunkSeparators: 'line-info-basic'
       }
     })
     expect(call?.items.map((item) => item.id)).toEqual(['readme', 'renamed'])
+    expect(call?.renderCustomHeader).toBeUndefined()
     expect(call?.items[1]?.fileDiff.prevName).toBe('old.ts')
+    expect(screen.getByText('new.ts')).toBeInTheDocument()
     expect(screen.getByText('renamed from old.ts')).toBeInTheDocument()
 
     document.documentElement.classList.remove('dark')

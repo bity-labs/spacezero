@@ -709,10 +709,32 @@ function GitDiffCard({
   }
   const hasRenderableTextDiff = Boolean(file.diff && !file.binary && !file.large)
 
+  if (hasRenderableTextDiff) {
+    return (
+      <DiffViewer
+        ariaLabel={`Diff for ${file.path}`}
+        items={[
+          {
+            id: `${file.oldPath ?? ''}:${file.path}`,
+            path: file.path,
+            oldPath: file.oldPath,
+            patch: file.diff!,
+            collapsed: !expanded,
+            headerActions: {
+              status: file.kind,
+              fileNameTitle: filesHandoffUnavailableMessage(file, filesHandoff),
+              onFileNameClick: canOpenInFiles ? () => void openInFiles() : undefined,
+              onToggle
+            }
+          }
+        ]}
+      />
+    )
+  }
+
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      {!hasRenderableTextDiff ? (
-        <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
+      <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
           <button
             aria-expanded={expanded}
             aria-label="Toggle diff"
@@ -741,28 +763,8 @@ function GitDiffCard({
               {file.kind}
             </span>
           </div>
-        </div>
-      ) : null}
-      {hasRenderableTextDiff ? (
-        <DiffViewer
-          ariaLabel={`Diff for ${file.path}`}
-          items={[
-            {
-              id: `${file.oldPath ?? ''}:${file.path}`,
-              path: file.path,
-              oldPath: file.oldPath,
-              patch: file.diff!,
-              collapsed: !expanded,
-              headerActions: {
-                status: file.kind,
-                fileNameTitle: filesHandoffUnavailableMessage(file, filesHandoff),
-                onFileNameClick: canOpenInFiles ? () => void openInFiles() : undefined,
-                onToggle
-              }
-            }
-          ]}
-        />
-      ) : expanded ? (
+      </div>
+      {expanded ? (
         <div className="border-t p-3 text-sm text-muted-foreground">
           {file.binary
             ? 'Binary change summary only. No text diff is available.'
