@@ -22,7 +22,7 @@ The shared Git Tool is read-oriented and routes repository mutations through the
 
 - Main resolves the authenticated Project Session worktree or verified Knowledge Base repository and exposes typed status/diff queries to renderer Git UI.
 - Git UI shows saved repository state, branch/upstream information, staged/unstaged/uncommitted diffs, and conflicts. It does not directly stage, unstage, discard, reset, commit, fetch, pull, rebase, push, or configure remotes.
-- Commit, Commit & Push, and Resolve with agent actions send normal transcript-visible prompts through the active Session's existing prompt path. They do not create a second hidden Git workflow or prompt queue.
+- Commit, Commit & Push, Commit and create a PR, and Resolve with agent actions send normal transcript-visible prompts through the active Session's existing prompt path. Commit and create a PR extends the same commit-and-push agent flow with authenticated GitHub tooling available to the Session, deterministic reuse of an existing open pull request when possible, explicit partial-failure reporting, and a usable pull request URL in the final response. These actions do not create a second hidden Git workflow or prompt queue, and Space Zero's main-owned GitHub credential is not exposed to renderer or project command environments.
 - Project Session agents perform requested Git work with their existing project capabilities in the managed worktree.
 - The managed Knowledge Base Chat Session receives approved main-backed Git Workspace Tools through the existing Workspace Tool Registry, safety policy, and Agent Activity History.
 - Ordinary Workspace Sessions expose no Git Tool because they have no required repository identity.

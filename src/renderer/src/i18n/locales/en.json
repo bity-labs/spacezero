@@ -264,6 +264,7 @@
       "description": "Choose which Project Session Git composer action appears as the primary button.",
       "commit": "Commit",
       "commitAndPush": "Commit & Push",
+      "commitAndCreatePr": "Commit and create a PR",
       "loading": "Loading Git action preference…",
       "saveError": "Unable to save the Git action preference."
     },
