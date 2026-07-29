@@ -829,6 +829,47 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled()
   })
 
+  it('offers Commit and create a PR and sends the complete workflow through the agent prompt path', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    await screen.findByRole('button', { name: 'Commit & Push' })
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
+    await userEvent.click(
+      await screen.findByRole('menuitem', { name: 'Commit and create a PR' })
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Commit and create a PR' }))
+
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      message: expect.stringMatching(/create an appropriate commit.*push.*pull request/is)
+    })
+    const message = prompt.mock.calls[0]?.[0].message ?? ''
+    expect(message).toContain('authenticated GitHub tooling')
+    expect(message).toMatch(/check whether an open pull request already exists/is)
+    expect(message).toMatch(/do not create a duplicate/is)
+    expect(message).toMatch(/final.*pull request URL/is)
+    expect(message).toMatch(/push succeeds.*pull request creation fails/is)
+  })
+
   it('supports keyboard traversal and restores focus to the split-button menu trigger on Escape', async () => {
     const user = userEvent.setup()
     window.spacezero.git.getReview = vi.fn(async () => ({
@@ -854,14 +895,20 @@ describe('GitTool', () => {
 
     await user.keyboard('{ArrowDown}')
     const commitAndPushItem = await screen.findByRole('menuitem', { name: 'Commit & Push' })
+    const commitAndCreatePrItem = screen.getByRole('menuitem', {
+      name: 'Commit and create a PR'
+    })
     const commitItem = screen.getByRole('menuitem', { name: 'Commit' })
     expect(commitAndPushItem).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    expect(commitAndCreatePrItem).toHaveFocus()
 
     await user.keyboard('{ArrowDown}')
     expect(commitItem).toHaveFocus()
 
     await user.keyboard('{ArrowUp}')
-    expect(commitAndPushItem).toHaveFocus()
+    expect(commitAndCreatePrItem).toHaveFocus()
 
     await user.keyboard('{Escape}')
     await waitFor(() =>
@@ -930,7 +977,7 @@ describe('GitTool', () => {
     expect(prompt.mock.calls[1]?.[0].message ?? '').not.toContain('and push the branch')
   })
 
-  it('enables Commit & Push for an ahead branch with no uncommitted changes', async () => {
+  it('enables push and pull request actions for an ahead branch with no uncommitted changes', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
@@ -949,6 +996,19 @@ describe('GitTool', () => {
     expect(prompt).toHaveBeenCalledWith({
       sessionId: 'session-1',
       message: expect.stringContaining('and push the branch')
+    })
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
+    const pullRequestAction = await screen.findByRole('menuitem', {
+      name: 'Commit and create a PR'
+    })
+    expect(pullRequestAction).toBeEnabled()
+    await userEvent.click(pullRequestAction)
+    await userEvent.click(screen.getByRole('button', { name: 'Commit and create a PR' }))
+
+    expect(prompt).toHaveBeenLastCalledWith({
+      sessionId: 'session-1',
+      message: expect.stringContaining('create a pull request')
     })
   })
 
