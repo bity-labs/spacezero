@@ -150,6 +150,7 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
     contextKey: 'knowledge-base',
     capabilities: { kind: 'knowledge-base' },
     defaultToolId: 'files',
+    defaultOpen: true,
     tools: [
       {
         ...toolRegistry.files,

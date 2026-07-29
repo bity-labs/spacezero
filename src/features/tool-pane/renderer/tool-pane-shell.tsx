@@ -32,6 +32,7 @@ export type ToolPaneConfiguration = {
   contextKey: string
   capabilities: ToolPaneContextCapabilities
   defaultToolId: ToolId
+  defaultOpen?: boolean
   tools: readonly ToolDescriptor[]
 }
 
@@ -52,11 +53,12 @@ export function ToolPaneShell({
   contextKey,
   capabilities,
   defaultToolId,
+  defaultOpen,
   tools,
   children,
   showInlineHeaderSwitcher = true
 }: ToolPaneShellProps): React.JSX.Element {
-  const configuration = { contextKey, capabilities, defaultToolId, tools }
+  const configuration = { contextKey, capabilities, defaultToolId, defaultOpen, tools }
   const controller = useToolPaneController(configuration)
   const savedState = useToolPaneStore((state) => state.contexts[contextKey])
   const setWidth = useToolPaneStore((state) => state.setWidth)
@@ -249,7 +251,7 @@ export function useToolPaneController(configuration: ToolPaneConfiguration | nul
   const activeTool = configuration
     ? resolveActiveTool(configuration.tools, configuration.defaultToolId, savedState?.activeToolId)
     : null
-  const isOpen = Boolean(savedState?.isOpen && activeTool)
+  const isOpen = Boolean(activeTool && (savedState?.isOpen ?? configuration?.defaultOpen))
 
   const collapse = useCallback((): void => {
     if (configuration) collapseContext(configuration.contextKey)
