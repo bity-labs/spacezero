@@ -7,6 +7,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 
 const require = createRequire(import.meta.url)
@@ -986,6 +987,9 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   const downloadDirectory = await mkdtemp(join(tmpdir(), 'spacezero-browser-download-e2e-'))
   userDataDirectories.push(downloadDirectory)
   const downloadPath = join(downloadDirectory, 'chosen-fixture-download.txt')
+  const localHtmlPath = join(downloadDirectory, 'local fixture.html')
+  const localHtmlUrl = pathToFileURL(localHtmlPath).toString()
+  await writeFile(localHtmlPath, '<!doctype html><h1>Local Browser fixture</h1>')
 
   const electronApp = await launchApp()
   const window = await electronApp.firstWindow()
@@ -1475,6 +1479,44 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
       webContents.getAllWebContents().some((contents) => contents.getURL() === fixtureUrl)
     , { fixtureUrl })
   ).toBe(true)
+
+  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+  await window.getByLabel('Browser URL').fill(localHtmlPath)
+  await window.getByRole('button', { name: 'Go' }).click()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ webContents }, { localHtmlUrl }) =>
+      webContents.getAllWebContents().some((contents) => contents.getURL() === localHtmlUrl)
+    , { localHtmlUrl })
+  ).toBe(true)
+  const localPage = await electronApp.evaluate(async ({ webContents }, { localHtmlUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === localHtmlUrl)
+    if (!contents) throw new Error('Embedded local HTML webContents was not found.')
+    return {
+      heading: await contents.executeJavaScript('document.querySelector("h1")?.textContent'),
+      preferences: contents.getLastWebPreferences(),
+      globals: await contents.executeJavaScript(`({
+        spacezero: typeof window.spacezero,
+        electronRequire: typeof window.require,
+        nodeProcess: typeof window.process
+      })`)
+    }
+  }, { localHtmlUrl })
+  expect(localPage.heading).toBe('Local Browser fixture')
+  expect(localPage.preferences.sandbox).toBe(true)
+  expect(localPage.preferences.contextIsolation).toBe(true)
+  expect(localPage.preferences.nodeIntegration).toBe(false)
+  expect(localPage.globals).toMatchObject({
+    spacezero: 'undefined',
+    electronRequire: 'undefined'
+  })
+
+  const missingLocalPath = join(downloadDirectory, 'missing.html')
+  await window.getByLabel('Browser URL').fill(missingLocalPath)
+  await window.getByRole('button', { name: 'Go' }).click()
+  await expect(window.getByText('The local HTML file could not be found or opened.')).toBeVisible()
+  expect(await electronApp.evaluate(({ webContents }) =>
+    webContents.getAllWebContents().every((contents) => !contents.getURL().startsWith('https://www.google.com/search'))
+  )).toBe(true)
 
   await electronApp.close()
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))

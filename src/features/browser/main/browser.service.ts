@@ -1,3 +1,8 @@
+import { access, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { extname, posix, win32 } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
 import type { WebContents } from 'electron'
 import { nanoid } from 'nanoid'
 
@@ -129,7 +134,7 @@ export class BrowserService {
   async navigate(request: BrowserNavigateRequest): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
-    const url = normalizeBrowserUrl(request.input)
+    const url = await resolveBrowserNavigation(request.input)
     tab.url = url
     tab.restoredUrl = null
     tab.hasLoadedRestoredUrl = true
@@ -220,7 +225,7 @@ export class BrowserService {
     context.tabs.push(tab)
     context.activeTabId = tab.id
     if (request.input) {
-      const url = normalizeBrowserUrl(request.input)
+      const url = await resolveBrowserNavigation(request.input)
       tab.url = url
       tab.restoredUrl = null
       tab.hasLoadedRestoredUrl = true
@@ -702,6 +707,27 @@ export function normalizeBrowserUrl(input: string): string {
   return googleSearchUrl(trimmed)
 }
 
+async function resolveBrowserNavigation(input: string): Promise<string> {
+  const trimmed = input.trim()
+  if (!looksLikeLocalPath(trimmed)) return normalizeBrowserUrl(trimmed)
+  if (!isPlatformAbsolutePath(trimmed)) {
+    throw new Error('Enter an absolute local HTML file path for this operating system.')
+  }
+  if (extname(trimmed).toLowerCase() !== '.html') {
+    throw new Error('Only absolute local .html file paths can be loaded in Browser.')
+  }
+
+  try {
+    const metadata = await stat(trimmed)
+    if (!metadata.isFile()) throw new Error('not-a-file')
+    await access(trimmed, constants.R_OK)
+  } catch {
+    throw new Error('The local HTML file could not be found or opened.')
+  }
+
+  return pathToFileURL(trimmed).toString()
+}
+
 export function normalizeExternalBrowserUrl(input: string): string {
   const url = new URL(input)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -734,6 +760,22 @@ function normalizeExplicitHttpUrl(input: string): string {
   }
   if (!url.hostname) throw new Error('Enter a valid HTTP, HTTPS, localhost, or loopback URL.')
   return url.toString()
+}
+
+function looksLikeLocalPath(input: string): boolean {
+  return (
+    posix.isAbsolute(input) ||
+    win32.isAbsolute(input) ||
+    /^[a-z]:/i.test(input) ||
+    /^(?:\.{1,2}|~)[\\/]/.test(input)
+  )
+}
+
+function isPlatformAbsolutePath(input: string): boolean {
+  if (process.platform === 'win32') {
+    return /^[a-z]:[\\/]/i.test(input) && win32.isAbsolute(input)
+  }
+  return posix.isAbsolute(input)
 }
 
 function hasExplicitScheme(input: string): boolean {
