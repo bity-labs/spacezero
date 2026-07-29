@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CaretDown,
   CaretRight,
@@ -103,6 +103,8 @@ type RenameDialogState = {
 const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
 const EXPLORER_RESIZE_STEP = 20
+export const FILES_SAVE_ALL_COMMAND_ID = 'files.save-all'
+
 const saveConflictMessage =
   'This file changed on disk. Reload from disk or review the external changes before saving.'
 
@@ -182,7 +184,6 @@ function FilesToolSession({
   const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
-  const saveAllCommandInstanceId = useId()
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
@@ -431,14 +432,14 @@ function FilesToolSession({
   const filesCommands = useMemo<readonly AppCommand[]>(
     () => [
       {
-        id: `files.save-all.${saveAllCommandInstanceId}`,
+        id: FILES_SAVE_ALL_COMMAND_ID,
         title: 'Save All',
         category: 'Files',
         keywords: ['dirty', 'documents', 'tabs'],
         handler: () => void saveAllDirtyDocumentsRef.current()
       }
     ],
-    [saveAllCommandInstanceId]
+    []
   )
   useRegisterAppCommands(filesCommands)
 

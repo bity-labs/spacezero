@@ -181,7 +181,7 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
 import { flushFilesEditorViewStates } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
 import { useFilesStore } from '../files-store'
-import { FilesTool } from './files-tool'
+import { FILES_SAVE_ALL_COMMAND_ID, FilesTool } from './files-tool'
 
 function requestContextKey(
   request: Parameters<typeof window.spacezero.files.listDirectory>[0]
@@ -201,7 +201,9 @@ function searchFilesInput(): HTMLInputElement {
 }
 
 function invokeRegisteredSaveAllCommand(): void {
-  const command = appCommandMock.registeredCommands.find(({ id }) => id.startsWith('files.save-all.'))
+  const command = appCommandMock.registeredCommands.find(
+    ({ id }) => id === FILES_SAVE_ALL_COMMAND_ID
+  )
   if (!command) throw new Error('expected Files Save All command to be registered')
   void command.handler()
 }
