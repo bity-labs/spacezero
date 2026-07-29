@@ -28,6 +28,11 @@ export type FilesEntry = {
   kind: FilesEntryKind
 }
 
+export type FilesTree = {
+  entries: FilesEntry[]
+  presortedPaths: string[]
+}
+
 export type ListFilesTreeRequest = {
   context: FilesContext
 }
@@ -162,7 +167,7 @@ export type RevealFilesEntryRequest = {
 }
 
 export type FilesAPI = {
-  listTree: (request: ListFilesTreeRequest) => Promise<FilesEntry[]>
+  listTree: (request: ListFilesTreeRequest) => Promise<FilesTree>
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>

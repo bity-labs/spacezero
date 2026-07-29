@@ -32,8 +32,11 @@ const treesMock = vi.hoisted(() => ({
 vi.mock('@pierre/trees/react', async () => {
   const React = await vi.importActual<typeof import('react')>('react')
 
+  type PreparedTreeInput = { paths: readonly string[] }
+
   type TreeOptions = {
     paths?: readonly string[]
+    preparedInput?: PreparedTreeInput
     initialExpandedPaths?: readonly string[]
     initialSelectedPaths?: readonly string[]
     composition?: {
@@ -53,8 +56,8 @@ vi.mock('@pierre/trees/react', async () => {
   type MockModel = {
     options: TreeOptions
     resetPaths: (
-      paths: readonly string[] | { preparedInput: unknown },
-      options?: { initialExpandedPaths?: readonly string[] }
+      paths: readonly string[] | { preparedInput: PreparedTreeInput; initialExpandedPaths?: readonly string[] },
+      options?: { preparedInput?: PreparedTreeInput; initialExpandedPaths?: readonly string[] }
     ) => void
     getItem: (
       path: string
@@ -93,7 +96,7 @@ vi.mock('@pierre/trees/react', async () => {
   }
 
   function createModel(options: TreeOptions, forceUpdate: () => void): MockModel {
-    let paths = [...(options.paths ?? [])]
+    let paths = [...(options.preparedInput?.paths ?? options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
     let searchValue: string | null = null
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
@@ -131,11 +134,21 @@ vi.mock('@pierre/trees/react', async () => {
     const model: MockModel = {
       options,
       resetPaths: (nextPaths, resetOptions) => {
-        const normalizedPaths = Array.isArray(nextPaths) ? [...nextPaths] : []
+        const preparedResetOptions = nextPaths as {
+          preparedInput: PreparedTreeInput
+          initialExpandedPaths?: readonly string[]
+        }
+        const normalizedPaths = Array.isArray(nextPaths)
+          ? [...nextPaths]
+          : [...preparedResetOptions.preparedInput.paths]
         const pathsChanged =
           normalizedPaths.length !== paths.length ||
           normalizedPaths.some((path, index) => path !== paths[index])
-        const expandedChanged = resetExpanded(resetOptions?.initialExpandedPaths)
+        const expandedChanged = resetExpanded(
+          Array.isArray(nextPaths)
+            ? resetOptions?.initialExpandedPaths
+            : preparedResetOptions.initialExpandedPaths
+        )
         if (!pathsChanged && !expandedChanged) return
         paths = normalizedPaths
         notify()
@@ -609,11 +622,14 @@ describe('Files Tool', () => {
   })
 
   it('loads the full context tree through the Project Session API and opens files from Trees selection', async () => {
-    const listTree = vi.fn(async () => [
-      { name: 'src', relativePath: 'src', kind: 'directory' as const },
-      { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const },
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
-    ])
+    const listTree = vi.fn(async () => ({
+      entries: [
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
+        { name: 'src', relativePath: 'src', kind: 'directory' as const },
+        { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const }
+      ],
+      presortedPaths: ['src/', 'src/index.ts', 'README.md']
+    }))
     window.spacezero.files.listTree = listTree
     const openDocument = vi.fn(async ({ relativePath }) => ({
       name: relativePath.split('/').at(-1) ?? relativePath,
@@ -634,6 +650,11 @@ describe('Files Tool', () => {
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.getByText('README.md')).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('tree', { name: 'Project files' }))
+        .getAllByRole('treeitem')
+        .map((item) => item.getAttribute('aria-label'))
+    ).toEqual(['src', 'README.md'])
     expect(listTree).toHaveBeenCalledTimes(1)
     expect(listTree).toHaveBeenCalledWith({
       context: { kind: 'project-session', sessionId: 'session-1' }
@@ -730,9 +751,10 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
     ])
-    window.spacezero.files.listTree = vi.fn(async () => [
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
-    ])
+    window.spacezero.files.listTree = vi.fn(async () => ({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }],
+      presortedPaths: ['README.md']
+    }))
     const search = vi
       .fn()
       .mockResolvedValueOnce([
