@@ -109,6 +109,8 @@ function FilesSection({
 }
 
 function FileCard({ file }: { file: GitHubPullRequestFile }): React.JSX.Element {
+  if (file.patch.status === 'available' && !file.patch.truncated) return <Patch file={file} />
+
   return (
     <article className="overflow-hidden rounded-lg border">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b bg-muted/30 px-4 py-3">
@@ -153,7 +155,6 @@ function Patch({ file }: { file: GitHubPullRequestFile }): React.JSX.Element {
   return (
     <DiffViewer
       ariaLabel={`Diff for ${file.filename}`}
-      className="border-t"
       items={[
         {
           id: `${file.sha}:${file.filename}`,
@@ -161,7 +162,12 @@ function Patch({ file }: { file: GitHubPullRequestFile }): React.JSX.Element {
           oldPath: file.previousFilename ?? undefined,
           patch: patch.text,
           collapsed: false,
-          version: hashPatchVersion(file)
+          version: hashPatchVersion(file),
+          changeMetadata: {
+            status: file.status,
+            additions: file.additions,
+            deletions: file.deletions
+          }
         }
       ]}
     />

@@ -11,11 +11,12 @@ import { GitTool, resetGitToolViewMemoryForTests } from './git-tool'
 vi.mock('@pierre/diffs', () => ({
   parsePatchFiles: vi.fn((patch: string, cacheKeyPrefix = 'git-tool-test') => {
     const fileMatch = /diff --git a\/(.+?) b\/(.+?)(?:\n|$)/.exec(patch)
+    const combinedDiffMatch = /diff --cc (.+?)(?:\n|$)/.exec(patch)
     return [
       {
         files: [
           {
-            name: fileMatch?.[2] ?? 'mock.diff',
+            name: fileMatch?.[2] ?? combinedDiffMatch?.[1] ?? 'mock.diff',
             type: 'change',
             hunks: [],
             splitLineCount: patch.split('\n').length,
@@ -37,7 +38,9 @@ vi.mock('@pierre/diffs/react', async () => {
     ({
       items,
       options,
-      renderCustomHeader
+      renderCustomHeader,
+      renderHeaderPrefix,
+      renderHeaderMetadata
     }: {
       items: Array<{
         id: string
@@ -46,6 +49,16 @@ vi.mock('@pierre/diffs/react', async () => {
       }>
       options: { hunkSeparators?: string }
       renderCustomHeader?: (item: {
+        id: string
+        fileDiff: { name: string; additionLines: string[] }
+        collapsed?: boolean
+      }) => React.ReactNode
+      renderHeaderPrefix?: (item: {
+        id: string
+        fileDiff: { name: string; additionLines: string[] }
+        collapsed?: boolean
+      }) => React.ReactNode
+      renderHeaderMetadata?: (item: {
         id: string
         fileDiff: { name: string; additionLines: string[] }
         collapsed?: boolean
@@ -63,7 +76,12 @@ vi.mock('@pierre/diffs/react', async () => {
             React.createElement(
               'div',
               { 'data-testid': `pierre-header-${item.fileDiff.name}`, key: 'header' },
-              renderCustomHeader?.(item)
+              [
+                React.createElement(React.Fragment, { key: 'prefix' }, renderHeaderPrefix?.(item)),
+                React.createElement('span', { key: 'default-name' }, item.fileDiff.name),
+                React.createElement(React.Fragment, { key: 'custom' }, renderCustomHeader?.(item)),
+                React.createElement(React.Fragment, { key: 'metadata' }, renderHeaderMetadata?.(item))
+              ]
             ),
             item.collapsed
               ? null
@@ -306,11 +324,8 @@ describe('GitTool', () => {
     expect(
       await screen.findByRole('status', { name: 'Unresolved Git conflicts' })
     ).toHaveTextContent('1 conflicted file needs resolution before commit or push.')
-    const fileButtons = screen.getAllByRole('button', { name: /\.txt$/ })
-    expect(fileButtons.map((button) => button.textContent)).toEqual([
-      'conflicted.txt',
-      'normal.txt'
-    ])
+    expect(screen.getByText('conflicted.txt')).toBeInTheDocument()
+    expect(screen.getByText('normal.txt')).toBeInTheDocument()
     expect(screen.getByText('+<<<<<<< HEAD')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
@@ -1800,7 +1815,7 @@ describe('GitTool', () => {
       'aria-selected',
       'true'
     )
-    expect(screen.getByRole('button', { name: /shared.txt/i })).toBeInTheDocument()
+    expect(screen.getByText('shared.txt')).toBeInTheDocument()
     expect(screen.getByText('+uncommitted')).toBeInTheDocument()
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('')
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)

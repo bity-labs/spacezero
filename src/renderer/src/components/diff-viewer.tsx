@@ -12,6 +12,11 @@ export type DiffViewerItem = {
   patch: string
   collapsed?: boolean
   version?: number
+  changeMetadata?: {
+    status: string
+    additions?: number
+    deletions?: number
+  }
   headerActions?: {
     status: string
     fileNameTitle?: string
@@ -47,10 +52,10 @@ export function DiffViewer({
     () => buildCodeViewItems(items, fallbackMessage),
     [items, fallbackMessage]
   )
-  const hasCustomHeaders = codeViewItems.some((item) => sourceItems.get(item.id)?.headerActions)
+  const hasHeaderActions = codeViewItems.some((item) => sourceItems.get(item.id)?.headerActions)
 
   return (
-    <div aria-label={ariaLabel} className={cn('bg-muted/20', className)}>
+    <div aria-label={ariaLabel} className={cn('overflow-hidden rounded-lg border', className)}>
       {codeViewItems.length > 0 ? (
         <CodeView
           disableWorkerPool
@@ -59,21 +64,19 @@ export function DiffViewer({
             theme: resolvedTheme === 'dark' ? 'pierre-dark' : 'pierre-light',
             themeType: resolvedTheme,
             diffStyle: 'unified',
+            diffIndicators: 'none',
             hunkSeparators: 'line-info-basic',
             overflow: 'scroll',
             stickyHeaders: true
           }}
-          renderCustomHeader={
-            hasCustomHeaders
-              ? (item) => {
-                  const sourceItem = sourceItems.get(item.id)
-                  return sourceItem?.headerActions ? (
-                    <DiffViewerInteractiveHeader item={sourceItem} />
-                  ) : null
-                }
+          renderHeaderPrefix={
+            hasHeaderActions
+              ? (item) => <DiffViewerHeaderPrefix item={sourceItems.get(item.id)} />
               : undefined
           }
-          renderHeaderMetadata={(item) => <DiffViewerHeaderMetadata item={item} />}
+          renderHeaderMetadata={(item) => (
+            <DiffViewerHeaderMetadata item={item} sourceItem={sourceItems.get(item.id)} />
+          )}
         />
       ) : null}
       {fallbackItems.map((item) => (
@@ -132,26 +135,55 @@ function buildCodeViewItems(
   return { codeViewItems, fallbackItems, sourceItems }
 }
 
-function DiffViewerInteractiveHeader({ item }: { item: DiffViewerItem }): React.JSX.Element {
-  const actions = item.headerActions
-  if (!actions) throw new Error('Interactive diff headers require header actions.')
+function DiffViewerHeaderPrefix({ item }: { item?: DiffViewerItem }): React.JSX.Element | null {
+  const actions = item?.headerActions
+  if (!item || !actions) return null
 
   return (
-    <div className="relative flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2 text-left hover:bg-accent/60">
-      <button
-        aria-expanded={!item.collapsed}
-        aria-label="Toggle diff"
-        className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-        type="button"
-        onClick={actions.onToggle}
-      />
-      <div className="pointer-events-none relative z-10 min-w-0">
+    <button
+      aria-expanded={!item.collapsed}
+      aria-label="Toggle diff"
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded border text-xs text-muted-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        actions.onToggle()
+      }}
+    >
+      {item.collapsed ? '+' : '−'}
+    </button>
+  )
+}
+
+function DiffViewerHeaderMetadata({
+  item,
+  sourceItem
+}: {
+  item: CodeViewItem
+  sourceItem?: DiffViewerItem
+}): React.JSX.Element | null {
+  if (item.type !== 'diff') return null
+  const metadata = item.fileDiff
+  const actions = sourceItem?.headerActions
+  const changeMetadata = sourceItem?.changeMetadata
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+      <span className="rounded border px-2 py-0.5 capitalize">
+        {actions?.status ?? changeMetadata?.status ?? formatChangeType(metadata.type)}
+      </span>
+      {changeMetadata?.deletions !== undefined ? (
+        <span className="text-destructive">−{changeMetadata.deletions}</span>
+      ) : null}
+      {changeMetadata?.additions !== undefined ? (
+        <span className="text-emerald-600">+{changeMetadata.additions}</span>
+      ) : null}
+      {metadata.prevName ? (
+        <span className="truncate">renamed from {metadata.prevName}</span>
+      ) : null}
+      {actions?.onFileNameClick ? (
         <button
-          className={cn(
-            'pointer-events-auto block truncate text-sm font-medium',
-            actions.onFileNameClick ? 'underline-offset-2 hover:underline' : undefined
-          )}
-          disabled={!actions.onFileNameClick}
+          aria-label={sourceItem?.path}
+          className="rounded border px-2 py-0.5 text-xs text-foreground underline-offset-2 hover:bg-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           title={actions.fileNameTitle}
           type="button"
           onClick={(event) => {
@@ -159,29 +191,8 @@ function DiffViewerInteractiveHeader({ item }: { item: DiffViewerItem }): React.
             actions.onFileNameClick?.()
           }}
         >
-          {item.path}
+          Open file
         </button>
-        {item.oldPath ? (
-          <div className="truncate text-xs text-muted-foreground">renamed from {item.oldPath}</div>
-        ) : null}
-      </div>
-      <span className="pointer-events-none relative z-10 shrink-0 rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
-        {actions.status}
-      </span>
-    </div>
-  )
-}
-
-function DiffViewerHeaderMetadata({ item }: { item: CodeViewItem }): React.JSX.Element | null {
-  if (item.type !== 'diff') return null
-  const metadata = item.fileDiff
-  return (
-    <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-      <span className="rounded border px-2 py-0.5 capitalize">
-        {formatChangeType(metadata.type)}
-      </span>
-      {metadata.prevName ? (
-        <span className="truncate">renamed from {metadata.prevName}</span>
       ) : null}
     </span>
   )
