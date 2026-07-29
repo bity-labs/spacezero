@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { readFilesDirectory } from './files-directory.adapter'
+import { readFilesDirectory, readFilesTree } from './files-directory.adapter'
 
 describe('Files directory adapter', () => {
   let rootPath: string
@@ -41,6 +41,26 @@ describe('Files directory adapter', () => {
       { name: 'File2.ts', relativePath: 'File2.ts', kind: 'file' },
       { name: 'file10.ts', relativePath: 'file10.ts', kind: 'file' },
       { name: 'ignored.txt', relativePath: 'ignored.txt', kind: 'file' }
+    ])
+  })
+
+  it('lists a full presorted tree without following symbolic links or exposing Git internals', async () => {
+    await mkdir(join(rootPath, '.git', 'objects'), { recursive: true })
+    await mkdir(join(rootPath, 'src', 'components'), { recursive: true })
+    await mkdir(join(rootPath, 'empty'))
+    await writeFile(join(rootPath, 'README.md'), '')
+    await writeFile(join(rootPath, 'src', 'index.ts'), '')
+    await writeFile(join(rootPath, 'src', 'components', 'button.tsx'), '')
+    await symlink(join(rootPath, 'src'), join(rootPath, 'linked-src'))
+
+    await expect(readFilesTree(rootPath)).resolves.toEqual([
+      { name: 'empty', relativePath: 'empty', kind: 'directory' },
+      { name: 'src', relativePath: 'src', kind: 'directory' },
+      { name: 'components', relativePath: 'src/components', kind: 'directory' },
+      { name: 'button.tsx', relativePath: 'src/components/button.tsx', kind: 'file' },
+      { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' },
+      { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' },
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
     ])
   })
 

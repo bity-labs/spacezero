@@ -11,6 +11,7 @@ import {
   createObserveFilesHandler,
   createUnobserveFilesHandler,
   createListFilesDirectoryHandler,
+  createListFilesTreeHandler,
   createMoveFilesEntryHandler,
   createOpenFilesDocumentHandler,
   createRevealFilesEntryHandler,
@@ -48,6 +49,25 @@ function createSender(id = 1) {
 }
 
 describe('Files IPC', () => {
+  it('validates renderer input before listing a context tree', async () => {
+    const listTree = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    const handle = createListFilesTreeHandler({ listTree })
+
+    await expect(handle({ context: projectContext })).resolves.toEqual([
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
+    ])
+    await expect(handle({ context: knowledgeBaseContext })).resolves.toEqual([
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
+    ])
+    expect(listTree).toHaveBeenNthCalledWith(1, { context: projectContext })
+    expect(listTree).toHaveBeenNthCalledWith(2, { context: knowledgeBaseContext })
+
+    await expect(handle({ context: projectContext, rootPath: '/tmp' })).rejects.toThrow()
+    expect(listTree).toHaveBeenCalledTimes(2)
+  })
+
   it('validates renderer input before listing a context directory', async () => {
     const listDirectory = vi.fn(async () => [])
     const handle = createListFilesDirectoryHandler({ listDirectory })
@@ -210,8 +230,7 @@ describe('Files IPC', () => {
 
   it('closes a watcher exactly once when unobserve races deferred startup', async () => {
     let emitEvent:
-      | ((event: { kind: 'modified'; contextKey: string; relativePath: string }) => void)
-      | undefined
+      ((event: { kind: 'modified'; contextKey: string; relativePath: string }) => void) | undefined
     let resolveObserve: ((close: () => void) => void) | undefined
     const close = vi.fn()
     const service = {
