@@ -72,6 +72,41 @@
   overflow: auto;
 }
 
+.rich-markdown-editor__properties {
+  max-width: 760px;
+  margin: 0 auto;
+  border-bottom: 1px solid var(--border);
+  padding: 1.5rem 2.5rem 1rem;
+}
+
+.rich-markdown-editor__properties h2 {
+  margin-bottom: 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rich-markdown-editor__property-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.4fr) minmax(12rem, 1fr);
+  align-items: start;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.rich-markdown-editor__property-row textarea {
+  min-height: 2.25rem;
+  resize: vertical;
+}
+
+.rich-markdown-editor__property-error {
+  margin-top: 0.5rem;
+  color: var(--destructive);
+  font-size: 0.75rem;
+}
+
 .rich-markdown-editor__content .tiptap.ProseMirror {
   min-height: 100%;
   max-width: 760px;
@@ -244,6 +279,14 @@
 
   .rich-markdown-editor__link-form input {
     flex-basis: 100%;
+  }
+
+  .rich-markdown-editor__properties {
+    padding: 1.25rem 1.25rem 0.85rem;
+  }
+
+  .rich-markdown-editor__property-row {
+    grid-template-columns: 1fr;
   }
 
   .rich-markdown-editor__content .tiptap.ProseMirror {
