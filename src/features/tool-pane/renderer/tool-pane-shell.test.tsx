@@ -56,6 +56,25 @@ describe('ToolPaneShell', () => {
     expect(screen.queryByRole('complementary', { name: 'Tool Pane' })).not.toBeInTheDocument()
   })
 
+  it('aligns the collapsed pane toggle with the vertical tool buttons without shrinking either click target', () => {
+    render(
+      <>
+        <ToolPaneHeaderControls configuration={configuration} />
+        <ToolPaneShell {...configuration} showInlineHeaderSwitcher={false}>
+          <div>Chat</div>
+        </ToolPaneShell>
+      </>
+    )
+
+    const headerControls = screen.getByLabelText('Tool Pane header controls')
+    const toggle = screen.getByRole('button', { name: 'Toggle Tool Pane' })
+    const toolButton = screen.getByRole('button', { name: 'Browser' })
+
+    expect(headerControls).toHaveClass('pr-3')
+    expect(toggle).toHaveClass('size-8')
+    expect(toolButton).toHaveClass('size-8')
+  })
+
   it('opens the selected tool and renders the expanded Tool Switcher in the shared header controls', async () => {
     const user = userEvent.setup()
 
