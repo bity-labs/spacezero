@@ -7,7 +7,8 @@ import {
   KNOWLEDGE_BASE_IPC_CHANNELS,
   cloneKnowledgeBaseRequestSchema,
   importKnowledgeBaseImageRequestSchema,
-  loadKnowledgeBaseImageRequestSchema
+  loadKnowledgeBaseImageRequestSchema,
+  resumeKnowledgeBaseChatContextRequestSchema
 } from '../shared'
 import { getKnowledgeBaseChatService } from './knowledge-base-chat.runtime'
 import { getKnowledgeBaseProjectsService, getKnowledgeBaseService } from './index'
@@ -17,6 +18,13 @@ export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getCurrentChatContext, () =>
     getKnowledgeBaseChatService().getOrCreateCurrentChatContext()
   )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.listChatHistory, () =>
+    getKnowledgeBaseChatService().listChatHistory()
+  )
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.resumeChatContext, (_event, input: unknown) => {
+    const request = resumeKnowledgeBaseChatContextRequestSchema.parse(input)
+    return getKnowledgeBaseChatService().resumeChatContext(request.chatContextId)
+  })
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.clearChat, () =>
     getKnowledgeBaseChatService().clearChat()
   )

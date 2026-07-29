@@ -1,7 +1,11 @@
-import { createWorkspaceAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import {
+  createWorkspaceAgentSession,
+  restoreAgentSessionState
+} from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createKnowledgeBaseChatRepository } from './knowledge-base-chat.repository'
 import {
@@ -19,9 +23,21 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
     service = createKnowledgeBaseChatService({
       getStatus: () => getKnowledgeBaseService().getStatus(),
       getCurrentChatContext: currentSessionRepository.getCurrentChatContext,
+      listChatContexts: currentSessionRepository.listChatContexts,
+      findChatContextById: currentSessionRepository.findChatContextById,
       createCurrentChatContext: currentSessionRepository.createCurrentChatContext,
+      setCurrentChatContext: currentSessionRepository.setCurrentChatContext,
       clearCurrentChatContext: currentSessionRepository.clearCurrentChatContext,
       findSessionById: sessionsRepository.findSessionById,
+      getSessionState: (request) =>
+        restoreAgentSessionState(request, {
+          repository: sessionsRepository,
+          utilityHost: getAgentUtilityProcessHost(),
+          worktrees: getManagedWorktreeService(),
+          getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus(),
+          readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+          resolveSkillPaths: resolveAgentSkillPaths
+        }),
       createSession: async () => {
         const session = await createWorkspaceAgentSession({
           repository: sessionsRepository,

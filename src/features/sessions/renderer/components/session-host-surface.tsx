@@ -10,7 +10,8 @@ import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-
 import {
   type AiChatMessage,
   type AiChatToolCallPart,
-  type ChatInputCommand
+  type ChatInputCommand,
+  type ChatInputHistoryItem
 } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
@@ -29,7 +30,10 @@ type WorkspaceSessionHostSurfaceProps = {
   requireRuntimeReady?: boolean
   chatLinkContext?: BrowserContext
   commands?: ChatInputCommand[]
+  historyItems?: ChatInputHistoryItem[]
   onCommand?: (commandName: string) => void | Promise<void>
+  onHistorySelect?: (historyItemId: string) => void | Promise<void>
+  onHistoryDismiss?: () => void
 }
 
 export function ProjectSessionHostSurface({
@@ -72,7 +76,10 @@ export function WorkspaceSessionHostSurface({
   requireRuntimeReady = false,
   chatLinkContext = { kind: 'workspace-session', sessionId: session.id },
   commands,
-  onCommand
+  historyItems,
+  onCommand,
+  onHistorySelect,
+  onHistoryDismiss
 }: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
@@ -129,7 +136,10 @@ export function WorkspaceSessionHostSurface({
       emptyState={emptyState}
       chatLinkContext={chatLinkContext}
       commands={commands}
+      historyItems={historyItems}
       onCommand={onCommand}
+      onHistorySelect={onHistorySelect}
+      onHistoryDismiss={onHistoryDismiss}
     />
   )
 }
@@ -150,7 +160,10 @@ type SessionHostFrameProps = {
   emptyState?: string
   chatLinkContext?: BrowserContext
   commands?: ChatInputCommand[]
+  historyItems?: ChatInputHistoryItem[]
   onCommand?: (commandName: string) => void | Promise<void>
+  onHistorySelect?: (historyItemId: string) => void | Promise<void>
+  onHistoryDismiss?: () => void
 }
 
 function SessionHostFrame({
@@ -166,7 +179,10 @@ function SessionHostFrame({
   emptyState,
   chatLinkContext,
   commands,
-  onCommand
+  historyItems,
+  onCommand,
+  onHistorySelect,
+  onHistoryDismiss
 }: SessionHostFrameProps): React.JSX.Element {
   const projectedMessages = useToolExecutionMessages(sessionId, messages)
   const [submissionError, setSubmissionError] = useState<string | undefined>(undefined)
@@ -228,8 +244,11 @@ function SessionHostFrame({
         contentClassName="w-full px-6 pb-48 pt-12"
         placeholder={placeholder}
         commands={commands}
+        historyItems={historyItems}
         onSubmit={handleSubmit}
         onCommand={onCommand}
+        onHistorySelect={onHistorySelect}
+        onHistoryDismiss={onHistoryDismiss}
         onAbort={onAbort}
         onToolConfirmationResolve={onToolConfirmationResolve}
         onOpenLink={openChatLink}

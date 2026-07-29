@@ -74,6 +74,49 @@ describe('ChatInput', () => {
     await waitFor(() => expect(input).toHaveValue(''))
   })
 
+  it('discovers /resume with a command-style icon', () => {
+    render(
+      <ChatInput
+        commands={[{ name: 'resume', description: 'Continue an older Chat Context.' }]}
+        onCommand={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: '/res' }
+    })
+
+    const option = screen.getByRole('option', { name: /\/resume.*Continue an older Chat Context/i })
+    expect(option).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(option.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
+  })
+
+  it('shows Chat Context history with file icons, one-line prompts, and creation metadata', () => {
+    render(
+      <ChatInput
+        historyItems={[
+          {
+            id: 'chat-context-older',
+            initialPrompt: 'Explain the architecture with implementation details.',
+            createdAt: '2026-07-19T08:30:00.000Z'
+          }
+        ]}
+        onHistorySelect={vi.fn()}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const option = screen.getByRole('option', {
+      name: /Explain the architecture with implementation details/i
+    })
+    expect(option.querySelector('[data-chat-history-icon="true"]')).toBeInTheDocument()
+    expect(option).toHaveTextContent(/Jul 19, 2026/i)
+    expect(screen.getByText('Explain the architecture with implementation details.')).toHaveClass(
+      'truncate'
+    )
+  })
+
   it('discovers skills from slash commands and submits the native Pi command', () => {
     const handleSubmit = vi.fn()
     render(

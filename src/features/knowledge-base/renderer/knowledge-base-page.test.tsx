@@ -182,6 +182,106 @@ describe('KnowledgeBasePage', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows scoped /resume history, selects its transcript, and continues the selected context', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const selectedSession = { ...managedSession, id: 'knowledge-base-session-selected' }
+    const selectedContext = {
+      ...managedChatContext,
+      id: 'knowledge-base-chat-context-selected',
+      agentSession: selectedSession,
+      createdAt: '2026-07-19T08:30:00.000Z'
+    }
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+    const listChatHistory = vi.fn(async () => [
+      {
+        id: selectedContext.id,
+        initialPrompt: 'Explain retained architecture decisions.',
+        createdAt: selectedContext.createdAt
+      }
+    ])
+    const resumeChatContext = vi.fn(async () => selectedContext)
+    window.spacezero.knowledgeBase.listChatHistory = listChatHistory
+    window.spacezero.knowledgeBase.resumeChatContext = resumeChatContext
+    window.spacezero.agent.getState = async ({ sessionId }) => ({
+      sessionId,
+      kind: 'workspace',
+      projectId: null,
+      cwd: '/home/builder/SpaceZero/knowledge-base',
+      status: 'idle',
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot:
+        sessionId === selectedSession.id
+          ? [
+              {
+                role: 'user' as const,
+                timestamp: 100,
+                content: 'Explain retained architecture decisions.'
+              },
+              {
+                role: 'assistant' as const,
+                timestamp: 101,
+                content: [{ type: 'text' as const, text: 'The stable context owns tool state.' }],
+                stopReason: 'stop' as const
+              }
+            ]
+          : []
+    })
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.agent.prompt = prompt
+    useToolPaneStore.setState({
+      contexts: {
+        'knowledge-base': { isOpen: true, width: 612, activeToolId: 'files' }
+      }
+    })
+
+    const configuration = createKnowledgeBaseToolPaneConfiguration()
+    render(
+      <ToolPaneShell {...configuration}>
+        <KnowledgeBasePage />
+      </ToolPaneShell>
+    )
+
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/res' } })
+    const resumeCommand = screen.getByRole('option', { name: /\/resume/ })
+    expect(resumeCommand.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
+    fireEvent.change(input, { target: { value: '/resume' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    const historyRow = await screen.findByRole('option', {
+      name: /Explain retained architecture decisions/i
+    })
+    expect(listChatHistory).toHaveBeenCalledTimes(1)
+    fireEvent.click(historyRow)
+
+    await waitFor(() =>
+      expect(resumeChatContext).toHaveBeenCalledWith({ chatContextId: selectedContext.id })
+    )
+    expect(await screen.findByText('The stable context owns tool state.')).toBeInTheDocument()
+
+    const selectedInput = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(selectedInput, { target: { value: 'Continue this reasoning.' } })
+    fireEvent.keyDown(selectedInput, { key: 'Enter' })
+
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith({
+        sessionId: selectedSession.id,
+        message: 'Continue this reasoning.'
+      })
+    )
+    expect(useToolPaneStore.getState().contexts['knowledge-base']).toMatchObject({
+      isOpen: true,
+      width: 612,
+      activeToolId: 'files'
+    })
+  })
+
   it('preserves Tool Pane and tool-owned state across chat rotation and layout across restart', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',

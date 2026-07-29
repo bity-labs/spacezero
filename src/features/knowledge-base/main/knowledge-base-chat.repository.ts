@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 
 import { getDatabase } from '../../../main/db'
@@ -48,8 +48,45 @@ export function createKnowledgeBaseChatRepository({
     return chatContext
   }
 
+  async function findChatContextById(
+    chatContextId: string
+  ): Promise<StoredChatContext | undefined> {
+    const [chatContext] = await getDatabase()
+      .select({
+        id: schema.chatContexts.id,
+        workspaceContextKey: schema.chatContexts.workspaceContextKey,
+        agentSessionId: schema.chatContexts.agentSessionId,
+        createdAt: schema.chatContexts.createdAt,
+        updatedAt: schema.chatContexts.updatedAt
+      })
+      .from(schema.chatContexts)
+      .where(
+        and(
+          eq(schema.chatContexts.id, chatContextId),
+          eq(schema.chatContexts.workspaceContextKey, KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY)
+        )
+      )
+      .limit(1)
+    return chatContext
+  }
+
   return {
     getCurrentChatContext,
+    findChatContextById,
+
+    async listChatContexts(): Promise<StoredChatContext[]> {
+      return getDatabase()
+        .select({
+          id: schema.chatContexts.id,
+          workspaceContextKey: schema.chatContexts.workspaceContextKey,
+          agentSessionId: schema.chatContexts.agentSessionId,
+          createdAt: schema.chatContexts.createdAt,
+          updatedAt: schema.chatContexts.updatedAt
+        })
+        .from(schema.chatContexts)
+        .where(eq(schema.chatContexts.workspaceContextKey, KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY))
+        .orderBy(desc(schema.chatContexts.createdAt))
+    },
 
     async createCurrentChatContext(agentSessionId: string): Promise<StoredChatContext> {
       const timestamp = now()
@@ -76,6 +113,26 @@ export function createKnowledgeBaseChatRepository({
           })
           .run()
       })
+      return chatContext
+    },
+
+    async setCurrentChatContext(chatContextId: string): Promise<StoredChatContext> {
+      const chatContext = await findChatContextById(chatContextId)
+      if (!chatContext) throw new Error('Knowledge Base Chat Context was not found.')
+
+      const timestamp = now()
+      await getDatabase()
+        .insert(schema.workspaceChatContexts)
+        .values({
+          workspaceContextKey: KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY,
+          workspaceContextKind: 'knowledge-base',
+          currentChatContextId: chatContext.id,
+          updatedAt: timestamp
+        })
+        .onConflictDoUpdate({
+          target: schema.workspaceChatContexts.workspaceContextKey,
+          set: { currentChatContextId: chatContext.id, updatedAt: timestamp }
+        })
       return chatContext
     },
 
