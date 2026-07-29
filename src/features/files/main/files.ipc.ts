@@ -24,6 +24,7 @@ import { createSessionsRepository } from '../../sessions/main/sessions.repositor
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
 import { readFilesDirectory, readFilesTree } from './files-directory.adapter'
 import { openFilesDocument, saveFilesDocument } from './files-document.adapter'
+import { readFilesGitStatus } from './files-git-status.adapter'
 import { createFilesEntry, moveFilesEntry, trashFilesEntry } from './files-operations.adapter'
 import { revealFilesEntry } from './files-reveal.adapter'
 import { searchFiles } from './files-search.adapter'
@@ -132,6 +133,7 @@ const filesService = createFilesService({
   operations: getKnowledgeBaseOperationCoordinator(),
   readDirectory: readFilesDirectory,
   readTree: readFilesTree,
+  collectGitStatus: readFilesGitStatus,
   openDocument: openFilesDocument,
   saveDocument: saveFilesDocument,
   createEntry: createFilesEntry,
