@@ -11,7 +11,11 @@ import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
 import type {
   ContextMenuItem,
   ContextMenuOpenContext,
+  FileTreeDropContext,
+  FileTreeDropResult,
   FileTreeIcons,
+  FileTreeRenameEvent,
+  FileTreeRenamingItem,
   FileTreeRowDecoration
 } from '@pierre/trees'
 
@@ -73,15 +77,6 @@ type ContentSearchState =
 type CreateDialogState = {
   kind: 'file' | 'folder'
   parentPath: string
-  name: string
-  error: string | null
-  status: 'idle' | 'submitting'
-}
-
-type RenameDialogState = {
-  sourcePath: string
-  parentPath: string
-  originalName: string
   name: string
   error: string | null
   status: 'idle' | 'submitting'
@@ -199,9 +194,7 @@ function FilesToolSession({
   const [treeHeight, setTreeHeight] = useState(480)
   const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState<CreateDialogState | null>(null)
-  const [renameDialog, setRenameDialog] = useState<RenameDialogState | null>(null)
   const createInputRef = useRef<HTMLInputElement>(null)
-  const renameInputRef = useRef<HTMLInputElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const treeContainerRef = useRef<HTMLDivElement>(null)
   const activeSessionRef = useRef(sessionId)
@@ -212,7 +205,14 @@ function FilesToolSession({
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const observedPathGenerationsRef = useRef(new Map<string, number>())
   const contentSearchStateRef = useRef(contentSearchState)
+  const explorerSearchModeRef = useRef(explorerSearchMode)
+  const filesSearchQueryRef = useRef(filesSearchQuery)
   const treeEntriesRef = useRef<FilesEntry[]>([])
+  const treeDropHandlerRef = useRef<(event: FileTreeDropResult) => Promise<void>>(async () => undefined)
+  const treeDropValidatorRef = useRef<(event: FileTreeDropContext) => boolean>(() => false)
+  const treeRenameHandlerRef = useRef<(event: FileTreeRenameEvent) => Promise<void>>(
+    async () => undefined
+  )
   const treeSelectionHandlerRef = useRef<(paths: readonly string[]) => void>(() => undefined)
   const { model: treeModel } = useFileTree({
     composition: {
@@ -223,7 +223,16 @@ function FilesToolSession({
       }
     },
     density: 'compact',
-    dragAndDrop: false,
+    dragAndDrop: {
+      canDrag: (paths) =>
+        explorerSearchModeRef.current === 'files' &&
+        !filesSearchQueryRef.current.trim() &&
+        paths.length === 1 &&
+        canMoveTreePath(paths[0] ?? '', treeEntriesRef.current),
+      canDrop: (event) => treeDropValidatorRef.current(event),
+      onDropComplete: (event) => void treeDropHandlerRef.current(event),
+      onDropError: (error) => window.alert(treeMutationErrorMessage(error))
+    },
     fileTreeSearchMode: 'hide-non-matches',
     flattenEmptyDirectories: true,
     icons: filesTreeIcons,
@@ -232,6 +241,11 @@ function FilesToolSession({
     initialExpandedPaths: context.expandedPaths,
     initialSelectedPaths: context.selectedPath ? [context.selectedPath] : [],
     paths: [],
+    renaming: {
+      canRename: (item) => canRenameTreeItem(item, treeEntriesRef.current),
+      onError: (error) => window.alert(treeMutationErrorMessage(error)),
+      onRename: (event) => void treeRenameHandlerRef.current(event)
+    },
     search: false,
     stickyFolders: true,
     onSearchChange: (value) => {
@@ -259,6 +273,14 @@ function FilesToolSession({
   useEffect(() => {
     contentSearchStateRef.current = contentSearchState
   }, [contentSearchState])
+
+  useEffect(() => {
+    explorerSearchModeRef.current = explorerSearchMode
+  }, [explorerSearchMode])
+
+  useEffect(() => {
+    filesSearchQueryRef.current = filesSearchQuery
+  }, [filesSearchQuery])
 
   useEffect(() => {
     treeModel.setSearch(explorerSearchMode === 'files' ? filesSearchQuery : null)
@@ -613,15 +635,6 @@ function FilesToolSession({
   }, [createDialog?.kind, createDialog?.parentPath])
 
   useEffect(() => {
-    if (!renameDialog) return
-    const focusTimeout = window.setTimeout(() => {
-      renameInputRef.current?.focus()
-      renameInputRef.current?.select()
-    }, 0)
-    return () => window.clearTimeout(focusTimeout)
-  }, [renameDialog?.sourcePath])
-
-  useEffect(() => {
     if (explorerSearchMode !== 'contents') return
     const focusTimeout = window.setTimeout(() => searchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(focusTimeout)
@@ -679,57 +692,51 @@ function FilesToolSession({
     ]
   )
 
-  const openRenameDialog = useCallback((relativePath: string): void => {
-    const originalName = pathName(relativePath)
-    setRenameDialog({
-      sourcePath: relativePath,
-      parentPath: parentDirectoryPath(relativePath),
-      originalName,
-      name: originalName,
-      error: null,
-      status: 'idle'
-    })
+  useEffect(() => {
+    treeDropValidatorRef.current = (event): boolean =>
+      explorerSearchModeRef.current === 'files' &&
+      !filesSearchQueryRef.current.trim() &&
+      isValidTreeDrop(event, treeEntriesRef.current)
   }, [])
 
-  const confirmRenameEntry = useCallback(async (): Promise<void> => {
-    const dialog = renameDialog
-    if (!dialog || dialog.status === 'submitting') return
-    const name = dialog.name.trim()
-    if (!name) {
-      setRenameDialog({ ...dialog, name, error: 'Enter a name.' })
-      return
-    }
-    if (createEntryNameError('file', name)) {
-      setRenameDialog({ ...dialog, name, error: 'Use a valid name.' })
-      return
-    }
-    if (name === dialog.originalName) {
-      setRenameDialog({ ...dialog, name, error: 'Choose a different name.' })
-      return
-    }
-    const destinationPath = joinRelativePath(dialog.parentPath, name)
-    setRenameDialog({ ...dialog, name, error: null, status: 'submitting' })
-    try {
-      const moved = await applyMoveEntry(dialog.sourcePath, destinationPath)
-      if (moved) {
-        setRenameDialog(null)
+  useEffect(() => {
+    treeDropHandlerRef.current = async (event): Promise<void> => {
+      const moveRequest = createMoveRequestFromTreeDrop(event, treeEntriesRef.current)
+      if (!moveRequest) {
+        await loadRoot()
         return
       }
-      setRenameDialog({
-        ...dialog,
-        name,
-        error: 'Save or discard changes before renaming.',
-        status: 'idle'
-      })
-    } catch (error) {
-      setRenameDialog({
-        ...dialog,
-        name,
-        error: fileOperationErrorMessage(error),
-        status: 'idle'
-      })
+      try {
+        const moved = await applyMoveEntry(moveRequest.sourcePath, moveRequest.destinationPath)
+        if (!moved) await loadRoot()
+      } catch (error) {
+        await loadRoot()
+        window.alert(fileOperationErrorMessage(error))
+      }
     }
-  }, [applyMoveEntry, renameDialog])
+  }, [applyMoveEntry, loadRoot])
+
+  useEffect(() => {
+    treeRenameHandlerRef.current = async (event): Promise<void> => {
+      try {
+        const moved = await applyMoveEntry(
+          fromFilesTreePath(event.sourcePath),
+          fromFilesTreePath(event.destinationPath)
+        )
+        if (!moved) await loadRoot()
+      } catch (error) {
+        await loadRoot()
+        window.alert(fileOperationErrorMessage(error))
+      }
+    }
+  }, [applyMoveEntry, loadRoot])
+
+  const startInlineRename = useCallback(
+    (relativePath: string): void => {
+      treeModel.startRenaming(toFilesTreePath(relativePath, treeEntriesRef.current))
+    },
+    [treeModel]
+  )
 
   const trashEntry = useCallback(
     async (relativePath: string): Promise<void> => {
@@ -1178,7 +1185,7 @@ function FilesToolSession({
                       entries={treeEntriesRef.current}
                       ipcContext={ipcContext}
                       onCreate={(kind, parentPath) => openCreateDialog(kind, parentPath)}
-                      onRename={openRenameDialog}
+                      onRename={startInlineRename}
                       onTrash={trashEntry}
                     />
                   )}
@@ -1244,15 +1251,6 @@ function FilesToolSession({
           setCreateDialog((dialog) => (dialog ? { ...dialog, name, error: null } : dialog))
         }
         onSubmit={() => void confirmCreateEntry()}
-      />
-      <RenameEntryDialog
-        inputRef={renameInputRef}
-        state={renameDialog}
-        onCancel={() => setRenameDialog(null)}
-        onChange={(name) =>
-          setRenameDialog((dialog) => (dialog ? { ...dialog, name, error: null } : dialog))
-        }
-        onSubmit={() => void confirmRenameEntry()}
       />
     </section>
   )
@@ -1320,71 +1318,6 @@ function CreateEntryDialog({
             </Button>
             <Button disabled={isSubmitting} type="submit">
               Create
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function RenameEntryDialog({
-  inputRef,
-  state,
-  onCancel,
-  onChange,
-  onSubmit
-}: {
-  inputRef: React.RefObject<HTMLInputElement | null>
-  state: RenameDialogState | null
-  onCancel: () => void
-  onChange: (name: string) => void
-  onSubmit: () => void
-}): React.JSX.Element | null {
-  if (!state) return null
-  const isSubmitting = state.status === 'submitting'
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !isSubmitting) onCancel()
-      }}
-    >
-      <DialogContent showCloseButton={!isSubmitting}>
-        <DialogHeader>
-          <DialogTitle>Rename</DialogTitle>
-          <DialogDescription>Rename {state.sourcePath}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onSubmit()
-          }}
-        >
-          <div className="grid gap-2">
-            <Input
-              ref={inputRef}
-              aria-describedby={state.error ? 'files-rename-error' : undefined}
-              aria-invalid={state.error ? true : undefined}
-              aria-label="Name"
-              disabled={isSubmitting}
-              value={state.name}
-              onChange={(event) => onChange(event.currentTarget.value)}
-            />
-            {state.error ? (
-              <p id="files-rename-error" className="text-xs text-destructive">
-                {state.error}
-              </p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button disabled={isSubmitting} type="button" variant="outline" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button disabled={isSubmitting} type="submit">
-              Rename
             </Button>
           </DialogFooter>
         </form>
@@ -2122,6 +2055,45 @@ function renderFilesTreeRowDecoration(
   return entry?.kind === 'symlink' ? { text: 'Symbolic link', title: 'Symbolic link' } : null
 }
 
+function canMoveTreePath(path: string, entries: readonly FilesEntry[]): boolean {
+  const entry = findTreeEntry(entries, fromFilesTreePath(path))
+  return entry?.kind === 'file' || entry?.kind === 'directory'
+}
+
+function canRenameTreeItem(item: FileTreeRenamingItem, entries: readonly FilesEntry[]): boolean {
+  return canMoveTreePath(item.path, entries)
+}
+
+function isValidTreeDrop(event: FileTreeDropContext, entries: readonly FilesEntry[]): boolean {
+  return createMoveRequestFromTreeDrop(event, entries) !== null
+}
+
+function createMoveRequestFromTreeDrop(
+  event: FileTreeDropContext,
+  entries: readonly FilesEntry[]
+): { sourcePath: string; destinationPath: string } | null {
+  if (event.draggedPaths.length !== 1) return null
+  const sourcePath = fromFilesTreePath(event.draggedPaths[0] ?? '')
+  const sourceEntry = findTreeEntry(entries, sourcePath)
+  if (!sourceEntry || sourceEntry.kind === 'symlink') return null
+  const targetDirectoryPath = fromFilesTreePath(event.target.directoryPath ?? '')
+  if (targetDirectoryPath) {
+    const targetEntry = findTreeEntry(entries, targetDirectoryPath)
+    if (targetEntry?.kind !== 'directory') return null
+  }
+  if (
+    sourceEntry.kind === 'directory' &&
+    (targetDirectoryPath === sourcePath || targetDirectoryPath.startsWith(`${sourcePath}/`))
+  ) {
+    return null
+  }
+  const destinationPath = joinRelativePath(targetDirectoryPath, pathName(sourcePath))
+  if (destinationPath === sourcePath) return null
+  const collidingEntry = findTreeEntry(entries, destinationPath)
+  if (collidingEntry && collidingEntry.relativePath !== sourcePath) return null
+  return { sourcePath, destinationPath }
+}
+
 function createEntryNameError(kind: 'file' | 'folder', name: string): string | null {
   if (!name) return `Enter a ${kind} name.`
   if (
@@ -2211,6 +2183,16 @@ function externalReadErrorMessage(error: unknown): string {
     return 'Space Zero cannot access this file. Check its permissions and try again.'
   }
   return 'Couldn’t reload this file from disk. Your changes are still in memory.'
+}
+
+function treeMutationErrorMessage(error: unknown): string {
+  const message = typeof error === 'string' ? error : error instanceof Error ? error.message : ''
+  if (message.toLowerCase().includes('empty')) return 'Enter a name.'
+  if (message.toLowerCase().includes('exists') || message.toLowerCase().includes('collision')) {
+    return 'An item already exists at that path.'
+  }
+  if (message.toLowerCase().includes('invalid')) return 'Use a valid name inside this Files root.'
+  return 'The file operation failed. No local Files state was changed.'
 }
 
 function fileOperationErrorMessage(error: unknown): string {
