@@ -33,6 +33,12 @@ import {
 import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem as ContextMenuAction,
+  ContextMenuSeparator
+} from '@renderer/components/ui/context-menu'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -1927,88 +1933,74 @@ function FilesTreeContextMenu({
       .revealInSystemFileManager({ context: ipcContext, relativePath: entry.relativePath })
       .catch((error) => window.alert(filesErrorMessage(error)))
   }
+  const anchor = {
+    getBoundingClientRect: () => menuContext.anchorRect
+  }
 
   if (entry.kind === 'symlink') {
     return (
-      <div
-        aria-label={`${entry.relativePath} actions`}
-        className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
-        role="menu"
-      >
-        <button
-          className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-          role="menuitem"
-          type="button"
-          onClick={revealEntry}
+      <ContextMenu open onOpenChange={(open) => !open && closeMenu()}>
+        <ContextMenuContent
+          align="end"
+          anchor={anchor}
+          aria-label={`${entry.relativePath} actions`}
+          data-file-tree-context-menu-root="true"
+          positionMethod="fixed"
         >
-          Show in Finder
-        </button>
-      </div>
+          <ContextMenuAction onClick={revealEntry}>Show in Finder</ContextMenuAction>
+        </ContextMenuContent>
+      </ContextMenu>
     )
   }
 
   const siblingParentPath = parentDirectoryPath(entry.relativePath)
   return (
-    <div
-      aria-label={`${entry.relativePath} actions`}
-      className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
-      role="menu"
-    >
-      <button
-        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-        role="menuitem"
-        type="button"
-        onClick={() => {
-          closeMenu({ restoreFocus: false })
-          onCreate('file', siblingParentPath)
-        }}
+    <ContextMenu open onOpenChange={(open) => !open && closeMenu()}>
+      <ContextMenuContent
+        align="end"
+        anchor={anchor}
+        aria-label={`${entry.relativePath} actions`}
+        data-file-tree-context-menu-root="true"
+        positionMethod="fixed"
       >
-        New File
-      </button>
-      <button
-        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-        role="menuitem"
-        type="button"
-        onClick={() => {
-          closeMenu({ restoreFocus: false })
-          onCreate('folder', siblingParentPath)
-        }}
-      >
-        New Folder
-      </button>
-      <div className="my-1 h-px bg-border" role="separator" />
-      <button
-        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-        role="menuitem"
-        type="button"
-        onClick={() => {
-          closeMenu({ restoreFocus: false })
-          onRename(entry.relativePath)
-        }}
-      >
-        Rename
-      </button>
-      <button
-        className="w-full rounded-sm px-2 py-1.5 text-left text-destructive hover:bg-accent"
-        role="menuitem"
-        type="button"
-        onClick={() => {
-          closeMenu()
-          void onTrash(entry.relativePath)
-        }}
-      >
-        Delete
-      </button>
-      <div className="my-1 h-px bg-border" role="separator" />
-      <button
-        className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
-        role="menuitem"
-        type="button"
-        onClick={revealEntry}
-      >
-        Show in Finder
-      </button>
-    </div>
+        <ContextMenuAction
+          onClick={() => {
+            closeMenu({ restoreFocus: false })
+            onCreate('file', siblingParentPath)
+          }}
+        >
+          New File
+        </ContextMenuAction>
+        <ContextMenuAction
+          onClick={() => {
+            closeMenu({ restoreFocus: false })
+            onCreate('folder', siblingParentPath)
+          }}
+        >
+          New Folder
+        </ContextMenuAction>
+        <ContextMenuSeparator />
+        <ContextMenuAction
+          onClick={() => {
+            closeMenu({ restoreFocus: false })
+            onRename(entry.relativePath)
+          }}
+        >
+          Rename
+        </ContextMenuAction>
+        <ContextMenuAction
+          variant="destructive"
+          onClick={() => {
+            closeMenu()
+            void onTrash(entry.relativePath)
+          }}
+        >
+          Delete
+        </ContextMenuAction>
+        <ContextMenuSeparator />
+        <ContextMenuAction onClick={revealEntry}>Show in Finder</ContextMenuAction>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
 
