@@ -1,4 +1,4 @@
-import { CaretDownIcon, Sparkle } from '@phosphor-icons/react'
+import { CaretDownIcon, Command, Sparkle } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
@@ -68,6 +68,11 @@ export type ChatInputSubmit = {
 
 export type ChatInputSkill = AgentSkillDescriptor
 
+export type ChatInputCommand = {
+  name: string
+  description: string
+}
+
 export type ChatInputAgentDefinition = {
   id: string
   name: string
@@ -91,6 +96,7 @@ export type ChatInputProps = {
   selectedModelId?: string
   thinkingLevel?: AiChatThinkingLevel
   skills?: ChatInputSkill[]
+  commands?: ChatInputCommand[]
   agentDefinitions?: ChatInputAgentDefinition[]
   selectedAgentDefinitionId?: string
   activeAgentDefinition?: ChatInputActiveAgentDefinition
@@ -99,6 +105,7 @@ export type ChatInputProps = {
   onAgentDefinitionPickerOpen?: () => void
   onModelChange?: (modelId: string) => void
   onThinkingChange?: (level: AiChatThinkingLevel) => void
+  onCommand?: (commandName: string) => void | Promise<void>
   onSubmit: (input: ChatInputSubmit) => void | Promise<void>
   onAbort?: () => void
   className?: string
@@ -113,6 +120,7 @@ export function ChatInput({
   selectedModelId,
   thinkingLevel,
   skills = [],
+  commands = [],
   agentDefinitions = [],
   selectedAgentDefinitionId,
   activeAgentDefinition,
@@ -121,6 +129,7 @@ export function ChatInput({
   onAgentDefinitionPickerOpen,
   onModelChange,
   onThinkingChange,
+  onCommand,
   onSubmit,
   onAbort,
   className
@@ -132,8 +141,8 @@ export function ChatInput({
   const [isModelSelectorOpen, setModelSelectorOpen] = useState(false)
   const [isAgentDefinitionSelectorOpen, setAgentDefinitionSelectorOpen] = useState(false)
   const [inputValue, setInputValue] = useState('')
-  const [activeSkillIndex, setActiveSkillIndex] = useState(0)
-  const [isSkillMenuDismissed, setSkillMenuDismissed] = useState(false)
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0)
+  const [isSlashMenuDismissed, setSlashMenuDismissed] = useState(false)
   const [knowledgeBaseItems, setKnowledgeBaseItems] = useState<string[]>([])
   const [knowledgeBaseMentionState, setKnowledgeBaseMentionState] = useState<
     'loading' | 'ready' | 'unconfigured' | 'error'
@@ -155,11 +164,12 @@ export function ChatInput({
   const showAgentDefinitionPicker =
     !agentDefinitionLocked && agentDefinitions.length > 0 && Boolean(onAgentDefinitionChange)
   const showActiveAgentDefinitionChip = agentDefinitionLocked && Boolean(activeAgentDefinition)
-  const skillSuggestions = useMemo(
-    () => (isSkillMenuDismissed ? [] : getSkillSuggestions(inputValue, skills)),
-    [inputValue, isSkillMenuDismissed, skills]
+  const slashSuggestions = useMemo(
+    () => (isSlashMenuDismissed ? [] : getSlashSuggestions(inputValue, commands, skills)),
+    [commands, inputValue, isSlashMenuDismissed, skills]
   )
-  const selectedSkill = skillSuggestions[Math.min(activeSkillIndex, skillSuggestions.length - 1)]
+  const selectedSuggestion =
+    slashSuggestions[Math.min(activeSuggestionIndex, slashSuggestions.length - 1)]
   const availableThinkingLevels = selectedModel?.supportedThinkingLevels ?? thinkingLevels
   const activeThinkingLevel = thinkingLevel
     ? clampThinkingLevel(thinkingLevel, availableThinkingLevels)
@@ -223,57 +233,72 @@ export function ChatInput({
 
   const handleSubmit = async ({ text, files }: { text: string; files: PromptInputFile[] }) => {
     try {
-      await onSubmit({
-        text,
-        files: files.map((item) => item.file),
-        modelId: activeModelId,
-        ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
-      })
+      const submittedCommand =
+        files.length === 0
+          ? commands.find((command) => `/${command.name}`.toLowerCase() === text.toLowerCase())
+          : undefined
+      if (submittedCommand && onCommand) {
+        await onCommand(submittedCommand.name)
+      } else {
+        await onSubmit({
+          text,
+          files: files.map((item) => item.file),
+          modelId: activeModelId,
+          ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
+        })
+      }
       setInputValue('')
-      setActiveSkillIndex(0)
-      setSkillMenuDismissed(false)
+      setActiveSuggestionIndex(0)
+      setSlashMenuDismissed(false)
     } catch {
       // Keep the submitted prompt visible; the caller owns surfacing the failure.
     }
   }
 
-  const handleSkillKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (skillSuggestions.length === 0) return
+  const handleSlashSuggestionKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (slashSuggestions.length === 0) return
 
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActiveSkillIndex((index) => (index + 1) % skillSuggestions.length)
+      setActiveSuggestionIndex((index) => (index + 1) % slashSuggestions.length)
       return
     }
 
     if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActiveSkillIndex(
-        (index) => (index - 1 + skillSuggestions.length) % skillSuggestions.length
+      setActiveSuggestionIndex(
+        (index) => (index - 1 + slashSuggestions.length) % slashSuggestions.length
       )
       return
     }
 
     if (event.key === 'Escape') {
       event.preventDefault()
-      setSkillMenuDismissed(true)
+      setSlashMenuDismissed(true)
       return
     }
 
     if (event.key === 'Enter' || event.key === 'Tab') {
-      event.preventDefault()
-      if (selectedSkill) {
-        setInputValue(`/skill:${selectedSkill.name}`)
-        setActiveSkillIndex(0)
-        setSkillMenuDismissed(true)
+      if (
+        event.key === 'Enter' &&
+        selectedSuggestion?.kind === 'command' &&
+        inputValue.toLowerCase() === `/${selectedSuggestion.command.name}`.toLowerCase()
+      ) {
+        return
       }
+      event.preventDefault()
+      if (selectedSuggestion) selectSlashSuggestion(selectedSuggestion)
     }
   }
 
-  function selectSkill(skill: ChatInputSkill): void {
-    setInputValue(`/skill:${skill.name}`)
-    setActiveSkillIndex(0)
-    setSkillMenuDismissed(true)
+  function selectSlashSuggestion(suggestion: SlashSuggestion): void {
+    setInputValue(
+      suggestion.kind === 'command'
+        ? `/${suggestion.command.name}`
+        : `/skill:${suggestion.skill.name}`
+    )
+    setActiveSuggestionIndex(0)
+    setSlashMenuDismissed(true)
   }
 
   function selectKnowledgeBaseMention(path: string): void {
@@ -293,24 +318,24 @@ export function ChatInput({
         <PromptInputTextarea
           aria-label="Agent prompt"
           aria-autocomplete={
-            skillSuggestions.length > 0 || activeKnowledgeBaseMention ? 'list' : undefined
+            slashSuggestions.length > 0 || activeKnowledgeBaseMention ? 'list' : undefined
           }
           aria-controls={
             activeKnowledgeBaseMention
               ? 'knowledge-base-path-suggestions'
-              : skillSuggestions.length > 0
-                ? 'agent-skill-suggestions'
+              : slashSuggestions.length > 0
+                ? 'slash-suggestions'
                 : undefined
           }
-          aria-expanded={skillSuggestions.length > 0 || Boolean(activeKnowledgeBaseMention)}
+          aria-expanded={slashSuggestions.length > 0 || Boolean(activeKnowledgeBaseMention)}
           autoFocus={autoFocus}
           disabled={isRunning}
           onChange={(event) => {
             setInputValue(event.currentTarget.value)
-            setActiveSkillIndex(0)
-            setSkillMenuDismissed(false)
+            setActiveSuggestionIndex(0)
+            setSlashMenuDismissed(false)
           }}
-          onKeyDown={handleSkillKeyDown}
+          onKeyDown={handleSlashSuggestionKeyDown}
           placeholder={placeholder}
           value={inputValue}
         />
@@ -476,38 +501,60 @@ export function ChatInput({
           <PromptInputSubmit onStop={onAbort} status={status} />
         </PromptInputFooter>
       </PromptInput>
-      {skillSuggestions.length > 0 ? (
+      {slashSuggestions.length > 0 ? (
         <div
-          id="agent-skill-suggestions"
-          aria-label="Available skills"
+          id="slash-suggestions"
+          aria-label={commands.length > 0 ? 'Available commands and skills' : 'Available skills'}
           className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
           role="listbox"
         >
-          {skillSuggestions.map((skill, index) => (
-            <button
-              key={`${skill.scope}:${skill.name}`}
-              type="button"
-              role="option"
-              aria-selected={index === Math.min(activeSkillIndex, skillSuggestions.length - 1)}
-              className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => selectSkill(skill)}
-            >
-              <Sparkle
-                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">{skill.name}</span>
-                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                  {skill.description}
+          {slashSuggestions.map((suggestion, index) => {
+            const isCommand = suggestion.kind === 'command'
+            const name = isCommand ? `/${suggestion.command.name}` : suggestion.skill.name
+            const description = isCommand
+              ? suggestion.command.description
+              : suggestion.skill.description
+            const suffix = isCommand ? 'command' : suggestion.skill.scope
+            const key = isCommand
+              ? `command:${suggestion.command.name}`
+              : `skill:${suggestion.skill.scope}:${suggestion.skill.name}`
+            return (
+              <button
+                key={key}
+                type="button"
+                role="option"
+                data-suggestion-kind={suggestion.kind}
+                aria-selected={
+                  index === Math.min(activeSuggestionIndex, slashSuggestions.length - 1)
+                }
+                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectSlashSuggestion(suggestion)}
+              >
+                {isCommand ? (
+                  <Command
+                    data-command-icon="true"
+                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Sparkle
+                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                    aria-hidden="true"
+                  />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{name}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {description}
+                  </span>
                 </span>
-              </span>
-              <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                {skill.scope}
-              </span>
-            </button>
-          ))}
+                <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
+                  {suffix}
+                </span>
+              </button>
+            )
+          })}
         </div>
       ) : null}
     </div>
@@ -529,25 +576,46 @@ async function listKnowledgeBaseMentionEntry(entry: FilesEntry): Promise<string[
   return [`${entry.relativePath}/`, ...(await listKnowledgeBaseMentionPaths(entry.relativePath))]
 }
 
-function getSkillSuggestions(value: string, skills: ChatInputSkill[]): ChatInputSkill[] {
-  const query = getSkillCommandQuery(value)
-  if (query === null) return []
+type SlashSuggestion =
+  { kind: 'command'; command: ChatInputCommand } | { kind: 'skill'; skill: ChatInputSkill }
 
-  const normalizedQuery = query.toLowerCase()
-  return skills.filter((skill) =>
-    `${skill.name} ${skill.description}`.toLowerCase().includes(normalizedQuery)
-  )
+function getSlashSuggestions(
+  value: string,
+  commands: ChatInputCommand[],
+  skills: ChatInputSkill[]
+): SlashSuggestion[] {
+  const query = getSlashCommandQuery(value)
+  if (!query) return []
+
+  const normalizedQuery = query.value.toLowerCase()
+  const skillSuggestions = skills
+    .filter((skill) => `${skill.name} ${skill.description}`.toLowerCase().includes(normalizedQuery))
+    .map((skill): SlashSuggestion => ({ kind: 'skill', skill }))
+  if (query.skillsOnly) return skillSuggestions
+
+  return [
+    ...commands
+      .filter((command) =>
+        `${command.name} ${command.description}`.toLowerCase().includes(normalizedQuery)
+      )
+      .map((command): SlashSuggestion => ({ kind: 'command', command })),
+    ...skillSuggestions
+  ]
 }
 
-function getSkillCommandQuery(value: string): string | null {
-  if (!value.startsWith('/') || /\s/.test(value)) return null
+function getSlashCommandQuery(value: string): { value: string; skillsOnly: boolean } | undefined {
+  if (!value.startsWith('/') || /\s/.test(value)) return undefined
 
   const command = value.slice(1)
   const normalizedCommand = command.toLowerCase()
-  if (normalizedCommand === '' || normalizedCommand === 'skill') return ''
-  if (normalizedCommand.startsWith('skill:')) return command.slice('skill:'.length)
+  if (normalizedCommand === '' || normalizedCommand === 'skill') {
+    return { value: '', skillsOnly: normalizedCommand === 'skill' }
+  }
+  if (normalizedCommand.startsWith('skill:')) {
+    return { value: command.slice('skill:'.length), skillsOnly: true }
+  }
 
-  return command
+  return { value: command, skillsOnly: false }
 }
 
 function clampThinkingLevel(
