@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
+import { DiffViewer } from '@renderer/components/diff-viewer'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,
@@ -27,7 +28,6 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
   { value: 'staged', label: 'Staged' }
 ]
 
-const UNCHANGED_CONTEXT_LINES = 3
 const OBSERVATION_REFRESH_DELAY_MS = 150
 const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
 const KNOWLEDGE_BASE_SESSION_CHANGED_EVENT = 'spacezero:knowledge-base-session-changed'
@@ -741,15 +741,18 @@ function GitDiffCard({
       </div>
       {expanded ? (
         file.diff && !file.binary && !file.large ? (
-          <pre className="max-h-[480px] overflow-auto border-t bg-muted/30 p-3 text-xs leading-5">
-            <code>
-              {getFoldedDiffLines(file.diff).map((line, index) => (
-                <span key={`${index}:${line.text}`} className="block">
-                  {line.text}
-                </span>
-              ))}
-            </code>
-          </pre>
+          <DiffViewer
+            ariaLabel={`Diff for ${file.path}`}
+            className="border-t"
+            items={[
+              {
+                id: `${file.oldPath ?? ''}:${file.path}`,
+                path: file.path,
+                oldPath: file.oldPath,
+                patch: file.diff
+              }
+            ]}
+          />
         ) : (
           <div className="border-t p-3 text-sm text-muted-foreground">
             {file.binary
@@ -856,55 +859,6 @@ function GitStateMessage({
       {message ? <p className="max-w-sm text-sm text-muted-foreground">{message}</p> : null}
     </div>
   )
-}
-
-type FoldedDiffLine = { text: string }
-
-function getFoldedDiffLines(diff: string): FoldedDiffLine[] {
-  const lines = diff.split('\n')
-  const folded: FoldedDiffLine[] = []
-  let newLineNumber: number | null = null
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index]
-    const hunkStart = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
-    if (hunkStart) {
-      newLineNumber = Number(hunkStart[1])
-      folded.push({ text: line })
-      continue
-    }
-
-    if (line.startsWith(' ') && newLineNumber !== null) {
-      const start = index
-      while (index < lines.length && lines[index].startsWith(' ')) {
-        newLineNumber += 1
-        index += 1
-      }
-      const unchanged = lines.slice(start, index)
-      index -= 1
-      if (unchanged.length <= UNCHANGED_CONTEXT_LINES * 2) {
-        folded.push(...unchanged.map((text) => ({ text })))
-        continue
-      }
-      folded.push(...unchanged.slice(0, UNCHANGED_CONTEXT_LINES).map((text) => ({ text })))
-      folded.push({
-        text: `… ${unchanged.length - UNCHANGED_CONTEXT_LINES * 2} unchanged lines folded`
-      })
-      folded.push(...unchanged.slice(-UNCHANGED_CONTEXT_LINES).map((text) => ({ text })))
-      continue
-    }
-
-    folded.push({ text: line })
-    if (
-      newLineNumber !== null &&
-      !line.startsWith('-') &&
-      !line.startsWith('+++') &&
-      !line.startsWith('\\')
-    ) {
-      newLineNumber += 1
-    }
-  }
-  return folded
 }
 
 function getObservationErrorMessage(error: unknown): string {
