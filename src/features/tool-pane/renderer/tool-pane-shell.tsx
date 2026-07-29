@@ -9,6 +9,7 @@ import {
 import { DotsSixVertical, Sidebar } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
+import { cn } from '@renderer/lib/utils'
 
 import { useToolPaneStore } from './tool-pane-store'
 
@@ -189,7 +190,10 @@ export function ToolPaneHeaderControls({
   return (
     <div
       aria-label="Tool Pane header controls"
-      className="titlebar-control flex h-full w-full min-w-0 flex-1 items-center justify-between gap-2"
+      className={cn(
+        'flex h-full w-full min-w-0 flex-1 items-center justify-between gap-2 px-2',
+        configuration && controller.isOpen && controller.activeTool ? 'border-b border-l' : null
+      )}
     >
       {configuration && controller.isOpen && controller.activeTool ? (
         <ToolSwitcher
@@ -324,11 +328,12 @@ function ToolSwitcher({
     <div
       aria-label="Tool Switcher"
       aria-orientation={orientation}
-      className={
+      className={cn(
+        'titlebar-control',
         orientation === 'vertical'
           ? 'absolute right-2 top-2 z-10 flex flex-col gap-1 rounded-lg border bg-background p-1 shadow-sm'
           : 'flex min-w-0 items-center gap-1'
-      }
+      )}
       role="toolbar"
     >
       {tools.map((tool) => {
