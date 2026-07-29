@@ -54,6 +54,7 @@ export function migrateDatabase(database: Database.Database): void {
       source_title TEXT,
       archived_at INTEGER,
       managed_context TEXT,
+      workspace_context_session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
       agent_definition_snapshot TEXT
     );
 
@@ -158,6 +159,7 @@ export function migrateDatabase(database: Database.Database): void {
     ['source_title', 'TEXT'],
     ['archived_at', 'INTEGER'],
     ['managed_context', 'TEXT'],
+    ['workspace_context_session_id', 'TEXT REFERENCES sessions(id) ON DELETE CASCADE'],
     ['agent_definition_snapshot', 'TEXT']
   ] as const
   for (const [column, type] of sessionMigrations) {
@@ -197,6 +199,40 @@ export function migrateDatabase(database: Database.Database): void {
     FROM app_settings
     JOIN chat_contexts ON chat_contexts.agent_session_id = app_settings.value
     WHERE key = 'knowledgeBase.currentSessionId';
+
+    INSERT OR IGNORE INTO chat_contexts (
+      id,
+      workspace_context_key,
+      agent_session_id,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      id,
+      id,
+      created_at,
+      updated_at
+    FROM sessions
+    WHERE project_id IS NOT NULL
+      AND workspace_context_session_id IS NULL
+      AND archived_at IS NULL;
+
+    INSERT OR IGNORE INTO workspace_chat_contexts (
+      workspace_context_key,
+      workspace_context_kind,
+      current_chat_context_id,
+      updated_at
+    )
+    SELECT
+      id,
+      'project-session',
+      id,
+      updated_at
+    FROM sessions
+    WHERE project_id IS NOT NULL
+      AND workspace_context_session_id IS NULL
+      AND archived_at IS NULL;
   `)
 }
 

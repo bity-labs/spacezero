@@ -30,6 +30,17 @@ export type ProjectSession = {
   updatedAt: string
 }
 
+export type ProjectSessionChatContext = {
+  id: string
+  workspaceContext: {
+    kind: 'project-session'
+    projectSessionId: string
+  }
+  agentSessionId: string
+  createdAt: string
+  updatedAt: string
+}
+
 export type WorkspaceSession = {
   id: string
   kind: 'workspace'

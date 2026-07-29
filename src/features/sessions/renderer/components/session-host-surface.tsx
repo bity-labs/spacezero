@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { browserContextKey, type BrowserContext } from '../../../browser/shared'
 import { useToolPaneStore } from '../../../tool-pane/renderer'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
-import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { ProjectSession, ProjectSessionChatContext, WorkspaceSession } from '../../shared'
 import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import {
@@ -36,15 +36,121 @@ type WorkspaceSessionHostSurfaceProps = {
   onHistoryDismiss?: () => void
 }
 
+export const PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT =
+  'spacezero:project-session-chat-context-changed'
+
 export function ProjectSessionHostSurface({
   project,
   session
 }: ProjectSessionHostSurfaceProps): React.JSX.Element {
-  const agentSession = useAgentSession(session.id)
+  const [chatContext, setChatContext] = useState<ProjectSessionChatContext>()
+  const [errorState, setErrorState] = useState<{ sessionId: string; message: string }>()
+  const [clearingSessionId, setClearingSessionId] = useState<string>()
+  const chatContextResolution = useRef(0)
+  const currentChatContext =
+    chatContext?.workspaceContext.projectSessionId === session.id ? chatContext : undefined
+  const error = errorState?.sessionId === session.id ? errorState.message : null
+  const isClearingChat = clearingSessionId === session.id
+
+  useEffect(() => {
+    const resolution = ++chatContextResolution.current
+    window.spacezero.sessions.getCurrentProjectChatContext({ sessionId: session.id }).then(
+      (nextChatContext) => {
+        if (chatContextResolution.current === resolution) setChatContext(nextChatContext)
+      },
+      (loadError: unknown) => {
+        if (chatContextResolution.current === resolution) {
+          setErrorState({
+            sessionId: session.id,
+            message: getErrorMessage(loadError, 'Unable to open Project Session chat.')
+          })
+        }
+      }
+    )
+    return () => {
+      chatContextResolution.current += 1
+    }
+  }, [session.id])
+
+  async function clearChat(): Promise<void> {
+    const resolution = ++chatContextResolution.current
+    setClearingSessionId(session.id)
+    setErrorState(undefined)
+    try {
+      const nextChatContext = await window.spacezero.sessions.clearProjectChat({
+        sessionId: session.id
+      })
+      if (chatContextResolution.current !== resolution) return
+      setChatContext(nextChatContext)
+      window.dispatchEvent(
+        new CustomEvent(PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT, {
+          detail: nextChatContext
+        })
+      )
+    } catch (clearError) {
+      if (chatContextResolution.current === resolution) {
+        setErrorState({
+          sessionId: session.id,
+          message: getErrorMessage(clearError, 'Unable to clear Project Session chat.')
+        })
+      }
+      throw clearError
+    } finally {
+      if (chatContextResolution.current === resolution) setClearingSessionId(undefined)
+    }
+  }
+
+  if (!currentChatContext) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {error ? (
+          <Alert className="m-4" variant="destructive">
+            <AlertDescription>{error} Chat remains unavailable.</AlertDescription>
+          </Alert>
+        ) : (
+          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+            Restoring Project Session chat…
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {error ? (
+        <Alert className="m-4 mb-0" variant="destructive">
+          <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
+        </Alert>
+      ) : null}
+      <ProjectSessionChatSurface
+        key={currentChatContext.agentSessionId}
+        project={project}
+        session={session}
+        agentSessionId={currentChatContext.agentSessionId}
+        isClearingChat={isClearingChat}
+        onClearChat={clearChat}
+      />
+    </div>
+  )
+}
+
+function ProjectSessionChatSurface({
+  project,
+  session,
+  agentSessionId,
+  isClearingChat,
+  onClearChat
+}: ProjectSessionHostSurfaceProps & {
+  agentSessionId: string
+  isClearingChat: boolean
+  onClearChat: () => Promise<void>
+}): React.JSX.Element {
+  const agentSession = useAgentSession(agentSessionId)
 
   return (
     <SessionHostFrame
-      sessionId={session.id}
+      sessionId={agentSessionId}
       status={agentSession.status}
       messages={agentSession.messages}
       error={agentSession.lastError ?? null}
@@ -65,6 +171,16 @@ export function ProjectSessionHostSurface({
       }
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
       chatLinkContext={{ kind: 'project-session', projectId: project.id, sessionId: session.id }}
+      commands={[
+        {
+          name: 'clear',
+          description: 'Start a fresh Project Session Chat Context.'
+        }
+      ]}
+      onCommand={(commandName) => {
+        if (commandName === 'clear' && !isClearingChat) return onClearChat()
+        return undefined
+      }}
     />
   )
 }
@@ -341,4 +457,8 @@ function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): A
     output: next.output ?? current.output,
     error: next.error ?? current.error
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
 }

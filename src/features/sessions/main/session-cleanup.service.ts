@@ -60,11 +60,22 @@ export function createSessionCleanupService({
         const project = currentSession.projectId
           ? await repository.findProjectById(currentSession.projectId)
           : undefined
+        const ownedChatSessions =
+          currentSession.projectId && !currentSession.workspaceContextSessionId
+            ? (await repository.listByProjectIdIncludingArchived(currentSession.projectId)).filter(
+                (chatSession) =>
+                  chatSession.workspaceContextSessionId === currentSession.id &&
+                  !chatSession.archivedAt
+              )
+            : []
         await closeTerminalsForDeletion({
           operationKey: `archive-session:${currentSession.id}`,
           purpose: 'archive-context',
           sessions: [currentSession]
         })
+        for (const chatSession of ownedChatSessions) {
+          await archiveStoredSession(chatSession, project)
+        }
         await archiveStoredSession(currentSession, project)
       }
 
@@ -99,11 +110,20 @@ export function createSessionCleanupService({
         const project = currentSession.projectId
           ? await repository.findProjectById(currentSession.projectId)
           : undefined
+        const ownedChatSessions =
+          currentSession.projectId && !currentSession.workspaceContextSessionId
+            ? (await repository.listByProjectIdIncludingArchived(currentSession.projectId)).filter(
+                (chatSession) => chatSession.workspaceContextSessionId === currentSession.id
+              )
+            : []
         await closeTerminalsForDeletion({
           operationKey: `delete-session:${currentSession.id}`,
           purpose: 'delete-context',
           sessions: [currentSession]
         })
+        for (const chatSession of ownedChatSessions) {
+          await deleteStoredSession(chatSession, project)
+        }
         await deleteStoredSession(currentSession, project)
       }
 
@@ -132,7 +152,14 @@ export function createSessionCleanupService({
       sessions
     })
     const deletedSessionIds: string[] = []
-    for (const session of sessions) {
+    const sessionsInCleanupOrder = [...sessions].sort((left, right) =>
+      left.workspaceContextSessionId && !right.workspaceContextSessionId
+        ? -1
+        : !left.workspaceContextSessionId && right.workspaceContextSessionId
+          ? 1
+          : 0
+    )
+    for (const session of sessionsInCleanupOrder) {
       const project = session.projectId
         ? await repository.findProjectById(session.projectId)
         : undefined
