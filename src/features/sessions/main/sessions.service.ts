@@ -37,6 +37,7 @@ export type StoredSession = {
   sourceTitle?: string | null
   archivedAt?: Date | null
   managedContext?: 'knowledge-base' | null
+  workspaceContextSessionId?: string | null
   agentDefinitionSnapshot?: string | null
 }
 
@@ -205,9 +206,7 @@ export function createSessionsService({
           sourceNumber: source?.number,
           sourceUrl: source?.url,
           sourceTitle: source?.title,
-          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(
-            request.agentDefinitionSnapshot
-          )
+          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(request.agentDefinitionSnapshot)
         })
       )
     },
@@ -231,9 +230,7 @@ export function createSessionsService({
           modelId: request.modelId,
           thinkingLevel: request.thinkingLevel,
           managedContext: request.managedContext,
-          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(
-            request.agentDefinitionSnapshot
-          )
+          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(request.agentDefinitionSnapshot)
         })
       )
     },
@@ -246,7 +243,9 @@ export function createSessionsService({
         title: normalizeRenameTitle(title),
         updatedAt: now()
       })
-      return updatedSession.projectId ? toProjectSession(updatedSession) : toWorkspaceSession(updatedSession)
+      return updatedSession.projectId
+        ? toProjectSession(updatedSession)
+        : toWorkspaceSession(updatedSession)
     },
 
     async archiveSession(sessionId) {

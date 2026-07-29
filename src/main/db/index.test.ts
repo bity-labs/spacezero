@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { migrateDatabase } from './index'
 
 describe('database migrations', () => {
-  it('migrates Knowledge Base managed Sessions into retained Chat Context history', () => {
+  it('migrates stable workspace Sessions into retained Chat Context history', () => {
     const statements: string[] = []
     const database = {
       exec(sql: string) {
@@ -26,6 +26,8 @@ describe('database migrations', () => {
     expect(migration).toContain('CREATE TABLE IF NOT EXISTS workspace_chat_contexts')
     expect(migration).toContain("WHERE managed_context = 'knowledge-base'")
     expect(migration).toContain("WHERE key = 'knowledgeBase.currentSessionId'")
+    expect(migration).toContain('workspace_context_session_id IS NULL')
+    expect(migration).toContain("'project-session'")
   })
 
   it('adds an optional stable GitHub repository association to existing Projects', () => {
@@ -88,6 +90,9 @@ describe('database migrations', () => {
     expect(statements.join('\n')).toContain('ALTER TABLE sessions ADD COLUMN managed_context TEXT')
     expect(statements.join('\n')).toContain(
       'ALTER TABLE sessions ADD COLUMN agent_definition_snapshot TEXT'
+    )
+    expect(statements.join('\n')).toContain(
+      'ALTER TABLE sessions ADD COLUMN workspace_context_session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE'
     )
     expect(statements.join('\n')).toContain('CREATE TABLE IF NOT EXISTS terminal_tabs')
     expect(statements.join('\n')).toContain('CREATE TABLE IF NOT EXISTS browser_tabs')

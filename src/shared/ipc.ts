@@ -80,6 +80,7 @@ import type {
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
+  ProjectSessionChatContext,
   RenameSessionTitleRequest,
   Session,
   WorkspaceSession
@@ -174,6 +175,8 @@ export const IPC_CHANNELS = {
     listProjectSessions: 'sessions:listProjectSessions',
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
     createProjectSession: 'sessions:createProjectSession',
+    getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
+    clearProjectChat: 'sessions:clearProjectChat',
     rename: 'sessions:rename',
     archive: 'sessions:archive',
     delete: 'sessions:delete'
@@ -333,13 +336,19 @@ export type SpaceZeroAPI = {
     listProjectSessions: () => Promise<ProjectSession[]>
     listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
+    getCurrentProjectChatContext: (request: {
+      sessionId: string
+    }) => Promise<ProjectSessionChatContext>
+    clearProjectChat: (request: { sessionId: string }) => Promise<ProjectSessionChatContext>
     rename: (request: RenameSessionTitleRequest) => Promise<Session>
     archive: (request: { sessionId: string }) => Promise<void>
     delete: (request: { sessionId: string }) => Promise<void>
   }
   agents: {
     getGlobalDefinitions: () => Promise<AgentDefinitionCatalogEntry[]>
-    getSessionDefinitions: (request: { sessionId: string }) => Promise<AgentDefinitionCatalogEntry[]>
+    getSessionDefinitions: (request: {
+      sessionId: string
+    }) => Promise<AgentDefinitionCatalogEntry[]>
     openDefinitionsFolder: (request: OpenAgentDefinitionsFolderRequest) => Promise<void>
   }
   agent: {

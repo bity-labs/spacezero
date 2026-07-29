@@ -463,6 +463,20 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      getCurrentProjectChatContext: async ({ sessionId }) => ({
+        id: `chat-context-${sessionId}`,
+        workspaceContext: { kind: 'project-session', projectSessionId: sessionId },
+        agentSessionId: sessionId,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
+      clearProjectChat: async ({ sessionId }) => ({
+        id: `chat-context-${sessionId}-new`,
+        workspaceContext: { kind: 'project-session', projectSessionId: sessionId },
+        agentSessionId: `${sessionId}-agent-new`,
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }),
       rename: async ({ sessionId, title }) => ({
         id: sessionId,
         kind: 'workspace',

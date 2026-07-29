@@ -289,6 +289,111 @@ test('composes simulated GitHub connection and one Project setup without network
   await electronApp.close()
 })
 
+test('clears Project Session chat while retaining its stable workspace identity', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-project-chat-e2e-'))
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const electronApp = await launchApp(userDataPath)
+  userDataDirectories.push(temporaryDirectory)
+  const window = await electronApp.firstWindow()
+
+  await electronApp.evaluate(({ ipcMain, BrowserWindow }) => {
+    const project = {
+      id: 'project-chat-e2e',
+      name: 'chat-e2e',
+      path: '/tmp/chat-e2e',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const session = {
+      id: 'project-session-chat-e2e',
+      kind: 'project',
+      projectId: project.id,
+      title: 'Project Chat E2E',
+      status: 'idle',
+      worktree: {
+        path: '/tmp/worktrees/project-chat-e2e/project-session-chat-e2e',
+        branch: 'spacezero/issue-360-project-session-chat-e2e',
+        baseRevision: 'abc123'
+      },
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    let currentChatContext = {
+      id: 'project-chat-context-1',
+      workspaceContext: { kind: 'project-session', projectSessionId: session.id },
+      agentSessionId: session.id,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+
+    for (const channel of [
+      'onboarding:getStatus',
+      'onboarding:complete',
+      'projects:list',
+      'sessions:listProjectSessions',
+      'sessions:listWorkspaceSessions',
+      'sessions:getCurrentProjectChatContext',
+      'sessions:clearProjectChat',
+      'agent:getState'
+    ]) ipcMain.removeHandler(channel)
+    ipcMain.handle('onboarding:getStatus', () => ({ completed: false }))
+    ipcMain.handle('onboarding:complete', () => ({ completed: true }))
+    ipcMain.handle('projects:list', () => [project])
+    ipcMain.handle('sessions:listProjectSessions', () => [session])
+    ipcMain.handle('sessions:listWorkspaceSessions', () => [])
+    ipcMain.handle('sessions:getCurrentProjectChatContext', () => currentChatContext)
+    ipcMain.handle('sessions:clearProjectChat', () => {
+      currentChatContext = {
+        ...currentChatContext,
+        id: 'project-chat-context-2',
+        agentSessionId: 'project-chat-agent-2',
+        createdAt: new Date(1).toISOString(),
+        updatedAt: new Date(1).toISOString()
+      }
+      return currentChatContext
+    })
+    ipcMain.handle('agent:getState', (_event, input) => ({
+      sessionId: input.sessionId,
+      kind: 'project',
+      projectId: project.id,
+      cwd: session.worktree.path,
+      status: 'idle',
+      live: true,
+      transcriptPath: `/tmp/${input.sessionId}.jsonl`,
+      transcriptSnapshot: input.sessionId === session.id ? [{
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Only in the prior Project Chat Context' }],
+        timestamp: 1,
+        stopReason: 'stop'
+      }] : []
+    }))
+    BrowserWindow.getAllWindows()[0]?.webContents.reload()
+  })
+
+  await window.getByRole('button', { name: 'Get started' }).click()
+  await window.getByRole('button', { name: 'Skip for now' }).click()
+  await window.getByRole('button', { name: 'chat-e2e', exact: true }).click()
+  await window.getByRole('button', { name: 'Project Chat E2E' }).click()
+  await expect(window.getByText('Only in the prior Project Chat Context')).toBeVisible()
+
+  const input = window.getByRole('textbox', { name: 'Agent prompt' })
+  await input.fill('/cl')
+  const clearCommand = window.getByRole('option', { name: /\/clear/ })
+  await expect(clearCommand).toHaveAttribute('data-suggestion-kind', 'command')
+  await expect(clearCommand.locator('[data-command-icon="true"]')).toBeVisible()
+  await input.fill('/clear')
+  await input.press('Enter')
+
+  await expect(window.getByText('Only in the prior Project Chat Context')).toHaveCount(0)
+  await expect.poll(() => window.evaluate(() =>
+    window.spacezero.sessions
+      .getCurrentProjectChatContext({ sessionId: 'project-session-chat-e2e' })
+      .then((context) => context.agentSessionId)
+  )).toBe('project-chat-agent-2')
+
+  await electronApp.close()
+})
+
 test('opens a Project Session text file in bundled Monaco without network loading', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-files-e2e-'))
   const projectPath = join(temporaryDirectory, 'project')
