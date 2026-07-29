@@ -179,6 +179,13 @@ function FilesToolSession({
   const treeEntriesRef = useRef<FilesEntry[]>([])
   const treeSelectionHandlerRef = useRef<(paths: readonly string[]) => void>(() => undefined)
   const { model: treeModel } = useFileTree({
+    composition: {
+      contextMenu: {
+        buttonVisibility: 'when-needed',
+        enabled: true,
+        triggerMode: 'both'
+      }
+    },
     density: 'compact',
     fileTreeSearchMode: 'hide-non-matches',
     flattenEmptyDirectories: true,
@@ -1876,7 +1883,7 @@ function FilesTreeContextMenu({
   const entry = findTreeEntry(entries, relativePath)
   if (!entry) return null
 
-  const closeMenu = (): void => menuContext.close()
+  const closeMenu = (options?: { restoreFocus?: boolean }): void => menuContext.close(options)
   const revealEntry = (): void => {
     closeMenu()
     void window.spacezero.files
@@ -1889,6 +1896,7 @@ function FilesTreeContextMenu({
       <div
         aria-label={`${entry.relativePath} actions`}
         className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+        role="menu"
       >
         <button
           className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
@@ -1907,13 +1915,14 @@ function FilesTreeContextMenu({
     <div
       aria-label={`${entry.relativePath} actions`}
       className="min-w-40 rounded-md border bg-popover p-1 text-sm text-popover-foreground shadow-md"
+      role="menu"
     >
       <button
         className="w-full rounded-sm px-2 py-1.5 text-left hover:bg-accent"
         role="menuitem"
         type="button"
         onClick={() => {
-          closeMenu()
+          closeMenu({ restoreFocus: false })
           onCreate('file', siblingParentPath)
         }}
       >
@@ -1924,7 +1933,7 @@ function FilesTreeContextMenu({
         role="menuitem"
         type="button"
         onClick={() => {
-          closeMenu()
+          closeMenu({ restoreFocus: false })
           onCreate('folder', siblingParentPath)
         }}
       >
@@ -1936,7 +1945,7 @@ function FilesTreeContextMenu({
         role="menuitem"
         type="button"
         onClick={() => {
-          closeMenu()
+          closeMenu({ restoreFocus: false })
           onRename(entry.relativePath)
         }}
       >
