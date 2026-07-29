@@ -36,10 +36,20 @@ vi.mock('@pierre/diffs/react', async () => {
   const CodeView = vi.fn(
     ({
       items,
-      options
+      options,
+      renderCustomHeader
     }: {
-      items: Array<{ id: string; fileDiff: { additionLines: string[] } }>
+      items: Array<{
+        id: string
+        fileDiff: { name: string; additionLines: string[] }
+        collapsed?: boolean
+      }>
       options: { hunkSeparators?: string }
+      renderCustomHeader?: (item: {
+        id: string
+        fileDiff: { name: string; additionLines: string[] }
+        collapsed?: boolean
+      }) => React.ReactNode
     }) =>
       React.createElement(
         'div',
@@ -49,21 +59,30 @@ vi.mock('@pierre/diffs/react', async () => {
           'data-testid': 'pierre-code-view'
         },
         items.map((item) =>
-          React.createElement(
-            'pre',
-            { key: item.id },
-            item.fileDiff.additionLines.flatMap((content) =>
-              content
-                .split('\n')
-                .map((line, index) =>
-                  React.createElement(
-                    'span',
-                    { className: 'block', key: `${item.id}:${index}:${line}` },
-                    line
+          React.createElement('section', { key: item.id }, [
+            React.createElement(
+              'div',
+              { 'data-testid': `pierre-header-${item.fileDiff.name}`, key: 'header' },
+              renderCustomHeader?.(item)
+            ),
+            item.collapsed
+              ? null
+              : React.createElement(
+                  'pre',
+                  { key: 'body' },
+                  item.fileDiff.additionLines.flatMap((content) =>
+                    content
+                      .split('\n')
+                      .map((line, index) =>
+                        React.createElement(
+                          'span',
+                          { className: 'block', key: `${item.id}:${index}:${line}` },
+                          line
+                        )
+                      )
                   )
                 )
-            )
-          )
+          ])
         )
       )
   )
@@ -155,7 +174,10 @@ describe('GitTool', () => {
     render(<GitTool filesHandoff={{ openFilesTool, openLocation }} sessionId="session-1" />)
 
     await screen.findByText(/\+Changed/)
-    expect(screen.getByText('untracked')).toBeInTheDocument()
+    const pierreHeader = screen.getByTestId('pierre-header-src/app.ts')
+    expect(pierreHeader).toContainElement(screen.getByRole('button', { name: 'src/app.ts' }))
+    expect(pierreHeader).toHaveTextContent('untracked')
+    expect(screen.getAllByText('src/app.ts')).toHaveLength(1)
 
     await userEvent.click(screen.getByRole('button', { name: 'src/app.ts' }))
     expect(openLocation).toHaveBeenCalledWith({ relativePath: 'src/app.ts', line: undefined })
@@ -870,6 +892,38 @@ describe('GitTool', () => {
 
     await screen.findByText('Binary change summary only. No text diff is available.')
     expect(screen.getByText('Diff is too large to render inline.')).toBeInTheDocument()
+  })
+
+  it('keeps added, deleted, modified, and untracked labels in retained Pierre headers', async () => {
+    const files = [
+      { path: 'added.txt', kind: 'added' as const, line: '+added' },
+      { path: 'deleted.txt', kind: 'deleted' as const, line: '-deleted' },
+      { path: 'modified.txt', kind: 'modified' as const, line: '+modified' },
+      { path: 'untracked.txt', kind: 'untracked' as const, line: '+untracked' }
+    ]
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'none' as const },
+      files: files.map((file) => ({
+        path: file.path,
+        kind: file.kind,
+        binary: false,
+        large: false,
+        diff: `diff --git a/${file.path} b/${file.path}\n${file.line}\n`
+      }))
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    await screen.findByText('+modified')
+    expect(screen.getAllByTestId('pierre-code-view')).toHaveLength(files.length)
+    for (const file of files) {
+      const packageHeader = screen.getByTestId(`pierre-header-${file.path}`)
+      expect(packageHeader).toHaveTextContent(file.kind)
+      expect(packageHeader).toHaveTextContent(file.path)
+      expect(screen.getAllByText(file.path)).toHaveLength(1)
+    }
   })
 
   it('renders file header paths and renamed, deleted, added, untracked, and conflicted states', async () => {

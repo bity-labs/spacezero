@@ -12,6 +12,12 @@ export type DiffViewerItem = {
   patch: string
   collapsed?: boolean
   version?: number
+  headerActions?: {
+    status: string
+    fileNameTitle?: string
+    onFileNameClick?: () => void
+    onToggle: () => void
+  }
 }
 
 type DiffViewerFallback = {
@@ -37,10 +43,11 @@ export function DiffViewer({
 }: DiffViewerProps): React.JSX.Element {
   const colorMode = useOptionalColorMode()
   const resolvedTheme = colorMode?.resolvedTheme ?? getDocumentResolvedTheme()
-  const { codeViewItems, fallbackItems } = useMemo(
+  const { codeViewItems, fallbackItems, sourceItems } = useMemo(
     () => buildCodeViewItems(items, fallbackMessage),
     [items, fallbackMessage]
   )
+  const hasCustomHeaders = codeViewItems.some((item) => sourceItems.get(item.id)?.headerActions)
 
   return (
     <div aria-label={ariaLabel} className={cn('bg-muted/20', className)}>
@@ -51,11 +58,21 @@ export function DiffViewer({
           options={{
             theme: resolvedTheme === 'dark' ? 'pierre-dark' : 'pierre-light',
             themeType: resolvedTheme,
-            diffStyle: 'split',
+            diffStyle: 'unified',
             hunkSeparators: 'line-info-basic',
             overflow: 'scroll',
             stickyHeaders: true
           }}
+          renderCustomHeader={
+            hasCustomHeaders
+              ? (item) => {
+                  const sourceItem = sourceItems.get(item.id)
+                  return sourceItem?.headerActions ? (
+                    <DiffViewerInteractiveHeader item={sourceItem} />
+                  ) : null
+                }
+              : undefined
+          }
           renderHeaderMetadata={(item) => <DiffViewerHeaderMetadata item={item} />}
         />
       ) : null}
@@ -71,9 +88,14 @@ export function DiffViewer({
 function buildCodeViewItems(
   items: DiffViewerItem[],
   fallbackMessage: string
-): { codeViewItems: CodeViewItem[]; fallbackItems: DiffViewerFallback[] } {
+): {
+  codeViewItems: CodeViewItem[]
+  fallbackItems: DiffViewerFallback[]
+  sourceItems: Map<string, DiffViewerItem>
+} {
   const codeViewItems: CodeViewItem[] = []
   const fallbackItems: DiffViewerFallback[] = []
+  const sourceItems = new Map<string, DiffViewerItem>()
 
   for (const item of items) {
     try {
@@ -87,9 +109,10 @@ function buildCodeViewItems(
       }
 
       parsedFiles.forEach((fileDiff, index) => {
+        const id = parsedFiles.length === 1 ? item.id : `${item.id}:${index}`
         const fileName = normalizeParsedFileName(fileDiff.name, item.path)
         codeViewItems.push({
-          id: parsedFiles.length === 1 ? item.id : `${item.id}:${index}`,
+          id,
           type: 'diff',
           fileDiff: {
             ...fileDiff,
@@ -99,13 +122,54 @@ function buildCodeViewItems(
           collapsed: item.collapsed,
           version: item.version ?? hashDiffVersion(normalizedPatch, item.collapsed)
         })
+        sourceItems.set(id, item)
       })
     } catch {
       fallbackItems.push({ id: item.id, path: item.path, message: fallbackMessage })
     }
   }
 
-  return { codeViewItems, fallbackItems }
+  return { codeViewItems, fallbackItems, sourceItems }
+}
+
+function DiffViewerInteractiveHeader({ item }: { item: DiffViewerItem }): React.JSX.Element {
+  const actions = item.headerActions
+  if (!actions) throw new Error('Interactive diff headers require header actions.')
+
+  return (
+    <div className="relative flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2 text-left hover:bg-accent/60">
+      <button
+        aria-expanded={!item.collapsed}
+        aria-label="Toggle diff"
+        className="absolute inset-0 z-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        type="button"
+        onClick={actions.onToggle}
+      />
+      <div className="pointer-events-none relative z-10 min-w-0">
+        <button
+          className={cn(
+            'pointer-events-auto block truncate text-sm font-medium',
+            actions.onFileNameClick ? 'underline-offset-2 hover:underline' : undefined
+          )}
+          disabled={!actions.onFileNameClick}
+          title={actions.fileNameTitle}
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            actions.onFileNameClick?.()
+          }}
+        >
+          {item.path}
+        </button>
+        {item.oldPath ? (
+          <div className="truncate text-xs text-muted-foreground">renamed from {item.oldPath}</div>
+        ) : null}
+      </div>
+      <span className="pointer-events-none relative z-10 shrink-0 rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
+        {actions.status}
+      </span>
+    </div>
+  )
 }
 
 function DiffViewerHeaderMetadata({ item }: { item: CodeViewItem }): React.JSX.Element | null {
