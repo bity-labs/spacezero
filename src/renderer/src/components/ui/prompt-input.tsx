@@ -1,10 +1,10 @@
 'use client'
 
 import {
-  ArrowElbowDownLeftIcon,
+  PaperPlaneIcon,
   PaperclipIcon,
   SpinnerIcon,
-  SquareIcon,
+  StopIcon,
   XIcon
 } from '@phosphor-icons/react'
 import { nanoid } from 'nanoid'
@@ -306,12 +306,12 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
   const isRunning = status === 'submitted' || status === 'streaming'
 
-  let icon = <ArrowElbowDownLeftIcon className="size-4" />
+  let icon = <PaperPlaneIcon className="size-4" />
 
   if (status === 'submitted') {
     icon = <SpinnerIcon className="size-4 animate-spin" />
   } else if (status === 'streaming') {
-    icon = <SquareIcon className="size-4" />
+    icon = <StopIcon className="size-4" weight="fill" />
   } else if (status === 'error') {
     icon = <XIcon className="size-4" />
   }
