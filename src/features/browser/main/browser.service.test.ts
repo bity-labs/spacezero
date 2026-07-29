@@ -12,6 +12,7 @@ import {
   normalizeBrowserUrl,
   type BrowserContextRepository,
   type BrowserFaviconLoader,
+  type BrowserLocalFileSystem,
   type BrowserPersistedTab,
   type BrowserTabsRepository,
   type BrowserViewAdapter
@@ -381,13 +382,86 @@ describe('BrowserService', () => {
     const foreignPlatformPath =
       process.platform === 'win32' ? '/tmp/index.html' : String.raw`C:\Users\builder\index.html`
 
-    await expect(
-      service.navigate({ ...workspaceContext, input: './preview/index.html' })
-    ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
+    for (const relativePath of [
+      './preview/index.html',
+      'preview/index.html',
+      String.raw`preview\index.html`
+    ]) {
+      await expect(
+        service.navigate({ ...workspaceContext, input: relativePath })
+      ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
+    }
     await expect(
       service.navigate({ ...workspaceContext, input: foreignPlatformPath })
     ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
     expect(adapter.loaded).toEqual([])
+  })
+
+  it('searches one-letter colon terms while retaining Windows drive-path classification', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const blank = await service.getState(workspaceContext)
+
+    const state = await service.navigate({ ...workspaceContext, input: 'c: programming' })
+
+    expect(state.tabs[0]?.url).toBe('https://www.google.com/search?q=c%3A%20programming')
+    expect(adapter.loaded).toEqual([
+      { id: blank.activeTabId, url: 'https://www.google.com/search?q=c%3A%20programming' }
+    ])
+
+    const windowsPath = String.raw`C:\Users\builder\index.html`
+    await expect(service.navigate({ ...workspaceContext, input: windowsPath })).rejects.toThrow(
+      process.platform === 'win32'
+        ? 'The local HTML file could not be found or opened.'
+        : 'Enter an absolute local HTML file path for this operating system.'
+    )
+    expect(adapter.loaded).toHaveLength(1)
+  })
+
+  it('keeps the later navigation when an older local-file resolution completes last', async () => {
+    let releaseStat: (() => void) | undefined
+    let markStatStarted: (() => void) | undefined
+    const statGate = new Promise<void>((resolve) => {
+      releaseStat = resolve
+    })
+    const statStarted = new Promise<void>((resolve) => {
+      markStatStarted = resolve
+    })
+    const localFileSystem: BrowserLocalFileSystem = {
+      stat: async () => {
+        markStatStarted?.()
+        await statGate
+        return { isFile: () => true }
+      },
+      access: async () => undefined
+    }
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      undefined,
+      undefined,
+      localFileSystem
+    )
+    const blank = await service.getState(workspaceContext)
+    const localPath = join(tmpdir(), 'delayed-local-page.html')
+
+    const olderNavigation = service.navigate({ ...workspaceContext, input: localPath })
+    await statStarted
+    const laterState = await service.navigate({
+      ...workspaceContext,
+      input: 'https://later.example/'
+    })
+    releaseStat?.()
+    const olderResult = await olderNavigation
+
+    expect(laterState.tabs[0]?.url).toBe('https://later.example/')
+    expect(olderResult.tabs[0]?.url).toBe('https://later.example/')
+    expect(adapter.loaded).toEqual([{ id: blank.activeTabId, url: 'https://later.example/' }])
+    await expect(service.getState(workspaceContext)).resolves.toMatchObject({
+      tabs: [{ url: 'https://later.example/' }]
+    })
   })
 
   it('routes search terms to encoded Google Search navigation', async () => {
