@@ -2,6 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import type { WorkspaceSession } from '../../../sessions/shared'
 import { Textarea } from '@renderer/components/ui/textarea'
 
@@ -783,13 +789,6 @@ function GitCommitComposer({
   onPrimaryActionChange: (action: GitComposerAction) => void
   onSubmit: (action: GitComposerAction) => void
 }): React.JSX.Element {
-  const firstMenuItemRef = useRef<HTMLButtonElement | null>(null)
-
-  useEffect(() => {
-    if (!menuOpen) return
-    firstMenuItemRef.current?.focus()
-  }, [menuOpen])
-
   return (
     <footer className="shrink-0 space-y-3 border-t bg-background p-4">
       <Textarea
@@ -800,7 +799,7 @@ function GitCommitComposer({
         onChange={(event) => onInstructionsChange(event.target.value)}
       />
       <div className="flex items-center justify-end gap-3">
-        <div className="relative flex shrink-0 items-center" role="group" aria-label="Git commit action">
+        <div className="flex shrink-0 items-center" role="group" aria-label="Git commit action">
           <Button
             className="rounded-r-none"
             disabled={primaryDisabled}
@@ -809,53 +808,35 @@ function GitCommitComposer({
           >
             {formatActionLabel(primaryAction)}
           </Button>
-          <Button
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-            aria-label="Choose Git commit action"
-            className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
-            disabled={busy}
-            size="icon"
-            title="Choose Git commit action"
-            type="button"
-            variant="default"
-            onClick={() => onMenuOpenChange(!menuOpen)}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
-                event.preventDefault()
-                onMenuOpenChange(true)
-              }
-            }}
-          >
-            <DotsThree aria-hidden="true" className="size-5" weight="bold" />
-          </Button>
-          {menuOpen ? (
-            <div
-              className="absolute bottom-11 right-0 z-10 min-w-40 rounded-md border bg-popover p-1 shadow-md"
-              role="menu"
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  onMenuOpenChange(false)
-                }
-              }}
-            >
-              {COMPOSER_ACTIONS.map((action, index) => (
-                <button
-                  key={action}
-                  ref={index === 0 ? firstMenuItemRef : undefined}
-                  aria-current={primaryAction === action ? 'true' : undefined}
-                  className="w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={busy || !actionAvailability[action]}
-                  role="menuitem"
+          <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  aria-label="Choose Git commit action"
+                  className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
+                  disabled={busy}
+                  size="icon"
+                  title="Choose Git commit action"
                   type="button"
+                  variant="default"
+                />
+              }
+            >
+              <DotsThree aria-hidden="true" className="size-5" weight="bold" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-40" side="top">
+              {COMPOSER_ACTIONS.map((action) => (
+                <DropdownMenuItem
+                  key={action}
+                  aria-current={primaryAction === action ? 'true' : undefined}
+                  disabled={busy || !actionAvailability[action]}
                   onClick={() => onPrimaryActionChange(action)}
                 >
                   {formatActionLabel(action)}
-                </button>
+                </DropdownMenuItem>
               ))}
-            </div>
-          ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </footer>
