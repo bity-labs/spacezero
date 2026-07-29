@@ -115,21 +115,10 @@ async function walkDirectory(state: SearchWalkerState, relativeDirectory: string
     }
 
     if (!details.isFile()) continue
-    addFilenameMatch(state, relativePath)
     await addContentMatches(state, relativePath, absolutePath, details.size)
   }
 
   state.ignoreRules.splice(previousRuleCount)
-}
-
-function addFilenameMatch(state: SearchWalkerState, relativePath: string): void {
-  if (state.results.length >= state.maxResults) return
-  if (!basename(relativePath).toLowerCase().includes(state.lowerQuery)) return
-  state.results.push({
-    kind: 'filename',
-    relativePath,
-    name: basename(relativePath)
-  })
 }
 
 async function addContentMatches(
