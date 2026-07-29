@@ -480,6 +480,12 @@ describe('App', () => {
   })
 
   it('shows Projects in the sidebar with empty state and add setup paths', async () => {
+    let repositorySetupFetches = 0
+    window.spacezero.github.listRepositorySetupOptions = async () => {
+      repositorySetupFetches += 1
+      return []
+    }
+
     render(<App />)
 
     expect(await screen.findByText('Projects')).toBeInTheDocument()
@@ -496,9 +502,20 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Create project' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /GitHub Repository/ }))
     expect(await screen.findByText('No accessible repositories')).toBeInTheDocument()
-    expect(
-      screen.getByRole('link', { name: 'Configure GitHub repository access' })
-    ).toHaveAttribute('href', '/settings?section=account')
+    const settingsLink = screen.getByRole('link', { name: 'Configure GitHub repository access' })
+    expect(settingsLink).toHaveAttribute('href', '#/settings?section=account')
+    expect(repositorySetupFetches).toBe(1)
+
+    fireEvent.click(settingsLink)
+    expect(await screen.findByRole('heading', { name: 'Account' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#/settings?section=account')
+
+    fireEvent.click(screen.getByRole('link', { name: 'Back to Workspace' }))
+    expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add project' })[0])
+    fireEvent.click(await screen.findByRole('button', { name: /GitHub Repository/ }))
+    expect(await screen.findByText('No accessible repositories')).toBeInTheDocument()
+    expect(repositorySetupFetches).toBe(2)
   })
 
   it('opens a cloned GitHub Project Home without starting a Session', async () => {
