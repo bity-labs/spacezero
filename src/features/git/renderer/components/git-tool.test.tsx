@@ -231,7 +231,7 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Commit' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'More' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Choose Git commit action' })).not.toBeInTheDocument()
   })
 
   it('sends a fresh-state same-session conflict prompt without rendered diffs or changing composer text', async () => {
@@ -551,17 +551,13 @@ describe('GitTool', () => {
     )
   })
 
-  it('passes composer text as preferred commit instructions without changing the saved primary action', async () => {
+  it('uses a split button that defaults to Commit & Push and only runs the selected action from the main segment', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
-    const updateGitActionSettings = vi.fn(async () => ({
-      primaryGitAction: 'commit-and-push' as const
-    }))
     window.spacezero.settings.getGitActionSettings = vi.fn(async () => ({
-      primaryGitAction: 'commit-and-push' as const
+      primaryGitAction: 'commit' as const
     }))
-    window.spacezero.settings.updateGitActionSettings = updateGitActionSettings
     window.spacezero.agent.prompt = prompt
     window.spacezero.git.getReview = vi.fn(async () => ({
       status: 'ok' as const,
@@ -580,14 +576,24 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" />)
 
+    expect(
+      screen.queryByText(
+        'Sends a normal prompt to this Project Session agent. The agent will inspect fresh Git state.'
+      )
+    ).not.toBeInTheDocument()
     await userEvent.type(
       await screen.findByLabelText('Commit instructions'),
       'Use message: polish docs'
     )
-    await userEvent.click(screen.getByRole('button', { name: 'More' }))
-    await userEvent.click(await screen.findByRole('menuitem', { name: 'Commit' }))
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeEnabled()
 
-    expect(updateGitActionSettings).not.toHaveBeenCalled()
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
+    expect(await screen.findByRole('menuitem', { name: 'Commit & Push' })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Commit' }))
+    expect(prompt).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Commit' })).toBeEnabled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Commit' }))
     expect(prompt).toHaveBeenCalledWith({
       sessionId: 'session-1',
       message: expect.stringContaining(
@@ -595,6 +601,51 @@ describe('GitTool', () => {
       )
     })
     expect(prompt.mock.calls[0]?.[0].message ?? '').toContain('Use message: polish docs')
+    expect(prompt.mock.calls[0]?.[0].message ?? '').not.toContain('and push the branch')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
+    await userEvent.click(await screen.findByRole('menuitem', { name: 'Commit & Push' }))
+    expect(prompt).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled()
+  })
+
+  it('supports keyboard traversal and restores focus to the split-button menu trigger on Escape', async () => {
+    const user = userEvent.setup()
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    const trigger = await screen.findByRole('button', { name: 'Choose Git commit action' })
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    const commitAndPushItem = await screen.findByRole('menuitem', { name: 'Commit & Push' })
+    const commitItem = screen.getByRole('menuitem', { name: 'Commit' })
+    expect(commitAndPushItem).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    expect(commitItem).toHaveFocus()
+
+    await user.keyboard('{ArrowUp}')
+    expect(commitAndPushItem).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Commit' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
   })
 
   it('keeps composer actions available when the Staged filter is clean but unstaged changes exist', async () => {
@@ -643,14 +694,18 @@ describe('GitTool', () => {
     await screen.findByText('No staged changes')
 
     await userEvent.click(screen.getByRole('button', { name: 'Commit & Push' }))
-    await userEvent.click(screen.getByRole('button', { name: 'More' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
     const commitAction = await screen.findByRole('menuitem', { name: 'Commit' })
     expect(commitAction).not.toBeDisabled()
     await userEvent.click(commitAction)
+    expect(prompt).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Commit' }))
 
     expect(prompt).toHaveBeenCalledTimes(2)
     expect(prompt.mock.calls[0]?.[0].message ?? '').toContain('and push the branch')
     expect(prompt.mock.calls[1]?.[0].message ?? '').toContain('create an appropriate commit')
+    expect(prompt.mock.calls[1]?.[0].message ?? '').not.toContain('and push the branch')
   })
 
   it('enables Commit & Push for an ahead branch with no uncommitted changes', async () => {
@@ -707,7 +762,7 @@ describe('GitTool', () => {
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeDisabled()
     )
-    expect(screen.getByRole('button', { name: 'More' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Choose Git commit action' })).toBeDisabled()
   })
 
   it('folds long unchanged regions without hiding changed lines', async () => {
