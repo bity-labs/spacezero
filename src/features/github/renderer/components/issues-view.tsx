@@ -11,6 +11,21 @@ import { githubMutationErrorMessage, githubReadErrorMessage } from '../github-er
 import { GitHubMarkdown } from './github-markdown'
 import { useProjectIssue, useProjectIssues } from '../hooks/use-project-issues'
 
+export function IssuesViewLoading(): React.JSX.Element {
+  return (
+    <section className="space-y-4" aria-label="GitHub Issues">
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Issues</h2>
+          <p className="text-sm text-muted-foreground">Live from the linked GitHub repository.</p>
+        </div>
+        <RefreshButton fetching onRefresh={() => undefined} />
+      </header>
+      <ListPlaceholders label="Loading Issues…" itemLabel="Issue placeholder" />
+    </section>
+  )
+}
+
 export function IssuesView({
   project,
   initialIssueNumber = null,
