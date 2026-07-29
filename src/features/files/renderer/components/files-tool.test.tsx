@@ -36,6 +36,13 @@ vi.mock('@pierre/trees/react', async () => {
     paths?: readonly string[]
     initialExpandedPaths?: readonly string[]
     initialSelectedPaths?: readonly string[]
+    composition?: {
+      contextMenu?: {
+        buttonVisibility?: 'always' | 'when-needed'
+        enabled?: boolean
+        triggerMode?: 'both' | 'button' | 'right-click'
+      }
+    }
     onSelectionChange?: (paths: readonly string[]) => void
     renderRowDecoration?: (context: {
       item: { kind: 'directory' | 'file'; name: string; path: string }
@@ -199,7 +206,7 @@ vi.mock('@pierre/trees/react', async () => {
     renderContextMenu?: (
       item: { kind: 'directory' | 'file'; name: string; path: string },
       context: {
-        close: () => void
+        close: (options?: { restoreFocus?: boolean }) => void
         restoreFocus: () => void
         anchorElement: HTMLElement
         anchorRect: DOMRect
@@ -244,6 +251,9 @@ vi.mock('@pierre/trees/react', async () => {
               item: { kind: directory ? 'directory' : 'file', name, path },
               row: { kind: directory ? 'directory' : 'file', path }
             })
+            const contextMenuTriggerMode = model.options.composition?.contextMenu?.triggerMode
+            const showContextMenuButton =
+              contextMenuTriggerMode === 'both' || contextMenuTriggerMode === 'button'
             return (
               <li
                 key={path}
@@ -271,13 +281,25 @@ vi.mock('@pierre/trees/react', async () => {
                   ) : null}
                   {name}
                   {decoration ? <span>{decoration.text}</span> : null}
+                  {showContextMenuButton ? (
+                    <button
+                      type="button"
+                      aria-label={`Open ${name} actions`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        setActiveMenuPath(path)
+                      }}
+                    >
+                      ⋯
+                    </button>
+                  ) : null}
                 </span>
               </li>
             )
           })}
         </ul>
         {activeMenuPath && renderContextMenu ? (
-          <div role="menu">
+          <div>
             {renderContextMenu(
               {
                 kind: isDirectoryPath(activeMenuPath) ? 'directory' : 'file',
@@ -558,6 +580,32 @@ describe('Files Tool', () => {
     await waitFor(() => expect(screen.queryByRole('treeitem', { name: 'package.json' })).toBeNull())
     expect(screen.getByRole('treeitem', { name: 'README.md' })).toBeInTheDocument()
     expect(search).not.toHaveBeenCalled()
+  })
+
+  it('configures Trees context menus for right-click and a subtle row action trigger', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+
+    render(<FilesTool sessionId="session-context-trigger" />)
+
+    await screen.findByRole('treeitem', { name: 'README.md' })
+    expect(treesMock.options.at(-1)).toMatchObject({
+      composition: {
+        contextMenu: {
+          buttonVisibility: 'when-needed',
+          enabled: true,
+          triggerMode: 'both'
+        }
+      }
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open README.md actions' }))
+    const menu = await screen.findByRole('menu', { name: 'README.md actions' })
+    expect(within(menu).getByRole('menuitem', { name: 'New File' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'New Folder' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
+    expect(within(menu).getByRole('menuitem', { name: 'Show in Finder' })).toBeInTheDocument()
   })
 
   it('loads the full context tree through the Project Session API and opens files from Trees selection', async () => {
