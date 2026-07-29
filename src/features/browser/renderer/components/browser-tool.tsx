@@ -8,6 +8,7 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
+import { useCommandPaletteController } from '../../../command-palette/renderer/command-palette-controller'
 import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-parser'
 import {
   useKeyboardShortcutsManager,
@@ -121,6 +122,7 @@ export function BrowserTool({
   const surfaceRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
+  const commandPalette = useCommandPaletteController()
   const [state, setState] = useState<BrowserState | null>(null)
   const [stateContextKey, setStateContextKey] = useState(contextKey)
   const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
@@ -432,6 +434,11 @@ export function BrowserTool({
   useLayoutEffect(() => {
     const surface = surfaceRef.current
     if (!surface || !activeTabId) return
+    if (commandPalette.isOpen) {
+      shortcutManager.setContext({ browserFocused: false })
+      void window.spacezero.browser.hide({ contextKey, context })
+      return
+    }
     const surfaceElement = surface
     const shownTabId = activeTabId
 
@@ -465,7 +472,15 @@ export function BrowserTool({
       window.removeEventListener('resize', syncBounds)
       void window.spacezero.browser.hide({ contextKey, context })
     }
-  }, [activeTabId, activeTabUrl, context, contextKey, shortcutBindingsVersion, shortcutManager])
+  }, [
+    activeTabId,
+    activeTabUrl,
+    commandPalette.isOpen,
+    context,
+    contextKey,
+    shortcutBindingsVersion,
+    shortcutManager
+  ])
 
   async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()

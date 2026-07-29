@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
+import {
+  CommandPaletteControllerProvider,
+  useCommandPaletteController
+} from '../../../command-palette/renderer/command-palette-controller'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { BrowserContext, BrowserEvent } from '../../shared'
 import { BrowserTool } from './browser-tool'
@@ -115,15 +119,41 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
   return api
 }
 
+function TestProviders({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <AppCommandProvider>
+      <CommandPaletteControllerProvider>
+        <KeyboardShortcutsProvider>{children}</KeyboardShortcutsProvider>
+      </CommandPaletteControllerProvider>
+    </AppCommandProvider>
+  )
+}
+
 function renderBrowserTool(
   props: { contextKey: string; context: BrowserContext } = { contextKey, context }
 ): ReturnType<typeof render> {
   return render(
-    <AppCommandProvider>
-      <KeyboardShortcutsProvider>
-        <BrowserTool context={props.context} contextKey={props.contextKey} />
-      </KeyboardShortcutsProvider>
-    </AppCommandProvider>
+    <TestProviders>
+      <BrowserTool context={props.context} contextKey={props.contextKey} />
+    </TestProviders>
+  )
+}
+
+function renderBrowserToolWithCommandPalette(): ReturnType<typeof render> {
+  return render(
+    <TestProviders>
+      <OpenCommandPaletteButton />
+      <BrowserTool context={context} contextKey={contextKey} />
+    </TestProviders>
+  )
+}
+
+function OpenCommandPaletteButton(): React.JSX.Element {
+  const commandPalette = useCommandPaletteController()
+  return (
+    <button type="button" onClick={commandPalette.open}>
+      Open command palette
+    </button>
   )
 }
 
@@ -142,9 +172,44 @@ describe('BrowserTool', () => {
   beforeEach(() => {
     class ResizeObserverStub {
       observe(): void {}
+      unobserve(): void {}
       disconnect(): void {}
     }
     Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: ResizeObserverStub })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 400,
+      y: 100,
+      width: 640,
+      height: 480,
+      top: 100,
+      right: 1040,
+      bottom: 580,
+      left: 400,
+      toJSON: () => ({})
+    })
+  })
+
+  it('occludes native Browser content while the command palette is open and restores it on close', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+
+    renderBrowserToolWithCommandPalette()
+
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    browser.hide.mockClear()
+    browser.show.mockClear()
+
+    await user.click(screen.getByRole('button', { name: 'Open command palette' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
   })
 
   it('shows a focused blank URL field and opens submitted URLs through preload contracts', async () => {
@@ -323,11 +388,9 @@ describe('BrowserTool', () => {
     })
     const otherContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
     const otherRender = render(
-      <AppCommandProvider>
-        <KeyboardShortcutsProvider>
-          <BrowserTool context={otherContext} contextKey="session:workspace-2" />
-        </KeyboardShortcutsProvider>
-      </AppCommandProvider>
+      <TestProviders>
+        <BrowserTool context={otherContext} contextKey="session:workspace-2" />
+      </TestProviders>
     )
     await screen.findByLabelText('Browser URL')
     expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
@@ -379,11 +442,9 @@ describe('BrowserTool', () => {
     expect(await screen.findByLabelText('Browser downloads')).toHaveTextContent('a.zip')
 
     view.rerender(
-      <AppCommandProvider>
-        <KeyboardShortcutsProvider>
-          <BrowserTool context={otherContext} contextKey="session:workspace-2" />
-        </KeyboardShortcutsProvider>
-      </AppCommandProvider>
+      <TestProviders>
+        <BrowserTool context={otherContext} contextKey="session:workspace-2" />
+      </TestProviders>
     )
 
     expect(screen.queryByRole('tab', { name: 'Context A' })).not.toBeInTheDocument()
@@ -393,11 +454,9 @@ describe('BrowserTool', () => {
     expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
 
     view.rerender(
-      <AppCommandProvider>
-        <KeyboardShortcutsProvider>
-          <BrowserTool context={context} contextKey={contextKey} />
-        </KeyboardShortcutsProvider>
-      </AppCommandProvider>
+      <TestProviders>
+        <BrowserTool context={context} contextKey={contextKey} />
+      </TestProviders>
     )
 
     expect(await screen.findByRole('tab', { name: 'Context A' })).toBeInTheDocument()
@@ -409,12 +468,10 @@ describe('BrowserTool', () => {
     const user = userEvent.setup()
 
     render(
-      <AppCommandProvider>
-        <KeyboardShortcutsProvider>
-          <button type="button">Outside</button>
-          <BrowserTool context={context} contextKey={contextKey} />
-        </KeyboardShortcutsProvider>
-      </AppCommandProvider>
+      <TestProviders>
+        <button type="button">Outside</button>
+        <BrowserTool context={context} contextKey={contextKey} />
+      </TestProviders>
     )
 
     const input = await screen.findByLabelText('Browser URL')
