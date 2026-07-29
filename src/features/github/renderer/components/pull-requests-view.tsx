@@ -12,6 +12,21 @@ import { GitHubMarkdown } from './github-markdown'
 import { PullRequestReviewSections } from './pull-request-review-sections'
 import { useProjectPullRequest, useProjectPullRequests } from '../hooks/use-project-pull-requests'
 
+export function PullRequestsViewLoading(): React.JSX.Element {
+  return (
+    <section className="space-y-4" aria-label="GitHub Pull Requests">
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Pull Requests</h2>
+          <p className="text-sm text-muted-foreground">Live from the linked GitHub repository.</p>
+        </div>
+        <RefreshButton fetching onRefresh={() => undefined} />
+      </header>
+      <ListPlaceholders label="Loading Pull Requests…" itemLabel="Pull Request placeholder" />
+    </section>
+  )
+}
+
 export function PullRequestsView({
   project,
   initialPullRequestNumber = null
