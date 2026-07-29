@@ -23,7 +23,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
     knowledgeBaseRootProvider: { getVerifiedRoot: async () => '/knowledge-base' },
     operations: { runExclusive: (operation) => operation() },
     readDirectory: async () => [],
-    readTree: async () => [],
+    readTree: async () => ({ entries: [], presortedPaths: [] }),
     openDocument: async () => ({
       name: 'README.md',
       relativePath: 'README.md',
@@ -65,14 +65,16 @@ describe('Files service', () => {
       findProjectById: vi.fn(async () => validProject)
     }
     const worktrees = { validate: vi.fn(async () => true) }
-    const readTree = vi.fn(async () => [
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
-    ])
+    const readTree = vi.fn(async () => ({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }],
+      presortedPaths: ['README.md']
+    }))
     const service = createTestService({ repository, worktrees, readTree })
 
-    await expect(service.listTree({ context: projectContext })).resolves.toEqual([
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
-    ])
+    await expect(service.listTree({ context: projectContext })).resolves.toEqual({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }],
+      presortedPaths: ['README.md']
+    })
     expect(worktrees.validate).toHaveBeenCalledWith({
       projectPath: '/projects/project-1',
       projectId: 'project-1',

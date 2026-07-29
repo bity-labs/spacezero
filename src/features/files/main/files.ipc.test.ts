@@ -50,17 +50,20 @@ function createSender(id = 1) {
 
 describe('Files IPC', () => {
   it('validates renderer input before listing a context tree', async () => {
-    const listTree = vi.fn(async () => [
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
-    ])
+    const listTree = vi.fn(async () => ({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }],
+      presortedPaths: ['README.md']
+    }))
     const handle = createListFilesTreeHandler({ listTree })
 
-    await expect(handle({ context: projectContext })).resolves.toEqual([
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
-    ])
-    await expect(handle({ context: knowledgeBaseContext })).resolves.toEqual([
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
-    ])
+    await expect(handle({ context: projectContext })).resolves.toEqual({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }],
+      presortedPaths: ['README.md']
+    })
+    await expect(handle({ context: knowledgeBaseContext })).resolves.toEqual({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }],
+      presortedPaths: ['README.md']
+    })
     expect(listTree).toHaveBeenNthCalledWith(1, { context: projectContext })
     expect(listTree).toHaveBeenNthCalledWith(2, { context: knowledgeBaseContext })
 
