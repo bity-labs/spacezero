@@ -115,7 +115,7 @@ export function registerBrowserIpc(): void {
     browserService.show(browserPresentationRequestSchema.parse(request), event.sender)
   )
   ipcMain.handle(IPC_CHANNELS.browser.hide, (_event, request: unknown) => {
-    browserService.hide(browserContextRequestSchema.parse(request))
+    return browserService.hide(browserContextRequestSchema.parse(request))
   })
   ipcMain.handle(IPC_CHANNELS.browser.createTab, (_event, request: unknown) =>
     browserService.createTab(browserCreateTabRequestSchema.parse(request))
