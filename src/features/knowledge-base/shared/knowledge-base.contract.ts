@@ -1,5 +1,6 @@
 import type {
   KnowledgeBaseChatContext,
+  KnowledgeBaseChatHistoryItem,
   KnowledgeBaseImageImport,
   KnowledgeBaseImagePreview,
   KnowledgeBaseStatus
@@ -8,6 +9,8 @@ import type {
 export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getStatus: 'knowledgeBase:getStatus',
   getCurrentChatContext: 'knowledgeBase:getCurrentChatContext',
+  listChatHistory: 'knowledgeBase:listChatHistory',
+  resumeChatContext: 'knowledgeBase:resumeChatContext',
   clearChat: 'knowledgeBase:clearChat',
   reset: 'knowledgeBase:reset',
   createNew: 'knowledgeBase:createNew',
@@ -20,6 +23,8 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
 export type KnowledgeBaseAPI = {
   getStatus: () => Promise<KnowledgeBaseStatus>
   getCurrentChatContext: () => Promise<KnowledgeBaseChatContext>
+  listChatHistory: () => Promise<KnowledgeBaseChatHistoryItem[]>
+  resumeChatContext: (request: { chatContextId: string }) => Promise<KnowledgeBaseChatContext>
   clearChat: () => Promise<KnowledgeBaseChatContext>
   reset: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>

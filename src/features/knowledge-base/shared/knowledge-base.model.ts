@@ -10,6 +10,12 @@ export type KnowledgeBaseChatContext = {
   updatedAt: string
 }
 
+export type KnowledgeBaseChatHistoryItem = {
+  id: string
+  initialPrompt: string
+  createdAt?: string
+}
+
 export type KnowledgeBaseStatus =
   | { setupState: 'unconfigured' }
   | {

@@ -4,7 +4,11 @@ import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { useFilesStore } from '../../files/renderer/files-store'
 import { WorkspaceSessionHostSurface } from '../../sessions/renderer'
-import type { KnowledgeBaseChatContext, KnowledgeBaseStatus } from '../shared'
+import type {
+  KnowledgeBaseChatContext,
+  KnowledgeBaseChatHistoryItem,
+  KnowledgeBaseStatus
+} from '../shared'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -225,6 +229,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
   const [isClearingChat, setClearingChat] = useState(false)
+  const [chatHistory, setChatHistory] = useState<KnowledgeBaseChatHistoryItem[] | undefined>()
 
   useEffect(() => {
     let current = true
@@ -241,12 +246,42 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
     }
   }, [requestId])
 
+  async function openChatHistory(): Promise<void> {
+    setError(null)
+    try {
+      setChatHistory(await window.spacezero.knowledgeBase.listChatHistory())
+    } catch (historyError) {
+      setError(getErrorMessage(historyError, 'Unable to load Knowledge Base Chat history.'))
+      throw historyError
+    }
+  }
+
+  async function resumeChatContext(chatContextId: string): Promise<void> {
+    setError(null)
+    try {
+      const nextChatContext = await window.spacezero.knowledgeBase.resumeChatContext({
+        chatContextId
+      })
+      setChatContext(nextChatContext)
+      setChatHistory(undefined)
+      window.dispatchEvent(
+        new CustomEvent(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, {
+          detail: nextChatContext
+        })
+      )
+    } catch (resumeError) {
+      setError(getErrorMessage(resumeError, 'Unable to resume Knowledge Base Chat.'))
+      throw resumeError
+    }
+  }
+
   async function clearChat(): Promise<void> {
     setClearingChat(true)
     setError(null)
     try {
       const nextChatContext = await window.spacezero.knowledgeBase.clearChat()
       setChatContext(nextChatContext)
+      setChatHistory(undefined)
       window.dispatchEvent(
         new CustomEvent(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, {
           detail: nextChatContext
@@ -314,12 +349,20 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
           {
             name: 'clear',
             description: 'Start a fresh Knowledge Base Chat Context.'
+          },
+          {
+            name: 'resume',
+            description: 'Continue an older Knowledge Base Chat Context.'
           }
         ]}
+        historyItems={chatHistory}
         onCommand={(commandName) => {
           if (commandName === 'clear' && !isClearingChat) return clearChat()
+          if (commandName === 'resume') return openChatHistory()
           return undefined
         }}
+        onHistorySelect={resumeChatContext}
+        onHistoryDismiss={() => setChatHistory(undefined)}
       />
     </div>
   )
