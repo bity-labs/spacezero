@@ -1,3 +1,8 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
 import { describe, expect, it } from 'vitest'
 
 import type { BrowserClearDataResult } from '../shared'
@@ -326,6 +331,63 @@ describe('BrowserService', () => {
     expect(state.tabs[0]?.url).toBe('http://localhost:4173/')
     expect(state.tabs[0]?.isLoading).toBe(true)
     expect(adapter.loaded).toEqual([{ id: blank.activeTabId, url: 'http://localhost:4173/' }])
+  })
+
+  it('loads an existing absolute local HTML file as a file URL', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'spacezero-browser-local-html-'))
+    const filePath = join(directory, 'fixture page.html')
+    await writeFile(filePath, '<h1>Local fixture</h1>')
+
+    try {
+      const adapter = new FakeBrowserViewAdapter()
+      const service = new BrowserService(adapter, createContextRepository())
+      const blank = await service.getState(workspaceContext)
+
+      const state = await service.navigate({ ...workspaceContext, input: filePath })
+      const fileUrl = pathToFileURL(filePath).toString()
+
+      expect(state.tabs[0]?.url).toBe(fileUrl)
+      expect(adapter.loaded).toEqual([{ id: blank.activeTabId, url: fileUrl }])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a missing absolute local HTML path instead of searching for it', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const missingPath = join(tmpdir(), `spacezero-missing-${Date.now()}`, 'missing.html')
+
+    await expect(service.navigate({ ...workspaceContext, input: missingPath })).rejects.toThrow(
+      'The local HTML file could not be found or opened.'
+    )
+    expect(adapter.loaded).toEqual([])
+  })
+
+  it('rejects unsupported absolute local file paths instead of searching for them', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const nonHtmlPath = join(tmpdir(), 'notes.txt')
+
+    await expect(service.navigate({ ...workspaceContext, input: nonHtmlPath })).rejects.toThrow(
+      'Only absolute local .html file paths can be loaded in Browser.'
+    )
+    expect(adapter.loaded).toEqual([])
+  })
+
+  it('rejects relative and foreign-platform local HTML paths instead of searching for them', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const foreignPlatformPath =
+      process.platform === 'win32' ? '/tmp/index.html' : String.raw`C:\Users\builder\index.html`
+
+    await expect(
+      service.navigate({ ...workspaceContext, input: './preview/index.html' })
+    ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
+    await expect(
+      service.navigate({ ...workspaceContext, input: foreignPlatformPath })
+    ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
+    expect(adapter.loaded).toEqual([])
   })
 
   it('routes search terms to encoded Google Search navigation', async () => {
