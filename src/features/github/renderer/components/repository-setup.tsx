@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 
 import type { GitHubCloneProgress, GitHubRepositorySetupOption } from '../../shared'
 import { AgentResourceTrustCheckbox } from '../../../projects/renderer/components/agent-resource-trust-checkbox'
 import { Button, buttonVariants } from '@renderer/components/ui/button'
-import { cn } from '@renderer/lib/utils'
 
 export function RepositorySetup({
   onProjectReady,
@@ -81,7 +81,9 @@ export function RepositorySetup({
         )
       })
     : (options ?? [])
-  const selectedOption = options?.find((option) => option.repository.id === selectedRepositoryId)
+  const selectedOption = filteredOptions.find(
+    (option) => option.repository.id === selectedRepositoryId
+  )
   const matchingProjects = selectedOption?.matchingProjects ?? []
   const selectedMatchId =
     matchingProjects.length === 1 ? matchingProjects[0].id : selectedExistingProjectId
@@ -97,14 +99,14 @@ export function RepositorySetup({
   }, [busy, onBusyChange])
 
   async function startClone(): Promise<void> {
-    if (!selectedRepositoryId || activeOperationRef.current) return
+    if (!selectedOption || activeOperationRef.current) return
     setIsStarting(true)
     setError(null)
     setProgress(null)
 
     try {
       const result = await window.spacezero.github.startClone({
-        repositoryId: selectedRepositoryId,
+        repositoryId: selectedOption.repository.id,
         ...(selectedMatchId ? { existingProjectId: selectedMatchId } : {}),
         ...(selectedMatchId
           ? {}
@@ -166,12 +168,7 @@ export function RepositorySetup({
                 want to clone into Space Zero.
               </p>
             </div>
-            <a
-              className={cn(buttonVariants({ variant: 'outline', size: 'sm' }), 'w-fit')}
-              href="/settings?section=account"
-            >
-              Configure GitHub repository access
-            </a>
+            <AccountSettingsLink />
           </div>
         ) : options ? (
           <>
@@ -286,6 +283,23 @@ export function RepositorySetup({
                 : 'Clone repository'}
       </Button>
     </div>
+  )
+}
+
+function AccountSettingsLink(): React.JSX.Element {
+  const navigate = useNavigate()
+
+  return (
+    <a
+      className={buttonVariants({ variant: 'outline', size: 'sm', className: 'w-fit' })}
+      href="#/settings?section=account"
+      onClick={(event) => {
+        event.preventDefault()
+        void navigate({ to: '/settings', search: { section: 'account' } })
+      }}
+    >
+      Configure GitHub repository access
+    </a>
   )
 }
 

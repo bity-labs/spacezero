@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { GitHubCloneProgress } from '../../shared'
 import { RepositorySetup } from './repository-setup'
 
+vi.mock('@tanstack/react-router', () => ({
+  useNavigate: () => vi.fn()
+}))
+
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((next) => {
@@ -101,7 +105,50 @@ describe('RepositorySetup', () => {
     ).toBeInTheDocument()
     expect(
       screen.getByRole('link', { name: 'Configure GitHub repository access' })
-    ).toHaveAttribute('href', '/settings?section=account')
+    ).toHaveAttribute('href', '#/settings?section=account')
+  })
+
+  it('disables cloning when search hides the selected repository', async () => {
+    const secondRepository = {
+      ...repository,
+      id: '2000',
+      nodeId: 'R_2000',
+      owner: 'octocat',
+      name: 'Hello-World',
+      fullName: 'octocat/Hello-World',
+      htmlUrl: 'https://github.com/octocat/Hello-World',
+      cloneUrl: 'https://github.com/octocat/Hello-World.git'
+    }
+    window.spacezero.github.listRepositorySetupOptions = async () => [
+      { repository },
+      { repository: secondRepository }
+    ]
+    const startClone = vi.fn(async () => ({
+      status: 'started' as const,
+      operationId: 'clone-1'
+    }))
+    window.spacezero.github.startClone = startClone
+
+    render(<RepositorySetup onProjectReady={() => undefined} />)
+
+    fireEvent.click(await screen.findByRole('radio', { name: /bity-labs\/spacezero/ }))
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeEnabled()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search repositories' }), {
+      target: { value: 'hello' }
+    })
+
+    expect(screen.queryByRole('radio', { name: /bity-labs\/spacezero/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: /octocat\/Hello-World/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+    expect(startClone).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search repositories' }), {
+      target: { value: '' }
+    })
+    expect(screen.getByRole('radio', { name: /bity-labs\/spacezero/ })).toBeChecked()
+    expect(screen.getByRole('button', { name: 'Clone repository' })).toBeEnabled()
   })
 
   it('selects exactly one authorized repository and reports clone completion', async () => {
