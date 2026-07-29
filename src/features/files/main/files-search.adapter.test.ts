@@ -20,7 +20,7 @@ describe('Files search adapter', () => {
     await rm(rootPath, { recursive: true, force: true })
   })
 
-  it('returns filename and bounded content matches with context-relative paths', async () => {
+  it('returns bounded content matches with context-relative paths and leaves path/name filtering to Files search', async () => {
     await mkdir(join(rootPath, 'docs'))
     await writeFile(join(rootPath, 'docs', 'search-notes.md'), 'hello\nneedle appears here\n')
     await writeFile(join(rootPath, 'other.txt'), 'nothing')
@@ -33,11 +33,7 @@ describe('Files search adapter', () => {
         snippets: [{ line: 2, column: 1, text: 'needle appears here' }]
       }
     ])
-    await expect(searchFiles(rootPath, searchRequest('search'))).resolves.toContainEqual({
-      kind: 'filename',
-      relativePath: 'docs/search-notes.md',
-      name: 'search-notes.md'
-    })
+    await expect(searchFiles(rootPath, searchRequest('search'))).resolves.toEqual([])
   })
 
   it('respects gitignore and generated-directory exclusions unless ignored files are included', async () => {
