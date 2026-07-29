@@ -57,9 +57,11 @@ vi.mock('@pierre/trees/react', async () => {
     getVisibleCount: () => number
     getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
     scrollToPath: () => void
+    setSearch: (value: string | null) => void
     subscribe: (listener: () => void) => () => void
     __getPaths: () => readonly string[]
     __getExpanded: () => Set<string>
+    __getSearch: () => string | null
     __select: (path: string) => void
     __toggle: (path: string) => void
   }
@@ -86,11 +88,27 @@ vi.mock('@pierre/trees/react', async () => {
   function createModel(options: TreeOptions, forceUpdate: () => void): MockModel {
     let paths = [...(options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
+    let searchValue: string | null = null
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
     const listeners = new Set<() => void>()
     const notify = (): void => {
       for (const listener of listeners) listener()
       forceUpdate()
+    }
+    const searchedPaths = (): readonly string[] => {
+      const query = searchValue?.trim().toLowerCase()
+      if (!query) return paths
+      const matches = new Set<string>()
+      for (const path of paths) {
+        if (!path.toLowerCase().includes(query)) continue
+        matches.add(path)
+        let ancestor = parentPath(path)
+        while (ancestor) {
+          matches.add(ancestor)
+          ancestor = parentPath(ancestor)
+        }
+      }
+      return paths.filter((path) => matches.has(path))
     }
     const resetExpanded = (nextExpandedPaths?: readonly string[]): boolean => {
       if (!nextExpandedPaths) return false
@@ -126,20 +144,27 @@ vi.mock('@pierre/trees/react', async () => {
       },
       getFocusedPath: () => selectedPaths[0] ?? null,
       getSelectedPaths: () => selectedPaths,
-      getVisibleCount: () => paths.length,
+      getVisibleCount: () => searchedPaths().length,
       getVisibleRows: () =>
-        paths.map((path) => ({
+        searchedPaths().map((path) => ({
           isExpanded: expanded.has(normalizeDirectoryPath(path)),
           kind: isDirectoryPath(path) ? 'directory' : 'file',
           path
         })),
       scrollToPath: () => undefined,
+      setSearch: (value) => {
+        const nextValue = value?.trim() ? value.trim().toLowerCase() : null
+        if (searchValue === nextValue) return
+        searchValue = nextValue
+        notify()
+      },
       subscribe: (listener) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
       __getPaths: () => paths,
       __getExpanded: () => expanded,
+      __getSearch: () => searchValue,
       __select: (path) => {
         selectedPaths = [path]
         options.onSelectionChange?.(selectedPaths)
@@ -187,10 +212,22 @@ vi.mock('@pierre/trees/react', async () => {
     const [activeMenuPath, setActiveMenuPath] = React.useState<string | null>(null)
     const paths = model.__getPaths()
     const expanded = model.__getExpanded()
-    const visiblePaths = paths.filter((path) => {
+    const searchValue = model.__getSearch()
+    const searchedPaths = searchValue
+      ? paths.filter((path) => {
+          const query = searchValue.toLowerCase()
+          if (path.toLowerCase().includes(query)) return true
+          return paths.some(
+            (candidate) =>
+              parentPath(candidate).startsWith(path) && candidate.toLowerCase().includes(query)
+          )
+        })
+      : paths
+    const visiblePaths = searchedPaths.filter((path) => {
       const parent = parentPath(path)
       if (!parent) return true
       if (!paths.includes(parent)) return true
+      if (searchValue) return true
       return expanded.has(parent)
     })
     const selectedPath = model.getSelectedPaths()[0]
@@ -432,13 +469,17 @@ function requestContextKey(
     : request.context.contextKey
 }
 
-function enterSearchView(): HTMLInputElement {
-  fireEvent.click(screen.getByRole('button', { name: 'Search files' }))
-  return screen.getByRole('textbox', { name: 'Search files' }) as HTMLInputElement
+function enterContentsSearchMode(): HTMLInputElement {
+  fireEvent.click(screen.getByRole('button', { name: 'Contents search' }))
+  return screen.getByRole('textbox', { name: 'Contents search' }) as HTMLInputElement
 }
 
-function searchFilesInput(): HTMLInputElement {
-  return screen.getByRole('textbox', { name: 'Search files' }) as HTMLInputElement
+function contentsSearchInput(): HTMLInputElement {
+  return screen.getByRole('textbox', { name: 'Contents search' }) as HTMLInputElement
+}
+
+function filesSearchInput(): HTMLInputElement {
+  return screen.getByRole('textbox', { name: 'Files search' }) as HTMLInputElement
 }
 
 function invokeRegisteredSaveAllCommand(): void {
@@ -474,6 +515,7 @@ describe('Files Tool', () => {
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     expect(treesMock.options.at(-1)).toMatchObject({
       density: 'compact',
+      dragAndDrop: false,
       fileTreeSearchMode: 'hide-non-matches',
       flattenEmptyDirectories: true,
       icons: { set: 'complete', colored: true },
@@ -489,6 +531,33 @@ describe('Files Tool', () => {
       '--trees-focus-ring-color-override': 'var(--ring)',
       '--trees-font-family-override': 'var(--font-sans)'
     })
+  })
+
+  it('defaults to Files search and filters Trees rows by path/name without calling content search IPC', async () => {
+    const search = vi.fn(async () => [])
+    window.spacezero.files.search = search
+    window.spacezero.files.listTree = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
+      { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
+    ])
+
+    render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Files search' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
+    expect(screen.getByRole('button', { name: 'Contents search' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    )
+    expect(filesSearchInput()).toBeInTheDocument()
+    fireEvent.change(filesSearchInput(), { target: { value: 'read' } })
+
+    await waitFor(() => expect(screen.queryByRole('treeitem', { name: 'package.json' })).toBeNull())
+    expect(screen.getByRole('treeitem', { name: 'README.md' })).toBeInTheDocument()
+    expect(search).not.toHaveBeenCalled()
   })
 
   it('loads the full context tree through the Project Session API and opens files from Trees selection', async () => {
@@ -563,28 +632,28 @@ describe('Files Tool', () => {
     fireEvent.click(await screen.findByRole('treeitem', { name: 'app.ts' }))
     expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.queryByText(/^Explorer$/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Files search' })).toHaveAttribute(
       'aria-pressed',
       'true'
     )
-    expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Contents search' })).toHaveAttribute(
       'aria-pressed',
       'false'
     )
-    expect(screen.queryByRole('search')).not.toBeInTheDocument()
+    expect(filesSearchInput()).toBeInTheDocument()
     expect(screen.queryByText('Include ignored files')).not.toBeInTheDocument()
 
-    enterSearchView()
-    await waitFor(() => expect(searchFilesInput()).toHaveFocus())
+    enterContentsSearchMode()
+    await waitFor(() => expect(contentsSearchInput()).toHaveFocus())
     expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Trash' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reveal selected item' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Selected app.ts')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Contents search' })).toHaveAttribute(
       'aria-pressed',
       'true'
     )
-    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
+    fireEvent.change(contentsSearchInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
 
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
@@ -604,7 +673,7 @@ describe('Files Tool', () => {
     expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
     expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Tree view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Files search' }))
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     expect(screen.getAllByText('app.ts').length).toBeGreaterThan(0)
   })
@@ -619,32 +688,42 @@ describe('Files Tool', () => {
     const search = vi
       .fn()
       .mockResolvedValueOnce([
-        { kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }
+        {
+          kind: 'content' as const,
+          relativePath: 'first.txt',
+          name: 'first.txt',
+          snippets: [{ line: 1, column: 1, text: 'first' }]
+        }
       ])
       .mockResolvedValueOnce([
-        { kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }
+        {
+          kind: 'content' as const,
+          relativePath: 'second.txt',
+          name: 'second.txt',
+          snippets: [{ line: 1, column: 1, text: 'second' }]
+        }
       ])
       .mockRejectedValueOnce(new Error('files.searchFailed'))
     window.spacezero.files.search = search
 
     render(<FilesTool sessionId="session-1" />)
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'first' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'first' } })
     fireEvent.submit(screen.getByRole('search'))
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'second' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'second' } })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() => expect(screen.getAllByText('second.txt')).toHaveLength(2))
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'broken' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'broken' } })
     fireEvent.submit(screen.getByRole('search'))
 
     expect(
       await screen.findByText('Couldn’t search these files. Adjust the query or try again.')
     ).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Tree view' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Files search' }))
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
   })
 
@@ -677,14 +756,14 @@ describe('Files Tool', () => {
     const view = render(<FilesTool sessionId="session-1" />)
     await screen.findByRole('tree', { name: 'Project files' })
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'first' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'first' } })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() => expect(search).toHaveBeenCalledTimes(1))
     const firstRequestId = search.mock.calls[0]?.[0].requestId
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'second' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'second' } })
     fireEvent.submit(screen.getByRole('search'))
     await waitFor(() =>
       expect(cancelSearch).toHaveBeenCalledWith({
@@ -693,12 +772,26 @@ describe('Files Tool', () => {
       })
     )
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Tree view' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Files search' }))
     await waitFor(() => expect(cancelSearch).toHaveBeenCalledTimes(2))
     view.unmount()
     expect(cancelSearch).toHaveBeenCalledTimes(2)
-    resolveFirst?.([{ kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }])
-    resolveSecond?.([{ kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }])
+    resolveFirst?.([
+      {
+        kind: 'content' as const,
+        relativePath: 'first.txt',
+        name: 'first.txt',
+        snippets: [{ line: 1, column: 1, text: 'first' }]
+      }
+    ])
+    resolveSecond?.([
+      {
+        kind: 'content' as const,
+        relativePath: 'second.txt',
+        name: 'second.txt',
+        snippets: [{ line: 1, column: 1, text: 'second' }]
+      }
+    ])
   })
 
   it('invalidates active search results after saves and refreshes them after external Files observation events', async () => {
@@ -747,8 +840,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     await screen.findByRole('tree', { name: 'Project files' })
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
@@ -761,8 +854,8 @@ describe('Files Tool', () => {
     await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'needle' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'needle' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
@@ -776,7 +869,7 @@ describe('Files Tool', () => {
     )
 
     await waitFor(() => expect(window.spacezero.files.search).toHaveBeenCalledTimes(3))
-    expect(searchFilesInput()).toHaveDisplayValue('needle')
+    expect(contentsSearchInput()).toHaveDisplayValue('needle')
     expect(screen.getByLabelText('Search results')).toBeInTheDocument()
   })
 
@@ -797,7 +890,12 @@ describe('Files Tool', () => {
     })
     window.spacezero.files.listDirectory = listDirectory
     window.spacezero.files.search = vi.fn(async () => [
-      { kind: 'filename' as const, relativePath: 'src/index.ts', name: 'index.ts' }
+      {
+        kind: 'content' as const,
+        relativePath: 'src/index.ts',
+        name: 'index.ts',
+        snippets: [{ line: 1, column: 1, text: 'index' }]
+      }
     ])
     let resolveObservedRead:
       | ((document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>) => void)
@@ -833,8 +931,8 @@ describe('Files Tool', () => {
     expect(await screen.findByText('guide.md')).toBeInTheDocument()
     fireEvent.click(screen.getByText('index.ts'))
     expect(await screen.findByLabelText('Monaco editor')).toHaveValue('content')
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'index' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'index' } })
     fireEvent.submit(screen.getByRole('search'))
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
     const callsBeforeObservation = listDirectory.mock.calls.length
@@ -864,7 +962,7 @@ describe('Files Tool', () => {
       .slice(callsBeforeObservation)
       .map(([request]) => request.relativePath)
     expect(callsAfterObservation).toEqual(['', 'src', 'docs'])
-    expect(searchFilesInput()).toHaveDisplayValue('index')
+    expect(contentsSearchInput()).toHaveDisplayValue('index')
     expect(screen.getByLabelText('Search results')).toBeInTheDocument()
 
     resolveObservedRead?.({
@@ -1833,7 +1931,12 @@ describe('Files Tool', () => {
         : [{ name: 'old.txt', relativePath: 'notes/old.txt', kind: 'file' as const }]
     )
     window.spacezero.files.search = vi.fn(async () => [
-      { kind: 'filename' as const, relativePath: 'notes/old.txt', name: 'old.txt' }
+      {
+        kind: 'content' as const,
+        relativePath: 'notes/old.txt',
+        name: 'old.txt',
+        snippets: [{ line: 1, column: 1, text: 'old' }]
+      }
     ])
 
     render(<FilesTool sessionId="session-search-selected-actions" />)
@@ -1846,8 +1949,8 @@ describe('Files Tool', () => {
     expect(screen.queryByRole('button', { name: 'Trash' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reveal selected item' })).not.toBeInTheDocument()
 
-    enterSearchView()
-    fireEvent.change(searchFilesInput(), { target: { value: 'old' } })
+    enterContentsSearchMode()
+    fireEvent.change(contentsSearchInput(), { target: { value: 'old' } })
     fireEvent.submit(screen.getByRole('search'))
 
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
