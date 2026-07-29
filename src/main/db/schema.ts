@@ -11,7 +11,9 @@ export const projects = sqliteTable('projects', {
   githubName: text('github_name'),
   githubUrl: text('github_url'),
   githubLinkedAt: integer('github_linked_at', { mode: 'timestamp_ms' }),
-  agentResourcesTrusted: integer('agent_resources_trusted', { mode: 'boolean' }).notNull().default(false),
+  agentResourcesTrusted: integer('agent_resources_trusted', { mode: 'boolean' })
+    .notNull()
+    .default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' })
@@ -46,6 +48,28 @@ export const sessions = sqliteTable('sessions', {
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   managedContext: text('managed_context', { enum: ['knowledge-base'] }),
   agentDefinitionSnapshot: text('agent_definition_snapshot')
+})
+
+export const chatContexts = sqliteTable('chat_contexts', {
+  id: text('id').primaryKey(),
+  workspaceContextKey: text('workspace_context_key').notNull(),
+  agentSessionId: text('agent_session_id')
+    .notNull()
+    .unique()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+})
+
+export const workspaceChatContexts = sqliteTable('workspace_chat_contexts', {
+  workspaceContextKey: text('workspace_context_key').primaryKey(),
+  workspaceContextKind: text('workspace_context_kind', {
+    enum: ['knowledge-base', 'project-session', 'global-chat']
+  }).notNull(),
+  currentChatContextId: text('current_chat_context_id')
+    .notNull()
+    .references(() => chatContexts.id, { onDelete: 'cascade' }),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 })
 
 export const terminalTabs = sqliteTable(

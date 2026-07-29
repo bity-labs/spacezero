@@ -1,4 +1,14 @@
+import type { WorkspaceSession } from '../../sessions/shared'
+
 export const MAX_KNOWLEDGE_BASE_IMAGE_BYTES = 10 * 1024 * 1024
+
+export type KnowledgeBaseChatContext = {
+  id: string
+  workspaceContext: { kind: 'knowledge-base'; key: 'knowledge-base' }
+  agentSession: WorkspaceSession
+  createdAt: string
+  updatedAt: string
+}
 
 export type KnowledgeBaseStatus =
   | { setupState: 'unconfigured' }

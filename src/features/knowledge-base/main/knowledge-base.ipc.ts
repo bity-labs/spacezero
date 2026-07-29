@@ -14,11 +14,11 @@ import { getKnowledgeBaseProjectsService, getKnowledgeBaseService } from './inde
 
 export function registerKnowledgeBaseIpc(): void {
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getStatus, () => getKnowledgeBaseService().getStatus())
-  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getCurrentSession, () =>
-    getKnowledgeBaseChatService().getOrCreateCurrentSession()
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.getCurrentChatContext, () =>
+    getKnowledgeBaseChatService().getOrCreateCurrentChatContext()
   )
-  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.startNewChat, () =>
-    getKnowledgeBaseChatService().startNewChat()
+  ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.clearChat, () =>
+    getKnowledgeBaseChatService().clearChat()
   )
   ipcMain.handle(KNOWLEDGE_BASE_IPC_CHANNELS.reset, async () => {
     const terminalService = getTerminalService()

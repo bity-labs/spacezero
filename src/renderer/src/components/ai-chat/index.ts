@@ -17,6 +17,7 @@ export {
   ChatInput,
   type ChatInputActiveAgentDefinition,
   type ChatInputAgentDefinition,
+  type ChatInputCommand,
   type ChatInputModel,
   type ChatInputProps,
   type ChatInputSkill
