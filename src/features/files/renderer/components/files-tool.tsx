@@ -992,6 +992,7 @@ function FilesToolSession({
         toFilesTreePath(path, rootState.tree.entries)
       )
     })
+    treeModel.setGitStatus(rootState.tree.gitStatus)
     restoredRootRef.current = true
   }, [context.expandedPaths, expandedPathsKey, preparedTreeInput, rootState, treeModel])
 
@@ -1164,9 +1165,7 @@ function FilesToolSession({
                   />
                   <input
                     ref={explorerSearchMode === 'contents' ? searchInputRef : undefined}
-                    aria-label={
-                      explorerSearchMode === 'files' ? 'Files search' : 'Contents search'
-                    }
+                    aria-label={explorerSearchMode === 'files' ? 'Files search' : 'Contents search'}
                     className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
                     placeholder={
                       explorerSearchMode === 'files' ? 'Search files by path' : 'Search contents'

@@ -24,6 +24,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
     operations: { runExclusive: (operation) => operation() },
     readDirectory: async () => [],
     readTree: async () => ({ entries: [], presortedPaths: [] }),
+    collectGitStatus: async () => [],
     openDocument: async () => ({
       name: 'README.md',
       relativePath: 'README.md',
@@ -86,6 +87,53 @@ describe('Files service', () => {
       }
     })
     expect(readTree).toHaveBeenCalledWith('/worktrees/project-1/session-1')
+  })
+
+  it('adds read-only Git status decorations after validating a Project Session worktree root', async () => {
+    const repository = {
+      findSessionById: vi.fn(async () => validSession),
+      findProjectById: vi.fn(async () => validProject)
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+    const readTree = vi.fn(async () => ({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' as const }],
+      presortedPaths: ['README.md']
+    }))
+    const collectGitStatus = vi.fn(async () => [
+      { path: 'README.md', status: 'modified' as const },
+      { path: 'src/new.ts', status: 'untracked' as const }
+    ])
+    const service = createTestService({ repository, worktrees, readTree, collectGitStatus })
+
+    await expect(service.listTree({ context: projectContext })).resolves.toEqual({
+      entries: [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }],
+      presortedPaths: ['README.md'],
+      gitStatus: [
+        { path: 'README.md', status: 'modified' },
+        { path: 'src/new.ts', status: 'untracked' }
+      ]
+    })
+
+    expect(worktrees.validate).toHaveBeenCalledTimes(1)
+    expect(readTree).toHaveBeenCalledWith('/worktrees/project-1/session-1')
+    expect(collectGitStatus).toHaveBeenCalledWith('/worktrees/project-1/session-1')
+  })
+
+  it('adds read-only Git status decorations from the verified Knowledge Base root', async () => {
+    const knowledgeBaseRootProvider = { getVerifiedRoot: vi.fn(async () => '/verified/kb') }
+    const collectGitStatus = vi.fn(async () => [
+      { path: 'notes/today.md', status: 'added' as const }
+    ])
+    const service = createTestService({ knowledgeBaseRootProvider, collectGitStatus })
+
+    await expect(service.listTree({ context: knowledgeBaseContext })).resolves.toEqual({
+      entries: [],
+      presortedPaths: [],
+      gitStatus: [{ path: 'notes/today.md', status: 'added' }]
+    })
+
+    expect(knowledgeBaseRootProvider.getVerifiedRoot).toHaveBeenCalledTimes(1)
+    expect(collectGitStatus).toHaveBeenCalledWith('/verified/kb')
   })
 
   it('lists the authenticated managed worktree root for a Project Session', async () => {

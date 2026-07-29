@@ -8,6 +8,7 @@ import type {
   FilesContext,
   FilesDocument,
   FilesEntry,
+  FilesGitStatusEntry,
   FilesObservationEvent,
   FilesSearchResult,
   FilesTree,
@@ -74,6 +75,7 @@ export function createFilesService({
   operations,
   readDirectory,
   readTree,
+  collectGitStatus,
   openDocument,
   saveDocument,
   createEntry,
@@ -88,6 +90,7 @@ export function createFilesService({
   operations?: FilesOperationCoordinator
   readDirectory: (rootPath: string, relativePath: string) => Promise<FilesEntry[]>
   readTree: (rootPath: string) => Promise<FilesTree>
+  collectGitStatus: (rootPath: string) => Promise<FilesGitStatusEntry[]>
   openDocument: (rootPath: string, relativePath: string) => Promise<FilesDocument>
   saveDocument: (
     rootPath: string,
@@ -111,7 +114,11 @@ export function createFilesService({
   return {
     async listTree(request: ListFilesTreeRequest): Promise<FilesTree> {
       const root = await resolveFilesRoot(request.context)
-      return readTree(root.path)
+      const [tree, gitStatus] = await Promise.all([
+        readTree(root.path),
+        collectGitStatus(root.path)
+      ])
+      return gitStatus.length > 0 ? { ...tree, gitStatus } : tree
     },
 
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
