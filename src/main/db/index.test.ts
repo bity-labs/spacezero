@@ -3,6 +3,31 @@ import { describe, expect, it } from 'vitest'
 import { migrateDatabase } from './index'
 
 describe('database migrations', () => {
+  it('migrates Knowledge Base managed Sessions into retained Chat Context history', () => {
+    const statements: string[] = []
+    const database = {
+      exec(sql: string) {
+        statements.push(sql)
+      },
+      prepare(sql: string) {
+        return {
+          all() {
+            if (sql.includes('table_info(projects)')) return [{ name: 'id' }]
+            return [{ name: 'id' }, { name: 'transcript_path' }]
+          }
+        }
+      }
+    } as unknown as Parameters<typeof migrateDatabase>[0]
+
+    migrateDatabase(database)
+
+    const migration = statements.join('\n')
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS chat_contexts')
+    expect(migration).toContain('CREATE TABLE IF NOT EXISTS workspace_chat_contexts')
+    expect(migration).toContain("WHERE managed_context = 'knowledge-base'")
+    expect(migration).toContain("WHERE key = 'knowledgeBase.currentSessionId'")
+  })
+
   it('adds an optional stable GitHub repository association to existing Projects', () => {
     const statements: string[] = []
     const database = {

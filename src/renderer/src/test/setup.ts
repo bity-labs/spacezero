@@ -160,19 +160,31 @@ beforeEach(async () => {
     },
     knowledgeBase: {
       getStatus: async () => ({ setupState: 'unconfigured' }),
-      getCurrentSession: async () => ({
-        id: 'knowledge-base-session-test',
-        kind: 'workspace',
-        title: 'Knowledge Base Chat',
-        status: 'idle',
+      getCurrentChatContext: async () => ({
+        id: 'knowledge-base-chat-context-test',
+        workspaceContext: { kind: 'knowledge-base', key: 'knowledge-base' },
+        agentSession: {
+          id: 'knowledge-base-session-test',
+          kind: 'workspace',
+          title: 'Knowledge Base Chat',
+          status: 'idle',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString()
+        },
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
-      startNewChat: async () => ({
-        id: 'knowledge-base-session-new',
-        kind: 'workspace',
-        title: 'Knowledge Base Chat',
-        status: 'idle',
+      clearChat: async () => ({
+        id: 'knowledge-base-chat-context-new',
+        workspaceContext: { kind: 'knowledge-base', key: 'knowledge-base' },
+        agentSession: {
+          id: 'knowledge-base-session-new',
+          kind: 'workspace',
+          title: 'Knowledge Base Chat',
+          status: 'idle',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString()
+        },
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),

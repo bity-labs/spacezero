@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import type { WorkspaceSession } from '../../../sessions/shared'
+import type { KnowledgeBaseChatContext } from '../../../knowledge-base/shared'
 import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
@@ -30,7 +30,8 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 
 const OBSERVATION_REFRESH_DELAY_MS = 150
 const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
-const KNOWLEDGE_BASE_SESSION_CHANGED_EVENT = 'spacezero:knowledge-base-session-changed'
+const KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT =
+  'spacezero:knowledge-base-chat-context-changed'
 
 type GitViewMemory = {
   filter: GitChangeFilter
@@ -101,25 +102,27 @@ function KnowledgeBaseGitTool({
     let canceled = false
     const loadCurrentSession = async (): Promise<void> => {
       const requestId = (sessionLookupSequence.current += 1)
-      const session = await window.spacezero.knowledgeBase.getCurrentSession()
-      if (!canceled && requestId === sessionLookupSequence.current) setSessionId(session.id)
+      const chatContext = await window.spacezero.knowledgeBase.getCurrentChatContext()
+      if (!canceled && requestId === sessionLookupSequence.current) {
+        setSessionId(chatContext.agentSession.id)
+      }
     }
     const onFocus = (): void => {
       void loadCurrentSession()
     }
     const onSessionChanged = (event: Event): void => {
-      const detail = (event as CustomEvent<WorkspaceSession>).detail
-      if (detail?.id) {
+      const detail = (event as CustomEvent<KnowledgeBaseChatContext>).detail
+      if (detail?.agentSession.id) {
         sessionLookupSequence.current += 1
-        setSessionId(detail.id)
+        setSessionId(detail.agentSession.id)
       } else void loadCurrentSession()
     }
     void loadCurrentSession()
-    window.addEventListener(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, onSessionChanged)
+    window.addEventListener(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, onSessionChanged)
     window.addEventListener('focus', onFocus)
     return () => {
       canceled = true
-      window.removeEventListener(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, onSessionChanged)
+      window.removeEventListener(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, onSessionChanged)
       window.removeEventListener('focus', onFocus)
     }
   }, [])

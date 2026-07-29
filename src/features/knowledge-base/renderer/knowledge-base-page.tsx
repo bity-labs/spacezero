@@ -4,8 +4,7 @@ import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { useFilesStore } from '../../files/renderer/files-store'
 import { WorkspaceSessionHostSurface } from '../../sessions/renderer'
-import type { WorkspaceSession } from '../../sessions/shared'
-import type { KnowledgeBaseStatus } from '../shared'
+import type { KnowledgeBaseChatContext, KnowledgeBaseStatus } from '../shared'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
@@ -15,7 +14,7 @@ type KnowledgeBasePageProps = {
   onConfiguredChange?: (configured: boolean) => void
 }
 
-const KNOWLEDGE_BASE_SESSION_CHANGED_EVENT = 'spacezero:knowledge-base-session-changed'
+const KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT = 'spacezero:knowledge-base-chat-context-changed'
 
 export function KnowledgeBasePage({
   onConfiguredChange
@@ -222,16 +221,16 @@ export function KnowledgeBasePage({
 }
 
 function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): React.JSX.Element {
-  const [session, setSession] = useState<WorkspaceSession | null>(null)
+  const [chatContext, setChatContext] = useState<KnowledgeBaseChatContext | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
-  const [isStartingNewChat, setStartingNewChat] = useState(false)
+  const [isClearingChat, setClearingChat] = useState(false)
 
   useEffect(() => {
     let current = true
-    window.spacezero.knowledgeBase.getCurrentSession().then(
-      (nextSession) => {
-        if (current) setSession(nextSession)
+    window.spacezero.knowledgeBase.getCurrentChatContext().then(
+      (nextChatContext) => {
+        if (current) setChatContext(nextChatContext)
       },
       (loadError: unknown) => {
         if (current) setError(getErrorMessage(loadError, 'Unable to open Knowledge Base Chat.'))
@@ -242,23 +241,26 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
     }
   }, [requestId])
 
-  async function startNewChat(): Promise<void> {
-    setStartingNewChat(true)
+  async function clearChat(): Promise<void> {
+    setClearingChat(true)
     setError(null)
     try {
-      const nextSession = await window.spacezero.knowledgeBase.startNewChat()
-      setSession(nextSession)
+      const nextChatContext = await window.spacezero.knowledgeBase.clearChat()
+      setChatContext(nextChatContext)
       window.dispatchEvent(
-        new CustomEvent(KNOWLEDGE_BASE_SESSION_CHANGED_EVENT, { detail: nextSession })
+        new CustomEvent(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, {
+          detail: nextChatContext
+        })
       )
-    } catch (startError) {
-      setError(getErrorMessage(startError, 'Unable to start a new Knowledge Base chat.'))
+    } catch (clearError) {
+      setError(getErrorMessage(clearError, 'Unable to clear Knowledge Base Chat.'))
+      throw clearError
     } finally {
-      setStartingNewChat(false)
+      setClearingChat(false)
     }
   }
 
-  if (error && !session) {
+  if (error && !chatContext) {
     return (
       <div className="flex flex-1 items-center justify-center p-8">
         <Card className="w-full max-w-lg gap-4 p-6">
@@ -282,7 +284,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
       </div>
     )
   }
-  if (!session)
+  if (!chatContext)
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
         Opening Knowledge Base Chat…
@@ -291,17 +293,6 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-end border-b px-4 py-2">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={isStartingNewChat}
-          onClick={() => void startNewChat()}
-        >
-          <Plus aria-hidden="true" />
-          {isStartingNewChat ? 'Starting…' : 'New chat'}
-        </Button>
-      </div>
       {setupWarning ? (
         <Alert className="m-4 mb-0">
           <AlertDescription>{setupWarning}</AlertDescription>
@@ -313,12 +304,22 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
         </Alert>
       ) : null}
       <WorkspaceSessionHostSurface
-        key={session.id}
-        session={session}
+        key={chatContext.id}
+        session={chatContext.agentSession}
         requireRuntimeReady
         placeholder="Ask about your Knowledge Base…"
         emptyState="Ask the workspace agent about your Knowledge Base. Streamed replies appear here."
         chatLinkContext={{ kind: 'knowledge-base' }}
+        commands={[
+          {
+            name: 'clear',
+            description: 'Start a fresh Knowledge Base Chat Context.'
+          }
+        ]}
+        onCommand={(commandName) => {
+          if (commandName === 'clear' && !isClearingChat) return clearChat()
+          return undefined
+        }}
       />
     </div>
   )

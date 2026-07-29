@@ -3,11 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { AgentSessionProjectionEvent } from '../../../shared/agent-session-projection.model'
 
-import {
-  ToolPaneShell,
-  useToolPaneStore,
-  type ToolDescriptor
-} from '../../tool-pane/renderer'
+import { ToolPaneShell, useToolPaneStore, type ToolDescriptor } from '../../tool-pane/renderer'
 import { KnowledgeBasePage } from './knowledge-base-page'
 
 const managedSession = {
@@ -19,13 +15,21 @@ const managedSession = {
   updatedAt: new Date(0).toISOString()
 }
 
+const managedChatContext = {
+  id: 'knowledge-base-chat-context-1',
+  workspaceContext: { kind: 'knowledge-base' as const, key: 'knowledge-base' as const },
+  agentSession: managedSession,
+  createdAt: new Date(0).toISOString(),
+  updatedAt: new Date(0).toISOString()
+}
+
 describe('KnowledgeBasePage', () => {
   it('renders the managed Session chat instead of the legacy configured editor', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
 
     render(<KnowledgeBasePage />)
 
@@ -39,12 +43,16 @@ describe('KnowledgeBasePage', () => {
 
   it('routes Knowledge Base chat links to the stable Knowledge Base Browser context', async () => {
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
-    const createTab = vi.fn(async () => ({ contextKey: 'knowledge-base', activeTabId: 'tab-1', tabs: [] }))
+    const createTab = vi.fn(async () => ({
+      contextKey: 'knowledge-base',
+      activeTabId: 'tab-1',
+      tabs: []
+    }))
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener
       return () => undefined
@@ -91,25 +99,56 @@ describe('KnowledgeBasePage', () => {
     })
   })
 
-  it('starts a fresh managed chat and shows the replacement Session', async () => {
+  it('shows /clear as a command and switches to its fresh Chat Context', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
     const replacementSession = { ...managedSession, id: 'knowledge-base-session-2' }
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
-    const startNewChat = vi.fn(async () => replacementSession)
-    window.spacezero.knowledgeBase.startNewChat = startNewChat
-    const getState = vi.spyOn(window.spacezero.agent, 'getState')
+    const replacementContext = {
+      ...managedChatContext,
+      id: 'knowledge-base-chat-context-2',
+      agentSession: replacementSession
+    }
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+    const clearChat = vi.fn(async () => replacementContext)
+    window.spacezero.knowledgeBase.clearChat = clearChat
+    const getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'workspace' as const,
+      projectId: null,
+      cwd: '/home/builder/SpaceZero/knowledge-base',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot:
+        sessionId === managedSession.id
+          ? [{ role: 'user' as const, timestamp: 100, content: 'Retained only in the old chat' }]
+          : []
+    }))
+    window.spacezero.agent.getState = getState
 
     render(<KnowledgeBasePage />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    expect(await screen.findByText('Retained only in the old chat')).toBeInTheDocument()
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/cl' } })
+    const clearOption = screen.getByRole('option', { name: /\/clear/ })
+    expect(clearOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(clearOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
-    await waitFor(() => expect(startNewChat).toHaveBeenCalledTimes(1))
-    await waitFor(() =>
-      expect(getState).toHaveBeenCalledWith({ sessionId: replacementSession.id })
-    )
+    fireEvent.change(input, { target: { value: '/clear' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(clearChat).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(getState).toHaveBeenCalledWith({ sessionId: replacementSession.id }))
+    expect(screen.queryByText('/clear')).not.toBeInTheDocument()
+    expect(screen.queryByText('Retained only in the old chat')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Ask the workspace agent about your Knowledge Base/)
+    ).toBeInTheDocument()
   })
 
   it('preserves Tool Pane and tool-owned state across chat rotation and layout across restart', async () => {
@@ -118,11 +157,16 @@ describe('KnowledgeBasePage', () => {
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
     const replacementSession = { ...managedSession, id: 'knowledge-base-session-2' }
-    let currentSession = managedSession
-    window.spacezero.knowledgeBase.getCurrentSession = async () => currentSession
-    window.spacezero.knowledgeBase.startNewChat = async () => {
-      currentSession = replacementSession
-      return replacementSession
+    const replacementContext = {
+      ...managedChatContext,
+      id: 'knowledge-base-chat-context-2',
+      agentSession: replacementSession
+    }
+    let currentContext = managedChatContext
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => currentContext
+    window.spacezero.knowledgeBase.clearChat = async () => {
+      currentContext = replacementContext
+      return replacementContext
     }
     const getState = vi.spyOn(window.spacezero.agent, 'getState')
     useToolPaneStore.setState({
@@ -156,7 +200,9 @@ describe('KnowledgeBasePage', () => {
     const toolDraft = await screen.findByRole('textbox', { name: 'Browser draft' })
     fireEvent.change(toolDraft, { target: { value: 'preserved tool draft' } })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/clear' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
     await waitFor(() =>
       expect(getState).toHaveBeenCalledWith({
@@ -191,19 +237,20 @@ describe('KnowledgeBasePage', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
-    window.spacezero.knowledgeBase.startNewChat = async () => {
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+    window.spacezero.knowledgeBase.clearChat = async () => {
       throw new Error('Agent runtime unavailable')
     }
 
     render(<KnowledgeBasePage />)
-    fireEvent.click(await screen.findByRole('button', { name: 'New chat' }))
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/clear' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Agent runtime unavailable Your previous chat is still current.'
     )
-    expect(screen.getByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'New chat' })).toBeEnabled()
+    expect(input).toHaveValue('/clear')
   })
 
   it('keeps unconfigured setup full-page', async () => {
@@ -239,11 +286,11 @@ describe('KnowledgeBasePage', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    const getCurrentSession = vi
+    const getCurrentChatContext = vi
       .fn()
       .mockRejectedValueOnce(new Error('Agent runtime unavailable'))
-      .mockResolvedValueOnce(managedSession)
-    window.spacezero.knowledgeBase.getCurrentSession = getCurrentSession
+      .mockResolvedValueOnce(managedChatContext)
+    window.spacezero.knowledgeBase.getCurrentChatContext = getCurrentChatContext
 
     render(<KnowledgeBasePage />)
 
@@ -251,7 +298,7 @@ describe('KnowledgeBasePage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
-    expect(getCurrentSession).toHaveBeenCalledTimes(2)
+    expect(getCurrentChatContext).toHaveBeenCalledTimes(2)
   })
 
   it('keeps runtime restoration failures retryable without exposing an unusable composer', async () => {
@@ -259,7 +306,7 @@ describe('KnowledgeBasePage', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
     const getState = vi
       .fn()
       .mockRejectedValueOnce(new Error('Utility session restore failed'))
@@ -291,7 +338,7 @@ describe('KnowledgeBasePage', () => {
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
     })
-    window.spacezero.knowledgeBase.getCurrentSession = async () => managedSession
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
 
     render(<KnowledgeBasePage />)
     fireEvent.click(await screen.findByRole('button', { name: 'Create new' }))

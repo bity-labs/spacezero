@@ -51,8 +51,9 @@ const api: SpaceZeroAPI = {
   },
   knowledgeBase: {
     getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getStatus),
-    getCurrentSession: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getCurrentSession),
-    startNewChat: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.startNewChat),
+    getCurrentChatContext: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.getCurrentChatContext),
+    clearChat: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.clearChat),
     reset: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.reset),
     createNew: () => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.createNew),
     cloneFromGit: (request) => ipcRenderer.invoke(IPC_CHANNELS.knowledgeBase.cloneFromGit, request),
