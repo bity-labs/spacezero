@@ -27,11 +27,14 @@ const useToolPaneStore = create<ToolPaneStore>()(
       collapse: (contextKey) =>
         set((state) => {
           const context = state.contexts[contextKey]
-          if (!context) return state
           return {
             contexts: {
               ...state.contexts,
-              [contextKey]: { ...context, isOpen: false }
+              [contextKey]: {
+                isOpen: false,
+                width: context?.width ?? null,
+                activeToolId: context?.activeToolId ?? null
+              }
             }
           }
         }),
@@ -51,7 +54,7 @@ const useToolPaneStore = create<ToolPaneStore>()(
           contexts: {
             ...state.contexts,
             [contextKey]: {
-              isOpen: state.contexts[contextKey]?.isOpen ?? false,
+              isOpen: state.contexts[contextKey]?.isOpen ?? true,
               activeToolId: state.contexts[contextKey]?.activeToolId ?? null,
               width
             }

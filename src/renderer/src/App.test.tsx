@@ -192,7 +192,7 @@ describe('App', () => {
     expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
   })
 
-  it('enables Files, Git, Browser, and Terminal in the Tool Switcher for a configured Knowledge Base', async () => {
+  it('opens Files in the Tool Pane while keeping configured Knowledge Base chat primary', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -207,11 +207,12 @@ describe('App', () => {
     )
 
     expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
-    expect(await screen.findByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+    expect(await screen.findByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
-      'vertical'
+      'horizontal'
     )
-    expect(screen.getByRole('button', { name: 'Files' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Git' })).toBeEnabled()
