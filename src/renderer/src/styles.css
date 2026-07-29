@@ -121,6 +121,14 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+@utility no-scrollbar {
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @layer base {
   * {
     box-sizing: border-box;
