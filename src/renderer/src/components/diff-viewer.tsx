@@ -77,7 +77,7 @@ function buildCodeViewItems(
 
   for (const item of items) {
     try {
-      const normalizedPatch = normalizeRenderablePatch(item.patch)
+      const normalizedPatch = normalizeRenderablePatch(item)
       const parsedFiles = parsePatchFiles(normalizedPatch, item.id, false).flatMap(
         (patch) => patch.files
       )
@@ -134,7 +134,9 @@ function formatChangeType(type: string): string {
   return type
 }
 
-function normalizeRenderablePatch(patch: string): string {
+function normalizeRenderablePatch(item: DiffViewerItem): string {
+  const patch = item.patch
+  if (isHunkOnlyPatch(patch)) return withFileHeaders(item, patch)
   if (patch.includes('\n@@ ')) return patch
 
   const lines = patch.split('\n')
@@ -151,6 +153,20 @@ function normalizeRenderablePatch(patch: string): string {
     ...lines.slice(0, newFileHeaderIndex + 1),
     `@@ -0,0 +1,${additionCount} @@`,
     ...contentLines
+  ].join('\n')
+}
+
+function isHunkOnlyPatch(patch: string): boolean {
+  return patch.trimStart().startsWith('@@ ')
+}
+
+function withFileHeaders(item: DiffViewerItem, patch: string): string {
+  const oldPath = item.oldPath ?? item.path
+  return [
+    `diff --git a/${oldPath} b/${item.path}`,
+    `--- a/${oldPath}`,
+    `+++ b/${item.path}`,
+    patch
   ].join('\n')
 }
 

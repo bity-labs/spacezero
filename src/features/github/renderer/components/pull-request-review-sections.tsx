@@ -1,12 +1,10 @@
 import { useState } from 'react'
 
+import { DiffViewer } from '@renderer/components/diff-viewer'
+
 import { Badge } from '../../../../renderer/src/components/ui/badge'
 import { Button } from '../../../../renderer/src/components/ui/button'
-import type {
-  GitHubPullRequestCommit,
-  GitHubPullRequestFile,
-  GitHubPullRequestPatch
-} from '../../shared'
+import type { GitHubPullRequestCommit, GitHubPullRequestFile } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
 import {
   useProjectPullRequestCommitList,
@@ -126,37 +124,72 @@ function FileCard({ file }: { file: GitHubPullRequestFile }): React.JSX.Element 
           <span className="text-destructive">−{file.deletions}</span>
         </div>
       </header>
-      <Patch patch={file.patch} />
+      <Patch file={file} />
     </article>
   )
 }
 
-function Patch({ patch }: { patch: GitHubPullRequestPatch }): React.JSX.Element {
+function Patch({ file }: { file: GitHubPullRequestFile }): React.JSX.Element {
+  const patch = file.patch
   if (patch.status === 'binary') {
     return <Fallback>Binary file — no text patch is available.</Fallback>
   }
   if (patch.status === 'omitted') {
     return (
-      <Fallback>GitHub omitted this patch, usually because the text diff is too large.</Fallback>
+      <Fallback>
+        GitHub omitted this patch, usually because the text diff is too large or oversized.
+      </Fallback>
     )
   }
   if (patch.status === 'unavailable') {
     return <Fallback>This patch is unavailable from GitHub.</Fallback>
   }
+  if (patch.truncated) {
+    return (
+      <Fallback>GitHub returned a truncated patch. Review the complete diff on GitHub.</Fallback>
+    )
+  }
+
   return (
-    <div>
-      {patch.truncated ? (
-        <p className="border-b bg-amber-500/10 px-4 py-2 text-xs">
-          GitHub returned a truncated patch. Review the complete diff on GitHub.
-        </p>
-      ) : null}
-      <pre className="max-h-96 overflow-auto whitespace-pre p-4 text-xs">{patch.text}</pre>
-    </div>
+    <DiffViewer
+      ariaLabel={`Diff for ${file.filename}`}
+      className="border-t"
+      items={[
+        {
+          id: `${file.sha}:${file.filename}`,
+          path: file.filename,
+          oldPath: file.previousFilename ?? undefined,
+          patch: patch.text,
+          collapsed: false,
+          version: hashPatchVersion(file)
+        }
+      ]}
+    />
   )
 }
 
 function Fallback({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <p className="p-4 text-sm text-muted-foreground">{children}</p>
+  return <p className="border-t bg-muted/30 p-4 text-sm text-muted-foreground">{children}</p>
+}
+
+function hashPatchVersion(file: GitHubPullRequestFile): number {
+  const patchText = file.patch.status === 'available' ? file.patch.text : file.patch.status
+  const input = [
+    file.sha,
+    file.filename,
+    file.previousFilename ?? '',
+    file.status,
+    file.additions,
+    file.deletions,
+    file.changes,
+    patchText,
+    file.patch.status === 'available' ? String(file.patch.truncated) : ''
+  ].join('\0')
+  let hash = 29
+  for (let index = 0; index < input.length; index += 1) {
+    hash = (hash * 31 + input.charCodeAt(index)) | 0
+  }
+  return hash
 }
 
 function Pagination({
