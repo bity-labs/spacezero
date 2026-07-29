@@ -8,6 +8,68 @@ import { useFilesStore } from '../../../files/renderer/files-store'
 import type { GitObservationEvent, GitReviewState } from '../../shared'
 import { GitTool, resetGitToolViewMemoryForTests } from './git-tool'
 
+vi.mock('@pierre/diffs', () => ({
+  parsePatchFiles: vi.fn((patch: string, cacheKeyPrefix = 'git-tool-test') => {
+    const fileMatch = /diff --git a\/(.+?) b\/(.+?)(?:\n|$)/.exec(patch)
+    return [
+      {
+        files: [
+          {
+            name: fileMatch?.[2] ?? 'mock.diff',
+            type: 'change',
+            hunks: [],
+            splitLineCount: patch.split('\n').length,
+            unifiedLineCount: patch.split('\n').length,
+            isPartial: true,
+            deletionLines: [],
+            additionLines: [patch],
+            cacheKey: cacheKeyPrefix
+          }
+        ]
+      }
+    ]
+  })
+}))
+
+vi.mock('@pierre/diffs/react', async () => {
+  const React = await import('react')
+  const CodeView = vi.fn(
+    ({
+      items,
+      options
+    }: {
+      items: Array<{ id: string; fileDiff: { additionLines: string[] } }>
+      options: { hunkSeparators?: string }
+    }) =>
+      React.createElement(
+        'div',
+        {
+          'aria-label': 'Mock Pierre CodeView',
+          'data-hunk-separators': options.hunkSeparators,
+          'data-testid': 'pierre-code-view'
+        },
+        items.map((item) =>
+          React.createElement(
+            'pre',
+            { key: item.id },
+            item.fileDiff.additionLines.flatMap((content) =>
+              content
+                .split('\n')
+                .map((line, index) =>
+                  React.createElement(
+                    'span',
+                    { className: 'block', key: `${item.id}:${index}:${line}` },
+                    line
+                  )
+                )
+            )
+          )
+        )
+      )
+  )
+  return { CodeView }
+})
+
 type Deferred<T> = {
   promise: Promise<T>
   resolve: (value: T) => void
@@ -765,8 +827,7 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Choose Git commit action' })).toBeDisabled()
   })
 
-  it('folds long unchanged regions without hiding changed lines', async () => {
-    const unchanged = Array.from({ length: 8 }, (_, index) => ` line ${index + 1}`).join('\n')
+  it('renders text diffs through the shared Diff Viewer with compact hunk separators', async () => {
     window.spacezero.git.getReview = vi.fn(async () => ({
       status: 'ok' as const,
       branch: 'feature/test',
@@ -777,17 +838,19 @@ describe('GitTool', () => {
           kind: 'modified' as const,
           binary: false,
           large: false,
-          diff: `@@ -1,9 +1,9 @@\n+changed before\n${unchanged}\n-changed after\n`
+          diff: '@@ -1,2 +1,2 @@\n-old\n+changed\n'
         }
       ]
     }))
 
     render(<GitTool sessionId="session-1" />)
 
-    await screen.findByText('+changed before')
-    expect(screen.getByText('-changed after')).toBeInTheDocument()
-    expect(screen.getByText('… 2 unchanged lines folded')).toBeInTheDocument()
-    expect(screen.queryByText(' line 4')).not.toBeInTheDocument()
+    await screen.findByText('+changed')
+    expect(screen.getByLabelText('Diff for README.md')).toBeInTheDocument()
+    expect(screen.getByTestId('pierre-code-view')).toHaveAttribute(
+      'data-hunk-separators',
+      'line-info-basic'
+    )
   })
 
   it('renders binary and large diff summaries instead of inline content', async () => {
@@ -1471,7 +1534,9 @@ describe('GitTool', () => {
     })
     await screen.findByText('branch-a-restored')
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('session a commit')
-    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 44)
+    await waitFor(() =>
+      expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 44)
+    )
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
   })
 
