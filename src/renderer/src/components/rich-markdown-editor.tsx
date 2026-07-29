@@ -539,7 +539,10 @@ function PropertyKeyInput({
       aria-invalid={!key.trim() || undefined}
       value={key}
       onChange={(event) => setKey(event.currentTarget.value)}
-      onBlur={() => onCommit(property.key, { ...property, key })}
+      onBlur={() => {
+        if (key === property.key) return
+        onCommit(property.key, { ...property, key })
+      }}
     />
   )
 }
