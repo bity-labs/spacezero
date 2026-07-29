@@ -60,7 +60,15 @@ describe('Files directory adapter', () => {
         { name: 'components', relativePath: 'src/components', kind: 'directory' },
         { name: 'button.tsx', relativePath: 'src/components/button.tsx', kind: 'file' },
         { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' },
-        { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' },
+        {
+          name: 'linked-src',
+          relativePath: 'linked-src',
+          kind: 'symlink',
+          policyAnnotations: [
+            { kind: 'symlink' },
+            { kind: 'locked', reason: 'filesystem-policy' }
+          ]
+        },
         { name: 'README.md', relativePath: 'README.md', kind: 'file' }
       ],
       presortedPaths: [
@@ -84,7 +92,11 @@ describe('Files directory adapter', () => {
     await expect(readFilesDirectory(rootPath, '')).resolves.toContainEqual({
       name: 'linked-folder',
       relativePath: 'linked-folder',
-      kind: 'symlink'
+      kind: 'symlink',
+      policyAnnotations: [
+        { kind: 'symlink' },
+        { kind: 'locked', reason: 'filesystem-policy' }
+      ]
     })
     await expect(readFilesDirectory(rootPath, 'linked-folder')).rejects.toThrow(
       'files.symlinkTraversalDenied'

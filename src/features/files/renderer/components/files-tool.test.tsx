@@ -93,6 +93,7 @@ vi.mock('@pierre/trees/react', async () => {
         | { preparedInput: PreparedTreeInput; initialExpandedPaths?: readonly string[] },
       options?: { preparedInput?: PreparedTreeInput; initialExpandedPaths?: readonly string[] }
     ) => void
+    getFileTreeContainer: () => HTMLElement | undefined
     getItem: (
       path: string
     ) => { select: () => void; isDirectory: () => boolean; getPath: () => string } | null
@@ -100,6 +101,7 @@ vi.mock('@pierre/trees/react', async () => {
     getSelectedPaths: () => readonly string[]
     getVisibleCount: () => number
     getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
+    render: () => void
     scrollToPath: () => void
     setGitStatus: (gitStatus?: readonly { path: string; status: string }[]) => void
     setSearch: (value: string | null) => void
@@ -109,9 +111,11 @@ vi.mock('@pierre/trees/react', async () => {
     __drop: (sourcePath: string, targetPath: string) => void
     __getPaths: () => readonly string[]
     __getExpanded: () => Set<string>
+    __getRevision: () => number
     __getRenamePath: () => string | null
     __getRenameValue: () => string
     __getSearch: () => string | null
+    __mount: () => void
     __select: (path: string) => void
     __setRenameValue: (value: string) => void
     __toggle: (path: string) => void
@@ -140,14 +144,20 @@ vi.mock('@pierre/trees/react', async () => {
     let paths = [...(options.preparedInput?.paths ?? options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
     let searchValue: string | null = null
+    let revision = 0
+    let fileTreeContainer: HTMLElement | undefined
     let gitStatus: readonly { path: string; status: string }[] | undefined
     let renamePath: string | null = null
     let renameValue = ''
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
     const listeners = new Set<() => void>()
+    const rerenderTree = (): void => {
+      revision += 1
+      forceUpdate()
+    }
     const notify = (): void => {
       for (const listener of listeners) listener()
-      forceUpdate()
+      rerenderTree()
     }
     const searchedPaths = (): readonly string[] => {
       const query = searchValue?.trim().toLowerCase()
@@ -196,6 +206,7 @@ vi.mock('@pierre/trees/react', async () => {
         paths = normalizedPaths
         notify()
       },
+      getFileTreeContainer: () => fileTreeContainer,
       getItem: (path) => {
         const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
         if (!paths.includes(normalizedPath)) return null
@@ -214,6 +225,10 @@ vi.mock('@pierre/trees/react', async () => {
           kind: isDirectoryPath(path) ? 'directory' : 'file',
           path
         })),
+      render: () => {
+        if (!fileTreeContainer) return
+        rerenderTree()
+      },
       scrollToPath: () => undefined,
       setGitStatus: (nextGitStatus) => {
         const changed = JSON.stringify(gitStatus ?? null) !== JSON.stringify(nextGitStatus ?? null)
@@ -308,9 +323,13 @@ vi.mock('@pierre/trees/react', async () => {
       },
       __getPaths: () => paths,
       __getExpanded: () => expanded,
+      __getRevision: () => revision,
       __getRenamePath: () => renamePath,
       __getRenameValue: () => renameValue,
       __getSearch: () => searchValue,
+      __mount: () => {
+        fileTreeContainer ??= document.createElement('file-tree-container')
+      },
       __select: (path) => {
         selectedPaths = [path]
         options.onSelectionChange?.(selectedPaths)
@@ -336,6 +355,11 @@ vi.mock('@pierre/trees/react', async () => {
     const modelRef = React.useRef<MockModel | null>(null)
     if (!modelRef.current) {
       modelRef.current = createModel(options, () => setRevision((revision) => revision + 1))
+    } else {
+      modelRef.current.options = {
+        ...options,
+        renderRowDecoration: modelRef.current.options.renderRowDecoration
+      }
     }
     return { model: modelRef.current }
   }
@@ -359,108 +383,113 @@ vi.mock('@pierre/trees/react', async () => {
     style?: Record<string, unknown>
   }): React.JSX.Element {
     treesMock.renderProps.push(props)
+    model.__mount()
     const [activeMenuPath, setActiveMenuPath] = React.useState<string | null>(null)
-    const paths = model.__getPaths()
-    const expanded = model.__getExpanded()
-    const searchValue = model.__getSearch()
-    const searchedPaths = searchValue
-      ? paths.filter((path) => {
-          const query = searchValue.toLowerCase()
-          if (path.toLowerCase().includes(query)) return true
-          return paths.some(
-            (candidate) =>
-              parentPath(candidate).startsWith(path) && candidate.toLowerCase().includes(query)
-          )
+    const revision = model.__getRevision()
+    const rows = React.useMemo(() => {
+      if (!Number.isFinite(revision)) return []
+      const paths = model.__getPaths()
+      const expanded = model.__getExpanded()
+      const searchValue = model.__getSearch()
+      const searchedPaths = searchValue
+        ? paths.filter((path) => {
+            const query = searchValue.toLowerCase()
+            if (path.toLowerCase().includes(query)) return true
+            return paths.some(
+              (candidate) =>
+                parentPath(candidate).startsWith(path) && candidate.toLowerCase().includes(query)
+            )
+          })
+        : paths
+      const visiblePaths = searchedPaths.filter((path) => {
+        const parent = parentPath(path)
+        if (!parent) return true
+        if (!paths.includes(parent)) return true
+        if (searchValue) return true
+        return expanded.has(parent)
+      })
+      const selectedPath = model.getSelectedPaths()[0]
+      const dragAndDropEnabled = Boolean(model.options.dragAndDrop)
+      const activeRenamePath = model.__getRenamePath()
+      return visiblePaths.map((path) => {
+        const directory = isDirectoryPath(path)
+        const name = displayName(path)
+        const hasChildren = directory && paths.some((candidate) => parentPath(candidate) === path)
+        const decoration = model.options.renderRowDecoration?.({
+          item: { kind: directory ? 'directory' : 'file', name, path },
+          row: { kind: directory ? 'directory' : 'file', path }
         })
-      : paths
-    const visiblePaths = searchedPaths.filter((path) => {
-      const parent = parentPath(path)
-      if (!parent) return true
-      if (!paths.includes(parent)) return true
-      if (searchValue) return true
-      return expanded.has(parent)
-    })
-    const selectedPath = model.getSelectedPaths()[0]
-    const dragAndDropEnabled = Boolean(model.options.dragAndDrop)
-    const activeRenamePath = model.__getRenamePath()
+        const contextMenuTriggerMode = model.options.composition?.contextMenu?.triggerMode
+        const showContextMenuButton =
+          contextMenuTriggerMode === 'both' || contextMenuTriggerMode === 'button'
+        return (
+          <li
+            key={path}
+            role="treeitem"
+            aria-label={name}
+            aria-selected={selectedPath === path}
+            draggable={dragAndDropEnabled && !searchValue}
+            onClick={() => model.__select(path)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setActiveMenuPath(path)
+            }}
+            onDragStart={() => undefined}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault()
+              const sourcePath = event.dataTransfer.getData('text/plain') || selectedPath
+              if (sourcePath) model.__drop(sourcePath, path)
+            }}
+          >
+            <span data-slot="context-menu-trigger">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  aria-label={`${expanded.has(path) ? 'Collapse' : 'Expand'} ${name}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    model.__toggle(path)
+                  }}
+                >
+                  {expanded.has(path) ? '▾' : '▸'}
+                </button>
+              ) : null}
+              {activeRenamePath === path ? (
+                <input
+                  aria-label={`Rename ${name}`}
+                  value={model.__getRenameValue()}
+                  onChange={(event) => model.__setRenameValue(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') model.__commitRename()
+                  }}
+                />
+              ) : (
+                name
+              )}
+              {decoration ? <span>{decoration.text}</span> : null}
+              {showContextMenuButton ? (
+                <button
+                  type="button"
+                  aria-label={`Open ${name} actions`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setActiveMenuPath(path)
+                  }}
+                >
+                  ⋯
+                </button>
+              ) : null}
+            </span>
+          </li>
+        )
+      })
+    }, [model, revision])
 
     return (
       <div>
         <ul role="tree" aria-label={props['aria-label']}>
-          {visiblePaths.map((path) => {
-            const directory = isDirectoryPath(path)
-            const name = displayName(path)
-            const hasChildren =
-              directory && paths.some((candidate) => parentPath(candidate) === path)
-            const decoration = model.options.renderRowDecoration?.({
-              item: { kind: directory ? 'directory' : 'file', name, path },
-              row: { kind: directory ? 'directory' : 'file', path }
-            })
-            const contextMenuTriggerMode = model.options.composition?.contextMenu?.triggerMode
-            const showContextMenuButton =
-              contextMenuTriggerMode === 'both' || contextMenuTriggerMode === 'button'
-            return (
-              <li
-                key={path}
-                role="treeitem"
-                aria-label={name}
-                aria-selected={selectedPath === path}
-                draggable={dragAndDropEnabled && !searchValue}
-                onClick={() => model.__select(path)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setActiveMenuPath(path)
-                }}
-                onDragStart={() => undefined}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  const sourcePath = event.dataTransfer.getData('text/plain') || selectedPath
-                  if (sourcePath) model.__drop(sourcePath, path)
-                }}
-              >
-                <span data-slot="context-menu-trigger">
-                  {hasChildren ? (
-                    <button
-                      type="button"
-                      aria-label={`${expanded.has(path) ? 'Collapse' : 'Expand'} ${name}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        model.__toggle(path)
-                      }}
-                    >
-                      {expanded.has(path) ? '▾' : '▸'}
-                    </button>
-                  ) : null}
-                  {activeRenamePath === path ? (
-                    <input
-                      aria-label={`Rename ${name}`}
-                      value={model.__getRenameValue()}
-                      onChange={(event) => model.__setRenameValue(event.currentTarget.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') model.__commitRename()
-                      }}
-                    />
-                  ) : (
-                    name
-                  )}
-                  {decoration ? <span>{decoration.text}</span> : null}
-                  {showContextMenuButton ? (
-                    <button
-                      type="button"
-                      aria-label={`Open ${name} actions`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setActiveMenuPath(path)
-                      }}
-                    >
-                      ⋯
-                    </button>
-                  ) : null}
-                </span>
-              </li>
-            )
-          })}
+          {rows}
         </ul>
         {activeMenuPath && renderContextMenu ? (
           <div>
@@ -1330,16 +1359,63 @@ describe('Files Tool', () => {
     expect(screen.getByText('second.txt')).toBeInTheDocument()
   })
 
-  it('renders symbolic links as identifiable non-expandable entries', async () => {
+  it('renders symbolic links as identifiable locked entries', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
-      { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' as const }
+      {
+        name: 'linked-src',
+        relativePath: 'linked-src',
+        kind: 'symlink' as const,
+        policyAnnotations: [
+          { kind: 'symlink' as const },
+          { kind: 'locked' as const, reason: 'filesystem-policy' as const }
+        ]
+      }
     ])
 
     render(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByText('linked-src')).toBeInTheDocument()
-    expect(screen.getByText('Symbolic link')).toBeInTheDocument()
+    expect(screen.getByText('Symbolic link · Locked')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Expand linked-src' })).not.toBeInTheDocument()
+  })
+
+  it('surfaces open-tab conflict states in explorer row annotations', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'conflict.txt', relativePath: 'conflict.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'conflict.txt',
+      relativePath: 'conflict.txt',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'local',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    let observationListener:
+      | Parameters<typeof window.spacezero.files.onObservationEvent>[0]
+      | undefined
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListener = listener
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-row-conflict" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'conflict.txt' }))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), { target: { value: 'draft' } })
+
+    await act(async () => {
+      observationListener?.({
+        subscriptionId: 'session-row-conflict:files-observation',
+        contextKey: 'session-row-conflict',
+        kind: 'modified',
+        relativePath: 'conflict.txt'
+      })
+    })
+
+    expect(await screen.findByText('Open conflict')).toBeInTheDocument()
   })
 
   it('offers only the safe reveal context-menu action for symbolic links', async () => {
