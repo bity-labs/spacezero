@@ -14,6 +14,48 @@ function renderSections(): ReturnType<typeof render> {
 }
 
 describe('PullRequestReviewSections', () => {
+  it('loads every Pull Request commit page into one sequential commit list', async () => {
+    const requestedCommitPages: Array<{ page: number; perPage?: number }> = []
+    window.spacezero.github.listPullRequestCommits = async ({ page, perPage }) => {
+      requestedCommitPages.push({ page, perPage })
+      return {
+        items: Array.from({ length: page === 1 ? 100 : 1 }, (_, index) => ({
+          sha:
+            page === 1
+              ? `${String(index).padStart(40, '0')}`
+              : 'ffffffffffffffffffffffffffffffffffffffff',
+          message: page === 1 ? `First page commit ${index + 1}` : 'Sentinel second page commit',
+          htmlUrl: 'https://github.com/example/repository/commit/example',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          authoredAt: '2026-07-18T01:30:00.000Z'
+        })),
+        page,
+        hasNextPage: page === 1
+      }
+    }
+    window.spacezero.github.listPullRequestFiles = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+
+    renderSections()
+
+    const firstCommit = await screen.findByText('First page commit 1')
+    const lastFirstPageCommit = await screen.findByText('First page commit 100')
+    const sentinelCommit = await screen.findByText('Sentinel second page commit')
+    expect(requestedCommitPages).toEqual([
+      { page: 1, perPage: 100 },
+      { page: 2, perPage: 100 }
+    ])
+    expect(
+      firstCommit.compareDocumentPosition(lastFirstPageCommit) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      lastFirstPageCommit.compareDocumentPosition(sentinelCommit) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it('preserves successful sections across patch states, pagination, and a partial endpoint failure', async () => {
     const filePages: number[] = []
     let checkReads = 0
@@ -155,13 +197,10 @@ describe('PullRequestReviewSections', () => {
     expect(screen.getByText(/Binary file/)).toBeInTheDocument()
     expect(screen.getByText(/GitHub omitted this patch/)).toBeInTheDocument()
     expect(screen.getByText(/patch is unavailable/)).toBeInTheDocument()
-    expect(await screen.findByText('deploy')).toBeInTheDocument()
-    expect(await screen.findByText('Looks good')).toBeInTheDocument()
-    expect(await screen.findByText(/rate limit was reached/i)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(await screen.findByText('test')).toBeInTheDocument()
-    expect(screen.getByText('GitHub Actions')).toBeInTheDocument()
+    expect(screen.queryByText('deploy')).not.toBeInTheDocument()
+    expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+    expect(screen.queryByText(/rate limit was reached/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('GitHub Actions')).not.toBeInTheDocument()
 
     const files = screen.getByRole('region', { name: 'Changed files' })
     const next = within(files).getByRole('button', { name: 'Next' })
@@ -171,7 +210,7 @@ describe('PullRequestReviewSections', () => {
     expect(filePages).toContain(2)
   })
 
-  it('represents empty files, checks, statuses, and reviews explicitly', async () => {
+  it('represents empty commits and files explicitly while checks, statuses, and reviews stay hidden', async () => {
     window.spacezero.github.listPullRequestCommits = async ({ page }) => ({
       items: [],
       page,
@@ -202,8 +241,8 @@ describe('PullRequestReviewSections', () => {
 
     expect(await screen.findByText('No commits were returned.')).toBeInTheDocument()
     expect(await screen.findByText('No changed files were returned.')).toBeInTheDocument()
-    expect(await screen.findByText('No check runs were reported.')).toBeInTheDocument()
-    expect(await screen.findByText('No commit statuses were reported.')).toBeInTheDocument()
-    expect(await screen.findByText('No submitted reviews yet.')).toBeInTheDocument()
+    expect(screen.queryByText('No check runs were reported.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No commit statuses were reported.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No submitted reviews yet.')).not.toBeInTheDocument()
   })
 })

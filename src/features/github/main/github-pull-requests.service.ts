@@ -102,13 +102,14 @@ export function createGitHubPullRequestsService({
     request: GitHubPullRequestListRequest
   ): Promise<GitHubPage<GitHubPullRequestSummary>> {
     const { repository, accessToken } = await resolveAccess(request.projectId.trim())
-    return adapter.listPullRequests({
+    const page = await adapter.listPullRequests({
       accessToken,
       owner: repository.owner,
       repository: repository.name,
       page: request.page,
       perPage: request.perPage ?? 30
     })
+    return { ...page, items: page.items.filter((pullRequest) => pullRequest.state !== 'merged') }
   }
 
   async function getPullRequest(request: GitHubPullRequestRequest): Promise<GitHubPullRequest> {

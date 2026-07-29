@@ -1,5 +1,5 @@
 import { ArrowLeft, ArrowClockwise } from '@phosphor-icons/react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { Badge } from '../../../../renderer/src/components/ui/badge'
@@ -8,11 +8,8 @@ import type { Project } from '../../../projects/shared'
 import type { ProjectSession } from '../../../sessions/shared'
 import type { GitHubIssue, GitHubIssueComment } from '../../shared'
 import { githubMutationErrorMessage, githubReadErrorMessage } from '../github-error-messages'
-import {
-  useProjectIssue,
-  useProjectIssueComments,
-  useProjectIssues
-} from '../hooks/use-project-issues'
+import { GitHubMarkdown } from './github-markdown'
+import { useProjectIssue, useProjectIssues } from '../hooks/use-project-issues'
 
 export function IssuesView({
   project,
@@ -75,7 +72,9 @@ function IssueList({
         <RefreshButton fetching={query.isFetching} onRefresh={() => void query.refetch()} />
       </header>
 
-      {query.isPending ? <LoadingState label="Loading Issues…" /> : null}
+      {query.isPending ? (
+        <ListPlaceholders label="Loading Issues…" itemLabel="Issue placeholder" />
+      ) : null}
       {query.isError ? (
         <ErrorState
           message={githubReadErrorMessage(query.error, 'Issues')}
@@ -160,9 +159,26 @@ function IssueDetail({
   const [startSessionError, setStartSessionError] = useState<string | null>(null)
   const queryClient = useQueryClient()
   const issueQuery = useProjectIssue(projectId, number)
-  const commentsQuery = useProjectIssueComments(projectId, number, commentsPage)
+  const commentQueries = useQueries({
+    queries: Array.from({ length: commentsPage }, (_, index) => {
+      const page = index + 1
+      return {
+        queryKey: ['github', 'issue-comments', projectId, number, page, 20],
+        queryFn: () =>
+          window.spacezero.github.listIssueComments({ projectId, number, page, perPage: 20 }),
+        refetchOnMount: 'always' as const,
+        refetchOnWindowFocus: 'always' as const
+      }
+    })
+  })
   const issue = issueQuery.isError ? undefined : issueQuery.data
-  const comments = commentsQuery.isError ? undefined : commentsQuery.data
+  const loadedComments = uniqueComments(
+    commentQueries.flatMap((query) => (query.isError || !query.data ? [] : query.data.items))
+  )
+  const lastCommentsPage = commentQueries.at(-1)?.data
+  const commentsPending = commentQueries.some((query) => query.isPending)
+  const commentsFetching = commentQueries.some((query) => query.isFetching)
+  const commentsError = commentQueries.find((query) => query.isError)?.error
   const commentMutation = useMutation({
     mutationFn: (body: string) =>
       window.spacezero.github.createIssueComment({ projectId, number, body }),
@@ -202,7 +218,7 @@ function IssueDetail({
   }
   const refresh = (): void => {
     void issueQuery.refetch()
-    void commentsQuery.refetch()
+    void Promise.all(commentQueries.map((query) => query.refetch()))
   }
 
   return (
@@ -212,13 +228,10 @@ function IssueDetail({
           <ArrowLeft className="size-4" aria-hidden="true" />
           Back to Issues
         </Button>
-        <RefreshButton
-          fetching={issueQuery.isFetching || commentsQuery.isFetching}
-          onRefresh={refresh}
-        />
+        <RefreshButton fetching={issueQuery.isFetching || commentsFetching} onRefresh={refresh} />
       </header>
 
-      {issueQuery.isPending ? <LoadingState label="Loading Issue…" /> : null}
+      {issueQuery.isPending ? <DetailPlaceholder label="Loading Issue…" /> : null}
       {issueQuery.isError ? (
         <ErrorState
           message={githubReadErrorMessage(issueQuery.error, 'Issue')}
@@ -284,6 +297,31 @@ function IssueDetail({
       {issue ? (
         <section className="space-y-3" aria-label="Issue comments">
           <h3 className="font-semibold">Comments</h3>
+          {commentsPending && loadedComments.length === 0 ? (
+            <ListPlaceholders label="Loading comments…" itemLabel="Comment placeholder" />
+          ) : null}
+          {commentsError ? (
+            <ErrorState
+              message={githubReadErrorMessage(commentsError, 'comments')}
+              onRetry={() => Promise.all(commentQueries.map((query) => query.refetch()))}
+            />
+          ) : null}
+          {lastCommentsPage?.items.length === 0 && loadedComments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No comments yet.</p>
+          ) : null}
+          {loadedComments.map((comment) => (
+            <IssueCommentCard key={comment.id} comment={comment} />
+          ))}
+          {lastCommentsPage?.hasNextPage ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={commentsFetching}
+              onClick={() => setCommentsPage((current) => current + 1)}
+            >
+              {commentsFetching ? 'Loading more…' : 'Load more'}
+            </Button>
+          ) : null}
           <form
             className="space-y-2 rounded-lg border p-4"
             onSubmit={(event) => {
@@ -320,40 +358,6 @@ function IssueDetail({
               {commentMutation.isPending ? 'Adding comment…' : 'Add comment'}
             </Button>
           </form>
-          {commentsQuery.isPending ? <LoadingState label="Loading comments…" /> : null}
-          {commentsQuery.isError ? (
-            <ErrorState
-              message={githubReadErrorMessage(commentsQuery.error, 'comments')}
-              onRetry={commentsQuery.refetch}
-            />
-          ) : null}
-          {comments?.items.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No comments yet.</p>
-          ) : null}
-          {comments?.items.map((comment) => (
-            <IssueCommentCard key={comment.id} comment={comment} />
-          ))}
-          {comments ? (
-            <nav className="flex items-center justify-between" aria-label="Comment pages">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={commentsPage === 1 || commentsQuery.isFetching}
-                onClick={() => setCommentsPage((current) => current - 1)}
-              >
-                Previous comments
-              </Button>
-              <span className="text-xs text-muted-foreground">Page {commentsPage}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!comments.hasNextPage || commentsQuery.isFetching}
-                onClick={() => setCommentsPage((current) => current + 1)}
-              >
-                Next comments
-              </Button>
-            </nav>
-          ) : null}
         </section>
       ) : null}
     </section>
@@ -381,7 +385,7 @@ function IssueContent({ issue }: { issue: GitHubIssue }): React.JSX.Element {
         ))}
       </div>
       <div className="rounded-lg border p-4">
-        <p className="whitespace-pre-wrap text-sm">{issue.body || 'No description provided.'}</p>
+        <GitHubMarkdown markdown={issue.body} />
       </div>
       <p className="text-xs text-muted-foreground">
         Assignees: {issue.assignees.map((assignee) => assignee.login).join(', ') || 'None'}
@@ -396,9 +400,18 @@ function IssueCommentCard({ comment }: { comment: GitHubIssueComment }): React.J
       <p className="text-xs text-muted-foreground">
         {comment.author?.login ?? 'ghost'} · {formatDate(comment.createdAt)}
       </p>
-      <p className="whitespace-pre-wrap text-sm">{comment.body || 'No comment body.'}</p>
+      <GitHubMarkdown markdown={comment.body || 'No comment body.'} />
     </article>
   )
+}
+
+function uniqueComments(comments: GitHubIssueComment[]): GitHubIssueComment[] {
+  const seen = new Set<string>()
+  return comments.filter((comment) => {
+    if (seen.has(comment.id)) return false
+    seen.add(comment.id)
+    return true
+  })
 }
 
 function IssueState({ state }: { state: GitHubIssue['state'] }): React.JSX.Element {
@@ -420,11 +433,42 @@ function RefreshButton({
   )
 }
 
-function LoadingState({ label }: { label: string }): React.JSX.Element {
+function ListPlaceholders({
+  label,
+  itemLabel
+}: {
+  label: string
+  itemLabel: string
+}): React.JSX.Element {
   return (
-    <p className="rounded-lg border p-4 text-sm text-muted-foreground" role="status">
-      {label}
-    </p>
+    <div className="space-y-2" role="status" aria-label={label}>
+      {Array.from({ length: 3 }, (_, index) => (
+        <div key={index} className="space-y-2 rounded-lg border p-4" aria-label={itemLabel}>
+          <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+          <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DetailPlaceholder({ label }: { label: string }): React.JSX.Element {
+  return (
+    <div className="space-y-4" role="status" aria-label={label}>
+      <div className="space-y-2 rounded-lg border p-4">
+        <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-1/3 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="space-y-2 rounded-lg border p-4">
+        <div className="h-3 w-full animate-pulse rounded bg-muted" />
+        <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
+        <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+      </div>
+      <div className="space-y-2 rounded-lg border p-4">
+        <div className="h-4 w-36 animate-pulse rounded bg-muted" />
+        <div className="h-16 w-full animate-pulse rounded bg-muted" />
+      </div>
+    </div>
   )
 }
 

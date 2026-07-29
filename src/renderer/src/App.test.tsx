@@ -899,8 +899,8 @@ describe('App', () => {
 
     expect(await screen.findByText('Restored Pull Request detail')).toBeInTheDocument()
     expect(
-      screen.getByRole('button', { name: 'Start Session from Pull Request' })
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: 'Start Session from Pull Request' })
+    ).not.toBeInTheDocument()
   })
 
   it('replaces the active project session when another project session is selected', async () => {

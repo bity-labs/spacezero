@@ -36,6 +36,20 @@ function createAdapter(): GitHubIssuesAdapter {
             isPullRequest: false
           },
           {
+            number: 82,
+            title: 'Closed issue',
+            body: 'Done',
+            state: 'closed',
+            htmlUrl: 'https://github.com/bity-labs/spacezero/issues/82',
+            author: null,
+            labels: [],
+            assignees: [],
+            commentCount: 0,
+            createdAt: '2026-07-18T00:00:00.000Z',
+            updatedAt: '2026-07-18T00:00:00.000Z',
+            isPullRequest: false
+          },
+          {
             number: 84,
             title: 'A pull request from the combined endpoint',
             body: null,
@@ -135,6 +149,7 @@ describe('GitHub Issues service', () => {
     })
     expect(JSON.stringify(page)).not.toContain('access-secret')
     expect(JSON.stringify(page)).not.toContain('combined endpoint')
+    expect(JSON.stringify(page)).not.toContain('Closed issue')
   })
 
   it('returns Issue detail and paginated comments through sanitized models', async () => {
