@@ -50,6 +50,7 @@ import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-re
 import { openFilesLocation } from '../files-open-location'
 import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
+import { getFilesRowDecoration } from '../lib/files-row-annotations'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
 
@@ -239,7 +240,7 @@ function FilesToolSession({
     },
     onSelectionChange: (paths) => treeSelectionHandlerRef.current(paths),
     renderRowDecoration: ({ item }) =>
-      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current)
+      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current, context.tabs)
   })
   const activeDocument = getActiveFilesTab(context)
   const preparedTreeInput = useMemo<FileTreePreparedInput | null>(
@@ -2117,10 +2118,11 @@ function findTreeEntry(
 
 function renderFilesTreeRowDecoration(
   path: string,
-  entries: readonly FilesEntry[]
+  entries: readonly FilesEntry[],
+  tabs: readonly FilesTabState[]
 ): FileTreeRowDecoration | null {
   const entry = findTreeEntry(entries, fromFilesTreePath(path))
-  return entry?.kind === 'symlink' ? { text: 'Symbolic link', title: 'Symbolic link' } : null
+  return entry ? getFilesRowDecoration(entry, tabs) : null
 }
 
 function createEntryNameError(kind: 'file' | 'folder', name: string): string | null {

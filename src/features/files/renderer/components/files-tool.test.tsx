@@ -206,6 +206,8 @@ vi.mock('@pierre/trees/react', async () => {
     const modelRef = React.useRef<MockModel | null>(null)
     if (!modelRef.current) {
       modelRef.current = createModel(options, () => setRevision((revision) => revision + 1))
+    } else {
+      modelRef.current.options = options
     }
     return { model: modelRef.current }
   }
@@ -571,10 +573,13 @@ describe('Files Tool', () => {
   it('defaults to Files search and filters Trees rows by path/name without calling content search IPC', async () => {
     const search = vi.fn(async () => [])
     window.spacezero.files.search = search
-    window.spacezero.files.listTree = vi.fn(async () => [
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
-      { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
-    ])
+    window.spacezero.files.listTree = vi.fn(async () => ({
+      entries: [
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
+        { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
+      ],
+      presortedPaths: ['README.md', 'package.json']
+    }))
 
     render(<FilesTool sessionId="session-1" />)
 
@@ -1125,16 +1130,63 @@ describe('Files Tool', () => {
     expect(screen.getByText('second.txt')).toBeInTheDocument()
   })
 
-  it('renders symbolic links as identifiable non-expandable entries', async () => {
+  it('renders symbolic links as identifiable locked entries', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
-      { name: 'linked-src', relativePath: 'linked-src', kind: 'symlink' as const }
+      {
+        name: 'linked-src',
+        relativePath: 'linked-src',
+        kind: 'symlink' as const,
+        policyAnnotations: [
+          { kind: 'symlink' as const },
+          { kind: 'locked' as const, reason: 'filesystem-policy' as const }
+        ]
+      }
     ])
 
     render(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByText('linked-src')).toBeInTheDocument()
-    expect(screen.getByText('Symbolic link')).toBeInTheDocument()
+    expect(screen.getByText('Symbolic link · Locked')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Expand linked-src' })).not.toBeInTheDocument()
+  })
+
+  it('surfaces open-tab conflict states in explorer row annotations', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'conflict.txt', relativePath: 'conflict.txt', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'conflict.txt',
+      relativePath: 'conflict.txt',
+      contentKind: 'text' as const,
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'local',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    let observationListener:
+      | Parameters<typeof window.spacezero.files.onObservationEvent>[0]
+      | undefined
+    window.spacezero.files.onObservationEvent = vi.fn((listener) => {
+      observationListener = listener
+      return () => undefined
+    })
+
+    render(<FilesTool sessionId="session-row-conflict" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'conflict.txt' }))
+    fireEvent.change(await screen.findByLabelText('Monaco editor'), { target: { value: 'draft' } })
+
+    await act(async () => {
+      observationListener?.({
+        subscriptionId: 'session-row-conflict:files-observation',
+        contextKey: 'session-row-conflict',
+        kind: 'modified',
+        relativePath: 'conflict.txt'
+      })
+    })
+
+    expect(await screen.findByText('Open conflict')).toBeInTheDocument()
   })
 
   it('offers only the safe reveal context-menu action for symbolic links', async () => {
