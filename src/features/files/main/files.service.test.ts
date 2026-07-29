@@ -23,6 +23,7 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
     knowledgeBaseRootProvider: { getVerifiedRoot: async () => '/knowledge-base' },
     operations: { runExclusive: (operation) => operation() },
     readDirectory: async () => [],
+    readTree: async () => [],
     openDocument: async () => ({
       name: 'README.md',
       relativePath: 'README.md',
@@ -58,6 +59,33 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
 }
 
 describe('Files service', () => {
+  it('lists the authenticated managed worktree tree for a Project Session', async () => {
+    const repository = {
+      findSessionById: vi.fn(async () => validSession),
+      findProjectById: vi.fn(async () => validProject)
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+    const readTree = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    const service = createTestService({ repository, worktrees, readTree })
+
+    await expect(service.listTree({ context: projectContext })).resolves.toEqual([
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' }
+    ])
+    expect(worktrees.validate).toHaveBeenCalledWith({
+      projectPath: '/projects/project-1',
+      projectId: 'project-1',
+      sessionId: 'session-1',
+      worktree: {
+        path: '/worktrees/project-1/session-1',
+        branch: 'spacezero/session-session-1',
+        baseRevision: 'a'.repeat(40)
+      }
+    })
+    expect(readTree).toHaveBeenCalledWith('/worktrees/project-1/session-1')
+  })
+
   it('lists the authenticated managed worktree root for a Project Session', async () => {
     const repository = {
       findSessionById: vi.fn(async () => validSession),

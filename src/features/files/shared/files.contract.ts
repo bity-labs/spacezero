@@ -1,4 +1,5 @@
 export const FILES_IPC_CHANNELS = {
+  listTree: 'files:listTree',
   listDirectory: 'files:listDirectory',
   openDocument: 'files:openDocument',
   saveDocument: 'files:saveDocument',
@@ -25,6 +26,10 @@ export type FilesEntry = {
   name: string
   relativePath: string
   kind: FilesEntryKind
+}
+
+export type ListFilesTreeRequest = {
+  context: FilesContext
 }
 
 export type ListFilesDirectoryRequest = {
@@ -157,6 +162,7 @@ export type RevealFilesEntryRequest = {
 }
 
 export type FilesAPI = {
+  listTree: (request: ListFilesTreeRequest) => Promise<FilesEntry[]>
   listDirectory: (request: ListFilesDirectoryRequest) => Promise<FilesEntry[]>
   openDocument: (request: OpenFilesDocumentRequest) => Promise<FilesDocument>
   saveDocument: (request: SaveFilesDocumentRequest) => Promise<SaveFilesDocumentResult>

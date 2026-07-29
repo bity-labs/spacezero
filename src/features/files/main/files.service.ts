@@ -11,6 +11,7 @@ import type {
   FilesObservationEvent,
   FilesSearchResult,
   ListFilesDirectoryRequest,
+  ListFilesTreeRequest,
   MoveFilesEntryRequest,
   OpenFilesDocumentRequest,
   RevealFilesEntryRequest,
@@ -71,6 +72,7 @@ export function createFilesService({
   knowledgeBaseRootProvider,
   operations,
   readDirectory,
+  readTree,
   openDocument,
   saveDocument,
   createEntry,
@@ -84,6 +86,7 @@ export function createFilesService({
   knowledgeBaseRootProvider?: FilesKnowledgeBaseRootProvider
   operations?: FilesOperationCoordinator
   readDirectory: (rootPath: string, relativePath: string) => Promise<FilesEntry[]>
+  readTree: (rootPath: string) => Promise<FilesEntry[]>
   openDocument: (rootPath: string, relativePath: string) => Promise<FilesDocument>
   saveDocument: (
     rootPath: string,
@@ -105,6 +108,11 @@ export function createFilesService({
   const activeSearches = new Map<string, AbortController>()
 
   return {
+    async listTree(request: ListFilesTreeRequest): Promise<FilesEntry[]> {
+      const root = await resolveFilesRoot(request.context)
+      return readTree(root.path)
+    },
+
     async listDirectory(request: ListFilesDirectoryRequest): Promise<FilesEntry[]> {
       const root = await resolveFilesRoot(request.context)
       return readDirectory(root.path, request.relativePath)

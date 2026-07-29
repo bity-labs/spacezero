@@ -4,6 +4,7 @@ import {
   cancelFilesSearchRequestSchema,
   createFilesEntryRequestSchema,
   listFilesDirectoryRequestSchema,
+  listFilesTreeRequestSchema,
   moveFilesEntryRequestSchema,
   openFilesDocumentRequestSchema,
   revealFilesEntryRequestSchema,
@@ -16,6 +17,24 @@ const projectContext = { kind: 'project-session' as const, sessionId: 'session-1
 const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
 
 describe('Files IPC schemas', () => {
+  it('accepts project and Knowledge Base contexts for full tree listing without arbitrary roots', () => {
+    expect(listFilesTreeRequestSchema.parse({ context: projectContext })).toEqual({
+      context: projectContext
+    })
+    expect(listFilesTreeRequestSchema.parse({ context: knowledgeBaseContext })).toEqual({
+      context: knowledgeBaseContext
+    })
+
+    for (const input of [
+      { context: { kind: 'project-session', sessionId: '' } },
+      { context: { kind: 'knowledge-base', contextKey: 'kb-session-1' } },
+      { context: knowledgeBaseContext, rootPath: '/arbitrary' },
+      { context: projectContext, relativePath: 'src' }
+    ]) {
+      expect(() => listFilesTreeRequestSchema.parse(input)).toThrow()
+    }
+  })
+
   it('accepts project and Knowledge Base contexts with bounded context-relative directory paths', () => {
     expect(
       listFilesDirectoryRequestSchema.parse({

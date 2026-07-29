@@ -11,6 +11,7 @@ const api: SpaceZeroAPI = {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)
   },
   files: {
+    listTree: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.listTree, request),
     listDirectory: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.listDirectory, request),
     openDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.openDocument, request),
     saveDocument: (request) => ipcRenderer.invoke(IPC_CHANNELS.files.saveDocument, request),

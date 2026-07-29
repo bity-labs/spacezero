@@ -41,6 +41,12 @@ const filesContextSchema = z.discriminatedUnion('kind', [
     .strict()
 ])
 
+export const listFilesTreeRequestSchema = z
+  .object({
+    context: filesContextSchema
+  })
+  .strict()
+
 export const listFilesDirectoryRequestSchema = z
   .object({
     context: filesContextSchema,
