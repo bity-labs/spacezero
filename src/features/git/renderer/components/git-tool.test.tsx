@@ -609,6 +609,45 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled()
   })
 
+  it('supports keyboard traversal and restores focus to the split-button menu trigger on Escape', async () => {
+    const user = userEvent.setup()
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    const trigger = await screen.findByRole('button', { name: 'Choose Git commit action' })
+    trigger.focus()
+    expect(trigger).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    const commitAndPushItem = await screen.findByRole('menuitem', { name: 'Commit & Push' })
+    const commitItem = screen.getByRole('menuitem', { name: 'Commit' })
+    expect(commitAndPushItem).toHaveFocus()
+
+    await user.keyboard('{ArrowDown}')
+    expect(commitItem).toHaveFocus()
+
+    await user.keyboard('{ArrowUp}')
+    expect(commitAndPushItem).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Commit' })).not.toBeInTheDocument())
+    expect(trigger).toHaveFocus()
+  })
+
   it('keeps composer actions available when the Staged filter is clean but unstaged changes exist', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
