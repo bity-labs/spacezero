@@ -1,3 +1,8 @@
+import { access, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { extname, posix, win32 } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
 import type { WebContents } from 'electron'
 import { nanoid } from 'nanoid'
 
@@ -79,9 +84,17 @@ export type BrowserFaviconLoader = {
   load: (faviconUrls: string[], options?: { signal?: AbortSignal }) => Promise<string | null>
 }
 
+export type BrowserLocalFileSystem = {
+  stat: (path: string) => Promise<{ isFile: () => boolean }>
+  access: (path: string, mode?: number) => Promise<void>
+}
+
+const defaultBrowserLocalFileSystem: BrowserLocalFileSystem = { stat, access }
+
 type BrowserRuntimeTab = BrowserTab & {
   restoredUrl: string | null
   hasLoadedRestoredUrl: boolean
+  navigationSequence: number
   faviconLoadSequence: number
   faviconLoadAbortController: AbortController | null
 }
@@ -119,7 +132,8 @@ export class BrowserService {
     private readonly contextRepository?: BrowserContextRepository,
     private readonly externalOpener?: BrowserExternalOpener,
     private readonly tabsRepository?: BrowserTabsRepository,
-    private readonly faviconLoader?: BrowserFaviconLoader
+    private readonly faviconLoader?: BrowserFaviconLoader,
+    private readonly localFileSystem: BrowserLocalFileSystem = defaultBrowserLocalFileSystem
   ) {}
 
   async getState(request: BrowserContextRequest): Promise<BrowserState> {
@@ -129,7 +143,19 @@ export class BrowserService {
   async navigate(request: BrowserNavigateRequest): Promise<BrowserState> {
     const context = await this.getOrCreateContext(request)
     const tab = this.resolveTab(context, request.tabId)
-    const url = normalizeBrowserUrl(request.input)
+    const navigationSequence = ++tab.navigationSequence
+    let url: string
+    try {
+      url = await resolveBrowserNavigation(request.input, this.localFileSystem)
+    } catch (error) {
+      if (tab.navigationSequence !== navigationSequence || !context.tabs.includes(tab)) {
+        return toBrowserState(context)
+      }
+      throw error
+    }
+    if (tab.navigationSequence !== navigationSequence || !context.tabs.includes(tab)) {
+      return toBrowserState(context)
+    }
     tab.url = url
     tab.restoredUrl = null
     tab.hasLoadedRestoredUrl = true
@@ -220,7 +246,7 @@ export class BrowserService {
     context.tabs.push(tab)
     context.activeTabId = tab.id
     if (request.input) {
-      const url = normalizeBrowserUrl(request.input)
+      const url = await resolveBrowserNavigation(request.input, this.localFileSystem)
       tab.url = url
       tab.restoredUrl = null
       tab.hasLoadedRestoredUrl = true
@@ -551,6 +577,7 @@ export class BrowserService {
       error: null,
       restoredUrl: url,
       hasLoadedRestoredUrl,
+      navigationSequence: 0,
       faviconLoadSequence: 0,
       faviconLoadAbortController: null
     }
@@ -702,6 +729,30 @@ export function normalizeBrowserUrl(input: string): string {
   return googleSearchUrl(trimmed)
 }
 
+async function resolveBrowserNavigation(
+  input: string,
+  localFileSystem: BrowserLocalFileSystem
+): Promise<string> {
+  const trimmed = input.trim()
+  if (!looksLikeLocalPath(trimmed)) return normalizeBrowserUrl(trimmed)
+  if (!isPlatformAbsolutePath(trimmed)) {
+    throw new Error('Enter an absolute local HTML file path for this operating system.')
+  }
+  if (extname(trimmed).toLowerCase() !== '.html') {
+    throw new Error('Only absolute local .html file paths can be loaded in Browser.')
+  }
+
+  try {
+    const metadata = await localFileSystem.stat(trimmed)
+    if (!metadata.isFile()) throw new Error('not-a-file')
+    await localFileSystem.access(trimmed, constants.R_OK)
+  } catch {
+    throw new Error('The local HTML file could not be found or opened.')
+  }
+
+  return pathToFileURL(trimmed).toString()
+}
+
 export function normalizeExternalBrowserUrl(input: string): string {
   const url = new URL(input)
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
@@ -736,9 +787,32 @@ function normalizeExplicitHttpUrl(input: string): string {
   return url.toString()
 }
 
+function looksLikeLocalPath(input: string): boolean {
+  const isRelativeHtmlPath =
+    /[\\/][^\\/]+\.html$/i.test(input) &&
+    !/^[a-z][a-z\d+.-]*:\/\//i.test(input) &&
+    !isLoopbackAddress(input) &&
+    !isRecognizableWebAddress(input)
+  return (
+    posix.isAbsolute(input) ||
+    win32.isAbsolute(input) ||
+    /^[a-z]:[\\/]/i.test(input) ||
+    /^(?:\.{1,2}|~)[\\/]/.test(input) ||
+    isRelativeHtmlPath
+  )
+}
+
+function isPlatformAbsolutePath(input: string): boolean {
+  if (process.platform === 'win32') {
+    return /^[a-z]:[\\/]/i.test(input) && win32.isAbsolute(input)
+  }
+  return posix.isAbsolute(input)
+}
+
 function hasExplicitScheme(input: string): boolean {
   return (
     /^[a-z][a-z\d+.-]*:/i.test(input) &&
+    !/^[a-z]:\s/i.test(input) &&
     !isBareLoopbackWithPort(input) &&
     !isBareWebAddressWithPort(input)
   )
