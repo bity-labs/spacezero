@@ -22,10 +22,16 @@ export type FilesContext =
 
 export type FilesEntryKind = 'directory' | 'file' | 'symlink'
 
+export type FilesEntryPolicyAnnotation =
+  | { kind: 'symlink' }
+  | { kind: 'protected'; reason: 'git-internals' | 'filesystem-policy' }
+  | { kind: 'locked'; reason: 'filesystem-policy' }
+
 export type FilesEntry = {
   name: string
   relativePath: string
   kind: FilesEntryKind
+  policyAnnotations?: FilesEntryPolicyAnnotation[]
 }
 
 export type FilesTree = {
