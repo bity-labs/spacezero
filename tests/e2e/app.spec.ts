@@ -825,12 +825,17 @@ test('aligns the collapsed Tool Pane toggle with its tool buttons and keeps it u
     await window.getByRole('button', { name: 'Skip for now' }).click()
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await window.getByRole('button', { name: 'Create new' }).click()
-    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
+
+    const toggle = window.getByRole('button', { name: 'Toggle Tool Pane' })
+    await expect(toggle).toBeEnabled()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
 
     await setMainWindowSize(electronApp, 1280, 900)
     await expectCollapsedToolPaneControlsAligned(window)
 
-    const toggle = window.getByRole('button', { name: 'Toggle Tool Pane' })
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
     await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
@@ -870,12 +875,16 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await window.getByRole('button', { name: 'Create new' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expect(window.getByRole('tree', { name: 'Knowledge Base files' })).toHaveCount(0)
+    await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
-      'vertical'
+      'horizontal'
     )
-    await expect(window.getByRole('button', { name: 'Files', exact: true })).toBeEnabled()
+    await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     await expect(window.getByRole('button', { name: 'Browser', exact: true })).toBeEnabled()
     await expect(window.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled()
     await expect(window.getByRole('button', { name: 'Git', exact: true })).toBeEnabled()
@@ -901,7 +910,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       })
     ).toEqual([])
     await setMainWindowSize(electronApp, 1280, 900)
-    await window.getByRole('button', { name: 'Files', exact: true }).click()
+    await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
     await expectToolPaneHeaderGeometryAligned(window)
     await window.getByRole('separator', { name: 'Resize Tool Pane' }).press('ArrowRight')
@@ -939,6 +948,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       'aria-orientation',
       'horizontal'
     )
+    await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
     await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
       'aria-pressed',
@@ -953,6 +963,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expectToolPaneHeaderGeometryAligned(window)
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
     await expect
       .poll(() =>

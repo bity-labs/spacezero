@@ -3,7 +3,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import type { AgentSessionProjectionEvent } from '../../../shared/agent-session-projection.model'
 
-import { ToolPaneShell, useToolPaneStore, type ToolDescriptor } from '../../tool-pane/renderer'
+import {
+  createKnowledgeBaseToolPaneConfiguration,
+  ToolPaneShell,
+  useToolPaneStore,
+  type ToolDescriptor
+} from '../../tool-pane/renderer'
 import { KnowledgeBasePage } from './knowledge-base-page'
 
 const managedSession = {
@@ -39,6 +44,32 @@ describe('KnowledgeBasePage', () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole('tree', { name: 'Knowledge Base files' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Search Knowledge Base')).not.toBeInTheDocument()
+  })
+
+  it('keeps chat primary while showing the Files explorer for a fresh configured context', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+
+    const configuration = createKnowledgeBaseToolPaneConfiguration()
+    const tools = configuration.tools.map((tool) =>
+      tool.id === 'files'
+        ? { ...tool, render: () => <section aria-label="Files explorer" /> }
+        : tool
+    )
+
+    render(
+      <ToolPaneShell {...configuration} tools={tools}>
+        <KnowledgeBasePage />
+      </ToolPaneShell>
+    )
+
+    expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByLabelText('Files explorer')).toBeInTheDocument()
   })
 
   it('routes Knowledge Base chat links to the stable Knowledge Base Browser context', async () => {
