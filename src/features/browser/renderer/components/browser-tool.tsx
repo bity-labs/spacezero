@@ -8,7 +8,6 @@ import {
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
-import { useCommandPaletteController } from '../../../command-palette/renderer/command-palette-controller'
 import { isMacPlatform } from '../../../keyboard-shortcuts/renderer/keybinding-parser'
 import {
   useKeyboardShortcutsManager,
@@ -16,6 +15,7 @@ import {
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
+import { useGlobalOverlayOpen } from '@renderer/hooks/use-global-overlay-open'
 
 import {
   BROWSER_COMMAND_IDS,
@@ -87,6 +87,17 @@ const browserDownloadStore: BrowserDownloadStore = {
   listeners: new Set()
 }
 
+let browserPresentationQueue: Promise<void> = Promise.resolve()
+
+function scheduleBrowserPresentation(operation: () => Promise<unknown>): Promise<unknown> {
+  const next = browserPresentationQueue.then(operation, operation)
+  browserPresentationQueue = next.then(
+    () => undefined,
+    () => undefined
+  )
+  return next
+}
+
 function ensureBrowserDownloadSubscription(): void {
   const api = window.spacezero.browser
   if (browserDownloadStore.api === api && browserDownloadStore.unsubscribe) return
@@ -122,7 +133,7 @@ export function BrowserTool({
   const surfaceRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
-  const commandPalette = useCommandPaletteController()
+  const isGlobalOverlayOpen = useGlobalOverlayOpen()
   const [state, setState] = useState<BrowserState | null>(null)
   const [stateContextKey, setStateContextKey] = useState(contextKey)
   const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
@@ -148,6 +159,12 @@ export function BrowserTool({
     () => ({ contextKey, context, tabId: activeTabId }),
     [activeTabId, context, contextKey]
   )
+
+  const enqueuePresentation = useCallback((operation: () => Promise<unknown>): void => {
+    void scheduleBrowserPresentation(operation).catch((reason: unknown) => {
+      setError(toErrorMessage(reason))
+    })
+  }, [])
 
   const focusAddressField = useCallback(() => {
     inputRef.current?.focus()
@@ -393,7 +410,6 @@ export function BrowserTool({
     return () => {
       cancelled = true
       shortcutManager.setContext({ browserFocused: false })
-      void window.spacezero.browser.hide({ contextKey, context })
     }
   }, [context, contextKey, focusAddressField, shortcutManager])
 
@@ -434,19 +450,21 @@ export function BrowserTool({
   useLayoutEffect(() => {
     const surface = surfaceRef.current
     if (!surface || !activeTabId) return
-    if (commandPalette.isOpen) {
+    if (isGlobalOverlayOpen) {
       shortcutManager.setContext({ browserFocused: false })
-      void window.spacezero.browser.hide({ contextKey, context })
+      enqueuePresentation(() => window.spacezero.browser.hide({ contextKey, context }))
       return
     }
     const surfaceElement = surface
     const shownTabId = activeTabId
+    let cancelled = false
 
     function syncBounds(): void {
+      if (cancelled) return
       const rect = surfaceElement.getBoundingClientRect()
       if (rect.width < 1 || rect.height < 1) return
-      void window.spacezero.browser
-        .show({
+      enqueuePresentation(() =>
+        window.spacezero.browser.show({
           contextKey,
           context,
           tabId: shownTabId,
@@ -458,7 +476,7 @@ export function BrowserTool({
           },
           shortcutBindings: getBrowserNativeShortcutBindings(shortcutManager)
         })
-        .catch((reason: unknown) => setError(toErrorMessage(reason)))
+      )
     }
 
     syncBounds()
@@ -467,17 +485,19 @@ export function BrowserTool({
     observer.observe(surfaceElement)
     window.addEventListener('resize', syncBounds)
     return () => {
+      cancelled = true
       window.cancelAnimationFrame(animationFrame)
       observer.disconnect()
       window.removeEventListener('resize', syncBounds)
-      void window.spacezero.browser.hide({ contextKey, context })
+      enqueuePresentation(() => window.spacezero.browser.hide({ contextKey, context }))
     }
   }, [
     activeTabId,
     activeTabUrl,
-    commandPalette.isOpen,
     context,
     contextKey,
+    enqueuePresentation,
+    isGlobalOverlayOpen,
     shortcutBindingsVersion,
     shortcutManager
   ])

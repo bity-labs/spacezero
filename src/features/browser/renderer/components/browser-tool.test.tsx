@@ -8,6 +8,11 @@ import {
   useCommandPaletteController
 } from '../../../command-palette/renderer/command-palette-controller'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
+  ModelSelector,
+  ModelSelectorContent,
+  ModelSelectorTrigger
+} from '@renderer/components/ui/model-selector'
 import type { BrowserContext, BrowserEvent } from '../../shared'
 import { BrowserTool } from './browser-tool'
 
@@ -108,6 +113,7 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
     emitBrowserEvent: (event: BrowserEvent) => {
       for (const listener of [...browserEventListeners]) listener(event)
     },
+    getTestState: () => state,
     setTestState: (nextState: typeof state) => {
       state = nextState
     }
@@ -148,6 +154,18 @@ function renderBrowserToolWithCommandPalette(): ReturnType<typeof render> {
   )
 }
 
+function renderBrowserToolWithModelSelector(): ReturnType<typeof render> {
+  return render(
+    <TestProviders>
+      <ModelSelector>
+        <ModelSelectorTrigger render={<button type="button" />}>Open model selector</ModelSelectorTrigger>
+        <ModelSelectorContent>Model options</ModelSelectorContent>
+      </ModelSelector>
+      <BrowserTool context={context} contextKey={contextKey} />
+    </TestProviders>
+  )
+}
+
 function OpenCommandPaletteButton(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   return (
@@ -166,6 +184,21 @@ async function expectNavigateCalled(browser: BrowserApi, input: string): Promise
       input
     })
   )
+}
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+async function settlePresentationFrame(): Promise<void> {
+  await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
 }
 
 describe('BrowserTool', () => {
@@ -196,6 +229,7 @@ describe('BrowserTool', () => {
     renderBrowserToolWithCommandPalette()
 
     await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    await settlePresentationFrame()
     browser.hide.mockClear()
     browser.show.mockClear()
 
@@ -210,6 +244,109 @@ describe('BrowserTool', () => {
       expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
     )
     await waitFor(() => expect(browser.show).toHaveBeenCalled())
+  })
+
+  it('occludes native Browser content while the chat model selector is open and restores it on close', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+
+    renderBrowserToolWithModelSelector()
+
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    await settlePresentationFrame()
+    browser.hide.mockClear()
+    browser.show.mockClear()
+
+    await user.click(screen.getByRole('button', { name: 'Open model selector' }))
+
+    expect(await screen.findByRole('dialog', { name: 'Model Selector' })).toBeVisible()
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+
+    await user.keyboard('{Escape}')
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Model Selector' })).not.toBeInTheDocument()
+    )
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+  })
+
+  it('finishes hidden when an overlay opens while native show is delayed', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const pendingShow = deferred<Awaited<ReturnType<BrowserApi['show']>>>()
+    browser.show.mockImplementationOnce(() => pendingShow.promise)
+    const user = userEvent.setup()
+
+    renderBrowserToolWithCommandPalette()
+
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Open command palette' }))
+    expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
+    expect(browser.hide).not.toHaveBeenCalled()
+
+    pendingShow.resolve(browser.getTestState())
+
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+  })
+
+  it('finishes shown when an overlay closes while native hide is delayed', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+
+    renderBrowserToolWithCommandPalette()
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    await settlePresentationFrame()
+    browser.show.mockClear()
+
+    const pendingHide = deferred<undefined>()
+    browser.hide.mockImplementationOnce(() => pendingHide.promise)
+    await user.click(screen.getByRole('button', { name: 'Open command palette' }))
+    expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledTimes(1))
+
+    await user.keyboard('{Escape}')
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
+    )
+    expect(browser.show).not.toHaveBeenCalled()
+
+    pendingHide.resolve(undefined)
+
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+  })
+
+  it('finishes on the next context when Browser switches while native show after overlay close is delayed', async () => {
+    const browser = installBrowserApi({ url: 'https://example.com/' })
+    const user = userEvent.setup()
+    const view = renderBrowserToolWithCommandPalette()
+
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    await settlePresentationFrame()
+    await user.click(screen.getByRole('button', { name: 'Open command palette' }))
+    expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
+    await waitFor(() => expect(browser.hide).toHaveBeenCalled())
+
+    browser.hide.mockClear()
+    browser.show.mockClear()
+    const pendingShow = deferred<Awaited<ReturnType<BrowserApi['show']>>>()
+    browser.show.mockImplementationOnce(() => pendingShow.promise)
+
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(browser.show).toHaveBeenCalledTimes(1))
+
+    view.unmount()
+    const nextContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
+    const nextContextKey = 'session:workspace-2'
+    renderBrowserTool({ contextKey: nextContextKey, context: nextContext })
+    expect(browser.hide).not.toHaveBeenCalled()
+
+    pendingShow.resolve(browser.getTestState())
+
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+    await waitFor(() =>
+      expect(browser.show).toHaveBeenLastCalledWith(
+        expect.objectContaining({ contextKey: nextContextKey, context: nextContext })
+      )
+    )
   })
 
   it('shows a focused blank URL field and opens submitted URLs through preload contracts', async () => {
