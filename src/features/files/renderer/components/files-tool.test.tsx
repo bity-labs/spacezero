@@ -523,6 +523,11 @@ vi.mock('../../../app-commands/renderer/app-command-context', () => ({
   }
 }))
 
+vi.mock('../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider', () => ({
+  useKeyboardShortcutsManager: () => ({ setContext: vi.fn() }),
+  useRegisterKeyboardShortcuts: vi.fn()
+}))
+
 vi.mock('./files-monaco-editor', () => ({
   FilesMonacoEditor: ({
     value,
@@ -2059,9 +2064,12 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [])
 
     render(<FilesTool sessionId="session-1" />)
-    expect(await screen.findByRole('tablist', { name: 'Open files' })).toHaveClass(
-      'overflow-x-auto'
-    )
+    const tablist = await screen.findByRole('tablist', { name: 'Open files' })
+    expect(tablist).toHaveClass('overflow-x-auto', 'no-scrollbar')
+    fireEvent.wheel(tablist, { deltaY: 36 })
+    expect(tablist.scrollLeft).toBe(36)
+    expect(tablist.querySelectorAll('[data-file-type]')).toHaveLength(3)
+    expect(tablist.querySelector('[data-file-type]')).toHaveAttribute('data-file-type', 'txt')
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
 
     const threeTabWrapper = screen.getByRole('tab', { name: 'three.txt' }).parentElement!
@@ -2073,11 +2081,18 @@ describe('Files Tool', () => {
       useFilesStore.getState().contexts['session-1'].tabs.map((tab) => tab.relativePath)
     ).toEqual(['three.txt', 'one.txt', 'two.txt'])
 
+    const inactiveOneTab = screen.getByRole('tab', { name: 'one.txt', selected: false })
+    fireEvent.mouseDown(inactiveOneTab, { button: 1 })
+    fireEvent(inactiveOneTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+    expect(screen.queryByRole('tab', { name: 'one.txt' })).not.toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'three.txt' })).toHaveAttribute('aria-selected', 'true')
+
     fireEvent.click(screen.getByRole('tab', { name: 'two.txt' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close two.txt' }))
-    expect(screen.getByRole('tab', { name: 'one.txt' })).toHaveAttribute('aria-selected', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'Close one.txt' }))
-    expect(screen.getByRole('tab', { name: 'three.txt' })).toHaveAttribute('aria-selected', 'true')
+    const activeThreeTab = screen.getByRole('tab', { name: 'three.txt', selected: true })
+    fireEvent.mouseDown(activeThreeTab, { button: 1 })
+    fireEvent(activeThreeTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
+    expect(screen.queryByRole('tab', { name: 'three.txt' })).not.toBeInTheDocument()
   })
 
   it('isolates tab state across Project Session contexts and component remounts', async () => {
@@ -2974,9 +2989,7 @@ describe('Files Tool', () => {
       }
 
       const tabList = screen.getByRole('tablist', { name: 'Open files' })
-      expect(tabList).toHaveClass('[scrollbar-width:none]')
-      expect(tabList).toHaveClass('[&::-webkit-scrollbar]:hidden')
-      expect(tabList).toHaveClass('overflow-x-auto')
+      expect(tabList).toHaveClass('no-scrollbar', 'overflow-x-auto')
       expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Save All' })).not.toBeInTheDocument()
       expect(screen.queryByText('Saved')).not.toBeInTheDocument()

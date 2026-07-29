@@ -23,9 +23,14 @@ import { useColorMode } from '@renderer/color-mode-provider'
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
 import type { AppCommand } from '../../../app-commands/renderer/app-command.model'
 import {
+  useKeyboardShortcutsManager,
+  useRegisterKeyboardShortcuts
+} from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
+import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 import {
   Dialog,
@@ -57,6 +62,7 @@ import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files
 import { getFilesRowDecoration } from '../lib/files-row-annotations'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
+import { FilesTabIcon } from './files-tab-icon'
 
 configureFilesMonacoEnvironment()
 
@@ -87,6 +93,16 @@ const EXPLORER_MIN_WIDTH = 180
 const EXPLORER_MAX_WIDTH = 520
 const EXPLORER_RESIZE_STEP = 20
 export const FILES_SAVE_ALL_COMMAND_ID = 'files.save-all'
+export const FILES_CLOSE_ACTIVE_TAB_COMMAND_ID = 'files.close-active-tab'
+
+const filesShortcutDefinitions = [
+  {
+    commandId: FILES_CLOSE_ACTIVE_TAB_COMMAND_ID,
+    defaultKeybinding: { normalized: 'mod+w' },
+    when: (ctx: { editorFocused: boolean }) => ctx.editorFocused,
+    allowInTextInput: true
+  }
+] as const
 
 const saveConflictMessage =
   'This file changed on disk. Reload from disk or review the external changes before saving.'
@@ -174,6 +190,7 @@ function FilesToolSession({
   createRichImageAdapter?: RichImageAdapterFactory
   treeLabel: string
 }): React.JSX.Element {
+  const shortcutManager = useKeyboardShortcutsManager()
   const sessionId = contextKey
   const context =
     useFilesStore((state) => state.contexts[contextKey]) ?? createDefaultFilesContext()
@@ -504,6 +521,7 @@ function FilesToolSession({
   }, [context.tabs, saveDocumentSnapshot])
 
   const saveAllDirtyDocumentsRef = useRef(saveAllDirtyDocuments)
+  const closeActiveTabCommandRef = useRef<() => void>(() => undefined)
   useEffect(() => {
     saveAllDirtyDocumentsRef.current = saveAllDirtyDocuments
   }, [saveAllDirtyDocuments])
@@ -516,11 +534,19 @@ function FilesToolSession({
         category: 'Files',
         keywords: ['dirty', 'documents', 'tabs'],
         handler: () => void saveAllDirtyDocumentsRef.current()
+      },
+      {
+        id: FILES_CLOSE_ACTIVE_TAB_COMMAND_ID,
+        title: 'Close Files tab',
+        category: 'Files',
+        keywords: ['close', 'tab', 'editor'],
+        handler: () => closeActiveTabCommandRef.current()
       }
     ],
     []
   )
   useRegisterAppCommands(filesCommands)
+  useRegisterKeyboardShortcuts(filesShortcutDefinitions)
 
   const reloadFromDisk = useCallback(
     async (relativePath: string): Promise<void> => {
@@ -809,6 +835,16 @@ function FilesToolSession({
     [closeTab]
   )
 
+  useEffect(() => {
+    closeActiveTabCommandRef.current = () => {
+      if (context.activeTabPath) requestCloseTab(sessionId, context.activeTabPath)
+    }
+  }, [context.activeTabPath, requestCloseTab, sessionId])
+
+  useEffect(() => {
+    return () => shortcutManager.setContext({ editorFocused: false })
+  }, [shortcutManager])
+
   const saveAndClosePromptTab = useCallback(async (): Promise<void> => {
     if (!closePromptPath) return
     const tab = useFilesStore
@@ -1078,7 +1114,16 @@ function FilesToolSession({
   }
 
   return (
-    <section aria-label="Files explorer" className="flex h-full min-h-0 bg-background">
+    <section
+      aria-label="Files explorer"
+      className="flex h-full min-h-0 bg-background"
+      onFocusCapture={() => shortcutManager.setContext({ editorFocused: true })}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          shortcutManager.setContext({ editorFocused: false })
+        }
+      }}
+    >
       {context.explorerCollapsed ? (
         <button
           aria-label="Expand Files explorer"
@@ -1473,30 +1518,31 @@ function FilesTabStrip({
     dropPosition: FilesTabDropPosition
   ) => void
 }): React.JSX.Element | null {
-  const activeTabRef = useRef<HTMLButtonElement | null>(null)
   const draggedPathRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    activeTabRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [activeTabPath, tabs.length])
 
   if (tabs.length === 0) return null
 
   return (
-    <div className="flex h-10 shrink-0 border-b bg-background">
-      <div
-        aria-label="Open files"
-        className="flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-        role="tablist"
-      >
+    <TabBar ariaLabel="Open files">
         {tabs.map((tab) => {
           const active = tab.relativePath === activeTabPath
           const dirty = tab.status === 'ready' && tab.dirty
           return (
-            <div
+            <Tab
               key={tab.relativePath}
-              className="flex min-w-36 max-w-56 shrink-0 items-center border-r"
+              closeTitle={
+                dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
+              }
               draggable
+              icon={<FilesTabIcon fileName={tab.name} />}
+              label={tab.name}
+              labelSuffix={tab.preview ? <span className="sr-only"> preview</span> : null}
+              leading={dirty ? <span>● </span> : null}
+              preview={tab.preview}
+              selected={active}
+              onSelect={() => onActivate(sessionId, tab.relativePath)}
+              onClose={() => onClose(sessionId, tab.relativePath)}
+              onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
               onDragOver={(event) => event.preventDefault()}
               onDragStart={() => {
                 draggedPathRef.current = tab.relativePath
@@ -1509,36 +1555,10 @@ function FilesTabStrip({
                   onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
                 }
               }}
-            >
-              <button
-                ref={active ? activeTabRef : undefined}
-                aria-selected={active}
-                className={`min-w-0 flex-1 truncate px-3 py-2 text-left text-xs ${active ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/60'} ${tab.preview ? 'italic' : ''}`}
-                role="tab"
-                type="button"
-                onClick={() => onActivate(sessionId, tab.relativePath)}
-                onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
-              >
-                <span>{dirty ? '● ' : ''}</span>
-                <span>{tab.name}</span>
-                {tab.preview ? <span className="sr-only"> preview</span> : null}
-              </button>
-              <button
-                aria-label={`Close ${tab.name}`}
-                className="mr-1 rounded px-1 text-muted-foreground hover:bg-accent disabled:opacity-40"
-                title={
-                  dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
-                }
-                type="button"
-                onClick={() => onClose(sessionId, tab.relativePath)}
-              >
-                ×
-              </button>
-            </div>
+            />
           )
         })}
-      </div>
-    </div>
+    </TabBar>
   )
 }
 
