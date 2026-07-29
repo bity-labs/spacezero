@@ -2,6 +2,10 @@ import { z } from 'zod'
 
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from './knowledge-base.model'
 
+export const resumeKnowledgeBaseChatContextRequestSchema = z.object({
+  chatContextId: z.string().trim().min(1).max(255)
+})
+
 export const cloneKnowledgeBaseRequestSchema = z.object({
   gitUrl: z.string().trim().min(1, 'Git repository URL is required')
 })
