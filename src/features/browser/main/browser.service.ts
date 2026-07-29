@@ -126,6 +126,7 @@ type BrowserEventListener = (event: BrowserEvent) => void
 export class BrowserService {
   private readonly contexts = new Map<string, BrowserContextState>()
   private readonly listeners = new Set<BrowserEventListener>()
+  private presentationRevision = 0
 
   constructor(
     private readonly adapter: BrowserViewAdapter,
@@ -223,7 +224,9 @@ export class BrowserService {
   }
 
   async show(request: BrowserPresentationRequest, sender?: WebContents): Promise<BrowserState> {
+    const presentationRevision = ++this.presentationRevision
     const context = await this.getOrCreateContext(request)
+    if (presentationRevision !== this.presentationRevision) return toBrowserState(context)
     const tab = this.resolveTab(context, request.tabId)
     const loadedRestoredTab = this.loadRestoredTabIfNeeded(tab)
     for (const otherTab of context.tabs) {
@@ -235,7 +238,9 @@ export class BrowserService {
   }
 
   async hide(request: BrowserContextRequest): Promise<void> {
+    const presentationRevision = ++this.presentationRevision
     const contextKey = await this.assertAuthorizedContext(request)
+    if (presentationRevision !== this.presentationRevision) return
     const context = this.contexts.get(contextKey)
     for (const tab of context?.tabs ?? []) this.adapter.hideView(tab.id)
   }

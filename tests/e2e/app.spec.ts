@@ -1149,7 +1149,9 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
       'sessions:listProjectSessions',
       'sessions:listWorkspaceSessions',
       'projects:list',
-      'agent:getState'
+      'agent:getState',
+      'agent:getAvailableModels',
+      'settings:getModelDefaults'
     ]) {
       ipcMain.removeHandler(channel)
     }
@@ -1176,6 +1178,19 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString()
     }))
+    ipcMain.handle('agent:getAvailableModels', () => [
+      {
+        providerId: 'fixture',
+        providerLabel: 'Fixture Provider',
+        modelId: 'fixture-model',
+        modelLabel: 'Fixture Model',
+        supportedThinkingLevels: ['off', 'medium']
+      }
+    ])
+    ipcMain.handle('settings:getModelDefaults', () => ({
+      defaultModel: { providerId: 'fixture', modelId: 'fixture-model' },
+      defaultThinking: 'medium'
+    }))
     BrowserWindow.getAllWindows()[0]?.webContents.reload()
   })
 
@@ -1185,7 +1200,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await window.getByRole('button', { name: 'Browser', exact: true }).click()
   await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
   await window.getByLabel('Browser URL').fill(fixtureUrl)
-  await window.getByRole('button', { name: 'Go' }).click()
+  await window.getByRole('button', { name: 'Go', exact: true }).click()
 
   await expect.poll(async () =>
     electronApp.evaluate(({ webContents }, { fixtureUrl }) =>
@@ -1234,6 +1249,113 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     spacezero: 'undefined',
     electronRequire: 'undefined'
   })
+
+  await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) throw new Error('Embedded browser webContents was not found for overlay coverage.')
+    await contents.executeJavaScript(`
+      window.__spacezeroPaletteInteractionCount = 0
+      document.addEventListener('click', () => { window.__spacezeroPaletteInteractionCount += 1 })
+    `)
+  }, { fixtureUrl })
+
+  await window.getByRole('button', { name: 'Open command palette' }).click()
+  const commandPalette = window.getByRole('dialog', { name: 'Command Palette' })
+  const commandPaletteOverlay = window.locator('[data-slot="dialog-overlay"]')
+  await expect(commandPalette).toBeVisible()
+  await expect(commandPaletteOverlay).toBeVisible()
+
+  const commandPaletteBounds = await commandPalette.boundingBox()
+  expect(commandPaletteBounds).not.toBeNull()
+  expect(surfaceBounds).not.toBeNull()
+  expect((commandPaletteBounds?.x ?? 0) + (commandPaletteBounds?.width ?? 0)).toBeGreaterThan(
+    surfaceBounds?.x ?? 0
+  )
+  const overlayStyles = await commandPaletteOverlay.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return { backgroundColor: styles.backgroundColor, backdropFilter: styles.backdropFilter }
+  })
+  expect(overlayStyles.backgroundColor).not.toBe('rgba(0, 0, 0, 0)')
+  expect(overlayStyles.backdropFilter).not.toBe('none')
+
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return mainWindow.contentView.children.some((child) => child.webContents === contents)
+    }, { fixtureUrl })
+  ).toBe(false)
+
+  await window.mouse.click(
+    Math.round((surfaceBounds?.x ?? 0) + 8),
+    Math.round((surfaceBounds?.y ?? 0) + (surfaceBounds?.height ?? 0) - 8)
+  )
+  await expect.poll(async () =>
+    electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      if (!contents) return -1
+      return contents.executeJavaScript('window.__spacezeroPaletteInteractionCount')
+    }, { fixtureUrl })
+  ).toBe(0)
+
+  if (await commandPalette.isVisible()) await window.keyboard.press('Escape')
+  await expect(commandPalette).not.toBeVisible()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return mainWindow.contentView.children.some((child) => child.webContents === contents)
+    }, { fixtureUrl })
+  ).toBe(true)
+  expect(await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) return null
+    return {
+      url: contents.getURL(),
+      title: await contents.executeJavaScript('document.querySelector("h1")?.textContent')
+    }
+  }, { fixtureUrl })).toEqual({ url: fixtureUrl, title: 'Browser fixture' })
+
+  await window.getByRole('button', { name: /Fixture Model/ }).click()
+  const modelSelector = window.getByRole('dialog', { name: 'Model Selector' })
+  await expect(modelSelector).toBeVisible()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return mainWindow.contentView.children.some((child) => child.webContents === contents)
+    }, { fixtureUrl })
+  ).toBe(false)
+
+  await window.mouse.click(
+    Math.round((surfaceBounds?.x ?? 0) + 8),
+    Math.round((surfaceBounds?.y ?? 0) + (surfaceBounds?.height ?? 0) - 8)
+  )
+  await expect.poll(async () =>
+    electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      if (!contents) return -1
+      return contents.executeJavaScript('window.__spacezeroPaletteInteractionCount')
+    }, { fixtureUrl })
+  ).toBe(0)
+
+  if (await modelSelector.isVisible()) await window.keyboard.press('Escape')
+  await expect(modelSelector).not.toBeVisible()
+  await expect.poll(async () =>
+    electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
+      const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+      const [mainWindow] = BrowserWindow.getAllWindows()
+      return mainWindow.contentView.children.some((child) => child.webContents === contents)
+    }, { fixtureUrl })
+  ).toBe(true)
+  expect(await electronApp.evaluate(async ({ webContents }, { fixtureUrl }) => {
+    const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
+    if (!contents) return null
+    return {
+      url: contents.getURL(),
+      title: await contents.executeJavaScript('document.querySelector("h1")?.textContent')
+    }
+  }, { fixtureUrl })).toEqual({ url: fixtureUrl, title: 'Browser fixture' })
 
   await electronApp.evaluate(({ dialog, shell }, { downloadPath }) => {
     let openedPath: string | null = null
