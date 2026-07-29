@@ -1,4 +1,10 @@
-import { integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  type AnySQLiteColumn
+} from 'drizzle-orm/sqlite-core'
 
 export const projects = sqliteTable('projects', {
   id: text('id').primaryKey(),
@@ -47,6 +53,10 @@ export const sessions = sqliteTable('sessions', {
   sourceTitle: text('source_title'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
   managedContext: text('managed_context', { enum: ['knowledge-base'] }),
+  workspaceContextSessionId: text('workspace_context_session_id').references(
+    (): AnySQLiteColumn => sessions.id,
+    { onDelete: 'cascade' }
+  ),
   agentDefinitionSnapshot: text('agent_definition_snapshot')
 })
 

@@ -519,6 +519,80 @@ describe('GitTool', () => {
     expect(message).not.toContain('+change')
   })
 
+  it('routes Project Session commit prompts to the fresh Chat Context agent after /clear', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: 'project-1',
+      cwd: '/worktrees/project-session-1',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(async () => ({
+      id: 'chat-context-1',
+      workspaceContext: {
+        kind: 'project-session' as const,
+        projectSessionId: 'session-1'
+      },
+      agentSessionId: 'session-1',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'src/file.ts',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/src/file.ts b/src/file.ts\n+change\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spacezero:project-session-chat-context-changed', {
+          detail: {
+            id: 'chat-context-2',
+            workspaceContext: {
+              kind: 'project-session',
+              projectSessionId: 'session-1'
+            },
+            agentSessionId: 'agent-session-2',
+            createdAt: new Date(1).toISOString(),
+            updatedAt: new Date(1).toISOString()
+          }
+        })
+      )
+    })
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({ sessionId: 'agent-session-2' })
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'agent-session-2',
+      message: expect.stringContaining('inspect the current Git state')
+    })
+  })
+
   it('routes Knowledge Base commit prompts to the fresh agent Session after /clear', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined

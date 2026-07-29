@@ -43,6 +43,78 @@ beforeEach(() => {
 })
 
 describe('ProjectSessionHostSurface', () => {
+  it('shows /clear and switches to a fresh Chat Context without changing stable Tool Pane state', async () => {
+    const originalContext = {
+      id: 'chat-context-1',
+      workspaceContext: {
+        kind: 'project-session' as const,
+        projectSessionId: session.id
+      },
+      agentSessionId: session.id,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const freshContext = {
+      ...originalContext,
+      id: 'chat-context-2',
+      agentSessionId: 'agent-session-2',
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(1).toISOString()
+    }
+    const clearProjectChat = vi.fn(async () => freshContext)
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(async () => originalContext)
+    window.spacezero.sessions.clearProjectChat = clearProjectChat
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: project.id,
+      cwd: session.worktree?.path ?? project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: 'anthropic',
+      modelId: 'claude-sonnet-4',
+      thinkingLevel: 'medium' as const,
+      transcriptSnapshot:
+        sessionId === session.id
+          ? [
+              {
+                role: 'assistant' as const,
+                content: [{ type: 'text' as const, text: 'Only in the prior Chat Context' }],
+                timestamp: 1,
+                stopReason: 'stop' as const
+              }
+            ]
+          : []
+    }))
+    useToolPaneStore.getState().openTool('session:session-1', 'git')
+    const stableToolState = structuredClone(
+      useToolPaneStore.getState().contexts['session:session-1']
+    )
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(await screen.findByText('Only in the prior Chat Context')).toBeInTheDocument()
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    await userEvent.type(input, '/cl')
+    const clearOption = screen.getByRole('option', { name: /\/clear/ })
+    expect(clearOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(clearOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
+
+    await userEvent.clear(input)
+    await userEvent.type(input, '/clear{Enter}')
+
+    await waitFor(() => expect(clearProjectChat).toHaveBeenCalledWith({ sessionId: session.id }))
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({ sessionId: 'agent-session-2' })
+    )
+    expect(screen.queryByText('Only in the prior Chat Context')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Ask the agent to work on this project. Streamed replies appear here.')
+    ).toBeInTheDocument()
+    expect(useToolPaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
+  })
+
   it('renders prompt failures in the session panel', async () => {
     const user = userEvent.setup()
     window.spacezero.agent.prompt = async () => {

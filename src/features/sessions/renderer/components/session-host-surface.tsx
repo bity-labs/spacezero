@@ -4,7 +4,7 @@ import { browserContextKey, type BrowserContext } from '../../../browser/shared'
 import { useToolPaneStore } from '../../../tool-pane/renderer'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
-import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { ProjectSession, ProjectSessionChatContext, WorkspaceSession } from '../../shared'
 import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import {
@@ -32,15 +32,94 @@ type WorkspaceSessionHostSurfaceProps = {
   onCommand?: (commandName: string) => void | Promise<void>
 }
 
+export const PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT =
+  'spacezero:project-session-chat-context-changed'
+
 export function ProjectSessionHostSurface({
   project,
   session
 }: ProjectSessionHostSurfaceProps): React.JSX.Element {
-  const agentSession = useAgentSession(session.id)
+  const [chatContext, setChatContext] = useState<ProjectSessionChatContext>(() => ({
+    id: `initial:${session.id}`,
+    workspaceContext: { kind: 'project-session', projectSessionId: session.id },
+    agentSessionId: session.id,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt
+  }))
+  const [error, setError] = useState<string | null>(null)
+  const [isClearingChat, setClearingChat] = useState(false)
+
+  useEffect(() => {
+    let current = true
+    window.spacezero.sessions.getCurrentProjectChatContext({ sessionId: session.id }).then(
+      (nextChatContext) => {
+        if (current) setChatContext(nextChatContext)
+      },
+      (loadError: unknown) => {
+        if (current) setError(getErrorMessage(loadError, 'Unable to open Project Session chat.'))
+      }
+    )
+    return () => {
+      current = false
+    }
+  }, [session.id])
+
+  async function clearChat(): Promise<void> {
+    setClearingChat(true)
+    setError(null)
+    try {
+      const nextChatContext = await window.spacezero.sessions.clearProjectChat({
+        sessionId: session.id
+      })
+      setChatContext(nextChatContext)
+      window.dispatchEvent(
+        new CustomEvent(PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT, {
+          detail: nextChatContext
+        })
+      )
+    } catch (clearError) {
+      setError(getErrorMessage(clearError, 'Unable to clear Project Session chat.'))
+      throw clearError
+    } finally {
+      setClearingChat(false)
+    }
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {error ? (
+        <Alert className="m-4 mb-0" variant="destructive">
+          <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
+        </Alert>
+      ) : null}
+      <ProjectSessionChatSurface
+        key={chatContext.agentSessionId}
+        project={project}
+        session={session}
+        agentSessionId={chatContext.agentSessionId}
+        isClearingChat={isClearingChat}
+        onClearChat={clearChat}
+      />
+    </div>
+  )
+}
+
+function ProjectSessionChatSurface({
+  project,
+  session,
+  agentSessionId,
+  isClearingChat,
+  onClearChat
+}: ProjectSessionHostSurfaceProps & {
+  agentSessionId: string
+  isClearingChat: boolean
+  onClearChat: () => Promise<void>
+}): React.JSX.Element {
+  const agentSession = useAgentSession(agentSessionId)
 
   return (
     <SessionHostFrame
-      sessionId={session.id}
+      sessionId={agentSessionId}
       status={agentSession.status}
       messages={agentSession.messages}
       error={agentSession.lastError ?? null}
@@ -61,6 +140,16 @@ export function ProjectSessionHostSurface({
       }
       emptyState="Ask the agent to work on this project. Streamed replies appear here."
       chatLinkContext={{ kind: 'project-session', projectId: project.id, sessionId: session.id }}
+      commands={[
+        {
+          name: 'clear',
+          description: 'Start a fresh Project Session Chat Context.'
+        }
+      ]}
+      onCommand={(commandName) => {
+        if (commandName === 'clear' && !isClearingChat) return onClearChat()
+        return undefined
+      }}
     />
   )
 }
@@ -322,4 +411,8 @@ function mergeToolCall(current: AiChatToolCallPart, next: AiChatToolCallPart): A
     output: next.output ?? current.output,
     error: next.error ?? current.error
   }
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback
 }

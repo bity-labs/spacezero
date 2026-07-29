@@ -118,6 +118,22 @@ export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
   agentDefinition?: AgentDefinitionReference
 }
 
+export type CreateProjectChatAgentSessionDependencies = {
+  repository: SessionsRepository
+  utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'deleteSession'>
+  worktrees: Pick<ManagedWorktreeService, 'validate'>
+  createSessionId?: () => string
+  readModelDefaults?: typeof getModelDefaults
+  getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
+  readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
+  readProjectTrust?: ReadProjectTrust
+  resolveSkillPaths?: ResolveSkillPaths
+  resolveDelegationDefinitions?: ResolveAgentDefinitionsForDelegation
+  resolveAgentDefinitionSources?: typeof resolveAgentDefinitionSourcesForSession
+  withProjectLifecycleLock?: ProjectLifecycleLock
+  now?: Clock
+}
+
 export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
@@ -322,6 +338,101 @@ export async function createManagedProjectAgentSession(
   })
 }
 
+export async function createProjectChatAgentSession(
+  projectSessionId: string,
+  {
+    repository,
+    utilityHost,
+    worktrees,
+    createSessionId = nanoid,
+    readModelDefaults = getModelDefaults,
+    getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
+    readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
+    readProjectTrust,
+    resolveSkillPaths,
+    resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
+    resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession,
+    withProjectLifecycleLock = runWithProjectLifecycleLock,
+    now = () => new Date()
+  }: CreateProjectChatAgentSessionDependencies
+): Promise<StoredSession> {
+  const normalizedProjectSessionId = projectSessionId.trim()
+  const candidate = await repository.findSessionById(normalizedProjectSessionId)
+  if (!candidate?.projectId || candidate.archivedAt || candidate.workspaceContextSessionId) {
+    throw new Error('Project Session not found')
+  }
+
+  return withProjectLifecycleLock(candidate.projectId, async () => {
+    const owner = await repository.findSessionById(normalizedProjectSessionId)
+    if (!owner?.projectId || owner.archivedAt || owner.workspaceContextSessionId) {
+      throw new Error('Project Session not found')
+    }
+    const project = resolveStoredProject(await repository.findProjectById(owner.projectId))
+    if (project.archivedAt) throw new Error('Project is archived')
+
+    const cwd = await resolveStoredProjectSessionCwd(owner, project, worktrees)
+    const knowledgeBasePath = await getAvailableProjectKnowledgeBasePath(
+      project.knowledgeBasePath,
+      getKnowledgeBaseStatus
+    )
+    const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
+    const projectTrusted = await readProjectTrustForProject(project, readProjectTrust)
+    const skillPaths = await resolveSessionSkillPaths(
+      resolveSkillPaths,
+      cwd,
+      'project',
+      projectTrusted
+    )
+    const agentDefinitionSources = await resolveAgentDefinitionSources({
+      cwd,
+      kind: 'project',
+      projectTrusted
+    })
+    const delegationDefinitions = await resolveVisibleDelegationDefinitions(
+      resolveDelegationDefinitions,
+      agentDefinitionSources
+    )
+    const modelDefaults = await readModelDefaults()
+    const sourceContext = createStoredSourceContext(owner)
+    const sessionId = createSessionId()
+    const state = await utilityHost.createSession({
+      sessionId,
+      kind: 'project',
+      projectId: owner.projectId,
+      cwd,
+      workspaceTools: listWorkspaceToolDescriptorsForSession(),
+      appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
+      ...(skillPaths ? { skillPaths } : {}),
+      ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+      ...(sourceContext ? { systemPromptContext: sourceContext } : {}),
+      defaultModel: modelDefaults.defaultModel,
+      thinkingLevel: modelDefaults.defaultThinking,
+      ...createDelegationDefinitionsRequest(delegationDefinitions)
+    })
+
+    const timestamp = now()
+    const storedSession: StoredSession = {
+      id: sessionId,
+      projectId: owner.projectId,
+      title: owner.title,
+      status: 'idle',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      transcriptPath: state.transcriptPath,
+      modelProvider: state.modelProvider,
+      modelId: state.modelId,
+      thinkingLevel: state.thinkingLevel,
+      workspaceContextSessionId: owner.id
+    }
+    try {
+      return await repository.create(storedSession)
+    } catch (error) {
+      await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+      throw error
+    }
+  })
+}
+
 export async function applyAgentDefinitionToFreshSession(
   input: unknown,
   {
@@ -368,27 +479,30 @@ export async function applyAgentDefinitionToFreshSession(
   }
 
   const modelDefaults = await readModelDefaults()
-  const project = storedSession.projectId
-    ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
+  const workspaceSession = await resolveWorkspaceContextSession(storedSession, repository)
+  const project = workspaceSession.projectId
+    ? resolveStoredProject(await repository.findProjectById(workspaceSession.projectId))
     : undefined
   const cwd = project
-    ? await resolveStoredProjectSessionCwd(storedSession, project, worktrees)
+    ? await resolveStoredProjectSessionCwd(workspaceSession, project, worktrees)
     : resolve(getWorkspaceSessionCwd())
   const knowledgeBasePath = project
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = project ? await readProjectTrustForProject(project, readProjectTrust) : false
+  const projectTrusted = project
+    ? await readProjectTrustForProject(project, readProjectTrust)
+    : false
   const skillPaths = await resolveSessionSkillPaths(
     resolveSkillPaths,
     cwd,
-    storedSession.projectId ? 'project' : 'workspace',
+    workspaceSession.projectId ? 'project' : 'workspace',
     projectTrusted
   )
-  const sourceContext = createStoredSourceContext(storedSession)
+  const sourceContext = createStoredSourceContext(workspaceSession)
   const agentDefinitionSources = await resolveAgentDefinitionSources({
     cwd,
-    kind: storedSession.projectId ? 'project' : 'workspace',
+    kind: workspaceSession.projectId ? 'project' : 'workspace',
     projectTrusted
   })
   const agentDefinition = await resolveAgentDefinition(request.agentDefinition, {
@@ -399,8 +513,8 @@ export async function applyAgentDefinitionToFreshSession(
 
   const baseCreateRequest = {
     sessionId: storedSession.id,
-    kind: storedSession.projectId ? ('project' as const) : ('workspace' as const),
-    projectId: storedSession.projectId,
+    kind: workspaceSession.projectId ? ('project' as const) : ('workspace' as const),
+    projectId: workspaceSession.projectId,
     cwd,
     transcriptPath: storedSession.transcriptPath ?? currentState.transcriptPath ?? undefined,
     workspaceTools: listWorkspaceToolDescriptorsForSession({
@@ -539,29 +653,32 @@ async function restoreAgentSessionStateOnce(
   }
 
   const storedSession = await repository.findSessionById(request.sessionId)
-  if (!storedSession) throw new Error('agent.sessionNotFound')
+  if (!storedSession || storedSession.archivedAt) throw new Error('agent.sessionNotFound')
+  const workspaceSession = await resolveWorkspaceContextSession(storedSession, repository)
 
-  const project = storedSession.projectId
-    ? resolveStoredProject(await repository.findProjectById(storedSession.projectId))
+  const project = workspaceSession.projectId
+    ? resolveStoredProject(await repository.findProjectById(workspaceSession.projectId))
     : undefined
   const cwd = project
-    ? await resolveStoredProjectSessionCwd(storedSession, project, worktrees)
+    ? await resolveStoredProjectSessionCwd(workspaceSession, project, worktrees)
     : resolve(getWorkspaceSessionCwd())
   const knowledgeBasePath = project
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
   const disabledGlobalSkillPaths = await readDisabledGlobalSkillPaths()
-  const projectTrusted = project ? await readProjectTrustForProject(project, readProjectTrust) : false
+  const projectTrusted = project
+    ? await readProjectTrustForProject(project, readProjectTrust)
+    : false
   const skillPaths = await resolveSessionSkillPaths(
     resolveSkillPaths,
     cwd,
-    storedSession.projectId ? 'project' : 'workspace',
+    workspaceSession.projectId ? 'project' : 'workspace',
     projectTrusted
   )
-  const sourceContext = createStoredSourceContext(storedSession)
+  const sourceContext = createStoredSourceContext(workspaceSession)
   const agentDefinitionSources = await resolveAgentDefinitionSources({
     cwd,
-    kind: storedSession.projectId ? 'project' : 'workspace',
+    kind: workspaceSession.projectId ? 'project' : 'workspace',
     projectTrusted
   })
   const delegationDefinitions = await resolveVisibleDelegationDefinitions(
@@ -574,8 +691,8 @@ async function restoreAgentSessionStateOnce(
   try {
     return await utilityHost.createSession({
       sessionId: storedSession.id,
-      kind: storedSession.projectId ? 'project' : 'workspace',
-      projectId: storedSession.projectId,
+      kind: workspaceSession.projectId ? 'project' : 'workspace',
+      projectId: workspaceSession.projectId,
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
       workspaceTools: listWorkspaceToolDescriptorsForSession({
@@ -743,10 +860,28 @@ async function resolveVisibleDelegationDefinitions(
   return resolveDelegationDefinitions({ sources })
 }
 
-function createDelegationDefinitionsRequest(
-  definitions: DelegationAgentDefinition[]
-): { delegationDefinitions?: DelegationAgentDefinition[] } {
+function createDelegationDefinitionsRequest(definitions: DelegationAgentDefinition[]): {
+  delegationDefinitions?: DelegationAgentDefinition[]
+} {
   return definitions.length > 0 ? { delegationDefinitions: definitions } : {}
+}
+
+async function resolveWorkspaceContextSession(
+  storedSession: StoredSession,
+  repository: Pick<SessionsRepository, 'findSessionById'>
+): Promise<StoredSession> {
+  if (!storedSession.workspaceContextSessionId) return storedSession
+
+  const workspaceSession = await repository.findSessionById(storedSession.workspaceContextSessionId)
+  if (
+    !workspaceSession ||
+    workspaceSession.workspaceContextSessionId ||
+    workspaceSession.archivedAt ||
+    workspaceSession.projectId !== storedSession.projectId
+  ) {
+    throw new Error('agent.sessionNotFound')
+  }
+  return workspaceSession
 }
 
 function resolveStoredProject(project: StoredProject | undefined): StoredProject {
