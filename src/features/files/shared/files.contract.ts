@@ -28,9 +28,17 @@ export type FilesEntry = {
   kind: FilesEntryKind
 }
 
+export type FilesGitStatus = 'added' | 'deleted' | 'ignored' | 'modified' | 'renamed' | 'untracked'
+
+export type FilesGitStatusEntry = {
+  path: string
+  status: FilesGitStatus
+}
+
 export type FilesTree = {
   entries: FilesEntry[]
   presortedPaths: string[]
+  gitStatus?: FilesGitStatusEntry[]
 }
 
 export type ListFilesTreeRequest = {
