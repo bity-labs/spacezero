@@ -1,5 +1,5 @@
-import type { WorkspaceSession } from '../../sessions/shared'
 import type {
+  KnowledgeBaseChatContext,
   KnowledgeBaseImageImport,
   KnowledgeBaseImagePreview,
   KnowledgeBaseStatus
@@ -7,8 +7,8 @@ import type {
 
 export const KNOWLEDGE_BASE_IPC_CHANNELS = {
   getStatus: 'knowledgeBase:getStatus',
-  getCurrentSession: 'knowledgeBase:getCurrentSession',
-  startNewChat: 'knowledgeBase:startNewChat',
+  getCurrentChatContext: 'knowledgeBase:getCurrentChatContext',
+  clearChat: 'knowledgeBase:clearChat',
   reset: 'knowledgeBase:reset',
   createNew: 'knowledgeBase:createNew',
   cloneFromGit: 'knowledgeBase:cloneFromGit',
@@ -19,8 +19,8 @@ export const KNOWLEDGE_BASE_IPC_CHANNELS = {
 
 export type KnowledgeBaseAPI = {
   getStatus: () => Promise<KnowledgeBaseStatus>
-  getCurrentSession: () => Promise<WorkspaceSession>
-  startNewChat: () => Promise<WorkspaceSession>
+  getCurrentChatContext: () => Promise<KnowledgeBaseChatContext>
+  clearChat: () => Promise<KnowledgeBaseChatContext>
   reset: () => Promise<KnowledgeBaseStatus>
   createNew: () => Promise<KnowledgeBaseStatus>
   cloneFromGit: (request: { gitUrl: string }) => Promise<KnowledgeBaseStatus>

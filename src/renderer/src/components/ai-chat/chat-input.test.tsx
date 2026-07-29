@@ -43,6 +43,37 @@ describe('ChatInput', () => {
     expect(input).toHaveValue('hello')
   })
 
+  it('discovers and submits /clear as a command distinct from skills', async () => {
+    const handleCommand = vi.fn(async () => undefined)
+    const handleSubmit = vi.fn()
+    render(
+      <ChatInput
+        commands={[{ name: 'clear', description: 'Start a fresh chat.' }]}
+        skills={[{ name: 'cleanup', description: 'Clean generated files.', scope: 'project' }]}
+        onCommand={handleCommand}
+        onSubmit={handleSubmit}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/cl' } })
+
+    const command = screen.getByRole('option', { name: /\/clear.*Start a fresh chat/i })
+    expect(command).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(command.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /cleanup/ })).toHaveAttribute(
+      'data-suggestion-kind',
+      'skill'
+    )
+
+    fireEvent.change(input, { target: { value: '/clear' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(handleCommand).toHaveBeenCalledWith('clear'))
+    expect(handleSubmit).not.toHaveBeenCalled()
+    await waitFor(() => expect(input).toHaveValue(''))
+  })
+
   it('discovers skills from slash commands and submits the native Pi command', () => {
     const handleSubmit = vi.fn()
     render(

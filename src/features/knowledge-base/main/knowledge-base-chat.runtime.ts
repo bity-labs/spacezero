@@ -18,9 +18,9 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
     const sessionsRepository = createSessionsRepository()
     service = createKnowledgeBaseChatService({
       getStatus: () => getKnowledgeBaseService().getStatus(),
-      getCurrentSessionId: currentSessionRepository.getCurrentSessionId,
-      setCurrentSessionId: currentSessionRepository.setCurrentSessionId,
-      clearCurrentSessionId: currentSessionRepository.clearCurrentSessionId,
+      getCurrentChatContext: currentSessionRepository.getCurrentChatContext,
+      createCurrentChatContext: currentSessionRepository.createCurrentChatContext,
+      clearCurrentChatContext: currentSessionRepository.clearCurrentChatContext,
       findSessionById: sessionsRepository.findSessionById,
       createSession: async () => {
         const session = await createWorkspaceAgentSession({

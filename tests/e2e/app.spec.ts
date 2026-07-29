@@ -910,29 +910,38 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       })
     ).toEqual([])
     await setMainWindowSize(electronApp, 1280, 900)
+    await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
+    await expect(window.getByRole('tree')).toBeVisible()
     await expectToolPaneHeaderGeometryAligned(window)
     await window.getByRole('separator', { name: 'Resize Tool Pane' }).press('ArrowRight')
     await expectToolPaneHeaderGeometryAligned(window)
     await setMainWindowSize(electronApp, 960, 900)
     await expectToolPaneHeaderGeometryAligned(window)
-    await expect(window.getByRole('treeitem', { name: 'AGENTS.md' })).toBeVisible()
-    await window.getByRole('treeitem', { name: 'AGENTS.md' }).click()
+    const agentsFile = window.getByRole('treeitem', { name: /AGENTS.*md/i })
+    await expect(agentsFile).toBeVisible()
+    await agentsFile.click()
     await expect(window.getByRole('button', { name: 'Rich' })).toBeVisible()
     await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
 
-    const previousSessionId = await window.evaluate(() =>
-      window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+    const previousChatContextId = await window.evaluate(() =>
+      window.spacezero.knowledgeBase.getCurrentChatContext().then((context) => context.id)
     )
-    await window.getByRole('button', { name: 'New chat' }).click()
+    const chatInput = window.getByRole('textbox', { name: 'Agent prompt' })
+    await chatInput.fill('/cl')
+    const clearCommand = window.getByRole('option', { name: /\/clear/ })
+    await expect(clearCommand).toHaveAttribute('data-suggestion-kind', 'command')
+    await expect(clearCommand.locator('[data-command-icon="true"]')).toBeVisible()
+    await chatInput.fill('/clear')
+    await chatInput.press('Enter')
     await expect
       .poll(() =>
         window.evaluate(() =>
-          window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+          window.spacezero.knowledgeBase.getCurrentChatContext().then((context) => context.id)
         )
       )
-      .not.toBe(previousSessionId)
-    const replacementSessionId = await window.evaluate(() =>
-      window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+      .not.toBe(previousChatContextId)
+    const replacementChatContext = await window.evaluate(() =>
+      window.spacezero.knowledgeBase.getCurrentChatContext()
     )
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
@@ -940,6 +949,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       'horizontal'
     )
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
+    await expect(window.getByRole('tree')).toBeVisible()
     await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true'
@@ -954,13 +964,14 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expectToolPaneHeaderGeometryAligned(window)
     await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
+    await expect(window.getByRole('tree')).toBeVisible()
     await expect
       .poll(() =>
         window.evaluate(() =>
-          window.spacezero.knowledgeBase.getCurrentSession().then((session) => session.id)
+          window.spacezero.knowledgeBase.getCurrentChatContext().then((context) => context.id)
         )
       )
-      .toBe(replacementSessionId)
+      .toBe(replacementChatContext.id)
   } finally {
     await electronApp.close()
     await rm(temporaryDirectory, { recursive: true, force: true })
@@ -1003,10 +1014,24 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     insertSession.run('browser-kb-session', null, 'Browser Knowledge Base', 'idle', timestamp, timestamp, 'knowledge-base')
     database
       .prepare(
-        `INSERT OR REPLACE INTO app_settings (key, value, updated_at)
-         VALUES (?, ?, ?)`
+        `INSERT OR REPLACE INTO chat_contexts
+           (id, workspace_context_key, agent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
       )
-      .run('knowledgeBase.currentSessionId', 'browser-kb-session', timestamp)
+      .run(
+        'browser-kb-chat-context',
+        'knowledge-base',
+        'browser-kb-session',
+        timestamp,
+        timestamp
+      )
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO workspace_chat_contexts
+           (workspace_context_key, workspace_context_kind, current_chat_context_id, updated_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run('knowledge-base', 'knowledge-base', 'browser-kb-chat-context', timestamp)
     database.close()
 
     for (const channel of [
