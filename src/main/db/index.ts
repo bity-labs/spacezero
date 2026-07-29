@@ -57,6 +57,21 @@ export function migrateDatabase(database: Database.Database): void {
       agent_definition_snapshot TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS chat_contexts (
+      id TEXT PRIMARY KEY,
+      workspace_context_key TEXT NOT NULL,
+      agent_session_id TEXT NOT NULL UNIQUE REFERENCES sessions(id) ON DELETE CASCADE,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_chat_contexts (
+      workspace_context_key TEXT PRIMARY KEY,
+      workspace_context_kind TEXT NOT NULL,
+      current_chat_context_id TEXT NOT NULL REFERENCES chat_contexts(id) ON DELETE CASCADE,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS terminal_tabs (
       context_key TEXT NOT NULL,
       context_kind TEXT NOT NULL,
@@ -150,6 +165,39 @@ export function migrateDatabase(database: Database.Database): void {
       database.exec(`ALTER TABLE sessions ADD COLUMN ${column} ${type}`)
     }
   }
+
+  database.exec(`
+    INSERT OR IGNORE INTO chat_contexts (
+      id,
+      workspace_context_key,
+      agent_session_id,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      'knowledge-base',
+      id,
+      created_at,
+      updated_at
+    FROM sessions
+    WHERE managed_context = 'knowledge-base';
+
+    INSERT OR IGNORE INTO workspace_chat_contexts (
+      workspace_context_key,
+      workspace_context_kind,
+      current_chat_context_id,
+      updated_at
+    )
+    SELECT
+      'knowledge-base',
+      'knowledge-base',
+      chat_contexts.id,
+      app_settings.updated_at
+    FROM app_settings
+    JOIN chat_contexts ON chat_contexts.agent_session_id = app_settings.value
+    WHERE key = 'knowledgeBase.currentSessionId';
+  `)
 }
 
 export function getDatabase() {

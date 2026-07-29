@@ -80,7 +80,11 @@ vi.mock('@pierre/diffs/react', async () => {
                 React.createElement(React.Fragment, { key: 'prefix' }, renderHeaderPrefix?.(item)),
                 React.createElement('span', { key: 'default-name' }, item.fileDiff.name),
                 React.createElement(React.Fragment, { key: 'custom' }, renderCustomHeader?.(item)),
-                React.createElement(React.Fragment, { key: 'metadata' }, renderHeaderMetadata?.(item))
+                React.createElement(
+                  React.Fragment,
+                  { key: 'metadata' },
+                  renderHeaderMetadata?.(item)
+                )
               ]
             ),
             item.collapsed
@@ -330,7 +334,9 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Resolve with agent' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Commit' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Choose Git commit action' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Choose Git commit action' })
+    ).not.toBeInTheDocument()
   })
 
   it('sends a fresh-state same-session conflict prompt without rendered diffs or changing composer text', async () => {
@@ -505,13 +511,15 @@ describe('GitTool', () => {
     const message = prompt.mock.calls[0]?.[0].message ?? ''
     expect(message).toContain('choose an appropriate commit message')
     expect(message).toContain('No upstream is currently configured')
-    expect(message).toContain('push the current branch with upstream tracking using `git push -u origin HEAD`')
+    expect(message).toContain(
+      'push the current branch with upstream tracking using `git push -u origin HEAD`'
+    )
     expect(message).toContain('ask me for the required remote or upstream information')
     expect(message).not.toContain('diff --git')
     expect(message).not.toContain('+change')
   })
 
-  it('routes Knowledge Base commit prompts to the current managed chat session after New chat', async () => {
+  it('routes Knowledge Base commit prompts to the fresh agent Session after /clear', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
@@ -528,15 +536,8 @@ describe('GitTool', () => {
       modelId: undefined,
       transcriptSnapshot: []
     }))
-    let currentSession = {
-      id: 'knowledge-base-session-1',
-      kind: 'workspace' as const,
-      title: 'Knowledge Base Chat',
-      status: 'idle' as const,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString()
-    }
-    window.spacezero.knowledgeBase.getCurrentSession = vi.fn(async () => currentSession)
+    let currentChatContext = knowledgeBaseChatContext('chat-context-1', 'knowledge-base-session-1')
+    window.spacezero.knowledgeBase.getCurrentChatContext = vi.fn(async () => currentChatContext)
     window.spacezero.git.getReview = vi.fn(async () => ({
       status: 'ok' as const,
       branch: 'main',
@@ -555,10 +556,12 @@ describe('GitTool', () => {
     render(<GitTool context={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }} />)
     expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
 
-    currentSession = { ...currentSession, id: 'knowledge-base-session-2' }
+    currentChatContext = knowledgeBaseChatContext('chat-context-2', 'knowledge-base-session-2')
     act(() => {
       window.dispatchEvent(
-        new CustomEvent('spacezero:knowledge-base-session-changed', { detail: currentSession })
+        new CustomEvent('spacezero:knowledge-base-chat-context-changed', {
+          detail: currentChatContext
+        })
       )
     })
     await waitFor(() =>
@@ -578,22 +581,15 @@ describe('GitTool', () => {
     expect(message).not.toContain('+change')
   })
 
-  it('does not let a stale Knowledge Base session lookup overwrite a newer session-change event', async () => {
+  it('does not let a stale Knowledge Base context lookup overwrite a newer context-change event', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
     const initialLookup =
-      deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentSession>>>()
-    const session1 = {
-      id: 'knowledge-base-session-1',
-      kind: 'workspace' as const,
-      title: 'Knowledge Base Chat',
-      status: 'idle' as const,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString()
-    }
-    const session2 = { ...session1, id: 'knowledge-base-session-2' }
-    window.spacezero.knowledgeBase.getCurrentSession = vi.fn(() => initialLookup.promise)
+      deferred<Awaited<ReturnType<typeof window.spacezero.knowledgeBase.getCurrentChatContext>>>()
+    const chatContext1 = knowledgeBaseChatContext('chat-context-1', 'knowledge-base-session-1')
+    const chatContext2 = knowledgeBaseChatContext('chat-context-2', 'knowledge-base-session-2')
+    window.spacezero.knowledgeBase.getCurrentChatContext = vi.fn(() => initialLookup.promise)
     window.spacezero.agent.prompt = prompt
     window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
       sessionId,
@@ -623,11 +619,15 @@ describe('GitTool', () => {
     }))
 
     render(<GitTool context={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }} />)
-    await waitFor(() => expect(window.spacezero.knowledgeBase.getCurrentSession).toHaveBeenCalled())
+    await waitFor(() =>
+      expect(window.spacezero.knowledgeBase.getCurrentChatContext).toHaveBeenCalled()
+    )
 
     act(() => {
       window.dispatchEvent(
-        new CustomEvent('spacezero:knowledge-base-session-changed', { detail: session2 })
+        new CustomEvent('spacezero:knowledge-base-chat-context-changed', {
+          detail: chatContext2
+        })
       )
     })
     await waitFor(() =>
@@ -637,7 +637,7 @@ describe('GitTool', () => {
     )
 
     await act(async () => {
-      initialLookup.resolve(session1)
+      initialLookup.resolve(chatContext1)
       await initialLookup.promise
     })
     await userEvent.click(await screen.findByRole('button', { name: 'Commit & Push' }))
@@ -745,7 +745,9 @@ describe('GitTool', () => {
     expect(commitAndPushItem).toHaveFocus()
 
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByRole('menuitem', { name: 'Commit' })).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('menuitem', { name: 'Commit' })).not.toBeInTheDocument()
+    )
     expect(trigger).toHaveFocus()
   })
 
@@ -1821,3 +1823,21 @@ describe('GitTool', () => {
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
   })
 })
+
+function knowledgeBaseChatContext(chatContextId: string, agentSessionId: string) {
+  const timestamp = new Date(0).toISOString()
+  return {
+    id: chatContextId,
+    workspaceContext: { kind: 'knowledge-base' as const, key: 'knowledge-base' as const },
+    agentSession: {
+      id: agentSessionId,
+      kind: 'workspace' as const,
+      title: 'Knowledge Base Chat',
+      status: 'idle' as const,
+      createdAt: timestamp,
+      updatedAt: timestamp
+    },
+    createdAt: timestamp,
+    updatedAt: timestamp
+  }
+}
