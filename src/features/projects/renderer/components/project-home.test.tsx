@@ -67,7 +67,11 @@ describe('ProjectHome', () => {
     const onProjectLinked = vi.fn()
 
     renderProjectHome(
-      <ProjectHome project={project} onProjectLinked={onProjectLinked} onNewSession={() => undefined} />
+      <ProjectHome
+        project={project}
+        onProjectLinked={onProjectLinked}
+        onNewSession={() => undefined}
+      />
     )
 
     fireEvent.click(await screen.findByRole('checkbox', { name: /Trust project agent resources/ }))
@@ -80,7 +84,9 @@ describe('ProjectHome', () => {
         agentResourcesTrusted: true
       })
     })
-    expect(onProjectLinked).toHaveBeenCalledWith(expect.objectContaining({ agentResourcesTrusted: true }))
+    expect(onProjectLinked).toHaveBeenCalledWith(
+      expect.objectContaining({ agentResourcesTrusted: true })
+    )
   })
 
   it.each([
@@ -273,7 +279,7 @@ describe('ProjectHome', () => {
     window.spacezero.github.getIssue = async ({ number }) => ({
       number,
       title: 'GitHub integration',
-      body: 'Detailed Issue body',
+      body: '**Detailed Issue body**',
       state: 'open',
       htmlUrl: `https://github.com/bity-labs/spacezero/issues/${number}`,
       author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
@@ -283,20 +289,26 @@ describe('ProjectHome', () => {
       createdAt: '2026-07-18T00:00:00.000Z',
       updatedAt: '2026-07-18T01:00:00.000Z'
     })
-    window.spacezero.github.listIssueComments = async ({ page }) => ({
-      page,
-      hasNextPage: false,
-      items: [
-        {
-          id: '500',
-          body: 'Looks good',
-          htmlUrl: 'https://github.com/bity-labs/spacezero/issues/83#issuecomment-500',
-          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
-          createdAt: '2026-07-18T02:00:00.000Z',
-          updatedAt: '2026-07-18T02:00:00.000Z'
-        }
-      ]
-    })
+    const requestedCommentPages: Array<{ page: number; perPage?: number }> = []
+    window.spacezero.github.listIssueComments = async ({ page, perPage }) => {
+      requestedCommentPages.push({ page, perPage })
+      return {
+        page,
+        hasNextPage: page === 1,
+        items: [
+          {
+            id: page === 1 ? '500' : '501',
+            body: page === 1 ? '*Looks good*' : 'Second page comment',
+            htmlUrl: `https://github.com/bity-labs/spacezero/issues/83#issuecomment-${
+              page === 1 ? 500 : 501
+            }`,
+            author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+            createdAt: '2026-07-18T02:00:00.000Z',
+            updatedAt: '2026-07-18T02:00:00.000Z'
+          }
+        ]
+      }
+    }
 
     renderProjectHome(
       <ProjectHome
@@ -308,9 +320,21 @@ describe('ProjectHome', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'Issues' }))
     fireEvent.click(await screen.findByRole('button', { name: /GitHub integration/ }))
-    expect(await screen.findByText('Detailed Issue body')).toBeInTheDocument()
+    await screen.findByText('Detailed Issue body')
+    expect(screen.queryByText('**Detailed Issue body**')).not.toBeInTheDocument()
     expect(screen.getByText(/Assignees: maintainer/)).toBeInTheDocument()
-    expect(await screen.findByText('Looks good')).toBeInTheDocument()
+    const renderedComment = await screen.findByText('Looks good')
+    expect(screen.queryByText('*Looks good*')).not.toBeInTheDocument()
+    const commentForm = screen.getByLabelText('Add a comment')
+    expect(
+      renderedComment.compareDocumentPosition(commentForm) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Previous comments' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next comments' })).not.toBeInTheDocument()
+    expect(requestedCommentPages).toContainEqual({ page: 1, perPage: 20 })
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(await screen.findByText('Second page comment')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to Issues' }))
     const nextPage = await screen.findByRole('button', { name: 'Next' })
@@ -477,6 +501,22 @@ describe('ProjectHome', () => {
         page,
         hasNextPage: page === 1,
         items: [
+          ...(page === 1
+            ? [
+                {
+                  number: 78,
+                  title: 'Merged Pull Request',
+                  state: 'merged' as const,
+                  isDraft: false,
+                  htmlUrl: 'https://github.com/bity-labs/spacezero/pull/78',
+                  author: null,
+                  baseBranch: 'main',
+                  headBranch: 'feat/merged',
+                  createdAt: '2026-07-18T00:00:00.000Z',
+                  updatedAt: '2026-07-18T01:00:00.000Z'
+                }
+              ]
+            : []),
           {
             number: page === 1 ? 79 : 80,
             title: page === 1 ? 'Managed storage foundation' : 'Follow-up Pull Request',
@@ -495,7 +535,7 @@ describe('ProjectHome', () => {
     window.spacezero.github.getPullRequest = async ({ number }) => ({
       number,
       title: 'Managed storage foundation',
-      body: 'Pull Request body',
+      body: '**Pull Request body**',
       state: 'open',
       isDraft: false,
       htmlUrl: `https://github.com/bity-labs/spacezero/pull/${number}`,
@@ -507,17 +547,36 @@ describe('ProjectHome', () => {
       createdAt: '2026-07-18T00:00:00.000Z',
       updatedAt: '2026-07-18T01:00:00.000Z'
     })
-    window.spacezero.github.listPullRequestComments = async ({ page }) => ({
+    const requestedConversationPages: Array<{ page: number; perPage?: number }> = []
+    window.spacezero.github.listPullRequestComments = async ({ page, perPage }) => {
+      requestedConversationPages.push({ page, perPage })
+      return {
+        page,
+        hasNextPage: page === 1,
+        items: [
+          {
+            id: page === 1 ? '500' : '501',
+            body: page === 1 ? '*Please update the docs.*' : 'Second conversation comment',
+            htmlUrl: `https://github.com/bity-labs/spacezero/pull/79#issuecomment-${
+              page === 1 ? 500 : 501
+            }`,
+            author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+            createdAt: '2026-07-18T02:00:00.000Z',
+            updatedAt: '2026-07-18T02:00:00.000Z'
+          }
+        ]
+      }
+    }
+    window.spacezero.github.listPullRequestCommits = async ({ page, perPage }) => ({
       page,
       hasNextPage: false,
       items: [
         {
-          id: '500',
-          body: 'Please update the docs.',
-          htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#issuecomment-500',
-          author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
-          createdAt: '2026-07-18T02:00:00.000Z',
-          updatedAt: '2026-07-18T02:00:00.000Z'
+          sha: '0123456789abcdef0123456789abcdef01234567',
+          message: `Commit requested with ${perPage}`,
+          htmlUrl: 'https://github.com/bity-labs/spacezero/commit/0123456',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          authoredAt: '2026-07-18T01:30:00.000Z'
         }
       ]
     })
@@ -531,12 +590,28 @@ describe('ProjectHome', () => {
     )
 
     fireEvent.click(await screen.findByRole('button', { name: 'Pull Requests' }))
+    await waitFor(() => expect(screen.queryByText('Merged Pull Request')).not.toBeInTheDocument())
     fireEvent.click(await screen.findByRole('button', { name: /Managed storage foundation/ }))
-    expect(await screen.findByText('Pull Request body')).toBeInTheDocument()
+    await screen.findByText('Pull Request body')
+    expect(screen.queryByText('**Pull Request body**')).not.toBeInTheDocument()
     expect(screen.getByText('feat/storage → main')).toBeInTheDocument()
     expect(screen.getByText('4')).toBeInTheDocument()
-    expect(await screen.findByText('Please update the docs.')).toBeInTheDocument()
+    await screen.findByText('Please update the docs.')
+    expect(screen.queryByText('*Please update the docs.*')).not.toBeInTheDocument()
+    expect(await screen.findByText('Commit requested with 100')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /merge|close|checkout/i })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Start Session from Pull Request' })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Pull Request actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Checks and statuses' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Submitted reviews' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Previous comments' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next comments' })).not.toBeInTheDocument()
+    expect(requestedConversationPages).toContainEqual({ page: 1, perPage: 20 })
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(await screen.findByText('Second conversation comment')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Back to Pull Requests' }))
     const nextPage = await screen.findByRole('button', { name: 'Next' })

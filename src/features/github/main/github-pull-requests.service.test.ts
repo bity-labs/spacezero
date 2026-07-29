@@ -25,6 +25,18 @@ function createAdapter(): GitHubPullRequestsAdapter {
       return {
         items: [
           {
+            number: 78,
+            title: 'Merged pull request',
+            state: 'merged',
+            isDraft: false,
+            htmlUrl: 'https://github.com/bity-labs/spacezero/pull/78',
+            author: null,
+            baseBranch: 'main',
+            headBranch: 'feat/merged',
+            createdAt: '2026-07-18T00:00:00.000Z',
+            updatedAt: '2026-07-18T01:00:00.000Z'
+          },
+          {
             number: 79,
             title: 'Managed storage foundation',
             state: 'open',
@@ -212,6 +224,7 @@ describe('GitHub Pull Requests service', () => {
       hasNextPage: true
     })
     expect(JSON.stringify(page)).not.toContain('access-secret')
+    expect(JSON.stringify(page)).not.toContain('Merged pull request')
   })
 
   it('loads independently paginated commits, files, checks, statuses, and reviews', async () => {
