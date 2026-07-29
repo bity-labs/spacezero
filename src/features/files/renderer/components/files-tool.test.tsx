@@ -6,7 +6,9 @@ const monacoMock = vi.hoisted(() => ({
   revealLineInCenter: vi.fn<(line: number) => void>(),
   setPosition: vi.fn<(position: { lineNumber: number; column: number }) => void>(),
   focus: vi.fn<() => void>(),
-  saveViewState: vi.fn<() => unknown>(() => ({ cursorState: [{ position: { lineNumber: 4, column: 2 } }] }))
+  saveViewState: vi.fn<() => unknown>(() => ({
+    cursorState: [{ position: { lineNumber: 4, column: 2 } }]
+  }))
 }))
 
 const colorModeMock = vi.hoisted(() => ({
@@ -15,8 +17,248 @@ const colorModeMock = vi.hoisted(() => ({
 }))
 
 const appCommandMock = vi.hoisted(() => ({
-  registeredCommands: [] as Array<{ id: string; title: string; handler: () => void | Promise<void> }>
+  registeredCommands: [] as Array<{
+    id: string
+    title: string
+    handler: () => void | Promise<void>
+  }>
 }))
+
+const treesMock = vi.hoisted(() => ({
+  options: [] as Array<Record<string, unknown>>
+}))
+
+vi.mock('@pierre/trees/react', async () => {
+  const React = await vi.importActual<typeof import('react')>('react')
+
+  type TreeOptions = {
+    paths?: readonly string[]
+    initialExpandedPaths?: readonly string[]
+    initialSelectedPaths?: readonly string[]
+    onSelectionChange?: (paths: readonly string[]) => void
+    renderRowDecoration?: (context: {
+      item: { kind: 'directory' | 'file'; name: string; path: string }
+      row: { kind: 'directory' | 'file'; path: string }
+    }) => { text: string; title?: string } | null
+  } & Record<string, unknown>
+
+  type MockModel = {
+    options: TreeOptions
+    resetPaths: (
+      paths: readonly string[] | { preparedInput: unknown },
+      options?: { initialExpandedPaths?: readonly string[] }
+    ) => void
+    getItem: (
+      path: string
+    ) => { select: () => void; isDirectory: () => boolean; getPath: () => string } | null
+    getFocusedPath: () => string | null
+    getSelectedPaths: () => readonly string[]
+    getVisibleCount: () => number
+    getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
+    scrollToPath: () => void
+    subscribe: (listener: () => void) => () => void
+    __getPaths: () => readonly string[]
+    __getExpanded: () => Set<string>
+    __select: (path: string) => void
+    __toggle: (path: string) => void
+  }
+
+  function normalizeDirectoryPath(path: string): string {
+    return path.endsWith('/') ? path : `${path}/`
+  }
+
+  function displayName(path: string): string {
+    const normalized = path.endsWith('/') ? path.slice(0, -1) : path
+    return normalized.split('/').at(-1) ?? normalized
+  }
+
+  function parentPath(path: string): string {
+    const normalized = path.endsWith('/') ? path.slice(0, -1) : path
+    const index = normalized.lastIndexOf('/')
+    return index < 0 ? '' : `${normalized.slice(0, index)}/`
+  }
+
+  function isDirectoryPath(path: string): boolean {
+    return path.endsWith('/')
+  }
+
+  function createModel(options: TreeOptions, forceUpdate: () => void): MockModel {
+    let paths = [...(options.paths ?? [])]
+    let selectedPaths = [...(options.initialSelectedPaths ?? [])]
+    const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
+    const listeners = new Set<() => void>()
+    const notify = (): void => {
+      for (const listener of listeners) listener()
+      forceUpdate()
+    }
+    const resetExpanded = (nextExpandedPaths?: readonly string[]): boolean => {
+      if (!nextExpandedPaths) return false
+      const nextExpanded = new Set(nextExpandedPaths.map(normalizeDirectoryPath))
+      const changed =
+        nextExpanded.size !== expanded.size ||
+        [...nextExpanded].some((path) => !expanded.has(path))
+      if (!changed) return false
+      expanded.clear()
+      for (const path of nextExpanded) expanded.add(path)
+      return true
+    }
+    const model: MockModel = {
+      options,
+      resetPaths: (nextPaths, resetOptions) => {
+        const normalizedPaths = Array.isArray(nextPaths) ? [...nextPaths] : []
+        const pathsChanged =
+          normalizedPaths.length !== paths.length ||
+          normalizedPaths.some((path, index) => path !== paths[index])
+        const expandedChanged = resetExpanded(resetOptions?.initialExpandedPaths)
+        if (!pathsChanged && !expandedChanged) return
+        paths = normalizedPaths
+        notify()
+      },
+      getItem: (path) => {
+        const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
+        if (!paths.includes(normalizedPath)) return null
+        return {
+          getPath: () => normalizedPath,
+          isDirectory: () => isDirectoryPath(normalizedPath),
+          select: () => model.__select(normalizedPath)
+        }
+      },
+      getFocusedPath: () => selectedPaths[0] ?? null,
+      getSelectedPaths: () => selectedPaths,
+      getVisibleCount: () => paths.length,
+      getVisibleRows: () =>
+        paths.map((path) => ({
+          isExpanded: expanded.has(normalizeDirectoryPath(path)),
+          kind: isDirectoryPath(path) ? 'directory' : 'file',
+          path
+        })),
+      scrollToPath: () => undefined,
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => listeners.delete(listener)
+      },
+      __getPaths: () => paths,
+      __getExpanded: () => expanded,
+      __select: (path) => {
+        selectedPaths = [path]
+        options.onSelectionChange?.(selectedPaths)
+        notify()
+      },
+      __toggle: (path) => {
+        const normalizedPath = normalizeDirectoryPath(path)
+        if (expanded.has(normalizedPath)) expanded.delete(normalizedPath)
+        else expanded.add(normalizedPath)
+        notify()
+      }
+    }
+    return model
+  }
+
+  function useFileTree(options: TreeOptions): { model: MockModel } {
+    treesMock.options.push(options)
+    const [, setRevision] = React.useState(0)
+    const modelRef = React.useRef<MockModel | null>(null)
+    if (!modelRef.current) {
+      modelRef.current = createModel(options, () => setRevision((revision) => revision + 1))
+    }
+    return { model: modelRef.current }
+  }
+
+  function FileTree({
+    model,
+    renderContextMenu,
+    ...props
+  }: {
+    model: MockModel
+    renderContextMenu?: (
+      item: { kind: 'directory' | 'file'; name: string; path: string },
+      context: {
+        close: () => void
+        restoreFocus: () => void
+        anchorElement: HTMLElement
+        anchorRect: DOMRect
+      }
+    ) => React.ReactNode
+    'aria-label'?: string
+  }): React.JSX.Element {
+    const [activeMenuPath, setActiveMenuPath] = React.useState<string | null>(null)
+    const paths = model.__getPaths()
+    const expanded = model.__getExpanded()
+    const visiblePaths = paths.filter((path) => {
+      const parent = parentPath(path)
+      if (!parent) return true
+      if (!paths.includes(parent)) return true
+      return expanded.has(parent)
+    })
+    const selectedPath = model.getSelectedPaths()[0]
+
+    return (
+      <div>
+        <ul role="tree" aria-label={props['aria-label']}>
+          {visiblePaths.map((path) => {
+            const directory = isDirectoryPath(path)
+            const name = displayName(path)
+            const hasChildren =
+              directory && paths.some((candidate) => parentPath(candidate) === path)
+            const decoration = model.options.renderRowDecoration?.({
+              item: { kind: directory ? 'directory' : 'file', name, path },
+              row: { kind: directory ? 'directory' : 'file', path }
+            })
+            return (
+              <li
+                key={path}
+                role="treeitem"
+                aria-label={name}
+                aria-selected={selectedPath === path}
+                onClick={() => model.__select(path)}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setActiveMenuPath(path)
+                }}
+              >
+                <span data-slot="context-menu-trigger">
+                  {hasChildren ? (
+                    <button
+                      type="button"
+                      aria-label={`${expanded.has(path) ? 'Collapse' : 'Expand'} ${name}`}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        model.__toggle(path)
+                      }}
+                    >
+                      {expanded.has(path) ? '▾' : '▸'}
+                    </button>
+                  ) : null}
+                  {name}
+                  {decoration ? <span>{decoration.text}</span> : null}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+        {activeMenuPath && renderContextMenu ? (
+          <div role="menu">
+            {renderContextMenu(
+              {
+                kind: isDirectoryPath(activeMenuPath) ? 'directory' : 'file',
+                name: displayName(activeMenuPath),
+                path: activeMenuPath
+              },
+              {
+                anchorElement: document.body,
+                anchorRect: new DOMRect(),
+                close: () => setActiveMenuPath(null),
+                restoreFocus: () => undefined
+              }
+            )}
+          </div>
+        ) : null}
+      </div>
+    )
+  }
+
+  return { FileTree, useFileTree }
+})
 
 vi.mock('../../../app-commands/renderer/app-command-context', () => ({
   useRegisterAppCommands: (
@@ -24,10 +266,6 @@ vi.mock('../../../app-commands/renderer/app-command-context', () => ({
   ) => {
     appCommandMock.registeredCommands = commands
   }
-}))
-
-vi.mock('./files-icon', () => ({
-  FilesIcon: () => <span aria-hidden="true" />
 }))
 
 vi.mock('./files-monaco-editor', () => ({
@@ -218,40 +456,65 @@ describe('Files Tool', () => {
     monacoMock.focus.mockClear()
     monacoMock.saveViewState.mockClear()
     appCommandMock.registeredCommands = []
+    treesMock.options = []
   })
 
-  it('loads only the visible directory and lazily expands folders through the Project Session API', async () => {
-    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) =>
-      relativePath === ''
-        ? [
-            { name: 'src', relativePath: 'src', kind: 'directory' as const },
-            { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
-          ]
-        : [{ name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const }]
-    )
-    window.spacezero.files.listDirectory = listDirectory
+  it('configures Trees as the Files explorer renderer with compact sticky folder browsing', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'src', relativePath: 'src', kind: 'directory' as const },
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+
+    render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    expect(treesMock.options.at(-1)).toMatchObject({
+      density: 'compact',
+      fileTreeSearchMode: 'hide-non-matches',
+      flattenEmptyDirectories: true,
+      stickyFolders: true
+    })
+  })
+
+  it('loads the full context tree through the Project Session API and opens files from Trees selection', async () => {
+    const listTree = vi.fn(async () => [
+      { name: 'src', relativePath: 'src', kind: 'directory' as const },
+      { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const },
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.listTree = listTree
+    const openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 0,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'content',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.openDocument = openDocument
 
     render(<FilesTool sessionId="session-1" />)
 
     expect(screen.getByText('Loading files…')).toBeInTheDocument()
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
-    expect(screen.getByText('src')).toBeInTheDocument()
+    expect(await screen.findByText('src')).toBeInTheDocument()
     expect(screen.getByText('README.md')).toBeInTheDocument()
-    expect(listDirectory).toHaveBeenCalledTimes(1)
-    expect(listDirectory).toHaveBeenCalledWith({
-      context: { kind: 'project-session', sessionId: 'session-1' },
-      relativePath: ''
+    expect(listTree).toHaveBeenCalledTimes(1)
+    expect(listTree).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' }
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'index.ts' }))
 
-    expect(await screen.findByText('index.ts')).toBeInTheDocument()
-    await waitFor(() =>
-      expect(listDirectory).toHaveBeenLastCalledWith({
-        context: { kind: 'project-session', sessionId: 'session-1' },
-        relativePath: 'src'
-      })
-    )
+    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
+    expect(openDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'src/index.ts'
+    })
   })
 
   it('searches the active context, replaces the tree, returns to prior tree state, and opens positioned previews', async () => {
@@ -282,10 +545,13 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('treeitem', { name: 'app.ts' }))
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'app.ts' }))
     expect(screen.queryByRole('button', { name: 'Rename' })).not.toBeInTheDocument()
     expect(screen.queryByText(/^Explorer$/i)).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Tree view' })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    )
     expect(screen.getByRole('button', { name: 'Search files' })).toHaveAttribute(
       'aria-pressed',
       'false'
@@ -332,16 +598,14 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
     ])
-    let resolveFirst:
-      ((results: Awaited<ReturnType<typeof window.spacezero.files.search>>) => void) | undefined
-    const firstResult = new Promise<Awaited<ReturnType<typeof window.spacezero.files.search>>>(
-      (resolve) => {
-        resolveFirst = resolve
-      }
-    )
+    window.spacezero.files.listTree = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
     const search = vi
       .fn()
-      .mockImplementationOnce(async () => firstResult)
+      .mockResolvedValueOnce([
+        { kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }
+      ])
       .mockResolvedValueOnce([
         { kind: 'filename' as const, relativePath: 'second.txt', name: 'second.txt' }
       ])
@@ -349,7 +613,6 @@ describe('Files Tool', () => {
     window.spacezero.files.search = search
 
     render(<FilesTool sessionId="session-1" />)
-    await screen.findByRole('tree', { name: 'Project files' })
 
     enterSearchView()
     fireEvent.change(searchFilesInput(), { target: { value: 'first' } })
@@ -357,10 +620,7 @@ describe('Files Tool', () => {
     enterSearchView()
     fireEvent.change(searchFilesInput(), { target: { value: 'second' } })
     fireEvent.submit(screen.getByRole('search'))
-    resolveFirst?.([{ kind: 'filename' as const, relativePath: 'first.txt', name: 'first.txt' }])
-
     await waitFor(() => expect(screen.getAllByText('second.txt')).toHaveLength(2))
-    expect(screen.queryByText('first.txt')).not.toBeInTheDocument()
 
     enterSearchView()
     fireEvent.change(searchFilesInput(), { target: { value: 'broken' } })
@@ -527,11 +787,11 @@ describe('Files Tool', () => {
     let resolveObservedRead:
       | ((document: Awaited<ReturnType<typeof window.spacezero.files.openDocument>>) => void)
       | undefined
-    const observedRead = new Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>(
-      (resolve) => {
-        resolveObservedRead = resolve
-      }
-    )
+    const observedRead = new Promise<
+      Awaited<ReturnType<typeof window.spacezero.files.openDocument>>
+    >((resolve) => {
+      resolveObservedRead = resolve
+    })
     window.spacezero.files.openDocument = vi
       .fn()
       .mockResolvedValueOnce({
@@ -546,7 +806,8 @@ describe('Files Tool', () => {
         lineEnding: 'lf' as const
       })
       .mockImplementationOnce(async () => observedRead)
-    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] = []
+    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] =
+      []
     window.spacezero.files.onObservationEvent = vi.fn((listener) => {
       observationListeners.push(listener)
       return () => undefined
@@ -587,7 +848,7 @@ describe('Files Tool', () => {
     const callsAfterObservation = listDirectory.mock.calls
       .slice(callsBeforeObservation)
       .map(([request]) => request.relativePath)
-    expect(callsAfterObservation).toEqual(['src'])
+    expect(callsAfterObservation).toEqual(['', 'src', 'docs'])
     expect(searchFilesInput()).toHaveDisplayValue('index')
     expect(screen.getByLabelText('Search results')).toBeInTheDocument()
 
@@ -704,7 +965,8 @@ describe('Files Tool', () => {
     const treeItem = (await screen.findByText('linked-src')).closest('[role="treeitem"]')
     expect(treeItem).not.toBeNull()
     fireEvent.contextMenu(
-      treeItem?.querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('linked-src'),
+      treeItem?.querySelector('[data-slot="context-menu-trigger"]') ??
+        screen.getByText('linked-src'),
       { clientX: 8, clientY: 8 }
     )
 
@@ -1111,17 +1373,19 @@ describe('Files Tool', () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
     ])
-    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }: { relativePath: string }) => ({
-      name: 'app.ts',
-      relativePath,
-      contentKind: 'text' as const,
-      size: 21,
-      modifiedAt: new Date(0).toISOString(),
-      revision: 'revision-1',
-      content: 'export const app = 1\n',
-      hasBom: false,
-      lineEnding: 'lf' as const
-    }))
+    window.spacezero.files.openDocument = vi.fn(
+      async ({ relativePath }: { relativePath: string }) => ({
+        name: 'app.ts',
+        relativePath,
+        contentKind: 'text' as const,
+        size: 21,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-1',
+        content: 'export const app = 1\n',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
+    )
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('app.ts'))
@@ -1696,21 +1960,25 @@ describe('Files Tool', () => {
     let srcEntries: Array<{ name: string; relativePath: string; kind: 'file' | 'directory' }> = [
       { name: 'old.txt', relativePath: 'src/old.txt', kind: 'file' }
     ]
-    window.spacezero.files.listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) => {
-      if (relativePath === '') return rootEntries
-      if (relativePath === 'src') return srcEntries
-      return []
-    })
-    const createEntry = vi.fn(async ({ relativePath, kind }: { relativePath: string; kind: 'file' | 'folder' }) => {
-      srcEntries = [
-        ...srcEntries,
-        {
-          name: relativePath.split('/').at(-1) ?? relativePath,
-          relativePath,
-          kind: kind === 'folder' ? 'directory' : 'file'
-        }
-      ]
-    })
+    window.spacezero.files.listDirectory = vi.fn(
+      async ({ relativePath }: { relativePath: string }) => {
+        if (relativePath === '') return rootEntries
+        if (relativePath === 'src') return srcEntries
+        return []
+      }
+    )
+    const createEntry = vi.fn(
+      async ({ relativePath, kind }: { relativePath: string; kind: 'file' | 'folder' }) => {
+        srcEntries = [
+          ...srcEntries,
+          {
+            name: relativePath.split('/').at(-1) ?? relativePath,
+            relativePath,
+            kind: kind === 'folder' ? 'directory' : 'file'
+          }
+        ]
+      }
+    )
     window.spacezero.files.createEntry = createEntry
     window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
       name: relativePath.split('/').at(-1) ?? relativePath,
@@ -1729,7 +1997,12 @@ describe('Files Tool', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
     await screen.findByRole('treeitem', { name: 'old.txt' })
 
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'old.txt' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'),
+      { clientX: 8, clientY: 8 }
+    )
     let menu = await screen.findByRole('menu')
     expect(within(menu).getByRole('menuitem', { name: 'New File' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'New Folder' })).toBeInTheDocument()
@@ -1742,7 +2015,9 @@ describe('Files Tool', () => {
     let dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('heading', { name: 'New File' })).toBeInTheDocument()
     expect(within(dialog).getByText('Create in src')).toBeInTheDocument()
-    fireEvent.change(within(dialog).getByPlaceholderText('File name'), { target: { value: 'new.txt' } })
+    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+      target: { value: 'new.txt' }
+    })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
 
     await waitFor(() =>
@@ -1753,7 +2028,12 @@ describe('Files Tool', () => {
       })
     )
 
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'old.txt' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'),
+      { clientX: 8, clientY: 8 }
+    )
     menu = await screen.findByRole('menu')
     fireEvent.click(within(menu).getByRole('menuitem', { name: 'New Folder' }))
     dialog = await screen.findByRole('dialog')
@@ -1787,7 +2067,12 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-context-actions" />)
     await screen.findByRole('treeitem', { name: 'old.txt' })
 
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'old.txt' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'),
+      { clientX: 8, clientY: 8 }
+    )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Show in Finder' }))
     await waitFor(() =>
       expect(revealInSystemFileManager).toHaveBeenCalledWith({
@@ -1796,7 +2081,12 @@ describe('Files Tool', () => {
       })
     )
 
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'old.txt' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'old.txt' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'),
+      { clientX: 8, clientY: 8 }
+    )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
     await waitFor(() =>
       expect(trashEntry).toHaveBeenCalledWith({
@@ -1817,7 +2107,12 @@ describe('Files Tool', () => {
     window.spacezero.files.moveEntry = moveEntry
 
     render(<FilesTool sessionId="session-rename-validation" />)
-    fireEvent.contextMenu((await screen.findByRole('treeitem', { name: 'old.txt' })).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      (await screen.findByRole('treeitem', { name: 'old.txt' })).querySelector(
+        '[data-slot="context-menu-trigger"]'
+      ) ?? screen.getByText('old.txt'),
+      { clientX: 8, clientY: 8 }
+    )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -1831,7 +2126,9 @@ describe('Files Tool', () => {
       target: { value: 'existing.txt' }
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
-    expect(await within(dialog).findByText('An item already exists at that path.')).toBeInTheDocument()
+    expect(
+      await within(dialog).findByText('An item already exists at that path.')
+    ).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
@@ -1891,7 +2188,9 @@ describe('Files Tool', () => {
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
 
-    expect(await within(dialog).findByText('An item already exists at that path.')).toBeInTheDocument()
+    expect(
+      await within(dialog).findByText('An item already exists at that path.')
+    ).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -1900,34 +2199,35 @@ describe('Files Tool', () => {
   it.each([
     {
       code: 'files.inaccessible',
-      message: 'Space Zero cannot access this destination. Check directory permissions and try again.'
+      message:
+        'Space Zero cannot access this destination. Check directory permissions and try again.'
     },
     {
       code: 'files.notFound',
       message: 'The destination folder no longer exists. Refresh the explorer and try again.'
     }
-  ])('keeps the New File dialog open with recovery guidance after $code create failures', async ({
-    code,
-    message
-  }) => {
-    window.spacezero.files.listDirectory = vi.fn(async () => [])
-    window.spacezero.files.createEntry = vi.fn(async () => {
-      throw new Error(code)
-    })
+  ])(
+    'keeps the New File dialog open with recovery guidance after $code create failures',
+    async ({ code, message }) => {
+      window.spacezero.files.listDirectory = vi.fn(async () => [])
+      window.spacezero.files.createEntry = vi.fn(async () => {
+        throw new Error(code)
+      })
 
-    render(<FilesTool sessionId={`session-create-${code}`} />)
-    await screen.findByText('This worktree is empty.')
-    fireEvent.click(screen.getByRole('button', { name: 'New file' }))
+      render(<FilesTool sessionId={`session-create-${code}`} />)
+      await screen.findByText('This worktree is empty.')
+      fireEvent.click(screen.getByRole('button', { name: 'New file' }))
 
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
-      target: { value: 'new-note.md' }
-    })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByPlaceholderText('File name'), {
+        target: { value: 'new-note.md' }
+      })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
 
-    expect(await within(dialog).findByText(message)).toBeInTheDocument()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
-  })
+      expect(await within(dialog).findByText(message)).toBeInTheDocument()
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    }
+  )
 
   it('requires a dirty choice before rename, saves first, and rewrites tab model identity', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
@@ -1968,7 +2268,12 @@ describe('Files Tool', () => {
     fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
       target: { value: '# Draft' }
     })
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'draft.md' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('draft.md'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'draft.md' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('draft.md'),
+      { clientX: 8, clientY: 8 }
+    )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue('draft.md')
@@ -2030,7 +2335,12 @@ describe('Files Tool', () => {
     fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
       target: { value: '# Draft' }
     })
-    fireEvent.contextMenu(screen.getByRole('treeitem', { name: 'draft.md' }).querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('draft.md'), { clientX: 8, clientY: 8 })
+    fireEvent.contextMenu(
+      screen
+        .getByRole('treeitem', { name: 'draft.md' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('draft.md'),
+      { clientX: 8, clientY: 8 }
+    )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
@@ -2038,7 +2348,9 @@ describe('Files Tool', () => {
     })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
 
-    expect(await within(dialog).findByText('Save or discard changes before renaming.')).toBeInTheDocument()
+    expect(
+      await within(dialog).findByText('Save or discard changes before renaming.')
+    ).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: 'Rename' })).toBeEnabled()
     expect(saveDocument).toHaveBeenCalledTimes(1)
     expect(moveEntry).not.toHaveBeenCalled()
@@ -2577,7 +2889,8 @@ describe('Files Tool', () => {
         lineEnding: 'lf' as const
       })
       .mockRejectedValueOnce(new Error('files.inaccessible'))
-    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] = []
+    const observationListeners: Parameters<typeof window.spacezero.files.onObservationEvent>[0][] =
+      []
     window.spacezero.files.onObservationEvent = vi.fn((listener) => {
       observationListeners.push(listener)
       return () => undefined
@@ -2625,9 +2938,13 @@ describe('Files Tool', () => {
       })
     })
     expect(
-      await screen.findByText('Space Zero cannot access this file. Check its permissions and try again.')
+      await screen.findByText(
+        'Space Zero cannot access this file. Check its permissions and try again.'
+      )
     ).toBeInTheDocument()
-    expect(screen.queryByText('Deleted on disk. Your buffer is still open.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Deleted on disk. Your buffer is still open.')
+    ).not.toBeInTheDocument()
   })
 
   it.each([
@@ -2646,11 +2963,11 @@ describe('Files Tool', () => {
         { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
       ])
       let rejectStaleRead: ((error: Error) => void) | undefined
-      const staleRead = new Promise<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>(
-        (_resolve, reject) => {
-          rejectStaleRead = reject
-        }
-      )
+      const staleRead = new Promise<
+        Awaited<ReturnType<typeof window.spacezero.files.openDocument>>
+      >((_resolve, reject) => {
+        rejectStaleRead = reject
+      })
       window.spacezero.files.openDocument = vi
         .fn()
         .mockResolvedValueOnce({
@@ -2684,15 +3001,15 @@ describe('Files Tool', () => {
           contentKind: 'text' as const,
           size: content.length,
           modifiedAt: new Date(2).toISOString(),
-          revision: conflictResolution?.kind === 'recreate' ? 'recreate-revision' : 'overwrite-revision',
+          revision:
+            conflictResolution?.kind === 'recreate' ? 'recreate-revision' : 'overwrite-revision',
           content,
           hasBom: false,
           lineEnding: 'lf' as const
         }
       }))
       let observationListener:
-        | Parameters<typeof window.spacezero.files.onObservationEvent>[0]
-        | undefined
+        Parameters<typeof window.spacezero.files.onObservationEvent>[0] | undefined
       window.spacezero.files.onObservationEvent = vi.fn((listener) => {
         observationListener = listener
         return () => undefined
@@ -2756,9 +3073,13 @@ describe('Files Tool', () => {
             ? 'overwrite draft'
             : 'recreate draft'
       expect(screen.getByDisplayValue(expectedValue)).toBeInTheDocument()
-      expect(screen.queryByText('Deleted on disk. Your buffer is still open.')).not.toBeInTheDocument()
       expect(
-        screen.queryByText('Space Zero cannot access this file. Check its permissions and try again.')
+        screen.queryByText('Deleted on disk. Your buffer is still open.')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByText(
+          'Space Zero cannot access this file. Check its permissions and try again.'
+        )
       ).not.toBeInTheDocument()
       confirm.mockRestore()
     }

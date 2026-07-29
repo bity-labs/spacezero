@@ -46,6 +46,33 @@ export async function readFilesDirectory(
   }
 }
 
+export async function readFilesTree(rootPath: string): Promise<FilesEntry[]> {
+  const entries = await readFilesDirectory(rootPath, '')
+  const tree: FilesEntry[] = []
+
+  for (const entry of entries) {
+    tree.push(entry)
+    if (entry.kind === 'directory') tree.push(...(await readFilesTreeDirectory(rootPath, entry)))
+  }
+
+  return tree
+}
+
+async function readFilesTreeDirectory(
+  rootPath: string,
+  directory: FilesEntry
+): Promise<FilesEntry[]> {
+  const entries = await readFilesDirectory(rootPath, directory.relativePath)
+  const tree: FilesEntry[] = []
+
+  for (const entry of entries) {
+    tree.push(entry)
+    if (entry.kind === 'directory') tree.push(...(await readFilesTreeDirectory(rootPath, entry)))
+  }
+
+  return tree
+}
+
 function normalizeRelativeDirectoryPath(path: string): string {
   if (path.includes('\0') || path.includes('\\') || isAbsolute(path) || /^[a-z]:/i.test(path)) {
     throw new Error('files.invalidPath')

@@ -5,6 +5,7 @@ import {
   cancelFilesSearchRequestSchema,
   createFilesEntryRequestSchema,
   listFilesDirectoryRequestSchema,
+  listFilesTreeRequestSchema,
   moveFilesEntryRequestSchema,
   observeFilesRequestSchema,
   openFilesDocumentRequestSchema,
@@ -21,13 +22,12 @@ import {
 } from '../../knowledge-base/main'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { getManagedWorktreeService } from '../../sessions/main/managed-worktree.runtime'
-import { readFilesDirectory } from './files-directory.adapter'
+import { readFilesDirectory, readFilesTree } from './files-directory.adapter'
 import { openFilesDocument, saveFilesDocument } from './files-document.adapter'
 import { createFilesEntry, moveFilesEntry, trashFilesEntry } from './files-operations.adapter'
 import { revealFilesEntry } from './files-reveal.adapter'
 import { searchFiles } from './files-search.adapter'
 import { createFilesService } from './files.service'
-
 
 type FilesObservationSender = {
   id: number
@@ -118,7 +118,10 @@ function closeFilesObservation(
   }
 }
 
-function filesObservationKey(sender: Pick<FilesObservationSender, 'id'>, subscriptionId: string): string {
+function filesObservationKey(
+  sender: Pick<FilesObservationSender, 'id'>,
+  subscriptionId: string
+): string {
   return `${sender.id}:${subscriptionId}`
 }
 
@@ -128,6 +131,7 @@ const filesService = createFilesService({
   knowledgeBaseRootProvider: getKnowledgeBaseRootProvider(),
   operations: getKnowledgeBaseOperationCoordinator(),
   readDirectory: readFilesDirectory,
+  readTree: readFilesTree,
   openDocument: openFilesDocument,
   saveDocument: saveFilesDocument,
   createEntry: createFilesEntry,
@@ -138,6 +142,12 @@ const filesService = createFilesService({
     revealFilesEntry(rootPath, relativePath, { revealInFolder: shell.showItemInFolder }),
   search: searchFiles
 })
+
+export function createListFilesTreeHandler(
+  service: Pick<FilesAPI, 'listTree'>
+): (input: unknown) => ReturnType<FilesAPI['listTree']> {
+  return async (input) => service.listTree(listFilesTreeRequestSchema.parse(input))
+}
 
 export function createListFilesDirectoryHandler(
   service: Pick<FilesAPI, 'listDirectory'>
@@ -195,6 +205,7 @@ export function createCancelFilesSearchHandler(
 }
 
 export function registerFilesIpc(): void {
+  const handleListTree = createListFilesTreeHandler(filesService)
   const handleListDirectory = createListFilesDirectoryHandler(filesService)
   const handleOpenDocument = createOpenFilesDocumentHandler(filesService)
   const handleSaveDocument = createSaveFilesDocumentHandler(filesService)
@@ -206,6 +217,7 @@ export function registerFilesIpc(): void {
   const handleCancelSearch = createCancelFilesSearchHandler(filesService)
   const observations = new Map<string, FilesObservationRecord>()
 
+  ipcMain.handle(FILES_IPC_CHANNELS.listTree, (_event, input: unknown) => handleListTree(input))
   ipcMain.handle(FILES_IPC_CHANNELS.listDirectory, (_event, input: unknown) =>
     handleListDirectory(input)
   )

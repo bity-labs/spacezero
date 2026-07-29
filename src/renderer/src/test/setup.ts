@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { vi } from 'vitest'
 
 import { i18n } from '../i18n'
+import type { FilesEntry, FilesAPI, ListFilesTreeRequest } from '../../../features/files/shared'
 import { resetFilesStore } from '../../../features/files/renderer/files-store'
 import { resetSessionWorkspaceStore } from '../../../features/sessions/renderer'
 import { resetToolPaneStore } from '../../../features/tool-pane/renderer/tool-pane-store'
@@ -26,6 +27,23 @@ Object.defineProperties(Range.prototype, {
 
 let prefersDark = false
 const mediaListeners = new Set<() => void>()
+
+async function listTestFilesTree(request: ListFilesTreeRequest): Promise<FilesEntry[]> {
+  const listDirectory: FilesAPI['listDirectory'] = window.spacezero.files.listDirectory
+  const visitedDirectories = new Set<string>()
+  const collect = async (relativePath: string): Promise<FilesEntry[]> => {
+    if (visitedDirectories.has(relativePath)) return []
+    visitedDirectories.add(relativePath)
+    const entries = await listDirectory({ context: request.context, relativePath })
+    const tree: FilesEntry[] = []
+    for (const entry of entries) {
+      tree.push(entry)
+      if (entry.kind === 'directory') tree.push(...(await collect(entry.relativePath)))
+    }
+    return tree
+  }
+  return collect('')
+}
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -70,6 +88,7 @@ beforeEach(async () => {
       health: async () => ({ ok: true, path: '/tmp/spacezero-test.sqlite3', projectCount: 0 })
     },
     files: {
+      listTree: listTestFilesTree,
       listDirectory: async () => [],
       openDocument: async ({ relativePath }) => ({
         name: relativePath.split('/').at(-1) ?? relativePath,
