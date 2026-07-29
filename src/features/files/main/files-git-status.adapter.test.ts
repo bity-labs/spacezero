@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -45,6 +45,21 @@ describe('Files Git status adapter', () => {
     ).resolves.toBe(before)
   })
 
+  it('does not refresh the Git index or leave an index lock while collecting decorations', async () => {
+    const root = await createRepository('spacezero-files-git-status-index-')
+    await writeFile(join(root, 'README.md'), '# Test\n\nmodified\n')
+    const indexPath = await resolveGitPath(root, 'index')
+    const indexLockPath = await resolveGitPath(root, 'index.lock')
+    const beforeIndexMtime = await fileMtimeNs(indexPath)
+
+    await expect(readFilesGitStatus(root)).resolves.toEqual([
+      { path: 'README.md', status: 'modified' }
+    ])
+
+    await expect(fileMtimeNs(indexPath)).resolves.toBe(beforeIndexMtime)
+    await expectPathNotExists(indexLockPath)
+  })
+
   it('returns no decorations when the active Files root is not a Git worktree', async () => {
     const root = await createTempDir('spacezero-files-no-git-status-')
     await writeFile(join(root, 'README.md'), '# Not git\n')
@@ -70,6 +85,20 @@ async function createTempDir(prefix: string): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), prefix))
   temporaryPaths.push(path)
   return path
+}
+
+async function resolveGitPath(cwd: string, path: string): Promise<string> {
+  const gitPath = (await git(cwd, ['rev-parse', '--git-path', path])).trim()
+  return resolve(cwd, gitPath)
+}
+
+async function fileMtimeNs(path: string): Promise<bigint> {
+  const stats = await stat(path, { bigint: true })
+  return stats.mtimeNs
+}
+
+async function expectPathNotExists(path: string): Promise<void> {
+  await expect(access(path)).rejects.toMatchObject({ code: 'ENOENT' })
 }
 
 async function git(cwd: string, args: string[]): Promise<string> {

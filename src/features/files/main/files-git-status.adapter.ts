@@ -10,7 +10,7 @@ export async function readFilesGitStatus(rootPath: string): Promise<FilesGitStat
   try {
     const { stdout } = await execFileAsync(
       'git',
-      ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
+      ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all'],
       {
         cwd: rootPath,
         encoding: 'utf8',
