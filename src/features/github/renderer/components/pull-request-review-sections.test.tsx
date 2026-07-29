@@ -14,6 +14,48 @@ function renderSections(): ReturnType<typeof render> {
 }
 
 describe('PullRequestReviewSections', () => {
+  it('loads every Pull Request commit page into one sequential commit list', async () => {
+    const requestedCommitPages: Array<{ page: number; perPage?: number }> = []
+    window.spacezero.github.listPullRequestCommits = async ({ page, perPage }) => {
+      requestedCommitPages.push({ page, perPage })
+      return {
+        items: Array.from({ length: page === 1 ? 100 : 1 }, (_, index) => ({
+          sha:
+            page === 1
+              ? `${String(index).padStart(40, '0')}`
+              : 'ffffffffffffffffffffffffffffffffffffffff',
+          message: page === 1 ? `First page commit ${index + 1}` : 'Sentinel second page commit',
+          htmlUrl: 'https://github.com/example/repository/commit/example',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          authoredAt: '2026-07-18T01:30:00.000Z'
+        })),
+        page,
+        hasNextPage: page === 1
+      }
+    }
+    window.spacezero.github.listPullRequestFiles = async ({ page }) => ({
+      items: [],
+      page,
+      hasNextPage: false
+    })
+
+    renderSections()
+
+    const firstCommit = await screen.findByText('First page commit 1')
+    const lastFirstPageCommit = await screen.findByText('First page commit 100')
+    const sentinelCommit = await screen.findByText('Sentinel second page commit')
+    expect(requestedCommitPages).toEqual([
+      { page: 1, perPage: 100 },
+      { page: 2, perPage: 100 }
+    ])
+    expect(
+      firstCommit.compareDocumentPosition(lastFirstPageCommit) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      lastFirstPageCommit.compareDocumentPosition(sentinelCommit) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
   it('preserves successful sections across patch states, pagination, and a partial endpoint failure', async () => {
     const filePages: number[] = []
     let checkReads = 0

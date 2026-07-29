@@ -9,7 +9,7 @@ import type {
 } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
 import {
-  useProjectPullRequestCommits,
+  useProjectPullRequestCommitList,
   useProjectPullRequestFiles
 } from '../hooks/use-project-pull-requests'
 
@@ -35,7 +35,7 @@ function CommitsSection({
   projectId: string
   number: number
 }): React.JSX.Element {
-  const query = useProjectPullRequestCommits(projectId, number, 1, 100)
+  const query = useProjectPullRequestCommitList(projectId, number)
   const commits = query.isError ? undefined : query.data
 
   return (
@@ -48,10 +48,10 @@ function CommitsSection({
           onRetry={query.refetch}
         />
       ) : null}
-      {commits?.items.length === 0 ? (
+      {commits?.length === 0 ? (
         <p className="text-sm text-muted-foreground">No commits were returned.</p>
       ) : null}
-      {commits?.items.map((commit) => (
+      {commits?.map((commit) => (
         <CommitCard key={commit.sha} commit={commit} />
       ))}
     </section>

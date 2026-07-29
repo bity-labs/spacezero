@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
+import type { GitHubPullRequestCommit } from '../../shared'
+
 export function useProjectPullRequests(projectId: string, page: number) {
   return useQuery({
     queryKey: ['github', 'pull-requests', projectId, page],
@@ -28,6 +30,33 @@ export function useProjectPullRequestCommits(
     queryKey: ['github', 'pull-request-commits', projectId, number, page, perPage],
     queryFn: () =>
       window.spacezero.github.listPullRequestCommits({ projectId, number, page, perPage }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+}
+
+export function useProjectPullRequestCommitList(projectId: string, number: number) {
+  return useQuery({
+    queryKey: ['github', 'pull-request-commits', projectId, number, 'all', 100],
+    queryFn: async () => {
+      const items: GitHubPullRequestCommit[] = []
+      let page = 1
+      let hasNextPage = true
+
+      while (hasNextPage) {
+        const response = await window.spacezero.github.listPullRequestCommits({
+          projectId,
+          number,
+          page,
+          perPage: 100
+        })
+        items.push(...response.items)
+        hasNextPage = response.hasNextPage
+        page += 1
+      }
+
+      return items
+    },
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always'
   })
