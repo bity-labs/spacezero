@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Plus } from '@phosphor-icons/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
@@ -501,14 +502,14 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
           }
         }}
       >
-        <div className="flex h-10 shrink-0 items-center justify-between border-b px-3">
-          <div className="flex min-w-0 items-center gap-2">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <div className="shrink-0 text-sm font-medium">Terminal</div>
             {tabs.length > 0 ? (
               <div
                 aria-label="Terminal tabs"
                 role="tablist"
-                className="flex min-w-0 items-center gap-1 overflow-x-auto"
+                className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
               >
                 {tabs.map((tab) => (
                   <div
@@ -558,9 +559,18 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
               </div>
             ) : null}
           </div>
-          <Button size="sm" variant="ghost" aria-label="Add terminal tab" onClick={startTerminal}>
-            New Terminal
-          </Button>
+          {tabs.length > 0 ? (
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="New Terminal"
+              title="New Terminal"
+              className="shrink-0"
+              onClick={startTerminal}
+            >
+              <Plus aria-hidden="true" className="size-4" />
+            </Button>
+          ) : null}
         </div>
         {status === 'failed' ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
