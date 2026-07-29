@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { watch } from 'node:fs'
 import type { Stats } from 'node:fs'
-import { lstat, mkdir, mkdtemp, open, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, open, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
 import { promisify } from 'node:util'
@@ -59,6 +59,29 @@ describe('GitService', () => {
     expect(review.files.find((file) => file.path === 'new-note.md')).toMatchObject({
       kind: 'untracked',
       diff: expect.stringContaining('+hello')
+    })
+  })
+
+  it('reads review state without refreshing the Git index', async () => {
+    const root = await createTempDir('spacezero-git-review-index-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(worktree, 'README.md'), '# Test\n\nmodified\n')
+    const indexPath = (await git(['-C', worktree, 'rev-parse', '--git-path', 'index'])).trim()
+    const beforeIndexMtime = (await stat(indexPath, { bigint: true })).mtimeNs
+
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true)
+    })
+
+    await expect(service.getProjectSessionReview('session-1')).resolves.toMatchObject({
+      status: 'ok'
+    })
+    await expect(stat(indexPath, { bigint: true })).resolves.toMatchObject({
+      mtimeNs: beforeIndexMtime
     })
   })
 
