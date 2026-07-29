@@ -66,7 +66,18 @@ export function createProjectSessionChatService({
         const chatContext = await createCurrentChatContext(projectSession.id, freshAgentSession.id)
         return toProjectSessionChatContext(chatContext, projectSession.id)
       } catch (error) {
-        await deleteAgentSession(freshAgentSession.id).catch(() => undefined)
+        try {
+          await deleteAgentSession(freshAgentSession.id)
+        } catch (rollbackFailure) {
+          const rollbackError = new Error('projectSessionChat.creationRollbackFailed', {
+            cause: error
+          })
+          Object.defineProperty(rollbackError, 'rollbackFailures', {
+            value: [rollbackFailure],
+            enumerable: false
+          })
+          throw rollbackError
+        }
         throw error
       }
     }

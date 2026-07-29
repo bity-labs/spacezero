@@ -126,6 +126,42 @@ describe('Project Session Chat Contexts', () => {
     expect(createFreshAgentSession).toHaveBeenCalledWith(stableSession.id)
   })
 
+  it('retains child recovery metadata and surfaces diagnostics when Chat Context persistence and utility rollback fail', async () => {
+    const stableSession = projectSession()
+    const freshAgentSession = projectSession({
+      id: 'agent-session-2',
+      workspaceContextSessionId: stableSession.id,
+      transcriptPath: '/transcripts/agent-session-2.jsonl',
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const storedSessions = [stableSession, freshAgentSession]
+    const utilityFailure = new Error('utility cleanup failed')
+    const deleteAgentSession = vi.fn(async () => {
+      throw utilityFailure
+    })
+    const service = createProjectSessionChatService({
+      findSessionById: async (sessionId) =>
+        storedSessions.find((stored) => stored.id === sessionId),
+      getCurrentChatContext: async () => chatContext('chat-context-1', stableSession.id),
+      createCurrentChatContext: async () => {
+        throw new Error('chat context persistence failed')
+      },
+      createFreshAgentSession: async () => freshAgentSession,
+      deleteAgentSession
+    })
+
+    const clearing = service.clearChat(stableSession.id)
+    await expect(clearing).rejects.toThrow('projectSessionChat.creationRollbackFailed')
+    await expect(clearing).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'chat context persistence failed' })
+    })
+
+    expect(deleteAgentSession).toHaveBeenCalledWith(freshAgentSession.id)
+    expect(storedSessions).toContain(freshAgentSession)
+  })
+
   it('rejects child and archived Sessions as stable workspace owners', async () => {
     const createService = (stored: StoredSession) =>
       createProjectSessionChatService({

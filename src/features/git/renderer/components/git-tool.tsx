@@ -166,8 +166,15 @@ function ProjectGitTool({
   context: Extract<GitContext, { kind: 'project-session' }>
   filesHandoff?: GitFilesHandoff
 }): React.JSX.Element {
-  const [agentSessionId, setAgentSessionId] = useState(context.sessionId)
+  const [resolvedAgentSession, setResolvedAgentSession] = useState<{
+    workspaceContextSessionId: string
+    agentSessionId: string
+  }>()
   const sessionLookupSequence = useRef(0)
+  const agentSessionId =
+    resolvedAgentSession?.workspaceContextSessionId === context.sessionId
+      ? resolvedAgentSession.agentSessionId
+      : undefined
 
   useEffect(() => {
     let canceled = false
@@ -177,7 +184,10 @@ function ProjectGitTool({
         sessionId: context.sessionId
       })
       if (!canceled && requestId === sessionLookupSequence.current) {
-        setAgentSessionId(chatContext.agentSessionId)
+        setResolvedAgentSession({
+          workspaceContextSessionId: context.sessionId,
+          agentSessionId: chatContext.agentSessionId
+        })
       }
     }
     const onFocus = (): void => {
@@ -190,7 +200,10 @@ function ProjectGitTool({
         detail.agentSessionId
       ) {
         sessionLookupSequence.current += 1
-        setAgentSessionId(detail.agentSessionId)
+        setResolvedAgentSession({
+          workspaceContextSessionId: context.sessionId,
+          agentSessionId: detail.agentSessionId
+        })
       } else void loadCurrentSession()
     }
     void loadCurrentSession()
@@ -202,6 +215,14 @@ function ProjectGitTool({
       window.removeEventListener('focus', onFocus)
     }
   }, [context.sessionId])
+
+  if (!agentSessionId) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Restoring Project Session chat…
+      </div>
+    )
+  }
 
   return (
     <ProjectGitToolSession
