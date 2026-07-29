@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Plus } from '@phosphor-icons/react'
+import { CaretRight, Plus } from '@phosphor-icons/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
+import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -502,76 +503,51 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
           }
         }}
       >
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b px-3">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="shrink-0 text-sm font-medium">Terminal</div>
-            {tabs.length > 0 ? (
-              <div
-                aria-label="Terminal tabs"
-                role="tablist"
-                className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        {tabs.length > 0 ? (
+          <TabBar
+            ariaLabel="Terminal tabs"
+            endControl={
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="New Terminal"
+                title="New Terminal"
+                className="shrink-0"
+                onClick={startTerminal}
               >
-                {tabs.map((tab) => (
-                  <div
-                    key={tab.terminalId}
-                    draggable
-                    onDragStart={() => {
-                      draggedTerminalIdRef.current = tab.terminalId
-                    }}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={() => void reorderTabs(tab.terminalId)}
-                    className="flex shrink-0 items-center rounded-md border"
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={tab.terminalId === terminalId}
-                      aria-label={`Select terminal tab ${tab.title}`}
-                      onClick={() => void selectTerminal(tab.terminalId)}
-                      onMouseDown={(event) => {
-                        if (event.button !== 1) return
-                        event.preventDefault()
-                      }}
-                      onAuxClick={(event) => {
-                        if (event.button !== 1) return
-                        event.preventDefault()
-                        event.stopPropagation()
-                        void closeTerminal(tab.terminalId)
-                      }}
-                      className="px-2 py-1 text-xs"
-                    >
-                      {tab.title}
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={
-                        tab.terminalId === terminalId
-                          ? 'Close Terminal'
-                          : `Close terminal tab ${tab.title}`
-                      }
-                      onClick={() => void closeTerminal(tab.terminalId)}
-                      className="px-2 py-1 text-xs text-muted-foreground"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
+                <Plus aria-hidden="true" className="size-4" />
+              </Button>
+            }
+          >
+            {tabs.map((tab) => {
+              const selected = tab.terminalId === terminalId
+              return (
+                <Tab
+                  key={tab.terminalId}
+                  ariaLabel={`Select terminal tab ${tab.title}`}
+                  closeAriaLabel={
+                    selected ? 'Close Terminal' : `Close terminal tab ${tab.title}`
+                  }
+                  draggable
+                  icon={<CaretRight aria-hidden="true" className="size-4 shrink-0" />}
+                  label={tab.title}
+                  selected={selected}
+                  onSelect={() => void selectTerminal(tab.terminalId)}
+                  onClose={() => void closeTerminal(tab.terminalId)}
+                  onDragStart={() => {
+                    draggedTerminalIdRef.current = tab.terminalId
+                  }}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => void reorderTabs(tab.terminalId)}
+                />
+              )
+            })}
+          </TabBar>
+        ) : (
+          <div className="flex h-10 shrink-0 items-center border-b px-3 text-sm font-medium">
+            Terminal
           </div>
-          {tabs.length > 0 ? (
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="New Terminal"
-              title="New Terminal"
-              className="shrink-0"
-              onClick={startTerminal}
-            >
-              <Plus aria-hidden="true" className="size-4" />
-            </Button>
-          ) : null}
-        </div>
+        )}
         {status === 'failed' ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
             <div>

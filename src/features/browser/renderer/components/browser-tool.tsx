@@ -13,6 +13,7 @@ import {
   useKeyboardShortcutsManager,
   useRegisterKeyboardShortcuts
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 
 import {
@@ -129,7 +130,6 @@ export function BrowserTool({
   const isEditingAddressRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [downloadsVersion, setDownloadsVersion] = useState(0)
-  const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
   const currentAddress = addressContextKey === contextKey ? address : ''
   const contextState = stateContextKey === contextKey ? state : null
@@ -258,42 +258,6 @@ export function BrowserTool({
       }
     },
     [context, contextKey]
-  )
-
-  const focusTab = useCallback((tabId: string): void => {
-    requestAnimationFrame(() => {
-      tabStripRef.current
-        ?.querySelector<HTMLButtonElement>(`[data-browser-tab-id="${tabId}"]`)
-        ?.focus()
-    })
-  }, [])
-
-  const selectAndFocusTab = useCallback(
-    async (tabId: string): Promise<void> => {
-      await selectTab(tabId)
-      focusTab(tabId)
-    },
-    [focusTab, selectTab]
-  )
-
-  const selectTabByKeyboard = useCallback(
-    (currentTabId: string, key: string): void => {
-      if (!contextState?.tabs.length) return
-      const currentIndex = contextState.tabs.findIndex((tab) => tab.id === currentTabId)
-      if (currentIndex < 0) return
-      const lastIndex = contextState.tabs.length - 1
-      const nextIndexByKey: Record<string, number> = {
-        ArrowLeft: currentIndex === 0 ? lastIndex : currentIndex - 1,
-        ArrowRight: currentIndex === lastIndex ? 0 : currentIndex + 1,
-        Home: 0,
-        End: lastIndex
-      }
-      const nextIndex = nextIndexByKey[key]
-      const nextTabId = contextState.tabs[nextIndex]?.id
-      if (!nextTabId) return
-      void selectAndFocusTab(nextTabId)
-    },
-    [contextState, selectAndFocusTab]
   )
 
   const closeTab = useCallback(
@@ -439,11 +403,6 @@ export function BrowserTool({
   }, [activeTabUrl, contextKey, isEditingAddress])
 
   useEffect(() => {
-    const activeElement = tabStripRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')
-    activeElement?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [activeTabId])
-
-  useEffect(() => {
     ensureBrowserDownloadSubscription()
     return subscribeToBrowserDownloads(() => {
       setDownloadsVersion((version) => version + 1)
@@ -528,21 +487,32 @@ export function BrowserTool({
         }
       }}
     >
-      <div
-        ref={tabStripRef}
-        aria-label="Browser tabs"
-        className="flex shrink-0 items-center gap-1 overflow-x-auto border-b px-2 py-1"
-        role="tablist"
-      >
+      <TabBar ariaLabel="Browser tabs">
         {contextState?.tabs.map((tab) => {
           const selected = tab.id === activeTabId
           return (
-            <div
+            <Tab
               key={tab.id}
-              className={`flex min-w-32 max-w-56 shrink-0 items-center gap-1 rounded-md border px-1 py-1 text-sm ${
-                selected ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground'
-              }`}
               draggable
+              icon={
+                tab.faviconUrl ? (
+                  <img
+                    alt=""
+                    className="size-4 shrink-0"
+                    src={tab.faviconUrl}
+                    onError={(event) => {
+                      event.currentTarget.style.display = 'none'
+                    }}
+                    onLoad={(event) => {
+                      event.currentTarget.style.display = ''
+                    }}
+                  />
+                ) : null
+              }
+              label={tabLabel(tab)}
+              selected={selected}
+              onSelect={() => void selectTab(tab.id)}
+              onClose={() => void closeTab(tab.id)}
               onDragOver={(event) => event.preventDefault()}
               onDragStart={(event) => {
                 setDraggedTabId(tab.id)
@@ -555,68 +525,7 @@ export function BrowserTool({
                 setDraggedTabId(null)
                 void reorderTabs(sourceTabId, tab.id)
               }}
-            >
-              <button
-                aria-selected={selected}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded px-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                data-browser-tab-id={tab.id}
-                role="tab"
-                tabIndex={selected ? 0 : -1}
-                type="button"
-                onClick={() => void selectTab(tab.id)}
-                onMouseDown={(event) => {
-                  if (event.button !== 1) return
-                  event.preventDefault()
-                }}
-                onAuxClick={(event) => {
-                  if (event.button !== 1) return
-                  event.preventDefault()
-                  event.stopPropagation()
-                  void closeTab(tab.id)
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    void selectTab(tab.id)
-                    return
-                  }
-                  if (
-                    event.key === 'ArrowLeft' ||
-                    event.key === 'ArrowRight' ||
-                    event.key === 'Home' ||
-                    event.key === 'End'
-                  ) {
-                    event.preventDefault()
-                    selectTabByKeyboard(tab.id, event.key)
-                  }
-                }}
-              >
-                {tab.faviconUrl ? (
-                  <img
-                    alt=""
-                    className="size-4 shrink-0"
-                    src={tab.faviconUrl}
-                    onError={(event) => {
-                      event.currentTarget.style.display = 'none'
-                    }}
-                    onLoad={(event) => {
-                      event.currentTarget.style.display = ''
-                    }}
-                  />
-                ) : null}
-                <span className="truncate">{tabLabel(tab)}</span>
-              </button>
-              <Button
-                aria-label={`Close ${tabLabel(tab)}`}
-                className="h-6 px-2"
-                size="sm"
-                type="button"
-                variant="ghost"
-                onClick={() => void closeTab(tab.id)}
-              >
-                ×
-              </Button>
-            </div>
+            />
           )
         })}
         <Button
@@ -628,7 +537,7 @@ export function BrowserTool({
         >
           +
         </Button>
-      </div>
+      </TabBar>
       <form className="flex shrink-0 items-center gap-2 border-b p-2" onSubmit={submitNavigation}>
         <Button
           aria-label="Back"

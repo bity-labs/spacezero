@@ -516,6 +516,20 @@ describe('BrowserTool', () => {
     expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
   })
 
+  it('hides overflow scrollbars and maps vertical wheel movement to horizontal scrolling', async () => {
+    installBrowserApi({}, [
+      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
+      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' })
+    ])
+
+    renderBrowserTool()
+
+    const tablist = await screen.findByRole('tablist', { name: 'Browser tabs' })
+    expect(tablist).toHaveClass('no-scrollbar', 'overflow-x-auto')
+    fireEvent.wheel(tablist, { deltaY: 32 })
+    expect(tablist.scrollLeft).toBe(32)
+  })
+
   it('closes active and inactive Browser tabs with middle-click without selecting them first', async () => {
     const browser = installBrowserApi({}, [
       makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
