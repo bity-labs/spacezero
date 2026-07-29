@@ -18,10 +18,16 @@ export function useProjectPullRequest(projectId: string, number: number) {
   })
 }
 
-export function useProjectPullRequestCommits(projectId: string, number: number, page: number) {
+export function useProjectPullRequestCommits(
+  projectId: string,
+  number: number,
+  page: number,
+  perPage?: number
+) {
   return useQuery({
-    queryKey: ['github', 'pull-request-commits', projectId, number, page],
-    queryFn: () => window.spacezero.github.listPullRequestCommits({ projectId, number, page }),
+    queryKey: ['github', 'pull-request-commits', projectId, number, page, perPage],
+    queryFn: () =>
+      window.spacezero.github.listPullRequestCommits({ projectId, number, page, perPage }),
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always'
   })
@@ -68,10 +74,16 @@ export function useProjectPullRequestReviews(projectId: string, number: number, 
   })
 }
 
-export function useProjectPullRequestComments(projectId: string, number: number, page: number) {
+export function useProjectPullRequestComments(
+  projectId: string,
+  number: number,
+  page: number,
+  perPage?: number
+) {
   return useQuery({
-    queryKey: ['github', 'pull-request-comments', projectId, number, page],
-    queryFn: () => window.spacezero.github.listPullRequestComments({ projectId, number, page }),
+    queryKey: ['github', 'pull-request-comments', projectId, number, page, perPage],
+    queryFn: () =>
+      window.spacezero.github.listPullRequestComments({ projectId, number, page, perPage }),
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always'
   })

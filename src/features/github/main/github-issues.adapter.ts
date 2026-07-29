@@ -42,7 +42,7 @@ export function createGitHubIssuesAdapter(): GitHubIssuesAdapter {
         const response = await octokit.request('GET /repos/{owner}/{repo}/issues', {
           owner,
           repo: repository,
-          state: 'all',
+          state: 'open',
           sort: 'updated',
           direction: 'desc',
           page,
