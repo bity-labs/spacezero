@@ -34,6 +34,18 @@ vi.mock('@pierre/trees/react', async () => {
 
   type PreparedTreeInput = { paths: readonly string[] }
 
+  type TreeDropTarget = {
+    directoryPath: string | null
+    flattenedSegmentPath: string | null
+    hoveredPath: string | null
+    kind: 'directory' | 'root'
+  }
+
+  type TreeDropContext = {
+    draggedPaths: readonly string[]
+    target: TreeDropTarget
+  }
+
   type TreeOptions = {
     paths?: readonly string[]
     preparedInput?: PreparedTreeInput
@@ -46,7 +58,26 @@ vi.mock('@pierre/trees/react', async () => {
         triggerMode?: 'both' | 'button' | 'right-click'
       }
     }
+    dragAndDrop?:
+      | boolean
+      | {
+          canDrag?: (paths: readonly string[]) => boolean
+          canDrop?: (event: TreeDropContext) => boolean
+          onDropComplete?: (event: TreeDropContext & { operation: 'move' | 'batch' }) => void
+          onDropError?: (error: string, event: TreeDropContext) => void
+        }
     onSelectionChange?: (paths: readonly string[]) => void
+    renaming?:
+      | boolean
+      | {
+          canRename?: (item: { isFolder: boolean; path: string }) => boolean
+          onError?: (error: string) => void
+          onRename?: (event: {
+            destinationPath: string
+            isFolder: boolean
+            sourcePath: string
+          }) => void
+        }
     renderRowDecoration?: (context: {
       item: { kind: 'directory' | 'file'; name: string; path: string }
       row: { kind: 'directory' | 'file'; path: string }
@@ -68,11 +99,17 @@ vi.mock('@pierre/trees/react', async () => {
     getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
     scrollToPath: () => void
     setSearch: (value: string | null) => void
+    startRenaming: (path?: string) => boolean
     subscribe: (listener: () => void) => () => void
+    __commitRename: () => void
+    __drop: (sourcePath: string, targetPath: string) => void
     __getPaths: () => readonly string[]
     __getExpanded: () => Set<string>
+    __getRenamePath: () => string | null
+    __getRenameValue: () => string
     __getSearch: () => string | null
     __select: (path: string) => void
+    __setRenameValue: (value: string) => void
     __toggle: (path: string) => void
   }
 
@@ -99,6 +136,8 @@ vi.mock('@pierre/trees/react', async () => {
     let paths = [...(options.preparedInput?.paths ?? options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
     let searchValue: string | null = null
+    let renamePath: string | null = null
+    let renameValue = ''
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
     const listeners = new Set<() => void>()
     const notify = (): void => {
@@ -178,16 +217,96 @@ vi.mock('@pierre/trees/react', async () => {
         searchValue = nextValue
         notify()
       },
+      startRenaming: (path = selectedPaths[0]) => {
+        if (!path || options.renaming === false || options.renaming == null) return false
+        const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
+        if (!paths.includes(normalizedPath)) return false
+        const canRename = typeof options.renaming === 'object' ? options.renaming.canRename : undefined
+        if (
+          canRename?.({ isFolder: isDirectoryPath(normalizedPath), path: normalizedPath }) === false
+        ) {
+          return false
+        }
+        renamePath = normalizedPath
+        renameValue = displayName(normalizedPath)
+        selectedPaths = [normalizedPath]
+        notify()
+        return true
+      },
       subscribe: (listener) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
+      __commitRename: () => {
+        if (!renamePath) return
+        const sourcePath = renamePath
+        const nextName = renameValue.trim()
+        renamePath = null
+        renameValue = ''
+        if (!nextName) {
+          if (typeof options.renaming === 'object') options.renaming.onError?.('empty name')
+          notify()
+          return
+        }
+        if (nextName.includes('/') || nextName.includes('\\')) {
+          if (typeof options.renaming === 'object') options.renaming.onError?.('invalid name')
+          notify()
+          return
+        }
+        const directory = isDirectoryPath(sourcePath)
+        const destinationPath = `${parentPath(sourcePath)}${nextName}${directory ? '/' : ''}`
+        if (typeof options.renaming === 'object') {
+          options.renaming.onRename?.({
+            destinationPath,
+            isFolder: directory,
+            sourcePath
+          })
+        }
+        paths = paths.map((path) =>
+          path === sourcePath || path.startsWith(sourcePath)
+            ? `${destinationPath}${path.slice(sourcePath.length)}`
+            : path
+        )
+        selectedPaths = [destinationPath]
+        notify()
+      },
+      __drop: (sourcePath, targetPath) => {
+        const dragOptions = options.dragAndDrop
+        if (!dragOptions || dragOptions === true || searchValue) return
+        if (dragOptions.canDrag?.([sourcePath]) === false) return
+        const targetDirectory = isDirectoryPath(targetPath) ? targetPath : parentPath(targetPath)
+        const target: TreeDropTarget = {
+          directoryPath: targetDirectory || null,
+          flattenedSegmentPath: null,
+          hoveredPath: targetPath,
+          kind: targetDirectory ? 'directory' : 'root'
+        }
+        const context = { draggedPaths: [sourcePath], target }
+        if (dragOptions.canDrop?.(context) === false) return
+        const destinationPath = `${targetDirectory}${displayName(sourcePath)}${
+          isDirectoryPath(sourcePath) ? '/' : ''
+        }`
+        paths = paths.map((path) =>
+          path === sourcePath || path.startsWith(sourcePath)
+            ? `${destinationPath}${path.slice(sourcePath.length)}`
+            : path
+        )
+        selectedPaths = [destinationPath]
+        dragOptions.onDropComplete?.({ ...context, operation: 'move' })
+        notify()
+      },
       __getPaths: () => paths,
       __getExpanded: () => expanded,
+      __getRenamePath: () => renamePath,
+      __getRenameValue: () => renameValue,
       __getSearch: () => searchValue,
       __select: (path) => {
         selectedPaths = [path]
         options.onSelectionChange?.(selectedPaths)
+        notify()
+      },
+      __setRenameValue: (value) => {
+        renameValue = value
         notify()
       },
       __toggle: (path) => {
@@ -251,6 +370,8 @@ vi.mock('@pierre/trees/react', async () => {
       return expanded.has(parent)
     })
     const selectedPath = model.getSelectedPaths()[0]
+    const dragAndDropEnabled = Boolean(model.options.dragAndDrop)
+    const activeRenamePath = model.__getRenamePath()
 
     return (
       <div>
@@ -273,10 +394,18 @@ vi.mock('@pierre/trees/react', async () => {
                 role="treeitem"
                 aria-label={name}
                 aria-selected={selectedPath === path}
+                draggable={dragAndDropEnabled && !searchValue}
                 onClick={() => model.__select(path)}
                 onContextMenu={(event) => {
                   event.preventDefault()
                   setActiveMenuPath(path)
+                }}
+                onDragStart={() => undefined}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourcePath = event.dataTransfer.getData('text/plain') || selectedPath
+                  if (sourcePath) model.__drop(sourcePath, path)
                 }}
               >
                 <span data-slot="context-menu-trigger">
@@ -292,7 +421,18 @@ vi.mock('@pierre/trees/react', async () => {
                       {expanded.has(path) ? '▾' : '▸'}
                     </button>
                   ) : null}
-                  {name}
+                  {activeRenamePath === path ? (
+                    <input
+                      aria-label={`Rename ${name}`}
+                      value={model.__getRenameValue()}
+                      onChange={(event) => model.__setRenameValue(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') model.__commitRename()
+                      }}
+                    />
+                  ) : (
+                    name
+                  )}
                   {decoration ? <span>{decoration.text}</span> : null}
                   {showContextMenuButton ? (
                     <button
@@ -550,12 +690,13 @@ describe('Files Tool', () => {
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
     expect(treesMock.options.at(-1)).toMatchObject({
       density: 'compact',
-      dragAndDrop: false,
       fileTreeSearchMode: 'hide-non-matches',
       flattenEmptyDirectories: true,
       icons: { set: 'complete', colored: true },
+      renaming: expect.any(Object),
       stickyFolders: true
     })
+    expect(treesMock.options.at(-1)?.dragAndDrop).toEqual(expect.any(Object))
     expect(treesMock.renderProps.at(-1)?.style).toMatchObject({
       '--trees-bg-override': 'var(--background)',
       '--trees-fg-override': 'var(--foreground)',
@@ -571,10 +712,13 @@ describe('Files Tool', () => {
   it('defaults to Files search and filters Trees rows by path/name without calling content search IPC', async () => {
     const search = vi.fn(async () => [])
     window.spacezero.files.search = search
-    window.spacezero.files.listTree = vi.fn(async () => [
-      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
-      { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
-    ])
+    window.spacezero.files.listTree = vi.fn(async () => ({
+      entries: [
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' as const },
+        { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
+      ],
+      presortedPaths: ['README.md', 'package.json']
+    }))
 
     render(<FilesTool sessionId="session-1" />)
 
@@ -2285,39 +2429,126 @@ describe('Files Tool', () => {
     expect(window.confirm).toHaveBeenCalledWith('Move old.txt to Trash?')
   })
 
-  it('keeps the rename dialog open for unchanged names and filesystem failures', async () => {
+  it('uses Trees inline rename and surfaces filesystem failures without rewriting open tabs', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }
     ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 3,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'old',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
     const moveEntry = vi.fn(async () => {
       throw new Error('files.collision')
     })
     window.spacezero.files.moveEntry = moveEntry
+    vi.spyOn(window, 'alert').mockImplementation(() => undefined)
 
     render(<FilesTool sessionId="session-rename-validation" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'old.txt' }))
+    expect(await screen.findByRole('tab', { name: /old\.txt/ })).toBeInTheDocument()
     fireEvent.contextMenu(
-      (await screen.findByRole('treeitem', { name: 'old.txt' })).querySelector(
-        '[data-slot="context-menu-trigger"]'
-      ) ?? screen.getByText('old.txt'),
+      screen
+        .getByRole('treeitem', { name: 'old.txt' })
+        .querySelector('[data-slot="context-menu-trigger"]') ?? screen.getByText('old.txt'),
       { clientX: 8, clientY: 8 }
     )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
 
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveFocus()
-    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue('old.txt')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
-    expect(await within(dialog).findByText('Choose a different name.')).toBeInTheDocument()
+    const renameInput = await screen.findByRole('textbox', { name: 'Rename old.txt' })
+    expect(renameInput).toHaveValue('old.txt')
+    fireEvent.change(renameInput, { target: { value: 'existing.txt' } })
+    fireEvent.keyDown(renameInput, { key: 'Enter' })
+
+    await waitFor(() =>
+      expect(moveEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-rename-validation' },
+        sourcePath: 'old.txt',
+        destinationPath: 'existing.txt'
+      })
+    )
+    expect(window.alert).toHaveBeenCalledWith('An item already exists at that path.')
+    expect(screen.getByRole('tab', { name: /old\.txt/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /existing\.txt/ })).not.toBeInTheDocument()
+    expect(await screen.findByRole('treeitem', { name: 'old.txt' })).toBeInTheDocument()
+  })
+
+  it('moves a file with Trees drag-and-drop through main and rewrites open tab paths', async () => {
+    let entries = [
+      { name: 'src', relativePath: 'src', kind: 'directory' as const },
+      { name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }
+    ]
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath.split('/').at(-1) ?? relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: 3,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'old',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const moveEntry = vi.fn(async () => {
+      entries = [
+        { name: 'src', relativePath: 'src', kind: 'directory' as const },
+        { name: 'old.txt', relativePath: 'src/old.txt', kind: 'file' as const }
+      ]
+    })
+    window.spacezero.files.moveEntry = moveEntry
+
+    render(<FilesTool sessionId="session-dnd-move" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'old.txt' }))
+    expect(await screen.findByRole('tab', { name: /old\.txt/ })).toBeInTheDocument()
+
+    const dataTransfer = { getData: () => 'old.txt', setData: vi.fn() }
+    fireEvent.drop(screen.getByRole('treeitem', { name: 'src' }), { dataTransfer })
+
+    await waitFor(() =>
+      expect(moveEntry).toHaveBeenCalledWith({
+        context: { kind: 'project-session', sessionId: 'session-dnd-move' },
+        sourcePath: 'old.txt',
+        destinationPath: 'src/old.txt'
+      })
+    )
+    expect(useFilesStore.getState().contexts['session-dnd-move'].activeTabPath).toBe(
+      'src/old.txt'
+    )
+    expect(screen.getByRole('tab', { name: /old\.txt/ })).toBeInTheDocument()
+  })
+
+  it('rejects invalid drop targets before main mutation and disables drag/drop while Files search is active', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'src', relativePath: 'src', kind: 'directory' as const },
+      { name: 'old.txt', relativePath: 'src/old.txt', kind: 'file' as const },
+      { name: 'old.txt', relativePath: 'old.txt', kind: 'file' as const }
+    ])
+    const moveEntry = vi.fn(async () => undefined)
+    window.spacezero.files.moveEntry = moveEntry
+
+    render(<FilesTool sessionId="session-dnd-validation" />)
+    await screen.findByRole('treeitem', { name: 'src' })
+
+    const dataTransfer = { getData: () => 'old.txt', setData: vi.fn() }
+    fireEvent.drop(screen.getByRole('treeitem', { name: 'src' }), { dataTransfer })
     expect(moveEntry).not.toHaveBeenCalled()
 
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
-      target: { value: 'existing.txt' }
-    })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
-    expect(
-      await within(dialog).findByText('An item already exists at that path.')
-    ).toBeInTheDocument()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    fireEvent.change(filesSearchInput(), { target: { value: 'old' } })
+    await waitFor(() =>
+      expect(screen.getAllByRole('treeitem', { name: 'old.txt' })[0]).not.toHaveAttribute(
+        'draggable',
+        'true'
+      )
+    )
+    fireEvent.drop(screen.getByRole('treeitem', { name: 'src' }), { dataTransfer })
+    expect(moveEntry).not.toHaveBeenCalled()
   })
 
   it('opens a root New Folder dialog and creates the folder after confirmation', async () => {
@@ -2463,12 +2694,12 @@ describe('Files Tool', () => {
       { clientX: 8, clientY: 8 }
     )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
-    const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByRole('textbox', { name: 'Name' })).toHaveValue('draft.md')
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
+    const renameInput = await screen.findByRole('textbox', { name: 'Rename draft.md' })
+    expect(renameInput).toHaveValue('draft.md')
+    fireEvent.change(renameInput, {
       target: { value: 'renamed.md' }
     })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    fireEvent.keyDown(renameInput, { key: 'Enter' })
 
     await waitFor(() => expect(moveEntry).toHaveBeenCalledTimes(1))
     expect(saveDocument).toHaveBeenCalledTimes(1)
@@ -2484,7 +2715,7 @@ describe('Files Tool', () => {
     expect(screen.getByDisplayValue('# Old')).toBeInTheDocument()
   })
 
-  it('keeps the rename dialog open when dirty-file save preparation fails', async () => {
+  it('leaves inline rename state unchanged when dirty-file save preparation fails', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'draft.md', relativePath: 'draft.md', kind: 'file' as const }
     ])
@@ -2530,19 +2761,17 @@ describe('Files Tool', () => {
       { clientX: 8, clientY: 8 }
     )
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name' }), {
+    const renameInput = await screen.findByRole('textbox', { name: 'Rename draft.md' })
+    fireEvent.change(renameInput, {
       target: { value: 'renamed.md' }
     })
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Rename' }))
+    fireEvent.keyDown(renameInput, { key: 'Enter' })
 
-    expect(
-      await within(dialog).findByText('Save or discard changes before renaming.')
-    ).toBeInTheDocument()
-    expect(within(dialog).getByRole('button', { name: 'Rename' })).toBeEnabled()
-    expect(saveDocument).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(await screen.findByRole('treeitem', { name: 'draft.md' })).toBeInTheDocument()
     expect(moveEntry).not.toHaveBeenCalled()
-    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /draft\.md/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /renamed\.md/ })).not.toBeInTheDocument()
   })
 
   it('hides tab strip scrollbars while preserving active tab scrolling and dirty-only tab indicators', async () => {
