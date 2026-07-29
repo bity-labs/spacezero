@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { focusManager, QueryClientProvider } from '@tanstack/react-query'
 
@@ -838,11 +838,28 @@ describe('ProjectHome', () => {
       />
     )
 
+    await screen.findByText('bity-labs/spacezero')
+    const repositoryCard = screen.getByRole('region', { name: 'GitHub repository' })
+    const trustCard = screen.getByRole('region', { name: 'Trust Project' })
+    const recentIssuesCard = await screen.findByRole('region', { name: 'Recent Issues' })
+    const pullRequestsCard = await screen.findByRole('region', { name: 'Open Pull Requests' })
+    expect(repositoryCard.parentElement).toHaveClass('grid', 'lg:grid-cols-2')
+    expect(repositoryCard.compareDocumentPosition(trustCard)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(trustCard.compareDocumentPosition(recentIssuesCard)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+    expect(recentIssuesCard.compareDocumentPosition(pullRequestsCard)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
     expect(
-      await screen.findByRole('region', { name: 'GitHub workflow summary' })
+      screen.queryByRole('region', { name: 'GitHub workflow summary' })
+    ).not.toBeInTheDocument()
+    expect(
+      await within(recentIssuesCard).findByText('GitHub integration overview')
     ).toBeInTheDocument()
-    expect(await screen.findByText('GitHub integration overview')).toBeInTheDocument()
-    expect(await screen.findByText('Storage integration overview')).toBeInTheDocument()
+    expect(
+      await within(pullRequestsCard).findByText('Storage integration overview')
+    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Open on GitHub' })).toHaveAttribute(
       'href',
       repository.htmlUrl
