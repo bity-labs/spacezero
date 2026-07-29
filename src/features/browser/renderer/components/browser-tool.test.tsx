@@ -270,25 +270,44 @@ describe('BrowserTool', () => {
     await waitFor(() => expect(browser.show).toHaveBeenCalled())
   })
 
-  it('finishes hidden when an overlay opens while native show is delayed', async () => {
+  it('hides immediately and blocks page input when an overlay opens during a delayed native show', async () => {
     const browser = installBrowserApi({ url: 'https://example.com/' })
     const pendingShow = deferred<Awaited<ReturnType<BrowserApi['show']>>>()
-    browser.show.mockImplementationOnce(() => pendingShow.promise)
+    let nativeAttached = false
+    let pageInputCount = 0
+    browser.show.mockImplementationOnce(() => {
+      nativeAttached = true
+      return pendingShow.promise
+    })
+    browser.hide.mockImplementation(async () => {
+      nativeAttached = false
+    })
+    const attemptPageInput = (): void => {
+      if (nativeAttached) pageInputCount += 1
+    }
     const user = userEvent.setup()
 
     renderBrowserToolWithCommandPalette()
 
     await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    expect(nativeAttached).toBe(true)
+
     await user.click(screen.getByRole('button', { name: 'Open command palette' }))
     expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
-    expect(browser.hide).not.toHaveBeenCalled()
+    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+    expect(nativeAttached).toBe(false)
+    attemptPageInput()
+    expect(pageInputCount).toBe(0)
 
     pendingShow.resolve(browser.getTestState())
 
-    await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
+    await act(async () => pendingShow.promise)
+    expect(nativeAttached).toBe(false)
+    attemptPageInput()
+    expect(pageInputCount).toBe(0)
   })
 
-  it('finishes shown when an overlay closes while native hide is delayed', async () => {
+  it('shows immediately when an overlay closes while an older native hide is delayed', async () => {
     const browser = installBrowserApi({ url: 'https://example.com/' })
     const user = userEvent.setup()
 
@@ -301,20 +320,21 @@ describe('BrowserTool', () => {
     browser.hide.mockImplementationOnce(() => pendingHide.promise)
     await user.click(screen.getByRole('button', { name: 'Open command palette' }))
     expect(await screen.findByRole('dialog', { name: 'Command Palette' })).toBeVisible()
-    await waitFor(() => expect(browser.hide).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(browser.hide).toHaveBeenCalled())
 
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(screen.queryByRole('dialog', { name: 'Command Palette' })).not.toBeInTheDocument()
     )
-    expect(browser.show).not.toHaveBeenCalled()
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
 
     pendingHide.resolve(undefined)
+    await act(async () => pendingHide.promise)
 
-    await waitFor(() => expect(browser.show).toHaveBeenCalled())
+    expect(browser.show).toHaveBeenCalled()
   })
 
-  it('finishes on the next context when Browser switches while native show after overlay close is delayed', async () => {
+  it('hides and shows the next context immediately when an older native show is delayed', async () => {
     const browser = installBrowserApi({ url: 'https://example.com/' })
     const user = userEvent.setup()
     const view = renderBrowserToolWithCommandPalette()
@@ -337,15 +357,19 @@ describe('BrowserTool', () => {
     const nextContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
     const nextContextKey = 'session:workspace-2'
     renderBrowserTool({ contextKey: nextContextKey, context: nextContext })
-    expect(browser.hide).not.toHaveBeenCalled()
-
-    pendingShow.resolve(browser.getTestState())
 
     await waitFor(() => expect(browser.hide).toHaveBeenCalledWith({ contextKey, context }))
     await waitFor(() =>
       expect(browser.show).toHaveBeenLastCalledWith(
         expect.objectContaining({ contextKey: nextContextKey, context: nextContext })
       )
+    )
+
+    pendingShow.resolve(browser.getTestState())
+    await act(async () => pendingShow.promise)
+
+    expect(browser.show).toHaveBeenLastCalledWith(
+      expect.objectContaining({ contextKey: nextContextKey, context: nextContext })
     )
   })
 

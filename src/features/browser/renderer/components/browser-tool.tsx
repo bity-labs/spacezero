@@ -87,17 +87,6 @@ const browserDownloadStore: BrowserDownloadStore = {
   listeners: new Set()
 }
 
-let browserPresentationQueue: Promise<void> = Promise.resolve()
-
-function scheduleBrowserPresentation(operation: () => Promise<unknown>): Promise<unknown> {
-  const next = browserPresentationQueue.then(operation, operation)
-  browserPresentationQueue = next.then(
-    () => undefined,
-    () => undefined
-  )
-  return next
-}
-
 function ensureBrowserDownloadSubscription(): void {
   const api = window.spacezero.browser
   if (browserDownloadStore.api === api && browserDownloadStore.unsubscribe) return
@@ -160,8 +149,8 @@ export function BrowserTool({
     [activeTabId, context, contextKey]
   )
 
-  const enqueuePresentation = useCallback((operation: () => Promise<unknown>): void => {
-    void scheduleBrowserPresentation(operation).catch((reason: unknown) => {
+  const requestPresentation = useCallback((operation: () => Promise<unknown>): void => {
+    void operation().catch((reason: unknown) => {
       setError(toErrorMessage(reason))
     })
   }, [])
@@ -452,7 +441,7 @@ export function BrowserTool({
     if (!surface || !activeTabId) return
     if (isGlobalOverlayOpen) {
       shortcutManager.setContext({ browserFocused: false })
-      enqueuePresentation(() => window.spacezero.browser.hide({ contextKey, context }))
+      requestPresentation(() => window.spacezero.browser.hide({ contextKey, context }))
       return
     }
     const surfaceElement = surface
@@ -463,7 +452,7 @@ export function BrowserTool({
       if (cancelled) return
       const rect = surfaceElement.getBoundingClientRect()
       if (rect.width < 1 || rect.height < 1) return
-      enqueuePresentation(() =>
+      requestPresentation(() =>
         window.spacezero.browser.show({
           contextKey,
           context,
@@ -489,15 +478,15 @@ export function BrowserTool({
       window.cancelAnimationFrame(animationFrame)
       observer.disconnect()
       window.removeEventListener('resize', syncBounds)
-      enqueuePresentation(() => window.spacezero.browser.hide({ contextKey, context }))
+      requestPresentation(() => window.spacezero.browser.hide({ contextKey, context }))
     }
   }, [
     activeTabId,
     activeTabUrl,
     context,
     contextKey,
-    enqueuePresentation,
     isGlobalOverlayOpen,
+    requestPresentation,
     shortcutBindingsVersion,
     shortcutManager
   ])
