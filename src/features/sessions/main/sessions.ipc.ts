@@ -5,7 +5,11 @@ import { IPC_CHANNELS } from '../../../shared/ipc'
 import { createManagedProjectAgentSession } from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
-import { createProjectSessionRequestSchema, renameSessionTitleRequestSchema } from '../shared'
+import {
+  createProjectSessionRequestSchema,
+  renameSessionTitleRequestSchema,
+  resumeProjectChatContextRequestSchema
+} from '../shared'
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
@@ -43,6 +47,14 @@ export function registerSessionsIpc(): void {
       return getProjectSessionChatService().getOrCreateCurrentChatContext(sessionId)
     }
   )
+  ipcMain.handle(IPC_CHANNELS.sessions.listProjectChatHistory, async (_event, input: unknown) => {
+    const { sessionId } = sessionIdRequestSchema.parse(input)
+    return getProjectSessionChatService().listChatHistory(sessionId)
+  })
+  ipcMain.handle(IPC_CHANNELS.sessions.resumeProjectChat, async (_event, input: unknown) => {
+    const { sessionId, chatContextId } = resumeProjectChatContextRequestSchema.parse(input)
+    return getProjectSessionChatService().resumeChatContext(sessionId, chatContextId)
+  })
   ipcMain.handle(IPC_CHANNELS.sessions.clearProjectChat, async (_event, input: unknown) => {
     const { sessionId } = sessionIdRequestSchema.parse(input)
     return getProjectSessionChatService().clearChat(sessionId)

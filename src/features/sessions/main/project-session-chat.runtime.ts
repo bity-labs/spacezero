@@ -26,7 +26,10 @@ export function getProjectSessionChatService(): ProjectSessionChatService {
     service = createProjectSessionChatService({
       findSessionById: sessionsRepository.findSessionById,
       getCurrentChatContext: chatRepository.getCurrentChatContext,
+      listChatContexts: chatRepository.listChatContexts,
+      findChatContextById: chatRepository.findChatContextById,
       createCurrentChatContext: chatRepository.createCurrentChatContext,
+      setCurrentChatContext: chatRepository.setCurrentChatContext,
       createFreshAgentSession: (projectSessionId) =>
         createProjectChatAgentSession(projectSessionId, {
           repository: sessionsRepository,
@@ -39,7 +42,8 @@ export function getProjectSessionChatService(): ProjectSessionChatService {
       deleteAgentSession: async (agentSessionId) => {
         await getAgentUtilityProcessHost().deleteSession({ sessionId: agentSessionId })
         await sessionsRepository.deleteById(agentSessionId)
-      }
+      },
+      getSessionState: (request) => getAgentUtilityProcessHost().getState(request)
     })
   }
   return service

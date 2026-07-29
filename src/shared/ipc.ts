@@ -81,6 +81,7 @@ import type {
   CreateProjectSessionRequest,
   ProjectSession,
   ProjectSessionChatContext,
+  ProjectSessionChatHistoryItem,
   RenameSessionTitleRequest,
   Session,
   WorkspaceSession
@@ -176,6 +177,8 @@ export const IPC_CHANNELS = {
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
     createProjectSession: 'sessions:createProjectSession',
     getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
+    listProjectChatHistory: 'sessions:listProjectChatHistory',
+    resumeProjectChat: 'sessions:resumeProjectChat',
     clearProjectChat: 'sessions:clearProjectChat',
     rename: 'sessions:rename',
     archive: 'sessions:archive',
@@ -338,6 +341,13 @@ export type SpaceZeroAPI = {
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     getCurrentProjectChatContext: (request: {
       sessionId: string
+    }) => Promise<ProjectSessionChatContext>
+    listProjectChatHistory: (request: {
+      sessionId: string
+    }) => Promise<ProjectSessionChatHistoryItem[]>
+    resumeProjectChat: (request: {
+      sessionId: string
+      chatContextId: string
     }) => Promise<ProjectSessionChatContext>
     clearProjectChat: (request: { sessionId: string }) => Promise<ProjectSessionChatContext>
     rename: (request: RenameSessionTitleRequest) => Promise<Session>
