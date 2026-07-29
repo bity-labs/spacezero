@@ -479,7 +479,7 @@ export function WorkspaceShell(): React.JSX.Element {
           />
         </div>
 
-        <div className="flex h-full w-full min-w-0 items-center px-2">
+        <div className="flex h-full w-full min-w-0 items-center">
           <ToolPaneHeaderControls configuration={toolPaneConfiguration} />
         </div>
       </header>
