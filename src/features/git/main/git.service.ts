@@ -475,7 +475,7 @@ async function runGitCli({
   allowFailure?: boolean
 }): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   try {
-    const { stdout, stderr } = await execFileAsync('git', args, {
+    const { stdout, stderr } = await execFileAsync('git', ['--no-optional-locks', ...args], {
       cwd,
       encoding: 'utf8',
       maxBuffer: MAX_GIT_OUTPUT_BYTES

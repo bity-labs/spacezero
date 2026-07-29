@@ -1138,7 +1138,7 @@ describe('GitTool', () => {
     expect(screen.queryByText('Branch')).not.toBeInTheDocument()
   })
 
-  it('offers manual refresh and re-queries without mutating Git state', async () => {
+  it('opens with one lifecycle request and sends exactly one request per refresh click', async () => {
     window.spacezero.git.getReview = vi
       .fn()
       .mockResolvedValueOnce({
@@ -1165,12 +1165,14 @@ describe('GitTool', () => {
     render(<GitTool sessionId="session-1" />)
 
     await screen.findByText('No uncommitted changes')
+    expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(1)
     const refreshButton = screen.getByRole('button', { name: 'Refresh Git status' })
     expect(refreshButton).toHaveAttribute('title', 'Refresh Git status')
     expect(refreshButton).not.toHaveTextContent('Refresh')
     await userEvent.click(refreshButton)
 
     await screen.findByText('+fresh')
+    expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(2)
     expect(window.spacezero.git.getReview).toHaveBeenCalledWith({
       context: { kind: 'project-session', sessionId: 'session-1' },
       filter: 'uncommitted'
