@@ -164,6 +164,25 @@ describe('BrowserTool', () => {
     await expectNavigateCalled(browser, 'localhost:4173')
   })
 
+  it('shows the absolute-path failure when a relative local HTML path is submitted', async () => {
+    const browser = installBrowserApi()
+    browser.navigate.mockRejectedValueOnce(
+      new Error('Enter an absolute local HTML file path for this operating system.')
+    )
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const input = await screen.findByLabelText('Browser URL')
+    await user.type(input, 'preview/index.html')
+    await user.click(screen.getByRole('button', { name: 'Go' }))
+
+    await expectNavigateCalled(browser, 'preview/index.html')
+    expect(
+      await screen.findByText('Enter an absolute local HTML file path for this operating system.')
+    ).toBeInTheDocument()
+  })
+
   it('does not navigate or show an IPC error when Enter submits whitespace-only input', async () => {
     const browser = installBrowserApi()
     browser.navigate.mockRejectedValueOnce(
