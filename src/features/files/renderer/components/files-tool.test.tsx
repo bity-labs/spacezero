@@ -44,7 +44,10 @@ vi.mock('@pierre/trees/react', async () => {
 
   type MockModel = {
     options: TreeOptions
-    resetPaths: (paths: readonly string[] | { preparedInput: unknown }) => void
+    resetPaths: (
+      paths: readonly string[] | { preparedInput: unknown },
+      options?: { initialExpandedPaths?: readonly string[] }
+    ) => void
     getItem: (
       path: string
     ) => { select: () => void; isDirectory: () => boolean; getPath: () => string } | null
@@ -88,10 +91,27 @@ vi.mock('@pierre/trees/react', async () => {
       for (const listener of listeners) listener()
       forceUpdate()
     }
+    const resetExpanded = (nextExpandedPaths?: readonly string[]): boolean => {
+      if (!nextExpandedPaths) return false
+      const nextExpanded = new Set(nextExpandedPaths.map(normalizeDirectoryPath))
+      const changed =
+        nextExpanded.size !== expanded.size ||
+        [...nextExpanded].some((path) => !expanded.has(path))
+      if (!changed) return false
+      expanded.clear()
+      for (const path of nextExpanded) expanded.add(path)
+      return true
+    }
     const model: MockModel = {
       options,
-      resetPaths: (nextPaths) => {
-        paths = Array.isArray(nextPaths) ? [...nextPaths] : []
+      resetPaths: (nextPaths, resetOptions) => {
+        const normalizedPaths = Array.isArray(nextPaths) ? [...nextPaths] : []
+        const pathsChanged =
+          normalizedPaths.length !== paths.length ||
+          normalizedPaths.some((path, index) => path !== paths[index])
+        const expandedChanged = resetExpanded(resetOptions?.initialExpandedPaths)
+        if (!pathsChanged && !expandedChanged) return
+        paths = normalizedPaths
         notify()
       },
       getItem: (path) => {
