@@ -201,9 +201,9 @@ function GitToolSession({
   const refreshSequence = useRef(0)
   const refreshInFlight = useRef(false)
   const queuedRefresh = useRef<{ showLoading: boolean } | null>(null)
-  const refreshRef = useRef<(({ showLoading }?: { showLoading?: boolean }) => Promise<void>) | null>(
-    null
-  )
+  const refreshRef = useRef<
+    (({ showLoading }?: { showLoading?: boolean }) => Promise<void>) | null
+  >(null)
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const gitPromptRunPending = useRef(false)
@@ -707,61 +707,69 @@ function GitDiffCard({
       filesHandoff.openFilesTool()
     }
   }
+  const hasRenderableTextDiff = Boolean(file.diff && !file.binary && !file.large)
+
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
-      <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
-        <button
-          aria-expanded={expanded}
-          aria-label="Toggle diff"
-          className="absolute inset-0 z-0 cursor-pointer rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          type="button"
-          onClick={onToggle}
-        />
-        <div className="pointer-events-none relative z-10 min-w-0">
+      {!hasRenderableTextDiff ? (
+        <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
           <button
-            className={`pointer-events-auto block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
-            disabled={!canOpenInFiles}
-            title={filesHandoffUnavailableMessage(file, filesHandoff)}
+            aria-expanded={expanded}
+            aria-label="Toggle diff"
+            className="absolute inset-0 z-0 cursor-pointer rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
             type="button"
-            onClick={() => void openInFiles()}
-          >
-            {file.path}
-          </button>
-          {file.oldPath ? (
-            <div className="truncate text-xs text-muted-foreground">
-              renamed from {file.oldPath}
-            </div>
-          ) : null}
-        </div>
-        <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-2">
-          <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
-            {file.kind}
-          </span>
-        </div>
-      </div>
-      {expanded ? (
-        file.diff && !file.binary && !file.large ? (
-          <DiffViewer
-            ariaLabel={`Diff for ${file.path}`}
-            className="border-t"
-            items={[
-              {
-                id: `${file.oldPath ?? ''}:${file.path}`,
-                path: file.path,
-                oldPath: file.oldPath,
-                patch: file.diff
-              }
-            ]}
+            onClick={onToggle}
           />
-        ) : (
-          <div className="border-t p-3 text-sm text-muted-foreground">
-            {file.binary
-              ? 'Binary change summary only. No text diff is available.'
-              : file.large
-                ? 'Diff is too large to render inline.'
-                : 'No text diff is available for this change.'}
+          <div className="pointer-events-none relative z-10 min-w-0">
+            <button
+              className={`pointer-events-auto block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
+              disabled={!canOpenInFiles}
+              title={filesHandoffUnavailableMessage(file, filesHandoff)}
+              type="button"
+              onClick={() => void openInFiles()}
+            >
+              {file.path}
+            </button>
+            {file.oldPath ? (
+              <div className="truncate text-xs text-muted-foreground">
+                renamed from {file.oldPath}
+              </div>
+            ) : null}
           </div>
-        )
+          <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-2">
+            <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
+              {file.kind}
+            </span>
+          </div>
+        </div>
+      ) : null}
+      {hasRenderableTextDiff ? (
+        <DiffViewer
+          ariaLabel={`Diff for ${file.path}`}
+          items={[
+            {
+              id: `${file.oldPath ?? ''}:${file.path}`,
+              path: file.path,
+              oldPath: file.oldPath,
+              patch: file.diff!,
+              collapsed: !expanded,
+              headerActions: {
+                status: file.kind,
+                fileNameTitle: filesHandoffUnavailableMessage(file, filesHandoff),
+                onFileNameClick: canOpenInFiles ? () => void openInFiles() : undefined,
+                onToggle
+              }
+            }
+          ]}
+        />
+      ) : expanded ? (
+        <div className="border-t p-3 text-sm text-muted-foreground">
+          {file.binary
+            ? 'Binary change summary only. No text diff is available.'
+            : file.large
+              ? 'Diff is too large to render inline.'
+              : 'No text diff is available for this change.'}
+        </div>
       ) : null}
     </section>
   )
