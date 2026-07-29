@@ -84,7 +84,9 @@ export function createGitHubIssuesService({
     })
     return {
       ...page,
-      items: page.items.filter((issue) => !issue.isPullRequest).map(toIssue)
+      items: page.items
+        .filter((issue) => !issue.isPullRequest && issue.state === 'open')
+        .map(toIssue)
     }
   }
 

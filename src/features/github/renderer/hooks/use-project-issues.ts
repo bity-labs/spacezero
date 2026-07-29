@@ -18,10 +18,15 @@ export function useProjectIssue(projectId: string, number: number) {
   })
 }
 
-export function useProjectIssueComments(projectId: string, number: number, page: number) {
+export function useProjectIssueComments(
+  projectId: string,
+  number: number,
+  page: number,
+  perPage?: number
+) {
   return useQuery({
-    queryKey: ['github', 'issue-comments', projectId, number, page],
-    queryFn: () => window.spacezero.github.listIssueComments({ projectId, number, page }),
+    queryKey: ['github', 'issue-comments', projectId, number, page, perPage],
+    queryFn: () => window.spacezero.github.listIssueComments({ projectId, number, page, perPage }),
     refetchOnMount: 'always',
     refetchOnWindowFocus: 'always'
   })
