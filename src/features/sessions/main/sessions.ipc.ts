@@ -9,6 +9,7 @@ import { createProjectSessionRequestSchema, renameSessionTitleRequestSchema } fr
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getProjectSessionChatService } from './project-session-chat.runtime'
 import { getSessionCleanupService } from './session-cleanup.runtime'
 import { createSessionsService } from './sessions.service'
 
@@ -34,6 +35,17 @@ export function registerSessionsIpc(): void {
       resolveSkillPaths: resolveAgentSkillPaths
     })
     return session
+  })
+  ipcMain.handle(
+    IPC_CHANNELS.sessions.getCurrentProjectChatContext,
+    async (_event, input: unknown) => {
+      const { sessionId } = sessionIdRequestSchema.parse(input)
+      return getProjectSessionChatService().getOrCreateCurrentChatContext(sessionId)
+    }
+  )
+  ipcMain.handle(IPC_CHANNELS.sessions.clearProjectChat, async (_event, input: unknown) => {
+    const { sessionId } = sessionIdRequestSchema.parse(input)
+    return getProjectSessionChatService().clearChat(sessionId)
   })
   ipcMain.handle(IPC_CHANNELS.sessions.rename, async (_event, input: unknown) => {
     const { sessionId, title } = renameSessionTitleRequestSchema.parse(input)

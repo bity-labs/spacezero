@@ -151,7 +151,7 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" />)
 
-    expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: 'Uncommitted' })).toHaveAttribute(
       'aria-selected',
       'true'
     )
@@ -517,6 +517,125 @@ describe('GitTool', () => {
     expect(message).toContain('ask me for the required remote or upstream information')
     expect(message).not.toContain('diff --git')
     expect(message).not.toContain('+change')
+  })
+
+  it('keeps Project Session agent actions unavailable until the current Chat Context resolves', async () => {
+    const lookup = deferred<{
+      id: string
+      workspaceContext: { kind: 'project-session'; projectSessionId: string }
+      agentSessionId: string
+      createdAt: string
+      updatedAt: string
+    }>()
+    const getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: 'project-1',
+      cwd: '/worktrees/project-session-1',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(() => lookup.promise)
+    window.spacezero.agent.getState = getState
+    window.spacezero.agent.prompt = prompt
+
+    render(<GitTool sessionId="session-1" />)
+
+    expect(screen.getByText('Restoring Project Session chat…')).toBeInTheDocument()
+    expect(getState).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
+
+    lookup.resolve({
+      id: 'chat-context-2',
+      workspaceContext: { kind: 'project-session', projectSessionId: 'session-1' },
+      agentSessionId: 'agent-session-2',
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(1).toISOString()
+    })
+
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
+    expect(getState).toHaveBeenCalledWith({ sessionId: 'agent-session-2' })
+    expect(getState).not.toHaveBeenCalledWith({ sessionId: 'session-1' })
+  })
+
+  it('routes Project Session commit prompts to the fresh Chat Context agent after /clear', async () => {
+    const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
+      async () => undefined
+    )
+    window.spacezero.agent.prompt = prompt
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: 'project-1',
+      cwd: '/worktrees/project-session-1',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: undefined,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: []
+    }))
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(async () => ({
+      id: 'chat-context-1',
+      workspaceContext: {
+        kind: 'project-session' as const,
+        projectSessionId: 'session-1'
+      },
+      agentSessionId: 'session-1',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'src/file.ts',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/src/file.ts b/src/file.ts\n+change\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeInTheDocument()
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('spacezero:project-session-chat-context-changed', {
+          detail: {
+            id: 'chat-context-2',
+            workspaceContext: {
+              kind: 'project-session',
+              projectSessionId: 'session-1'
+            },
+            agentSessionId: 'agent-session-2',
+            createdAt: new Date(1).toISOString(),
+            updatedAt: new Date(1).toISOString()
+          }
+        })
+      )
+    })
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({ sessionId: 'agent-session-2' })
+    )
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled())
+    await userEvent.click(screen.getByRole('button', { name: 'Commit & Push' }))
+
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(prompt).toHaveBeenCalledWith({
+      sessionId: 'agent-session-2',
+      message: expect.stringContaining('inspect the current Git state')
+    })
   })
 
   it('routes Knowledge Base commit prompts to the fresh agent Session after /clear', async () => {
@@ -1540,18 +1659,19 @@ describe('GitTool', () => {
 
     rendered.rerender(<GitTool sessionId="session-b" />)
 
-    expect(screen.getByText('Loading Git…')).toBeInTheDocument()
+    expect(screen.getByText('Restoring Project Session chat…')).toBeInTheDocument()
     expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute(
-      'aria-selected',
-      'true'
-    )
+    expect(screen.queryByRole('tab', { name: 'Uncommitted' })).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue('session a commit')).not.toBeInTheDocument()
     await waitFor(() =>
       expect(
         Array.from(resolvers.keys()).some((key) => key.startsWith('session-b:uncommitted:'))
       ).toBe(true)
+    )
+    expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute(
+      'aria-selected',
+      'true'
     )
     act(() => {
       for (const [key, resolve] of resolvers) {
@@ -1579,7 +1699,10 @@ describe('GitTool', () => {
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
 
     rendered.rerender(<GitTool sessionId="session-a" />)
-    expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
+    expect(await screen.findByRole('tab', { name: 'Staged' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
     expect(screen.queryByText('branch-b')).not.toBeInTheDocument()
     await waitFor(() =>
       expect(

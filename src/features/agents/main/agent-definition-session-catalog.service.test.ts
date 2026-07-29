@@ -99,4 +99,54 @@ describe('listAgentDefinitionsForSession', () => {
       ])
     )
   })
+
+  it('uses the stable Project Session worktree for a rotated Chat Context agent', async () => {
+    const validate = vi.fn(async () => true)
+    const resolveSourcesForSession = vi.fn(async () => [])
+
+    await listAgentDefinitionsForSession('agent-session-2', {
+      repository: {
+        findSessionById: async (sessionId) =>
+          sessionId === 'agent-session-2'
+            ? {
+                id: 'agent-session-2',
+                projectId: 'project-1',
+                workspaceContextSessionId: 'project-session-1',
+                title: 'Session 1',
+                status: 'idle' as const,
+                createdAt: new Date(1),
+                updatedAt: new Date(1)
+              }
+            : {
+                id: 'project-session-1',
+                projectId: 'project-1',
+                title: 'Session 1',
+                status: 'idle' as const,
+                createdAt: new Date(0),
+                updatedAt: new Date(0),
+                worktreePath: '/worktrees/project-session-1',
+                worktreeBranch: 'spacezero/project-session-1',
+                worktreeBaseRevision: 'abc123'
+              },
+        findProjectById: async () => ({
+          id: 'project-1',
+          path: '/repo',
+          agentResourcesTrusted: true
+        })
+      },
+      worktrees: { validate },
+      discoverDefinitions: async () => [],
+      resolveSourcesForSession
+    })
+
+    expect(validate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'project-session-1',
+        worktree: expect.objectContaining({ path: '/worktrees/project-session-1' })
+      })
+    )
+    expect(resolveSourcesForSession).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: '/worktrees/project-session-1', projectTrusted: true })
+    )
+  })
 })

@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import type { KnowledgeBaseChatContext } from '../../../knowledge-base/shared'
+import type { ProjectSessionChatContext } from '../../../sessions/shared'
 import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
@@ -30,8 +31,8 @@ const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
 
 const OBSERVATION_REFRESH_DELAY_MS = 150
 const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
-const KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT =
-  'spacezero:knowledge-base-chat-context-changed'
+const KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT = 'spacezero:knowledge-base-chat-context-changed'
+const PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT = 'spacezero:project-session-chat-context-changed'
 
 type GitViewMemory = {
   filter: GitChangeFilter
@@ -83,7 +84,9 @@ export function GitTool({ context, sessionId, filesHandoff }: GitToolProps): Rea
   const gitContext = context ?? (sessionId ? { kind: 'project-session' as const, sessionId } : null)
   if (!gitContext) throw new Error('GitTool requires a Git context.')
   if (gitContext.kind === 'project-session') {
-    return <ProjectGitTool context={gitContext} filesHandoff={filesHandoff} />
+    return (
+      <ProjectGitTool key={gitContext.sessionId} context={gitContext} filesHandoff={filesHandoff} />
+    )
   }
   return <KnowledgeBaseGitTool context={gitContext} filesHandoff={filesHandoff} />
 }
@@ -163,14 +166,86 @@ function ProjectGitTool({
   context: Extract<GitContext, { kind: 'project-session' }>
   filesHandoff?: GitFilesHandoff
 }): React.JSX.Element {
-  const agentSession = useAgentSession(context.sessionId)
+  const [resolvedAgentSession, setResolvedAgentSession] = useState<{
+    workspaceContextSessionId: string
+    agentSessionId: string
+  }>()
+  const sessionLookupSequence = useRef(0)
+  const agentSessionId =
+    resolvedAgentSession?.workspaceContextSessionId === context.sessionId
+      ? resolvedAgentSession.agentSessionId
+      : undefined
+
+  useEffect(() => {
+    let canceled = false
+    const loadCurrentSession = async (): Promise<void> => {
+      const requestId = (sessionLookupSequence.current += 1)
+      const chatContext = await window.spacezero.sessions.getCurrentProjectChatContext({
+        sessionId: context.sessionId
+      })
+      if (!canceled && requestId === sessionLookupSequence.current) {
+        setResolvedAgentSession({
+          workspaceContextSessionId: context.sessionId,
+          agentSessionId: chatContext.agentSessionId
+        })
+      }
+    }
+    const onFocus = (): void => {
+      void loadCurrentSession()
+    }
+    const onSessionChanged = (event: Event): void => {
+      const detail = (event as CustomEvent<ProjectSessionChatContext>).detail
+      if (
+        detail?.workspaceContext.projectSessionId === context.sessionId &&
+        detail.agentSessionId
+      ) {
+        sessionLookupSequence.current += 1
+        setResolvedAgentSession({
+          workspaceContextSessionId: context.sessionId,
+          agentSessionId: detail.agentSessionId
+        })
+      } else void loadCurrentSession()
+    }
+    void loadCurrentSession()
+    window.addEventListener(PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT, onSessionChanged)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      canceled = true
+      window.removeEventListener(PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT, onSessionChanged)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [context.sessionId])
+
+  if (!agentSessionId) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Restoring Project Session chat…
+      </div>
+    )
+  }
+
   return (
-    <GitToolSession
-      key={`session:${context.sessionId}`}
-      agentSession={agentSession}
+    <ProjectGitToolSession
+      key={`session:${context.sessionId}:${agentSessionId}`}
+      agentSessionId={agentSessionId}
       context={context}
       filesHandoff={filesHandoff}
     />
+  )
+}
+
+function ProjectGitToolSession({
+  agentSessionId,
+  context,
+  filesHandoff
+}: {
+  agentSessionId: string
+  context: Extract<GitContext, { kind: 'project-session' }>
+  filesHandoff?: GitFilesHandoff
+}): React.JSX.Element {
+  const agentSession = useAgentSession(agentSessionId)
+  return (
+    <GitToolSession agentSession={agentSession} context={context} filesHandoff={filesHandoff} />
   )
 }
 
@@ -738,34 +813,34 @@ function GitDiffCard({
   return (
     <section className="overflow-hidden rounded-lg border bg-card">
       <div className="relative flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-accent/60">
+        <button
+          aria-expanded={expanded}
+          aria-label="Toggle diff"
+          className="absolute inset-0 z-0 cursor-pointer rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          type="button"
+          onClick={onToggle}
+        />
+        <div className="pointer-events-none relative z-10 min-w-0">
           <button
-            aria-expanded={expanded}
-            aria-label="Toggle diff"
-            className="absolute inset-0 z-0 cursor-pointer rounded-t-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={`pointer-events-auto block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
+            disabled={!canOpenInFiles}
+            title={filesHandoffUnavailableMessage(file, filesHandoff)}
             type="button"
-            onClick={onToggle}
-          />
-          <div className="pointer-events-none relative z-10 min-w-0">
-            <button
-              className={`pointer-events-auto block truncate text-sm font-medium ${canOpenInFiles ? 'underline-offset-2 hover:underline' : ''}`}
-              disabled={!canOpenInFiles}
-              title={filesHandoffUnavailableMessage(file, filesHandoff)}
-              type="button"
-              onClick={() => void openInFiles()}
-            >
-              {file.path}
-            </button>
-            {file.oldPath ? (
-              <div className="truncate text-xs text-muted-foreground">
-                renamed from {file.oldPath}
-              </div>
-            ) : null}
-          </div>
-          <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-2">
-            <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
-              {file.kind}
-            </span>
-          </div>
+            onClick={() => void openInFiles()}
+          >
+            {file.path}
+          </button>
+          {file.oldPath ? (
+            <div className="truncate text-xs text-muted-foreground">
+              renamed from {file.oldPath}
+            </div>
+          ) : null}
+        </div>
+        <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-2">
+          <span className="rounded border px-2 py-0.5 text-xs capitalize text-muted-foreground">
+            {file.kind}
+          </span>
+        </div>
       </div>
       {expanded ? (
         <div className="border-t p-3 text-sm text-muted-foreground">

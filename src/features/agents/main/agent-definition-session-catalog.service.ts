@@ -24,13 +24,24 @@ export async function listAgentDefinitionsForSession(
 ): Promise<AgentDefinitionCatalogEntry[]> {
   const storedSession = await repository.findSessionById(sessionId.trim())
   if (!storedSession || storedSession.archivedAt) throw new Error('agent.sessionNotFound')
+  const workspaceSession = storedSession.workspaceContextSessionId
+    ? await repository.findSessionById(storedSession.workspaceContextSessionId)
+    : storedSession
+  if (
+    !workspaceSession ||
+    workspaceSession.archivedAt ||
+    workspaceSession.workspaceContextSessionId ||
+    workspaceSession.projectId !== storedSession.projectId
+  ) {
+    throw new Error('agent.sessionNotFound')
+  }
 
-  const project = storedSession.projectId
-    ? await repository.findProjectById(storedSession.projectId)
+  const project = workspaceSession.projectId
+    ? await repository.findProjectById(workspaceSession.projectId)
     : undefined
   const projectTrusted = project?.agentResourcesTrusted === true && !project.archivedAt
   const cwd = project
-    ? await resolveTrustedProjectSessionCwd(storedSession, project, worktrees)
+    ? await resolveTrustedProjectSessionCwd(workspaceSession, project, worktrees)
     : undefined
 
   const sources = await resolveSourcesForSession({
@@ -49,9 +60,18 @@ async function resolveTrustedProjectSessionCwd(
   if (project.archivedAt || project.agentResourcesTrusted !== true) return undefined
 
   const projectPath = resolve(project.path)
-  const worktreeValues = [session.worktreePath, session.worktreeBranch, session.worktreeBaseRevision]
+  const worktreeValues = [
+    session.worktreePath,
+    session.worktreeBranch,
+    session.worktreeBaseRevision
+  ]
   if (worktreeValues.every((value) => !value)) return projectPath
-  if (!session.worktreePath || !session.worktreeBranch || !session.worktreeBaseRevision || !worktrees) {
+  if (
+    !session.worktreePath ||
+    !session.worktreeBranch ||
+    !session.worktreeBaseRevision ||
+    !worktrees
+  ) {
     return undefined
   }
 
