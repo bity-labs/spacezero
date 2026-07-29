@@ -4,7 +4,12 @@ import { browserContextKey, type BrowserContext } from '../../../browser/shared'
 import { useToolPaneStore } from '../../../tool-pane/renderer'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
-import type { ProjectSession, ProjectSessionChatContext, WorkspaceSession } from '../../shared'
+import type {
+  ProjectSession,
+  ProjectSessionChatContext,
+  ProjectSessionChatHistoryItem,
+  WorkspaceSession
+} from '../../shared'
 import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import {
@@ -46,10 +51,17 @@ export function ProjectSessionHostSurface({
   const [chatContext, setChatContext] = useState<ProjectSessionChatContext>()
   const [errorState, setErrorState] = useState<{ sessionId: string; message: string }>()
   const [clearingSessionId, setClearingSessionId] = useState<string>()
+  const [chatHistoryState, setChatHistoryState] = useState<{
+    sessionId: string
+    items: ProjectSessionChatHistoryItem[]
+  }>()
   const chatContextResolution = useRef(0)
+  const chatHistoryResolution = useRef(0)
   const currentChatContext =
     chatContext?.workspaceContext.projectSessionId === session.id ? chatContext : undefined
   const error = errorState?.sessionId === session.id ? errorState.message : null
+  const chatHistory =
+    chatHistoryState?.sessionId === session.id ? chatHistoryState.items : undefined
   const isClearingChat = clearingSessionId === session.id
 
   useEffect(() => {
@@ -69,12 +81,64 @@ export function ProjectSessionHostSurface({
     )
     return () => {
       chatContextResolution.current += 1
+      chatHistoryResolution.current += 1
     }
   }, [session.id])
 
+  async function openChatHistory(): Promise<void> {
+    const resolution = ++chatHistoryResolution.current
+    setErrorState(undefined)
+    try {
+      const items = await window.spacezero.sessions.listProjectChatHistory({
+        sessionId: session.id
+      })
+      if (chatHistoryResolution.current === resolution) {
+        setChatHistoryState({ sessionId: session.id, items })
+      }
+    } catch (historyError) {
+      if (chatHistoryResolution.current === resolution) {
+        setErrorState({
+          sessionId: session.id,
+          message: getErrorMessage(historyError, 'Unable to load Project Session chat history.')
+        })
+      }
+      throw historyError
+    }
+  }
+
+  async function resumeChatContext(chatContextId: string): Promise<void> {
+    const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
+    setErrorState(undefined)
+    try {
+      const nextChatContext = await window.spacezero.sessions.resumeProjectChat({
+        sessionId: session.id,
+        chatContextId
+      })
+      if (chatContextResolution.current !== resolution) return
+      setChatContext(nextChatContext)
+      setChatHistoryState(undefined)
+      window.dispatchEvent(
+        new CustomEvent(PROJECT_SESSION_CHAT_CONTEXT_CHANGED_EVENT, {
+          detail: nextChatContext
+        })
+      )
+    } catch (resumeError) {
+      if (chatContextResolution.current === resolution) {
+        setErrorState({
+          sessionId: session.id,
+          message: getErrorMessage(resumeError, 'Unable to resume Project Session chat.')
+        })
+      }
+      throw resumeError
+    }
+  }
+
   async function clearChat(): Promise<void> {
     const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
     setClearingSessionId(session.id)
+    setChatHistoryState(undefined)
     setErrorState(undefined)
     try {
       const nextChatContext = await window.spacezero.sessions.clearProjectChat({
@@ -129,7 +193,11 @@ export function ProjectSessionHostSurface({
         session={session}
         agentSessionId={currentChatContext.agentSessionId}
         isClearingChat={isClearingChat}
+        historyItems={chatHistory}
         onClearChat={clearChat}
+        onOpenChatHistory={openChatHistory}
+        onResumeChatContext={resumeChatContext}
+        onDismissChatHistory={() => setChatHistoryState(undefined)}
       />
     </div>
   )
@@ -140,11 +208,19 @@ function ProjectSessionChatSurface({
   session,
   agentSessionId,
   isClearingChat,
-  onClearChat
+  historyItems,
+  onClearChat,
+  onOpenChatHistory,
+  onResumeChatContext,
+  onDismissChatHistory
 }: ProjectSessionHostSurfaceProps & {
   agentSessionId: string
   isClearingChat: boolean
+  historyItems?: ProjectSessionChatHistoryItem[]
   onClearChat: () => Promise<void>
+  onOpenChatHistory: () => Promise<void>
+  onResumeChatContext: (chatContextId: string) => Promise<void>
+  onDismissChatHistory: () => void
 }): React.JSX.Element {
   const agentSession = useAgentSession(agentSessionId)
 
@@ -175,12 +251,20 @@ function ProjectSessionChatSurface({
         {
           name: 'clear',
           description: 'Start a fresh Project Session Chat Context.'
+        },
+        {
+          name: 'resume',
+          description: 'Continue an older Project Session Chat Context.'
         }
       ]}
+      historyItems={historyItems}
       onCommand={(commandName) => {
         if (commandName === 'clear' && !isClearingChat) return onClearChat()
+        if (commandName === 'resume') return onOpenChatHistory()
         return undefined
       }}
+      onHistorySelect={onResumeChatContext}
+      onHistoryDismiss={onDismissChatHistory}
     />
   )
 }

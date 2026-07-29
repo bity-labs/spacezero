@@ -228,6 +228,117 @@ describe('ProjectSessionHostSurface', () => {
     expect(useToolPaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
   })
 
+  it('shows scoped /resume history, renders the selected transcript, and continues it in the same workspace', async () => {
+    const originalContext = {
+      id: 'chat-context-current',
+      workspaceContext: {
+        kind: 'project-session' as const,
+        projectSessionId: session.id
+      },
+      agentSessionId: session.id,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const selectedContext = {
+      ...originalContext,
+      id: 'chat-context-selected',
+      agentSessionId: 'agent-session-selected',
+      createdAt: '2026-07-19T08:30:00.000Z',
+      updatedAt: '2026-07-19T08:30:00.000Z'
+    }
+    const listProjectChatHistory = vi.fn(async () => [
+      {
+        id: selectedContext.id,
+        initialPrompt: 'Continue this Project Session in its managed worktree',
+        createdAt: selectedContext.createdAt
+      }
+    ])
+    const resumeProjectChat = vi.fn(async () => selectedContext)
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(async () => originalContext)
+    window.spacezero.sessions.listProjectChatHistory = listProjectChatHistory
+    window.spacezero.sessions.resumeProjectChat = resumeProjectChat
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: project.id,
+      cwd: '/worktrees/project-1/session-1',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      thinkingLevel: 'medium' as const,
+      transcriptSnapshot:
+        sessionId === selectedContext.agentSessionId
+          ? [
+              {
+                role: 'assistant' as const,
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: 'Selected Project Session transcript is restored.'
+                  }
+                ],
+                timestamp: 1,
+                stopReason: 'stop' as const
+              }
+            ]
+          : []
+    }))
+    window.spacezero.agent.prompt = prompt
+    useToolPaneStore.getState().openTool('session:session-1', 'terminal')
+    const stableToolState = structuredClone(
+      useToolPaneStore.getState().contexts['session:session-1']
+    )
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    await userEvent.type(input, '/res')
+    const resumeOption = screen.getByRole('option', { name: /\/resume/ })
+    expect(resumeOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(resumeOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
+
+    await userEvent.clear(input)
+    await userEvent.type(input, '/resume{Enter}')
+
+    await waitFor(() =>
+      expect(listProjectChatHistory).toHaveBeenCalledWith({ sessionId: session.id })
+    )
+    const historyRow = screen.getByRole('option', {
+      name: /Continue this Project Session in its managed worktree/
+    })
+    expect(historyRow.querySelector('[data-chat-history-icon="true"]')).toBeInTheDocument()
+    expect(historyRow.querySelector('.truncate')).toHaveTextContent(
+      'Continue this Project Session in its managed worktree'
+    )
+    expect(historyRow).toHaveTextContent(/Jul.*19.*2026/i)
+
+    await userEvent.click(historyRow)
+
+    await waitFor(() =>
+      expect(resumeProjectChat).toHaveBeenCalledWith({
+        sessionId: session.id,
+        chatContextId: selectedContext.id
+      })
+    )
+    expect(
+      await screen.findByText('Selected Project Session transcript is restored.')
+    ).toBeInTheDocument()
+
+    await userEvent.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'continue here')
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith({
+        sessionId: selectedContext.agentSessionId,
+        message: 'continue here'
+      })
+    )
+    expect(useToolPaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
+  })
+
   it('renders prompt failures in the session panel', async () => {
     const user = userEvent.setup()
     window.spacezero.agent.prompt = async () => {
