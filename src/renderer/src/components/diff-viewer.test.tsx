@@ -59,8 +59,7 @@ describe('DiffViewer', () => {
           {
             id: 'readme',
             path: 'README.md',
-            patch:
-              'diff --git a/README.md b/README.md\n@@ -1 +1 @@\n-old\n+new\n'
+            patch: 'diff --git a/README.md b/README.md\n@@ -1 +1 @@\n-old\n+new\n'
           },
           {
             id: 'renamed',
@@ -115,6 +114,30 @@ describe('DiffViewer', () => {
     expect(codeViewCalls[0]?.items[0]?.fileDiff.hunks.length).toBeGreaterThan(0)
   })
 
+  it('normalizes GitHub hunk-only patch text with the supplied file paths', () => {
+    codeViewCalls.length = 0
+
+    render(
+      <DiffViewer
+        items={[
+          {
+            id: 'pull-request-file',
+            path: 'src/new-name.ts',
+            oldPath: 'src/old-name.ts',
+            patch: '@@ -1 +1 @@\n-old\n+new'
+          }
+        ]}
+      />
+    )
+
+    expect(screen.getByTestId('pierre-code-view')).toBeInTheDocument()
+    expect(codeViewCalls[0]?.items[0]?.fileDiff).toMatchObject({
+      name: 'src/new-name.ts',
+      prevName: 'src/old-name.ts'
+    })
+    expect(codeViewCalls[0]?.items[0]?.fileDiff.hunks.length).toBeGreaterThan(0)
+  })
+
   it('shows bounded fallback messaging when a patch cannot be parsed', () => {
     codeViewCalls.length = 0
 
@@ -126,9 +149,9 @@ describe('DiffViewer', () => {
     )
 
     expect(screen.queryByTestId('pierre-code-view')).not.toBeInTheDocument()
-    expect(screen.getByText('Text diff could not be rendered.', { exact: false })).toHaveTextContent(
-      'broken.txt: Text diff could not be rendered.'
-    )
+    expect(
+      screen.getByText('Text diff could not be rendered.', { exact: false })
+    ).toHaveTextContent('broken.txt: Text diff could not be rendered.')
     expect(codeViewCalls).toHaveLength(0)
   })
 })
