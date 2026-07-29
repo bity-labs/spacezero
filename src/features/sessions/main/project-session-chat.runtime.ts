@@ -37,9 +37,7 @@ export function getProjectSessionChatService(): ProjectSessionChatService {
           resolveSkillPaths: resolveAgentSkillPaths
         }),
       deleteAgentSession: async (agentSessionId) => {
-        await getAgentUtilityProcessHost()
-          .deleteSession({ sessionId: agentSessionId })
-          .catch(() => undefined)
+        await getAgentUtilityProcessHost().deleteSession({ sessionId: agentSessionId })
         await sessionsRepository.deleteById(agentSessionId)
       }
     })

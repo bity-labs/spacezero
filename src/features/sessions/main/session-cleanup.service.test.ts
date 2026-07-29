@@ -103,6 +103,64 @@ describe('Session cleanup service', () => {
     expect(events).toEqual([`utility:${child.id}`, `utility:${session.id}`, 'worktree'])
   })
 
+  it.each([
+    [
+      'archive',
+      (service: ReturnType<typeof createSessionCleanupService>, sessionId: string) =>
+        service.archiveSession(sessionId)
+    ],
+    [
+      'delete',
+      (service: ReturnType<typeof createSessionCleanupService>, sessionId: string) =>
+        service.deleteSession(sessionId)
+    ]
+  ] as const)(
+    'leaves an owner and its child Chat Context unchanged when %s terminal confirmation fails',
+    async (_operation, runCleanup) => {
+      const owner = createStoredSession()
+      const child = createStoredSession({
+        id: 'agent-session-2',
+        workspaceContextSessionId: owner.id,
+        transcriptPath: '/transcripts/agent-session-2.jsonl',
+        worktreePath: null,
+        worktreeBranch: null,
+        worktreeBaseRevision: null
+      })
+      const update = vi.fn(async (stored: StoredSession) => stored)
+      const deleteById = vi.fn(async () => undefined)
+      const deleteUtilitySession = vi.fn(async () => undefined)
+      const removeTranscript = vi.fn(async () => undefined)
+      const removeWorktree = vi.fn(async () => undefined)
+      const closeBrowsersForSession = vi.fn(async () => undefined)
+      const service = createSessionCleanupService({
+        repository: {
+          findSessionById: async (sessionId) =>
+            [owner, child].find((stored) => stored.id === sessionId),
+          findProjectById: async () => ({ id: 'project-1', path: '/repos/spacezero' }),
+          update,
+          listByProjectIdIncludingArchived: async () => [owner, child],
+          deleteById
+        },
+        worktrees: { remove: removeWorktree },
+        deleteUtilitySession,
+        removeTranscript,
+        closeTerminalsForDeletion: async () => {
+          throw new Error('terminal.confirmationCancelled')
+        },
+        closeBrowsersForSession
+      })
+
+      await expect(runCleanup(service, owner.id)).rejects.toThrow('terminal.confirmationCancelled')
+
+      expect(deleteUtilitySession).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect(deleteById).not.toHaveBeenCalled()
+      expect(removeTranscript).not.toHaveBeenCalled()
+      expect(removeWorktree).not.toHaveBeenCalled()
+      expect(closeBrowsersForSession).not.toHaveBeenCalled()
+    }
+  )
+
   it('does not mark a Project Session archived when worktree cleanup fails', async () => {
     const session = createStoredSession()
     const update = vi.fn(async (nextSession: StoredSession) => nextSession)

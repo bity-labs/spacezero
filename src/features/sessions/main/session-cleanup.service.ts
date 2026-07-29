@@ -60,24 +60,22 @@ export function createSessionCleanupService({
         const project = currentSession.projectId
           ? await repository.findProjectById(currentSession.projectId)
           : undefined
-        if (currentSession.projectId && !currentSession.workspaceContextSessionId) {
-          const projectSessions = await repository.listByProjectIdIncludingArchived(
-            currentSession.projectId
-          )
-          for (const chatSession of projectSessions) {
-            if (
-              chatSession.workspaceContextSessionId === currentSession.id &&
-              !chatSession.archivedAt
-            ) {
-              await archiveStoredSession(chatSession, project)
-            }
-          }
-        }
+        const ownedChatSessions =
+          currentSession.projectId && !currentSession.workspaceContextSessionId
+            ? (await repository.listByProjectIdIncludingArchived(currentSession.projectId)).filter(
+                (chatSession) =>
+                  chatSession.workspaceContextSessionId === currentSession.id &&
+                  !chatSession.archivedAt
+              )
+            : []
         await closeTerminalsForDeletion({
           operationKey: `archive-session:${currentSession.id}`,
           purpose: 'archive-context',
           sessions: [currentSession]
         })
+        for (const chatSession of ownedChatSessions) {
+          await archiveStoredSession(chatSession, project)
+        }
         await archiveStoredSession(currentSession, project)
       }
 
@@ -112,21 +110,20 @@ export function createSessionCleanupService({
         const project = currentSession.projectId
           ? await repository.findProjectById(currentSession.projectId)
           : undefined
-        if (currentSession.projectId && !currentSession.workspaceContextSessionId) {
-          const projectSessions = await repository.listByProjectIdIncludingArchived(
-            currentSession.projectId
-          )
-          for (const chatSession of projectSessions) {
-            if (chatSession.workspaceContextSessionId === currentSession.id) {
-              await deleteStoredSession(chatSession, project)
-            }
-          }
-        }
+        const ownedChatSessions =
+          currentSession.projectId && !currentSession.workspaceContextSessionId
+            ? (await repository.listByProjectIdIncludingArchived(currentSession.projectId)).filter(
+                (chatSession) => chatSession.workspaceContextSessionId === currentSession.id
+              )
+            : []
         await closeTerminalsForDeletion({
           operationKey: `delete-session:${currentSession.id}`,
           purpose: 'delete-context',
           sessions: [currentSession]
         })
+        for (const chatSession of ownedChatSessions) {
+          await deleteStoredSession(chatSession, project)
+        }
         await deleteStoredSession(currentSession, project)
       }
 

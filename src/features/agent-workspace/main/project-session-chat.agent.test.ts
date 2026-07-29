@@ -171,6 +171,50 @@ describe('createProjectChatAgentSession', () => {
     expect(sessions[0]).toEqual(ownerSnapshot)
   })
 
+  it('retains child recovery metadata and surfaces diagnostics when persistence and utility rollback fail', async () => {
+    const owner = stableProjectSession()
+    const { repository, sessions } = createRepository(owner)
+    let createCalls = 0
+    repository.create = vi.fn(async (storedSession) => {
+      createCalls += 1
+      if (createCalls === 1) throw new Error('child persistence failed')
+      sessions.push(storedSession)
+      return storedSession
+    })
+    const utilityHost = {
+      createSession: vi.fn(async () => freshState()),
+      deleteSession: vi.fn(async () => {
+        throw new Error('utility cleanup failed')
+      })
+    }
+
+    const creation = createProjectChatAgentSession(owner.id, {
+      repository,
+      utilityHost,
+      worktrees: { validate: vi.fn(async () => true) },
+      createSessionId: () => 'agent-session-2',
+      readModelDefaults: async () => ({
+        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
+        defaultThinking: 'medium'
+      }),
+      resolveSkillPaths: async () => []
+    })
+
+    await expect(creation).rejects.toThrow('session.creationRollbackFailed')
+    await expect(creation).rejects.toMatchObject({
+      cause: expect.objectContaining({ message: 'child persistence failed' })
+    })
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({ sessionId: 'agent-session-2' })
+    expect(createCalls).toBe(2)
+    expect(sessions).toContainEqual(
+      expect.objectContaining({
+        id: 'agent-session-2',
+        workspaceContextSessionId: owner.id,
+        transcriptPath: '/transcripts/agent-session-2.jsonl'
+      })
+    )
+  })
+
   it('restores a historical Chat Context agent in its owning Project Session worktree', async () => {
     const owner = stableProjectSession()
     const { repository, sessions } = createRepository(owner)

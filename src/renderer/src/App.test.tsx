@@ -948,7 +948,9 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Session 1/ }))
 
     expect(
-      screen.getByText('Ask the agent to work on this project. Streamed replies appear here.')
+      await screen.findByText(
+        'Ask the agent to work on this project. Streamed replies appear here.'
+      )
     ).toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { name: 'Space Zero → Session 1' })
@@ -1027,7 +1029,7 @@ describe('App', () => {
     expect(screen.queryByRole('heading', { name: 'Session 3' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 1' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session 2' })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute(
+    expect(await screen.findByRole('textbox', { name: 'Agent prompt' })).toHaveAttribute(
       'placeholder',
       'Message Space Zero / Session 3…'
     )

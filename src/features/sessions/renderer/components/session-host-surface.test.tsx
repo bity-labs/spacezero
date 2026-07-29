@@ -43,6 +43,119 @@ beforeEach(() => {
 })
 
 describe('ProjectSessionHostSurface', () => {
+  it('does not mount the owner agent or enable prompts while the current Chat Context is loading', async () => {
+    const currentContext = deferred<{
+      id: string
+      workspaceContext: { kind: 'project-session'; projectSessionId: string }
+      agentSessionId: string
+      createdAt: string
+      updatedAt: string
+    }>()
+    const getState = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: project.id,
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      thinkingLevel: 'medium' as const
+    }))
+    const prompt = vi.fn(async () => undefined)
+    window.spacezero.sessions.getCurrentProjectChatContext = vi.fn(() => currentContext.promise)
+    window.spacezero.agent.getState = getState
+    window.spacezero.agent.prompt = prompt
+
+    render(<ProjectSessionHostSurface project={project} session={session} />)
+
+    expect(screen.getByText('Restoring Project Session chat…')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Agent prompt' })).not.toBeInTheDocument()
+    expect(getState).not.toHaveBeenCalled()
+    expect(prompt).not.toHaveBeenCalled()
+
+    currentContext.resolve({
+      id: 'chat-context-2',
+      workspaceContext: { kind: 'project-session', projectSessionId: session.id },
+      agentSessionId: 'agent-session-2',
+      createdAt: new Date(1).toISOString(),
+      updatedAt: new Date(1).toISOString()
+    })
+
+    expect(await screen.findByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
+    await waitFor(() => expect(getState).toHaveBeenCalledWith({ sessionId: 'agent-session-2' }))
+    expect(getState).not.toHaveBeenCalledWith({ sessionId: session.id })
+  })
+
+  it('does not let an older deferred lookup overwrite a newer /clear result', async () => {
+    const oldLookup = deferred<{
+      id: string
+      workspaceContext: { kind: 'project-session'; projectSessionId: string }
+      agentSessionId: string
+      createdAt: string
+      updatedAt: string
+    }>()
+    const nextSession = { ...session, id: 'session-2', title: 'Session 2' }
+    const ownerContext = {
+      id: 'chat-context-owner',
+      workspaceContext: {
+        kind: 'project-session' as const,
+        projectSessionId: nextSession.id
+      },
+      agentSessionId: nextSession.id,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    }
+    const freshContext = {
+      ...ownerContext,
+      id: 'chat-context-fresh',
+      agentSessionId: 'agent-session-fresh'
+    }
+    window.spacezero.sessions.getCurrentProjectChatContext = vi
+      .fn()
+      .mockImplementationOnce(() => oldLookup.promise)
+      .mockResolvedValueOnce(ownerContext)
+    window.spacezero.sessions.clearProjectChat = vi.fn(async () => freshContext)
+    window.spacezero.agent.getState = vi.fn(async ({ sessionId }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: project.id,
+      cwd: project.path,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/tmp/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      thinkingLevel: 'medium' as const
+    }))
+
+    const { rerender } = render(<ProjectSessionHostSurface project={project} session={session} />)
+    rerender(<ProjectSessionHostSurface project={project} session={nextSession} />)
+
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    await userEvent.type(input, '/clear{Enter}')
+    await waitFor(() =>
+      expect(window.spacezero.agent.getState).toHaveBeenCalledWith({
+        sessionId: freshContext.agentSessionId
+      })
+    )
+
+    oldLookup.resolve({
+      id: 'stale-chat-context',
+      workspaceContext: { kind: 'project-session', projectSessionId: session.id },
+      agentSessionId: 'stale-agent-session',
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString()
+    })
+    await act(async () => undefined)
+
+    expect(window.spacezero.agent.getState).not.toHaveBeenCalledWith({
+      sessionId: 'stale-agent-session'
+    })
+    expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
+  })
+
   it('shows /clear and switches to a fresh Chat Context without changing stable Tool Pane state', async () => {
     const originalContext = {
       id: 'chat-context-1',
@@ -123,7 +236,7 @@ describe('ProjectSessionHostSurface', () => {
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
 
-    await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'hello')
+    await user.type(await screen.findByRole('textbox', { name: 'Agent prompt' }), 'hello')
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -263,6 +376,7 @@ describe('ProjectSessionHostSurface', () => {
     })
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
+    await screen.findByRole('textbox', { name: 'Agent prompt' })
 
     await act(async () => {
       projectionListener?.(chatSnapshotEvent('session-1', 'Read [docs](https://example.com/docs).'))
@@ -329,6 +443,8 @@ describe('ProjectSessionHostSurface', () => {
     window.spacezero.browser.openUrlInDefaultBrowser = openUrlInDefaultBrowser
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
+    await screen.findByRole('textbox', { name: 'Agent prompt' })
+    await waitFor(() => expect(projectionListener).toBeDefined())
 
     await act(async () => {
       projectionListener?.(chatSnapshotEvent('session-1', 'Ignore [file](file:///etc/passwd).'))
@@ -783,6 +899,7 @@ describe('ProjectSessionHostSurface', () => {
     window.spacezero.agent.resolveToolConfirmation = resolveToolConfirmation
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
+    await screen.findByRole('textbox', { name: 'Agent prompt' })
 
     await act(async () => {
       projectionListener?.({
@@ -915,6 +1032,7 @@ describe('ProjectSessionHostSurface', () => {
     }
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
+    await screen.findByRole('textbox', { name: 'Agent prompt' })
 
     await act(async () => {
       listener?.({
@@ -951,6 +1069,7 @@ describe('ProjectSessionHostSurface', () => {
     }
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
+    await screen.findByRole('textbox', { name: 'Agent prompt' })
 
     await act(async () => {
       listener?.({
@@ -964,6 +1083,22 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.queryByText('workspace.getStatus')).not.toBeInTheDocument()
   })
 })
+
+function deferred<T>(): {
+  promise: Promise<T>
+  resolve: (value: T) => void
+} {
+  let resolvePromise: ((value: T) => void) | undefined
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return {
+    promise,
+    resolve(value) {
+      resolvePromise?.(value)
+    }
+  }
+}
 
 function chatSnapshotEvent(sessionId: string, text: string): AgentSessionProjectionEvent {
   return {

@@ -427,7 +427,24 @@ export async function createProjectChatAgentSession(
     try {
       return await repository.create(storedSession)
     } catch (error) {
-      await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+      try {
+        await utilityHost.deleteSession({ sessionId })
+      } catch (cleanupError) {
+        const cleanupFailures: unknown[] = [cleanupError]
+        try {
+          const existing = await repository.findSessionById(sessionId)
+          if (!existing) await repository.create(storedSession)
+        } catch (recoveryError) {
+          cleanupFailures.push(recoveryError)
+        }
+
+        const rollbackError = new Error('session.creationRollbackFailed', { cause: error })
+        Object.defineProperty(rollbackError, 'cleanupFailures', {
+          value: cleanupFailures,
+          enumerable: false
+        })
+        throw rollbackError
+      }
       throw error
     }
   })
