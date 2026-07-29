@@ -40,6 +40,12 @@ describe('AgentChat', () => {
     expect(handleAbort).not.toHaveBeenCalled()
   })
 
+  it('hides the chat transcript scrollbar while keeping it scrollable', () => {
+    render(<AgentChat sessionId="session-1" messages={[]} />)
+
+    expect(screen.getByLabelText('Conversation')).toHaveClass('overflow-y-auto', 'no-scrollbar')
+  })
+
   it('reconciles displayed thinking to the effective runtime state after switching model capabilities', async () => {
     const user = userEvent.setup()
     const availableModels: AvailableModel[] = [
