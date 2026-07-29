@@ -164,6 +164,40 @@ describe('BrowserTool', () => {
     await expectNavigateCalled(browser, 'localhost:4173')
   })
 
+  it('does not navigate or show an IPC error when Enter submits whitespace-only input', async () => {
+    const browser = installBrowserApi()
+    browser.navigate.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'browser:navigate': input is too small")
+    )
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const input = await screen.findByLabelText('Browser URL')
+    await user.type(input, '   ')
+    await user.keyboard('{Enter}')
+
+    expect(browser.navigate).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument()
+  })
+
+  it('disables Go while the trimmed address is empty', async () => {
+    installBrowserApi()
+    const user = userEvent.setup()
+
+    renderBrowserTool()
+
+    const input = await screen.findByLabelText('Browser URL')
+    const go = screen.getByRole('button', { name: 'Go' })
+    expect(go).toBeDisabled()
+
+    await user.type(input, '   ')
+    expect(go).toBeDisabled()
+
+    await user.type(input, 'spacezero.dev')
+    expect(go).toBeEnabled()
+  })
+
   it('reflects Back and Forward enablement from active-tab runtime history', async () => {
     installBrowserApi({ url: 'https://example.com/', canGoBack: true, canGoForward: false })
 
