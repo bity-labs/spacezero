@@ -54,12 +54,14 @@ type RootState =
   | { status: 'ready'; entries: FilesEntry[] }
   | { status: 'error'; message: string }
 
-type ExplorerView = 'tree' | 'search'
+type ExplorerSearchMode = 'files' | 'contents'
 
-type SearchState =
+type ContentSearchResult = Extract<FilesSearchResult, { kind: 'content' }>
+
+type ContentSearchState =
   | { status: 'idle' }
   | { status: 'loading'; query: string }
-  | { status: 'ready'; query: string; results: FilesSearchResult[] }
+  | { status: 'ready'; query: string; results: ContentSearchResult[] }
   | { status: 'error'; query: string; message: string }
 
 type CreateDialogState = {
@@ -157,9 +159,12 @@ function FilesToolSession({
   const rewritePaths = useFilesStore((state) => state.rewritePaths)
   const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
-  const [explorerView, setExplorerView] = useState<ExplorerView>('tree')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [searchState, setSearchState] = useState<SearchState>({ status: 'idle' })
+  const [explorerSearchMode, setExplorerSearchMode] = useState<ExplorerSearchMode>('files')
+  const [filesSearchQuery, setFilesSearchQuery] = useState('')
+  const [contentSearchQuery, setContentSearchQuery] = useState('')
+  const [contentSearchState, setContentSearchState] = useState<ContentSearchState>({
+    status: 'idle'
+  })
   const [treeHeight, setTreeHeight] = useState(480)
   const [closePromptPath, setClosePromptPath] = useState<string | null>(null)
   const [createDialog, setCreateDialog] = useState<CreateDialogState | null>(null)
@@ -175,11 +180,12 @@ function FilesToolSession({
   const activeSearchRequestIdRef = useRef<string | null>(null)
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const observedPathGenerationsRef = useRef(new Map<string, number>())
-  const searchStateRef = useRef(searchState)
+  const contentSearchStateRef = useRef(contentSearchState)
   const treeEntriesRef = useRef<FilesEntry[]>([])
   const treeSelectionHandlerRef = useRef<(paths: readonly string[]) => void>(() => undefined)
   const { model: treeModel } = useFileTree({
     density: 'compact',
+    dragAndDrop: false,
     fileTreeSearchMode: 'hide-non-matches',
     flattenEmptyDirectories: true,
     id: `files-tree-${sessionId}`,
@@ -189,6 +195,9 @@ function FilesToolSession({
     paths: [],
     search: false,
     stickyFolders: true,
+    onSearchChange: (value) => {
+      if (value === null) setFilesSearchQuery('')
+    },
     onSelectionChange: (paths) => treeSelectionHandlerRef.current(paths),
     renderRowDecoration: ({ item }) =>
       renderFilesTreeRowDecoration(item.path, treeEntriesRef.current)
@@ -206,8 +215,12 @@ function FilesToolSession({
   }, [context.expandedPaths])
 
   useEffect(() => {
-    searchStateRef.current = searchState
-  }, [searchState])
+    contentSearchStateRef.current = contentSearchState
+  }, [contentSearchState])
+
+  useEffect(() => {
+    treeModel.setSearch(explorerSearchMode === 'files' ? filesSearchQuery : null)
+  }, [explorerSearchMode, filesSearchQuery, treeModel])
 
   const loadRoot = useCallback(async (): Promise<void> => {
     const requestedSession = sessionId
@@ -261,9 +274,9 @@ function FilesToolSession({
   const invalidateSearchResults = useCallback((): void => {
     cancelActiveSearch()
     searchRequestRef.current += 1
-    setSearchQuery('')
-    setSearchState({ status: 'idle' })
-    setExplorerView('tree')
+    setContentSearchQuery('')
+    setContentSearchState({ status: 'idle' })
+    setExplorerSearchMode('files')
   }, [cancelActiveSearch])
 
   const performSearch = useCallback(
@@ -276,10 +289,10 @@ function FilesToolSession({
       activeSearchRequestIdRef.current = requestId
       if (!normalizedQuery) {
         activeSearchRequestIdRef.current = null
-        setSearchState({ status: 'idle' })
+        setContentSearchState({ status: 'idle' })
         return
       }
-      setSearchState({ status: 'loading', query: normalizedQuery })
+      setContentSearchState({ status: 'loading', query: normalizedQuery })
       try {
         const results = await window.spacezero.files.search({
           context: ipcContext,
@@ -294,7 +307,11 @@ function FilesToolSession({
         ) {
           return
         }
-        setSearchState({ status: 'ready', query: normalizedQuery, results })
+        setContentSearchState({
+          status: 'ready',
+          query: normalizedQuery,
+          results: results.filter(isContentSearchResult)
+        })
       } catch (error) {
         if (activeSearchRequestIdRef.current === requestId) activeSearchRequestIdRef.current = null
         if (
@@ -304,7 +321,7 @@ function FilesToolSession({
           return
         }
         if (error instanceof Error && error.message.includes('files.searchCanceled')) return
-        setSearchState({
+        setContentSearchState({
           status: 'error',
           query: normalizedQuery,
           message: searchErrorMessage(error)
@@ -315,7 +332,7 @@ function FilesToolSession({
   )
 
   const refreshActiveSearch = useCallback((): void => {
-    const state = searchStateRef.current
+    const state = contentSearchStateRef.current
     if (state.status === 'idle') return
     void performSearch(state.query)
   }, [performSearch])
@@ -563,10 +580,10 @@ function FilesToolSession({
   }, [renameDialog?.sourcePath])
 
   useEffect(() => {
-    if (explorerView !== 'search') return
+    if (explorerSearchMode !== 'contents') return
     const focusTimeout = window.setTimeout(() => searchInputRef.current?.focus(), 0)
     return () => window.clearTimeout(focusTimeout)
-  }, [explorerView])
+  }, [explorerSearchMode])
 
   const confirmCreateEntry = useCallback(async (): Promise<void> => {
     const dialog = createDialog
@@ -956,9 +973,10 @@ function FilesToolSession({
     window.addEventListener('pointerup', stop, { once: true })
   }
 
-  const selectTreeView = useCallback((): void => {
+  const selectFilesSearchMode = useCallback((): void => {
     cancelActiveSearch()
-    setExplorerView('tree')
+    setContentSearchState({ status: 'idle' })
+    setExplorerSearchMode('files')
   }, [cancelActiveSearch])
 
   function resizeWithKeyboard(event: React.KeyboardEvent<HTMLDivElement>): void {
@@ -1000,22 +1018,22 @@ function FilesToolSession({
               <div className="flex h-7 items-center justify-between gap-2">
                 <div className="flex items-center gap-1" aria-label="Files explorer views">
                   <button
-                    aria-label="Tree view"
-                    aria-pressed={explorerView === 'tree'}
-                    className={explorerViewButtonClass(explorerView === 'tree')}
-                    title="Tree view"
+                    aria-label="Files search"
+                    aria-pressed={explorerSearchMode === 'files'}
+                    className={explorerViewButtonClass(explorerSearchMode === 'files')}
+                    title="Files search"
                     type="button"
-                    onClick={selectTreeView}
+                    onClick={selectFilesSearchMode}
                   >
                     <TreeStructure aria-hidden className="size-4" />
                   </button>
                   <button
-                    aria-label="Search files"
-                    aria-pressed={explorerView === 'search'}
-                    className={explorerViewButtonClass(explorerView === 'search')}
-                    title="Search files"
+                    aria-label="Contents search"
+                    aria-pressed={explorerSearchMode === 'contents'}
+                    className={explorerViewButtonClass(explorerSearchMode === 'contents')}
+                    title="Contents search"
                     type="button"
-                    onClick={() => setExplorerView('search')}
+                    onClick={() => setExplorerSearchMode('contents')}
                   >
                     <MagnifyingGlass aria-hidden className="size-4" />
                   </button>
@@ -1050,42 +1068,47 @@ function FilesToolSession({
                   </button>
                 </div>
               </div>
-              {explorerView === 'search' ? (
-                <form
-                  className="flex items-center gap-1"
-                  role="search"
-                  onSubmit={(event) => {
-                    event.preventDefault()
-                    void performSearch(searchQuery)
-                  }}
-                >
-                  <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
-                    <MagnifyingGlass
-                      aria-hidden
-                      className="mr-1 size-3 shrink-0 text-muted-foreground"
-                    />
-                    <input
-                      ref={searchInputRef}
-                      aria-label="Search files"
-                      className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                      placeholder="Search files"
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                    />
-                  </div>
-                </form>
-              ) : null}
+              <form
+                aria-label={explorerSearchMode === 'files' ? 'Files search' : 'Contents search'}
+                className="flex items-center gap-1"
+                role="search"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (explorerSearchMode === 'contents') void performSearch(contentSearchQuery)
+                }}
+              >
+                <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
+                  <MagnifyingGlass
+                    aria-hidden
+                    className="mr-1 size-3 shrink-0 text-muted-foreground"
+                  />
+                  <input
+                    ref={explorerSearchMode === 'contents' ? searchInputRef : undefined}
+                    aria-label={
+                      explorerSearchMode === 'files' ? 'Files search' : 'Contents search'
+                    }
+                    className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
+                    placeholder={
+                      explorerSearchMode === 'files' ? 'Search files by path' : 'Search contents'
+                    }
+                    value={explorerSearchMode === 'files' ? filesSearchQuery : contentSearchQuery}
+                    onChange={(event) => {
+                      if (explorerSearchMode === 'files') setFilesSearchQuery(event.target.value)
+                      else setContentSearchQuery(event.target.value)
+                    }}
+                  />
+                </div>
+              </form>
             </header>
             <div ref={treeContainerRef} className="min-h-0 flex-1 overflow-hidden">
-              {explorerView === 'search' ? (
+              {explorerSearchMode === 'contents' ? (
                 <FilesSearchResults
-                  state={searchState}
+                  state={contentSearchState}
                   onOpen={(result) => {
-                    const targetLine =
-                      result.kind === 'content' ? result.snippets[0]?.line : undefined
+                    const targetLine = result.snippets[0]?.line
                     void openFile(result.relativePath, 'preview', targetLine)
                   }}
-                  onRetry={() => void performSearch(searchQuery)}
+                  onRetry={() => void performSearch(contentSearchQuery)}
                 />
               ) : rootState.status === 'loading' ? (
                 <FilesState message="Loading files…" />
@@ -1383,15 +1406,15 @@ function FilesSearchResults({
   onOpen,
   onRetry
 }: {
-  state: SearchState
-  onOpen: (result: FilesSearchResult) => void
+  state: ContentSearchState
+  onOpen: (result: ContentSearchResult) => void
   onRetry: () => void | Promise<void>
 }): React.JSX.Element {
-  if (state.status === 'loading') return <FilesState message="Searching files…" />
+  if (state.status === 'loading') return <FilesState message="Searching contents…" />
   if (state.status === 'error') {
     return <FilesState message={state.message} actionLabel="Retry" onAction={onRetry} />
   }
-  if (state.status === 'idle') return <FilesState message="Enter a search query." />
+  if (state.status === 'idle') return <FilesState message="Enter a content search query." />
   if (state.results.length === 0) return <FilesState message={`No results for “${state.query}”.`} />
 
   return (
@@ -1409,17 +1432,13 @@ function FilesSearchResults({
           >
             <span className="block truncate font-medium text-foreground">{result.name}</span>
             <span className="block truncate text-muted-foreground">{result.relativePath}</span>
-            {result.kind === 'content' ? (
-              <span className="mt-1 block space-y-1 text-muted-foreground">
-                {result.snippets.map((snippet) => (
-                  <span key={`${snippet.line}:${snippet.column}`} className="block truncate">
-                    {snippet.line}:{snippet.column} {snippet.text}
-                  </span>
-                ))}
-              </span>
-            ) : (
-              <span className="mt-1 block text-muted-foreground">Filename match</span>
-            )}
+            <span className="mt-1 block space-y-1 text-muted-foreground">
+              {result.snippets.map((snippet) => (
+                <span key={`${snippet.line}:${snippet.column}`} className="block truncate">
+                  {snippet.line}:{snippet.column} {snippet.text}
+                </span>
+              ))}
+            </span>
           </button>
         ))}
       </div>
@@ -2172,6 +2191,10 @@ function fileOperationErrorMessage(error: unknown): string {
   if (code.includes('files.trashFailed'))
     return 'Could not move this item to Trash. It was not deleted.'
   return 'The file operation failed. No local Files state was changed.'
+}
+
+function isContentSearchResult(result: FilesSearchResult): result is ContentSearchResult {
+  return result.kind === 'content'
 }
 
 function searchErrorMessage(error: unknown): string {
