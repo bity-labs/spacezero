@@ -26,7 +26,8 @@ const appCommandMock = vi.hoisted(() => ({
 
 const treesMock = vi.hoisted(() => ({
   options: [] as Array<Record<string, unknown>>,
-  renderProps: [] as Array<Record<string, unknown>>
+  renderProps: [] as Array<Record<string, unknown>>,
+  gitStatuses: [] as Array<unknown>
 }))
 
 vi.mock('@pierre/trees/react', async () => {
@@ -87,7 +88,9 @@ vi.mock('@pierre/trees/react', async () => {
   type MockModel = {
     options: TreeOptions
     resetPaths: (
-      paths: readonly string[] | { preparedInput: PreparedTreeInput; initialExpandedPaths?: readonly string[] },
+      paths:
+        | readonly string[]
+        | { preparedInput: PreparedTreeInput; initialExpandedPaths?: readonly string[] },
       options?: { preparedInput?: PreparedTreeInput; initialExpandedPaths?: readonly string[] }
     ) => void
     getItem: (
@@ -98,6 +101,7 @@ vi.mock('@pierre/trees/react', async () => {
     getVisibleCount: () => number
     getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
     scrollToPath: () => void
+    setGitStatus: (gitStatus?: readonly { path: string; status: string }[]) => void
     setSearch: (value: string | null) => void
     startRenaming: (path?: string) => boolean
     subscribe: (listener: () => void) => () => void
@@ -136,6 +140,7 @@ vi.mock('@pierre/trees/react', async () => {
     let paths = [...(options.preparedInput?.paths ?? options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
     let searchValue: string | null = null
+    let gitStatus: readonly { path: string; status: string }[] | undefined
     let renamePath: string | null = null
     let renameValue = ''
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
@@ -163,8 +168,7 @@ vi.mock('@pierre/trees/react', async () => {
       if (!nextExpandedPaths) return false
       const nextExpanded = new Set(nextExpandedPaths.map(normalizeDirectoryPath))
       const changed =
-        nextExpanded.size !== expanded.size ||
-        [...nextExpanded].some((path) => !expanded.has(path))
+        nextExpanded.size !== expanded.size || [...nextExpanded].some((path) => !expanded.has(path))
       if (!changed) return false
       expanded.clear()
       for (const path of nextExpanded) expanded.add(path)
@@ -211,6 +215,13 @@ vi.mock('@pierre/trees/react', async () => {
           path
         })),
       scrollToPath: () => undefined,
+      setGitStatus: (nextGitStatus) => {
+        const changed = JSON.stringify(gitStatus ?? null) !== JSON.stringify(nextGitStatus ?? null)
+        if (!changed) return
+        gitStatus = nextGitStatus
+        treesMock.gitStatuses.push(nextGitStatus)
+        forceUpdate()
+      },
       setSearch: (value) => {
         const nextValue = value?.trim() ? value.trim().toLowerCase() : null
         if (searchValue === nextValue) return
@@ -677,6 +688,7 @@ describe('Files Tool', () => {
     appCommandMock.registeredCommands = []
     treesMock.options = []
     treesMock.renderProps = []
+    treesMock.gitStatuses = []
   })
 
   it('configures Trees as the Files explorer renderer with compact sticky folder browsing', async () => {
@@ -811,6 +823,55 @@ describe('Files Tool', () => {
     expect(openDocument).toHaveBeenCalledWith({
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'src/index.ts'
+    })
+  })
+
+  it('passes Project Session and Knowledge Base Git statuses to Trees as read-only row signals', async () => {
+    window.spacezero.files.listTree = vi
+      .fn()
+      .mockResolvedValueOnce({
+        entries: [
+          { name: 'src', relativePath: 'src', kind: 'directory' as const },
+          { name: 'index.ts', relativePath: 'src/index.ts', kind: 'file' as const }
+        ],
+        presortedPaths: ['src/', 'src/index.ts'],
+        gitStatus: [
+          { path: 'src/index.ts', status: 'modified' as const },
+          { path: 'notes/today.md', status: 'untracked' as const }
+        ]
+      })
+      .mockResolvedValueOnce({
+        entries: [{ name: 'kb.md', relativePath: 'kb.md', kind: 'file' as const }],
+        presortedPaths: ['kb.md'],
+        gitStatus: [{ path: 'kb.md', status: 'added' as const }]
+      })
+
+    const view = render(<FilesTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(treesMock.gitStatuses).toContainEqual([
+        { path: 'src/index.ts', status: 'modified' },
+        { path: 'notes/today.md', status: 'untracked' }
+      ])
+    )
+    expect(window.spacezero.files.listTree).toHaveBeenNthCalledWith(1, {
+      context: { kind: 'project-session', sessionId: 'session-1' }
+    })
+
+    view.rerender(
+      <FilesTool
+        contextKey="knowledge-base"
+        ipcContext={{ kind: 'knowledge-base', contextKey: 'knowledge-base' }}
+      />
+    )
+
+    expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(treesMock.gitStatuses).toContainEqual([{ path: 'kb.md', status: 'added' }])
+    )
+    expect(window.spacezero.files.listTree).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' }
     })
   })
 
