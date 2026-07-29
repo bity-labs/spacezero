@@ -22,7 +22,7 @@ export const Conversation = ({
     <MessageScroller.Root className={cn('relative flex-1 overflow-hidden', className)} {...props}>
       <MessageScroller.Viewport
         aria-label="Conversation"
-        className={cn('h-full overflow-y-auto', viewportClassName)}
+        className={cn('no-scrollbar h-full overflow-y-auto', viewportClassName)}
         preserveScrollOnPrepend
       >
         {children}
