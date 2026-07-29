@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -71,7 +71,8 @@ describe('ProjectGitHubOverview', () => {
 
     expect(await screen.findByText(/rate limit was reached/i)).toBeInTheDocument()
     expect(await screen.findByText('Storage foundation')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Issues' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Pull Requests' }))
     await waitFor(() => {
       expect(issueReads).toBeGreaterThan(1)
       expect(pullRequestReads).toBeGreaterThan(1)
@@ -112,7 +113,7 @@ describe('ProjectGitHubOverview', () => {
     expect(await screen.findByText('Private roadmap details')).toBeInTheDocument()
 
     accessRevoked = true
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh workflows' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Issues' }))
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText('Private roadmap details')).not.toBeInTheDocument()
@@ -150,5 +151,47 @@ describe('ProjectGitHubOverview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'View all Pull Requests' }))
     expect(onViewIssues).toHaveBeenCalledOnce()
     expect(onViewPullRequests).toHaveBeenCalledOnce()
+  })
+
+  it('shows independent row skeletons while each summary loads', async () => {
+    let resolveIssues!: (
+      value: Awaited<ReturnType<typeof window.spacezero.github.listIssues>>
+    ) => void
+    window.spacezero.github.listIssues = async () =>
+      new Promise((resolve) => {
+        resolveIssues = resolve
+      })
+    window.spacezero.github.listPullRequests = async ({ page }) => ({
+      items: [
+        {
+          number: 79,
+          title: 'Storage foundation',
+          state: 'open',
+          isDraft: false,
+          htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79',
+          author: { id: '42', login: 'octocat', avatarUrl: 'https://avatars.example/42' },
+          baseBranch: 'main',
+          headBranch: 'feat/storage',
+          createdAt: '2026-07-18T00:00:00.000Z',
+          updatedAt: '2026-07-18T01:00:00.000Z'
+        }
+      ],
+      page,
+      hasNextPage: false
+    })
+
+    renderOverview()
+
+    const recentIssuesCard = await screen.findByRole('region', { name: 'Recent Issues' })
+    const pullRequestsCard = await screen.findByRole('region', { name: 'Open Pull Requests' })
+    expect(
+      within(recentIssuesCard).getByRole('status', { name: 'Loading Recent Issues' })
+    ).toBeInTheDocument()
+    expect(within(recentIssuesCard).queryByText(/Loading/i)).not.toBeInTheDocument()
+    expect(await within(pullRequestsCard).findByText('Storage foundation')).toBeInTheDocument()
+    expect(within(pullRequestsCard).queryByRole('status')).not.toBeInTheDocument()
+
+    resolveIssues({ items: [], page: 1, hasNextPage: false })
+    expect(await within(recentIssuesCard).findByText('No Issues to show.')).toBeInTheDocument()
   })
 })

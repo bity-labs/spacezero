@@ -191,13 +191,7 @@ export function ProjectHome({
           </div>
         ) : null}
         {view === 'overview' ? (
-          <>
-            <ProjectAgentResourceTrustCard
-              project={displayProject}
-              isSaving={isSavingTrust}
-              error={trustError}
-              onChange={(trusted) => void updateAgentResourceTrust(trusted)}
-            />
+          <div className="grid gap-5 lg:grid-cols-2">
             <GitHubProjectState
               project={displayProject}
               connection={connection}
@@ -210,6 +204,12 @@ export function ProjectHome({
               onLoadLinkOptions={() => void loadLinkOptions()}
               onSelectRepository={setSelectedRepositoryId}
               onLinkRepository={() => void linkRepository()}
+            />
+            <ProjectAgentResourceTrustCard
+              project={displayProject}
+              isSaving={isSavingTrust}
+              error={trustError}
+              onChange={(trusted) => void updateAgentResourceTrust(trusted)}
             />
             {!connectionLoading &&
             connection?.status === 'connected' &&
@@ -234,7 +234,7 @@ export function ProjectHome({
                 }}
               />
             ) : null}
-          </>
+          </div>
         ) : view === 'issues' ? (
           <GitHubWorkflowGate
             project={displayProject}
@@ -281,7 +281,7 @@ function ProjectAgentResourceTrustCard({
   onChange: (trusted: boolean) => void
 }): React.JSX.Element {
   return (
-    <Card className="gap-3 p-6">
+    <Card className="gap-3 p-6" role="region" aria-label="Trust Project">
       <AgentResourceTrustCheckbox
         checked={project.agentResourcesTrusted === true}
         disabled={isSaving}
@@ -346,12 +346,20 @@ function GitHubProjectState({
   onLinkRepository: () => void
 }): React.JSX.Element {
   if (connectionLoading) {
-    return <Card className="p-6 text-sm text-muted-foreground">Checking GitHub connection…</Card>
+    return (
+      <Card
+        className="p-6 text-sm text-muted-foreground"
+        role="region"
+        aria-label="GitHub repository"
+      >
+        Checking GitHub connection…
+      </Card>
+    )
   }
 
   if (connection?.status !== 'connected') {
     return (
-      <Card className="gap-4 p-6">
+      <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
         <div>
           <h2 className="font-medium">Connect GitHub</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -371,7 +379,7 @@ function GitHubProjectState({
   }
 
   return (
-    <Card className="gap-4 p-6">
+    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
       <div>
         <h2 className="font-medium">Link GitHub repository</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -430,12 +438,20 @@ function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.El
   const repository = useProjectRepository(project.id)
 
   if (repository.isLoading) {
-    return <Card className="p-6 text-sm text-muted-foreground">Loading repository status…</Card>
+    return (
+      <Card
+        className="p-6 text-sm text-muted-foreground"
+        role="region"
+        aria-label="GitHub repository"
+      >
+        Loading repository status…
+      </Card>
+    )
   }
 
   if (repository.isError || !repository.data) {
     return (
-      <Card className="gap-4 p-6">
+      <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
         <div>
           <h2 className="font-medium">Repository status unavailable</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -451,7 +467,7 @@ function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.El
   }
 
   return (
-    <Card className="gap-4 p-6">
+    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-2">
           <GithubLogo className="size-5" aria-hidden="true" />
