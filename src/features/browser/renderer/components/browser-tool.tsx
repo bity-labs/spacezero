@@ -15,6 +15,7 @@ import {
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
+import { useGlobalOverlayOpen } from '@renderer/hooks/use-global-overlay-open'
 
 import {
   BROWSER_COMMAND_IDS,
@@ -121,6 +122,7 @@ export function BrowserTool({
   const surfaceRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const shortcutManager = useKeyboardShortcutsManager()
+  const isGlobalOverlayOpen = useGlobalOverlayOpen()
   const [state, setState] = useState<BrowserState | null>(null)
   const [stateContextKey, setStateContextKey] = useState(contextKey)
   const [shortcutBindingsVersion, setShortcutBindingsVersion] = useState(0)
@@ -146,6 +148,12 @@ export function BrowserTool({
     () => ({ contextKey, context, tabId: activeTabId }),
     [activeTabId, context, contextKey]
   )
+
+  const requestPresentation = useCallback((operation: () => Promise<unknown>): void => {
+    void operation().catch((reason: unknown) => {
+      setError(toErrorMessage(reason))
+    })
+  }, [])
 
   const focusAddressField = useCallback(() => {
     inputRef.current?.focus()
@@ -391,7 +399,6 @@ export function BrowserTool({
     return () => {
       cancelled = true
       shortcutManager.setContext({ browserFocused: false })
-      void window.spacezero.browser.hide({ contextKey, context })
     }
   }, [context, contextKey, focusAddressField, shortcutManager])
 
@@ -432,14 +439,21 @@ export function BrowserTool({
   useLayoutEffect(() => {
     const surface = surfaceRef.current
     if (!surface || !activeTabId) return
+    if (isGlobalOverlayOpen) {
+      shortcutManager.setContext({ browserFocused: false })
+      requestPresentation(() => window.spacezero.browser.hide({ contextKey, context }))
+      return
+    }
     const surfaceElement = surface
     const shownTabId = activeTabId
+    let cancelled = false
 
     function syncBounds(): void {
+      if (cancelled) return
       const rect = surfaceElement.getBoundingClientRect()
       if (rect.width < 1 || rect.height < 1) return
-      void window.spacezero.browser
-        .show({
+      requestPresentation(() =>
+        window.spacezero.browser.show({
           contextKey,
           context,
           tabId: shownTabId,
@@ -451,7 +465,7 @@ export function BrowserTool({
           },
           shortcutBindings: getBrowserNativeShortcutBindings(shortcutManager)
         })
-        .catch((reason: unknown) => setError(toErrorMessage(reason)))
+      )
     }
 
     syncBounds()
@@ -460,12 +474,22 @@ export function BrowserTool({
     observer.observe(surfaceElement)
     window.addEventListener('resize', syncBounds)
     return () => {
+      cancelled = true
       window.cancelAnimationFrame(animationFrame)
       observer.disconnect()
       window.removeEventListener('resize', syncBounds)
-      void window.spacezero.browser.hide({ contextKey, context })
+      requestPresentation(() => window.spacezero.browser.hide({ contextKey, context }))
     }
-  }, [activeTabId, activeTabUrl, context, contextKey, shortcutBindingsVersion, shortcutManager])
+  }, [
+    activeTabId,
+    activeTabUrl,
+    context,
+    contextKey,
+    isGlobalOverlayOpen,
+    requestPresentation,
+    shortcutBindingsVersion,
+    shortcutManager
+  ])
 
   async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()

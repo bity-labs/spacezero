@@ -168,6 +168,14 @@ const knowledgeBaseContext = {
   context: { kind: 'knowledge-base' as const }
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 describe('normalizeBrowserUrl', () => {
   it('accepts HTTP, HTTPS, localhost, and loopback URLs only', () => {
     expect(normalizeBrowserUrl('https://example.com/path')).toEqual('https://example.com/path')
@@ -1267,6 +1275,72 @@ describe('BrowserService', () => {
     expect(await service.getState(projectContext)).toMatchObject({
       tabs: [{ url: 'https://b.example/', faviconUrl: null }]
     })
+  })
+
+  it('does not attach a stale show after a newer hide request', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const pendingShowAuthorization = deferred<{
+      id: string
+      projectId: null
+    }>()
+    let authorizationCount = 0
+    const service = new BrowserService(
+      adapter,
+      createContextRepository({
+        findSessionById: async () => {
+          authorizationCount += 1
+          if (authorizationCount === 1) return pendingShowAuthorization.promise
+          return { id: 'workspace-1', projectId: null }
+        }
+      })
+    )
+
+    const show = service.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
+    })
+    await service.hide(workspaceContext)
+
+    expect(adapter.shown).toEqual([])
+    pendingShowAuthorization.resolve({ id: 'workspace-1', projectId: null })
+    await show
+
+    expect(adapter.shown).toEqual([])
+  })
+
+  it('does not detach a newer show when an older hide request settles late', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const pendingHideAuthorization = deferred<{
+      id: string
+      projectId: null
+    }>()
+    let delayAuthorization = false
+    const service = new BrowserService(
+      adapter,
+      createContextRepository({
+        findSessionById: async () => {
+          if (delayAuthorization) return pendingHideAuthorization.promise
+          return { id: 'workspace-1', projectId: null }
+        }
+      })
+    )
+    await service.getState(workspaceContext)
+
+    delayAuthorization = true
+    const hide = service.hide(workspaceContext)
+    delayAuthorization = false
+    await service.show({
+      ...workspaceContext,
+      bounds: { x: 10, y: 20, width: 640, height: 480 },
+      shortcutBindings: []
+    })
+
+    pendingHideAuthorization.resolve({ id: 'workspace-1', projectId: null })
+    await hide
+
+    expect(adapter.shown).toHaveLength(1)
+    expect(adapter.hidden).toEqual([])
   })
 
   it('hides and cleans up native content by context lifecycle', async () => {
