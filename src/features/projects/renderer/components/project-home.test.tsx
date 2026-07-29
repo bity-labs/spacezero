@@ -49,6 +49,96 @@ function deferred<T>(): {
 }
 
 describe('ProjectHome', () => {
+  it('shows GitHub content placeholders immediately while connection and repository data load', async () => {
+    const linkedProject: Project = {
+      ...project,
+      githubRepository: {
+        repositoryId: '1000',
+        nodeId: 'R_1000',
+        owner: 'bity-labs',
+        name: 'spacezero',
+        fullName: 'bity-labs/spacezero',
+        htmlUrl: 'https://github.com/bity-labs/spacezero',
+        linkedAt: '2026-07-18T01:00:00.000Z'
+      }
+    }
+    const connectionRequest =
+      deferred<Awaited<ReturnType<typeof window.spacezero.github.getConnection>>>()
+    const repositoryRequest =
+      deferred<Awaited<ReturnType<typeof window.spacezero.github.getProjectRepository>>>()
+    const issuesRequest = deferred<Awaited<ReturnType<typeof window.spacezero.github.listIssues>>>()
+    const pullRequestsRequest =
+      deferred<Awaited<ReturnType<typeof window.spacezero.github.listPullRequests>>>()
+    const getProjectRepository = vi.fn(async () => repositoryRequest.promise)
+    window.spacezero.github.getConnection = async () => connectionRequest.promise
+    window.spacezero.github.getProjectRepository = getProjectRepository
+    window.spacezero.github.listIssues = async () => issuesRequest.promise
+    window.spacezero.github.listPullRequests = async () => pullRequestsRequest.promise
+
+    renderProjectHome(
+      <ProjectHome
+        project={linkedProject}
+        onProjectLinked={() => undefined}
+        onNewSession={() => undefined}
+      />
+    )
+
+    expect(
+      within(screen.getByRole('region', { name: 'GitHub repository' })).getByRole('status', {
+        name: 'Loading GitHub repository'
+      })
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Recent Issues' })).getByRole('status', {
+        name: 'Loading Recent Issues'
+      })
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByRole('region', { name: 'Open Pull Requests' })).getByRole('status', {
+        name: 'Loading Open Pull Requests'
+      })
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Checking GitHub connection/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Loading repository status/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Issues' }))
+    expect(screen.getByRole('region', { name: 'GitHub Issues' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading Issues…' })).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Issue placeholder')).toHaveLength(3)
+    expect(screen.queryByText(/Loading GitHub connection/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pull Requests' }))
+    expect(screen.getByRole('region', { name: 'GitHub Pull Requests' })).toBeInTheDocument()
+    expect(screen.getByRole('status', { name: 'Loading Pull Requests…' })).toBeInTheDocument()
+    expect(screen.getAllByLabelText('Pull Request placeholder')).toHaveLength(3)
+    expect(screen.queryByText(/Loading GitHub connection/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Overview' }))
+    connectionRequest.resolve({
+      status: 'connected',
+      identity: {
+        id: '42',
+        login: 'octocat',
+        avatarUrl: 'https://avatars.githubusercontent.com/u/42?v=4',
+        profileUrl: 'https://github.com/octocat'
+      },
+      installations: [],
+      repositories: [repository]
+    })
+
+    await waitFor(() => expect(getProjectRepository).toHaveBeenCalledOnce())
+    expect(screen.getByRole('status', { name: 'Loading GitHub repository' })).toBeInTheDocument()
+    expect(screen.queryByText(/Loading repository status/i)).not.toBeInTheDocument()
+
+    repositoryRequest.resolve(repository)
+    issuesRequest.resolve({ items: [], page: 1, hasNextPage: false })
+    pullRequestsRequest.resolve({ items: [], page: 1, hasNextPage: false })
+
+    expect(await screen.findByText('bity-labs/spacezero')).toBeInTheDocument()
+    expect(await screen.findByText('No Issues to show.')).toBeInTheDocument()
+    expect(await screen.findByText('No Pull Requests to show.')).toBeInTheDocument()
+  })
+
   it('keeps GitHub navigation discoverable while disconnected', async () => {
     window.spacezero.github.getConnection = async () => ({ status: 'disconnected' })
 
