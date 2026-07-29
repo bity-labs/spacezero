@@ -174,6 +174,21 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      listChatHistory: async () => [],
+      resumeChatContext: async ({ chatContextId }) => ({
+        id: chatContextId,
+        workspaceContext: { kind: 'knowledge-base', key: 'knowledge-base' },
+        agentSession: {
+          id: 'knowledge-base-session-resumed',
+          kind: 'workspace',
+          title: 'Knowledge Base Chat',
+          status: 'idle',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
       clearChat: async () => ({
         id: 'knowledge-base-chat-context-new',
         workspaceContext: { kind: 'knowledge-base', key: 'knowledge-base' },

@@ -1,4 +1,4 @@
-import { CaretDownIcon, Command, Sparkle } from '@phosphor-icons/react'
+import { CaretDownIcon, Command, FileText, Sparkle } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
@@ -73,6 +73,12 @@ export type ChatInputCommand = {
   description: string
 }
 
+export type ChatInputHistoryItem = {
+  id: string
+  initialPrompt: string
+  createdAt?: string
+}
+
 export type ChatInputAgentDefinition = {
   id: string
   name: string
@@ -97,6 +103,7 @@ export type ChatInputProps = {
   thinkingLevel?: AiChatThinkingLevel
   skills?: ChatInputSkill[]
   commands?: ChatInputCommand[]
+  historyItems?: ChatInputHistoryItem[]
   agentDefinitions?: ChatInputAgentDefinition[]
   selectedAgentDefinitionId?: string
   activeAgentDefinition?: ChatInputActiveAgentDefinition
@@ -106,6 +113,8 @@ export type ChatInputProps = {
   onModelChange?: (modelId: string) => void
   onThinkingChange?: (level: AiChatThinkingLevel) => void
   onCommand?: (commandName: string) => void | Promise<void>
+  onHistorySelect?: (historyItemId: string) => void | Promise<void>
+  onHistoryDismiss?: () => void
   onSubmit: (input: ChatInputSubmit) => void | Promise<void>
   onAbort?: () => void
   className?: string
@@ -121,6 +130,7 @@ export function ChatInput({
   thinkingLevel,
   skills = [],
   commands = [],
+  historyItems,
   agentDefinitions = [],
   selectedAgentDefinitionId,
   activeAgentDefinition,
@@ -130,6 +140,8 @@ export function ChatInput({
   onModelChange,
   onThinkingChange,
   onCommand,
+  onHistorySelect,
+  onHistoryDismiss,
   onSubmit,
   onAbort,
   className
@@ -318,22 +330,31 @@ export function ChatInput({
         <PromptInputTextarea
           aria-label="Agent prompt"
           aria-autocomplete={
-            slashSuggestions.length > 0 || activeKnowledgeBaseMention ? 'list' : undefined
+            historyItems !== undefined || slashSuggestions.length > 0 || activeKnowledgeBaseMention
+              ? 'list'
+              : undefined
           }
           aria-controls={
             activeKnowledgeBaseMention
               ? 'knowledge-base-path-suggestions'
-              : slashSuggestions.length > 0
-                ? 'slash-suggestions'
-                : undefined
+              : historyItems
+                ? 'chat-context-history'
+                : slashSuggestions.length > 0
+                  ? 'slash-suggestions'
+                  : undefined
           }
-          aria-expanded={slashSuggestions.length > 0 || Boolean(activeKnowledgeBaseMention)}
+          aria-expanded={
+            historyItems !== undefined ||
+            slashSuggestions.length > 0 ||
+            Boolean(activeKnowledgeBaseMention)
+          }
           autoFocus={autoFocus}
           disabled={isRunning}
           onChange={(event) => {
             setInputValue(event.currentTarget.value)
             setActiveSuggestionIndex(0)
             setSlashMenuDismissed(false)
+            if (historyItems !== undefined) onHistoryDismiss?.()
           }}
           onKeyDown={handleSlashSuggestionKeyDown}
           placeholder={placeholder}
@@ -501,7 +522,48 @@ export function ChatInput({
           <PromptInputSubmit onStop={onAbort} status={status} />
         </PromptInputFooter>
       </PromptInput>
-      {slashSuggestions.length > 0 ? (
+      {historyItems !== undefined ? (
+        <div
+          id="chat-context-history"
+          aria-label="Chat Context history"
+          className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+          role="listbox"
+        >
+          {historyItems.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              No older Chat Contexts with prompts.
+            </p>
+          ) : (
+            historyItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="option"
+                aria-selected="false"
+                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  void Promise.resolve(onHistorySelect?.(item.id)).catch(() => undefined)
+                }}
+              >
+                <FileText
+                  data-chat-history-icon="true"
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">{item.initialPrompt}</span>
+                  {item.createdAt ? (
+                    <span className="mt-0.5 block text-xs text-muted-foreground">
+                      {formatChatContextDate(item.createdAt)}
+                    </span>
+                  ) : null}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : slashSuggestions.length > 0 ? (
         <div
           id="slash-suggestions"
           aria-label={commands.length > 0 ? 'Available commands and skills' : 'Available skills'}
@@ -616,6 +678,15 @@ function getSlashCommandQuery(value: string): { value: string; skillsOnly: boole
   }
 
   return { value: command, skillsOnly: false }
+}
+
+function formatChatContextDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  }).format(date)
 }
 
 function clampThinkingLevel(

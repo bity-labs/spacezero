@@ -2,9 +2,36 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { StoredSession } from '../../sessions/main/sessions.service'
 import type { StoredChatContext } from './knowledge-base-chat.repository'
-import { createKnowledgeBaseChatService } from './knowledge-base-chat.service'
+import { createKnowledgeBaseChatService as createService } from './knowledge-base-chat.service'
 
 const now = new Date('2026-07-20T12:00:00.000Z')
+
+type ChatServiceDependencies = Parameters<typeof createService>[0]
+type LegacyChatServiceDependencies = Pick<
+  ChatServiceDependencies,
+  | 'getStatus'
+  | 'getCurrentChatContext'
+  | 'createCurrentChatContext'
+  | 'clearCurrentChatContext'
+  | 'findSessionById'
+  | 'createSession'
+  | 'deleteSession'
+> &
+  Partial<ChatServiceDependencies>
+
+function createKnowledgeBaseChatService(dependencies: LegacyChatServiceDependencies) {
+  return createService({
+    listChatContexts: async () => [],
+    findChatContextById: async () => undefined,
+    setCurrentChatContext: async () => {
+      throw new Error('Unexpected Chat Context selection')
+    },
+    getSessionState: async () => {
+      throw new Error('Unexpected agent Session state request')
+    },
+    ...dependencies
+  })
+}
 
 function storedSession(overrides: Partial<StoredSession> = {}): StoredSession {
   return {
@@ -76,6 +103,122 @@ describe('createKnowledgeBaseChatService', () => {
       agentSession: { id: session.id }
     })
     expect(createSession).not.toHaveBeenCalled()
+  })
+
+  it('lists older Knowledge Base Chat Contexts with their persisted transcript metadata', async () => {
+    const currentContext = storedChatContext({
+      id: 'knowledge-base-chat-context-current',
+      agentSessionId: 'knowledge-base-agent-session-current'
+    })
+    const olderContext = storedChatContext({
+      id: 'knowledge-base-chat-context-older',
+      agentSessionId: 'knowledge-base-agent-session-older',
+      createdAt: new Date('2026-07-19T08:30:00.000Z')
+    })
+    const foreignContext = storedChatContext({
+      id: 'project-chat-context-foreign',
+      workspaceContextKey: 'project-session-123',
+      agentSessionId: 'project-agent-session-foreign'
+    })
+    const olderSession = storedSession({ id: olderContext.agentSessionId })
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      listChatContexts: async () => [currentContext, olderContext, foreignContext],
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext: vi.fn(),
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) =>
+        sessionId === olderSession.id ? olderSession : storedSession({ id: sessionId }),
+      getSessionState: async ({ sessionId }) => ({
+        sessionId,
+        kind: 'workspace',
+        projectId: null,
+        cwd: '/home/builder/SpaceZero/knowledge-base',
+        status: 'idle',
+        live: true,
+        transcriptPath: `/tmp/${sessionId}.jsonl`,
+        modelProvider: undefined,
+        modelId: undefined,
+        transcriptSnapshot: [
+          {
+            role: 'user',
+            timestamp: 100,
+            content: '  Explain the architecture\nwith implementation details.  '
+          }
+        ]
+      }),
+      createSession: vi.fn(),
+      deleteSession: vi.fn()
+    })
+
+    await expect(service.listChatHistory()).resolves.toEqual([
+      {
+        id: olderContext.id,
+        initialPrompt: 'Explain the architecture with implementation details.',
+        createdAt: '2026-07-19T08:30:00.000Z'
+      }
+    ])
+  })
+
+  it('makes a selected retained Chat Context current without replacing its agent Session', async () => {
+    const selectedContext = storedChatContext({
+      id: 'knowledge-base-chat-context-selected',
+      agentSessionId: 'knowledge-base-agent-session-selected'
+    })
+    const selectedSession = storedSession({ id: selectedContext.agentSessionId })
+    const setCurrentChatContext = vi.fn(async () => selectedContext)
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => storedChatContext(),
+      listChatContexts: async () => [selectedContext],
+      findChatContextById: async (chatContextId) =>
+        chatContextId === selectedContext.id ? selectedContext : undefined,
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext,
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) =>
+        sessionId === selectedSession.id ? selectedSession : undefined,
+      getSessionState: vi.fn(),
+      createSession: vi.fn(),
+      deleteSession: vi.fn()
+    })
+
+    await expect(service.resumeChatContext(selectedContext.id)).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSession: { id: selectedSession.id }
+    })
+    expect(setCurrentChatContext).toHaveBeenCalledWith(selectedContext.id)
+  })
+
+  it('rejects a Chat Context owned by another workspace scope', async () => {
+    const setCurrentChatContext = vi.fn()
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => storedChatContext(),
+      findChatContextById: async () =>
+        storedChatContext({ workspaceContextKey: 'project-session-123' }),
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext,
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: vi.fn(),
+      createSession: vi.fn(),
+      deleteSession: vi.fn()
+    })
+
+    await expect(service.resumeChatContext('foreign-chat-context')).rejects.toThrow(
+      'Knowledge Base Chat Context was not found.'
+    )
+    expect(setCurrentChatContext).not.toHaveBeenCalled()
   })
 
   it('clears an invalid current Chat Context before creating a replacement', async () => {
