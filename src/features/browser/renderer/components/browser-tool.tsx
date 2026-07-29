@@ -131,6 +131,7 @@ export function BrowserTool({
   const [downloadsVersion, setDownloadsVersion] = useState(0)
   const tabStripRef = useRef<HTMLDivElement>(null)
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null)
+  const currentAddress = addressContextKey === contextKey ? address : ''
   const contextState = stateContextKey === contextKey ? state : null
   const activeTab =
     contextState?.tabs.find((tab) => tab.id === contextState.activeTabId) ?? contextState?.tabs[0]
@@ -509,7 +510,8 @@ export function BrowserTool({
 
   async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
-    await navigateToInput(address)
+    if (!currentAddress.trim()) return
+    await navigateToInput(currentAddress)
   }
 
   const chromeError = activeTab?.error ?? error
@@ -671,7 +673,7 @@ export function BrowserTool({
             aria-label="Browser URL"
             className="h-8 w-full min-w-0 rounded-md border bg-background px-3 pr-10 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
             placeholder="Enter a URL or search terms"
-            value={addressContextKey === contextKey ? address : ''}
+            value={currentAddress}
             onChange={(event) => {
               isEditingAddressRef.current = true
               setIsEditingAddress(true)
@@ -682,6 +684,7 @@ export function BrowserTool({
           <Button
             aria-label="Go"
             className="absolute right-0 top-0"
+            disabled={!currentAddress.trim()}
             size="icon-sm"
             title="Go"
             type="submit"
