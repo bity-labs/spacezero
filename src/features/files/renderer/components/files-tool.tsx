@@ -54,6 +54,7 @@ import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-re
 import { openFilesLocation } from '../files-open-location'
 import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
 import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
+import { getFilesRowDecoration } from '../lib/files-row-annotations'
 import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
 import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
 
@@ -113,6 +114,20 @@ function createFilesTreeHostStyle(height: number): FilesTreeHostStyle {
     '--trees-scrollbar-thumb-override': 'var(--muted-foreground)',
     '--trees-font-family-override': 'var(--font-sans)'
   }
+}
+
+function createFilesRowDecorationTabsKey(tabs: readonly FilesTabState[]): string {
+  return tabs
+    .flatMap((tab) => {
+      if (tab.status !== 'ready' || !tab.externalStatus) return []
+      const statusRevision =
+        tab.externalStatus.kind === 'conflict'
+          ? tab.externalStatus.diskRevision
+          : tab.externalStatus.missingRevision
+      return [`${tab.relativePath}\0${tab.externalStatus.kind}\0${statusRevision}`]
+    })
+    .sort()
+    .join('\0')
 }
 
 type FilesToolProps =
@@ -208,7 +223,14 @@ function FilesToolSession({
   const explorerSearchModeRef = useRef(explorerSearchMode)
   const filesSearchQueryRef = useRef(filesSearchQuery)
   const treeEntriesRef = useRef<FilesEntry[]>([])
-  const treeDropHandlerRef = useRef<(event: FileTreeDropResult) => Promise<void>>(async () => undefined)
+  const tabsRef = useRef(context.tabs)
+  const rowDecorationTabsKey = useMemo(
+    () => createFilesRowDecorationTabsKey(context.tabs),
+    [context.tabs]
+  )
+  const treeDropHandlerRef = useRef<(event: FileTreeDropResult) => Promise<void>>(
+    async () => undefined
+  )
   const treeDropValidatorRef = useRef<(event: FileTreeDropContext) => boolean>(() => false)
   const treeRenameHandlerRef = useRef<(event: FileTreeRenameEvent) => Promise<void>>(
     async () => undefined
@@ -253,7 +275,7 @@ function FilesToolSession({
     },
     onSelectionChange: (paths) => treeSelectionHandlerRef.current(paths),
     renderRowDecoration: ({ item }) =>
-      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current)
+      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current, tabsRef.current)
   })
   const activeDocument = getActiveFilesTab(context)
   const preparedTreeInput = useMemo<FileTreePreparedInput | null>(
@@ -273,6 +295,14 @@ function FilesToolSession({
   useEffect(() => {
     contentSearchStateRef.current = contentSearchState
   }, [contentSearchState])
+
+  useEffect(() => {
+    tabsRef.current = context.tabs
+  }, [context.tabs])
+
+  useEffect(() => {
+    if (treeModel.getFileTreeContainer()) treeModel.render({})
+  }, [rowDecorationTabsKey, treeModel])
 
   useEffect(() => {
     explorerSearchModeRef.current = explorerSearchMode
@@ -2049,10 +2079,11 @@ function findTreeEntry(
 
 function renderFilesTreeRowDecoration(
   path: string,
-  entries: readonly FilesEntry[]
+  entries: readonly FilesEntry[],
+  tabs: readonly FilesTabState[]
 ): FileTreeRowDecoration | null {
   const entry = findTreeEntry(entries, fromFilesTreePath(path))
-  return entry?.kind === 'symlink' ? { text: 'Symbolic link', title: 'Symbolic link' } : null
+  return entry ? getFilesRowDecoration(entry, tabs) : null
 }
 
 function canMoveTreePath(path: string, entries: readonly FilesEntry[]): boolean {

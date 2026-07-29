@@ -1,7 +1,7 @@
 import { lstat, readdir, realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 
-import type { FilesEntry, FilesTree } from '../shared'
+import type { FilesEntry, FilesEntryPolicyAnnotation, FilesTree } from '../shared'
 
 const naturalNameCollator = new Intl.Collator('en', {
   numeric: true,
@@ -34,11 +34,15 @@ export async function readFilesDirectory(
 
     return entries
       .filter((entry) => entry.name.toLowerCase() !== '.git')
-      .map((entry): FilesEntry => ({
-        name: entry.name,
-        relativePath: normalizedPath ? `${normalizedPath}/${entry.name}` : entry.name,
-        kind: entry.isSymbolicLink() ? 'symlink' : entry.isDirectory() ? 'directory' : 'file'
-      }))
+      .map((entry): FilesEntry => {
+        const kind = entry.isSymbolicLink() ? 'symlink' : entry.isDirectory() ? 'directory' : 'file'
+        return {
+          name: entry.name,
+          relativePath: normalizedPath ? `${normalizedPath}/${entry.name}` : entry.name,
+          kind,
+          ...filesEntryPolicyAnnotations(kind)
+        }
+      })
       .sort(compareEntries)
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('files.')) throw error
@@ -97,6 +101,15 @@ function assertInsideRoot(rootPath: string, candidatePath: string): void {
 
 function toExplorerPath(entry: FilesEntry): string {
   return entry.kind === 'directory' ? `${entry.relativePath}/` : entry.relativePath
+}
+
+function filesEntryPolicyAnnotations(
+  kind: FilesEntry['kind']
+): { policyAnnotations: FilesEntryPolicyAnnotation[] } | Record<string, never> {
+  if (kind !== 'symlink') return {}
+  return {
+    policyAnnotations: [{ kind: 'symlink' }, { kind: 'locked', reason: 'filesystem-policy' }]
+  }
 }
 
 function compareEntries(left: FilesEntry, right: FilesEntry): number {
