@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-18
 - Issues: #81, #83, #97, #98
+- Amended by: ADR 0020
 
 ## Context
 
@@ -25,11 +26,12 @@ Project Sessions currently run in a Project's registered path. Concurrent agents
 - Restore and destructive cleanup authenticate persisted worktree identity before use: the path must match `<Space Zero Home>/worktrees/<project-id>/<session-id>`, remain a non-base worktree registered to the Project repository, share its Git common directory, use the persisted branch, and reference a valid persisted base revision.
 - Destructive cleanup uses Git's worktree and branch operations only; it never recursively removes an unverified persisted path. If archive cleanup fails, the Session row is not marked archived and its recovery metadata remains durable. If permanent deletion cleanup fails, the Session row and recovery metadata remain durable.
 - If a persisted worktree is missing or invalid at restore time, restore fails explicitly instead of silently running in the base Project checkout.
-- Workspace Sessions remain global and do not use worktrees.
+- Global Chat and Knowledge Base Chat do not use worktrees. Ordinary user-created Workspace Sessions are superseded by ADR 0020.
 
 ## Consequences
 
 - Renderer callers request a Project Session by Project/source identity; they do not choose an agent cwd or execute Git.
+- Clearing or resuming chat inside a Project Session rotates or selects a Chat Context only; it does not create, delete, archive, or replace the managed worktree.
 - Space Zero Home moves do not move existing worktrees. Persisted absolute paths continue to identify existing Session worktrees; new Sessions use the newly configured Home.
 - Repositories must have a valid commit at `HEAD`. Existing registered non-Git folders fail explicitly with guidance when starting a managed Session; Space Zero does not silently initialize or commit user-owned folder contents. New non-Git folder registrations are rejected before an unusable Project is persisted. Git LFS and submodule materialization follow normal `git worktree add` behavior and can be handled by later lifecycle improvements.
 - Interrupted or externally modified worktrees produce explicit recovery errors. Cleanup may remove the worktree before a later branch-removal failure; retained Session metadata provides diagnostics and manual recovery rather than claiming deletion succeeded. Broader recovery, cleanup policy, and dirty-worktree UX remain follow-up work under #81.

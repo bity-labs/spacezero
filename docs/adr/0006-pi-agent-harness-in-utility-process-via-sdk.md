@@ -6,6 +6,8 @@ title: Pi Agent Harness in a Utility Process via the SDK
 
 Accepted
 
+> Amended by ADR 0020: user-facing ordinary Workspace Sessions are replaced by one Global Chat, and Space Zero distinguishes stable workspace contexts from rotatable Chat Contexts.
+
 ## Context
 
 Space Zero is a Pi-first agentic desktop workspace. `docs/context.md` fixes Pi as the v0 agent harness and states that future agent sessions should be orchestrated from main/utility process code, not renderer code.
@@ -70,6 +72,8 @@ The Workspace Tool Registry is main-owned. When composing a session's tool list,
 
 ### 4. One Pi AgentSession per Space Zero Session, many live concurrently
 
+> Amended by ADR 0020. This section describes the original v0 runtime mapping. The current product model distinguishes stable workspace contexts from rotatable Chat Contexts, so implementation must not assume a user-facing one-to-one relationship between Space Zero workspace containers and chat transcripts.
+
 The utility process holds a `Map<sessionId, AgentSession>`. There is one Pi `AgentSession` per Space Zero Session, each with its own `SessionManager`, model, thinking level, and active tool list. Multiple sessions run concurrently and in the background; switching the active session is a UI focus concept, not a runtime limit. Inactive sessions are persisted and rehydrated via `SessionManager.continueRecent` / `open` when the builder returns to them.
 
 A resource cap on concurrent live sessions (memory, CPU, LLM-stream budget) is a tunable, not an architectural constraint. Sessions above the cap stay persisted until summoned.
@@ -131,7 +135,7 @@ Agent-initiated in-session confirmation matches the user's mental model: the age
 - **Pi SDK in the main process.** Rejected because LLM streaming and tool execution on the main thread would jank the window. The utility process isolates agent work while staying in-process.
 - **Direct renderer ↔ utility `MessagePort`.** Rejected because it bypasses main-process validation, safety policy, and activity history, breaking ADR 0002 and ADR 0005. Main must remain in the path for any app-state or privileged behavior.
 - **Replace Pi's built-in `bash`/`edit`/`write` with Workspace Tools.** Rejected because those tools operate the builder's repository (the project layer), which is legitimate coding-agent work. The "no backdoors" rule applies to Space Zero app internals, not to the user's project files. Project tools and Workspace Tools are two distinct domains in one `AgentSession`.
-- **A single shared Pi `AgentSession` for the whole app.** Rejected because it would collapse all projects/tasks into one transcript and contradict first-class sessions.
+- **A single shared Pi `AgentSession` for the whole app.** Rejected because it would collapse all projects/tasks into one transcript and contradict first-class Project Sessions. ADR 0020 later preserves this concern through separate Chat Contexts scoped to stable workspace contexts rather than ordinary global Workspace Sessions.
 - **One live session at a time in v0.** Rejected because parallel background agent work is core to the product thesis, not a later optimization. Pi's independent `AgentSession` design supports this naturally.
 - **Broad Pi resource auto-discovery for extensions/prompts/themes in v0.** Rejected for v0 to keep the agent's capability surface fully controlled by Space Zero. Agent Skills use an explicit, standards-compatible path composition described in ADR 0010.
 - **`@earendil-works/pi-tui`.** Out of scope; Space Zero is a desktop GUI.
