@@ -88,6 +88,11 @@ describe('ToolPaneShell', () => {
     expect(pane).not.toContainElement(switcher)
     expect(headerControls).toHaveClass('w-full')
     expect(headerControls).toHaveClass('flex-1')
+    expect(headerControls).toHaveClass('border-l')
+    expect(headerControls).toHaveClass('border-b')
+    expect(headerControls).not.toHaveClass('titlebar-control')
+    expect(switcher).toHaveClass('titlebar-control')
+    expect(toggle).toHaveClass('titlebar-control')
   })
 
   it('uses the shared clamped pane width for default and persisted header tracks', () => {
