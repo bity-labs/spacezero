@@ -1,9 +1,13 @@
 import {
+  addMarkdownProperty,
   getRichMarkdownLimitation,
   RICH_MARKDOWN_FOOTNOTE_LIMITATION,
   RICH_MARKDOWN_LIMITATION,
+  parseMarkdownProperties,
+  RICH_MARKDOWN_FRONTMATTER_LIMITATION,
   RICH_MARKDOWN_SYNTAX_LIMITATION,
-  splitMarkdownDocument
+  splitMarkdownDocument,
+  updateMarkdownProperty
 } from './knowledge-base-markdown'
 
 describe('Knowledge Base Markdown safety', () => {
@@ -16,8 +20,136 @@ describe('Knowledge Base Markdown safety', () => {
     })
   })
 
+  it('reads top-level string properties without changing their YAML representation', () => {
+    const markdown = '---\r\nname: "Builder"\r\ndescription: Agent workspace\r\n---\r\n\r\nBody'
+
+    expect(parseMarkdownProperties(markdown)).toEqual({
+      status: 'supported',
+      properties: [
+        { key: 'name', value: 'Builder' },
+        { key: 'description', value: 'Agent workspace' }
+      ]
+    })
+    expect(markdown).toBe(
+      '---\r\nname: "Builder"\r\ndescription: Agent workspace\r\n---\r\n\r\nBody'
+    )
+  })
+
+  it('adds an empty string property to a document without frontmatter while preserving its body format', () => {
+    const markdown = '\uFEFF# Body\r\n\r\nKeep this line.\r\n'
+
+    expect(addMarkdownProperty(markdown)).toEqual({
+      key: 'property',
+      markdown: '\uFEFF---\r\nproperty: ""\r\n---\r\n\r\n# Body\r\n\r\nKeep this line.\r\n'
+    })
+  })
+
+  it('adds a deterministic unique property without overwriting existing keys', () => {
+    const markdown = [
+      '---',
+      'property: one',
+      'property-2: two # keep this comment',
+      '---',
+      '',
+      'Body'
+    ].join('\r\n')
+
+    expect(addMarkdownProperty(markdown)).toEqual({
+      key: 'property-3',
+      markdown: [
+        '---',
+        'property: one',
+        'property-2: two # keep this comment',
+        'property-3: ""',
+        '---',
+        '',
+        'Body'
+      ].join('\r\n')
+    })
+  })
+
+  it('edits a property key and value without losing comments, line endings, BOM, or body content', () => {
+    const markdown = [
+      '\uFEFF---',
+      'name: "Builder" # keep this comment',
+      'description: Workspace',
+      '---',
+      '',
+      '# Body',
+      '',
+      'Keep this line.'
+    ].join('\r\n')
+
+    expect(
+      updateMarkdownProperty(markdown, 'name', {
+        key: 'displayName',
+        value: 'Space Zero'
+      })
+    ).toEqual({
+      ok: true,
+      markdown: [
+        '\uFEFF---',
+        'displayName: "Space Zero" # keep this comment',
+        'description: Workspace',
+        '---',
+        '',
+        '# Body',
+        '',
+        'Keep this line.'
+      ].join('\r\n')
+    })
+  })
+
+  it('quotes edited values when needed to keep them as strings', () => {
+    const result = updateMarkdownProperty('---\nenabled: yes\n---\n\nBody', 'enabled', {
+      key: 'enabled',
+      value: 'true'
+    })
+
+    expect(result).toEqual({
+      ok: true,
+      markdown: '---\nenabled: "true"\n---\n\nBody'
+    })
+    if (result.ok) {
+      expect(parseMarkdownProperties(result.markdown)).toEqual({
+        status: 'supported',
+        properties: [{ key: 'enabled', value: 'true' }]
+      })
+    }
+  })
+
+  it('rejects empty and duplicate property keys without changing Markdown', () => {
+    const markdown = '---\nname: Builder\ndescription: Workspace\n---\n\nBody'
+
+    expect(updateMarkdownProperty(markdown, 'name', { key: ' ', value: 'Changed' })).toEqual({
+      ok: false,
+      error: 'Property keys cannot be empty.'
+    })
+    expect(
+      updateMarkdownProperty(markdown, 'name', { key: 'description', value: 'Changed' })
+    ).toEqual({
+      ok: false,
+      error: 'A property named "description" already exists.'
+    })
+    expect(markdown).toBe('---\nname: Builder\ndescription: Workspace\n---\n\nBody')
+  })
+
   it.each([
-    ['YAML frontmatter', '---\nmetadata: { kind: note }\n---\n\nBody', true],
+    ['typed value', '---\ncount: 1\n---\n\nBody'],
+    ['nested value', '---\ntags:\n  - knowledge\n---\n\nBody'],
+    ['non-mapping YAML', '---\n- knowledge\n---\n\nBody'],
+    ['non-string key', '---\n1: one\n---\n\nBody'],
+    ['anchor', '---\nname: &label Builder\n---\n\nBody'],
+    ['tag', '---\nname: !label Builder\n---\n\nBody'],
+    ['malformed YAML', '---\nname: [\n---\n\nBody'],
+    ['unclosed frontmatter', '---\nname: Builder\nBody']
+  ])('requires source mode for unsupported frontmatter with a %s', (_description, markdown) => {
+    expect(parseMarkdownProperties(markdown)).toEqual({ status: 'unsupported', properties: [] })
+    expect(getRichMarkdownLimitation(markdown)).toBe(RICH_MARKDOWN_FRONTMATTER_LIMITATION)
+  })
+
+  it.each([
+    ['string-only YAML frontmatter', '---\nname: Builder\n---\n\nBody', true],
     ['fenced MDX example', '```mdx\n<Callout>Example</Callout>\n```', true],
     ['top-level indented MDX example', '    <Callout>Example</Callout>', true],
     ['inline MDX example', 'Use `<Callout>Example</Callout>` here.', true],

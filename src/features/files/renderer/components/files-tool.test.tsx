@@ -1687,6 +1687,38 @@ describe('Files Tool', () => {
     expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
   })
 
+  it('keeps unsupported frontmatter losslessly in source mode', async () => {
+    const markdown = '---\r\ncount: 1\r\ntags: [one, two]\r\n---\r\n\r\n# Body'
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'note.md', relativePath: 'docs/note.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'note.md',
+      relativePath: 'docs/note.md',
+      contentKind: 'text' as const,
+      size: markdown.length,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: markdown,
+      hasBom: false,
+      lineEnding: 'crlf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('note.md'))
+
+    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue(
+      markdown.replaceAll('\r\n', '\n')
+    )
+    expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
+      draft: markdown,
+      editorMode: 'source'
+    })
+    expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
+    expect(screen.getByText(/properties editor cannot preserve/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
+  })
+
   it('keeps tab-padded list-indented MDX in source mode and saves it without rich serialization', async () => {
     const mdxContent = '-\titem\n    <Component />'
     window.spacezero.files.listDirectory = vi.fn(async () => [
