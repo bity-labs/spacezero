@@ -46,6 +46,39 @@ async function setMainWindowSize(
   )
 }
 
+async function expectCollapsedToolPaneControlsAligned(window: Page): Promise<void> {
+  await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+    'aria-orientation',
+    'vertical'
+  )
+  const geometry = await window.evaluate(() => {
+    const toggle = document
+      .querySelector('[aria-label="Toggle Tool Pane"]')
+      ?.getBoundingClientRect()
+    const toolButton = document
+      .querySelector('[aria-label="Tool Switcher"] button:not([disabled])')
+      ?.getBoundingClientRect()
+
+    if (!toggle || !toolButton) return null
+    return {
+      centerDelta: Math.abs(
+        toggle.left + toggle.width / 2 - (toolButton.left + toolButton.width / 2)
+      ),
+      toggleHeight: toggle.height,
+      toggleWidth: toggle.width,
+      toolButtonHeight: toolButton.height,
+      toolButtonWidth: toolButton.width
+    }
+  })
+
+  expect(geometry).not.toBeNull()
+  expect(geometry!.centerDelta).toBeLessThanOrEqual(1)
+  expect(geometry!.toggleHeight).toBe(32)
+  expect(geometry!.toggleWidth).toBe(32)
+  expect(geometry!.toolButtonHeight).toBe(32)
+  expect(geometry!.toolButtonWidth).toBe(32)
+}
+
 async function expectToolPaneHeaderGeometryAligned(window: Page): Promise<void> {
   await expect
     .poll(async () => window.getByRole('complementary', { name: 'Tool Pane' }).boundingBox())
@@ -765,6 +798,44 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       }, { sessionId }).catch(() => undefined)
     }
     await electronApp?.close().catch(() => undefined)
+    await rm(temporaryDirectory, { recursive: true, force: true })
+  }
+})
+
+test('aligns the collapsed Tool Pane toggle with its tool buttons and keeps it usable', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-tool-pane-alignment-e2e-'))
+  const knowledgeBasePath = join(temporaryDirectory, 'SpaceZero', 'knowledge-base')
+  const userDataPath = join(temporaryDirectory, 'user-data')
+  const electronApp = await electron.launch({
+    executablePath: electronPath,
+    args: [join(process.cwd(), 'out/main/index.js'), `--user-data-dir=${userDataPath}`],
+    env: {
+      ...process.env,
+      SPACEZERO_KNOWLEDGE_BASE_PATH: knowledgeBasePath,
+      GIT_AUTHOR_NAME: 'Space Zero Test',
+      GIT_AUTHOR_EMAIL: 'spacezero@example.test',
+      GIT_COMMITTER_NAME: 'Space Zero Test',
+      GIT_COMMITTER_EMAIL: 'spacezero@example.test'
+    }
+  })
+
+  try {
+    const window = await electronApp.firstWindow()
+    await window.getByRole('button', { name: 'Get started' }).click()
+    await window.getByRole('button', { name: 'Skip for now' }).click()
+    await window.getByRole('button', { name: 'Knowledge Base' }).click()
+    await window.getByRole('button', { name: 'Create new' }).click()
+    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
+
+    await setMainWindowSize(electronApp, 1280, 900)
+    await expectCollapsedToolPaneControlsAligned(window)
+
+    const toggle = window.getByRole('button', { name: 'Toggle Tool Pane' })
+    await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+  } finally {
+    await electronApp.close().catch(() => undefined)
     await rm(temporaryDirectory, { recursive: true, force: true })
   }
 })
