@@ -59,6 +59,7 @@ vi.mock('@pierre/trees/react', async () => {
       paths: readonly string[] | { preparedInput: PreparedTreeInput; initialExpandedPaths?: readonly string[] },
       options?: { preparedInput?: PreparedTreeInput; initialExpandedPaths?: readonly string[] }
     ) => void
+    getFileTreeContainer: () => HTMLElement | undefined
     getItem: (
       path: string
     ) => { select: () => void; isDirectory: () => boolean; getPath: () => string } | null
@@ -66,12 +67,15 @@ vi.mock('@pierre/trees/react', async () => {
     getSelectedPaths: () => readonly string[]
     getVisibleCount: () => number
     getVisibleRows: () => Array<{ kind: 'directory' | 'file'; path: string; isExpanded: boolean }>
+    render: () => void
     scrollToPath: () => void
     setSearch: (value: string | null) => void
     subscribe: (listener: () => void) => () => void
     __getPaths: () => readonly string[]
     __getExpanded: () => Set<string>
+    __getRevision: () => number
     __getSearch: () => string | null
+    __mount: () => void
     __select: (path: string) => void
     __toggle: (path: string) => void
   }
@@ -99,11 +103,17 @@ vi.mock('@pierre/trees/react', async () => {
     let paths = [...(options.preparedInput?.paths ?? options.paths ?? [])]
     let selectedPaths = [...(options.initialSelectedPaths ?? [])]
     let searchValue: string | null = null
+    let revision = 0
+    let fileTreeContainer: HTMLElement | undefined
     const expanded = new Set(options.initialExpandedPaths?.map(normalizeDirectoryPath) ?? [])
     const listeners = new Set<() => void>()
+    const rerenderTree = (): void => {
+      revision += 1
+      forceUpdate()
+    }
     const notify = (): void => {
       for (const listener of listeners) listener()
-      forceUpdate()
+      rerenderTree()
     }
     const searchedPaths = (): readonly string[] => {
       const query = searchValue?.trim().toLowerCase()
@@ -153,6 +163,7 @@ vi.mock('@pierre/trees/react', async () => {
         paths = normalizedPaths
         notify()
       },
+      getFileTreeContainer: () => fileTreeContainer,
       getItem: (path) => {
         const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
         if (!paths.includes(normalizedPath)) return null
@@ -171,6 +182,10 @@ vi.mock('@pierre/trees/react', async () => {
           kind: isDirectoryPath(path) ? 'directory' : 'file',
           path
         })),
+      render: () => {
+        if (!fileTreeContainer) return
+        rerenderTree()
+      },
       scrollToPath: () => undefined,
       setSearch: (value) => {
         const nextValue = value?.trim() ? value.trim().toLowerCase() : null
@@ -184,7 +199,11 @@ vi.mock('@pierre/trees/react', async () => {
       },
       __getPaths: () => paths,
       __getExpanded: () => expanded,
+      __getRevision: () => revision,
       __getSearch: () => searchValue,
+      __mount: () => {
+        fileTreeContainer ??= document.createElement('file-tree-container')
+      },
       __select: (path) => {
         selectedPaths = [path]
         options.onSelectionChange?.(selectedPaths)
@@ -207,7 +226,10 @@ vi.mock('@pierre/trees/react', async () => {
     if (!modelRef.current) {
       modelRef.current = createModel(options, () => setRevision((revision) => revision + 1))
     } else {
-      modelRef.current.options = options
+      modelRef.current.options = {
+        ...options,
+        renderRowDecoration: modelRef.current.options.renderRowDecoration
+      }
     }
     return { model: modelRef.current }
   }
@@ -231,87 +253,92 @@ vi.mock('@pierre/trees/react', async () => {
     style?: Record<string, unknown>
   }): React.JSX.Element {
     treesMock.renderProps.push(props)
+    model.__mount()
     const [activeMenuPath, setActiveMenuPath] = React.useState<string | null>(null)
-    const paths = model.__getPaths()
-    const expanded = model.__getExpanded()
-    const searchValue = model.__getSearch()
-    const searchedPaths = searchValue
-      ? paths.filter((path) => {
-          const query = searchValue.toLowerCase()
-          if (path.toLowerCase().includes(query)) return true
-          return paths.some(
-            (candidate) =>
-              parentPath(candidate).startsWith(path) && candidate.toLowerCase().includes(query)
-          )
+    const revision = model.__getRevision()
+    const rows = React.useMemo(() => {
+      if (!Number.isFinite(revision)) return []
+      const paths = model.__getPaths()
+      const expanded = model.__getExpanded()
+      const searchValue = model.__getSearch()
+      const searchedPaths = searchValue
+        ? paths.filter((path) => {
+            const query = searchValue.toLowerCase()
+            if (path.toLowerCase().includes(query)) return true
+            return paths.some(
+              (candidate) =>
+                parentPath(candidate).startsWith(path) && candidate.toLowerCase().includes(query)
+            )
+          })
+        : paths
+      const visiblePaths = searchedPaths.filter((path) => {
+        const parent = parentPath(path)
+        if (!parent) return true
+        if (!paths.includes(parent)) return true
+        if (searchValue) return true
+        return expanded.has(parent)
+      })
+      const selectedPath = model.getSelectedPaths()[0]
+      return visiblePaths.map((path) => {
+        const directory = isDirectoryPath(path)
+        const name = displayName(path)
+        const hasChildren = directory && paths.some((candidate) => parentPath(candidate) === path)
+        const decoration = model.options.renderRowDecoration?.({
+          item: { kind: directory ? 'directory' : 'file', name, path },
+          row: { kind: directory ? 'directory' : 'file', path }
         })
-      : paths
-    const visiblePaths = searchedPaths.filter((path) => {
-      const parent = parentPath(path)
-      if (!parent) return true
-      if (!paths.includes(parent)) return true
-      if (searchValue) return true
-      return expanded.has(parent)
-    })
-    const selectedPath = model.getSelectedPaths()[0]
+        const contextMenuTriggerMode = model.options.composition?.contextMenu?.triggerMode
+        const showContextMenuButton =
+          contextMenuTriggerMode === 'both' || contextMenuTriggerMode === 'button'
+        return (
+          <li
+            key={path}
+            role="treeitem"
+            aria-label={name}
+            aria-selected={selectedPath === path}
+            onClick={() => model.__select(path)}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setActiveMenuPath(path)
+            }}
+          >
+            <span data-slot="context-menu-trigger">
+              {hasChildren ? (
+                <button
+                  type="button"
+                  aria-label={`${expanded.has(path) ? 'Collapse' : 'Expand'} ${name}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    model.__toggle(path)
+                  }}
+                >
+                  {expanded.has(path) ? '▾' : '▸'}
+                </button>
+              ) : null}
+              {name}
+              {decoration ? <span>{decoration.text}</span> : null}
+              {showContextMenuButton ? (
+                <button
+                  type="button"
+                  aria-label={`Open ${name} actions`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setActiveMenuPath(path)
+                  }}
+                >
+                  ⋯
+                </button>
+              ) : null}
+            </span>
+          </li>
+        )
+      })
+    }, [model, revision])
 
     return (
       <div>
         <ul role="tree" aria-label={props['aria-label']}>
-          {visiblePaths.map((path) => {
-            const directory = isDirectoryPath(path)
-            const name = displayName(path)
-            const hasChildren =
-              directory && paths.some((candidate) => parentPath(candidate) === path)
-            const decoration = model.options.renderRowDecoration?.({
-              item: { kind: directory ? 'directory' : 'file', name, path },
-              row: { kind: directory ? 'directory' : 'file', path }
-            })
-            const contextMenuTriggerMode = model.options.composition?.contextMenu?.triggerMode
-            const showContextMenuButton =
-              contextMenuTriggerMode === 'both' || contextMenuTriggerMode === 'button'
-            return (
-              <li
-                key={path}
-                role="treeitem"
-                aria-label={name}
-                aria-selected={selectedPath === path}
-                onClick={() => model.__select(path)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setActiveMenuPath(path)
-                }}
-              >
-                <span data-slot="context-menu-trigger">
-                  {hasChildren ? (
-                    <button
-                      type="button"
-                      aria-label={`${expanded.has(path) ? 'Collapse' : 'Expand'} ${name}`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        model.__toggle(path)
-                      }}
-                    >
-                      {expanded.has(path) ? '▾' : '▸'}
-                    </button>
-                  ) : null}
-                  {name}
-                  {decoration ? <span>{decoration.text}</span> : null}
-                  {showContextMenuButton ? (
-                    <button
-                      type="button"
-                      aria-label={`Open ${name} actions`}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setActiveMenuPath(path)
-                      }}
-                    >
-                      ⋯
-                    </button>
-                  ) : null}
-                </span>
-              </li>
-            )
-          })}
+          {rows}
         </ul>
         {activeMenuPath && renderContextMenu ? (
           <div>

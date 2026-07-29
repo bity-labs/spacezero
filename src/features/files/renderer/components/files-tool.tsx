@@ -121,6 +121,20 @@ function createFilesTreeHostStyle(height: number): FilesTreeHostStyle {
   }
 }
 
+function createFilesRowDecorationTabsKey(tabs: readonly FilesTabState[]): string {
+  return tabs
+    .flatMap((tab) => {
+      if (tab.status !== 'ready' || !tab.externalStatus) return []
+      const statusRevision =
+        tab.externalStatus.kind === 'conflict'
+          ? tab.externalStatus.diskRevision
+          : tab.externalStatus.missingRevision
+      return [`${tab.relativePath}\0${tab.externalStatus.kind}\0${statusRevision}`]
+    })
+    .sort()
+    .join('\0')
+}
+
 type FilesToolProps =
   | { sessionId: string; treeLabel?: string; createRichImageAdapter?: RichImageAdapterFactory }
   | {
@@ -214,6 +228,11 @@ function FilesToolSession({
   const observedPathGenerationsRef = useRef(new Map<string, number>())
   const contentSearchStateRef = useRef(contentSearchState)
   const treeEntriesRef = useRef<FilesEntry[]>([])
+  const tabsRef = useRef(context.tabs)
+  const rowDecorationTabsKey = useMemo(
+    () => createFilesRowDecorationTabsKey(context.tabs),
+    [context.tabs]
+  )
   const treeSelectionHandlerRef = useRef<(paths: readonly string[]) => void>(() => undefined)
   const { model: treeModel } = useFileTree({
     composition: {
@@ -240,7 +259,7 @@ function FilesToolSession({
     },
     onSelectionChange: (paths) => treeSelectionHandlerRef.current(paths),
     renderRowDecoration: ({ item }) =>
-      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current, context.tabs)
+      renderFilesTreeRowDecoration(item.path, treeEntriesRef.current, tabsRef.current)
   })
   const activeDocument = getActiveFilesTab(context)
   const preparedTreeInput = useMemo<FileTreePreparedInput | null>(
@@ -260,6 +279,14 @@ function FilesToolSession({
   useEffect(() => {
     contentSearchStateRef.current = contentSearchState
   }, [contentSearchState])
+
+  useEffect(() => {
+    tabsRef.current = context.tabs
+  }, [context.tabs])
+
+  useEffect(() => {
+    if (treeModel.getFileTreeContainer()) treeModel.render({})
+  }, [rowDecorationTabsKey, treeModel])
 
   useEffect(() => {
     treeModel.setSearch(explorerSearchMode === 'files' ? filesSearchQuery : null)
