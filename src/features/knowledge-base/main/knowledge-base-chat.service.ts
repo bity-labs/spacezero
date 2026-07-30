@@ -42,6 +42,8 @@ export function createKnowledgeBaseChatService({
     const session = await createSession()
     return { session, activate: async () => session }
   },
+  publishCurrentChatContext = (session) => createCurrentChatContext(session.id),
+  recoverPreparedSessions = async () => undefined,
   deleteSession
 }: {
   getStatus: () => Promise<KnowledgeBaseStatus>
@@ -55,9 +57,12 @@ export function createKnowledgeBaseChatService({
   getSessionState: (request: { sessionId: string }) => Promise<AgentSessionState>
   createSession: () => Promise<StoredSession>
   prepareSession?: () => Promise<PreparedKnowledgeBaseSession>
+  publishCurrentChatContext?: (session: StoredSession) => Promise<StoredChatContext>
+  recoverPreparedSessions?: () => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
 }): KnowledgeBaseChatService {
   let pending: Promise<KnowledgeBaseChatContext> | undefined
+  const recovery = recoverPreparedSessions()
   let latestMutationGeneration = 0
   let mutationQueue = Promise.resolve()
 
@@ -99,15 +104,16 @@ export function createKnowledgeBaseChatService({
   }
 
   async function createAndPersist(): Promise<KnowledgeBaseChatContext> {
-    const createdSession = await createSession()
+    const preparedSession = await prepareSession()
+    const activatedSession = await preparedSession.activate()
     try {
-      const createdChatContext = await createCurrentChatContext(createdSession.id)
+      const createdChatContext = await publishCurrentChatContext(activatedSession)
       return toKnowledgeBaseChatContext(
         createdChatContext,
-        toManagedChatAgentSession(createdSession)
+        toManagedChatAgentSession({ ...activatedSession, agentLifecycleState: 'active' })
       )
     } catch (error) {
-      return rollbackCreatedSession(createdSession.id, error)
+      return rollbackCreatedSession(activatedSession.id, error)
     }
   }
 
@@ -153,12 +159,13 @@ export function createKnowledgeBaseChatService({
 
   return {
     getOrCreateCurrentChatContext() {
-      pending ??= getOrCreate().finally(() => {
+      pending ??= recovery.then(getOrCreate).finally(() => {
         pending = undefined
       })
       return pending
     },
     async listChatHistory() {
+      await recovery
       const status = await getStatus()
       if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
 
@@ -189,6 +196,7 @@ export function createKnowledgeBaseChatService({
       return history.filter((item): item is KnowledgeBaseChatHistoryItem => Boolean(item))
     },
     async resumeChatContext(chatContextId) {
+      await recovery
       const generation = beginCurrentContextMutation()
       const status = await getStatus()
       if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
@@ -214,52 +222,46 @@ export function createKnowledgeBaseChatService({
         : getPersistedCurrentChatContext()
     },
     async clearChat() {
+      await recovery
       const generation = beginCurrentContextMutation()
       const status = await getStatus()
       if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
 
-      const previousContext = await getCurrentChatContext()
       const preparedSession = await prepareSession()
-      const mutationResult = await runCurrentContextMutation(async () => {
-        if (!isLatestCurrentContextMutation(generation)) {
-          return { createdContext: undefined, needsCleanup: true }
-        }
-        let createdContext: StoredChatContext
-        try {
-          createdContext = await createCurrentChatContext(preparedSession.session.id)
-        } catch (error) {
-          return rollbackCreatedSession(preparedSession.session.id, error)
-        }
-        return { createdContext, needsCleanup: false }
-      })
-
-      if (!mutationResult.createdContext) {
-        if (mutationResult.needsCleanup) await deleteSession(preparedSession.session.id)
+      const accepted = await runCurrentContextMutation(async () =>
+        isLatestCurrentContextMutation(generation)
+      )
+      if (!accepted) {
+        await deleteSession(preparedSession.session.id)
         return getPersistedCurrentChatContext()
       }
 
-      let activatedSession: StoredSession
-      try {
-        activatedSession = await preparedSession.activate()
-      } catch (error) {
-        if (isLatestCurrentContextMutation(generation) && previousContext) {
-          await runCurrentContextMutation(() => setCurrentChatContext(previousContext.id))
+      const activatedSession = await preparedSession.activate()
+      const publishedContext = await runCurrentContextMutation(async () => {
+        if (!isLatestCurrentContextMutation(generation)) {
+          await deleteSession(activatedSession.id)
+          return undefined
         }
-        throw error
-      }
+        try {
+          return await publishCurrentChatContext(activatedSession)
+        } catch (error) {
+          return rollbackCreatedSession(activatedSession.id, error)
+        }
+      })
+      if (!publishedContext) return getPersistedCurrentChatContext()
 
       const retainedContext = await runCurrentContextMutation(async () => {
         if (!isLatestCurrentContextMutation(generation)) {
           await deleteSession(activatedSession.id)
           return undefined
         }
-        return mutationResult.createdContext
+        return publishedContext
       })
       if (!retainedContext) return getPersistedCurrentChatContext()
 
       return toKnowledgeBaseChatContext(
         retainedContext,
-        toManagedChatAgentSession(activatedSession)
+        toManagedChatAgentSession({ ...activatedSession, agentLifecycleState: 'active' })
       )
     }
   }
@@ -270,6 +272,7 @@ function isKnowledgeBaseSession(session: StoredSession | undefined): session is 
     session &&
     session.projectId === null &&
     session.managedContext === 'knowledge-base' &&
+    session.agentLifecycleState !== 'preparing' &&
     !session.archivedAt
   )
 }

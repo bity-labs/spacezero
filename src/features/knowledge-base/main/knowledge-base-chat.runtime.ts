@@ -73,6 +73,15 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
           }
         }
       },
+      publishCurrentChatContext: (session) =>
+        currentSessionRepository.publishPreparedCurrentChatContext(session),
+      recoverPreparedSessions: () =>
+        recoverPreparedKnowledgeBaseSessions({
+          listPreparingSessions: currentSessionRepository.listPreparingAgentSessions,
+          deleteUtilitySession: (sessionId) =>
+            getAgentUtilityProcessHost().deleteSession({ sessionId }),
+          deleteSessionMetadata: sessionsRepository.deleteById
+        }),
       deleteSession: async (sessionId) => {
         await getAgentUtilityProcessHost().deleteSession({ sessionId })
         await sessionsRepository.deleteById(sessionId)
@@ -80,4 +89,19 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
     })
   }
   return service
+}
+
+export async function recoverPreparedKnowledgeBaseSessions({
+  listPreparingSessions,
+  deleteUtilitySession,
+  deleteSessionMetadata
+}: {
+  listPreparingSessions: () => Promise<Array<{ id: string }>>
+  deleteUtilitySession: (sessionId: string) => Promise<void>
+  deleteSessionMetadata: (sessionId: string) => Promise<void>
+}): Promise<void> {
+  for (const preparedSession of await listPreparingSessions()) {
+    await deleteUtilitySession(preparedSession.id)
+    await deleteSessionMetadata(preparedSession.id)
+  }
 }

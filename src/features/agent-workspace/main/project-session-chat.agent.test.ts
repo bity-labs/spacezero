@@ -1,6 +1,7 @@
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { AgentSessionState } from '../../../shared/agent-protocol'
+import type { AgentSessionState, CreateAgentSessionRequest } from '../../../shared/agent-protocol'
 import type { SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import { createProjectChatAgentSession, restoreAgentSessionState } from './agent-session-handler'
 
@@ -102,14 +103,21 @@ function freshState(): AgentSessionState {
 }
 
 describe('createProjectChatAgentSession', () => {
-  it('creates a fresh agent in the existing managed worktree without worktree creation or cleanup', async () => {
+  it('creates a fresh agent with a Pi-valid ID in the existing managed worktree', async () => {
     const owner = stableProjectSession()
     const ownerSnapshot = structuredClone(owner)
     const { repository, sessions } = createRepository(owner)
     const utilityHost = {
-      createSession: vi.fn(async () => freshState()),
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) => {
+        SessionManager.inMemory(request.cwd, { id: request.sessionId })
+        return freshState()
+      }),
       deleteSession: vi.fn(async () => undefined)
     }
+    const createSessionId = vi
+      .fn<() => string>()
+      .mockReturnValueOnce('invalid-project-chat-')
+      .mockReturnValueOnce('agent-session-2')
     const worktrees = {
       validate: vi.fn(async () => true),
       create: vi.fn(),
@@ -121,7 +129,7 @@ describe('createProjectChatAgentSession', () => {
         repository,
         utilityHost,
         worktrees,
-        createSessionId: () => 'agent-session-2',
+        createSessionId,
         readModelDefaults: async () => ({
           defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
           defaultThinking: 'medium'
@@ -135,6 +143,7 @@ describe('createProjectChatAgentSession', () => {
       transcriptPath: '/transcripts/agent-session-2.jsonl'
     })
 
+    expect(createSessionId).toHaveBeenCalledTimes(2)
     expect(sessions[1]).not.toHaveProperty('worktreePath')
     expect(sessions[1]).not.toHaveProperty('worktreeBranch')
     expect(sessions[1]).not.toHaveProperty('worktreeBaseRevision')

@@ -3,6 +3,7 @@ import { nanoid } from 'nanoid'
 
 import { getDatabase } from '../../../main/db'
 import * as schema from '../../../main/db/schema'
+import type { StoredSession } from '../../sessions/main/sessions.service'
 
 export const KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY = 'knowledge-base'
 
@@ -74,6 +75,18 @@ export function createKnowledgeBaseChatRepository({
     getCurrentChatContext,
     findChatContextById,
 
+    async listPreparingAgentSessions(): Promise<StoredSession[]> {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(
+          and(
+            eq(schema.sessions.managedContext, 'knowledge-base'),
+            eq(schema.sessions.agentLifecycleState, 'preparing')
+          )
+        )) as StoredSession[]
+    },
+
     async listChatContexts(): Promise<StoredChatContext[]> {
       return getDatabase()
         .select({
@@ -90,14 +103,45 @@ export function createKnowledgeBaseChatRepository({
 
     async createCurrentChatContext(agentSessionId: string): Promise<StoredChatContext> {
       const timestamp = now()
-      const chatContext: StoredChatContext = {
-        id: createId(),
-        workspaceContextKey: KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY,
-        agentSessionId,
-        createdAt: timestamp,
-        updatedAt: timestamp
-      }
+      const chatContext = createStoredChatContext(agentSessionId, createId(), timestamp)
       getDatabase().transaction((transaction) => {
+        transaction.insert(schema.chatContexts).values(chatContext).run()
+        transaction
+          .insert(schema.workspaceChatContexts)
+          .values({
+            workspaceContextKey: KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY,
+            workspaceContextKind: 'knowledge-base',
+            currentChatContextId: chatContext.id,
+            updatedAt: timestamp
+          })
+          .onConflictDoUpdate({
+            target: schema.workspaceChatContexts.workspaceContextKey,
+            set: { currentChatContextId: chatContext.id, updatedAt: timestamp }
+          })
+          .run()
+      })
+      return chatContext
+    },
+
+    async publishPreparedCurrentChatContext(
+      preparedSession: StoredSession
+    ): Promise<StoredChatContext> {
+      const timestamp = now()
+      const chatContext = createStoredChatContext(preparedSession.id, createId(), timestamp)
+      getDatabase().transaction((transaction) => {
+        const result = transaction
+          .update(schema.sessions)
+          .set({ ...preparedSession, agentLifecycleState: 'active' })
+          .where(
+            and(
+              eq(schema.sessions.id, preparedSession.id),
+              eq(schema.sessions.agentLifecycleState, 'preparing')
+            )
+          )
+          .run()
+        if (result.changes !== 1) {
+          throw new Error('Knowledge Base Session reservation was not found.')
+        }
         transaction.insert(schema.chatContexts).values(chatContext).run()
         transaction
           .insert(schema.workspaceChatContexts)
@@ -147,5 +191,19 @@ export function createKnowledgeBaseChatRepository({
     async getCurrentSessionId(): Promise<string | undefined> {
       return (await getCurrentChatContext())?.agentSessionId
     }
+  }
+}
+
+function createStoredChatContext(
+  agentSessionId: string,
+  id: string,
+  timestamp: Date
+): StoredChatContext {
+  return {
+    id,
+    workspaceContextKey: KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY,
+    agentSessionId,
+    createdAt: timestamp,
+    updatedAt: timestamp
   }
 }
