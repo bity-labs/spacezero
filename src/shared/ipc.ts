@@ -79,6 +79,7 @@ import type {
 } from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
+  GlobalChatContext,
   ProjectSession,
   ProjectSessionChatContext,
   RenameSessionTitleRequest,
@@ -174,6 +175,7 @@ export const IPC_CHANNELS = {
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
+    getCurrentGlobalChatContext: 'sessions:getCurrentGlobalChatContext',
     createProjectSession: 'sessions:createProjectSession',
     getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
     clearProjectChat: 'sessions:clearProjectChat',
@@ -335,6 +337,7 @@ export type SpaceZeroAPI = {
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
     listWorkspaceSessions: () => Promise<WorkspaceSession[]>
+    getCurrentGlobalChatContext: () => Promise<GlobalChatContext>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     getCurrentProjectChatContext: (request: {
       sessionId: string

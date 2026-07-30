@@ -50,6 +50,14 @@ export type WorkspaceSession = {
   updatedAt: string
 }
 
+export type GlobalChatContext = {
+  id: string
+  workspaceContext: { kind: 'global-chat'; key: 'global-chat' }
+  agentSession: WorkspaceSession
+  createdAt: string
+  updatedAt: string
+}
+
 export type CreateProjectSessionRequest = {
   projectId: string
   title?: string

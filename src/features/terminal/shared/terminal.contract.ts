@@ -19,6 +19,7 @@ export const TERMINAL_COMMAND_IDS = {
 export type TerminalContext =
   | { kind: 'project-session'; sessionId: string }
   | { kind: 'workspace-session'; sessionId: string }
+  | { kind: 'global-chat' }
   | { kind: 'knowledge-base' }
 
 export type TerminalId = string

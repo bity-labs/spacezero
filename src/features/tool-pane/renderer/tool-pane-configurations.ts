@@ -145,6 +145,33 @@ export function createWorkspaceSessionToolPaneConfiguration(session: {
   }
 }
 
+export function createGlobalChatToolPaneConfiguration(): ToolPaneConfiguration {
+  return {
+    contextKey: 'global-chat',
+    capabilities: { kind: 'global-chat' },
+    defaultToolId: 'browser',
+    tools: [
+      createBrowserToolDescriptor(),
+      {
+        ...toolRegistry.terminal,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'global-chat'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(TerminalToolLoading) },
+                createElement(TerminalWithBrowserHandoff, {
+                  terminalContext: { kind: 'global-chat' },
+                  browserContextKey: 'global-chat',
+                  browserContext: { kind: 'global-chat' }
+                })
+              )
+            : null
+      }
+    ]
+  }
+}
+
 export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguration {
   return {
     contextKey: 'knowledge-base',

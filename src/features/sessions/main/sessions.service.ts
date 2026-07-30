@@ -36,7 +36,7 @@ export type StoredSession = {
   sourceUrl?: string | null
   sourceTitle?: string | null
   archivedAt?: Date | null
-  managedContext?: 'knowledge-base' | null
+  managedContext?: 'knowledge-base' | 'global-chat' | null
   workspaceContextSessionId?: string | null
   agentDefinitionSnapshot?: string | null
 }
@@ -61,7 +61,7 @@ export type CreateWorkspaceAgentSessionRequest = {
   modelId?: string
   thinkingLevel?: ThinkingLevel
   title?: string
-  managedContext?: 'knowledge-base'
+  managedContext?: 'knowledge-base' | 'global-chat'
   agentDefinitionSnapshot?: ResolvedAgentDefinition
 }
 
