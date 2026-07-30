@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest'
 
 interface PackageJson {
   build?: {
+    files?: string[]
+    afterPack?: unknown
     mac?: {
       target?: string[]
       publish?: Array<{
@@ -23,6 +25,8 @@ describe('electron-builder release metadata', () => {
   it('publishes macOS prereleases to the explicit GitHub beta update channel only', async () => {
     const packageJson = JSON.parse(await readFile('package.json', 'utf8')) as PackageJson
 
+    expect(packageJson.build?.files).toEqual(['out/**', '!**/*.map'])
+    expect(packageJson.build?.afterPack).toBeUndefined()
     expect(packageJson.build?.mac?.target).toEqual(['dmg', 'zip'])
     expect(packageJson.build?.mac?.publish).toEqual([
       {
