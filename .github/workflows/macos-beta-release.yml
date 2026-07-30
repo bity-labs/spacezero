@@ -22,6 +22,7 @@ jobs:
     env:
       SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
       SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - name: Check out release tag
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683

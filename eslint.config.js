@@ -9,6 +9,19 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ['**/*.cjs'],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: {
+        ...globals.node,
+        ...globals.commonjs
+      }
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off'
+    }
+  },
+  {
     files: ['**/*.{ts,tsx}'],
     languageOptions: {
       ecmaVersion: 2022,
