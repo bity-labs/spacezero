@@ -132,8 +132,9 @@ describe('GlobalChatPage', () => {
     expect(await screen.findByText('Only in the previous Global Chat')).toBeInTheDocument()
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/cl' } })
-    const clearOption = screen.getByRole('option', { name: /\/clear/ })
+    const clearOption = screen.getByRole('option', { name: /Clear/ })
     expect(clearOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(clearOption).not.toHaveTextContent('/clear')
     expect(clearOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '/clear' } })
@@ -206,8 +207,9 @@ describe('GlobalChatPage', () => {
 
     const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/res' } })
-    const resumeOption = screen.getByRole('option', { name: /\/resume/ })
+    const resumeOption = screen.getByRole('option', { name: /Resume/ })
     expect(resumeOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(resumeOption).not.toHaveTextContent('/resume')
     expect(resumeOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '/resume' } })

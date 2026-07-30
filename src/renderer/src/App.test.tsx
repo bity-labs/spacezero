@@ -227,9 +227,9 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Git' })).toBeEnabled()
 
     fireEvent.change(prompt, { target: { value: '/cl' } })
-    expect(screen.getByRole('option', { name: /\/clear/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Clear/ })).not.toHaveTextContent('/clear')
     fireEvent.change(prompt, { target: { value: '/res' } })
-    expect(screen.getByRole('option', { name: /\/resume/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Resume/ })).not.toHaveTextContent('/resume')
   })
 
   it('hides project session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
