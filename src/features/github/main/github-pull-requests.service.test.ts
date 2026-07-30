@@ -169,6 +169,21 @@ function createAdapter(): GitHubPullRequestsAdapter {
         hasNextPage: false
       }
     },
+    async getBranchHeadSha() {
+      return '0123456789abcdef0123456789abcdef01234567'
+    },
+    async findOpenPullRequests() {
+      return []
+    },
+    async createPullRequest(request) {
+      return {
+        number: 80,
+        htmlUrl: 'https://github.com/bity-labs/spacezero/pull/80',
+        headBranch: request.headBranch,
+        headSha: '0123456789abcdef0123456789abcdef01234567',
+        baseBranch: request.baseBranch
+      }
+    },
     async createConversationComment(request) {
       return {
         id: 'comment-2',
@@ -191,6 +206,187 @@ function createAdapter(): GitHubPullRequestsAdapter {
     }
   }
 }
+
+describe('GitHub Pull Request creation capability', () => {
+  const expectedHeadSha = '0123456789abcdef0123456789abcdef01234567'
+
+  function createCreationService(
+    adapter: GitHubPullRequestsAdapter,
+    overrides?: {
+      getLinkedRepository?: () => Promise<GitHubRepository>
+    }
+  ) {
+    return createGitHubPullRequestsService({
+      projects: {
+        getLinkedRepository: overrides?.getLinkedRepository ?? (async () => repository)
+      },
+      auth: { getAuthorizedCredential: async () => ({ accessToken: 'app-user-secret' }) as never },
+      adapter,
+      sessions: {
+        findSessionById: async (sessionId) => {
+          if (sessionId === 'chat-1') {
+            return {
+              projectId: 'project-1',
+              archivedAt: null,
+              workspaceContextSessionId: 'session-1'
+            }
+          }
+          return sessionId === 'session-1'
+            ? {
+                projectId: 'project-1',
+                worktreeBranch: 'feat/create-pr',
+                archivedAt: null,
+                workspaceContextSessionId: null
+              }
+            : undefined
+        }
+      }
+    })
+  }
+
+  it('creates a non-draft Pull Request for the main-resolved repository, session head, and default base without exposing the credential', async () => {
+    const adapter = createAdapter()
+    const createPullRequest = vi.spyOn(adapter, 'createPullRequest')
+    const result = await createCreationService(adapter).createOrReusePullRequest({
+      sessionId: 'chat-1',
+      expectedHeadSha,
+      title: 'Create the Pull Request capability'
+    })
+
+    expect(createPullRequest).toHaveBeenCalledWith({
+      accessToken: 'app-user-secret',
+      owner: 'bity-labs',
+      repository: 'spacezero',
+      headBranch: 'feat/create-pr',
+      baseBranch: 'main',
+      title: 'Create the Pull Request capability'
+    })
+    expect(result).toMatchObject({
+      status: 'created',
+      pushStatus: 'succeeded',
+      pullRequest: {
+        htmlUrl: 'https://github.com/bity-labs/spacezero/pull/80',
+        headBranch: 'feat/create-pr',
+        baseBranch: 'main'
+      }
+    })
+    expect(JSON.stringify(result)).not.toContain('app-user-secret')
+  })
+
+  it('reuses one exact open Pull Request and fails closed when the exact match is ambiguous', async () => {
+    const adapter = createAdapter()
+    const match = {
+      number: 81,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/pull/81',
+      headBranch: 'feat/create-pr',
+      headSha: expectedHeadSha,
+      baseBranch: 'main'
+    }
+    adapter.findOpenPullRequests = vi.fn(async () => [match])
+    adapter.createPullRequest = vi.fn()
+    await expect(
+      createCreationService(adapter).createOrReusePullRequest({
+        sessionId: 'session-1',
+        expectedHeadSha,
+        title: 'Ignored for reuse'
+      })
+    ).resolves.toMatchObject({ status: 'reused', pullRequest: { number: 81 } })
+    expect(adapter.createPullRequest).not.toHaveBeenCalled()
+
+    adapter.findOpenPullRequests = vi.fn(async () => [match, { ...match, number: 82 }])
+    await expect(
+      createCreationService(adapter).createOrReusePullRequest({
+        sessionId: 'session-1',
+        expectedHeadSha,
+        title: 'Must not create a duplicate'
+      })
+    ).resolves.toEqual({
+      status: 'failed',
+      pushStatus: 'succeeded',
+      error: { code: 'github.ambiguousPullRequestMatch', retryable: false }
+    })
+    expect(adapter.createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('revalidates repository authorization and returns a sanitized partial failure after push', async () => {
+    const adapter = createAdapter()
+    adapter.createPullRequest = vi.fn()
+    const service = createCreationService(adapter, {
+      getLinkedRepository: async () => {
+        throw new Error('github.repositoryAccessRevoked')
+      }
+    })
+
+    await expect(
+      service.createOrReusePullRequest({
+        sessionId: 'session-1',
+        expectedHeadSha,
+        title: 'Unauthorized attempt'
+      })
+    ).resolves.toEqual({
+      status: 'failed',
+      pushStatus: 'succeeded',
+      error: { code: 'github.repositoryAccessRevoked', retryable: false }
+    })
+    expect(adapter.createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it('reconciles a create timeout before retrying so a completed request remains idempotent', async () => {
+    const adapter = createAdapter()
+    const createdMatch = {
+      number: 83,
+      htmlUrl: 'https://github.com/bity-labs/spacezero/pull/83',
+      headBranch: 'feat/create-pr',
+      headSha: expectedHeadSha,
+      baseBranch: 'main'
+    }
+    let lookupCount = 0
+    adapter.findOpenPullRequests = vi.fn(async () => {
+      lookupCount += 1
+      return lookupCount === 1 ? [] : [createdMatch]
+    })
+    adapter.createPullRequest = vi.fn(async () => {
+      throw new Error('github.network-error')
+    })
+
+    await expect(
+      createCreationService(adapter).createOrReusePullRequest({
+        sessionId: 'session-1',
+        expectedHeadSha,
+        title: 'Timeout-safe creation'
+      })
+    ).resolves.toMatchObject({ status: 'reused', pullRequest: { number: 83 } })
+    expect(adapter.createPullRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries one unresolved network failure and never returns an untrusted Pull Request URL', async () => {
+    const adapter = createAdapter()
+    adapter.findOpenPullRequests = vi.fn(async () => [])
+    adapter.createPullRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('github.network-error'))
+      .mockResolvedValueOnce({
+        number: 84,
+        htmlUrl: 'https://evil.example/bity-labs/spacezero/pull/84',
+        headBranch: 'feat/create-pr',
+        headSha: expectedHeadSha,
+        baseBranch: 'main'
+      })
+
+    await expect(
+      createCreationService(adapter).createOrReusePullRequest({
+        sessionId: 'session-1',
+        expectedHeadSha,
+        title: 'Validate URL'
+      })
+    ).resolves.toEqual({
+      status: 'failed',
+      pushStatus: 'succeeded',
+      error: { code: 'github.invalidPullRequestResponse', retryable: false }
+    })
+    expect(adapter.createPullRequest).toHaveBeenCalledTimes(2)
+  })
+})
 
 describe('GitHub Pull Requests service', () => {
   it('scopes paginated list requests to the linked Project repository', async () => {

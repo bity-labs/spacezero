@@ -43,6 +43,7 @@ function createBoundary() {
     listReviews: vi.fn(),
     createConversationComment: vi.fn(),
     createReview: vi.fn(),
+    createOrReusePullRequest: vi.fn(),
     startIssueSession: vi.fn(),
     startPullRequestSession: vi.fn()
   }
@@ -93,7 +94,8 @@ function createBoundary() {
       listCommitStatuses: calls.listCommitStatuses,
       listReviews: calls.listReviews,
       createConversationComment: calls.createConversationComment,
-      createReview: calls.createReview
+      createReview: calls.createReview,
+      createOrReusePullRequest: calls.createOrReusePullRequest
     }),
     getSourceSessionsService: () => ({
       startIssueSession: calls.startIssueSession,
@@ -141,6 +143,10 @@ describe('GitHub IPC boundary', () => {
         IPC_CHANNELS.github.createPullRequestReview,
         { projectId: 'project-1', number: 1, event: 'REQUEST_CHANGES' }
       ],
+      [
+        IPC_CHANNELS.github.createOrReusePullRequest,
+        { sessionId: 'session-1', expectedHeadSha: 'not-a-sha', title: 'PR' }
+      ],
       [IPC_CHANNELS.github.startIssueSession, { projectId: '', number: 1 }],
       [IPC_CHANNELS.github.startPullRequestSession, { projectId: 'project-1', number: 0 }]
     ]
@@ -158,6 +164,11 @@ describe('GitHub IPC boundary', () => {
     calls.waitForAuthorization.mockResolvedValue({ status: 'disconnected' })
     calls.updateIssueState.mockResolvedValue({ number: 86 })
     calls.createReview.mockResolvedValue({ id: 'review-1' })
+    calls.createOrReusePullRequest.mockResolvedValue({
+      status: 'reused',
+      pushStatus: 'succeeded',
+      pullRequest: { number: 100 }
+    })
     calls.listCommits.mockResolvedValue({ items: [], page: 2, hasNextPage: false })
     calls.startClone.mockImplementation(async (_request, emit) => {
       emit({ operationId: 'clone-1', status: 'cloning', message: 'Cloning…', percent: 50 })
@@ -177,6 +188,11 @@ describe('GitHub IPC boundary', () => {
       number: 100,
       event: 'REQUEST_CHANGES',
       body: '  Add a concurrency test.  '
+    })
+    await invoke(IPC_CHANNELS.github.createOrReusePullRequest, {
+      sessionId: ' session-1 ',
+      expectedHeadSha: '0123456789abcdef0123456789abcdef01234567',
+      title: '  Create PR  '
     })
     await invoke(IPC_CHANNELS.github.listPullRequestCommits, {
       projectId: 'project-1',
@@ -198,6 +214,11 @@ describe('GitHub IPC boundary', () => {
       number: 100,
       event: 'REQUEST_CHANGES',
       body: 'Add a concurrency test.'
+    })
+    expect(calls.createOrReusePullRequest).toHaveBeenCalledWith({
+      sessionId: 'session-1',
+      expectedHeadSha: '0123456789abcdef0123456789abcdef01234567',
+      title: 'Create PR'
     })
     expect(calls.listCommits).toHaveBeenCalledWith({
       projectId: 'project-1',

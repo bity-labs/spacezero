@@ -289,6 +289,21 @@ function GitToolSession({
   const currentAgentStatus = agentSession?.status ?? 'idle'
   const previousAgentStatus = useRef(currentAgentStatus)
 
+  useEffect(() => {
+    let active = true
+    void window.spacezero.settings
+      .getGitActionSettings()
+      .then((settings) => {
+        if (active) setPrimaryAction(settings.primaryGitAction)
+      })
+      .catch(() => {
+        if (active) setPrimaryAction('commit-and-push')
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+
   const setFilter = useCallback(
     (nextFilter: GitChangeFilter) => {
       getGitViewMemory(gitMemoryKey).filter = nextFilter
@@ -855,11 +870,7 @@ function GitDiffCard({
   )
 }
 
-const COMPOSER_ACTIONS: GitComposerAction[] = [
-  'commit-and-push',
-  'commit-and-create-pr',
-  'commit'
-]
+const COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit-and-create-pr', 'commit']
 
 function GitCommitComposer({
   actionAvailability,
@@ -1067,7 +1078,7 @@ function buildGitActionPrompt(
 
   if (action === 'commit-and-create-pr') {
     lines.push(
-      'After the push succeeds, use authenticated GitHub tooling available to this Session to check whether an open pull request already exists for the current repository and head branch. If one can be deterministically identified, do not create a duplicate; reuse it and report its URL. Otherwise, create a non-draft pull request for the pushed branch.'
+      'After the push succeeds, resolve the pushed commit with `git rev-parse HEAD`, then call the `github.createOrReusePullRequest` Space Zero Workspace Tool. That narrow main-owned capability revalidates GitHub App repository access and creates or reuses the pull request without exposing credentials to this Session. Do not use `gh`, a GitHub token, or another GitHub API path.'
     )
     lines.push(
       'Your final response must include the usable pull request URL. If the push succeeds but pull request creation fails, state clearly that the branch was pushed, report the pull request creation failure and its actionable cause, and do not claim the workflow completed.'

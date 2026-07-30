@@ -13,7 +13,10 @@ import type {
   GitHubUser
 } from '../shared'
 import { toGitHubApiError } from './github-api-error'
-import type { GitHubPullRequestsAdapter } from './github-pull-requests.service'
+import type {
+  GitHubPullRequestMatch,
+  GitHubPullRequestsAdapter
+} from './github-pull-requests.service'
 
 type ApiUser = {
   id: number
@@ -274,6 +277,63 @@ export function createGitHubPullRequestsAdapter(): GitHubPullRequestsAdapter {
       }
     },
 
+    async getBranchHeadSha({ accessToken, owner, repository, branch }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/git/ref/{ref}', {
+          owner,
+          repo: repository,
+          ref: `heads/${branch}`
+        })
+        return response.data.object.sha
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
+    },
+
+    async findOpenPullRequests({ accessToken, owner, repository, headBranch, baseBranch }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request('GET /repos/{owner}/{repo}/pulls', {
+          owner,
+          repo: repository,
+          state: 'open',
+          head: `${owner}:${headBranch}`,
+          base: baseBranch,
+          per_page: 100
+        })
+        return response.data.map((pullRequest) => toPullRequestMatch(pullRequest as ApiPullRequest))
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
+    },
+
+    async createPullRequest({
+      accessToken,
+      owner,
+      repository,
+      headBranch,
+      baseBranch,
+      title,
+      body
+    }) {
+      const octokit = new Octokit({ auth: accessToken })
+      try {
+        const response = await octokit.request('POST /repos/{owner}/{repo}/pulls', {
+          owner,
+          repo: repository,
+          head: headBranch,
+          base: baseBranch,
+          title,
+          ...(body ? { body } : {}),
+          draft: false
+        })
+        return toPullRequestMatch(response.data as ApiPullRequest)
+      } catch (error) {
+        throw toGitHubApiError(error)
+      }
+    },
+
     async createConversationComment({ accessToken, owner, repository, number, body }) {
       const octokit = new Octokit({ auth: accessToken })
       try {
@@ -325,6 +385,16 @@ async function getHeadSha(
     pull_number: number
   })
   return response.data.head.sha
+}
+
+function toPullRequestMatch(pullRequest: ApiPullRequest): GitHubPullRequestMatch {
+  return {
+    number: pullRequest.number,
+    htmlUrl: pullRequest.html_url,
+    headBranch: pullRequest.head.ref,
+    headSha: pullRequest.head.sha,
+    baseBranch: pullRequest.base.ref
+  }
 }
 
 function toPullRequestSummary(pullRequest: ApiPullRequest): GitHubPullRequestSummary {

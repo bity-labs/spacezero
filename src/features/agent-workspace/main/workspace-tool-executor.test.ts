@@ -98,7 +98,7 @@ describe('WorkspaceToolExecutor', () => {
       const result = await executor.execute('projects.create', { name: 'spacezero' })
 
       expect(result).toEqual({ ok: true, data: { created: 'spacezero' } })
-      expect(handler).toHaveBeenCalledWith({ name: 'spacezero' })
+      expect(handler).toHaveBeenCalledWith({ name: 'spacezero' }, { sessionId: 'unknown' })
       expect(history.list()[0]).toMatchObject({
         toolName: 'projects.create',
         outcome: 'success',

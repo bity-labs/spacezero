@@ -67,6 +67,66 @@ describe('GitHub Pull Request adapter', () => {
   })
 })
 
+describe('GitHub Pull Request creation adapter', () => {
+  it('queries an exact open head/base and creates a non-draft Pull Request', async () => {
+    const pullRequest = {
+      number: 100,
+      title: 'Create PR',
+      state: 'open',
+      draft: false,
+      html_url: 'https://github.com/bity-labs/spacezero/pull/100',
+      user: null,
+      base: { ref: 'main' },
+      head: {
+        ref: 'feat/create-pr',
+        sha: '0123456789abcdef0123456789abcdef01234567'
+      },
+      created_at: '2026-07-30T00:00:00.000Z',
+      updated_at: '2026-07-30T00:00:00.000Z'
+    }
+    request.mockResolvedValueOnce({ data: [pullRequest], headers: {} })
+    request.mockResolvedValueOnce({ data: pullRequest, headers: {} })
+    const adapter = createGitHubPullRequestsAdapter()
+
+    await expect(
+      adapter.findOpenPullRequests({
+        accessToken: 'app-user-secret',
+        owner: 'bity-labs',
+        repository: 'spacezero',
+        headBranch: 'feat/create-pr',
+        baseBranch: 'main'
+      })
+    ).resolves.toEqual([
+      expect.objectContaining({ number: 100, headBranch: 'feat/create-pr', baseBranch: 'main' })
+    ])
+    await adapter.createPullRequest({
+      accessToken: 'app-user-secret',
+      owner: 'bity-labs',
+      repository: 'spacezero',
+      headBranch: 'feat/create-pr',
+      baseBranch: 'main',
+      title: 'Create PR'
+    })
+
+    expect(request).toHaveBeenNthCalledWith(1, 'GET /repos/{owner}/{repo}/pulls', {
+      owner: 'bity-labs',
+      repo: 'spacezero',
+      state: 'open',
+      head: 'bity-labs:feat/create-pr',
+      base: 'main',
+      per_page: 100
+    })
+    expect(request).toHaveBeenNthCalledWith(2, 'POST /repos/{owner}/{repo}/pulls', {
+      owner: 'bity-labs',
+      repo: 'spacezero',
+      head: 'feat/create-pr',
+      base: 'main',
+      title: 'Create PR',
+      draft: false
+    })
+  })
+})
+
 describe('GitHub Pull Request patch classification', () => {
   it('marks a complete text patch as available', () => {
     expect(
