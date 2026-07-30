@@ -197,7 +197,7 @@ describe('App', () => {
     expect(within(toolSwitcher).queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
   })
 
-  it('opens Files in the Tool Pane while keeping configured Knowledge Base chat primary', async () => {
+  it('keeps configured Knowledge Base chat usable without a visible New chat header control', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -211,7 +211,11 @@ describe('App', () => {
       )
     )
 
-    expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
+    const prompt = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
+      'Knowledge Base'
+    )
+    expect(screen.queryByRole('button', { name: 'New chat' })).not.toBeInTheDocument()
     expect(await screen.findByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
     expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
@@ -221,6 +225,11 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Git' })).toBeEnabled()
+
+    fireEvent.change(prompt, { target: { value: '/cl' } })
+    expect(screen.getByRole('option', { name: /\/clear/ })).toBeInTheDocument()
+    fireEvent.change(prompt, { target: { value: '/res' } })
+    expect(screen.getByRole('option', { name: /\/resume/ })).toBeInTheDocument()
   })
 
   it('hides project session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
