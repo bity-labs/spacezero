@@ -96,6 +96,7 @@ vi.mock('@renderer/components/rich-markdown-editor', () => ({
 function requestContextKey(
   request: Parameters<typeof window.spacezero.files.listDirectory>[0]
 ): string {
+  if (request.context.kind === 'project-home') return `project:${request.context.projectId}`
   return request.context.kind === 'project-session'
     ? request.context.sessionId
     : request.context.contextKey

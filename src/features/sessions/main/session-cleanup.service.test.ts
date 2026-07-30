@@ -434,10 +434,11 @@ describe('Session cleanup service', () => {
     ]
     const events: string[] = []
     const closeTerminalsForDeletion = vi.fn(
-      async ({ operationKey, purpose, sessions: affected }) => {
+      async ({ operationKey, purpose, sessions: affected, projectId }) => {
         expect(operationKey).toBe('delete-project:project-1')
         expect(purpose).toBe('delete-context')
         expect(affected).toEqual(sessions)
+        expect(projectId).toBe('project-1')
         events.push('terminal-confirmation')
       }
     )

@@ -674,6 +674,11 @@ export class BrowserService {
     if (!this.contextRepository) return expectedKey
 
     switch (request.context.kind) {
+      case 'project-home': {
+        const project = await this.contextRepository.findProjectById(request.context.projectId)
+        if (!project || project.archivedAt) throw new Error('Browser context is not authorized.')
+        return expectedKey
+      }
       case 'project-session': {
         const session = await this.contextRepository.findSessionById(request.context.sessionId)
         if (!session || session.archivedAt) throw new Error('Browser context is not authorized.')

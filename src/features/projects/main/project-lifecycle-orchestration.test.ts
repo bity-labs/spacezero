@@ -121,6 +121,103 @@ function startPausedSessionCreation(repository: SessionsRepository, sessionId: s
 }
 
 describe('Project lifecycle orchestration', () => {
+  it('cancels Project archive before any mutation when Project Home terminal confirmation is denied', async () => {
+    const archiveProjectSessions = vi.fn(async () => [])
+    const archiveProject = vi.fn(async () => undefined)
+    const closeProjectHomeBrowser = vi.fn()
+
+    await expect(
+      archiveProjectLifecycle('project-1', {
+        sessionsService: { archiveProjectSessions },
+        projectsService: { archiveProject },
+        deleteUtilitySession: async () => undefined,
+        closeProjectHomeTerminals: async () => {
+          throw new Error('terminal.confirmationCancelled')
+        },
+        closeProjectHomeBrowser
+      })
+    ).rejects.toThrow('terminal.confirmationCancelled')
+
+    expect(archiveProjectSessions).not.toHaveBeenCalled()
+    expect(closeProjectHomeBrowser).not.toHaveBeenCalled()
+    expect(archiveProject).not.toHaveBeenCalled()
+  })
+
+  it('closes Project Home terminals and Browser resources before archiving its identity', async () => {
+    const events: string[] = []
+
+    await archiveProjectLifecycle('project-1', {
+      sessionsService: {
+        archiveProjectSessions: async () => {
+          events.push('sessions:archive')
+          return [{ id: 'session-1' } as StoredSession]
+        }
+      },
+      projectsService: {
+        archiveProject: async () => {
+          events.push('project:archive')
+        }
+      },
+      deleteUtilitySession: async () => {
+        events.push('utility:delete')
+      },
+      closeBrowsersForSession: () => {
+        events.push('session-browser:close')
+      },
+      closeProjectHomeTerminals: async () => {
+        events.push('project-home-terminal:close')
+      },
+      closeProjectHomeBrowser: () => {
+        events.push('project-home-browser:close')
+      }
+    })
+
+    expect(events).toEqual([
+      'project-home-terminal:close',
+      'sessions:archive',
+      'session-browser:close',
+      'project-home-browser:close',
+      'project:archive',
+      'utility:delete'
+    ])
+  })
+
+  it('destroys Project Home Browser persistence before permanently deleting its identity', async () => {
+    const events: string[] = []
+
+    await expect(
+      deleteProjectLifecycle('project-1', {
+        sessionCleanupService: {
+          deleteProjectSessions: async () => {
+            events.push('sessions:delete')
+            return ['session-1']
+          }
+        },
+        destroyProjectHomeBrowser: async () => {
+          events.push('project-home-browser:destroy')
+        },
+        projectsService: {
+          deleteProject: async () => {
+            events.push('project:delete')
+            return {
+              id: 'project-1',
+              name: 'Space Zero',
+              path: '/repo',
+              createdAt: new Date('2026-07-18T00:00:00.000Z'),
+              updatedAt: new Date('2026-07-18T00:00:00.000Z')
+            }
+          }
+        }
+      })
+    ).resolves.toEqual({ deletedSessionIds: ['session-1'] })
+
+    expect(events).toEqual([
+      'sessions:delete',
+      'project-home-browser:destroy',
+      'project:delete'
+    ])
+  })
+
   it('rejects queued Session creation when Project archive wins the lifecycle lock', async () => {
     const archivedAt = new Date('2026-07-20T00:00:00.000Z')
     let projectArchivedAt: Date | null = null

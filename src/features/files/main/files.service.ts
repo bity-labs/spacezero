@@ -268,6 +268,12 @@ export function createFilesService({
       return { path: await knowledgeBaseRootProvider.getVerifiedRoot(), coordinated: true }
     }
 
+    if (context.kind === 'project-home') {
+      const project = await repository.findProjectById(context.projectId)
+      if (!project || project.archivedAt) throw new Error('files.projectNotFound')
+      return { path: project.path, coordinated: false }
+    }
+
     const worktree = await resolveProjectSessionWorktree(context.sessionId)
     return { path: worktree.path, coordinated: false }
   }
@@ -303,6 +309,7 @@ function filesSearchKey(context: FilesContext, requestId: string): string {
 }
 
 function filesContextKey(context: FilesContext): string {
+  if (context.kind === 'project-home') return `project:${context.projectId}`
   return context.kind === 'project-session' ? context.sessionId : context.contextKey
 }
 

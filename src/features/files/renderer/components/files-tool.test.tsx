@@ -707,6 +707,7 @@ import { FILES_SAVE_ALL_COMMAND_ID, FilesTool } from './files-tool'
 function requestContextKey(
   request: Parameters<typeof window.spacezero.files.listDirectory>[0]
 ): string {
+  if (request.context.kind === 'project-home') return `project:${request.context.projectId}`
   return request.context.kind === 'project-session'
     ? request.context.sessionId
     : request.context.contextKey

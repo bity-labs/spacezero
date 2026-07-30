@@ -24,6 +24,51 @@ afterEach(async () => {
 })
 
 describe('GitService', () => {
+  it('reads Project Home changes from the main-owned registered project root, never a prior worktree', async () => {
+    const root = await createTempDir('spacezero-git-project-home-')
+    const base = join(root, 'base')
+    const worktree = join(root, 'worktree')
+    await createRepository(base)
+    await git(['-C', base, 'worktree', 'add', '-b', 'spacezero/session-session-1', worktree])
+    await writeFile(join(base, 'README.md'), '# Base checkout change\n')
+    await writeFile(join(worktree, 'worktree-only.md'), 'must not appear\n')
+    const validate = vi.fn(async () => true)
+    const service = createGitService({
+      sessionsRepository: createSessionsRepository({ projectPath: base, worktreePath: worktree }),
+      managedWorktreeService: createManagedWorktreeServiceStub(validate)
+    })
+
+    const review = await service.getReview({ kind: 'project-home', projectId: 'project-1' })
+
+    expect(review.status).toBe('ok')
+    if (review.status !== 'ok') return
+    expect(review.files.map((file) => file.path)).toEqual(['README.md'])
+    expect(review.files.map((file) => file.path)).not.toContain('worktree-only.md')
+    expect(validate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unavailable Project Home identity without running Git', async () => {
+    const runGit = vi.fn(async () => ({ stdout: '', stderr: '', exitCode: 0 }))
+    const sessionsRepository = createSessionsRepository({
+      projectPath: '/project',
+      worktreePath: '/worktree'
+    })
+    sessionsRepository.findProjectById = vi.fn(async () => undefined)
+    const service = createGitService({
+      sessionsRepository,
+      managedWorktreeService: createManagedWorktreeServiceStub(async () => true),
+      runGit
+    })
+
+    await expect(
+      service.getReview({ kind: 'project-home', projectId: 'missing-project' })
+    ).resolves.toEqual({
+      status: 'inaccessible',
+      message: 'Project Home is unavailable.'
+    })
+    expect(runGit).not.toHaveBeenCalled()
+  })
+
   it('authenticates the Project Session managed worktree and returns branch state plus text diffs', async () => {
     const root = await createTempDir('spacezero-git-review-')
     const base = join(root, 'base')

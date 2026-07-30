@@ -55,7 +55,11 @@ async function observeGitContext(
   const subscriptionId = randomUUID()
   const sender = event.sender
   const contextKey =
-    context.kind === 'knowledge-base' ? context.contextKey : `session:${context.sessionId}`
+    context.kind === 'knowledge-base'
+      ? context.contextKey
+      : context.kind === 'project-home'
+        ? `project:${context.projectId}`
+        : `session:${context.sessionId}`
   let senderDestroyed = sender.isDestroyed()
   const onSenderDestroyed = (): void => {
     senderDestroyed = true

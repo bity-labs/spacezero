@@ -16,6 +16,7 @@ import { useToolPaneStore } from './tool-pane-store'
 export type ToolId = 'files' | 'git' | 'browser' | 'terminal'
 
 export type ToolPaneContextCapabilities =
+  | { kind: 'project-home'; projectId: string }
   | { kind: 'project-session'; projectId: string; sessionId: string }
   | { kind: 'workspace-session'; sessionId: string }
   | { kind: 'global-chat' }

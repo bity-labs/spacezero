@@ -46,7 +46,10 @@ function tabToRow(tab: BrowserPersistedTab): typeof schema.browserTabs.$inferIns
     contextKey: browserContextKey(tab.context),
     contextKind: tab.context.kind,
     contextSessionId: 'sessionId' in tab.context ? tab.context.sessionId : null,
-    contextProjectId: tab.context.kind === 'project-session' ? tab.context.projectId : null,
+    contextProjectId:
+      tab.context.kind === 'project-session' || tab.context.kind === 'project-home'
+        ? tab.context.projectId
+        : null,
     tabId: tab.tabId,
     sortOrder: tab.order,
     active: tab.active ? 1 : 0,
@@ -66,7 +69,7 @@ function rowToPersistedTab(
   if ('sessionId' in context && 'sessionId' in requestedContext) {
     if (context.sessionId !== requestedContext.sessionId) return undefined
   }
-  if (context.kind === 'project-session' && requestedContext.kind === 'project-session') {
+  if ('projectId' in context && 'projectId' in requestedContext) {
     if (context.projectId !== requestedContext.projectId) return undefined
   }
 
@@ -86,6 +89,7 @@ function rowToContext(
 ): BrowserContext | undefined {
   if (kind === 'global-chat') return { kind: 'global-chat' }
   if (kind === 'knowledge-base') return { kind: 'knowledge-base' }
+  if (kind === 'project-home' && projectId) return { kind, projectId }
   if (kind === 'workspace-session' && sessionId) return { kind, sessionId }
   if (kind === 'project-session' && sessionId && projectId) return { kind, sessionId, projectId }
   return undefined

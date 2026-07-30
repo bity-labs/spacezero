@@ -51,7 +51,13 @@ const mocks = vi.hoisted(() => {
     }),
     openProjectSession: vi.fn((session: TestProjectSession) => {
       state.activeTab = { kind: 'project', sessionId: session.id }
-    })
+    }),
+    createProjectHomeToolPaneConfiguration: vi.fn((project: TestProject) => ({
+      contextKey: `project:${project.id}`,
+      capabilities: { kind: 'project-home', projectId: project.id },
+      defaultToolId: 'files',
+      tools: []
+    }))
   }
 })
 
@@ -141,13 +147,17 @@ vi.mock('../../features/sessions/renderer', () => ({
 }))
 
 vi.mock('../../features/tool-pane/renderer', () => ({
+  createGlobalChatToolPaneConfiguration: vi.fn(),
   createKnowledgeBaseToolPaneConfiguration: vi.fn(),
+  createProjectHomeToolPaneConfiguration: mocks.createProjectHomeToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration: vi.fn(),
   createWorkspaceSessionToolPaneConfiguration: vi.fn(),
   getRenderedToolPaneWidth: (containerWidth: number, savedWidth: number | null | undefined) =>
     savedWidth ?? Math.round(containerWidth * 0.6),
   ToolPaneHeaderControls: () => <button type="button">Toggle tool pane</button>,
-  ToolPaneShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ToolPaneShell: ({ children, contextKey }: { children: React.ReactNode; contextKey: string }) => (
+    <div data-testid="tool-pane-shell" data-context-key={contextKey}>{children}</div>
+  ),
   TOOL_PANE_COLLAPSED_HEADER_WIDTH: 48,
   TOOL_PANE_HANDLE_WIDTH: 4,
   ToolPaneToggleButton: () => <button type="button">Toggle tool pane</button>,
@@ -204,6 +214,30 @@ describe('WorkspaceShell sidebar navigation', () => {
     expect(screen.queryByRole('button', { name: 'workspace.sidebar.search' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'workspace.sidebar.automations' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'workspace.sidebar.customize' })).not.toBeInTheDocument()
+  })
+})
+
+describe('WorkspaceShell Project Home tools', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    vi.clearAllMocks()
+    resetMockState()
+    mocks.state.activeProject = mocks.state.projects[0]
+  })
+
+  it('uses a Project-owned Tool Pane context instead of inheriting a prior Project Session context', () => {
+    mocks.state.activeTab = null
+
+    render(<WorkspaceShell />)
+
+    expect(mocks.createProjectHomeToolPaneConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'project-1', path: '/tmp/project-1' })
+    )
+    expect(screen.getByTestId('tool-pane-shell')).toHaveAttribute(
+      'data-context-key',
+      'project:project-1'
+    )
+    expect(screen.getByText('Project Home: Deleted Project')).toBeInTheDocument()
   })
 })
 
@@ -271,6 +305,7 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
     resetMockState()
     useFilesStore.setState({
       contexts: {
+        'project:project-1': createPersistedContext('project-home.md'),
         'session-deleted-1': createPersistedContext('one.md'),
         'session-deleted-archived': createPersistedContext('archived.md'),
         'session-unrelated': createPersistedContext('other.md'),
@@ -280,7 +315,7 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
-  it('clears exactly the cascaded Project Session Files contexts after public Project deletion succeeds', async () => {
+  it('clears the Project Home and cascaded Project Session Files contexts after deletion succeeds', async () => {
     render(<WorkspaceShell />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete project' }))

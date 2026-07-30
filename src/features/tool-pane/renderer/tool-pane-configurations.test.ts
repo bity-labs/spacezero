@@ -3,17 +3,32 @@ import { describe, expect, it } from 'vitest'
 import {
   createGlobalChatToolPaneConfiguration,
   createKnowledgeBaseToolPaneConfiguration,
+  createProjectHomeToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration
 } from './tool-pane-configurations'
 
 describe('Tool Pane contextual configurations', () => {
   it('targets the ordered stable tool sets and context-owned defaults', () => {
+    const projectHome = createProjectHomeToolPaneConfiguration({ id: 'project-1' })
     const project = createProjectSessionToolPaneConfiguration({
       id: 'project-session-1',
       projectId: 'project-1'
     })
     const globalChat = createGlobalChatToolPaneConfiguration()
     const knowledgeBase = createKnowledgeBaseToolPaneConfiguration()
+
+    expect(projectHome).toMatchObject({
+      contextKey: 'project:project-1',
+      defaultToolId: 'files',
+      capabilities: { kind: 'project-home', projectId: 'project-1' }
+    })
+    expect(projectHome.tools.map((tool) => tool.id)).toEqual([
+      'files',
+      'git',
+      'browser',
+      'terminal'
+    ])
+    expect(projectHome.tools.every((tool) => tool.available && tool.render)).toBe(true)
 
     expect(project).toMatchObject({
       contextKey: 'session:project-session-1',
