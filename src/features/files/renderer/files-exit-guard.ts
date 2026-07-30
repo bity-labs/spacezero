@@ -125,9 +125,13 @@ function hasDirtySavingTabs(contexts: DirtyFilesContext[]): boolean {
 }
 
 function toIpcContext(contextKey: string): FilesContext {
-  return contextKey === KNOWLEDGE_BASE_FILES_CONTEXT_KEY
-    ? { kind: 'knowledge-base', contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY }
-    : { kind: 'project-session', sessionId: contextKey }
+  if (contextKey === KNOWLEDGE_BASE_FILES_CONTEXT_KEY) {
+    return { kind: 'knowledge-base', contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY }
+  }
+  if (contextKey.startsWith('project:')) {
+    return { kind: 'project-home', projectId: contextKey.slice('project:'.length) }
+  }
+  return { kind: 'project-session', sessionId: contextKey }
 }
 
 function saveErrorMessage(error: unknown): string {

@@ -1005,6 +1005,48 @@ describe('BrowserService', () => {
     expect(tabsRepository.contexts.get('session:workspace-1')).toBeDefined()
   })
 
+  it('closes Project Home native views while retaining Browser tabs on archive', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const tabsRepository = new FakeBrowserTabsRepository()
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+    const state = await service.createTab({
+      ...projectHomeContext,
+      input: 'https://project.example/'
+    })
+
+    service.closeContext(projectHomeContext.context)
+
+    expect(adapter.destroyed).toEqual(state.tabs.map((tab) => tab.id))
+    expect(tabsRepository.deletedContextKeys).toEqual([])
+    expect(tabsRepository.contexts.get('project:project-1')).toBeDefined()
+  })
+
+  it('removes Project Home native views and persisted Browser tabs on deletion', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const tabsRepository = new FakeBrowserTabsRepository()
+    const service = new BrowserService(
+      adapter,
+      createContextRepository(),
+      undefined,
+      tabsRepository
+    )
+    const state = await service.createTab({
+      ...projectHomeContext,
+      input: 'https://project.example/'
+    })
+
+    await service.destroyContext(projectHomeContext.context)
+
+    expect(adapter.destroyed).toEqual(state.tabs.map((tab) => tab.id))
+    expect(tabsRepository.deletedContextKeys).toEqual(['project:project-1'])
+    expect(tabsRepository.contexts.get('project:project-1')).toBeUndefined()
+  })
+
   it('removes persisted metadata when an owning context is deleted', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const tabsRepository = new FakeBrowserTabsRepository()

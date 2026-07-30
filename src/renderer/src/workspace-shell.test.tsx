@@ -305,6 +305,7 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
     resetMockState()
     useFilesStore.setState({
       contexts: {
+        'project:project-1': createPersistedContext('project-home.md'),
         'session-deleted-1': createPersistedContext('one.md'),
         'session-deleted-archived': createPersistedContext('archived.md'),
         'session-unrelated': createPersistedContext('other.md'),
@@ -314,7 +315,7 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
   })
 
-  it('clears exactly the cascaded Project Session Files contexts after public Project deletion succeeds', async () => {
+  it('clears the Project Home and cascaded Project Session Files contexts after deletion succeeds', async () => {
     render(<WorkspaceShell />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete project' }))
