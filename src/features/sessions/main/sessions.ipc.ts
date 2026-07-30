@@ -13,6 +13,7 @@ import {
 import { createSessionsRepository } from './sessions.repository'
 import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getGlobalChatService } from './global-chat.runtime'
 import { getProjectSessionChatService } from './project-session-chat.runtime'
 import { getSessionCleanupService } from './session-cleanup.runtime'
 import { createSessionsService } from './sessions.service'
@@ -28,6 +29,9 @@ export function registerSessionsIpc(): void {
   )
   ipcMain.handle(IPC_CHANNELS.sessions.listWorkspaceSessions, () =>
     sessionsService.listWorkspaceSessions()
+  )
+  ipcMain.handle(IPC_CHANNELS.sessions.getCurrentGlobalChatContext, () =>
+    getGlobalChatService().getOrCreateCurrentChatContext()
   )
   ipcMain.handle(IPC_CHANNELS.sessions.createProjectSession, async (_event, input: unknown) => {
     const request = createProjectSessionRequestSchema.parse(input)

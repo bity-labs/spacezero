@@ -100,7 +100,9 @@ describe('createSessionsService', () => {
     })
     const service = createSessionsService({ repository, now: () => renamedAt })
 
-    await expect(service.renameSession(' session-1 ', '  Renamed Session  ')).resolves.toMatchObject({
+    await expect(
+      service.renameSession(' session-1 ', '  Renamed Session  ')
+    ).resolves.toMatchObject({
       id: 'session-1',
       kind: 'project',
       title: 'Renamed Session',
@@ -126,7 +128,10 @@ describe('createSessionsService', () => {
         }
       ]
     })
-    const service = createSessionsService({ repository, now: () => new Date('2026-07-11T00:00:00.000Z') })
+    const service = createSessionsService({
+      repository,
+      now: () => new Date('2026-07-11T00:00:00.000Z')
+    })
 
     await expect(service.renameSession('workspace-session-1', '   ')).rejects.toThrow(
       'Session title is required'
@@ -154,7 +159,9 @@ describe('createSessionsService', () => {
     })
     const service = createSessionsService({ repository, now: () => renamedAt })
 
-    await expect(service.renameSession('workspace-session-1', 'Renamed Workspace')).resolves.toMatchObject({
+    await expect(
+      service.renameSession('workspace-session-1', 'Renamed Workspace')
+    ).resolves.toMatchObject({
       id: 'workspace-session-1',
       kind: 'workspace',
       title: 'Renamed Workspace',
@@ -242,6 +249,15 @@ describe('createSessionsService', () => {
             projectId: null,
             managedContext: 'knowledge-base',
             title: 'Knowledge Base Chat',
+            status: 'idle',
+            createdAt: now,
+            updatedAt: now
+          },
+          {
+            id: 'global-chat-session',
+            projectId: null,
+            managedContext: 'global-chat',
+            title: 'Chat',
             status: 'idle',
             createdAt: now,
             updatedAt: now

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url'
 
 import { describe, expect, it } from 'vitest'
 
-import type { BrowserClearDataResult } from '../shared'
+import { browserContextKey, type BrowserClearDataResult } from '../shared'
 
 import {
   BrowserService,
@@ -23,38 +23,24 @@ class FakeBrowserTabsRepository implements BrowserTabsRepository {
   readonly deletedContextKeys: string[] = []
 
   constructor(seed: BrowserPersistedTab[] = []) {
-    if (seed.length > 0)
-      this.contexts.set(
-        seed[0].context.kind === 'knowledge-base'
-          ? 'knowledge-base'
-          : `session:${seed[0].context.sessionId}`,
-        seed
-      )
+    if (seed.length > 0) this.contexts.set(browserContextKey(seed[0].context), seed)
   }
 
   async listByContext(context: BrowserPersistedTab['context']): Promise<BrowserPersistedTab[]> {
-    return (
-      this.contexts.get(
-        context.kind === 'knowledge-base' ? 'knowledge-base' : `session:${context.sessionId}`
-      ) ?? []
-    )
+    return this.contexts.get(browserContextKey(context)) ?? []
   }
 
   async replaceContext(
     context: BrowserPersistedTab['context'],
     tabs: BrowserPersistedTab[]
   ): Promise<void> {
-    this.contexts.set(
-      context.kind === 'knowledge-base' ? 'knowledge-base' : `session:${context.sessionId}`,
-      tabs
-    )
+    this.contexts.set(browserContextKey(context), tabs)
   }
 
   async deleteContext(context: BrowserPersistedTab['context']): Promise<void> {
-    const contextKey =
-      context.kind === 'knowledge-base' ? 'knowledge-base' : `session:${context.sessionId}`
-    this.deletedContextKeys.push(contextKey)
-    this.contexts.delete(contextKey)
+    const key = browserContextKey(context)
+    this.deletedContextKeys.push(key)
+    this.contexts.delete(key)
   }
 
   async deleteContextKey(contextKey: string): Promise<void> {
@@ -163,6 +149,11 @@ const workspaceContext = {
   context: { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
 }
 
+const globalChatContext = {
+  contextKey: 'global-chat',
+  context: { kind: 'global-chat' as const }
+}
+
 const knowledgeBaseContext = {
   contextKey: 'knowledge-base',
   context: { kind: 'knowledge-base' as const }
@@ -222,6 +213,21 @@ describe('BrowserService', () => {
         }
       }
     ])
+  })
+
+  it('owns Global Chat tabs under one fixed stable context', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const findSessionById = vi.fn(async () => undefined)
+    const service = new BrowserService(adapter, createContextRepository({ findSessionById }))
+
+    const state = await service.getState(globalChatContext)
+
+    expect(state.contextKey).toBe('global-chat')
+    expect(state.tabs).toHaveLength(1)
+    expect(findSessionById).not.toHaveBeenCalled()
+    await expect(
+      service.getState({ ...globalChatContext, contextKey: 'session:rotated-chat-context' })
+    ).rejects.toThrow(/Browser context is not authorized/)
   })
 
   it('rejects forged context keys before creating native content', async () => {

@@ -469,6 +469,20 @@ beforeEach(async () => {
     sessions: {
       listProjectSessions: async () => [],
       listWorkspaceSessions: async () => [],
+      getCurrentGlobalChatContext: async () => ({
+        id: 'global-chat-context-test',
+        workspaceContext: { kind: 'global-chat', key: 'global-chat' },
+        agentSession: {
+          id: 'global-chat-agent-session-test',
+          kind: 'workspace',
+          title: 'Chat',
+          status: 'idle',
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString()
+        },
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }),
       createProjectSession: async ({ projectId, title }) => ({
         id: 'session-test',
         kind: 'project',

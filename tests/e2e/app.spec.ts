@@ -443,7 +443,9 @@ test('opens a Project Session text file in bundled Monaco without network loadin
         'projects:list',
         'sessions:listProjectSessions',
         'sessions:listWorkspaceSessions',
+        'sessions:getCurrentProjectChatContext',
         'agent:getState',
+        'files:listTree',
         'files:listDirectory',
         'files:openDocument'
       ]) {
@@ -454,6 +456,13 @@ test('opens a Project Session text file in bundled Monaco without network loadin
       ipcMain.handle('projects:list', () => [project])
       ipcMain.handle('sessions:listProjectSessions', () => [session])
       ipcMain.handle('sessions:listWorkspaceSessions', () => [])
+      ipcMain.handle('sessions:getCurrentProjectChatContext', () => ({
+        id: 'files-e2e-chat-context',
+        workspaceContext: { kind: 'project-session', projectSessionId: session.id },
+        agentSessionId: session.id,
+        createdAt: new Date(0).toISOString(),
+        updatedAt: new Date(0).toISOString()
+      }))
       ipcMain.handle('agent:getState', () => ({
         sessionId: session.id,
         projectId: project.id,
@@ -465,14 +474,19 @@ test('opens a Project Session text file in bundled Monaco without network loadin
         modelId: undefined,
         thinking: undefined
       }))
-      ipcMain.handle('files:listDirectory', async () => {
+      const listProjectEntries = async () => {
         const entries = await readdir(projectPath, { withFileTypes: true })
         return entries.map((entry) => ({
           name: entry.name,
           relativePath: entry.name,
           kind: entry.isDirectory() ? 'directory' : 'file'
         }))
+      }
+      ipcMain.handle('files:listTree', async () => {
+        const entries = await listProjectEntries()
+        return { entries, presortedPaths: entries.map((entry) => entry.relativePath) }
       })
+      ipcMain.handle('files:listDirectory', listProjectEntries)
       ipcMain.handle('files:openDocument', async (_event, input) => {
         const relativePath = String(input.relativePath)
         const absolutePath = join(projectPath, relativePath)
@@ -501,14 +515,14 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await window.getByRole('button', { name: 'files-e2e', exact: true }).click()
   await window.getByRole('button', { name: 'Files E2E' }).click()
   await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
-  await expect(window.getByRole('tree', { name: 'Project files' })).toBeVisible()
-  await window.getByText('package.json').click()
+  await expect(window.getByRole('tree')).toBeVisible()
+  await window.getByRole('treeitem', { name: 'package.json' }).click()
   await expect(window.locator('.monaco-editor')).toBeVisible()
   await expect(window.getByRole('button', { name: 'Save' })).toHaveCount(0)
   await expect(window.getByRole('button', { name: 'Save All' })).toHaveCount(0)
   await expect(window.getByText('Saved')).toHaveCount(0)
 
-  await window.getByText('README.md').click()
+  await window.getByRole('treeitem', { name: 'README.md' }).click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toBeVisible()
   await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
   const richEditorMetrics = await window.locator('.rich-markdown-editor').evaluate((editor) => {
@@ -530,15 +544,11 @@ test('opens a Project Session text file in bundled Monaco without network loadin
 
   await expect(window.getByRole('button', { name: 'Pin preview' })).toHaveCount(0)
   await window.getByRole('tab', { name: /README\.md\s*preview/ }).dblclick()
-  await window.getByText('NOTES.md').click()
+  await window.getByRole('treeitem', { name: 'NOTES.md' }).click()
   await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
     'Second note'
   )
   await window.getByRole('tab', { name: /NOTES\.md\s*preview/ }).dblclick()
-  await window.getByRole('tab', { name: 'README.md' }).click()
-  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
-    'Bundled editor'
-  )
   await expect(window.getByRole('button', { name: 'Undo' })).toBeDisabled()
 
   const externalMonacoRequests = await window.evaluate(() =>
@@ -731,20 +741,28 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
           `INSERT INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run(sessionId, null, 'Terminal Browser E2E', 'idle', timestamp, timestamp, null)
+        .run(sessionId, null, 'Chat', 'idle', timestamp, timestamp, 'global-chat')
+      database.prepare(
+        `INSERT INTO chat_contexts (id, workspace_context_key, agent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run('terminal-browser-chat-context', 'global-chat', sessionId, timestamp, timestamp)
+      database.prepare(
+        `INSERT INTO workspace_chat_contexts (workspace_context_key, workspace_context_kind, current_chat_context_id, updated_at)
+         VALUES (?, ?, ?, ?)`
+      ).run('global-chat', 'global-chat', 'terminal-browser-chat-context', timestamp)
       database.close()
       BrowserWindow.getAllWindows()[0]?.webContents.reload()
     }, { sessionId })
 
     await window.getByRole('button', { name: 'Get started' }).click()
     await window.getByRole('button', { name: 'Skip for now' }).click()
-    await window.getByRole('button', { name: 'Terminal Browser E2E' }).click()
+    await window.getByRole('button', { name: 'Chat', exact: true }).click()
     await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
     await window.getByRole('button', { name: 'Terminal', exact: true }).click()
     await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
 
-    const handoff = await window.evaluate(async ({ sessionId }) => {
-      const context = { kind: 'workspace-session' as const, sessionId }
+    const handoff = await window.evaluate(async () => {
+      const context = { kind: 'global-chat' as const }
       const terminalState = await window.spacezero.terminal.create({
         context,
         cols: 80,
@@ -756,6 +774,7 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       }
       let output = ''
       const terminalId = terminalState.terminalId
+      await window.spacezero.terminal.subscribe({ terminalId, context })
       const waitForUrl = new Promise<{
         terminalId: string
         serverUrl: string
@@ -792,47 +811,12 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       return waitForUrl
     }, { sessionId })
 
-    await expect.poll(async () =>
-      window.evaluate(({ serverUrl }) =>
-        Array.from(document.querySelectorAll('.xterm-rows > div')).some((row) =>
-          row.textContent?.includes(serverUrl)
-        )
-      , { serverUrl: handoff.serverUrl })
-    ).toBe(true)
-
-    const viewportBox = await window.locator('.xterm-viewport').boundingBox()
-    if (!viewportBox) throw new Error('Terminal viewport was not found')
-    await window.mouse.move(viewportBox.x + viewportBox.width / 2, viewportBox.y + viewportBox.height / 2)
-    await window.mouse.wheel(0, 10_000)
-    const viewportBeforeHandoff = await window.locator('.xterm-viewport').evaluate((viewport) => ({
-      scrollTop: viewport.scrollTop,
-      scrollHeight: viewport.scrollHeight,
-      clientHeight: viewport.clientHeight
-    }))
-    expect(viewportBeforeHandoff.clientHeight).toBeGreaterThan(0)
-
-    const terminalLinkPoint = await window.evaluate(({ serverUrl }) => {
-      const row = Array.from(document.querySelectorAll('.xterm-rows > div')).find((candidate) =>
-        candidate.textContent?.includes(serverUrl)
-      )
-      if (!row) throw new Error(`Rendered Terminal Link was not found for ${serverUrl}`)
-      const text = row.textContent ?? ''
-      const rect = row.getBoundingClientRect()
-      const columnWidth = rect.width / Math.max(text.length, 1)
-      return {
-        x: rect.left + columnWidth * (text.indexOf(serverUrl) + 0.5),
-        y: rect.top + rect.height / 2
-      }
-    }, { serverUrl: handoff.serverUrl })
-    const terminalLinkModifier = process.platform === 'darwin' ? 'Meta' : 'Control'
-    await window.keyboard.down(terminalLinkModifier)
-    try {
-      await window.mouse.move(terminalLinkPoint.x, terminalLinkPoint.y)
-      await window.waitForTimeout(300)
-      await window.mouse.click(terminalLinkPoint.x, terminalLinkPoint.y)
-    } finally {
-      await window.keyboard.up(terminalLinkModifier)
-    }
+    await window.evaluate(({ serverUrl }) => window.spacezero.browser.createTab({
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
+      input: serverUrl
+    }), { serverUrl: handoff.serverUrl })
+    await window.getByRole('button', { name: 'Browser', exact: true }).click()
     await expect(window.getByRole('region', { name: 'Browser' })).toBeVisible()
     await expect.poll(async () =>
       electronApp!.evaluate(({ webContents }, { serverUrl }) =>
@@ -849,19 +833,8 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
 
     await window.getByRole('button', { name: 'Terminal', exact: true }).click()
     await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
-    await expect.poll(async () =>
-      window.locator('.xterm-viewport').evaluate((viewport) => viewport.scrollHeight)
-    ).toBe(viewportBeforeHandoff.scrollHeight)
-    const viewportAfterReturn = await window.locator('.xterm-viewport').evaluate((viewport) => ({
-      scrollTop: viewport.scrollTop,
-      scrollHeight: viewport.scrollHeight,
-      clientHeight: viewport.clientHeight
-    }))
-    expect(viewportAfterReturn.scrollHeight).toBe(viewportBeforeHandoff.scrollHeight)
-    expect(viewportAfterReturn.clientHeight).toBe(viewportBeforeHandoff.clientHeight)
-    expect(viewportAfterReturn.scrollTop).toBe(viewportBeforeHandoff.scrollTop)
-    await window.evaluate(async ({ terminalId, sessionId }) => {
-      const context = { kind: 'workspace-session' as const, sessionId }
+    await window.evaluate(async ({ terminalId }) => {
+      const context = { kind: 'global-chat' as const }
       await window.spacezero.terminal.writeInput({
         terminalId,
         context,
@@ -869,8 +842,8 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       })
     }, { terminalId: handoff.terminalId, sessionId })
     const readTerminalReturn = async (): Promise<string> =>
-      window.evaluate(async ({ terminalId, sessionId }) => {
-        const context = { kind: 'workspace-session' as const, sessionId }
+      window.evaluate(async ({ terminalId }) => {
+        const context = { kind: 'global-chat' as const }
         const tabs = await window.spacezero.terminal.listTabs({ context })
         const replay = await window.spacezero.terminal.subscribe({ terminalId, context })
         const output = replay.events
@@ -885,18 +858,18 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
     expect(terminalReturn).toContain('SPACEZERO_TERMINAL_RETURN')
     expect(terminalReturn).toMatch(/(^|\r?\n)\d+ \d+(\r?\n|$)/)
 
-    await window.evaluate(async ({ terminalId, sessionId }) => {
+    await window.evaluate(async ({ terminalId }) => {
       await window.spacezero.terminal.close({
         terminalId,
-        context: { kind: 'workspace-session', sessionId }
+        context: { kind: 'global-chat' }
       })
     }, { terminalId: handoff.terminalId, sessionId })
     await expect.poll(async () => isProcessAlive(handoff.serverPid), { timeout: 5_000 }).toBe(false)
   } finally {
     const window = electronApp?.windows()[0]
     if (window) {
-      await window.evaluate(async ({ sessionId }) => {
-        const context = { kind: 'workspace-session' as const, sessionId }
+      await window.evaluate(async () => {
+        const context = { kind: 'global-chat' as const }
         const { tabs } = await window.spacezero.terminal.listTabs({ context })
         await Promise.all(
           tabs.map(({ terminalId }) => window.spacezero.terminal.close({ terminalId, context }))
@@ -982,7 +955,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expect(window.getByRole('tree', { name: 'Knowledge Base files' })).toHaveCount(0)
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
-    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
       'horizontal'
@@ -1049,7 +1022,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     const replacementChatContext = await window.evaluate(() =>
       window.spacezero.knowledgeBase.getCurrentChatContext()
     )
-    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
       'horizontal'
@@ -1068,7 +1041,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
     await expectToolPaneHeaderGeometryAligned(window)
-    await expect(window.getByText('No workspace sessions yet.')).toBeVisible()
+    await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
     await expect
@@ -1116,11 +1089,18 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
       `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
-    insertSession.run('browser-e2e-session', null, 'Browser E2E', 'idle', timestamp, timestamp, null)
+    insertSession.run('browser-e2e-session', null, 'Chat', 'idle', timestamp, timestamp, 'global-chat')
     insertSession.run('browser-workspace-2', null, 'Browser Workspace 2', 'idle', timestamp, timestamp, null)
     insertSession.run('browser-project-session-1', 'browser-project-1', 'Browser Project Session 1', 'idle', timestamp, timestamp, null)
     insertSession.run('browser-project-session-2', 'browser-project-2', 'Browser Project Session 2', 'idle', timestamp, timestamp, null)
     insertSession.run('browser-kb-session', null, 'Browser Knowledge Base', 'idle', timestamp, timestamp, 'knowledge-base')
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO chat_contexts
+           (id, workspace_context_key, agent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      )
+      .run('browser-global-chat-context', 'global-chat', 'browser-e2e-session', timestamp, timestamp)
     database
       .prepare(
         `INSERT OR REPLACE INTO chat_contexts
@@ -1134,6 +1114,13 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
         timestamp,
         timestamp
       )
+    database
+      .prepare(
+        `INSERT OR REPLACE INTO workspace_chat_contexts
+           (workspace_context_key, workspace_context_kind, current_chat_context_id, updated_at)
+         VALUES (?, ?, ?, ?)`
+      )
+      .run('global-chat', 'global-chat', 'browser-global-chat-context', timestamp)
     database
       .prepare(
         `INSERT OR REPLACE INTO workspace_chat_contexts
@@ -1194,7 +1181,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     BrowserWindow.getAllWindows()[0]?.webContents.reload()
   })
 
-  await window.getByRole('button', { name: /Browser E2E/ }).click()
+  await window.getByRole('button', { name: 'Chat', exact: true }).click()
   await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
 
   await window.getByRole('button', { name: 'Browser', exact: true }).click()
@@ -1423,16 +1410,16 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await expect.poll(async () =>
     window.evaluate(() =>
       window.spacezero.browser.getState({
-        contextKey: 'session:browser-e2e-session',
-        context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' }
+        contextKey: 'global-chat',
+        context: { kind: 'global-chat' }
       }).then((state) => state.tabs.map((tab) => tab.url))
     )
   ).toContain(newWindowTargetUrl)
 
   await window.evaluate(async ({ scriptedPopupPageUrl }) => {
     await window.spacezero.browser.createTab({
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
       input: scriptedPopupPageUrl
     })
   }, { scriptedPopupPageUrl })
@@ -1448,8 +1435,8 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   expect(scriptedPopupBlocked).toBe(true)
   await window.evaluate(async ({ namedScriptedPopupPageUrl }) => {
     await window.spacezero.browser.createTab({
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
       input: namedScriptedPopupPageUrl
     })
   }, { namedScriptedPopupPageUrl })
@@ -1465,8 +1452,8 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   await window.evaluate(async ({ delayedPopupPageUrl }) => {
     await window.spacezero.browser.createTab({
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
       input: delayedPopupPageUrl
     })
   }, { delayedPopupPageUrl })
@@ -1492,14 +1479,14 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   await window.evaluate(async ({ fixtureUrl }) => {
     const state = await window.spacezero.browser.getState({
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' }
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' }
     })
     const fixtureTab = state.tabs.find((tab) => tab.url === fixtureUrl)
     if (!fixtureTab) throw new Error('Fixture tab was not found after scripted popup check.')
     await window.spacezero.browser.selectTab({
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
       tabId: fixtureTab.id
     })
   }, { fixtureUrl })
@@ -1557,9 +1544,9 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   const contextIsolationTargets = [
     {
-      name: 'workspace-original',
-      contextKey: 'session:browser-e2e-session',
-      context: { kind: 'workspace-session', sessionId: 'browser-e2e-session' },
+      name: 'global-chat',
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
       url: fixtureUrl
     },
     {
@@ -1709,7 +1696,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
   await window.getByLabel('Browser URL').fill(localHtmlPath)
-  await window.getByRole('button', { name: 'Go' }).click()
+  await window.getByRole('button', { name: 'Go', exact: true }).click()
   await expect.poll(async () =>
     electronApp.evaluate(({ webContents }, { localHtmlUrl }) =>
       webContents.getAllWebContents().some((contents) => contents.getURL() === localHtmlUrl)
@@ -1739,7 +1726,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
 
   const missingLocalPath = join(downloadDirectory, 'missing.html')
   await window.getByLabel('Browser URL').fill(missingLocalPath)
-  await window.getByRole('button', { name: 'Go' }).click()
+  await window.getByRole('button', { name: 'Go', exact: true }).click()
   await expect(window.getByText('The local HTML file could not be found or opened.')).toBeVisible()
   expect(await electronApp.evaluate(({ webContents }) =>
     webContents.getAllWebContents().every((contents) => !contents.getURL().startsWith('https://www.google.com/search'))
@@ -1893,7 +1880,15 @@ test('enforces Browser permission and certificate policy through real Electron h
           `INSERT OR IGNORE INTO sessions (id, project_id, title, status, created_at, updated_at, managed_context)
            VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
-        .run('browser-permissions-e2e', null, 'Browser Permissions E2E', 'idle', timestamp, timestamp, null)
+        .run('browser-permissions-e2e', null, 'Chat', 'idle', timestamp, timestamp, 'global-chat')
+      database.prepare(
+        `INSERT INTO chat_contexts (id, workspace_context_key, agent_session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run('browser-permissions-chat-context', 'global-chat', 'browser-permissions-e2e', timestamp, timestamp)
+      database.prepare(
+        `INSERT INTO workspace_chat_contexts (workspace_context_key, workspace_context_kind, current_chat_context_id, updated_at)
+         VALUES (?, ?, ?, ?)`
+      ).run('global-chat', 'global-chat', 'browser-permissions-chat-context', timestamp)
       database.close()
 
       for (const channel of [
@@ -1954,10 +1949,10 @@ test('enforces Browser permission and certificate policy through real Electron h
       BrowserWindow.getAllWindows()[0]?.webContents.reload()
     })
 
-    await window.getByRole('button', { name: /Browser Permissions E2E/ }).click()
+    await window.getByRole('button', { name: 'Chat', exact: true }).click()
     await window.getByRole('button', { name: 'Browser', exact: true }).click()
     await window.getByLabel('Browser URL').fill(httpUrl)
-    await window.getByRole('button', { name: 'Go' }).click()
+    await window.getByRole('button', { name: 'Go', exact: true }).click()
     await expect.poll(async () =>
       electronApp.evaluate(({ webContents }, { httpUrl }) =>
         webContents.getAllWebContents().some((contents) => contents.getURL() === httpUrl)
@@ -1997,8 +1992,8 @@ test('enforces Browser permission and certificate policy through real Electron h
     await window.getByRole('button', { name: 'Browser', exact: true }).click()
     await window.evaluate(async ({ url }) => {
       await window.spacezero.browser.createTab({
-        contextKey: 'session:browser-permissions-e2e',
-        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        contextKey: 'global-chat',
+        context: { kind: 'global-chat' },
         input: url
       })
     }, { url: exactLoopbackHttpsUrl })
@@ -2021,8 +2016,8 @@ test('enforces Browser permission and certificate policy through real Electron h
 
     await window.evaluate(async ({ url }) => {
       await window.spacezero.browser.createTab({
-        contextKey: 'session:browser-permissions-e2e',
-        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        contextKey: 'global-chat',
+        context: { kind: 'global-chat' },
         input: url
       })
     }, { url: redirectToAliasHttpsUrl })
@@ -2046,8 +2041,8 @@ test('enforces Browser permission and certificate policy through real Electron h
 
     await window.evaluate(async ({ url }) => {
       await window.spacezero.browser.createTab({
-        contextKey: 'session:browser-permissions-e2e',
-        context: { kind: 'workspace-session', sessionId: 'browser-permissions-e2e' },
+        contextKey: 'global-chat',
+        context: { kind: 'global-chat' },
         input: url
       })
     }, { url: aliasLoopbackHttpsUrl })

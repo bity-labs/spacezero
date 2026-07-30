@@ -96,6 +96,7 @@ function rowToTab(row: typeof schema.terminalTabs.$inferSelect): PersistedTermin
 }
 
 function rowToContext(kind: string, sessionId: string | null): TerminalContext {
+  if (kind === 'global-chat') return { kind: 'global-chat' }
   if (kind === 'knowledge-base') return { kind: 'knowledge-base' }
   if (kind === 'project-session' && sessionId) return { kind, sessionId }
   if (kind === 'workspace-session' && sessionId) return { kind, sessionId }
@@ -107,6 +108,6 @@ function contextWhere(context: TerminalContext) {
 }
 
 function contextKey(context: TerminalContext): string {
-  if (context.kind === 'knowledge-base') return context.kind
+  if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
   return `${context.kind}:${context.sessionId}`
 }

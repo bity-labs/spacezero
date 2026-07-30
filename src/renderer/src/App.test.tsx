@@ -1,9 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 import type { AgentGlobalSkill } from '../../features/agent-workspace/shared/agent-skill.model'
 import type { BrowserClearDataResult } from '../../features/browser/shared'
-import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
+import type { ProjectSession } from '../../features/sessions/shared'
 import type { UpdateStatus } from '../../features/updates/shared'
 import type { ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 
@@ -176,20 +175,29 @@ describe('App', () => {
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
-  it('shows Knowledge Base before New Agent and opens its setup page', async () => {
+  it('shows one Chat item near Knowledge Base without ordinary Workspace Session UI', async () => {
+    const listWorkspaceSessions = vi.spyOn(window.spacezero.sessions, 'listWorkspaceSessions')
+    const createWorkspaceSession = vi.spyOn(window.spacezero.agent, 'createWorkspaceSession')
+
     render(<App />)
 
     const navigation = await screen.findByRole('menu', { name: 'Workspace navigation' })
     const navigationItems = within(navigation).getAllByRole('button')
-    expect(navigationItems[0]).toHaveTextContent('Knowledge Base')
-    expect(navigationItems[1]).toHaveTextContent('New Agent')
+    expect(navigationItems.map((item) => item.textContent)).toEqual(['Knowledge Base', 'Chat'])
+    expect(screen.queryByText('Workspace Sessions')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New Agent' })).not.toBeInTheDocument()
+    expect(listWorkspaceSessions).not.toHaveBeenCalled()
 
-    fireEvent.click(navigationItems[0])
+    fireEvent.click(within(navigation).getByRole('button', { name: 'Chat' }))
 
-    expect(
-      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('toolbar', { name: 'Tool Switcher' })).not.toBeInTheDocument()
+    expect(await screen.findByPlaceholderText('Ask about Space Zero…')).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent('Chat')
+    const toolSwitcher = screen.getByRole('toolbar', { name: 'Tool Switcher' })
+    expect(within(toolSwitcher).getByRole('button', { name: 'Browser' })).toBeEnabled()
+    expect(within(toolSwitcher).getByRole('button', { name: 'Terminal' })).toBeEnabled()
+    expect(within(toolSwitcher).queryByRole('button', { name: 'Files' })).not.toBeInTheDocument()
+    expect(within(toolSwitcher).queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
+    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 
   it('opens Files in the Tool Pane while keeping configured Knowledge Base chat primary', async () => {
@@ -274,209 +282,6 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: /Issue #120: Breadcrumb fix/ }))
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'Space ZeroIssue #120: Breadcrumb fixIssue #120'
-    )
-  })
-
-  it('renames the active Workspace Session from the breadcrumb and immediately updates visible titles', async () => {
-    let storedSession: WorkspaceSession = {
-      id: 'workspace-session-1',
-      kind: 'workspace',
-      title: 'Workspace Session 1',
-      status: 'idle',
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString()
-    }
-    window.spacezero.sessions.listWorkspaceSessions = async () => [storedSession]
-    window.spacezero.sessions.rename = async ({ sessionId, title }) => {
-      storedSession = {
-        ...storedSession,
-        id: sessionId,
-        title,
-        updatedAt: new Date(1).toISOString()
-      }
-      return storedSession
-    }
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    const input = screen.getByRole('textbox', { name: 'Rename Workspace Session' })
-    expect(input).toHaveValue('Workspace Session 1')
-
-    fireEvent.change(input, { target: { value: '  Breadcrumb Rename  ' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    await waitFor(() =>
-      expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-        'WorkspaceBreadcrumb Rename'
-      )
-    )
-    expect(screen.getByRole('button', { name: /Breadcrumb Rename/ })).toBeInTheDocument()
-  })
-
-  it('shows failed active Session rename errors as a bottom-right toast without replacing main content', async () => {
-    window.spacezero.sessions.listWorkspaceSessions = async () => [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    window.spacezero.sessions.rename = async () => {
-      throw new Error('Rename failed')
-    }
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
-      target: { value: 'Broken Rename' }
-    })
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
-      key: 'Enter'
-    })
-
-    const toast = await screen.findByRole('alert', {
-      name: 'Session rename error'
-    })
-    expect(toast).toHaveTextContent('Unable to rename Session. Check the title and try again.')
-    expect(toast).toHaveClass('bottom-4')
-    expect(toast).toHaveClass('right-4')
-    expect(screen.getByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
-    expect(
-      screen.queryByText('Unable to rename Session. Check the title and try again.', {
-        selector: 'section [role="alert"] *'
-      })
-    ).not.toBeInTheDocument()
-  })
-
-  it('clears active Session title editing state and stale drafts when switching sessions', async () => {
-    const user = userEvent.setup()
-    const rename = vi.fn(window.spacezero.sessions.rename)
-    window.spacezero.sessions.listWorkspaceSessions = async () => [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      },
-      {
-        id: 'workspace-session-2',
-        kind: 'workspace',
-        title: 'Workspace Session 2',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    window.spacezero.sessions.rename = rename
-
-    render(<App />)
-
-    await user.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    const draftInput = screen.getByRole('textbox', { name: 'Rename Workspace Session' })
-    await user.clear(draftInput)
-    await user.type(draftInput, 'Unsaved draft')
-
-    await user.click(screen.getByRole('button', { name: /Workspace Session 2/ }))
-
-    await waitFor(() => expect(rename).not.toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Unsaved draft/ })).not.toBeInTheDocument()
-    await waitFor(() =>
-      expect(
-        screen.queryByRole('textbox', { name: 'Rename Workspace Session' })
-      ).not.toBeInTheDocument()
-    )
-    await user.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    expect(screen.getByRole('textbox', { name: 'Rename Workspace Session' })).toHaveValue(
-      'Workspace Session 2'
-    )
-  })
-
-  it('cancels active Session title editing with Escape and restores the persisted title', async () => {
-    const rename = vi.fn(async ({ sessionId, title }) => ({
-      id: sessionId,
-      kind: 'workspace' as const,
-      title,
-      status: 'idle' as const,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(1).toISOString()
-    }))
-    window.spacezero.sessions.listWorkspaceSessions = async () => [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    window.spacezero.sessions.rename = rename
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename Workspace Session' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
-      target: { value: 'Unsaved Escape Draft' }
-    })
-    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Rename Workspace Session' }), {
-      key: 'Escape'
-    })
-
-    await waitFor(() => expect(rename).not.toHaveBeenCalled())
-    expect(
-      screen.queryByRole('textbox', { name: 'Rename Workspace Session' })
-    ).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session 1'
-    )
-  })
-
-  it('hides workspace session breadcrumb context while Knowledge Base is active and restores it after returning', async () => {
-    window.spacezero.sessions.listWorkspaceSessions = async () => [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session 1'
-    )
-
-    fireEvent.click(
-      within(screen.getByRole('menu', { name: 'Workspace navigation' })).getByRole('button', {
-        name: 'Knowledge Base'
-      })
-    )
-    expect(
-      await screen.findByRole('heading', { name: 'Set up your Knowledge Base' })
-    ).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      /^Knowledge Base$/
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: /Workspace Session 1/ }))
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session 1'
     )
   })
 
@@ -1036,154 +841,6 @@ describe('App', () => {
     expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
       'Space ZeroSession 3'
     )
-  })
-
-  it('bounds overflowing workspace sessions inside their own scrollable sidebar section', async () => {
-    const workspaceSessions: WorkspaceSession[] = Array.from({ length: 24 }, (_, index) => ({
-      id: `workspace-session-${index + 1}`,
-      kind: 'workspace',
-      title: `Workspace Session ${index + 1}`,
-      status: 'idle',
-      createdAt: new Date(index).toISOString(),
-      updatedAt: new Date(index).toISOString()
-    }))
-    window.spacezero.sessions.listWorkspaceSessions = async () => workspaceSessions
-
-    render(<App />)
-
-    expect(await screen.findByRole('button', { name: /Workspace Session 24/ })).toBeInTheDocument()
-
-    const workspaceSection = screen
-      .getByText('Workspace Sessions')
-      .closest('[data-sidebar="group"]')
-    expect(workspaceSection).toHaveClass('max-h-[45%]')
-    expect(
-      within(workspaceSection as HTMLElement).getByText('Workspace Sessions')
-    ).toBeInTheDocument()
-
-    const workspaceList = screen.getByRole('list', { name: 'Workspace session list' })
-    const scrollArea = workspaceList.parentElement
-    expect(scrollArea).toHaveClass('min-h-0', 'overflow-y-auto', 'overflow-x-hidden')
-    expect(scrollArea).toContainElement(workspaceList)
-
-    const projectsSection = screen.getByText('Projects').closest('[data-sidebar="group"]')
-    expect(projectsSection).toHaveClass('min-h-0', 'flex-1', 'overflow-hidden')
-  })
-
-  it('shows persisted workspace sessions above projects and keeps project sessions grouped under projects', async () => {
-    const workspaceSessions: WorkspaceSession[] = [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    const projects = [
-      {
-        id: 'project-1',
-        name: 'Space Zero',
-        path: '/Users/tiby/ws/dev/spacezero',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    const projectSessions: ProjectSession[] = [
-      {
-        id: 'project-session-1',
-        kind: 'project',
-        projectId: 'project-1',
-        title: 'Project Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-    window.spacezero.sessions.listWorkspaceSessions = async () => workspaceSessions
-    window.spacezero.projects.list = async () => projects
-    window.spacezero.sessions.listProjectSessions = async () => projectSessions
-
-    render(<App />)
-
-    expect(await screen.findByText('Workspace Sessions')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
-    expect(screen.getByText('Projects')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Project Session 1/ })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Space Zero' }))
-
-    expect(await screen.findByRole('button', { name: /Project Session 1/ })).toBeInTheDocument()
-  })
-
-  it('opens a persisted workspace session from the sidebar', async () => {
-    window.spacezero.sessions.listWorkspaceSessions = async () => [
-      {
-        id: 'workspace-session-1',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    ]
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: /Workspace Session 1/ }))
-
-    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
-    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session 1'
-    )
-    expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
-      'aria-orientation',
-      'vertical'
-    )
-    expect(screen.getByRole('button', { name: 'Browser' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'Terminal' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: /Files/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Git —/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
-  })
-
-  it('opens a global Workspace Session without selecting a project', async () => {
-    let createWorkspaceSessionCalls = 0
-    window.spacezero.agent.createWorkspaceSession = async () => {
-      createWorkspaceSessionCalls += 1
-      return {
-        id: 'workspace-session-real',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
-      }
-    }
-
-    render(<App />)
-
-    fireEvent.click(await screen.findByRole('button', { name: 'New Agent' }))
-
-    await waitFor(() => expect(createWorkspaceSessionCalls).toBe(1))
-    expect(await screen.findByRole('region', { name: 'Conversation' })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: 'Workspace Session 1' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Workspace Session 1/ })).toBeInTheDocument()
-    expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
-    expect(screen.queryByText(/Workspace Session host for the global/)).not.toBeInTheDocument()
-    expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
-    expect(screen.getByRole('navigation', { name: 'breadcrumb' })).toHaveTextContent(
-      'WorkspaceWorkspace Session 1'
-    )
-    expect(screen.queryByText('Project ID')).not.toBeInTheDocument()
-    expect(screen.queryByText('Working directory')).not.toBeInTheDocument()
   })
 
   it('loads persisted projects, opens them, and edits project metadata', async () => {
@@ -2188,7 +1845,7 @@ describe('App', () => {
     expect(
       await screen.findByRole('main', { name: 'Espace de travail principal' })
     ).toBeInTheDocument()
-    expect(screen.getByText('Nouvel agent')).toBeInTheDocument()
+    expect(screen.getByText('Chat')).toBeInTheDocument()
     expect(screen.getByText('Projets')).toBeInTheDocument()
   })
 
