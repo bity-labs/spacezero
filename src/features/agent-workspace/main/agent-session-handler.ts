@@ -282,7 +282,7 @@ export async function createManagedProjectAgentSession(
         kind: 'project',
         projectId,
         cwd: worktree.path,
-        workspaceTools: listWorkspaceToolDescriptorsForSession(),
+        workspaceTools: listWorkspaceToolDescriptorsForSession({ kind: 'project' }),
         appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
         ...(skillPaths ? { skillPaths } : {}),
         ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
@@ -400,7 +400,7 @@ export async function createProjectChatAgentSession(
       kind: 'project',
       projectId: owner.projectId,
       cwd,
-      workspaceTools: listWorkspaceToolDescriptorsForSession(),
+      workspaceTools: listWorkspaceToolDescriptorsForSession({ kind: 'project' }),
       appendSystemPrompt: [createProjectKnowledgeBaseInstructions(knowledgeBasePath)],
       ...(skillPaths ? { skillPaths } : {}),
       ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
@@ -535,6 +535,7 @@ export async function applyAgentDefinitionToFreshSession(
     cwd,
     transcriptPath: storedSession.transcriptPath ?? currentState.transcriptPath ?? undefined,
     workspaceTools: listWorkspaceToolDescriptorsForSession({
+      kind: workspaceSession.projectId ? 'project' : 'workspace',
       managedContext: storedSession.managedContext
     }),
     ...(project
@@ -713,6 +714,7 @@ async function restoreAgentSessionStateOnce(
       cwd,
       transcriptPath: storedSession.transcriptPath ?? undefined,
       workspaceTools: listWorkspaceToolDescriptorsForSession({
+        kind: workspaceSession.projectId ? 'project' : 'workspace',
         managedContext: storedSession.managedContext
       }),
       ...(project
@@ -816,7 +818,10 @@ export async function createWorkspaceAgentSession({
     kind: 'workspace',
     projectId: null,
     cwd,
-    workspaceTools: listWorkspaceToolDescriptorsForSession({ managedContext }),
+    workspaceTools: listWorkspaceToolDescriptorsForSession({
+      kind: 'workspace',
+      managedContext
+    }),
     ...(skillPaths ? { skillPaths } : {}),
     ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
     defaultModel: modelDefaults.defaultModel,

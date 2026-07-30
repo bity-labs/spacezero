@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import {
   cancelGitHubCloneRequestSchema,
+  githubCreateOrReusePullRequestRequestSchema,
   githubFlowRequestSchema,
   githubIssueCommentCreateRequestSchema,
   githubIssueCommentsRequestSchema,
@@ -179,6 +180,11 @@ export function registerGitHubIpcHandlers(
     runtime
       .getPullRequestsService()
       .createReview(githubPullRequestReviewCreateRequestSchema.parse(input))
+  )
+  ipc.handle(IPC_CHANNELS.github.createOrReusePullRequest, (_event, input) =>
+    runtime
+      .getPullRequestsService()
+      .createOrReusePullRequest(githubCreateOrReusePullRequestRequestSchema.parse(input))
   )
   ipc.handle(IPC_CHANNELS.github.startIssueSession, (_event, input) =>
     runtime.getSourceSessionsService().startIssueSession(githubIssueRequestSchema.parse(input))

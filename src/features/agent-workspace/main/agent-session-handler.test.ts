@@ -144,6 +144,10 @@ describe('createProjectAgentSession', () => {
         workspaceTools: expect.arrayContaining([
           expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
           expect.objectContaining({ name: 'knowledgeBase.createDocument', safetyLevel: 'write' }),
+          expect.objectContaining({
+            name: 'github.createOrReusePullRequest',
+            safetyLevel: 'dangerous'
+          }),
           expect.objectContaining({ name: 'knowledgeBase.createFolder', safetyLevel: 'write' })
         ]),
         appendSystemPrompt: [expect.stringContaining('not configured')],
@@ -1703,6 +1707,13 @@ describe('createWorkspaceAgentSession', () => {
       expect.objectContaining({
         workspaceTools: expect.arrayContaining([
           expect.objectContaining({ name: 'knowledgeBase.git.inspect' })
+        ])
+      })
+    )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'github.createOrReusePullRequest' })
         ])
       })
     )

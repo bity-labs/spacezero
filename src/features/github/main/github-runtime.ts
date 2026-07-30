@@ -96,7 +96,8 @@ export function getGitHubPullRequestsService(): ReturnType<typeof createGitHubPu
   pullRequestsService = createGitHubPullRequestsService({
     projects: getGitHubProjectsService(),
     auth: getGitHubAuthService(),
-    adapter: createGitHubPullRequestsAdapter()
+    adapter: createGitHubPullRequestsAdapter(),
+    sessions: createSessionsRepository()
   })
   return pullRequestsService
 }

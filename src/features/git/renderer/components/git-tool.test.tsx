@@ -771,7 +771,7 @@ describe('GitTool', () => {
     )
   })
 
-  it('uses a split button that defaults to Commit & Push and only runs the selected action from the main segment', async () => {
+  it('loads Commit as the persisted primary action and only runs the selected action from the main segment', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
@@ -805,13 +805,8 @@ describe('GitTool', () => {
       await screen.findByLabelText('Commit instructions'),
       'Use message: polish docs'
     )
-    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeEnabled()
-
-    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
-    expect(await screen.findByRole('menuitem', { name: 'Commit & Push' })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Commit' }))
-    expect(prompt).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Commit' })).toBeEnabled()
+    expect(await screen.findByRole('button', { name: 'Commit' })).toBeEnabled()
+    expect(window.spacezero.settings.getGitActionSettings).toHaveBeenCalledTimes(1)
 
     await userEvent.click(screen.getByRole('button', { name: 'Commit' }))
     expect(prompt).toHaveBeenCalledWith({
@@ -829,10 +824,13 @@ describe('GitTool', () => {
     expect(screen.getByRole('button', { name: 'Commit & Push' })).toBeEnabled()
   })
 
-  it('offers Commit and create a PR and sends the complete workflow through the agent prompt path', async () => {
+  it('loads Commit and create a PR as the primary action and sends the complete workflow through the agent prompt path', async () => {
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
+    window.spacezero.settings.getGitActionSettings = vi.fn(async () => ({
+      primaryGitAction: 'commit-and-create-pr' as const
+    }))
     window.spacezero.agent.prompt = prompt
     window.spacezero.git.getReview = vi.fn(async () => ({
       status: 'ok' as const,
@@ -851,23 +849,80 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" />)
 
-    await screen.findByRole('button', { name: 'Commit & Push' })
-    await userEvent.click(screen.getByRole('button', { name: 'Choose Git commit action' }))
-    await userEvent.click(
-      await screen.findByRole('menuitem', { name: 'Commit and create a PR' })
-    )
-    await userEvent.click(screen.getByRole('button', { name: 'Commit and create a PR' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Commit and create a PR' }))
+    expect(window.spacezero.settings.getGitActionSettings).toHaveBeenCalledTimes(1)
 
     expect(prompt).toHaveBeenCalledWith({
       sessionId: 'session-1',
       message: expect.stringMatching(/create an appropriate commit.*push.*pull request/is)
     })
     const message = prompt.mock.calls[0]?.[0].message ?? ''
-    expect(message).toContain('authenticated GitHub tooling')
-    expect(message).toMatch(/check whether an open pull request already exists/is)
-    expect(message).toMatch(/do not create a duplicate/is)
+    expect(message).toContain('github.createOrReusePullRequest')
+    expect(message).toContain('narrow main-owned capability')
+    expect(message).toMatch(/Do not use `gh`/)
     expect(message).toMatch(/final.*pull request URL/is)
     expect(message).toMatch(/push succeeds.*pull request creation fails/is)
+  })
+
+  it.each([
+    ['commit', 'Commit'],
+    ['commit-and-push', 'Commit & Push'],
+    ['commit-and-create-pr', 'Commit and create a PR']
+  ] as const)(
+    'reloads the persisted %s primary action on remount',
+    async (primaryGitAction, label) => {
+      const getGitActionSettings = vi.fn(async () => ({ primaryGitAction }))
+      window.spacezero.settings.getGitActionSettings = getGitActionSettings
+      window.spacezero.git.getReview = vi.fn(async () => ({
+        status: 'ok' as const,
+        branch: 'feature/test',
+        upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+        files: [
+          {
+            path: 'README.md',
+            kind: 'modified' as const,
+            binary: false,
+            large: false,
+            diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+          }
+        ]
+      }))
+
+      const first = render(<GitTool sessionId="session-1" />)
+      expect(await screen.findByRole('button', { name: label })).toBeEnabled()
+      first.unmount()
+      render(<GitTool sessionId="session-1" />)
+
+      expect(await screen.findByRole('button', { name: label })).toBeEnabled()
+      expect(getGitActionSettings).toHaveBeenCalledTimes(2)
+    }
+  )
+
+  it('falls back safely to Commit & Push when the primary action cannot be loaded', async () => {
+    window.spacezero.settings.getGitActionSettings = vi.fn(async () => {
+      throw new Error('settings unavailable')
+    })
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'feature/test',
+      upstream: { kind: 'tracked' as const, name: 'origin/feature/test', ahead: 0, behind: 0 },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Changed\n'
+        }
+      ]
+    }))
+
+    render(<GitTool sessionId="session-1" />)
+
+    expect(await screen.findByRole('button', { name: 'Commit & Push' })).toBeEnabled()
+    await waitFor(() =>
+      expect(window.spacezero.settings.getGitActionSettings).toHaveBeenCalledTimes(1)
+    )
   })
 
   it('supports keyboard traversal and restores focus to the split-button menu trigger on Escape', async () => {

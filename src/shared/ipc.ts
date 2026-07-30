@@ -48,6 +48,8 @@ import type {
   GitHubCloneProgress,
   GitHubCommitStatus,
   GitHubConnection,
+  GitHubCreateOrReusePullRequestRequest,
+  GitHubCreateOrReusePullRequestResult,
   GitHubDeviceAuthorization,
   GitHubFlowRequest,
   GitHubIssue,
@@ -160,6 +162,7 @@ export const IPC_CHANNELS = {
     listPullRequestReviews: 'github:listPullRequestReviews',
     createPullRequestComment: 'github:createPullRequestComment',
     createPullRequestReview: 'github:createPullRequestReview',
+    createOrReusePullRequest: 'github:createOrReusePullRequest',
     startIssueSession: 'github:startIssueSession',
     startPullRequestSession: 'github:startPullRequestSession'
   },
@@ -321,6 +324,9 @@ export type SpaceZeroAPI = {
     createPullRequestReview: (
       request: GitHubPullRequestReviewCreateRequest
     ) => Promise<GitHubPullRequestReview>
+    createOrReusePullRequest: (
+      request: GitHubCreateOrReusePullRequestRequest
+    ) => Promise<GitHubCreateOrReusePullRequestResult>
     startIssueSession: (request: GitHubIssueRequest) => Promise<ProjectSession>
     startPullRequestSession: (request: GitHubPullRequestRequest) => Promise<ProjectSession>
   }
