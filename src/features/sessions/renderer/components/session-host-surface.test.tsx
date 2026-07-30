@@ -3,13 +3,13 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../../projects/shared'
-import type { ProjectSession, WorkspaceSession } from '../../shared'
+import type { ProjectSession, ManagedChatAgentSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { GitTool } from '../../../git/renderer/components/git-tool'
 import { resetToolPaneStore, useToolPaneStore } from '../../../tool-pane/renderer'
-import { ProjectSessionHostSurface, WorkspaceSessionHostSurface } from './session-host-surface'
+import { ProjectSessionHostSurface, ManagedChatHostSurface } from './session-host-surface'
 
 const project: Project = {
   id: 'project-1',
@@ -29,10 +29,10 @@ const session: ProjectSession = {
   updatedAt: new Date(0).toISOString()
 }
 
-const workspaceSession: WorkspaceSession = {
-  id: 'workspace-session-1',
+const managedChatSession: ManagedChatAgentSession = {
+  id: 'global-chat-agent-session-1',
   kind: 'workspace',
-  title: 'Workspace Session',
+  title: 'Chat',
   status: 'idle',
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString()
@@ -614,8 +614,8 @@ describe('ProjectSessionHostSurface', () => {
     })
 
     render(
-      <WorkspaceSessionHostSurface
-        session={{ ...workspaceSession, id: 'rotatable-global-chat-agent-session' }}
+      <ManagedChatHostSurface
+        session={{ ...managedChatSession, id: 'rotatable-global-chat-agent-session' }}
         chatLinkContext={{ kind: 'global-chat' }}
       />
     )
@@ -644,12 +644,12 @@ describe('ProjectSessionHostSurface', () => {
     ).toBeUndefined()
   })
 
-  it('routes Workspace Session chat HTTP links to the default browser when selected', async () => {
+  it('routes Global Chat HTTP links to the default browser when selected', async () => {
     const user = userEvent.setup()
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
     const openUrlInDefaultBrowser = vi.fn(async () => undefined)
     const createTab = vi.fn(async () => ({
-      contextKey: 'session:workspace-session-1',
+      contextKey: 'global-chat',
       activeTabId: 'tab-1',
       tabs: []
     }))
@@ -663,18 +663,23 @@ describe('ProjectSessionHostSurface', () => {
       openChatLinksIn: 'default-browser'
     })
 
-    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+    render(
+      <ManagedChatHostSurface
+        session={managedChatSession}
+        chatLinkContext={{ kind: 'global-chat' }}
+      />
+    )
 
     await act(async () => {
       projectionListener?.(
-        chatSnapshotEvent('workspace-session-1', 'Open [site](https://spacezero.dev).')
+        chatSnapshotEvent('global-chat-agent-session-1', 'Open [site](https://spacezero.dev).')
       )
     })
     await user.click(await screen.findByRole('link', { name: 'site' }))
 
     expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/' })
     expect(createTab).not.toHaveBeenCalled()
-    expect(useToolPaneStore.getState().contexts['session:workspace-session-1']).toBeUndefined()
+    expect(useToolPaneStore.getState().contexts['global-chat']).toBeUndefined()
   })
 
   it('fails closed for unsupported chat link protocols before Browser routing', async () => {
@@ -1110,8 +1115,13 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.queryByText('Agent Definition')).not.toBeInTheDocument()
   })
 
-  it('keeps the chat input visible for empty Workspace Sessions without fake placeholder messages', async () => {
-    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+  it('keeps the chat input visible for an empty Global Chat without fake placeholder messages', async () => {
+    render(
+      <ManagedChatHostSurface
+        session={managedChatSession}
+        chatLinkContext={{ kind: 'global-chat' }}
+      />
+    )
 
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Ask about Space Zero…')).toBeInTheDocument()
@@ -1120,19 +1130,24 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
   })
 
-  it('submits Workspace Session prompts through the agent prompt API', async () => {
+  it('submits Global Chat prompts through the agent prompt API', async () => {
     const user = userEvent.setup()
     const prompt = vi.fn(async () => undefined)
     window.spacezero.agent.prompt = prompt
 
-    render(<WorkspaceSessionHostSurface session={workspaceSession} />)
+    render(
+      <ManagedChatHostSurface
+        session={managedChatSession}
+        chatLinkContext={{ kind: 'global-chat' }}
+      />
+    )
 
     await user.type(screen.getByRole('textbox', { name: 'Agent prompt' }), 'what can you see?')
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() =>
       expect(prompt).toHaveBeenCalledWith({
-        sessionId: 'workspace-session-1',
+        sessionId: 'global-chat-agent-session-1',
         message: 'what can you see?'
       })
     )

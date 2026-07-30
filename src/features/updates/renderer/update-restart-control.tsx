@@ -137,13 +137,13 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
 }
 
 function hasActiveWork(activeWork: UpdateActiveWorkSummary): boolean {
-  return activeWork.projectSessions > 0 || activeWork.workspaceSessions > 0 || activeWork.terminalTabs > 0
+  return activeWork.projectSessions > 0 || activeWork.chatContexts > 0 || activeWork.terminalTabs > 0
 }
 
 function formatActiveWork(activeWork: UpdateActiveWorkSummary): string {
   const parts = [
     formatCount(activeWork.projectSessions, 'Project Session'),
-    formatCount(activeWork.workspaceSessions, 'Workspace Session'),
+    formatCount(activeWork.chatContexts, 'Chat Context'),
     formatCount(activeWork.terminalTabs, 'Terminal tab')
   ].filter(Boolean)
 

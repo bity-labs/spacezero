@@ -7,7 +7,7 @@ import {
   createManagedProjectAgentSession,
   createProjectAgentSession,
   createProjectKnowledgeBaseInstructions,
-  createWorkspaceAgentSession,
+  createManagedChatAgentSession,
   restoreAgentSessionState
 } from './agent-session-handler'
 
@@ -18,18 +18,12 @@ function createRepository(overrides: Partial<SessionsRepository> = {}): Sessions
     async listProjectSessions() {
       return sessions.filter((session) => session.projectId !== null)
     },
-    async listWorkspaceSessions() {
-      return sessions.filter((session) => session.projectId === null)
-    },
     async create(session) {
       sessions.push(session)
       return session
     },
     async countByProjectId(projectId) {
       return sessions.filter((session) => session.projectId === projectId).length
-    },
-    async countWorkspaceSessions() {
-      return sessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projectId === 'project-1'
@@ -1571,8 +1565,8 @@ describe('restoreAgentSessionState', () => {
   })
 })
 
-describe('createWorkspaceAgentSession', () => {
-  it('persists a Knowledge Base chat as a system-managed Workspace Session', async () => {
+describe('createManagedChatAgentSession', () => {
+  it('persists a Knowledge Base chat as a managed Chat Agent Session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () =>
         createState({
@@ -1585,12 +1579,12 @@ describe('createWorkspaceAgentSession', () => {
     }
     const repository = createRepository()
 
-    await createWorkspaceAgentSession({
+    await createManagedChatAgentSession({
       repository,
       utilityHost,
       createSessionId: () => 'knowledge-base-session-1',
       readModelDefaults,
-      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
       title: 'Knowledge Base Chat',
       managedContext: 'knowledge-base'
     })
@@ -1602,7 +1596,7 @@ describe('createWorkspaceAgentSession', () => {
     })
   })
 
-  it('resolves an Agent Definition reference before creating a workspace utility session', async () => {
+  it('resolves an Agent Definition reference before creating a managed chat utility session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () =>
         createState({
@@ -1615,12 +1609,14 @@ describe('createWorkspaceAgentSession', () => {
       deleteSession: vi.fn(async () => undefined)
     }
 
-    await createWorkspaceAgentSession({
+    await createManagedChatAgentSession({
       repository: createRepository(),
       utilityHost,
       createSessionId: () => 'workspace-session-1',
       readModelDefaults,
-      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base',
       agentDefinition: { id: 'scout' },
       resolveAgentDefinition: async () => ({
         id: 'scout',
@@ -1643,85 +1639,6 @@ describe('createWorkspaceAgentSession', () => {
     )
   })
 
-  it('creates a utility session with app-owned cwd and persists projectId null', async () => {
-    const utilityHost = {
-      createSession: vi.fn(async () =>
-        createState({
-          kind: 'workspace',
-          projectId: null,
-          cwd: '/tmp/spacezero-workspace-sessions'
-        })
-      ),
-      deleteSession: vi.fn(async () => undefined)
-    }
-    const repository = createRepository()
-
-    await expect(
-      createWorkspaceAgentSession({
-        repository,
-        utilityHost,
-        createSessionId: () => 'workspace-session-1',
-        readModelDefaults,
-        getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions'
-      })
-    ).resolves.toMatchObject({
-      id: 'workspace-session-1',
-      kind: 'workspace',
-      title: 'Workspace Session 1',
-      status: 'idle'
-    })
-
-    expect(utilityHost.createSession).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sessionId: 'workspace-session-1',
-        kind: 'workspace',
-        projectId: null,
-        cwd: '/tmp/spacezero-workspace-sessions',
-        workspaceTools: expect.arrayContaining([
-          expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
-          expect.objectContaining({
-            name: 'knowledgeBase.readDocument',
-            safetyLevel: 'read'
-          }),
-          expect.objectContaining({
-            name: 'knowledgeBase.saveDocument',
-            safetyLevel: 'write'
-          }),
-          expect.objectContaining({
-            name: 'knowledgeBase.createDocument',
-            safetyLevel: 'write'
-          }),
-          expect.objectContaining({
-            name: 'knowledgeBase.createFolder',
-            safetyLevel: 'write'
-          })
-        ]),
-        defaultModel: { providerId: 'anthropic', modelId: 'claude-sonnet' },
-        thinkingLevel: 'high',
-        delegationDefinitions: expect.arrayContaining([
-          expect.objectContaining({ id: 'scout', name: 'Scout' })
-        ])
-      })
-    )
-    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceTools: expect.arrayContaining([
-          expect.objectContaining({ name: 'knowledgeBase.git.inspect' })
-        ])
-      })
-    )
-    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
-      expect.objectContaining({
-        workspaceTools: expect.arrayContaining([
-          expect.objectContaining({ name: 'github.createOrReusePullRequest' })
-        ])
-      })
-    )
-    await expect(repository.listWorkspaceSessions()).resolves.toEqual([
-      expect.objectContaining({ id: 'workspace-session-1', projectId: null })
-    ])
-  })
-
   it('does not expose Git or Project Session GitHub tools to Global Chat', async () => {
     const repository = createRepository()
     const utilityHost = {
@@ -1729,12 +1646,13 @@ describe('createWorkspaceAgentSession', () => {
       deleteSession: vi.fn(async () => undefined)
     }
 
-    await createWorkspaceAgentSession({
+    await createManagedChatAgentSession({
       repository,
       utilityHost,
       createSessionId: () => 'global-chat-session-1',
       readModelDefaults,
-      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Chat',
       managedContext: 'global-chat'
     })
 
@@ -1772,12 +1690,13 @@ describe('createWorkspaceAgentSession', () => {
       defaultThinking: 'medium' as const
     }))
 
-    await createWorkspaceAgentSession({
+    await createManagedChatAgentSession({
       repository,
       utilityHost,
       createSessionId: () => 'knowledge-base-session-1',
       readModelDefaults,
-      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
       managedContext: 'knowledge-base'
     })
 

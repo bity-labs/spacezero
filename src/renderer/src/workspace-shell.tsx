@@ -43,7 +43,7 @@ import {
   GlobalChatPage,
   ProjectSessionHostSurface,
   getFocusedSessionTab,
-  syncSessionTabs,
+  syncProjectSessionTabs,
   useProjectSessions,
   useSessionWorkspaceStore,
   type SessionWorkspaceTab
@@ -150,14 +150,13 @@ export function WorkspaceShell(): React.JSX.Element {
     deleteSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
-    () => syncSessionTabs(sessionWorkspaceLayout, sessions, []),
+    () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
     [sessionWorkspaceLayout, sessions]
   )
   const activeTab = getFocusedSessionTab(syncedSessionWorkspaceLayout)
-  const activeProjectSession =
-    activeTab?.kind === 'project'
-      ? (sessions.find((session) => session.id === activeTab.sessionId) ?? null)
-      : null
+  const activeProjectSession = activeTab
+    ? (sessions.find((session) => session.id === activeTab.sessionId) ?? null)
+    : null
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
@@ -601,8 +600,7 @@ export function WorkspaceShell(): React.JSX.Element {
 }
 
 function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | null {
-  if (!tab) return null
-  return tab.kind === 'project' ? tab.sessionId : tab.session.id
+  return tab?.sessionId ?? null
 }
 
 function SessionWorkspaceTabSurface({
@@ -614,12 +612,11 @@ function SessionWorkspaceTabSurface({
   projects: Project[]
   sessions: ProjectSession[]
 }): React.JSX.Element {
-  const session =
-    tab.kind === 'project' ? (sessions.find((item) => item.id === tab.sessionId) ?? null) : null
+  const session = sessions.find((item) => item.id === tab.sessionId) ?? null
   const project = session ? (projects.find((item) => item.id === session.projectId) ?? null) : null
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {tab.kind === 'project' && session && project ? (
+      {session && project ? (
         <ProjectSessionHostSurface key={session.id} project={project} session={session} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">

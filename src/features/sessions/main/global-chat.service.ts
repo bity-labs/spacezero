@@ -3,8 +3,8 @@ import type {
   AgentUserContent,
   AgentUserMessage
 } from '../../../shared/agent-session-projection.model'
-import type { GlobalChatContext, GlobalChatHistoryItem, WorkspaceSession } from '../shared'
-import { toWorkspaceSession, type StoredSession } from './sessions.service'
+import type { GlobalChatContext, GlobalChatHistoryItem, ManagedChatAgentSession } from '../shared'
+import { toManagedChatAgentSession, type StoredSession } from './sessions.service'
 import {
   GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY,
   type StoredGlobalChatContext
@@ -82,7 +82,7 @@ export function createGlobalChatService({
     const createdSession = await createSession()
     try {
       const createdContext = await createCurrentChatContext(createdSession.id)
-      return toGlobalChatContext(createdContext, toWorkspaceSession(createdSession))
+      return toGlobalChatContext(createdContext, toManagedChatAgentSession(createdSession))
     } catch (error) {
       return rollbackCreatedSession(createdSession.id, error)
     }
@@ -100,7 +100,7 @@ export function createGlobalChatService({
     if (!isGlobalChatSession(storedSession)) {
       throw new Error('Global Chat Context is unavailable.')
     }
-    return toGlobalChatContext(currentContext, toWorkspaceSession(storedSession))
+    return toGlobalChatContext(currentContext, toManagedChatAgentSession(storedSession))
   }
 
   async function getOrCreate(): Promise<GlobalChatContext> {
@@ -111,7 +111,7 @@ export function createGlobalChatService({
         currentContext.workspaceContextKey === GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY &&
         isGlobalChatSession(storedSession)
       ) {
-        return toGlobalChatContext(currentContext, toWorkspaceSession(storedSession))
+        return toGlobalChatContext(currentContext, toManagedChatAgentSession(storedSession))
       }
       await clearCurrentChatContext()
     }
@@ -169,7 +169,7 @@ export function createGlobalChatService({
         return setCurrentChatContext(chatContext.id)
       })
       return selectedContext
-        ? toGlobalChatContext(selectedContext, toWorkspaceSession(storedSession))
+        ? toGlobalChatContext(selectedContext, toManagedChatAgentSession(storedSession))
         : getPersistedCurrentChatContext()
     },
     async clearChat() {
@@ -195,7 +195,7 @@ export function createGlobalChatService({
       if (mutationResult.createdContext) {
         return toGlobalChatContext(
           mutationResult.createdContext,
-          toWorkspaceSession(createdSession)
+          toManagedChatAgentSession(createdSession)
         )
       }
 
@@ -234,7 +234,7 @@ function getUserContentText(content: AgentUserContent): string {
 
 function toGlobalChatContext(
   chatContext: StoredGlobalChatContext,
-  agentSession: WorkspaceSession
+  agentSession: ManagedChatAgentSession
 ): GlobalChatContext {
   return {
     id: chatContext.id,
