@@ -51,7 +51,7 @@ function decodeMentionPath(encodedPath: string): string | undefined {
 export function getActiveKnowledgeBaseMentionQuery(
   message: string
 ): { start: number; query: string } | undefined {
-  const match = /@kb\/([^\s]*)$/.exec(message)
+  const match = /@kb(?:\/([^\s]*))?$/.exec(message)
   if (!match || match.index < 0) return undefined
   return { start: match.index, query: match[1] ?? '' }
 }

@@ -58,8 +58,9 @@ describe('ChatInput', () => {
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/cl' } })
 
-    const command = screen.getByRole('option', { name: /\/clear.*Start a fresh chat/i })
+    const command = screen.getByRole('option', { name: /Clear.*Start a fresh chat/i })
     expect(command).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(command).not.toHaveTextContent('/clear')
     expect(command.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /cleanup/ })).toHaveAttribute(
       'data-suggestion-kind',
@@ -87,8 +88,9 @@ describe('ChatInput', () => {
       target: { value: '/res' }
     })
 
-    const option = screen.getByRole('option', { name: /\/resume.*Continue an older Chat Context/i })
+    const option = screen.getByRole('option', { name: /Resume.*Continue an older Chat Context/i })
     expect(option).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(option).not.toHaveTextContent('/resume')
     expect(option.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
   })
 
@@ -502,6 +504,30 @@ describe('ChatInput', () => {
     expect(handleModelChange).toHaveBeenCalledWith('sonnet')
   })
 
+  it('opens Knowledge Base mention suggestions as soon as @kb is typed', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.files.listDirectory = async ({ relativePath }) =>
+      relativePath === ''
+        ? [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }]
+        : []
+
+    render(<ChatInput onSubmit={vi.fn()} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'Review @kb' }
+    })
+
+    expect(await screen.findByRole('listbox', { name: 'Knowledge Base paths' })).toHaveClass(
+      'absolute',
+      'bottom-full',
+      'rounded-xl'
+    )
+    expect(await screen.findByRole('option', { name: /README\.md/ })).toBeInTheDocument()
+  })
+
   it('autocompletes Knowledge Base file and folder mentions with relative paths', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
@@ -525,10 +551,12 @@ describe('ChatInput', () => {
 
     fireEvent.change(input, { target: { value: 'Review @kb/decisions/' } })
 
-    expect(
-      await screen.findByRole('option', { name: '@kb/decisions/architecture.md' })
-    ).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '@kb/decisions/' })).toBeInTheDocument()
+    const architectureOption = await screen.findByRole('option', {
+      name: /architecture\.md.*decisions\/architecture\.md/i
+    })
+    expect(architectureOption).toBeInTheDocument()
+    expect(architectureOption.querySelector('[data-knowledge-base-icon="true"]')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /decisions.*decisions\//i })).toBeInTheDocument()
     expect(listDirectory).toHaveBeenCalledWith({
       context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
       relativePath: ''
@@ -537,7 +565,7 @@ describe('ChatInput', () => {
       context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
       relativePath: 'decisions'
     })
-    fireEvent.click(screen.getByRole('option', { name: '@kb/decisions/' }))
+    fireEvent.click(screen.getByRole('option', { name: /decisions.*decisions\//i }))
     expect(input).toHaveValue('Review @kb/decisions/ ')
 
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -563,7 +591,7 @@ describe('ChatInput', () => {
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
 
     fireEvent.change(input, { target: { value: 'Review @kb/Design' } })
-    fireEvent.click(await screen.findByRole('option', { name: '@kb/Design Notes/README.md' }))
+    fireEvent.click(await screen.findByRole('option', { name: /README\.md.*Design Notes\/README\.md/i }))
 
     expect(input).toHaveValue('Review @kb/Design%20Notes/README.md ')
     fireEvent.keyDown(input, { key: 'Enter' })

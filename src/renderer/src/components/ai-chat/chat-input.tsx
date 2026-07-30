@@ -1,4 +1,4 @@
-import { CaretDownIcon, Command, FileText, Sparkle } from '@phosphor-icons/react'
+import { BookOpenText, CaretDownIcon, Command, FileText, Sparkle } from '@phosphor-icons/react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
@@ -200,6 +200,10 @@ export function ChatInput({
     [activeKnowledgeBaseMention, knowledgeBaseItems]
   )
 
+  const selectedKnowledgeBaseMentionPath =
+    knowledgeBaseMentionOptions[
+      Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
+    ]
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
@@ -267,7 +271,37 @@ export function ChatInput({
     }
   }
 
-  const handleSlashSuggestionKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+  const handleSuggestionKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (activeKnowledgeBaseMention) {
+      if (knowledgeBaseMentionOptions.length === 0) return
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setActiveSuggestionIndex((index) => (index + 1) % knowledgeBaseMentionOptions.length)
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setActiveSuggestionIndex(
+          (index) => (index - 1 + knowledgeBaseMentionOptions.length) % knowledgeBaseMentionOptions.length
+        )
+        return
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setInputValue(inputValue.slice(0, activeKnowledgeBaseMention.start))
+        return
+      }
+
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        if (selectedKnowledgeBaseMentionPath) selectKnowledgeBaseMention(selectedKnowledgeBaseMentionPath)
+      }
+      return
+    }
+
     if (slashSuggestions.length === 0) return
 
     if (event.key === 'ArrowDown') {
@@ -356,47 +390,10 @@ export function ChatInput({
             setSlashMenuDismissed(false)
             if (historyItems !== undefined) onHistoryDismiss?.()
           }}
-          onKeyDown={handleSlashSuggestionKeyDown}
+          onKeyDown={handleSuggestionKeyDown}
           placeholder={placeholder}
           value={inputValue}
         />
-        {activeKnowledgeBaseMention ? (
-          <div
-            id="knowledge-base-path-suggestions"
-            className="mx-2 max-h-40 overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md"
-            role="listbox"
-            aria-label="Knowledge Base paths"
-          >
-            {knowledgeBaseMentionState === 'loading' ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                Loading Knowledge Base paths…
-              </p>
-            ) : knowledgeBaseMentionState === 'unconfigured' ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                Knowledge Base is not configured. Open Knowledge Base to set it up.
-              </p>
-            ) : knowledgeBaseMentionState === 'error' ? (
-              <p className="px-2 py-1.5 text-xs text-destructive">
-                Unable to load Knowledge Base paths.
-              </p>
-            ) : knowledgeBaseMentionOptions.length === 0 ? (
-              <p className="px-2 py-1.5 text-xs text-muted-foreground">No matching paths.</p>
-            ) : (
-              knowledgeBaseMentionOptions.slice(0, 20).map((path) => (
-                <button
-                  key={path}
-                  type="button"
-                  role="option"
-                  aria-selected="false"
-                  className="block w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted"
-                  onClick={() => selectKnowledgeBaseMention(path)}
-                >
-                  @kb/{path}
-                </button>
-              ))
-            )}
-          </div>
-        ) : null}
         <PromptInputFooter>
           <PromptInputTools>
             <PromptInputActionMenu>
@@ -522,7 +519,56 @@ export function ChatInput({
           <PromptInputSubmit onStop={onAbort} status={status} />
         </PromptInputFooter>
       </PromptInput>
-      {historyItems !== undefined ? (
+      {activeKnowledgeBaseMention ? (
+        <div
+          id="knowledge-base-path-suggestions"
+          aria-label="Knowledge Base paths"
+          className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
+          role="listbox"
+        >
+          {knowledgeBaseMentionState === 'loading' ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              Loading Knowledge Base paths…
+            </p>
+          ) : knowledgeBaseMentionState === 'unconfigured' ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">
+              Knowledge Base is not configured. Open Knowledge Base to set it up.
+            </p>
+          ) : knowledgeBaseMentionState === 'error' ? (
+            <p className="px-3 py-2 text-xs text-destructive">
+              Unable to load Knowledge Base paths.
+            </p>
+          ) : knowledgeBaseMentionOptions.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-muted-foreground">No matching paths.</p>
+          ) : (
+            knowledgeBaseMentionOptions.slice(0, 20).map((path, index) => (
+              <button
+                key={path}
+                type="button"
+                role="option"
+                aria-selected={
+                  index === Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
+                }
+                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => selectKnowledgeBaseMention(path)}
+              >
+                <BookOpenText
+                  data-knowledge-base-icon="true"
+                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-medium">{knowledgeBaseMentionTitle(path)}</span>
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {path}
+                  </span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : historyItems !== undefined ? (
         <div
           id="chat-context-history"
           aria-label="Chat Context history"
@@ -572,7 +618,9 @@ export function ChatInput({
         >
           {slashSuggestions.map((suggestion, index) => {
             const isCommand = suggestion.kind === 'command'
-            const name = isCommand ? `/${suggestion.command.name}` : suggestion.skill.name
+            const name = isCommand
+              ? formatCommandSuggestionTitle(suggestion.command.name)
+              : suggestion.skill.name
             const description = isCommand
               ? suggestion.command.description
               : suggestion.skill.description
@@ -678,6 +726,19 @@ function getSlashCommandQuery(value: string): { value: string; skillsOnly: boole
   }
 
   return { value: command, skillsOnly: false }
+}
+
+function formatCommandSuggestionTitle(commandName: string): string {
+  return commandName
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function knowledgeBaseMentionTitle(path: string): string {
+  const normalized = path.endsWith('/') ? path.slice(0, -1) : path
+  return normalized.split('/').at(-1) || path
 }
 
 function formatChatContextDate(value: string): string {
