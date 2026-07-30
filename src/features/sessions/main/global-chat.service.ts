@@ -1,5 +1,5 @@
-import type { GlobalChatContext, WorkspaceSession } from '../shared'
-import { toWorkspaceSession, type StoredSession } from './sessions.service'
+import type { GlobalChatContext, ManagedChatAgentSession } from '../shared'
+import { toManagedChatAgentSession, type StoredSession } from './sessions.service'
 import {
   GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY,
   type StoredGlobalChatContext
@@ -30,7 +30,7 @@ export function createGlobalChatService({
     const createdSession = await createSession()
     try {
       const createdContext = await createCurrentChatContext(createdSession.id)
-      return toGlobalChatContext(createdContext, toWorkspaceSession(createdSession))
+      return toGlobalChatContext(createdContext, toManagedChatAgentSession(createdSession))
     } catch (error) {
       await deleteSession(createdSession.id).catch(() => undefined)
       throw error
@@ -45,7 +45,7 @@ export function createGlobalChatService({
         currentContext.workspaceContextKey === GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY &&
         isGlobalChatSession(storedSession)
       ) {
-        return toGlobalChatContext(currentContext, toWorkspaceSession(storedSession))
+        return toGlobalChatContext(currentContext, toManagedChatAgentSession(storedSession))
       }
       await clearCurrentChatContext()
     }
@@ -73,7 +73,7 @@ function isGlobalChatSession(session: StoredSession | undefined): session is Sto
 
 function toGlobalChatContext(
   chatContext: StoredGlobalChatContext,
-  agentSession: WorkspaceSession
+  agentSession: ManagedChatAgentSession
 ): GlobalChatContext {
   return {
     id: chatContext.id,

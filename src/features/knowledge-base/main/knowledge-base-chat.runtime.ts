@@ -1,5 +1,5 @@
 import {
-  createWorkspaceAgentSession,
+  createManagedChatAgentSession,
   restoreAgentSessionState
 } from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
@@ -39,7 +39,7 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
           resolveSkillPaths: resolveAgentSkillPaths
         }),
       createSession: async () => {
-        const session = await createWorkspaceAgentSession({
+        const session = await createManagedChatAgentSession({
           repository: sessionsRepository,
           utilityHost: getAgentUtilityProcessHost(),
           title: 'Knowledge Base Chat',

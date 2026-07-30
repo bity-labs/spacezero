@@ -3,8 +3,8 @@ import type {
   AgentUserContent,
   AgentUserMessage
 } from '../../../shared/agent-session-projection.model'
-import type { WorkspaceSession } from '../../sessions/shared'
-import { toWorkspaceSession, type StoredSession } from '../../sessions/main/sessions.service'
+import type { ManagedChatAgentSession } from '../../sessions/shared'
+import { toManagedChatAgentSession, type StoredSession } from '../../sessions/main/sessions.service'
 import type {
   KnowledgeBaseChatContext,
   KnowledgeBaseChatHistoryItem,
@@ -53,7 +53,10 @@ export function createKnowledgeBaseChatService({
     const createdSession = await createSession()
     try {
       const createdChatContext = await createCurrentChatContext(createdSession.id)
-      return toKnowledgeBaseChatContext(createdChatContext, toWorkspaceSession(createdSession))
+      return toKnowledgeBaseChatContext(
+        createdChatContext,
+        toManagedChatAgentSession(createdSession)
+      )
     } catch (error) {
       await deleteSession(createdSession.id).catch(() => undefined)
       throw error
@@ -74,7 +77,10 @@ export function createKnowledgeBaseChatService({
         storedSession.managedContext === 'knowledge-base' &&
         !storedSession.archivedAt
       ) {
-        return toKnowledgeBaseChatContext(currentChatContext, toWorkspaceSession(storedSession))
+        return toKnowledgeBaseChatContext(
+          currentChatContext,
+          toManagedChatAgentSession(storedSession)
+        )
       }
       await clearCurrentChatContext()
     }
@@ -136,7 +142,7 @@ export function createKnowledgeBaseChatService({
       }
 
       const selectedContext = await setCurrentChatContext(chatContext.id)
-      return toKnowledgeBaseChatContext(selectedContext, toWorkspaceSession(storedSession))
+      return toKnowledgeBaseChatContext(selectedContext, toManagedChatAgentSession(storedSession))
     },
     async clearChat() {
       const status = await getStatus()
@@ -175,7 +181,7 @@ function getUserContentText(content: AgentUserContent): string {
 
 function toKnowledgeBaseChatContext(
   chatContext: StoredChatContext,
-  agentSession: WorkspaceSession
+  agentSession: ManagedChatAgentSession
 ): KnowledgeBaseChatContext {
   return {
     id: chatContext.id,

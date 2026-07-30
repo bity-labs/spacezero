@@ -1,4 +1,4 @@
-import { createWorkspaceAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import { createManagedChatAgentSession } from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
@@ -18,7 +18,7 @@ export function getGlobalChatService(): GlobalChatService {
       clearCurrentChatContext: chatRepository.clearCurrentChatContext,
       findSessionById: sessionsRepository.findSessionById,
       createSession: async () => {
-        const session = await createWorkspaceAgentSession({
+        const session = await createManagedChatAgentSession({
           repository: sessionsRepository,
           utilityHost: getAgentUtilityProcessHost(),
           title: 'Chat',

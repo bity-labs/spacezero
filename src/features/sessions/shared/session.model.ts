@@ -47,7 +47,7 @@ export type ProjectSessionChatHistoryItem = {
   createdAt?: string
 }
 
-export type WorkspaceSession = {
+export type ManagedChatAgentSession = {
   id: string
   kind: 'workspace'
   title: string
@@ -59,7 +59,7 @@ export type WorkspaceSession = {
 export type GlobalChatContext = {
   id: string
   workspaceContext: { kind: 'global-chat'; key: 'global-chat' }
-  agentSession: WorkspaceSession
+  agentSession: ManagedChatAgentSession
   createdAt: string
   updatedAt: string
 }
@@ -73,5 +73,3 @@ export type RenameSessionTitleRequest = {
   sessionId: string
   title: string
 }
-
-export type Session = ProjectSession | WorkspaceSession

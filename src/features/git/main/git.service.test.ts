@@ -900,17 +900,11 @@ function createSessionsRepository({
     async listProjectSessions() {
       return [session]
     },
-    async listWorkspaceSessions() {
-      return []
-    },
     async create(next) {
       return next
     },
     async countByProjectId() {
       return 1
-    },
-    async countWorkspaceSessions() {
-      return 0
     },
     async projectExists() {
       return true

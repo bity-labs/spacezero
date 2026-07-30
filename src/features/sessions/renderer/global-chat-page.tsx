@@ -4,7 +4,7 @@ import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
 import type { GlobalChatContext } from '../shared'
-import { WorkspaceSessionHostSurface } from './components/session-host-surface'
+import { ManagedChatHostSurface } from './components/session-host-surface'
 
 export function GlobalChatPage(): React.JSX.Element {
   const [chatContext, setChatContext] = useState<GlobalChatContext>()
@@ -59,7 +59,7 @@ export function GlobalChatPage(): React.JSX.Element {
   }
 
   return (
-    <WorkspaceSessionHostSurface
+    <ManagedChatHostSurface
       key={chatContext.id}
       session={chatContext.agentSession}
       requireRuntimeReady
