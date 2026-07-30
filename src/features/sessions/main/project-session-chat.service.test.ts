@@ -55,9 +55,13 @@ describe('Project Session Chat Contexts', () => {
     const service = createProjectSessionChatService({
       findSessionById: async () => stableSession,
       getCurrentChatContext: async () => undefined,
+      listChatContexts: vi.fn(),
+      findChatContextById: vi.fn(),
       createCurrentChatContext,
+      setCurrentChatContext: vi.fn(),
       createFreshAgentSession,
-      deleteAgentSession: vi.fn()
+      deleteAgentSession: vi.fn(),
+      getSessionState: vi.fn()
     })
 
     await expect(service.getOrCreateCurrentChatContext(stableSession.id)).resolves.toMatchObject({
@@ -104,9 +108,13 @@ describe('Project Session Chat Contexts', () => {
       findSessionById: async (sessionId) =>
         sessionId === stableSession.id ? stableSession : freshAgentSession,
       getCurrentChatContext: async () => contexts.at(-1),
+      listChatContexts: vi.fn(),
+      findChatContextById: vi.fn(),
       createCurrentChatContext,
+      setCurrentChatContext: vi.fn(),
       createFreshAgentSession,
-      deleteAgentSession: vi.fn()
+      deleteAgentSession: vi.fn(),
+      getSessionState: vi.fn()
     })
 
     await expect(service.clearChat(stableSession.id)).resolves.toMatchObject({
@@ -124,6 +132,230 @@ describe('Project Session Chat Contexts', () => {
     ])
     expect(stableSession).toEqual(stableSnapshot)
     expect(createFreshAgentSession).toHaveBeenCalledWith(stableSession.id)
+  })
+
+  it('lists only older Chat Contexts for the current Project Session with initial prompts and dates', async () => {
+    const stableSession = projectSession()
+    const currentContext = chatContext('chat-context-current', stableSession.id)
+    const olderContext = {
+      ...chatContext('chat-context-older', 'agent-session-older'),
+      createdAt: new Date('2026-07-19T08:30:00.000Z')
+    }
+    const foreignContext = chatContext(
+      'chat-context-foreign',
+      'agent-session-foreign',
+      'project-session-foreign'
+    )
+    const olderAgentSession = projectSession({
+      id: olderContext.agentSessionId,
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const getSessionState = vi.fn(async ({ sessionId }: { sessionId: string }) => ({
+      sessionId,
+      kind: 'project' as const,
+      projectId: stableSession.projectId,
+      cwd: stableSession.worktreePath!,
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: `/transcripts/${sessionId}.jsonl`,
+      modelProvider: undefined,
+      modelId: undefined,
+      transcriptSnapshot: [
+        {
+          role: 'user' as const,
+          timestamp: 100,
+          content: '  Continue the refactor\nwithout changing the worktree.  '
+        }
+      ]
+    }))
+    const service = createProjectSessionChatService({
+      findSessionById: async (sessionId) =>
+        sessionId === stableSession.id
+          ? stableSession
+          : sessionId === olderAgentSession.id
+            ? olderAgentSession
+            : undefined,
+      getCurrentChatContext: async () => currentContext,
+      listChatContexts: async () => [currentContext, olderContext, foreignContext],
+      findChatContextById: vi.fn(),
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext: vi.fn(),
+      createFreshAgentSession: vi.fn(),
+      deleteAgentSession: vi.fn(),
+      getSessionState
+    })
+
+    await expect(service.listChatHistory(stableSession.id)).resolves.toEqual([
+      {
+        id: olderContext.id,
+        initialPrompt: 'Continue the refactor without changing the worktree.',
+        createdAt: '2026-07-19T08:30:00.000Z'
+      }
+    ])
+    expect(getSessionState).toHaveBeenCalledWith({ sessionId: olderAgentSession.id })
+    expect(getSessionState).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the latest accepted resume current when an earlier clear finishes late', async () => {
+    const stableSession = projectSession()
+    const initialContext = chatContext('chat-context-current', stableSession.id)
+    const selectedContext = chatContext('chat-context-selected', 'agent-session-selected')
+    const selectedAgentSession = projectSession({
+      id: selectedContext.agentSessionId,
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const supersededFreshAgentSession = projectSession({
+      id: 'agent-session-superseded',
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const subsequentFreshAgentSession = projectSession({
+      id: 'agent-session-subsequent',
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const firstFreshAgentSession = deferred<StoredSession>()
+    let currentContext = initialContext
+    let freshAgentSessionCount = 0
+    const createFreshAgentSession = vi.fn(async () => {
+      freshAgentSessionCount += 1
+      return freshAgentSessionCount === 1
+        ? firstFreshAgentSession.promise
+        : subsequentFreshAgentSession
+    })
+    const deleteAgentSession = vi.fn(async () => undefined)
+    const service = createProjectSessionChatService({
+      findSessionById: async (sessionId) =>
+        [
+          stableSession,
+          selectedAgentSession,
+          supersededFreshAgentSession,
+          subsequentFreshAgentSession
+        ].find((stored) => stored.id === sessionId),
+      getCurrentChatContext: async () => currentContext,
+      listChatContexts: vi.fn(),
+      findChatContextById: async (_projectSessionId, chatContextId) =>
+        chatContextId === selectedContext.id ? selectedContext : undefined,
+      createCurrentChatContext: async (projectSessionId, agentSessionId) => {
+        currentContext = chatContext(
+          `chat-context-${agentSessionId}`,
+          agentSessionId,
+          projectSessionId
+        )
+        return currentContext
+      },
+      setCurrentChatContext: async () => {
+        currentContext = selectedContext
+        return currentContext
+      },
+      createFreshAgentSession,
+      deleteAgentSession,
+      getSessionState: vi.fn()
+    })
+
+    const clearing = service.clearChat(stableSession.id)
+    await vi.waitFor(() => expect(createFreshAgentSession).toHaveBeenCalledTimes(1))
+
+    await expect(
+      service.resumeChatContext(stableSession.id, selectedContext.id)
+    ).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+
+    firstFreshAgentSession.resolve(supersededFreshAgentSession)
+    await expect(clearing).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+    await expect(service.getOrCreateCurrentChatContext(stableSession.id)).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+    expect(deleteAgentSession).toHaveBeenCalledWith(supersededFreshAgentSession.id)
+
+    await expect(service.clearChat(stableSession.id)).resolves.toMatchObject({
+      agentSessionId: subsequentFreshAgentSession.id
+    })
+    await expect(service.getOrCreateCurrentChatContext(stableSession.id)).resolves.toMatchObject({
+      agentSessionId: subsequentFreshAgentSession.id
+    })
+  })
+
+  it('resumes a retained Chat Context in the same Project Session without changing worktree metadata', async () => {
+    const stableSession = projectSession()
+    const stableSnapshot = structuredClone(stableSession)
+    const selectedContext = chatContext('chat-context-selected', 'agent-session-selected')
+    const selectedAgentSession = projectSession({
+      id: selectedContext.agentSessionId,
+      workspaceContextSessionId: stableSession.id,
+      transcriptPath: '/transcripts/agent-session-selected.jsonl',
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const setCurrentChatContext = vi.fn(async () => selectedContext)
+    const createFreshAgentSession = vi.fn()
+    const service = createProjectSessionChatService({
+      findSessionById: async (sessionId) =>
+        sessionId === stableSession.id ? stableSession : selectedAgentSession,
+      getCurrentChatContext: vi.fn(),
+      listChatContexts: vi.fn(),
+      findChatContextById: async (_projectSessionId, chatContextId) =>
+        chatContextId === selectedContext.id ? selectedContext : undefined,
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext,
+      createFreshAgentSession,
+      deleteAgentSession: vi.fn(),
+      getSessionState: vi.fn()
+    })
+
+    await expect(
+      service.resumeChatContext(stableSession.id, selectedContext.id)
+    ).resolves.toMatchObject({
+      id: selectedContext.id,
+      workspaceContext: { kind: 'project-session', projectSessionId: stableSession.id },
+      agentSessionId: selectedAgentSession.id
+    })
+    expect(setCurrentChatContext).toHaveBeenCalledWith(stableSession.id, selectedContext.id)
+    expect(createFreshAgentSession).not.toHaveBeenCalled()
+    expect(stableSession).toEqual(stableSnapshot)
+  })
+
+  it('rejects Chat Contexts from other Project Sessions', async () => {
+    const stableSession = projectSession()
+    const foreignContext = chatContext(
+      'chat-context-foreign',
+      'agent-session-foreign',
+      'project-session-foreign'
+    )
+    const setCurrentChatContext = vi.fn()
+    const service = createProjectSessionChatService({
+      findSessionById: async () => stableSession,
+      getCurrentChatContext: vi.fn(),
+      listChatContexts: vi.fn(),
+      findChatContextById: async () => foreignContext,
+      createCurrentChatContext: vi.fn(),
+      setCurrentChatContext,
+      createFreshAgentSession: vi.fn(),
+      deleteAgentSession: vi.fn(),
+      getSessionState: vi.fn()
+    })
+
+    await expect(service.resumeChatContext(stableSession.id, foreignContext.id)).rejects.toThrow(
+      'Project Session Chat Context was not found'
+    )
+    expect(setCurrentChatContext).not.toHaveBeenCalled()
   })
 
   it('retains child recovery metadata and surfaces diagnostics when Chat Context persistence and utility rollback fail', async () => {
@@ -145,11 +377,15 @@ describe('Project Session Chat Contexts', () => {
       findSessionById: async (sessionId) =>
         storedSessions.find((stored) => stored.id === sessionId),
       getCurrentChatContext: async () => chatContext('chat-context-1', stableSession.id),
+      listChatContexts: vi.fn(),
+      findChatContextById: vi.fn(),
       createCurrentChatContext: async () => {
         throw new Error('chat context persistence failed')
       },
+      setCurrentChatContext: vi.fn(),
       createFreshAgentSession: async () => freshAgentSession,
-      deleteAgentSession
+      deleteAgentSession,
+      getSessionState: vi.fn()
     })
 
     const clearing = service.clearChat(stableSession.id)
@@ -167,9 +403,13 @@ describe('Project Session Chat Contexts', () => {
       createProjectSessionChatService({
         findSessionById: async () => stored,
         getCurrentChatContext: vi.fn(),
+        listChatContexts: vi.fn(),
+        findChatContextById: vi.fn(),
         createCurrentChatContext: vi.fn(),
+        setCurrentChatContext: vi.fn(),
         createFreshAgentSession: vi.fn(),
-        deleteAgentSession: vi.fn()
+        deleteAgentSession: vi.fn(),
+        getSessionState: vi.fn()
       })
 
     await expect(
@@ -182,3 +422,16 @@ describe('Project Session Chat Contexts', () => {
     ).rejects.toThrow('Project Session not found')
   })
 })
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise: ((value: T) => void) | undefined
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return {
+    promise,
+    resolve(value) {
+      resolvePromise?.(value)
+    }
+  }
+}
