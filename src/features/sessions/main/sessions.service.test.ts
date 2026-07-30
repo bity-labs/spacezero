@@ -22,20 +22,12 @@ function createMemoryRepository({
         .filter((session) => session.projectId !== null)
         .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
     },
-    async listWorkspaceSessions() {
-      return [...storedSessions]
-        .filter((session) => session.projectId === null)
-        .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
-    },
     async create(session) {
       storedSessions.push(session)
       return session
     },
     async countByProjectId(projectId) {
       return storedSessions.filter((session) => session.projectId === projectId).length
-    },
-    async countWorkspaceSessions() {
-      return storedSessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projects.has(projectId)
@@ -114,14 +106,14 @@ describe('createSessionsService', () => {
     })
   })
 
-  it('rejects empty renamed titles without replacing the stored title', async () => {
+  it('rejects empty renamed titles without replacing the stored Project Session title', async () => {
     const createdAt = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository({
       sessions: [
         {
-          id: 'workspace-session-1',
-          projectId: null,
-          title: 'Workspace Session 1',
+          id: 'project-session-1',
+          projectId: 'project-1',
+          title: 'Project Session 1',
           status: 'idle',
           createdAt,
           updatedAt: createdAt
@@ -133,39 +125,37 @@ describe('createSessionsService', () => {
       now: () => new Date('2026-07-11T00:00:00.000Z')
     })
 
-    await expect(service.renameSession('workspace-session-1', '   ')).rejects.toThrow(
+    await expect(service.renameSession('project-session-1', '   ')).rejects.toThrow(
       'Session title is required'
     )
-    await expect(repository.findSessionById('workspace-session-1')).resolves.toMatchObject({
-      title: 'Workspace Session 1',
+    await expect(repository.findSessionById('project-session-1')).resolves.toMatchObject({
+      title: 'Project Session 1',
       updatedAt: createdAt
     })
   })
 
-  it('renames a Workspace Session through the same service boundary', async () => {
+  it('does not expose rename behavior for a legacy ordinary Workspace Session row', async () => {
     const createdAt = new Date('2026-07-10T00:00:00.000Z')
-    const renamedAt = new Date('2026-07-11T00:00:00.000Z')
     const repository = createMemoryRepository({
       sessions: [
         {
-          id: 'workspace-session-1',
+          id: 'legacy-workspace-session-1',
           projectId: null,
-          title: 'Workspace Session 1',
+          title: 'Legacy Workspace Session',
           status: 'idle',
           createdAt,
           updatedAt: createdAt
         }
       ]
     })
-    const service = createSessionsService({ repository, now: () => renamedAt })
+    const service = createSessionsService({ repository })
 
     await expect(
-      service.renameSession('workspace-session-1', 'Renamed Workspace')
-    ).resolves.toMatchObject({
-      id: 'workspace-session-1',
-      kind: 'workspace',
-      title: 'Renamed Workspace',
-      updatedAt: renamedAt.toISOString()
+      service.renameSession('legacy-workspace-session-1', 'Renamed Workspace')
+    ).rejects.toThrow('Session not found')
+    await expect(repository.findSessionById('legacy-workspace-session-1')).resolves.toMatchObject({
+      title: 'Legacy Workspace Session',
+      updatedAt: createdAt
     })
   })
 
@@ -231,71 +221,31 @@ describe('createSessionsService', () => {
     })
   })
 
-  it('excludes system-managed sessions from the ordinary Workspace Session list', async () => {
-    const now = new Date('2026-07-10T00:00:00.000Z')
-    const service = createSessionsService({
-      repository: createMemoryRepository({
-        sessions: [
-          {
-            id: 'ordinary-session',
-            projectId: null,
-            title: 'Workspace Session 1',
-            status: 'idle',
-            createdAt: now,
-            updatedAt: now
-          },
-          {
-            id: 'knowledge-base-session',
-            projectId: null,
-            managedContext: 'knowledge-base',
-            title: 'Knowledge Base Chat',
-            status: 'idle',
-            createdAt: now,
-            updatedAt: now
-          },
-          {
-            id: 'global-chat-session',
-            projectId: null,
-            managedContext: 'global-chat',
-            title: 'Chat',
-            status: 'idle',
-            createdAt: now,
-            updatedAt: now
-          }
-        ]
-      })
-    })
-
-    await expect(service.listWorkspaceSessions()).resolves.toEqual([
-      expect.objectContaining({ id: 'ordinary-session' })
-    ])
-  })
-
-  it('creates workspace agent session metadata with a null project link', async () => {
+  it('creates only system-managed chat agent session metadata with a null project link', async () => {
     const now = new Date('2026-07-10T00:00:00.000Z')
     const repository = createMemoryRepository()
     const service = createSessionsService({ repository, now: () => now })
 
-    const session = await service.createWorkspaceAgentSession({
-      id: 'workspace-session-1',
-      transcriptPath: '/agent/sessions/workspace-session.jsonl'
+    const session = await service.createManagedChatAgentSession({
+      id: 'global-chat-session-1',
+      title: 'Chat',
+      managedContext: 'global-chat',
+      transcriptPath: '/agent/sessions/global-chat.jsonl'
     })
 
     expect(session).toEqual({
-      id: 'workspace-session-1',
+      id: 'global-chat-session-1',
       kind: 'workspace',
-      title: 'Workspace Session 1',
+      title: 'Chat',
       status: 'idle',
       createdAt: now.toISOString(),
       updatedAt: now.toISOString()
     })
-    await expect(repository.listWorkspaceSessions()).resolves.toEqual([
-      expect.objectContaining({
-        projectId: null,
-        transcriptPath: '/agent/sessions/workspace-session.jsonl'
-      })
-    ])
-    await expect(service.listWorkspaceSessions()).resolves.toEqual([session])
+    await expect(repository.findSessionById('global-chat-session-1')).resolves.toMatchObject({
+      projectId: null,
+      managedContext: 'global-chat',
+      transcriptPath: '/agent/sessions/global-chat.jsonl'
+    })
   })
 
   it('creates project agent session metadata with a transcript path link', async () => {

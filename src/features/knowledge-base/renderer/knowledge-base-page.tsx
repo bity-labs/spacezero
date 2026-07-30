@@ -3,7 +3,7 @@ import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { useFilesStore } from '../../files/renderer/files-store'
-import { WorkspaceSessionHostSurface } from '../../sessions/renderer'
+import { ManagedChatHostSurface } from '../../sessions/renderer'
 import type {
   KnowledgeBaseChatContext,
   KnowledgeBaseChatHistoryItem,
@@ -338,7 +338,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
           <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
         </Alert>
       ) : null}
-      <WorkspaceSessionHostSurface
+      <ManagedChatHostSurface
         key={chatContext.id}
         session={chatContext.agentSession}
         requireRuntimeReady

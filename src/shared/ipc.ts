@@ -85,9 +85,7 @@ import type {
   ProjectSession,
   ProjectSessionChatContext,
   ProjectSessionChatHistoryItem,
-  RenameSessionTitleRequest,
-  Session,
-  WorkspaceSession
+  RenameSessionTitleRequest
 } from '../features/sessions/shared/session.model'
 import type { ThemePreference, ThemeSettings } from './theme'
 import type { StorageSettings } from './storage-settings'
@@ -178,7 +176,6 @@ export const IPC_CHANNELS = {
   },
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
-    listWorkspaceSessions: 'sessions:listWorkspaceSessions',
     getCurrentGlobalChatContext: 'sessions:getCurrentGlobalChatContext',
     createProjectSession: 'sessions:createProjectSession',
     getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
@@ -197,7 +194,6 @@ export const IPC_CHANNELS = {
   agent: {
     ping: 'agent:ping',
     createSession: 'agent:createSession',
-    createWorkspaceSession: 'agent:createWorkspaceSession',
     applyDefinitionToFreshSession: 'agent:applyDefinitionToFreshSession',
     getGlobalSkills: 'agent:getGlobalSkills',
     setGlobalSkillEnabled: 'agent:setGlobalSkillEnabled',
@@ -345,7 +341,6 @@ export type SpaceZeroAPI = {
   }
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
-    listWorkspaceSessions: () => Promise<WorkspaceSession[]>
     getCurrentGlobalChatContext: () => Promise<GlobalChatContext>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     getCurrentProjectChatContext: (request: {
@@ -359,7 +354,7 @@ export type SpaceZeroAPI = {
       chatContextId: string
     }) => Promise<ProjectSessionChatContext>
     clearProjectChat: (request: { sessionId: string }) => Promise<ProjectSessionChatContext>
-    rename: (request: RenameSessionTitleRequest) => Promise<Session>
+    rename: (request: RenameSessionTitleRequest) => Promise<ProjectSession>
     archive: (request: { sessionId: string }) => Promise<void>
     delete: (request: { sessionId: string }) => Promise<void>
   }
@@ -377,9 +372,6 @@ export type SpaceZeroAPI = {
       cwd: string
       agentDefinition?: AgentDefinitionReference
     }) => Promise<AgentSessionState>
-    createWorkspaceSession: (request?: {
-      agentDefinition?: AgentDefinitionReference
-    }) => Promise<WorkspaceSession>
     applyDefinitionToFreshSession: (
       request: ApplyAgentDefinitionToFreshSessionRequest
     ) => Promise<AgentSessionState>

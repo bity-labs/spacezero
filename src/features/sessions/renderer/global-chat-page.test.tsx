@@ -41,15 +41,13 @@ describe('GlobalChatPage', () => {
     )
   })
 
-  it('shows a retryable error without creating an ordinary Workspace Session', async () => {
+  it('shows a retryable error when the stable Global Chat context cannot be restored', async () => {
     window.spacezero.sessions.getCurrentGlobalChatContext = vi.fn(async () => {
       throw new Error('Agent runtime unavailable')
     })
-    const createWorkspaceSession = vi.spyOn(window.spacezero.agent, 'createWorkspaceSession')
 
     render(<GlobalChatPage />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Agent runtime unavailable')
-    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 })

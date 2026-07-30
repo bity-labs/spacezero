@@ -27,9 +27,6 @@ export function registerSessionsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.sessions.listProjectSessions, () =>
     sessionsService.listProjectSessions()
   )
-  ipcMain.handle(IPC_CHANNELS.sessions.listWorkspaceSessions, () =>
-    sessionsService.listWorkspaceSessions()
-  )
   ipcMain.handle(IPC_CHANNELS.sessions.getCurrentGlobalChatContext, () =>
     getGlobalChatService().getOrCreateCurrentChatContext()
   )

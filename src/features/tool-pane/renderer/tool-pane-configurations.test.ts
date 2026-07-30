@@ -3,8 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createGlobalChatToolPaneConfiguration,
   createKnowledgeBaseToolPaneConfiguration,
-  createProjectSessionToolPaneConfiguration,
-  createWorkspaceSessionToolPaneConfiguration
+  createProjectSessionToolPaneConfiguration
 } from './tool-pane-configurations'
 
 describe('Tool Pane contextual configurations', () => {
@@ -13,7 +12,6 @@ describe('Tool Pane contextual configurations', () => {
       id: 'project-session-1',
       projectId: 'project-1'
     })
-    const workspace = createWorkspaceSessionToolPaneConfiguration({ id: 'workspace-session-1' })
     const globalChat = createGlobalChatToolPaneConfiguration()
     const knowledgeBase = createKnowledgeBaseToolPaneConfiguration()
 
@@ -35,13 +33,6 @@ describe('Tool Pane contextual configurations', () => {
     expect(project.tools[2]?.render).toBeTypeOf('function')
     expect(project.tools[3]).toMatchObject({ id: 'terminal', available: true })
     expect(project.tools[3]?.render).toBeTypeOf('function')
-
-    expect(workspace).toMatchObject({
-      contextKey: 'session:workspace-session-1',
-      defaultToolId: 'browser',
-      capabilities: { kind: 'workspace-session', sessionId: 'workspace-session-1' }
-    })
-    expect(workspace.tools.map((tool) => tool.id)).toEqual(['browser', 'terminal'])
 
     expect(globalChat).toMatchObject({
       contextKey: 'global-chat',
@@ -65,10 +56,6 @@ describe('Tool Pane contextual configurations', () => {
     ])
     expect(knowledgeBase.tools[0]).toMatchObject({ id: 'files', available: true })
     expect(knowledgeBase.tools[0]?.render).toBeTypeOf('function')
-    expect(workspace.tools[0]).toMatchObject({ id: 'browser', available: true })
-    expect(workspace.tools[0]?.render).toBeTypeOf('function')
-    expect(workspace.tools[1]).toMatchObject({ id: 'terminal', available: true })
-    expect(workspace.tools[1]?.render).toBeTypeOf('function')
     expect(knowledgeBase.tools[1]).toMatchObject({ id: 'git', available: true })
     expect(knowledgeBase.tools[1]?.render).toBeTypeOf('function')
     expect(knowledgeBase.tools[2]).toMatchObject({ id: 'browser', available: true })

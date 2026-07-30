@@ -8,7 +8,7 @@ import type {
   ProjectSession,
   ProjectSessionChatContext,
   ProjectSessionChatHistoryItem,
-  WorkspaceSession
+  ManagedChatAgentSession
 } from '../../shared'
 import type { AgentDefinitionReference, AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
@@ -28,12 +28,12 @@ type ProjectSessionHostSurfaceProps = {
   session: ProjectSession
 }
 
-type WorkspaceSessionHostSurfaceProps = {
-  session: WorkspaceSession
+type ManagedChatHostSurfaceProps = {
+  session: ManagedChatAgentSession
   placeholder?: string
   emptyState?: string
   requireRuntimeReady?: boolean
-  chatLinkContext?: BrowserContext
+  chatLinkContext: Extract<BrowserContext, { kind: 'global-chat' | 'knowledge-base' }>
   commands?: ChatInputCommand[]
   historyItems?: ChatInputHistoryItem[]
   onCommand?: (commandName: string) => void | Promise<void>
@@ -271,18 +271,18 @@ function ProjectSessionChatSurface({
   )
 }
 
-export function WorkspaceSessionHostSurface({
+export function ManagedChatHostSurface({
   session,
   placeholder = 'Ask about Space Zero…',
   emptyState = 'Ask the workspace agent about Space Zero. Streamed replies appear here.',
   requireRuntimeReady = false,
-  chatLinkContext = { kind: 'workspace-session', sessionId: session.id },
+  chatLinkContext,
   commands,
   historyItems,
   onCommand,
   onHistorySelect,
   onHistoryDismiss
-}: WorkspaceSessionHostSurfaceProps): React.JSX.Element {
+}: ManagedChatHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
   if (requireRuntimeReady && agentSession.runtimeReadiness === 'loading') {

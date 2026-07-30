@@ -116,35 +116,6 @@ export function createProjectSessionToolPaneConfiguration(session: {
   }
 }
 
-export function createWorkspaceSessionToolPaneConfiguration(session: {
-  id: string
-}): ToolPaneConfiguration {
-  return {
-    contextKey: sessionContextKey(session.id),
-    capabilities: { kind: 'workspace-session', sessionId: session.id },
-    defaultToolId: 'browser',
-    tools: [
-      createBrowserToolDescriptor(),
-      {
-        ...toolRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'workspace-session'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'workspace-session', sessionId: capabilities.sessionId },
-                  browserContextKey: sessionContextKey(capabilities.sessionId),
-                  browserContext: { kind: 'workspace-session', sessionId: capabilities.sessionId }
-                })
-              )
-            : null
-      }
-    ]
-  }
-}
-
 export function createGlobalChatToolPaneConfiguration(): ToolPaneConfiguration {
   return {
     contextKey: 'global-chat',
