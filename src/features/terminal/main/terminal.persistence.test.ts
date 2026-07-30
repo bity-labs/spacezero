@@ -134,6 +134,24 @@ describe('Terminal tab restoration persistence', () => {
     expect(tabsRepository.rows).toHaveLength(0)
   })
 
+  it('terminates Project Home PTYs and removes their restoration rows on context deletion', async () => {
+    const projectHomeContext = { kind: 'project-home' as const, projectId: project.id }
+    const tabsRepository = createFakeTabsRepository()
+    const { ptys, service } = createHarness({ tabsRepository })
+    const created = await service.create({
+      ownerWindowId: 1,
+      request: { context: projectHomeContext }
+    })
+    if (created.status !== 'running') throw new Error('expected running Project Home terminal')
+    expect(tabsRepository.rows).toHaveLength(1)
+
+    await service.closeAllForContext(projectHomeContext)
+
+    expect(ptys[0]?.killed).toBe(true)
+    expect(service.countLiveTerminalsForContext(projectHomeContext)).toBe(0)
+    expect(tabsRepository.rows).toHaveLength(0)
+  })
+
   it('preserves restoration records when app shutdown kill emits exit before resolving', async () => {
     const tabsRepository = createFakeTabsRepository()
     let releaseKill: (() => void) | undefined
@@ -565,6 +583,10 @@ function sameContext(left: TerminalContext, right: TerminalContext): boolean {
     right.kind === 'knowledge-base' ||
     right.kind === 'global-chat'
   ) return true
+  if (left.kind === 'project-home' && right.kind === 'project-home') {
+    return left.projectId === right.projectId
+  }
+  if (left.kind === 'project-home' || right.kind === 'project-home') return false
   return left.sessionId === right.sessionId
 }
 

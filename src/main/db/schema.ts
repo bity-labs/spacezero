@@ -87,7 +87,7 @@ export const terminalTabs = sqliteTable(
   {
     contextKey: text('context_key').notNull(),
     contextKind: text('context_kind', {
-      enum: ['project-session', 'workspace-session', 'global-chat', 'knowledge-base']
+      enum: ['project-home', 'project-session', 'workspace-session', 'global-chat', 'knowledge-base']
     }).notNull(),
     contextSessionId: text('context_session_id'),
     tabId: text('tab_id').notNull(),
@@ -105,7 +105,7 @@ export const browserTabs = sqliteTable(
   {
     contextKey: text('context_key').notNull(),
     contextKind: text('context_kind', {
-      enum: ['project-session', 'workspace-session', 'global-chat', 'knowledge-base']
+      enum: ['project-home', 'project-session', 'workspace-session', 'global-chat', 'knowledge-base']
     }).notNull(),
     contextSessionId: text('context_session_id'),
     contextProjectId: text('context_project_id'),

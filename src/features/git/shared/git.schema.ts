@@ -3,6 +3,7 @@ import { z } from 'zod'
 export const gitChangeFilterSchema = z.enum(['uncommitted', 'unstaged', 'staged'])
 
 export const gitContextSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('project-home'), projectId: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('project-session'), sessionId: z.string().min(1) }).strict(),
   z.object({ kind: z.literal('knowledge-base'), contextKey: z.literal('knowledge-base') }).strict()
 ])

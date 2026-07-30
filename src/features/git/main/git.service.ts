@@ -175,6 +175,15 @@ export function createGitService({
       }
     }
 
+    if (context.kind === 'project-home') {
+      const project = await sessionsRepository.findProjectById(context.projectId)
+      if (!project || project.archivedAt) {
+        const message = 'Project Home is unavailable.'
+        return { ok: false, message, state: { status: 'inaccessible', message } }
+      }
+      return { ok: true, path: project.path }
+    }
+
     const sessionId = context.sessionId
     const session = await sessionsRepository.findSessionById(sessionId)
     if (!session || !session.projectId) {

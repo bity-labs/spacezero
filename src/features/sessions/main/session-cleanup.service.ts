@@ -17,6 +17,7 @@ type TerminalDeletionRequest = {
   operationKey: string
   purpose: 'archive-context' | 'delete-context'
   sessions: readonly StoredSession[]
+  projectId?: string
 }
 
 export function createSessionCleanupService({
@@ -149,7 +150,8 @@ export function createSessionCleanupService({
     await closeTerminalsForDeletion({
       operationKey: `delete-project:${normalizedProjectId}`,
       purpose: 'delete-context',
-      sessions
+      sessions,
+      projectId: normalizedProjectId
     })
     const deletedSessionIds: string[] = []
     const sessionsInCleanupOrder = [...sessions].sort((left, right) =>

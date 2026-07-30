@@ -24,6 +24,7 @@ const secondSession = {
   worktreeBaseRevision: 'def456',
   archivedAt: null
 }
+const projectHomeContext = { kind: 'project-home' as const, projectId: project.id }
 const context = { kind: 'project-session' as const, sessionId: session.id }
 const secondProjectContext = { kind: 'project-session' as const, sessionId: secondSession.id }
 const workspaceSession = {
@@ -92,6 +93,33 @@ function createHarness() {
 }
 
 describe('Terminal service', () => {
+  it('launches Project Home at the main-owned registered root without reusing a prior worktree terminal', async () => {
+    const { adapter, service, worktrees } = createHarness()
+
+    await service.create({ ownerWindowId: 1, request: { context } })
+    const projectHome = await service.create({
+      ownerWindowId: 1,
+      request: { context: projectHomeContext }
+    })
+
+    expect(projectHome).toMatchObject({ status: 'running', terminalId: 'terminal-2' })
+    expect(adapter.spawn).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ cwd: project.path })
+    )
+    expect(worktrees.validate).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an unavailable Project Home identity before spawning a PTY', async () => {
+    const { adapter, repository, service } = createHarness()
+    repository.findProjectById.mockResolvedValueOnce(undefined)
+
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context: projectHomeContext } })
+    ).rejects.toThrow('terminal.projectNotFound')
+    expect(adapter.spawn).not.toHaveBeenCalled()
+  })
+
   it('launches one project-session PTY in the authenticated managed worktree and reuses it for the same window/context', async () => {
     const { adapter, ptys, service, worktrees } = createHarness()
 

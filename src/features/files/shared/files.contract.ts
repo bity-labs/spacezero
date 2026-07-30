@@ -17,6 +17,7 @@ export const FILES_IPC_CHANNELS = {
 export const KNOWLEDGE_BASE_FILES_CONTEXT_KEY = 'knowledge-base' as const
 
 export type FilesContext =
+  | { kind: 'project-home'; projectId: string }
   | { kind: 'project-session'; sessionId: string }
   | { kind: 'knowledge-base'; contextKey: typeof KNOWLEDGE_BASE_FILES_CONTEXT_KEY }
 

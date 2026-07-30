@@ -29,6 +29,12 @@ const relativeFilePathSchema = relativePathSchema.refine((path) => path.length >
 const filesContextSchema = z.discriminatedUnion('kind', [
   z
     .object({
+      kind: z.literal('project-home'),
+      projectId: z.string().trim().min(1)
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal('project-session'),
       sessionId: z.string().trim().min(1)
     })

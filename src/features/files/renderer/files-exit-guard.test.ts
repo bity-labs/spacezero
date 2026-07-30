@@ -47,6 +47,29 @@ describe('Files exit guard', () => {
     })
   })
 
+  it('saves a dirty Project Home document through its typed project identity and allows quit', async () => {
+    openDirty('project:project-1', 'src/project.ts', 'project')
+    vi.spyOn(window, 'prompt').mockReturnValue('save')
+    const saveDocument = vi
+      .spyOn(window.spacezero.files, 'saveDocument')
+      .mockImplementation(async (request) => ({
+        status: 'saved',
+        document: textDocument(request.relativePath, request.content)
+      }))
+
+    await expect(confirmFilesExit()).resolves.toBe(true)
+
+    expect(saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-home', projectId: 'project-1' },
+      relativePath: 'src/project.ts',
+      content: 'project draft',
+      expectedRevision: 'src/project.ts-revision'
+    })
+    expect(useFilesStore.getState().contexts['project:project-1'].tabs[0]).toMatchObject({
+      dirty: false
+    })
+  })
+
   it('saves dirty files across affected contexts and blocks quit with remaining dirty paths on failures', async () => {
     openDirty('session-1', 'src/one.ts', 'one')
     openDirty('knowledge-base', 'notes/two.md', 'two')

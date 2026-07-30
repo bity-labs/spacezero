@@ -29,6 +29,7 @@ export const BROWSER_COMMAND_IDS = {
 } as const
 
 export type BrowserContext =
+  | { kind: 'project-home'; projectId: string }
   | { kind: 'project-session'; projectId: string; sessionId: string }
   | { kind: 'workspace-session'; sessionId: string }
   | { kind: 'global-chat' }
@@ -36,6 +37,8 @@ export type BrowserContext =
 
 export function browserContextKey(context: BrowserContext): string {
   switch (context.kind) {
+    case 'project-home':
+      return `project:${context.projectId}`
     case 'project-session':
     case 'workspace-session':
       return `session:${context.sessionId}`
