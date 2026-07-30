@@ -1,3 +1,4 @@
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState, CreateAgentSessionRequest } from '../../../shared/agent-protocol'
@@ -8,6 +9,7 @@ import {
   createProjectAgentSession,
   createProjectKnowledgeBaseInstructions,
   createManagedChatAgentSession,
+  prepareManagedChatAgentSession,
   restoreAgentSessionState
 } from './agent-session-handler'
 
@@ -1566,6 +1568,64 @@ describe('restoreAgentSessionState', () => {
 })
 
 describe('createManagedChatAgentSession', () => {
+  it('reserves managed Session metadata before cold utility activation', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions'
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository()
+
+    const prepared = await prepareManagedChatAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-pending',
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    await expect(repository.findSessionById(prepared.session.id)).resolves.toMatchObject({
+      id: 'knowledge-base-session-pending',
+      transcriptPath: undefined,
+      managedContext: 'knowledge-base'
+    })
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+
+    await prepared.activate()
+    expect(utilityHost.createSession).toHaveBeenCalledOnce()
+  })
+
+  it('normalizes Nano ID boundary characters accepted by the real Pi SessionManager', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) => {
+        SessionManager.inMemory(request.cwd, { id: request.sessionId })
+        return createState({ sessionId: request.sessionId })
+      }),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createManagedChatAgentSession({
+      repository: createRepository(),
+      utilityHost,
+      createSessionId: () => '_knowledge-base-session-',
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: '0knowledge-base-session0' })
+    )
+  })
+
   it('persists a Knowledge Base chat as a managed Chat Agent Session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () =>

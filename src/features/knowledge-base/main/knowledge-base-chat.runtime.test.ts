@@ -76,6 +76,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('../../agent-workspace/main/agent-session-handler', () => ({
   createManagedChatAgentSession: vi.fn(() => mocks.freshSessionCreation),
+  prepareManagedChatAgentSession: vi.fn(async () => ({
+    session: mocks.freshSession,
+    activate: () => mocks.freshSessionCreation
+  })),
   restoreAgentSessionState: vi.fn()
 }))
 vi.mock('../../agent-workspace/main/agent-skill-settings.service', () => ({

@@ -521,6 +521,93 @@ describe('createKnowledgeBaseChatService', () => {
     })
   })
 
+  it('persists an accepted clear before cold agent runtime activation completes', async () => {
+    const previousContext = storedChatContext()
+    const replacementSession = storedSession({ id: 'knowledge-base-agent-session-2' })
+    const replacementContext = storedChatContext({
+      id: 'knowledge-base-chat-context-2',
+      agentSessionId: replacementSession.id
+    })
+    const activation = deferred<StoredSession>()
+    let currentContext = previousContext
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      createCurrentChatContext: async () => {
+        currentContext = replacementContext
+        return replacementContext
+      },
+      clearCurrentChatContext: async () => undefined,
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: vi.fn(),
+      prepareSession: async () => ({
+        session: replacementSession,
+        activate: () => activation.promise
+      }),
+      deleteSession: vi.fn()
+    })
+
+    const clearing = service.clearChat()
+
+    await vi.waitFor(() => expect(currentContext).toBe(replacementContext))
+    let settled = false
+    void clearing.finally(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    activation.resolve(replacementSession)
+    await expect(clearing).resolves.toMatchObject({
+      id: replacementContext.id,
+      agentSession: { id: replacementSession.id }
+    })
+  })
+
+  it('restores the previous current Chat Context when prepared activation fails', async () => {
+    const activationFailure = new Error('Agent runtime unavailable')
+    const previousContext = storedChatContext()
+    const replacementSession = storedSession({ id: 'knowledge-base-agent-session-2' })
+    const replacementContext = storedChatContext({
+      id: 'knowledge-base-chat-context-2',
+      agentSessionId: replacementSession.id
+    })
+    let currentContext = previousContext
+    const setCurrentChatContext = vi.fn(async () => {
+      currentContext = previousContext
+      return previousContext
+    })
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      createCurrentChatContext: async () => {
+        currentContext = replacementContext
+        return replacementContext
+      },
+      setCurrentChatContext,
+      clearCurrentChatContext: async () => undefined,
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: vi.fn(),
+      prepareSession: async () => ({
+        session: replacementSession,
+        activate: async () => {
+          throw activationFailure
+        }
+      }),
+      deleteSession: vi.fn()
+    })
+
+    await expect(service.clearChat()).rejects.toBe(activationFailure)
+    expect(currentContext).toBe(previousContext)
+    expect(setCurrentChatContext).toHaveBeenCalledWith(previousContext.id)
+  })
+
   it('clears to a fresh current Chat Context while retaining previous history', async () => {
     const previousSession = storedSession()
     const replacementSession = storedSession({ id: 'knowledge-base-agent-session-2' })

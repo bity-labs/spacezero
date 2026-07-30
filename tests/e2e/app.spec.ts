@@ -379,7 +379,7 @@ test('clears Project Session chat while retaining its stable workspace identity'
 
   const input = window.getByRole('textbox', { name: 'Agent prompt' })
   await input.fill('/cl')
-  const clearCommand = window.getByRole('option', { name: /\/clear/ })
+  const clearCommand = window.getByRole('option', { name: /Clear/ })
   await expect(clearCommand).toHaveAttribute('data-suggestion-kind', 'command')
   await expect(clearCommand.locator('[data-command-icon="true"]')).toBeVisible()
   await input.fill('/clear')
@@ -1005,13 +1005,28 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     const previousChatContextId = await window.evaluate(() =>
       window.spacezero.knowledgeBase.getCurrentChatContext().then((context) => context.id)
     )
+    await window.evaluate(() => {
+      document.documentElement.dataset.renderedKnowledgeBaseContextChanges = '0'
+      window.addEventListener('spacezero:knowledge-base-chat-context-changed', (event) => {
+        const contextChanges = Number(
+          document.documentElement.dataset.renderedKnowledgeBaseContextChanges ?? '0'
+        )
+        document.documentElement.dataset.renderedKnowledgeBaseContextChanges = String(
+          contextChanges + 1
+        )
+        document.documentElement.dataset.renderedKnowledgeBaseChatContextId = (
+          event as CustomEvent<{ id: string }>
+        ).detail.id
+      })
+    })
     const chatInput = window.getByRole('textbox', { name: 'Agent prompt' })
     await chatInput.fill('/cl')
-    const clearCommand = window.getByRole('option', { name: /\/clear/ })
+    const clearCommand = window.getByRole('option', { name: /Clear/ })
     await expect(clearCommand).toHaveAttribute('data-suggestion-kind', 'command')
     await expect(clearCommand.locator('[data-command-icon="true"]')).toBeVisible()
     await chatInput.fill('/clear')
     await chatInput.press('Enter')
+    await expect(window.getByRole('status')).toHaveText('Starting a fresh Knowledge Base Chat…')
     await expect
       .poll(() =>
         window.evaluate(() =>
@@ -1022,6 +1037,21 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     const replacementChatContext = await window.evaluate(() =>
       window.spacezero.knowledgeBase.getCurrentChatContext()
     )
+    await expect
+      .poll(() =>
+        window.evaluate(
+          () => document.documentElement.dataset.renderedKnowledgeBaseChatContextId
+        )
+      )
+      .toBe(replacementChatContext.id)
+    await expect
+      .poll(() =>
+        window.evaluate(
+          () => document.documentElement.dataset.renderedKnowledgeBaseContextChanges
+        )
+      )
+      .toBe('1')
+    await expect(window.getByRole('status')).toHaveCount(0)
     await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
     await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
