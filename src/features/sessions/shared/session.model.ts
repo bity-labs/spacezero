@@ -64,6 +64,12 @@ export type GlobalChatContext = {
   updatedAt: string
 }
 
+export type GlobalChatHistoryItem = {
+  id: string
+  initialPrompt: string
+  createdAt?: string
+}
+
 export type CreateProjectSessionRequest = {
   projectId: string
   title?: string

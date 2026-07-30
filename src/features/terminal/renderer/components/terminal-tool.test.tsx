@@ -308,7 +308,7 @@ describe('TerminalTool', () => {
     })
   })
 
-  it('uses the owning workspace-session or knowledge-base context without rewriting it to a project session', async () => {
+  it('uses the exact owning workspace-session, Global Chat, or Knowledge Base IPC context', async () => {
     const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -333,6 +333,13 @@ describe('TerminalTool', () => {
     )
 
     mounted.unmount()
+    const globalChatContext = { kind: 'global-chat' as const }
+    const globalChat = render(<TerminalTool context={globalChatContext} />)
+    await waitFor(() =>
+      expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ context: globalChatContext }))
+    )
+
+    globalChat.unmount()
     const knowledgeBaseContext = { kind: 'knowledge-base' as const }
     render(<TerminalTool context={knowledgeBaseContext} />)
     await waitFor(() =>
