@@ -270,7 +270,10 @@ function GitToolSession({
   const [expandedPaths, setExpandedPathsState] = useState<Set<string>>(
     () => new Set(initialMemory.expandedPaths)
   )
-  const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
+  const [primaryActionState, setPrimaryActionState] = useState<
+    | { status: 'loading' }
+    | { status: 'ready'; action: GitComposerAction }
+  >({ status: 'loading' })
   const [instructions, setInstructionsState] = useState(initialMemory.instructions)
   const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -294,15 +297,23 @@ function GitToolSession({
     void window.spacezero.settings
       .getGitActionSettings()
       .then((settings) => {
-        if (active) setPrimaryAction(settings.primaryGitAction)
+        if (!active) return
+        setPrimaryActionState({
+          status: 'ready',
+          action: isComposerActionSupported(context.kind, settings.primaryGitAction)
+            ? settings.primaryGitAction
+            : 'commit-and-push'
+        })
       })
       .catch(() => {
-        if (active) setPrimaryAction('commit-and-push')
+        if (active) {
+          setPrimaryActionState({ status: 'ready', action: 'commit-and-push' })
+        }
       })
     return () => {
       active = false
     }
-  }, [])
+  }, [context.kind])
 
   const setFilter = useCallback(
     (nextFilter: GitChangeFilter) => {
@@ -481,11 +492,18 @@ function GitToolSession({
     previousAgentStatus.current = currentAgentStatus
   }, [currentAgentStatus, refresh])
 
-  const actions = useMemo(() => getActionAvailability(actionState), [actionState])
+  const composerActions = useMemo(() => getComposerActions(context.kind), [context.kind])
+  const actions = useMemo(
+    () => getActionAvailability(actionState, context.kind),
+    [actionState, context.kind]
+  )
   const conflictFiles = useMemo(() => getConflictFiles(actionState), [actionState])
   const hasConflicts = conflictFiles.length > 0
   const busy = currentAgentStatus === 'running'
-  const primaryDisabled = busy || !actions[primaryAction]
+  const primaryAction =
+    primaryActionState.status === 'ready' ? primaryActionState.action : 'commit-and-push'
+  const actionsReady = primaryActionState.status === 'ready'
+  const primaryDisabled = !actionsReady || busy || !actions[primaryAction]
   const resolveDisabled = busy || !hasConflicts
 
   if (!state) {
@@ -611,6 +629,8 @@ function GitToolSession({
         ) : (
           <GitCommitComposer
             actionAvailability={actions}
+            actions={composerActions}
+            actionsReady={actionsReady}
             busy={busy}
             instructions={instructions}
             menuOpen={menuOpen}
@@ -619,11 +639,14 @@ function GitToolSession({
             onInstructionsChange={setInstructions}
             onMenuOpenChange={setMenuOpen}
             onPrimaryActionChange={(action) => {
-              setPrimaryAction(action)
               setMenuOpen(false)
+              if (actionsReady && actions[action]) {
+                setPrimaryActionState({ status: 'ready', action })
+              }
             }}
             onSubmit={(action) => {
               setMenuOpen(false)
+              if (!actionsReady || !actions[action]) return
               gitPromptRunPending.current = true
               void agentSession.prompt(
                 buildGitActionPrompt(action, instructions, state.upstream, context)
@@ -870,10 +893,17 @@ function GitDiffCard({
   )
 }
 
-const COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit-and-create-pr', 'commit']
+const PROJECT_COMPOSER_ACTIONS: GitComposerAction[] = [
+  'commit-and-push',
+  'commit-and-create-pr',
+  'commit'
+]
+const KNOWLEDGE_BASE_COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit']
 
 function GitCommitComposer({
   actionAvailability,
+  actions,
+  actionsReady,
   busy,
   instructions,
   menuOpen,
@@ -885,6 +915,8 @@ function GitCommitComposer({
   onSubmit
 }: {
   actionAvailability: Record<GitComposerAction, boolean>
+  actions: GitComposerAction[]
+  actionsReady: boolean
   busy: boolean
   instructions: string
   menuOpen: boolean
@@ -920,7 +952,7 @@ function GitCommitComposer({
                 <Button
                   aria-label="Choose Git commit action"
                   className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
-                  disabled={busy}
+                  disabled={busy || !actionsReady}
                   size="icon"
                   title="Choose Git commit action"
                   type="button"
@@ -931,7 +963,7 @@ function GitCommitComposer({
               <DotsThree aria-hidden="true" className="size-5" weight="bold" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-40" side="top">
-              {COMPOSER_ACTIONS.map((action) => (
+              {actions.map((action) => (
                 <DropdownMenuItem
                   key={action}
                   aria-current={primaryAction === action ? 'true' : undefined}
@@ -1000,7 +1032,23 @@ function formatUpstream(upstream: GitUpstreamState): string {
   return parts.join(' · ')
 }
 
-function getActionAvailability(state: GitReviewState | null): Record<GitComposerAction, boolean> {
+function getComposerActions(contextKind: GitContext['kind']): GitComposerAction[] {
+  return contextKind === 'project-session'
+    ? PROJECT_COMPOSER_ACTIONS
+    : KNOWLEDGE_BASE_COMPOSER_ACTIONS
+}
+
+function isComposerActionSupported(
+  contextKind: GitContext['kind'],
+  action: GitComposerAction
+): boolean {
+  return getComposerActions(contextKind).includes(action)
+}
+
+function getActionAvailability(
+  state: GitReviewState | null,
+  contextKind: GitContext['kind']
+): Record<GitComposerAction, boolean> {
   if (
     !state ||
     state.status === 'missing-worktree' ||
@@ -1019,7 +1067,8 @@ function getActionAvailability(state: GitReviewState | null): Record<GitComposer
   return {
     commit: state.status === 'ok' && hasChanges,
     'commit-and-push': hasChanges || branchAhead,
-    'commit-and-create-pr': hasChanges || branchAhead
+    'commit-and-create-pr':
+      contextKind === 'project-session' && (hasChanges || branchAhead)
   }
 }
 
