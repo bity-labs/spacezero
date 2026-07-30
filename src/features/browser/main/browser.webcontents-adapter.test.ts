@@ -242,17 +242,18 @@ vi.mock('electron', () => ({
 import { BROWSER_COMMAND_IDS, type BrowserShortcutBinding } from '../shared'
 import { ElectronBrowserViewAdapter } from './browser.webcontents-adapter'
 
-const defaultShortcutBindings: BrowserShortcutBinding[] = [
+const nonMacShortcutBindings: BrowserShortcutBinding[] = [
   { commandId: BROWSER_COMMAND_IDS.focusAddress, keybinding: { normalized: 'mod+l' } },
   { commandId: BROWSER_COMMAND_IDS.reload, keybinding: { normalized: 'mod+r' } },
-  {
-    commandId: BROWSER_COMMAND_IDS.back,
-    keybinding: { normalized: process.platform === 'darwin' ? 'mod+[' : 'alt+arrowleft' }
-  },
-  {
-    commandId: BROWSER_COMMAND_IDS.forward,
-    keybinding: { normalized: process.platform === 'darwin' ? 'mod+]' : 'alt+arrowright' }
-  }
+  { commandId: BROWSER_COMMAND_IDS.back, keybinding: { normalized: 'alt+arrowleft' } },
+  { commandId: BROWSER_COMMAND_IDS.forward, keybinding: { normalized: 'alt+arrowright' } }
+]
+
+const macShortcutBindings: BrowserShortcutBinding[] = [
+  { commandId: BROWSER_COMMAND_IDS.focusAddress, keybinding: { normalized: 'mod+l' } },
+  { commandId: BROWSER_COMMAND_IDS.reload, keybinding: { normalized: 'mod+r' } },
+  { commandId: BROWSER_COMMAND_IDS.back, keybinding: { normalized: 'mod+[' } },
+  { commandId: BROWSER_COMMAND_IDS.forward, keybinding: { normalized: 'mod+]' } }
 ]
 
 describe('ElectronBrowserViewAdapter', () => {
@@ -313,13 +314,13 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
     adapter.showView(
       'tab-2',
       { x: 5, y: 5, width: 200, height: 150 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
 
@@ -341,13 +342,13 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       senderA as never
     )
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       senderB as never
     )
 
@@ -363,7 +364,12 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      nonMacShortcutBindings,
+      sender as never
+    )
     const item = { cancel: vi.fn() }
     fakes.downloadHandlers[0]?.({}, item, fakes.createdViews[0]!.webContents)
 
@@ -389,7 +395,12 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.senderToWindow.set(sender, window)
 
     adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
-    adapter.showView('tab-1', { x: 0, y: 0, width: 100, height: 100 }, defaultShortcutBindings, sender as never)
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      nonMacShortcutBindings,
+      sender as never
+    )
     const child = new fakes.FakeBrowserWindow(22)
     fakes.createdViews[0]?.webContents.emit('did-create-window', child as never, {} as never)
     const item = { cancel: vi.fn() }
@@ -583,7 +594,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
 
@@ -594,7 +605,7 @@ describe('ElectronBrowserViewAdapter', () => {
   })
 
   it('routes focused page Browser shortcuts through the main command capability', () => {
-    const adapter = new ElectronBrowserViewAdapter()
+    const adapter = new ElectronBrowserViewAdapter(undefined, undefined, 'linux')
     const service = { handleNativeCommand: vi.fn() }
     const sender = {}
     const window = new fakes.FakeBrowserWindow(1)
@@ -604,15 +615,15 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
 
     fakes.createdViews[0]?.webContents.emitBeforeInput({
       type: 'keyDown',
       key: 'r',
-      control: process.platform !== 'darwin',
-      meta: process.platform === 'darwin',
+      control: true,
+      meta: false,
       alt: false,
       shift: false,
       isAutoRepeat: false
@@ -623,7 +634,7 @@ describe('ElectronBrowserViewAdapter', () => {
   })
 
   it('honors remapped focused page Browser shortcuts and ignores the previous default', () => {
-    const adapter = new ElectronBrowserViewAdapter()
+    const adapter = new ElectronBrowserViewAdapter(undefined, undefined, 'linux')
     const service = { handleNativeCommand: vi.fn() }
     const sender = {}
     const window = new fakes.FakeBrowserWindow(1)
@@ -640,8 +651,8 @@ describe('ElectronBrowserViewAdapter', () => {
     fakes.createdViews[0]?.webContents.emitBeforeInput({
       type: 'keyDown',
       key: 'l',
-      control: process.platform !== 'darwin',
-      meta: process.platform === 'darwin',
+      control: true,
+      meta: false,
       alt: false,
       shift: false,
       isAutoRepeat: false
@@ -663,10 +674,8 @@ describe('ElectronBrowserViewAdapter', () => {
     )
   })
 
-  it('does not steal embedded page text-input cursor shortcuts on macOS', () => {
-    const originalPlatform = process.platform
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' })
-    const adapter = new ElectronBrowserViewAdapter()
+  it('routes focused page Browser shortcuts using macOS modifier semantics', () => {
+    const adapter = new ElectronBrowserViewAdapter(undefined, undefined, 'darwin')
     const service = { handleNativeCommand: vi.fn() }
     const sender = {}
     const window = new fakes.FakeBrowserWindow(1)
@@ -676,7 +685,39 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      macShortcutBindings,
+      sender as never
+    )
+
+    fakes.createdViews[0]?.webContents.emitBeforeInput({
+      type: 'keyDown',
+      key: 'l',
+      control: false,
+      meta: true,
+      alt: false,
+      shift: false,
+      isAutoRepeat: false
+    })
+
+    expect(fakes.createdViews[0]?.webContents.lastPreventDefault).toHaveBeenCalled()
+    expect(service.handleNativeCommand).toHaveBeenCalledWith(
+      'tab-1',
+      BROWSER_COMMAND_IDS.focusAddress
+    )
+  })
+
+  it('does not steal embedded page text-input cursor shortcuts on macOS', () => {
+    const adapter = new ElectronBrowserViewAdapter(undefined, undefined, 'darwin')
+    const service = { handleNativeCommand: vi.fn() }
+    const sender = {}
+    const window = new fakes.FakeBrowserWindow(1)
+    fakes.senderToWindow.set(sender, window)
+    adapter.setService(service as never)
+    adapter.createView('tab-1', { partition: 'persist:test', preferences: {} })
+    adapter.showView(
+      'tab-1',
+      { x: 0, y: 0, width: 100, height: 100 },
+      macShortcutBindings,
       sender as never
     )
 
@@ -692,7 +733,6 @@ describe('ElectronBrowserViewAdapter', () => {
 
     expect(fakes.createdViews[0]?.webContents.lastPreventDefault).not.toHaveBeenCalled()
     expect(service.handleNativeCommand).not.toHaveBeenCalled()
-    Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform })
   })
 
   it('destroys hidden native resources and clears service tabs when the owner window closes', () => {
@@ -707,7 +747,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
     adapter.hideView('tab-1')
@@ -753,7 +793,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
     let visibleDecision: boolean | null = null
@@ -812,7 +852,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
     expect(
@@ -848,7 +888,7 @@ describe('ElectronBrowserViewAdapter', () => {
     adapter.showView(
       'tab-1',
       { x: 0, y: 0, width: 100, height: 100 },
-      defaultShortcutBindings,
+      nonMacShortcutBindings,
       sender as never
     )
     adapter.hideView('tab-1')
