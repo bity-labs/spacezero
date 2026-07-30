@@ -20,20 +20,6 @@ export function createSessionsRepository(): SessionsRepository {
         .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
     },
 
-    async listWorkspaceSessions() {
-      return (await getDatabase()
-        .select()
-        .from(schema.sessions)
-        .where(
-          and(
-            isNull(schema.sessions.projectId),
-            isNull(schema.sessions.archivedAt),
-            isNull(schema.sessions.managedContext)
-          )
-        )
-        .orderBy(asc(schema.sessions.createdAt))) as StoredSession[]
-    },
-
     async create(session) {
       await getDatabase().insert(schema.sessions).values(session)
       return session
@@ -48,21 +34,6 @@ export function createSessionsRepository(): SessionsRepository {
             eq(schema.sessions.projectId, projectId),
             isNull(schema.sessions.workspaceContextSessionId),
             isNull(schema.sessions.archivedAt)
-          )
-        )
-
-      return value
-    },
-
-    async countWorkspaceSessions() {
-      const [{ value }] = await getDatabase()
-        .select({ value: count() })
-        .from(schema.sessions)
-        .where(
-          and(
-            isNull(schema.sessions.projectId),
-            isNull(schema.sessions.archivedAt),
-            isNull(schema.sessions.managedContext)
           )
         )
 

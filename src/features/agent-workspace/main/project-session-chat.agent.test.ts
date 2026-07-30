@@ -43,18 +43,12 @@ function createRepository(owner: StoredSession): {
       async listProjectSessions() {
         return sessions.filter((session) => session.projectId && !session.workspaceContextSessionId)
       },
-      async listWorkspaceSessions() {
-        return []
-      },
       async create(session) {
         sessions.push(session)
         return session
       },
       async countByProjectId() {
         return 1
-      },
-      async countWorkspaceSessions() {
-        return 0
       },
       async projectExists(projectId) {
         return projectId === 'project-1'

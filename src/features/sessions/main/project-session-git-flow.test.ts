@@ -90,9 +90,6 @@ function createRepository(
     async listProjectSessions() {
       return storedSessions.filter((session) => session.projectId !== null)
     },
-    async listWorkspaceSessions() {
-      return storedSessions.filter((session) => session.projectId === null)
-    },
     async create(session) {
       createAttempts += 1
       if (failFirstCreate && createAttempts === 1) throw new Error('db write failed')
@@ -101,9 +98,6 @@ function createRepository(
     },
     async countByProjectId(projectId) {
       return storedSessions.filter((session) => session.projectId === projectId).length
-    },
-    async countWorkspaceSessions() {
-      return storedSessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projectId === 'project-1'

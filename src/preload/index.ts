@@ -156,7 +156,6 @@ const api: SpaceZeroAPI = {
   },
   sessions: {
     listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
-    listWorkspaceSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listWorkspaceSessions),
     getCurrentGlobalChatContext: () =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.getCurrentGlobalChatContext),
     listGlobalChatHistory: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listGlobalChatHistory),
@@ -239,8 +238,6 @@ const api: SpaceZeroAPI = {
   agent: {
     ping: () => ipcRenderer.invoke(IPC_CHANNELS.agent.ping),
     createSession: (request) => ipcRenderer.invoke(IPC_CHANNELS.agent.createSession, request),
-    createWorkspaceSession: (request) =>
-      ipcRenderer.invoke(IPC_CHANNELS.agent.createWorkspaceSession, request),
     applyDefinitionToFreshSession: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.agent.applyDefinitionToFreshSession, request),
     getGlobalSkills: () => ipcRenderer.invoke(IPC_CHANNELS.agent.getGlobalSkills),

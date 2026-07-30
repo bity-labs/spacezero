@@ -21,7 +21,7 @@ export type UpdateStatus = {
 
 export type UpdateActiveWorkSummary = {
   projectSessions: number
-  workspaceSessions: number
+  chatContexts: number
   terminalTabs: number
 }
 

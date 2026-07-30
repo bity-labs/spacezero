@@ -13,7 +13,11 @@ import {
 import type { Clock, SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
 import { createSessionsService } from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
-import type { ProjectSession, SessionGitHubSource, WorkspaceSession } from '../../sessions/shared'
+import type {
+  ProjectSession,
+  SessionGitHubSource,
+  ManagedChatAgentSession
+} from '../../sessions/shared'
 import type {
   ManagedWorktreeService,
   ManagedWorktreeStartPoint
@@ -108,13 +112,13 @@ export type CreateAgentSessionHandlerDependencies = {
   resolveAgentDefinitionSources?: typeof resolveAgentDefinitionSourcesForSession
 }
 
-export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
+export type CreateManagedChatAgentSessionHandlerDependencies = Omit<
   CreateAgentSessionHandlerDependencies,
   'worktrees'
 > & {
-  getWorkspaceSessionCwd?: () => string
-  title?: string
-  managedContext?: 'knowledge-base' | 'global-chat'
+  getManagedChatCwd?: () => string
+  title: string
+  managedContext: 'knowledge-base' | 'global-chat'
   agentDefinition?: AgentDefinitionReference
 }
 
@@ -138,7 +142,7 @@ export type RestoreAgentSessionHandlerDependencies = {
   repository: SessionsRepository
   utilityHost: Pick<AgentUtilityProcessHost, 'createSession' | 'getState'>
   worktrees?: Pick<ManagedWorktreeService, 'validate'>
-  getWorkspaceSessionCwd?: () => string
+  getManagedChatCwd?: () => string
   getKnowledgeBaseStatus?: () => Promise<KnowledgeBaseStatus>
   readDisabledGlobalSkillPaths?: typeof getDisabledGlobalSkillPaths
   readProjectTrust?: ReadProjectTrust
@@ -456,7 +460,7 @@ export async function applyAgentDefinitionToFreshSession(
     repository,
     utilityHost,
     worktrees = unavailableStoredWorktrees,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getManagedChatCwd = defaultManagedChatCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust,
@@ -479,7 +483,7 @@ export async function applyAgentDefinitionToFreshSession(
       repository,
       utilityHost,
       worktrees,
-      getWorkspaceSessionCwd,
+      getManagedChatCwd,
       getKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths,
       readProjectTrust,
@@ -502,7 +506,7 @@ export async function applyAgentDefinitionToFreshSession(
     : undefined
   const cwd = project
     ? await resolveStoredProjectSessionCwd(workspaceSession, project, worktrees)
-    : resolve(getWorkspaceSessionCwd())
+    : resolve(getManagedChatCwd())
   const knowledgeBasePath = project
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
@@ -613,7 +617,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     worktrees = unavailableStoredWorktrees,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getManagedChatCwd = defaultManagedChatCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust,
@@ -630,7 +634,7 @@ export async function restoreAgentSessionState(
     repository,
     utilityHost,
     worktrees,
-    getWorkspaceSessionCwd,
+    getManagedChatCwd,
     getKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths,
     readProjectTrust,
@@ -655,7 +659,7 @@ async function restoreAgentSessionStateOnce(
     repository,
     utilityHost,
     worktrees = unavailableStoredWorktrees,
-    getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+    getManagedChatCwd = defaultManagedChatCwd,
     getKnowledgeBaseStatus = getUnconfiguredKnowledgeBaseStatus,
     readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
     readProjectTrust,
@@ -679,7 +683,7 @@ async function restoreAgentSessionStateOnce(
     : undefined
   const cwd = project
     ? await resolveStoredProjectSessionCwd(workspaceSession, project, worktrees)
-    : resolve(getWorkspaceSessionCwd())
+    : resolve(getManagedChatCwd())
   const knowledgeBasePath = project
     ? await getAvailableProjectKnowledgeBasePath(project.knowledgeBasePath, getKnowledgeBaseStatus)
     : null
@@ -779,12 +783,12 @@ function parseStoredAgentDefinitionSnapshot(
   }
 }
 
-export async function createWorkspaceAgentSession({
+export async function createManagedChatAgentSession({
   repository,
   utilityHost,
   createSessionId = nanoid,
   readModelDefaults = getModelDefaults,
-  getWorkspaceSessionCwd = defaultWorkspaceSessionCwd,
+  getManagedChatCwd = defaultManagedChatCwd,
   title,
   managedContext,
   readDisabledGlobalSkillPaths = noDisabledGlobalSkillPaths,
@@ -793,9 +797,9 @@ export async function createWorkspaceAgentSession({
   resolveAgentDefinition = resolveAgentDefinitionForSession,
   resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
   resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
-}: CreateWorkspaceAgentSessionHandlerDependencies): Promise<WorkspaceSession> {
+}: CreateManagedChatAgentSessionHandlerDependencies): Promise<ManagedChatAgentSession> {
   const sessionId = createSessionId()
-  const cwd = resolve(getWorkspaceSessionCwd())
+  const cwd = resolve(getManagedChatCwd())
   await mkdir(cwd, { recursive: true })
 
   const modelDefaults = await readModelDefaults()
@@ -831,7 +835,7 @@ export async function createWorkspaceAgentSession({
   })
 
   try {
-    return await createSessionsService({ repository }).createWorkspaceAgentSession({
+    return await createSessionsService({ repository }).createManagedChatAgentSession({
       id: sessionId,
       transcriptPath: state.transcriptPath,
       modelProvider: state.modelProvider,
@@ -1013,6 +1017,6 @@ function samePath(left: string, right: string): boolean {
     : normalizedLeft === normalizedRight
 }
 
-function defaultWorkspaceSessionCwd(): string {
+function defaultManagedChatCwd(): string {
   return join(app.getPath('userData'), 'workspace-sessions')
 }
