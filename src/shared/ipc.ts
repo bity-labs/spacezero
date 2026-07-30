@@ -82,6 +82,7 @@ import type {
 import type {
   CreateProjectSessionRequest,
   GlobalChatContext,
+  GlobalChatHistoryItem,
   ProjectSession,
   ProjectSessionChatContext,
   ProjectSessionChatHistoryItem,
@@ -177,6 +178,9 @@ export const IPC_CHANNELS = {
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
     getCurrentGlobalChatContext: 'sessions:getCurrentGlobalChatContext',
+    listGlobalChatHistory: 'sessions:listGlobalChatHistory',
+    resumeGlobalChat: 'sessions:resumeGlobalChat',
+    clearGlobalChat: 'sessions:clearGlobalChat',
     createProjectSession: 'sessions:createProjectSession',
     getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
     listProjectChatHistory: 'sessions:listProjectChatHistory',
@@ -342,6 +346,9 @@ export type SpaceZeroAPI = {
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
     getCurrentGlobalChatContext: () => Promise<GlobalChatContext>
+    listGlobalChatHistory: () => Promise<GlobalChatHistoryItem[]>
+    resumeGlobalChat: (request: { chatContextId: string }) => Promise<GlobalChatContext>
+    clearGlobalChat: () => Promise<GlobalChatContext>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     getCurrentProjectChatContext: (request: {
       sessionId: string
