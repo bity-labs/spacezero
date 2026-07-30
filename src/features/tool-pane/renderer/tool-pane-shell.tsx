@@ -128,7 +128,8 @@ export function ToolPaneShell({
                 CHAT_MIN_WIDTH,
                 Math.max(0, containerWidth - minWidth - TOOL_PANE_HANDLE_WIDTH)
               )
-            : 0
+            : 0,
+          paddingRight: !isOpen && activeTool ? TOOL_PANE_COLLAPSED_HEADER_WIDTH : undefined
         }}
       >
         {children}
