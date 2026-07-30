@@ -115,6 +115,10 @@ describe('createKnowledgeBaseChatService', () => {
       agentSessionId: 'knowledge-base-agent-session-older',
       createdAt: new Date('2026-07-19T08:30:00.000Z')
     })
+    const cleanupPendingContext = storedChatContext({
+      id: 'knowledge-base-chat-context-cleanup-pending',
+      agentSessionId: 'knowledge-base-agent-session-cleanup-pending'
+    })
     const foreignContext = storedChatContext({
       id: 'project-chat-context-foreign',
       workspaceContextKey: 'project-session-123',
@@ -127,12 +131,21 @@ describe('createKnowledgeBaseChatService', () => {
         rootPath: '/home/builder/SpaceZero/knowledge-base'
       }),
       getCurrentChatContext: async () => currentContext,
-      listChatContexts: async () => [currentContext, olderContext, foreignContext],
+      listChatContexts: async () => [
+        currentContext,
+        olderContext,
+        cleanupPendingContext,
+        foreignContext
+      ],
       createCurrentChatContext: vi.fn(),
       setCurrentChatContext: vi.fn(),
       clearCurrentChatContext: vi.fn(),
       findSessionById: async (sessionId) =>
-        sessionId === olderSession.id ? olderSession : storedSession({ id: sessionId }),
+        sessionId === cleanupPendingContext.agentSessionId
+          ? storedSession({ id: sessionId, agentLifecycleState: 'cleanup-pending' })
+          : sessionId === olderSession.id
+            ? olderSession
+            : storedSession({ id: sessionId }),
       getSessionState: async ({ sessionId }) => ({
         sessionId,
         kind: 'workspace',
@@ -269,6 +282,7 @@ describe('createKnowledgeBaseChatService', () => {
     })
     const contextWrite = deferred<StoredChatContext>()
     let currentContext = initialContext
+    const markSessionPendingCleanup = vi.fn(async () => undefined)
     const deleteSession = vi.fn(async () => undefined)
     const createCurrentChatContext = vi.fn(async () => {
       const created = await contextWrite.promise
@@ -290,6 +304,7 @@ describe('createKnowledgeBaseChatService', () => {
       clearCurrentChatContext: vi.fn(),
       findSessionById: async (sessionId) => storedSession({ id: sessionId }),
       createSession: async () => freshSession,
+      markSessionPendingCleanup,
       deleteSession
     })
 
@@ -301,7 +316,11 @@ describe('createKnowledgeBaseChatService', () => {
     await expect(resuming).resolves.toMatchObject({ id: selectedContext.id })
     await expect(clearing).resolves.toMatchObject({ id: selectedContext.id })
     expect(currentContext).toBe(selectedContext)
+    expect(markSessionPendingCleanup).toHaveBeenCalledWith(freshSession.id)
     expect(deleteSession).toHaveBeenCalledWith(freshSession.id)
+    expect(markSessionPendingCleanup.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteSession.mock.invocationCallOrder[0]
+    )
   })
 
   it('keeps a later clear current when an earlier resume lookup finishes late', async () => {
@@ -519,6 +538,145 @@ describe('createKnowledgeBaseChatService', () => {
       cause: creationFailure,
       rollbackFailures: [cleanupFailure]
     })
+  })
+
+  it('keeps the previous current Chat Context observable until cold activation completes', async () => {
+    const previousContext = storedChatContext()
+    const replacementSession = storedSession({ id: 'knowledge-base-agent-session-2' })
+    const replacementContext = storedChatContext({
+      id: 'knowledge-base-chat-context-2',
+      agentSessionId: replacementSession.id
+    })
+    const activation = deferred<StoredSession>()
+    const activationStarted = deferred<void>()
+    let currentContext = previousContext
+    const getSessionState = vi.fn()
+    const recoverPreparedSessions = vi.fn(async () => undefined)
+    const retryPendingCleanup = vi.fn(async () => undefined)
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      createCurrentChatContext: async () => {
+        currentContext = replacementContext
+        return replacementContext
+      },
+      clearCurrentChatContext: async () => undefined,
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      getSessionState,
+      createSession: vi.fn(),
+      prepareSession: async () => ({
+        session: replacementSession,
+        activate: () => {
+          activationStarted.resolve()
+          return activation.promise
+        }
+      }),
+      recoverPreparedSessions,
+      retryPendingCleanup,
+      deleteSession: vi.fn()
+    })
+
+    const clearing = service.clearChat()
+
+    await activationStarted.promise
+    expect(currentContext).toBe(previousContext)
+    await expect(service.getOrCreateCurrentChatContext()).resolves.toMatchObject({
+      id: previousContext.id,
+      agentSession: { id: previousContext.agentSessionId }
+    })
+    let settled = false
+    void clearing.finally(() => {
+      settled = true
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+    expect(getSessionState).not.toHaveBeenCalled()
+    expect(recoverPreparedSessions).toHaveBeenCalledOnce()
+    expect(retryPendingCleanup).toHaveBeenCalledOnce()
+
+    activation.resolve(replacementSession)
+    await expect(clearing).resolves.toMatchObject({
+      id: replacementContext.id,
+      agentSession: { id: replacementSession.id }
+    })
+  })
+
+  it('leaves the previous current Chat Context untouched when prepared activation fails', async () => {
+    const activationFailure = new Error('Agent runtime unavailable')
+    const previousContext = storedChatContext()
+    const replacementSession = storedSession({ id: 'knowledge-base-agent-session-2' })
+    const replacementContext = storedChatContext({
+      id: 'knowledge-base-chat-context-2',
+      agentSessionId: replacementSession.id
+    })
+    let currentContext = previousContext
+    const setCurrentChatContext = vi.fn(async () => {
+      currentContext = previousContext
+      return previousContext
+    })
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      createCurrentChatContext: async () => {
+        currentContext = replacementContext
+        return replacementContext
+      },
+      setCurrentChatContext,
+      clearCurrentChatContext: async () => undefined,
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: vi.fn(),
+      prepareSession: async () => ({
+        session: replacementSession,
+        activate: async () => {
+          throw activationFailure
+        }
+      }),
+      deleteSession: vi.fn()
+    })
+
+    await expect(service.clearChat()).rejects.toBe(activationFailure)
+    expect(currentContext).toBe(previousContext)
+    expect(setCurrentChatContext).not.toHaveBeenCalled()
+  })
+
+  it('rolls back an activated preparation without changing current when atomic publication fails', async () => {
+    const publicationFailure = new Error('atomic publication failed')
+    const previousContext = storedChatContext()
+    const replacementSession = storedSession({
+      id: 'knowledge-base-agent-session-2',
+      agentLifecycleState: 'preparing'
+    })
+    const deleteSession = vi.fn(async () => undefined)
+    const currentContext = previousContext
+    const service = createKnowledgeBaseChatService({
+      getStatus: async () => ({
+        setupState: 'configured',
+        rootPath: '/home/builder/SpaceZero/knowledge-base'
+      }),
+      getCurrentChatContext: async () => currentContext,
+      createCurrentChatContext: vi.fn(),
+      publishCurrentChatContext: async () => {
+        throw publicationFailure
+      },
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: vi.fn(),
+      prepareSession: async () => ({
+        session: replacementSession,
+        activate: async () => replacementSession
+      }),
+      deleteSession
+    })
+
+    await expect(service.clearChat()).rejects.toBe(publicationFailure)
+    expect(currentContext).toBe(previousContext)
+    expect(deleteSession).toHaveBeenCalledWith(replacementSession.id)
   })
 
   it('clears to a fresh current Chat Context while retaining previous history', async () => {

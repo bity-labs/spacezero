@@ -48,7 +48,11 @@ const mocks = vi.hoisted(() => {
     findChatContextById: vi.fn(async (chatContextId: string) =>
       chatContextId === selectedContext.id ? selectedContext : undefined
     ),
+    listRecoverableAgentSessions: vi.fn(async () => []),
+    listAgentSessionsPendingCleanup: vi.fn(async () => []),
+    markAgentSessionPendingCleanup: vi.fn(async () => undefined),
     createCurrentChatContext: vi.fn(),
+    publishPreparedCurrentChatContext: vi.fn(),
     setCurrentChatContext: vi.fn(async () => {
       currentContext = selectedContext
       return selectedContext
@@ -76,6 +80,10 @@ const mocks = vi.hoisted(() => {
 
 vi.mock('../../agent-workspace/main/agent-session-handler', () => ({
   createManagedChatAgentSession: vi.fn(() => mocks.freshSessionCreation),
+  prepareManagedChatAgentSession: vi.fn(async () => ({
+    session: mocks.freshSession,
+    activate: () => mocks.freshSessionCreation
+  })),
   restoreAgentSessionState: vi.fn()
 }))
 vi.mock('../../agent-workspace/main/agent-skill-settings.service', () => ({
@@ -106,7 +114,54 @@ vi.mock('./index', () => ({
   })
 }))
 
-import { getKnowledgeBaseChatService } from './knowledge-base-chat.runtime'
+import {
+  getKnowledgeBaseChatService,
+  recoverPreparedKnowledgeBaseSessions
+} from './knowledge-base-chat.runtime'
+
+describe('prepared Knowledge Base Chat recovery', () => {
+  it('removes crash-left preparation metadata only after utility cleanup succeeds', async () => {
+    const sessions = new Set(['prepared-before-context', 'prepared-with-transient-current'])
+    const chatContexts = new Set(['prepared-with-transient-current'])
+    let currentSessionId: string | undefined = 'prepared-with-transient-current'
+    const deleteUtilitySession = vi.fn(async () => undefined)
+
+    await recoverPreparedKnowledgeBaseSessions({
+      listPreparingSessions: async () => [...sessions].map((id) => ({ id })),
+      deleteUtilitySession,
+      deleteSessionMetadata: async (sessionId) => {
+        sessions.delete(sessionId)
+        chatContexts.delete(sessionId)
+        if (currentSessionId === sessionId) currentSessionId = undefined
+      }
+    })
+
+    expect(deleteUtilitySession.mock.calls).toEqual([
+      ['prepared-before-context'],
+      ['prepared-with-transient-current']
+    ])
+    expect([...sessions]).toEqual([])
+    expect([...chatContexts]).toEqual([])
+    expect(currentSessionId).toBeUndefined()
+  })
+
+  it('retains crash-left ownership metadata when utility cleanup fails', async () => {
+    const preparedSession = { id: 'possibly-live-prepared-session' }
+    const cleanupFailure = new Error('utility cleanup failed')
+    const deleteSessionMetadata = vi.fn(async () => undefined)
+
+    await expect(
+      recoverPreparedKnowledgeBaseSessions({
+        listPreparingSessions: async () => [preparedSession],
+        deleteUtilitySession: async () => {
+          throw cleanupFailure
+        },
+        deleteSessionMetadata
+      })
+    ).rejects.toBe(cleanupFailure)
+    expect(deleteSessionMetadata).not.toHaveBeenCalled()
+  })
+})
 
 describe('Knowledge Base Chat runtime cleanup', () => {
   it('propagates rejected utility cleanup and retains superseded Session metadata', async () => {

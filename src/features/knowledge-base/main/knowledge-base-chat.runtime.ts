@@ -1,5 +1,6 @@
 import {
   createManagedChatAgentSession,
+  prepareManagedChatAgentSession,
   restoreAgentSessionState
 } from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
@@ -51,6 +52,44 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
         if (!stored) throw new Error('Knowledge Base Session was not persisted.')
         return stored
       },
+      prepareSession: async () => {
+        const prepared = await prepareManagedChatAgentSession({
+          repository: sessionsRepository,
+          utilityHost: getAgentUtilityProcessHost(),
+          title: 'Knowledge Base Chat',
+          managedContext: 'knowledge-base',
+          readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+          resolveSkillPaths: resolveAgentSkillPaths
+        })
+        const stored = await sessionsRepository.findSessionById(prepared.session.id)
+        if (!stored) throw new Error('Knowledge Base Session was not persisted.')
+        return {
+          session: stored,
+          activate: async () => {
+            const activated = await prepared.activate()
+            const activatedStored = await sessionsRepository.findSessionById(activated.id)
+            if (!activatedStored) throw new Error('Knowledge Base Session was not persisted.')
+            return activatedStored
+          }
+        }
+      },
+      publishCurrentChatContext: (session) =>
+        currentSessionRepository.publishPreparedCurrentChatContext(session),
+      recoverPreparedSessions: () =>
+        recoverPreparedKnowledgeBaseSessions({
+          listPreparingSessions: currentSessionRepository.listRecoverableAgentSessions,
+          deleteUtilitySession: (sessionId) =>
+            getAgentUtilityProcessHost().deleteSession({ sessionId }),
+          deleteSessionMetadata: sessionsRepository.deleteById
+        }),
+      retryPendingCleanup: () =>
+        recoverPreparedKnowledgeBaseSessions({
+          listPreparingSessions: currentSessionRepository.listAgentSessionsPendingCleanup,
+          deleteUtilitySession: (sessionId) =>
+            getAgentUtilityProcessHost().deleteSession({ sessionId }),
+          deleteSessionMetadata: sessionsRepository.deleteById
+        }),
+      markSessionPendingCleanup: currentSessionRepository.markAgentSessionPendingCleanup,
       deleteSession: async (sessionId) => {
         await getAgentUtilityProcessHost().deleteSession({ sessionId })
         await sessionsRepository.deleteById(sessionId)
@@ -58,4 +97,19 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
     })
   }
   return service
+}
+
+export async function recoverPreparedKnowledgeBaseSessions({
+  listPreparingSessions,
+  deleteUtilitySession,
+  deleteSessionMetadata
+}: {
+  listPreparingSessions: () => Promise<Array<{ id: string }>>
+  deleteUtilitySession: (sessionId: string) => Promise<void>
+  deleteSessionMetadata: (sessionId: string) => Promise<void>
+}): Promise<void> {
+  for (const preparedSession of await listPreparingSessions()) {
+    await deleteUtilitySession(preparedSession.id)
+    await deleteSessionMetadata(preparedSession.id)
+  }
 }

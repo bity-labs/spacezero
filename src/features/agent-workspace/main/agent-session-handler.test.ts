@@ -1,3 +1,4 @@
+import { SessionManager } from '@earendil-works/pi-coding-agent'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState, CreateAgentSessionRequest } from '../../../shared/agent-protocol'
@@ -8,6 +9,7 @@ import {
   createProjectAgentSession,
   createProjectKnowledgeBaseInstructions,
   createManagedChatAgentSession,
+  prepareManagedChatAgentSession,
   restoreAgentSessionState
 } from './agent-session-handler'
 
@@ -110,11 +112,18 @@ function createTestWorktrees() {
 }
 
 describe('createProjectAgentSession', () => {
-  it('derives a managed worktree cwd from stored Project metadata', async () => {
+  it('derives a managed worktree cwd and rejects invalid IDs before the real Pi boundary', async () => {
     const utilityHost = {
-      createSession: vi.fn(async () => createState({ cwd: '/worktrees/session-1' })),
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) => {
+        SessionManager.inMemory(request.cwd, { id: request.sessionId })
+        return createState({ cwd: '/worktrees/session-1' })
+      }),
       deleteSession: vi.fn(async () => undefined)
     }
+    const createSessionId = vi
+      .fn<() => string>()
+      .mockReturnValueOnce('-invalid-project-session')
+      .mockReturnValueOnce('session-1')
 
     await expect(
       createProjectAgentSession(
@@ -123,12 +132,13 @@ describe('createProjectAgentSession', () => {
           repository: createRepository(),
           utilityHost,
           worktrees: createTestWorktrees(),
-          createSessionId: () => 'session-1',
+          createSessionId,
           readModelDefaults
         }
       )
     ).resolves.toMatchObject({ sessionId: 'session-1', cwd: '/worktrees/session-1' })
 
+    expect(createSessionId).toHaveBeenCalledTimes(2)
     expect(utilityHost.createSession).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionId: 'session-1',
@@ -1566,6 +1576,148 @@ describe('restoreAgentSessionState', () => {
 })
 
 describe('createManagedChatAgentSession', () => {
+  it('reserves managed Session metadata before cold utility activation', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions'
+        })
+      ),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const repository = createRepository()
+
+    const prepared = await prepareManagedChatAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-pending',
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    await expect(repository.findSessionById(prepared.session.id)).resolves.toMatchObject({
+      id: 'knowledge-base-session-pending',
+      transcriptPath: undefined,
+      managedContext: 'knowledge-base',
+      agentLifecycleState: 'preparing'
+    })
+    expect(utilityHost.createSession).not.toHaveBeenCalled()
+
+    await prepared.activate()
+    expect(utilityHost.createSession).toHaveBeenCalledOnce()
+    await expect(repository.findSessionById(prepared.session.id)).resolves.toMatchObject({
+      agentLifecycleState: 'preparing'
+    })
+  })
+
+  it('retains reservation metadata and surfaces both failures when live utility rollback fails', async () => {
+    const persistenceFailure = new Error('reservation update failed')
+    const cleanupFailure = new Error('utility cleanup failed')
+    const deleteById = vi.fn(async () => undefined)
+    const repository = createRepository({
+      update: vi.fn(async () => {
+        throw persistenceFailure
+      }),
+      deleteById
+    })
+    const utilityHost = {
+      createSession: vi.fn(async () =>
+        createState({
+          sessionId: 'knowledge-base-session-pending',
+          kind: 'workspace',
+          projectId: null,
+          cwd: '/tmp/spacezero-workspace-sessions'
+        })
+      ),
+      deleteSession: vi.fn(async () => {
+        throw cleanupFailure
+      })
+    }
+    const prepared = await prepareManagedChatAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-pending',
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    const activation = prepared.activate()
+    await expect(activation).rejects.toThrow('session.creationRollbackFailed')
+    await expect(activation).rejects.toMatchObject({
+      cause: persistenceFailure,
+      cleanupFailures: [cleanupFailure]
+    })
+    expect(deleteById).not.toHaveBeenCalled()
+    await expect(repository.findSessionById(prepared.session.id)).resolves.toMatchObject({
+      id: prepared.session.id,
+      managedContext: 'knowledge-base',
+      agentLifecycleState: 'preparing'
+    })
+  })
+
+  it('removes reservation metadata after live utility rollback succeeds', async () => {
+    const repository = createRepository({
+      update: vi.fn(async () => {
+        throw new Error('reservation update failed')
+      })
+    })
+    const utilityHost = {
+      createSession: vi.fn(async () => createState({ kind: 'workspace', projectId: null })),
+      deleteSession: vi.fn(async () => undefined)
+    }
+    const prepared = await prepareManagedChatAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'knowledge-base-session-pending',
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    await expect(prepared.activate()).rejects.toThrow('reservation update failed')
+    expect(utilityHost.deleteSession).toHaveBeenCalledWith({
+      sessionId: 'knowledge-base-session-pending'
+    })
+    await expect(repository.findSessionById(prepared.session.id)).resolves.toBeUndefined()
+  })
+
+  it('rejects invalid Nano ID boundaries and passes the full next candidate to Pi', async () => {
+    const utilityHost = {
+      createSession: vi.fn(async (request: CreateAgentSessionRequest) => {
+        SessionManager.inMemory(request.cwd, { id: request.sessionId })
+        return createState({ sessionId: request.sessionId })
+      }),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    const createSessionId = vi
+      .fn<() => string>()
+      .mockReturnValueOnce('_knowledge-base-session-')
+      .mockReturnValueOnce('knowledge-base-session-valid')
+
+    await createManagedChatAgentSession({
+      repository: createRepository(),
+      utilityHost,
+      createSessionId,
+      readModelDefaults,
+      getManagedChatCwd: () => '/tmp/spacezero-workspace-sessions',
+      title: 'Knowledge Base Chat',
+      managedContext: 'knowledge-base'
+    })
+
+    expect(createSessionId).toHaveBeenCalledTimes(2)
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'knowledge-base-session-valid' })
+    )
+  })
+
   it('persists a Knowledge Base chat as a managed Chat Agent Session', async () => {
     const utilityHost = {
       createSession: vi.fn(async () =>
@@ -1592,7 +1744,8 @@ describe('createManagedChatAgentSession', () => {
     await expect(repository.findSessionById('knowledge-base-session-1')).resolves.toMatchObject({
       projectId: null,
       title: 'Knowledge Base Chat',
-      managedContext: 'knowledge-base'
+      managedContext: 'knowledge-base',
+      agentLifecycleState: 'active'
     })
   })
 

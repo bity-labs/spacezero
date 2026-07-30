@@ -55,7 +55,8 @@ export function migrateDatabase(database: Database.Database): void {
       archived_at INTEGER,
       managed_context TEXT,
       workspace_context_session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-      agent_definition_snapshot TEXT
+      agent_definition_snapshot TEXT,
+      agent_lifecycle_state TEXT NOT NULL DEFAULT 'active'
     );
 
     CREATE TABLE IF NOT EXISTS chat_contexts (
@@ -160,7 +161,8 @@ export function migrateDatabase(database: Database.Database): void {
     ['archived_at', 'INTEGER'],
     ['managed_context', 'TEXT'],
     ['workspace_context_session_id', 'TEXT REFERENCES sessions(id) ON DELETE CASCADE'],
-    ['agent_definition_snapshot', 'TEXT']
+    ['agent_definition_snapshot', 'TEXT'],
+    ['agent_lifecycle_state', "TEXT NOT NULL DEFAULT 'active'"]
   ] as const
   for (const [column, type] of sessionMigrations) {
     if (!sessionColumns.some((existing) => existing.name === column)) {
