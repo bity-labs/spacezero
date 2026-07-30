@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
@@ -10,56 +10,81 @@ export function GlobalChatPage(): React.JSX.Element {
   const [chatContext, setChatContext] = useState<GlobalChatContext>()
   const [error, setError] = useState<string>()
   const [requestId, setRequestId] = useState(0)
-  const [isClearingChat, setClearingChat] = useState(false)
+  const [clearingResolution, setClearingResolution] = useState<number>()
   const [chatHistory, setChatHistory] = useState<GlobalChatHistoryItem[] | undefined>()
+  const chatContextResolution = useRef(0)
+  const chatHistoryResolution = useRef(0)
+  const isClearingChat = clearingResolution !== undefined
 
   useEffect(() => {
-    let current = true
+    const resolution = ++chatContextResolution.current
     window.spacezero.sessions.getCurrentGlobalChatContext().then(
       (nextContext) => {
-        if (current) setChatContext(nextContext)
+        if (chatContextResolution.current === resolution) setChatContext(nextContext)
       },
       (loadError: unknown) => {
-        if (current) setError(getErrorMessage(loadError, 'Unable to open Chat.'))
+        if (chatContextResolution.current === resolution) {
+          setError(getErrorMessage(loadError, 'Unable to open Chat.'))
+        }
       }
     )
     return () => {
-      current = false
+      chatContextResolution.current += 1
+      chatHistoryResolution.current += 1
     }
   }, [requestId])
 
   async function openChatHistory(): Promise<void> {
+    const resolution = ++chatHistoryResolution.current
     setError(undefined)
     try {
-      setChatHistory(await window.spacezero.sessions.listGlobalChatHistory())
+      const items = await window.spacezero.sessions.listGlobalChatHistory()
+      if (chatHistoryResolution.current === resolution) setChatHistory(items)
     } catch (historyError) {
-      setError(getErrorMessage(historyError, 'Unable to load Chat history.'))
-      throw historyError
+      if (chatHistoryResolution.current === resolution) {
+        setError(getErrorMessage(historyError, 'Unable to load Chat history.'))
+        throw historyError
+      }
     }
   }
 
   async function resumeChatContext(chatContextId: string): Promise<void> {
+    const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
+    setClearingResolution(undefined)
     setError(undefined)
     try {
-      setChatContext(await window.spacezero.sessions.resumeGlobalChat({ chatContextId }))
+      const nextContext = await window.spacezero.sessions.resumeGlobalChat({ chatContextId })
+      if (chatContextResolution.current !== resolution) return
+      setChatContext(nextContext)
       setChatHistory(undefined)
     } catch (resumeError) {
-      setError(getErrorMessage(resumeError, 'Unable to resume Chat.'))
-      throw resumeError
+      if (chatContextResolution.current === resolution) {
+        setError(getErrorMessage(resumeError, 'Unable to resume Chat.'))
+        throw resumeError
+      }
     }
   }
 
   async function clearChat(): Promise<void> {
-    setClearingChat(true)
+    const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
+    setClearingResolution(resolution)
     setChatHistory(undefined)
     setError(undefined)
     try {
-      setChatContext(await window.spacezero.sessions.clearGlobalChat())
+      const nextContext = await window.spacezero.sessions.clearGlobalChat()
+      if (chatContextResolution.current !== resolution) return
+      setChatContext(nextContext)
     } catch (clearError) {
-      setError(getErrorMessage(clearError, 'Unable to clear Chat.'))
-      throw clearError
+      if (chatContextResolution.current === resolution) {
+        setError(getErrorMessage(clearError, 'Unable to clear Chat.'))
+        throw clearError
+      }
     } finally {
-      setClearingChat(false)
+      setClearingResolution((currentResolution) =>
+        currentResolution === resolution ? undefined : currentResolution
+      )
     }
   }
 
