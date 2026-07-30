@@ -1,6 +1,10 @@
 import { z } from 'zod'
 
-export const GIT_COMPOSER_ACTIONS = ['commit', 'commit-and-push'] as const
+export const GIT_COMPOSER_ACTIONS = [
+  'commit',
+  'commit-and-push',
+  'commit-and-create-pr'
+] as const
 
 export type GitComposerAction = (typeof GIT_COMPOSER_ACTIONS)[number]
 

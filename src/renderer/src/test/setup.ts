@@ -378,6 +378,16 @@ beforeEach(async () => {
         createdAt: new Date(0).toISOString(),
         updatedAt: new Date(0).toISOString()
       }),
+      createOrReusePullRequest: async () => ({
+        status: 'reused',
+        pushStatus: 'succeeded',
+        pullRequest: {
+          number: 1,
+          htmlUrl: 'https://github.com/example/repository/pull/1',
+          headBranch: 'feature/test',
+          baseBranch: 'main'
+        }
+      }),
       createPullRequestReview: async (request) => ({
         id: 'review-1',
         state: request.event === 'APPROVE' ? 'approved' : 'changes_requested',

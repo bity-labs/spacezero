@@ -30,6 +30,11 @@ describe('git action settings', () => {
 
   it('validates update requests to supported Git composer actions only', () => {
     expect(
+      updateGitActionSettingsRequestSchema.safeParse({
+        primaryGitAction: 'commit-and-create-pr'
+      }).success
+    ).toBe(true)
+    expect(
       updateGitActionSettingsRequestSchema.safeParse({ primaryGitAction: 'commit' }).success
     ).toBe(true)
     expect(

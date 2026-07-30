@@ -216,6 +216,33 @@ export type GitHubPullRequestReviewCreateRequest = GitHubPullRequestRequest & {
   body?: string
 }
 
+export type GitHubCreateOrReusePullRequestRequest = {
+  sessionId: string
+  expectedHeadSha: string
+  title: string
+  body?: string
+}
+
+export type GitHubCreateOrReusePullRequestResult =
+  | {
+      status: 'created' | 'reused'
+      pushStatus: 'succeeded'
+      pullRequest: {
+        number: number
+        htmlUrl: string
+        headBranch: string
+        baseBranch: string
+      }
+    }
+  | {
+      status: 'failed'
+      pushStatus: 'succeeded'
+      error: {
+        code: string
+        retryable: boolean
+      }
+    }
+
 export type GitHubRepositorySetupOption = {
   repository: GitHubRepository
   existingProject?: ProjectReference

@@ -16,8 +16,13 @@ export type WorkspaceToolInput<S extends WorkspaceToolInputSchema> = S['_output'
  * They must not throw polished conversational summaries; runtime errors are
  * captured by the executor and recorded as structured results.
  */
+export type WorkspaceToolExecutionContext = {
+  sessionId: string
+}
+
 export type WorkspaceToolHandler<I = unknown> = (
-  input: I
+  input: I,
+  context?: WorkspaceToolExecutionContext
 ) => WorkspaceToolResult | Promise<WorkspaceToolResult>
 
 /**

@@ -620,6 +620,9 @@ function GeneralSettingsSection({
                 <SelectItem value="commit-and-push">
                   {t('settings.gitPrimaryAction.commitAndPush')}
                 </SelectItem>
+                <SelectItem value="commit-and-create-pr">
+                  {t('settings.gitPrimaryAction.commitAndCreatePr')}
+                </SelectItem>
               </SelectContent>
             </Select>
           </SettingsRow>
@@ -1042,6 +1045,9 @@ function getGitActionLabel(
   t: ReturnType<typeof useTranslation>['t']
 ): string {
   if (action === 'commit') return t('settings.gitPrimaryAction.commit')
+  if (action === 'commit-and-create-pr') {
+    return t('settings.gitPrimaryAction.commitAndCreatePr')
+  }
   return t('settings.gitPrimaryAction.commitAndPush')
 }
 

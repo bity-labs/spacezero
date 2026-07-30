@@ -270,7 +270,10 @@ function GitToolSession({
   const [expandedPaths, setExpandedPathsState] = useState<Set<string>>(
     () => new Set(initialMemory.expandedPaths)
   )
-  const [primaryAction, setPrimaryAction] = useState<GitComposerAction>('commit-and-push')
+  const [primaryActionState, setPrimaryActionState] = useState<
+    | { status: 'loading' }
+    | { status: 'ready'; action: GitComposerAction }
+  >({ status: 'loading' })
   const [instructions, setInstructionsState] = useState(initialMemory.instructions)
   const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -288,6 +291,29 @@ function GitToolSession({
   const hasAgentSession = Boolean(agentSession)
   const currentAgentStatus = agentSession?.status ?? 'idle'
   const previousAgentStatus = useRef(currentAgentStatus)
+
+  useEffect(() => {
+    let active = true
+    void window.spacezero.settings
+      .getGitActionSettings()
+      .then((settings) => {
+        if (!active) return
+        setPrimaryActionState({
+          status: 'ready',
+          action: isComposerActionSupported(context.kind, settings.primaryGitAction)
+            ? settings.primaryGitAction
+            : 'commit-and-push'
+        })
+      })
+      .catch(() => {
+        if (active) {
+          setPrimaryActionState({ status: 'ready', action: 'commit-and-push' })
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [context.kind])
 
   const setFilter = useCallback(
     (nextFilter: GitChangeFilter) => {
@@ -466,11 +492,18 @@ function GitToolSession({
     previousAgentStatus.current = currentAgentStatus
   }, [currentAgentStatus, refresh])
 
-  const actions = useMemo(() => getActionAvailability(actionState), [actionState])
+  const composerActions = useMemo(() => getComposerActions(context.kind), [context.kind])
+  const actions = useMemo(
+    () => getActionAvailability(actionState, context.kind),
+    [actionState, context.kind]
+  )
   const conflictFiles = useMemo(() => getConflictFiles(actionState), [actionState])
   const hasConflicts = conflictFiles.length > 0
   const busy = currentAgentStatus === 'running'
-  const primaryDisabled = busy || !actions[primaryAction]
+  const primaryAction =
+    primaryActionState.status === 'ready' ? primaryActionState.action : 'commit-and-push'
+  const actionsReady = primaryActionState.status === 'ready'
+  const primaryDisabled = !actionsReady || busy || !actions[primaryAction]
   const resolveDisabled = busy || !hasConflicts
 
   if (!state) {
@@ -596,6 +629,8 @@ function GitToolSession({
         ) : (
           <GitCommitComposer
             actionAvailability={actions}
+            actions={composerActions}
+            actionsReady={actionsReady}
             busy={busy}
             instructions={instructions}
             menuOpen={menuOpen}
@@ -604,11 +639,14 @@ function GitToolSession({
             onInstructionsChange={setInstructions}
             onMenuOpenChange={setMenuOpen}
             onPrimaryActionChange={(action) => {
-              setPrimaryAction(action)
               setMenuOpen(false)
+              if (actionsReady && actions[action]) {
+                setPrimaryActionState({ status: 'ready', action })
+              }
             }}
             onSubmit={(action) => {
               setMenuOpen(false)
+              if (!actionsReady || !actions[action]) return
               gitPromptRunPending.current = true
               void agentSession.prompt(
                 buildGitActionPrompt(action, instructions, state.upstream, context)
@@ -855,10 +893,17 @@ function GitDiffCard({
   )
 }
 
-const COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit']
+const PROJECT_COMPOSER_ACTIONS: GitComposerAction[] = [
+  'commit-and-push',
+  'commit-and-create-pr',
+  'commit'
+]
+const KNOWLEDGE_BASE_COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit']
 
 function GitCommitComposer({
   actionAvailability,
+  actions,
+  actionsReady,
   busy,
   instructions,
   menuOpen,
@@ -870,6 +915,8 @@ function GitCommitComposer({
   onSubmit
 }: {
   actionAvailability: Record<GitComposerAction, boolean>
+  actions: GitComposerAction[]
+  actionsReady: boolean
   busy: boolean
   instructions: string
   menuOpen: boolean
@@ -905,7 +952,7 @@ function GitCommitComposer({
                 <Button
                   aria-label="Choose Git commit action"
                   className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
-                  disabled={busy}
+                  disabled={busy || !actionsReady}
                   size="icon"
                   title="Choose Git commit action"
                   type="button"
@@ -916,7 +963,7 @@ function GitCommitComposer({
               <DotsThree aria-hidden="true" className="size-5" weight="bold" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="min-w-40" side="top">
-              {COMPOSER_ACTIONS.map((action) => (
+              {actions.map((action) => (
                 <DropdownMenuItem
                   key={action}
                   aria-current={primaryAction === action ? 'true' : undefined}
@@ -985,23 +1032,43 @@ function formatUpstream(upstream: GitUpstreamState): string {
   return parts.join(' · ')
 }
 
-function getActionAvailability(state: GitReviewState | null): Record<GitComposerAction, boolean> {
+function getComposerActions(contextKind: GitContext['kind']): GitComposerAction[] {
+  return contextKind === 'project-session'
+    ? PROJECT_COMPOSER_ACTIONS
+    : KNOWLEDGE_BASE_COMPOSER_ACTIONS
+}
+
+function isComposerActionSupported(
+  contextKind: GitContext['kind'],
+  action: GitComposerAction
+): boolean {
+  return getComposerActions(contextKind).includes(action)
+}
+
+function getActionAvailability(
+  state: GitReviewState | null,
+  contextKind: GitContext['kind']
+): Record<GitComposerAction, boolean> {
   if (
     !state ||
     state.status === 'missing-worktree' ||
     state.status === 'inaccessible' ||
     state.status === 'git-error'
   ) {
-    return { commit: false, 'commit-and-push': false }
+    return { commit: false, 'commit-and-push': false, 'commit-and-create-pr': false }
   }
 
-  if (getConflictFiles(state).length > 0) return { commit: false, 'commit-and-push': false }
+  if (getConflictFiles(state).length > 0) {
+    return { commit: false, 'commit-and-push': false, 'commit-and-create-pr': false }
+  }
 
   const hasChanges = state.files.length > 0
   const branchAhead = state.upstream.kind === 'tracked' && state.upstream.ahead > 0
   return {
     commit: state.status === 'ok' && hasChanges,
-    'commit-and-push': hasChanges || branchAhead
+    'commit-and-push': hasChanges || branchAhead,
+    'commit-and-create-pr':
+      contextKind === 'project-session' && (hasChanges || branchAhead)
   }
 }
 
@@ -1035,7 +1102,9 @@ function buildGitActionPrompt(
   const lines = [
     action === 'commit'
       ? `Please inspect the current Git state in ${repositoryLabel} and create an appropriate commit for the saved repository changes.`
-      : `Please inspect the current Git state in ${repositoryLabel}, create an appropriate commit for saved repository changes if needed, and push the branch.`,
+      : action === 'commit-and-create-pr'
+        ? `Please inspect the current Git state in ${repositoryLabel}, create an appropriate commit for saved repository changes if needed, push the branch, and create a pull request.`
+        : `Please inspect the current Git state in ${repositoryLabel}, create an appropriate commit for saved repository changes if needed, and push the branch.`,
     `Do not rely on the rendered diff in Space Zero and do not use any diff payload from this request; inspect fresh Git status and diff information in ${repositoryLabel} before acting.`
   ]
 
@@ -1048,11 +1117,20 @@ function buildGitActionPrompt(
     )
   }
 
-  if (action === 'commit-and-push') {
+  if (action !== 'commit') {
     lines.push(
       upstream.kind === 'none'
         ? 'No upstream is currently configured in Space Zero Git status; if a remote named origin exists, commit locally if appropriate, then push the current branch with upstream tracking using `git push -u origin HEAD`. If no origin remote exists or pushing fails because the destination is ambiguous or unauthorized, explain the issue and ask me for the required remote or upstream information.'
         : 'If pushing cannot proceed, explain the blocker in the normal Session transcript and ask me for the required information.'
+    )
+  }
+
+  if (action === 'commit-and-create-pr') {
+    lines.push(
+      'After the push succeeds, resolve the pushed commit with `git rev-parse HEAD`, then call the `github.createOrReusePullRequest` Space Zero Workspace Tool. That narrow main-owned capability revalidates GitHub App repository access and creates or reuses the pull request without exposing credentials to this Session. Do not use `gh`, a GitHub token, or another GitHub API path.'
+    )
+    lines.push(
+      'Your final response must include the usable pull request URL. If the push succeeds but pull request creation fails, state clearly that the branch was pushed, report the pull request creation failure and its actionable cause, and do not claim the workflow completed.'
     )
   }
 
@@ -1066,5 +1144,7 @@ function getRepositoryPromptLabel(context: GitContext): string {
 }
 
 function formatActionLabel(action: GitComposerAction): string {
-  return action === 'commit' ? 'Commit' : 'Commit & Push'
+  if (action === 'commit') return 'Commit'
+  if (action === 'commit-and-create-pr') return 'Commit and create a PR'
+  return 'Commit & Push'
 }

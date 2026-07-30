@@ -153,7 +153,7 @@ export class WorkspaceToolExecutor {
     }
 
     try {
-      const result = await tool.handler(parsed.data)
+      const result = await tool.handler(parsed.data, { sessionId })
       const outcome: AgentActivityOutcome = result.ok ? 'success' : 'error'
       this.record({
         toolName,

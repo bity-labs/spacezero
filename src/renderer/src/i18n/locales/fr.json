@@ -264,6 +264,7 @@
       "description": "Choisissez quelle action du compositeur Git de Session projet apparaît comme bouton principal.",
       "commit": "Commit",
       "commitAndPush": "Commit & Push",
+      "commitAndCreatePr": "Commit et créer une PR",
       "loading": "Chargement de la préférence d’action Git…",
       "saveError": "Impossible d’enregistrer la préférence d’action Git."
     },

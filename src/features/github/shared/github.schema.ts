@@ -78,6 +78,15 @@ export const githubPullRequestReviewCreateRequestSchema = githubPullRequestReque
     }
   })
 
+export const githubCreateOrReusePullRequestRequestSchema = z
+  .object({
+    sessionId: z.string().trim().min(1).max(128),
+    expectedHeadSha: z.string().regex(/^[0-9a-f]{40}$/i),
+    title: z.string().trim().min(1).max(256),
+    body: z.string().trim().max(65_536).optional()
+  })
+  .strict()
+
 export const startGitHubCloneRequestSchema = z.object({
   repositoryId: repositoryIdSchema,
   existingProjectId: z.string().trim().min(1).max(128).optional(),
