@@ -13,18 +13,25 @@ function ContextMenuTrigger({ ...props }: ContextMenuPrimitive.Trigger.Props) {
 function ContextMenuContent({
   align = 'start',
   alignOffset = 0,
+  anchor,
+  positionMethod,
   side = 'bottom',
   sideOffset = 4,
   className,
   ...props
 }: ContextMenuPrimitive.Popup.Props &
-  Pick<ContextMenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset'>) {
+  Pick<
+    ContextMenuPrimitive.Positioner.Props,
+    'align' | 'alignOffset' | 'anchor' | 'positionMethod' | 'side' | 'sideOffset'
+  >) {
   return (
     <ContextMenuPrimitive.Portal>
       <ContextMenuPrimitive.Positioner
         className="isolate z-50 outline-none"
         align={align}
         alignOffset={alignOffset}
+        anchor={anchor}
+        positionMethod={positionMethod}
         side={side}
         sideOffset={sideOffset}
       >

@@ -487,7 +487,7 @@ vi.mock('@pierre/trees/react', async () => {
     }, [model, revision])
 
     return (
-      <div>
+      <div data-testid="tree-overflow-boundary" style={{ overflow: 'hidden' }}>
         <ul role="tree" aria-label={props['aria-label']}>
           {rows}
         </ul>
@@ -501,7 +501,7 @@ vi.mock('@pierre/trees/react', async () => {
               },
               {
                 anchorElement: document.body,
-                anchorRect: new DOMRect(),
+                anchorRect: new DOMRect(980, 120, 24, 24),
                 close: () => setActiveMenuPath(null),
                 restoreFocus: () => undefined
               }
@@ -805,6 +805,8 @@ describe('Files Tool', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Open README.md actions' }))
     const menu = await screen.findByRole('menu', { name: 'README.md actions' })
+    expect(screen.getByTestId('tree-overflow-boundary')).not.toContainElement(menu)
+    expect(menu).toHaveAttribute('data-file-tree-context-menu-root', 'true')
     expect(within(menu).getByRole('menuitem', { name: 'New File' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'New Folder' })).toBeInTheDocument()
     expect(within(menu).getByRole('menuitem', { name: 'Rename' })).toBeInTheDocument()
