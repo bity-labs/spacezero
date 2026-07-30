@@ -239,6 +239,37 @@ describe('KnowledgeBasePage', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows clear progress and accepts rapid duplicate submission exactly once', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    const replacementContext = knowledgeBaseChatContext(
+      'knowledge-base-chat-context-2',
+      'knowledge-base-session-2'
+    )
+    const clearing = deferred<KnowledgeBaseChatContext>()
+    const clearChat = vi.fn(() => clearing.promise)
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+    window.spacezero.knowledgeBase.clearChat = clearChat
+    installTranscriptProjection([managedChatContext, replacementContext])
+
+    render(<KnowledgeBasePage />)
+
+    const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/clear' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(clearChat).toHaveBeenCalledOnce())
+    expect(screen.getByRole('status')).toHaveTextContent('Starting a fresh Knowledge Base Chat…')
+    expect(input).toBeEnabled()
+
+    await act(async () => clearing.resolve(replacementContext))
+    expect(await screen.findByText(replacementContext.id)).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
   it('shows scoped /resume history, selects its transcript, and continues the selected context', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',

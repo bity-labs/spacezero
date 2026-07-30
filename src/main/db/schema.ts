@@ -57,7 +57,12 @@ export const sessions = sqliteTable('sessions', {
     (): AnySQLiteColumn => sessions.id,
     { onDelete: 'cascade' }
   ),
-  agentDefinitionSnapshot: text('agent_definition_snapshot')
+  agentDefinitionSnapshot: text('agent_definition_snapshot'),
+  agentLifecycleState: text('agent_lifecycle_state', {
+    enum: ['preparing', 'active', 'cleanup-pending']
+  })
+    .notNull()
+    .default('active')
 })
 
 export const chatContexts = sqliteTable('chat_contexts', {

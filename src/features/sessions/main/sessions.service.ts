@@ -38,6 +38,7 @@ export type StoredSession = {
   managedContext?: 'knowledge-base' | 'global-chat' | null
   workspaceContextSessionId?: string | null
   agentDefinitionSnapshot?: string | null
+  agentLifecycleState?: 'preparing' | 'active' | 'cleanup-pending'
 }
 
 export type CreateProjectAgentSessionRequest = {
@@ -62,6 +63,7 @@ export type CreateManagedChatAgentSessionRequest = {
   title: string
   managedContext: 'knowledge-base' | 'global-chat'
   agentDefinitionSnapshot?: ResolvedAgentDefinition
+  agentLifecycleState?: 'preparing' | 'active'
 }
 
 export type SessionsRepository = {
@@ -218,7 +220,10 @@ export function createSessionsService({
           modelId: request.modelId,
           thinkingLevel: request.thinkingLevel,
           managedContext: request.managedContext,
-          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(request.agentDefinitionSnapshot)
+          agentDefinitionSnapshot: serializeAgentDefinitionSnapshot(
+            request.agentDefinitionSnapshot
+          ),
+          agentLifecycleState: request.agentLifecycleState ?? 'active'
         })
       )
     },

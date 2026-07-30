@@ -11,7 +11,10 @@ import {
   type ProjectLifecycleLock
 } from '../../projects/main/project-lifecycle-lock'
 import type { Clock, SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createSessionsService } from '../../sessions/main/sessions.service'
+import {
+  createSessionsService,
+  toManagedChatAgentSession
+} from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
 import type {
   ProjectSession,
@@ -41,6 +44,7 @@ import {
   type ResolveAgentDefinitionsForDelegation
 } from '../../agents/main/agent-definition-resolver'
 import { resolveAgentDefinitionSourcesForSession } from '../../agents/main/agent-definition-paths'
+import { createPiSessionId } from './pi-session-id'
 
 const agentDefinitionReferenceSchema = z.object({
   id: z.string().trim().min(1)
@@ -231,7 +235,7 @@ export async function createManagedProjectAgentSession(
       project = { ...project, path: preparedProjectPath }
     }
     const projectPath = resolve(project.path)
-    const sessionId = createSessionId()
+    const sessionId = createPiSessionId(createSessionId)
     const worktree = await worktrees.create({
       projectPath,
       projectId,
@@ -398,7 +402,7 @@ export async function createProjectChatAgentSession(
     )
     const modelDefaults = await readModelDefaults()
     const sourceContext = createStoredSourceContext(owner)
-    const sessionId = createSessionId()
+    const sessionId = createPiSessionId(createSessionId)
     const state = await utilityHost.createSession({
       sessionId,
       kind: 'project',
@@ -783,7 +787,21 @@ function parseStoredAgentDefinitionSnapshot(
   }
 }
 
-export async function createManagedChatAgentSession({
+export type PreparedManagedChatAgentSession = {
+  session: ManagedChatAgentSession
+  activate: () => Promise<ManagedChatAgentSession>
+  commit: () => Promise<ManagedChatAgentSession>
+}
+
+export async function createManagedChatAgentSession(
+  dependencies: CreateManagedChatAgentSessionHandlerDependencies
+): Promise<ManagedChatAgentSession> {
+  const prepared = await prepareManagedChatAgentSession(dependencies)
+  await prepared.activate()
+  return prepared.commit()
+}
+
+export async function prepareManagedChatAgentSession({
   repository,
   utilityHost,
   createSessionId = nanoid,
@@ -797,8 +815,8 @@ export async function createManagedChatAgentSession({
   resolveAgentDefinition = resolveAgentDefinitionForSession,
   resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
   resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
-}: CreateManagedChatAgentSessionHandlerDependencies): Promise<ManagedChatAgentSession> {
-  const sessionId = createSessionId()
+}: CreateManagedChatAgentSessionHandlerDependencies): Promise<PreparedManagedChatAgentSession> {
+  const sessionId = createPiSessionId(createSessionId)
   const cwd = resolve(getManagedChatCwd())
   await mkdir(cwd, { recursive: true })
 
@@ -817,37 +835,104 @@ export async function createManagedChatAgentSession({
     resolveDelegationDefinitions,
     agentDefinitionSources
   )
-  const state = await utilityHost.createSession({
-    sessionId,
-    kind: 'workspace',
-    projectId: null,
-    cwd,
-    workspaceTools: listWorkspaceToolDescriptorsForSession({
-      kind: 'workspace',
-      managedContext
-    }),
-    ...(skillPaths ? { skillPaths } : {}),
-    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
-    defaultModel: modelDefaults.defaultModel,
-    thinkingLevel: modelDefaults.defaultThinking,
-    ...(agentDefinition ? { agentDefinition } : {}),
-    ...createDelegationDefinitionsRequest(delegationDefinitions)
+  const reservedSession = await createSessionsService({
+    repository
+  }).createManagedChatAgentSession({
+    id: sessionId,
+    title,
+    managedContext,
+    agentDefinitionSnapshot: agentDefinition,
+    agentLifecycleState: 'preparing'
   })
+  let activation: Promise<ManagedChatAgentSession> | undefined
+  let commit: Promise<ManagedChatAgentSession> | undefined
 
-  try {
-    return await createSessionsService({ repository }).createManagedChatAgentSession({
-      id: sessionId,
-      transcriptPath: state.transcriptPath,
-      modelProvider: state.modelProvider,
-      modelId: state.modelId,
-      thinkingLevel: state.thinkingLevel,
-      title,
-      managedContext,
-      agentDefinitionSnapshot: agentDefinition
-    })
-  } catch (error) {
-    await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+  async function rollbackActivation(
+    error: unknown,
+    utilitySessionCreated: boolean
+  ): Promise<never> {
+    const cleanupFailures: unknown[] = []
+    if (utilitySessionCreated) {
+      try {
+        await utilityHost.deleteSession({ sessionId })
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError)
+      }
+    }
+    if (cleanupFailures.length === 0) {
+      try {
+        await repository.deleteById(sessionId)
+      } catch (cleanupError) {
+        cleanupFailures.push(cleanupError)
+      }
+    }
+    if (cleanupFailures.length > 0) {
+      const rollbackError = new Error('session.creationRollbackFailed', { cause: error })
+      Object.defineProperty(rollbackError, 'cleanupFailures', {
+        value: cleanupFailures,
+        enumerable: false
+      })
+      throw rollbackError
+    }
     throw error
+  }
+
+  return {
+    session: reservedSession,
+    activate() {
+      activation ??= (async () => {
+        let utilitySessionCreated = false
+        try {
+          const state = await utilityHost.createSession({
+            sessionId,
+            kind: 'workspace',
+            projectId: null,
+            cwd,
+            workspaceTools: listWorkspaceToolDescriptorsForSession({
+              kind: 'workspace',
+              managedContext
+            }),
+            ...(skillPaths ? { skillPaths } : {}),
+            ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+            defaultModel: modelDefaults.defaultModel,
+            thinkingLevel: modelDefaults.defaultThinking,
+            ...(agentDefinition ? { agentDefinition } : {}),
+            ...createDelegationDefinitionsRequest(delegationDefinitions)
+          })
+          utilitySessionCreated = true
+          const storedSession = await repository.findSessionById(sessionId)
+          if (!storedSession) throw new Error('Managed Chat Session reservation was not found.')
+          return toManagedChatAgentSession(
+            await repository.update({
+              ...storedSession,
+              transcriptPath: state.transcriptPath,
+              modelProvider: state.modelProvider,
+              modelId: state.modelId,
+              thinkingLevel: state.thinkingLevel
+            })
+          )
+        } catch (error) {
+          return rollbackActivation(error, utilitySessionCreated)
+        }
+      })()
+      return activation
+    },
+    commit() {
+      if (!activation) return Promise.reject(new Error('Managed Chat Session is not activated.'))
+      commit ??= (async () => {
+        await activation
+        try {
+          const storedSession = await repository.findSessionById(sessionId)
+          if (!storedSession) throw new Error('Managed Chat Session reservation was not found.')
+          return toManagedChatAgentSession(
+            await repository.update({ ...storedSession, agentLifecycleState: 'active' })
+          )
+        } catch (error) {
+          return rollbackActivation(error, true)
+        }
+      })()
+      return commit
+    }
   }
 }
 
