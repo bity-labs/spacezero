@@ -115,6 +115,10 @@ describe('createKnowledgeBaseChatService', () => {
       agentSessionId: 'knowledge-base-agent-session-older',
       createdAt: new Date('2026-07-19T08:30:00.000Z')
     })
+    const cleanupPendingContext = storedChatContext({
+      id: 'knowledge-base-chat-context-cleanup-pending',
+      agentSessionId: 'knowledge-base-agent-session-cleanup-pending'
+    })
     const foreignContext = storedChatContext({
       id: 'project-chat-context-foreign',
       workspaceContextKey: 'project-session-123',
@@ -127,12 +131,21 @@ describe('createKnowledgeBaseChatService', () => {
         rootPath: '/home/builder/SpaceZero/knowledge-base'
       }),
       getCurrentChatContext: async () => currentContext,
-      listChatContexts: async () => [currentContext, olderContext, foreignContext],
+      listChatContexts: async () => [
+        currentContext,
+        olderContext,
+        cleanupPendingContext,
+        foreignContext
+      ],
       createCurrentChatContext: vi.fn(),
       setCurrentChatContext: vi.fn(),
       clearCurrentChatContext: vi.fn(),
       findSessionById: async (sessionId) =>
-        sessionId === olderSession.id ? olderSession : storedSession({ id: sessionId }),
+        sessionId === cleanupPendingContext.agentSessionId
+          ? storedSession({ id: sessionId, agentLifecycleState: 'cleanup-pending' })
+          : sessionId === olderSession.id
+            ? olderSession
+            : storedSession({ id: sessionId }),
       getSessionState: async ({ sessionId }) => ({
         sessionId,
         kind: 'workspace',
@@ -269,6 +282,7 @@ describe('createKnowledgeBaseChatService', () => {
     })
     const contextWrite = deferred<StoredChatContext>()
     let currentContext = initialContext
+    const markSessionPendingCleanup = vi.fn(async () => undefined)
     const deleteSession = vi.fn(async () => undefined)
     const createCurrentChatContext = vi.fn(async () => {
       const created = await contextWrite.promise
@@ -290,6 +304,7 @@ describe('createKnowledgeBaseChatService', () => {
       clearCurrentChatContext: vi.fn(),
       findSessionById: async (sessionId) => storedSession({ id: sessionId }),
       createSession: async () => freshSession,
+      markSessionPendingCleanup,
       deleteSession
     })
 
@@ -301,7 +316,11 @@ describe('createKnowledgeBaseChatService', () => {
     await expect(resuming).resolves.toMatchObject({ id: selectedContext.id })
     await expect(clearing).resolves.toMatchObject({ id: selectedContext.id })
     expect(currentContext).toBe(selectedContext)
+    expect(markSessionPendingCleanup).toHaveBeenCalledWith(freshSession.id)
     expect(deleteSession).toHaveBeenCalledWith(freshSession.id)
+    expect(markSessionPendingCleanup.mock.invocationCallOrder[0]).toBeLessThan(
+      deleteSession.mock.invocationCallOrder[0]
+    )
   })
 
   it('keeps a later clear current when an earlier resume lookup finishes late', async () => {
@@ -529,8 +548,11 @@ describe('createKnowledgeBaseChatService', () => {
       agentSessionId: replacementSession.id
     })
     const activation = deferred<StoredSession>()
+    const activationStarted = deferred<void>()
     let currentContext = previousContext
     const getSessionState = vi.fn()
+    const recoverPreparedSessions = vi.fn(async () => undefined)
+    const retryPendingCleanup = vi.fn(async () => undefined)
     const service = createKnowledgeBaseChatService({
       getStatus: async () => ({
         setupState: 'configured',
@@ -547,14 +569,19 @@ describe('createKnowledgeBaseChatService', () => {
       createSession: vi.fn(),
       prepareSession: async () => ({
         session: replacementSession,
-        activate: () => activation.promise
+        activate: () => {
+          activationStarted.resolve()
+          return activation.promise
+        }
       }),
+      recoverPreparedSessions,
+      retryPendingCleanup,
       deleteSession: vi.fn()
     })
 
     const clearing = service.clearChat()
 
-    await Promise.resolve()
+    await activationStarted.promise
     expect(currentContext).toBe(previousContext)
     await expect(service.getOrCreateCurrentChatContext()).resolves.toMatchObject({
       id: previousContext.id,
@@ -567,6 +594,8 @@ describe('createKnowledgeBaseChatService', () => {
     await Promise.resolve()
     expect(settled).toBe(false)
     expect(getSessionState).not.toHaveBeenCalled()
+    expect(recoverPreparedSessions).toHaveBeenCalledOnce()
+    expect(retryPendingCleanup).toHaveBeenCalledOnce()
 
     activation.resolve(replacementSession)
     await expect(clearing).resolves.toMatchObject({

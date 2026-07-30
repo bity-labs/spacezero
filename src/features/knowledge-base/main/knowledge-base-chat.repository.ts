@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 
 import { getDatabase } from '../../../main/db'
@@ -75,16 +75,47 @@ export function createKnowledgeBaseChatRepository({
     getCurrentChatContext,
     findChatContextById,
 
-    async listPreparingAgentSessions(): Promise<StoredSession[]> {
+    async listRecoverableAgentSessions(): Promise<StoredSession[]> {
       return (await getDatabase()
         .select()
         .from(schema.sessions)
         .where(
           and(
             eq(schema.sessions.managedContext, 'knowledge-base'),
-            eq(schema.sessions.agentLifecycleState, 'preparing')
+            inArray(schema.sessions.agentLifecycleState, ['preparing', 'cleanup-pending'])
           )
         )) as StoredSession[]
+    },
+
+    async listAgentSessionsPendingCleanup(): Promise<StoredSession[]> {
+      return (await getDatabase()
+        .select()
+        .from(schema.sessions)
+        .where(
+          and(
+            eq(schema.sessions.managedContext, 'knowledge-base'),
+            eq(schema.sessions.agentLifecycleState, 'cleanup-pending')
+          )
+        )) as StoredSession[]
+    },
+
+    async markAgentSessionPendingCleanup(sessionId: string): Promise<void> {
+      getDatabase().transaction((transaction) => {
+        const result = transaction
+          .update(schema.sessions)
+          .set({ agentLifecycleState: 'cleanup-pending' })
+          .where(
+            and(
+              eq(schema.sessions.id, sessionId),
+              eq(schema.sessions.managedContext, 'knowledge-base'),
+              eq(schema.sessions.agentLifecycleState, 'active')
+            )
+          )
+          .run()
+        if (result.changes !== 1) {
+          throw new Error('Knowledge Base Session is not eligible for superseded cleanup.')
+        }
+      })
     },
 
     async listChatContexts(): Promise<StoredChatContext[]> {

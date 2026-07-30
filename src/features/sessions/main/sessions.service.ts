@@ -38,7 +38,7 @@ export type StoredSession = {
   managedContext?: 'knowledge-base' | 'global-chat' | null
   workspaceContextSessionId?: string | null
   agentDefinitionSnapshot?: string | null
-  agentLifecycleState?: 'preparing' | 'active'
+  agentLifecycleState?: 'preparing' | 'active' | 'cleanup-pending'
 }
 
 export type CreateProjectAgentSessionRequest = {
