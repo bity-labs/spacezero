@@ -478,7 +478,6 @@ beforeEach(async () => {
     },
     sessions: {
       listProjectSessions: async () => [],
-      listWorkspaceSessions: async () => [],
       getCurrentGlobalChatContext: async () => ({
         id: 'global-chat-context-test',
         workspaceContext: { kind: 'global-chat', key: 'global-chat' },
@@ -555,7 +554,8 @@ beforeEach(async () => {
       }),
       rename: async ({ sessionId, title }) => ({
         id: sessionId,
-        kind: 'workspace',
+        kind: 'project',
+        projectId: 'project-test',
         title,
         status: 'idle',
         createdAt: new Date(0).toISOString(),
@@ -618,7 +618,7 @@ beforeEach(async () => {
       }),
       applyDownloadedUpdate: async () => ({
         status: 'no-downloaded-update',
-        activeWork: { projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 },
+        activeWork: { projectSessions: 0, chatContexts: 0, terminalTabs: 0 },
         updateStatus: {
           currentVersion: '0.1.0-beta.1',
           releaseChannel: 'beta',
@@ -845,14 +845,6 @@ beforeEach(async () => {
         transcriptPath: '/tmp/agent-session-test.jsonl',
         modelProvider: 'faux',
         modelId: 'faux-1'
-      }),
-      createWorkspaceSession: async () => ({
-        id: 'workspace-session-test',
-        kind: 'workspace',
-        title: 'Workspace Session 1',
-        status: 'idle',
-        createdAt: new Date(0).toISOString(),
-        updatedAt: new Date(0).toISOString()
       }),
       applyDefinitionToFreshSession: async ({ sessionId, agentDefinition }) => ({
         sessionId,

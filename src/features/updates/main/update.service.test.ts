@@ -208,20 +208,20 @@ describe('UpdateService', () => {
     const service = new UpdateService({
       currentVersion: '0.1.0-beta.1',
       updater,
-      activeWorkProvider: async () => ({ projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 })
+      activeWorkProvider: async () => ({ projectSessions: 1, chatContexts: 1, terminalTabs: 2 })
     })
     updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
 
     await expect(service.applyDownloadedUpdate()).resolves.toEqual({
       status: 'needs-confirmation',
-      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 },
+      activeWork: { projectSessions: 1, chatContexts: 1, terminalTabs: 2 },
       updateStatus: service.getStatus()
     })
     expect(updater.quitAndInstall).not.toHaveBeenCalled()
 
     await expect(service.applyDownloadedUpdate({ confirmActiveWork: true })).resolves.toEqual({
       status: 'applying',
-      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 2 },
+      activeWork: { projectSessions: 1, chatContexts: 1, terminalTabs: 2 },
       updateStatus: service.getStatus()
     })
     expect(updater.quitAndInstall).toHaveBeenCalledTimes(1)
@@ -247,12 +247,12 @@ describe('UpdateService', () => {
     const service = new UpdateService({
       currentVersion: '0.1.0-beta.1',
       updater,
-      activeWorkProvider: async () => ({ projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 })
+      activeWorkProvider: async () => ({ projectSessions: 0, chatContexts: 0, terminalTabs: 0 })
     })
 
     await expect(service.applyDownloadedUpdate()).resolves.toMatchObject({
       status: 'no-downloaded-update',
-      activeWork: { projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 },
+      activeWork: { projectSessions: 0, chatContexts: 0, terminalTabs: 0 },
       updateStatus: { state: 'idle' }
     })
     expect(updater.quitAndInstall).not.toHaveBeenCalled()
@@ -263,7 +263,7 @@ describe('UpdateService', () => {
     const service = new UpdateService({
       currentVersion: '0.1.0-beta.1',
       updater,
-      activeWorkProvider: async () => ({ projectSessions: 0, workspaceSessions: 0, terminalTabs: 0 })
+      activeWorkProvider: async () => ({ projectSessions: 0, chatContexts: 0, terminalTabs: 0 })
     })
     updater.emit('update-downloaded', { version: '0.1.0-beta.2' })
 

@@ -175,10 +175,7 @@ describe('App', () => {
     expect(within(topBar).queryByRole('button', { name: /Switch to/ })).not.toBeInTheDocument()
   })
 
-  it('shows one Chat item near Knowledge Base without ordinary Workspace Session UI', async () => {
-    const listWorkspaceSessions = vi.spyOn(window.spacezero.sessions, 'listWorkspaceSessions')
-    const createWorkspaceSession = vi.spyOn(window.spacezero.agent, 'createWorkspaceSession')
-
+  it('shows one Chat item near Knowledge Base without ordinary Workspace Session product APIs', async () => {
     render(<App />)
 
     const navigation = await screen.findByRole('menu', { name: 'Workspace navigation' })
@@ -186,7 +183,8 @@ describe('App', () => {
     expect(navigationItems.map((item) => item.textContent)).toEqual(['Knowledge Base', 'Chat'])
     expect(screen.queryByText('Workspace Sessions')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'New Agent' })).not.toBeInTheDocument()
-    expect(listWorkspaceSessions).not.toHaveBeenCalled()
+    expect('listWorkspaceSessions' in window.spacezero.sessions).toBe(false)
+    expect('createWorkspaceSession' in window.spacezero.agent).toBe(false)
 
     fireEvent.click(within(navigation).getByRole('button', { name: 'Chat' }))
 
@@ -197,7 +195,6 @@ describe('App', () => {
     expect(within(toolSwitcher).getByRole('button', { name: 'Terminal' })).toBeEnabled()
     expect(within(toolSwitcher).queryByRole('button', { name: 'Files' })).not.toBeInTheDocument()
     expect(within(toolSwitcher).queryByRole('button', { name: 'Git' })).not.toBeInTheDocument()
-    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 
   it('opens Files in the Tool Pane while keeping configured Knowledge Base chat primary', async () => {
@@ -1033,10 +1030,10 @@ describe('App', () => {
     expect(screen.getByText('Restart to update to 0.1.0-beta.2')).toBeInTheDocument()
   })
 
-  it('cancels and confirms restart/apply after active Project Session, Workspace Session, and Terminal warnings', async () => {
+  it('cancels and confirms restart/apply after active Project Session, Chat Context, and Terminal warnings', async () => {
     const applyDownloadedUpdate = vi.fn(async ({ confirmActiveWork } = {}) => ({
       status: confirmActiveWork ? ('applying' as const) : ('needs-confirmation' as const),
-      activeWork: { projectSessions: 1, workspaceSessions: 1, terminalTabs: 1 },
+      activeWork: { projectSessions: 1, chatContexts: 1, terminalTabs: 1 },
       updateStatus: {
         currentVersion: '0.1.0-beta.1',
         releaseChannel: 'beta' as const,
@@ -1068,7 +1065,7 @@ describe('App', () => {
       await screen.findByRole('heading', { name: 'Restart and apply update?' })
     ).toBeInTheDocument()
     expect(screen.getByText(/1 active Project Session/)).toBeInTheDocument()
-    expect(screen.getByText(/1 active Workspace Session/)).toBeInTheDocument()
+    expect(screen.getByText(/1 active Chat Context/)).toBeInTheDocument()
     expect(screen.getByText(/1 active Terminal tab/)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))

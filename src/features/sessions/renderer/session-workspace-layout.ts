@@ -1,4 +1,4 @@
-import type { ProjectSession, SessionStatus, WorkspaceSession } from '../shared'
+import type { ProjectSession, SessionStatus } from '../shared'
 
 export type ProjectSessionWorkspaceTab = {
   id: string
@@ -9,15 +9,7 @@ export type ProjectSessionWorkspaceTab = {
   status: SessionStatus
 }
 
-export type WorkspaceSessionWorkspaceTab = {
-  id: string
-  kind: 'workspace'
-  session: WorkspaceSession
-  title: string
-  status: SessionStatus
-}
-
-export type SessionWorkspaceTab = ProjectSessionWorkspaceTab | WorkspaceSessionWorkspaceTab
+export type SessionWorkspaceTab = ProjectSessionWorkspaceTab
 
 export type SessionWorkspacePanel = {
   id: string
@@ -48,30 +40,11 @@ export function createProjectSessionWorkspaceTab(
   }
 }
 
-export function createWorkspaceSessionWorkspaceTab(
-  session: WorkspaceSession
-): WorkspaceSessionWorkspaceTab {
-  return {
-    id: workspaceSessionTabId(session.id),
-    kind: 'workspace',
-    session,
-    title: session.title,
-    status: session.status
-  }
-}
-
 export function openProjectSessionInLayout(
   layout: SessionWorkspaceLayout,
   session: ProjectSession
 ): SessionWorkspaceLayout {
   return openTabInLayout(layout, createProjectSessionWorkspaceTab(session))
-}
-
-export function openWorkspaceSessionInLayout(
-  layout: SessionWorkspaceLayout,
-  session: WorkspaceSession
-): SessionWorkspaceLayout {
-  return openTabInLayout(layout, createWorkspaceSessionWorkspaceTab(session))
 }
 
 export function focusSessionTabInLayout(
@@ -99,31 +72,31 @@ export function syncProjectSessionTabs(
   layout: SessionWorkspaceLayout,
   sessions: ProjectSession[]
 ): SessionWorkspaceLayout {
-  return syncSessionTabs(layout, sessions, [])
-}
-
-export function syncSessionTabs(
-  layout: SessionWorkspaceLayout,
-  projectSessions: ProjectSession[],
-  workspaceSessions: WorkspaceSession[]
-): SessionWorkspaceLayout {
-  const projectSessionsById = new Map(projectSessions.map((session) => [session.id, session]))
-  const workspaceSessionsById = new Map(workspaceSessions.map((session) => [session.id, session]))
-
-  return {
-    ...layout,
-    panels: layout.panels.map((panel) => ({
-      ...panel,
-      tabs: panel.tabs.map((tab) => {
-        if (tab.kind === 'project') {
-          const session = projectSessionsById.get(tab.sessionId)
-          return session ? createProjectSessionWorkspaceTab(session) : tab
-        }
-        const session = workspaceSessionsById.get(tab.session.id)
-        return session ? createWorkspaceSessionWorkspaceTab(session) : tab
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]))
+  const panels = layout.panels.flatMap((panel) => {
+    // Persisted layouts from before Global Chat may still contain ordinary Workspace Session tabs.
+    const tabs = panel.tabs
+      .filter((tab) => tab.kind === 'project')
+      .map((tab) => {
+        const session = sessionsById.get(tab.sessionId)
+        return session ? createProjectSessionWorkspaceTab(session) : tab
       })
-    }))
-  }
+    if (tabs.length === 0) return []
+    return [
+      {
+        ...panel,
+        tabs,
+        activeTabId: tabs.some((tab) => tab.id === panel.activeTabId)
+          ? panel.activeTabId
+          : tabs[0].id
+      }
+    ]
+  })
+  const focusedPanelId = panels.some((panel) => panel.id === layout.focusedPanelId)
+    ? layout.focusedPanelId
+    : (panels[0]?.id ?? null)
+
+  return { panels, focusedPanelId }
 }
 
 export function getFocusedSessionTab(layout: SessionWorkspaceLayout): SessionWorkspaceTab | null {
@@ -149,8 +122,4 @@ function createPanel(tab: SessionWorkspaceTab, index: number): SessionWorkspaceP
 
 function projectSessionTabId(sessionId: string): string {
   return `project:${sessionId}`
-}
-
-function workspaceSessionTabId(sessionId: string): string {
-  return `workspace:${sessionId}`
 }

@@ -368,11 +368,9 @@ describe('GlobalChatPage', () => {
     window.spacezero.sessions.getCurrentGlobalChatContext = vi.fn(async () => {
       throw new Error('Agent runtime unavailable')
     })
-    const createWorkspaceSession = vi.spyOn(window.spacezero.agent, 'createWorkspaceSession')
 
     render(<GlobalChatPage />)
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Agent runtime unavailable')
-    expect(createWorkspaceSession).not.toHaveBeenCalled()
   })
 })

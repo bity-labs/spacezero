@@ -1,11 +1,11 @@
-import type { WorkspaceSession } from '../../sessions/shared'
+import type { ManagedChatAgentSession } from '../../sessions/shared'
 
 export const MAX_KNOWLEDGE_BASE_IMAGE_BYTES = 10 * 1024 * 1024
 
 export type KnowledgeBaseChatContext = {
   id: string
   workspaceContext: { kind: 'knowledge-base'; key: 'knowledge-base' }
-  agentSession: WorkspaceSession
+  agentSession: ManagedChatAgentSession
   createdAt: string
   updatedAt: string
 }

@@ -153,8 +153,12 @@ describe('Sessions IPC terminal cleanup mapping', () => {
     vi.restoreAllMocks()
   })
 
-  it('renames Sessions through a typed IPC handler with trimmed input', async () => {
-    const session = createStoredSession()
+  it('renames Project Sessions through a typed IPC handler with trimmed input', async () => {
+    const session = createStoredSession({
+      id: 'project-session-1',
+      projectId: 'project-1',
+      title: 'Project Session 1'
+    })
     const { renameSession, repository } = await setupSessionsIpcHarness({ session })
 
     await expect(
@@ -162,7 +166,7 @@ describe('Sessions IPC terminal cleanup mapping', () => {
     ).resolves.toMatchObject({
       id: session.id,
       title: 'Better name',
-      kind: 'workspace'
+      kind: 'project'
     })
 
     expect(repository.update).toHaveBeenCalledWith(
