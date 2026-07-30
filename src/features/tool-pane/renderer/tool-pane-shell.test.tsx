@@ -47,7 +47,10 @@ describe('ToolPaneShell', () => {
       </ToolPaneShell>
     )
 
-    expect(screen.getByText('Chat')).toBeInTheDocument()
+    const chat = screen.getByText('Chat')
+
+    expect(chat).toBeInTheDocument()
+    expect(chat.parentElement).toHaveStyle({ paddingRight: '48px' })
     expect(screen.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
       'aria-orientation',
       'vertical'
