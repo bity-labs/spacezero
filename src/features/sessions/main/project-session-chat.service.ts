@@ -49,12 +49,52 @@ export function createProjectSessionChatService({
   deleteAgentSession: (agentSessionId: string) => Promise<void>
   getSessionState: (request: { sessionId: string }) => Promise<AgentSessionState>
 }): ProjectSessionChatService {
+  let nextMutationGeneration = 0
+  const latestMutationGeneration = new Map<string, number>()
+  const mutationQueues = new Map<string, Promise<void>>()
+
   async function getProjectSession(projectSessionId: string): Promise<StoredSession> {
     const session = await findSessionById(projectSessionId.trim())
     if (!session?.projectId || session.archivedAt || session.workspaceContextSessionId) {
       throw new Error('Project Session not found')
     }
     return session
+  }
+
+  function beginCurrentContextMutation(projectSessionId: string): number {
+    const generation = ++nextMutationGeneration
+    latestMutationGeneration.set(projectSessionId, generation)
+    return generation
+  }
+
+  function isLatestCurrentContextMutation(projectSessionId: string, generation: number): boolean {
+    return latestMutationGeneration.get(projectSessionId) === generation
+  }
+
+  async function runCurrentContextMutation<T>(
+    projectSessionId: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const previous = mutationQueues.get(projectSessionId) ?? Promise.resolve()
+    const result = previous.then(operation, operation)
+    const queued = result.then(
+      () => undefined,
+      () => undefined
+    )
+    mutationQueues.set(projectSessionId, queued)
+    try {
+      return await result
+    } finally {
+      if (mutationQueues.get(projectSessionId) === queued) mutationQueues.delete(projectSessionId)
+    }
+  }
+
+  async function getPersistedCurrentChatContext(
+    projectSessionId: string
+  ): Promise<ProjectSessionChatContext> {
+    const current = await getCurrentChatContext(projectSessionId)
+    if (!current) throw new Error('Project Session Chat Context is unavailable')
+    return toProjectSessionChatContext(current, projectSessionId)
   }
 
   return {
@@ -125,33 +165,45 @@ export function createProjectSessionChatService({
         throw new Error('Project Session Chat Context is unavailable')
       }
 
-      return toProjectSessionChatContext(
-        await setCurrentChatContext(projectSession.id, chatContext.id),
-        projectSession.id
-      )
+      const generation = beginCurrentContextMutation(projectSession.id)
+      const resumed = await runCurrentContextMutation(projectSession.id, async () => {
+        if (!isLatestCurrentContextMutation(projectSession.id, generation)) return undefined
+        return setCurrentChatContext(projectSession.id, chatContext.id)
+      })
+      return resumed
+        ? toProjectSessionChatContext(resumed, projectSession.id)
+        : getPersistedCurrentChatContext(projectSession.id)
     },
 
     async clearChat(projectSessionId) {
       const projectSession = await getProjectSession(projectSessionId)
+      const generation = beginCurrentContextMutation(projectSession.id)
       const freshAgentSession = await createFreshAgentSession(projectSession.id)
-      try {
-        const chatContext = await createCurrentChatContext(projectSession.id, freshAgentSession.id)
-        return toProjectSessionChatContext(chatContext, projectSession.id)
-      } catch (error) {
+      const chatContext = await runCurrentContextMutation(projectSession.id, async () => {
+        if (!isLatestCurrentContextMutation(projectSession.id, generation)) return undefined
         try {
-          await deleteAgentSession(freshAgentSession.id)
-        } catch (rollbackFailure) {
-          const rollbackError = new Error('projectSessionChat.creationRollbackFailed', {
-            cause: error
-          })
-          Object.defineProperty(rollbackError, 'rollbackFailures', {
-            value: [rollbackFailure],
-            enumerable: false
-          })
-          throw rollbackError
+          return await createCurrentChatContext(projectSession.id, freshAgentSession.id)
+        } catch (error) {
+          try {
+            await deleteAgentSession(freshAgentSession.id)
+          } catch (rollbackFailure) {
+            const rollbackError = new Error('projectSessionChat.creationRollbackFailed', {
+              cause: error
+            })
+            Object.defineProperty(rollbackError, 'rollbackFailures', {
+              value: [rollbackFailure],
+              enumerable: false
+            })
+            throw rollbackError
+          }
+          throw error
         }
-        throw error
-      }
+      })
+
+      if (chatContext) return toProjectSessionChatContext(chatContext, projectSession.id)
+
+      await deleteAgentSession(freshAgentSession.id)
+      return getPersistedCurrentChatContext(projectSession.id)
     }
   }
 }

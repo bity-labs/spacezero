@@ -1,4 +1,7 @@
-import { createProjectChatAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import {
+  createProjectChatAgentSession,
+  restoreAgentSessionState
+} from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
@@ -43,7 +46,15 @@ export function getProjectSessionChatService(): ProjectSessionChatService {
         await getAgentUtilityProcessHost().deleteSession({ sessionId: agentSessionId })
         await sessionsRepository.deleteById(agentSessionId)
       },
-      getSessionState: (request) => getAgentUtilityProcessHost().getState(request)
+      getSessionState: (request) =>
+        restoreAgentSessionState(request, {
+          repository: sessionsRepository,
+          utilityHost: getAgentUtilityProcessHost(),
+          worktrees: getManagedWorktreeService(),
+          getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus(),
+          readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+          resolveSkillPaths: resolveAgentSkillPaths
+        })
     })
   }
   return service
