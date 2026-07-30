@@ -160,7 +160,9 @@ export function ProjectSessionHostSurface({
       }
       throw clearError
     } finally {
-      if (chatContextResolution.current === resolution) setClearingSessionId(undefined)
+      setClearingSessionId((currentSessionId) =>
+        currentSessionId === session.id ? undefined : currentSessionId
+      )
     }
   }
 

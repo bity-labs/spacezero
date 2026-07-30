@@ -199,6 +199,99 @@ describe('Project Session Chat Contexts', () => {
     expect(getSessionState).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the latest accepted resume current when an earlier clear finishes late', async () => {
+    const stableSession = projectSession()
+    const initialContext = chatContext('chat-context-current', stableSession.id)
+    const selectedContext = chatContext('chat-context-selected', 'agent-session-selected')
+    const selectedAgentSession = projectSession({
+      id: selectedContext.agentSessionId,
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const supersededFreshAgentSession = projectSession({
+      id: 'agent-session-superseded',
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const subsequentFreshAgentSession = projectSession({
+      id: 'agent-session-subsequent',
+      workspaceContextSessionId: stableSession.id,
+      worktreePath: null,
+      worktreeBranch: null,
+      worktreeBaseRevision: null
+    })
+    const firstFreshAgentSession = deferred<StoredSession>()
+    let currentContext = initialContext
+    let freshAgentSessionCount = 0
+    const createFreshAgentSession = vi.fn(async () => {
+      freshAgentSessionCount += 1
+      return freshAgentSessionCount === 1
+        ? firstFreshAgentSession.promise
+        : subsequentFreshAgentSession
+    })
+    const deleteAgentSession = vi.fn(async () => undefined)
+    const service = createProjectSessionChatService({
+      findSessionById: async (sessionId) =>
+        [
+          stableSession,
+          selectedAgentSession,
+          supersededFreshAgentSession,
+          subsequentFreshAgentSession
+        ].find((stored) => stored.id === sessionId),
+      getCurrentChatContext: async () => currentContext,
+      listChatContexts: vi.fn(),
+      findChatContextById: async (_projectSessionId, chatContextId) =>
+        chatContextId === selectedContext.id ? selectedContext : undefined,
+      createCurrentChatContext: async (projectSessionId, agentSessionId) => {
+        currentContext = chatContext(
+          `chat-context-${agentSessionId}`,
+          agentSessionId,
+          projectSessionId
+        )
+        return currentContext
+      },
+      setCurrentChatContext: async () => {
+        currentContext = selectedContext
+        return currentContext
+      },
+      createFreshAgentSession,
+      deleteAgentSession,
+      getSessionState: vi.fn()
+    })
+
+    const clearing = service.clearChat(stableSession.id)
+    await vi.waitFor(() => expect(createFreshAgentSession).toHaveBeenCalledTimes(1))
+
+    await expect(
+      service.resumeChatContext(stableSession.id, selectedContext.id)
+    ).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+
+    firstFreshAgentSession.resolve(supersededFreshAgentSession)
+    await expect(clearing).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+    await expect(service.getOrCreateCurrentChatContext(stableSession.id)).resolves.toMatchObject({
+      id: selectedContext.id,
+      agentSessionId: selectedAgentSession.id
+    })
+    expect(deleteAgentSession).toHaveBeenCalledWith(supersededFreshAgentSession.id)
+
+    await expect(service.clearChat(stableSession.id)).resolves.toMatchObject({
+      agentSessionId: subsequentFreshAgentSession.id
+    })
+    await expect(service.getOrCreateCurrentChatContext(stableSession.id)).resolves.toMatchObject({
+      agentSessionId: subsequentFreshAgentSession.id
+    })
+  })
+
   it('resumes a retained Chat Context in the same Project Session without changing worktree metadata', async () => {
     const stableSession = projectSession()
     const stableSnapshot = structuredClone(stableSession)
@@ -329,3 +422,16 @@ describe('Project Session Chat Contexts', () => {
     ).rejects.toThrow('Project Session not found')
   })
 })
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolvePromise: ((value: T) => void) | undefined
+  const promise = new Promise<T>((resolve) => {
+    resolvePromise = resolve
+  })
+  return {
+    promise,
+    resolve(value) {
+      resolvePromise?.(value)
+    }
+  }
+}
