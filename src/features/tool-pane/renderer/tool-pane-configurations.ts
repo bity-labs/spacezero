@@ -36,6 +36,78 @@ const toolRegistry = {
   terminal: { id: 'terminal', label: 'Terminal', available: false, icon: TerminalWindow }
 } satisfies Record<ToolDescriptor['id'], ToolDescriptor>
 
+export function createProjectHomeToolPaneConfiguration(project: {
+  id: string
+}): ToolPaneConfiguration {
+  const contextKey = projectContextKey(project.id)
+  return {
+    contextKey,
+    capabilities: { kind: 'project-home', projectId: project.id },
+    defaultToolId: 'files',
+    tools: [
+      {
+        ...toolRegistry.files,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-home'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(FilesToolLoading) },
+                createElement(FilesTool, {
+                  contextKey,
+                  ipcContext: { kind: 'project-home', projectId: capabilities.projectId }
+                })
+              )
+            : null
+      },
+      {
+        ...toolRegistry.git,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-home'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(GitToolLoading) },
+                createElement(GitTool, {
+                  context: { kind: 'project-home', projectId: capabilities.projectId },
+                  filesHandoff: {
+                    openFilesTool: () => useToolPaneStore.getState().openTool(contextKey, 'files'),
+                    openLocation: ({ relativePath, line }) =>
+                      openFilesLocation({
+                        contextKey,
+                        ipcContext: {
+                          kind: 'project-home',
+                          projectId: capabilities.projectId
+                        },
+                        relativePath,
+                        line
+                      })
+                  }
+                })
+              )
+            : null
+      },
+      createBrowserToolDescriptor(),
+      {
+        ...toolRegistry.terminal,
+        available: true,
+        render: ({ capabilities }) =>
+          capabilities.kind === 'project-home'
+            ? createElement(
+                Suspense,
+                { fallback: createElement(TerminalToolLoading) },
+                createElement(TerminalWithBrowserHandoff, {
+                  terminalContext: { kind: 'project-home', projectId: capabilities.projectId },
+                  browserContextKey: contextKey,
+                  browserContext: { kind: 'project-home', projectId: capabilities.projectId }
+                })
+              )
+            : null
+      }
+    ]
+  }
+}
+
 export function createProjectSessionToolPaneConfiguration(session: {
   id: string
   projectId: string
@@ -329,6 +401,10 @@ function createKnowledgeBaseRichImageAdapter(documentRelativePath: string) {
     loadImage: ({ markdownPath }: { markdownPath: string }) =>
       window.spacezero.knowledgeBase.loadImage({ documentRelativePath, markdownPath })
   }
+}
+
+function projectContextKey(projectId: string): string {
+  return `project:${projectId}`
 }
 
 function sessionContextKey(sessionId: string): string {

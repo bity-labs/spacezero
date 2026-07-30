@@ -13,11 +13,15 @@ import {
   trashFilesEntryRequestSchema
 } from './files.schema'
 
+const projectHomeContext = { kind: 'project-home' as const, projectId: 'project-1' }
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
 const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
 
 describe('Files IPC schemas', () => {
-  it('accepts project and Knowledge Base contexts for full tree listing without arbitrary roots', () => {
+  it('accepts Project Home, Project Session, and Knowledge Base contexts without arbitrary roots', () => {
+    expect(listFilesTreeRequestSchema.parse({ context: projectHomeContext })).toEqual({
+      context: projectHomeContext
+    })
     expect(listFilesTreeRequestSchema.parse({ context: projectContext })).toEqual({
       context: projectContext
     })
@@ -26,6 +30,8 @@ describe('Files IPC schemas', () => {
     })
 
     for (const input of [
+      { context: { kind: 'project-home', projectId: '' } },
+      { context: { kind: 'project-home', projectId: 'project-1', rootPath: '/arbitrary' } },
       { context: { kind: 'project-session', sessionId: '' } },
       { context: { kind: 'knowledge-base', contextKey: 'kb-session-1' } },
       { context: knowledgeBaseContext, rootPath: '/arbitrary' },

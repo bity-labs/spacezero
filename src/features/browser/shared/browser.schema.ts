@@ -4,6 +4,10 @@ import { BROWSER_COMMAND_IDS } from './browser.contract'
 
 export const browserContextSchema = z.discriminatedUnion('kind', [
   z.object({
+    kind: z.literal('project-home'),
+    projectId: z.string().min(1)
+  }),
+  z.object({
     kind: z.literal('project-session'),
     projectId: z.string().min(1),
     sessionId: z.string().min(1)

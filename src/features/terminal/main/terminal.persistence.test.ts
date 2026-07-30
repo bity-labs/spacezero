@@ -565,6 +565,10 @@ function sameContext(left: TerminalContext, right: TerminalContext): boolean {
     right.kind === 'knowledge-base' ||
     right.kind === 'global-chat'
   ) return true
+  if (left.kind === 'project-home' && right.kind === 'project-home') {
+    return left.projectId === right.projectId
+  }
+  if (left.kind === 'project-home' || right.kind === 'project-home') return false
   return left.sessionId === right.sessionId
 }
 

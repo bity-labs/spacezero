@@ -51,6 +51,7 @@ import {
 import {
   createGlobalChatToolPaneConfiguration,
   createKnowledgeBaseToolPaneConfiguration,
+  createProjectHomeToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration,
   getRenderedToolPaneWidth,
   ToolPaneHeaderControls,
@@ -176,8 +177,9 @@ export function WorkspaceShell(): React.JSX.Element {
     }
     if (activePrimaryView === 'global-chat') return createGlobalChatToolPaneConfiguration()
     if (activeProjectSession) return createProjectSessionToolPaneConfiguration(activeProjectSession)
+    if (activeProject) return createProjectHomeToolPaneConfiguration(activeProject)
     return null
-  }, [activePrimaryView, activeProjectSession, isKnowledgeBaseConfigured])
+  }, [activePrimaryView, activeProject, activeProjectSession, isKnowledgeBaseConfigured])
   const toolPaneController = useToolPaneController(toolPaneConfiguration)
   const savedToolPaneWidth = useToolPaneStore((state) =>
     toolPaneConfiguration ? state.contexts[toolPaneConfiguration.contextKey]?.width : null
@@ -558,16 +560,20 @@ export function WorkspaceShell(): React.JSX.Element {
               <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
             )
           ) : activeProject ? (
-            <ProjectHome
-              key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
-              project={activeProject}
-              onProjectLinked={upsertProject}
-              onNewSession={() => handleNewSession(activeProject)}
-              onSessionCreated={(session) => void handleGitHubSessionCreated(session)}
-              initialGitHubTarget={
-                projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
-              }
-            />
+            toolPaneConfiguration ? (
+              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+                <ProjectHome
+                  key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
+                  project={activeProject}
+                  onProjectLinked={upsertProject}
+                  onNewSession={() => handleNewSession(activeProject)}
+                  onSessionCreated={(session) => void handleGitHubSessionCreated(session)}
+                  initialGitHubTarget={
+                    projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
+                  }
+                />
+              </ToolPaneShell>
+            ) : null
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
               <div>

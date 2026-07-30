@@ -81,11 +81,21 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const forceCreateRequestedRef = useRef(false)
   const previousTerminalContextKeyRef = useRef<string | null>(null)
   const terminalContextKind = context.kind
+  const terminalContextProjectId = 'projectId' in context ? context.projectId : undefined
   const terminalContextSessionId = 'sessionId' in context ? context.sessionId : undefined
   const terminalContext = useMemo<TerminalContext>(() => {
-    if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
-    return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
-  }, [terminalContextKind, terminalContextSessionId])
+    if (terminalContextKind === 'project-home') {
+      return { kind: 'project-home', projectId: terminalContextProjectId ?? '' }
+    }
+    if (terminalContextKind === 'project-session') {
+      return { kind: 'project-session', sessionId: terminalContextSessionId ?? '' }
+    }
+    if (terminalContextKind === 'workspace-session') {
+      return { kind: 'workspace-session', sessionId: terminalContextSessionId ?? '' }
+    }
+    if (terminalContextKind === 'global-chat') return { kind: 'global-chat' }
+    return { kind: 'knowledge-base' }
+  }, [terminalContextKind, terminalContextProjectId, terminalContextSessionId])
   const terminalContextKey = useMemo(
     () => terminalContextIdentity(terminalContext),
     [terminalContext]
@@ -784,5 +794,6 @@ function getViewportStore(contextKey: string): Map<string, number> {
 
 function terminalContextIdentity(context: TerminalContext): string {
   if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
+  if (context.kind === 'project-home') return `${context.kind}:${context.projectId}`
   return `${context.kind}:${context.sessionId}`
 }

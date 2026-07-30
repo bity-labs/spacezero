@@ -16,6 +16,12 @@ const sessionTerminalContextSchema = (kind: 'project-session' | 'workspace-sessi
     .strict()
 
 const terminalContextSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('project-home'),
+      projectId: z.string().trim().min(1).max(256)
+    })
+    .strict(),
   sessionTerminalContextSchema('project-session'),
   sessionTerminalContextSchema('workspace-session'),
   z.object({ kind: z.literal('global-chat') }).strict(),

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createFilesService } from './files.service'
 
+const projectHomeContext = { kind: 'project-home' as const, projectId: 'project-1' }
 const projectContext = { kind: 'project-session' as const, sessionId: 'session-1' }
 const knowledgeBaseContext = { kind: 'knowledge-base', contextKey: 'knowledge-base' } as const
 const validSession = {
@@ -60,6 +61,42 @@ function createTestService(overrides: Partial<Parameters<typeof createFilesServi
 }
 
 describe('Files service', () => {
+  it('lists Project Home from the main-owned registered project root without reusing a worktree', async () => {
+    const repository = {
+      findSessionById: vi.fn(async () => validSession),
+      findProjectById: vi.fn(async () => validProject)
+    }
+    const worktrees = { validate: vi.fn(async () => true) }
+    const readTree = vi.fn(async () => ({ entries: [], presortedPaths: [] }))
+    const service = createTestService({ repository, worktrees, readTree })
+
+    await expect(service.listTree({ context: projectHomeContext })).resolves.toEqual({
+      entries: [],
+      presortedPaths: []
+    })
+
+    expect(repository.findProjectById).toHaveBeenCalledWith('project-1')
+    expect(repository.findSessionById).not.toHaveBeenCalled()
+    expect(worktrees.validate).not.toHaveBeenCalled()
+    expect(readTree).toHaveBeenCalledWith('/projects/project-1')
+  })
+
+  it('rejects unavailable Project Home identities before accessing a filesystem root', async () => {
+    const readTree = vi.fn(async () => ({ entries: [], presortedPaths: [] }))
+    const service = createTestService({
+      repository: {
+        findSessionById: vi.fn(async () => validSession),
+        findProjectById: vi.fn(async () => undefined)
+      },
+      readTree
+    })
+
+    await expect(service.listTree({ context: projectHomeContext })).rejects.toThrow(
+      'files.projectNotFound'
+    )
+    expect(readTree).not.toHaveBeenCalled()
+  })
+
   it('lists the authenticated managed worktree tree for a Project Session', async () => {
     const repository = {
       findSessionById: vi.fn(async () => validSession),

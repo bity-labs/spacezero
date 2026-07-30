@@ -58,6 +58,11 @@ describe('Terminal IPC boundary', () => {
       terminalId: 'terminal-1'
     })
     await expect(
+      handlers.create(event, {
+        context: { kind: 'project-home', projectId: 'project-1' }
+      })
+    ).resolves.toMatchObject({ status: 'running' })
+    await expect(
       handlers.selectTab(event, { terminalId: 'terminal-1', context })
     ).resolves.toMatchObject({ activeTerminalId: 'terminal-1' })
     await expect(
@@ -106,6 +111,11 @@ describe('Terminal IPC boundary', () => {
 
     expect(() =>
       handlers.create(event, {
+        context: { kind: 'project-home', projectId: 'project-1', rootPath: '/tmp/forged' }
+      })
+    ).toThrow()
+    expect(() =>
+      handlers.create(event, {
         context: { kind: 'project-session', sessionId: '' },
         executable: '/bin/zsh'
       })
@@ -119,7 +129,7 @@ describe('Terminal IPC boundary', () => {
     expect(() =>
       handlers.reorderTabs(event, { context, terminalIds: ['terminal-1', 'terminal-1'] })
     ).toThrow()
-    expect(service.create).toHaveBeenCalledTimes(1)
+    expect(service.create).toHaveBeenCalledTimes(2)
     expect(service.writeInput).toHaveBeenCalledTimes(1)
     expect(service.resize).toHaveBeenCalledTimes(1)
     expect(service.reorderTabs).toHaveBeenCalledTimes(1)
