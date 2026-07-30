@@ -1968,6 +1968,46 @@ describe('Files Tool', () => {
     )
   })
 
+  it('bounds source editor layout so Monaco horizontal scroll stays inside Files', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'app.ts',
+      relativePath: 'app.ts',
+      contentKind: 'text' as const,
+      size: 21,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'export const app = 1\n',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<FilesTool sessionId="session-1" />)
+    fireEvent.click(await screen.findByText('app.ts'))
+
+    const filesRegion = screen.getByRole('region', { name: 'Files explorer' })
+    expect(filesRegion).toHaveClass('min-w-0', 'overflow-hidden')
+
+    const sourceEditor = await screen.findByLabelText('Monaco editor')
+    expect(sourceEditor.parentElement).toHaveClass(
+      'flex',
+      'h-full',
+      'min-h-0',
+      'min-w-0',
+      'flex-1',
+      'overflow-hidden'
+    )
+    expect(sourceEditor.parentElement?.parentElement).toHaveClass(
+      'flex',
+      'min-h-0',
+      'min-w-0',
+      'flex-1',
+      'overflow-hidden'
+    )
+  })
+
   it('passes the resolved app theme to Monaco and updates open source editors', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
