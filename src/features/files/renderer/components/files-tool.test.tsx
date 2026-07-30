@@ -94,9 +94,20 @@ vi.mock('@pierre/trees/react', async () => {
       options?: { preparedInput?: PreparedTreeInput; initialExpandedPaths?: readonly string[] }
     ) => void
     getFileTreeContainer: () => HTMLElement | undefined
-    getItem: (
-      path: string
-    ) => { select: () => void; isDirectory: () => boolean; getPath: () => string } | null
+    getItem: (path: string) =>
+      | {
+          collapse: () => void
+          getPath: () => string
+          isDirectory: () => true
+          isExpanded: () => boolean
+          select: () => void
+        }
+      | {
+          getPath: () => string
+          isDirectory: () => false
+          select: () => void
+        }
+      | null
     getFocusedPath: () => string | null
     getSelectedPaths: () => readonly string[]
     getVisibleCount: () => number
@@ -210,9 +221,21 @@ vi.mock('@pierre/trees/react', async () => {
       getItem: (path) => {
         const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
         if (!paths.includes(normalizedPath)) return null
+        if (!isDirectoryPath(normalizedPath)) {
+          return {
+            getPath: () => normalizedPath,
+            isDirectory: () => false,
+            select: () => model.__select(normalizedPath)
+          }
+        }
         return {
+          collapse: () => {
+            if (!expanded.delete(normalizedPath)) return
+            notify()
+          },
           getPath: () => normalizedPath,
-          isDirectory: () => isDirectoryPath(normalizedPath),
+          isDirectory: () => true,
+          isExpanded: () => expanded.has(normalizedPath),
           select: () => model.__select(normalizedPath)
         }
       },
@@ -860,6 +883,62 @@ describe('Files Tool', () => {
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'src/index.ts'
     })
+  })
+
+  it('collapses every expanded folder while preserving explorer state and normal expansion', async () => {
+    window.spacezero.files.listTree = vi.fn(async () => ({
+      entries: [
+        { name: 'src', relativePath: 'src', kind: 'directory' as const },
+        { name: 'nested', relativePath: 'src/nested', kind: 'directory' as const },
+        { name: 'index.ts', relativePath: 'src/nested/index.ts', kind: 'file' as const },
+        { name: 'docs', relativePath: 'docs', kind: 'directory' as const },
+        { name: 'guide.md', relativePath: 'docs/guide.md', kind: 'file' as const }
+      ],
+      presortedPaths: ['docs/', 'docs/guide.md', 'src/', 'src/nested/', 'src/nested/index.ts']
+    }))
+
+    render(<FilesTool sessionId="session-collapse-all" />)
+
+    await screen.findByRole('tree', { name: 'Project files' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand docs' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand nested' }))
+    fireEvent.click(screen.getByRole('treeitem', { name: 'nested' }))
+    await waitFor(() =>
+      expect(useFilesStore.getState().contexts['session-collapse-all']).toMatchObject({
+        expandedPaths: ['docs', 'src', 'src/nested'],
+        selectedPath: 'src/nested'
+      })
+    )
+    expect(screen.getByRole('treeitem', { name: 'guide.md' })).toBeInTheDocument()
+    expect(screen.getByRole('treeitem', { name: 'index.ts' })).toBeInTheDocument()
+
+    const treeOverflowBoundary = screen.getByTestId('tree-overflow-boundary')
+    treeOverflowBoundary.scrollTop = 42
+    const collapseAll = screen.getByRole('button', { name: 'Collapse all folders' })
+    const collapseExplorer = screen.getByRole('button', { name: 'Collapse Files explorer' })
+    expect(collapseAll).toHaveAttribute('title', 'Collapse all folders')
+    expect(collapseAll.compareDocumentPosition(collapseExplorer)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    )
+
+    fireEvent.click(collapseAll)
+
+    await waitFor(() =>
+      expect(useFilesStore.getState().contexts['session-collapse-all']).toMatchObject({
+        expandedPaths: [],
+        explorerCollapsed: false,
+        selectedPath: 'src/nested'
+      })
+    )
+    expect(screen.getByRole('tree', { name: 'Project files' })).toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: 'guide.md' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('treeitem', { name: 'nested' })).not.toBeInTheDocument()
+    expect(treeOverflowBoundary.scrollTop).toBe(42)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Expand nested' }))
+    expect(await screen.findByRole('treeitem', { name: 'index.ts' })).toBeInTheDocument()
   })
 
   it('passes Project Session and Knowledge Base Git statuses to Trees as read-only row signals', async () => {
