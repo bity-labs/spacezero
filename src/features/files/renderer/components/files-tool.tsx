@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
+  ArrowsInLineVertical,
   FilePlus,
   FolderSimplePlus,
   MagnifyingGlass,
@@ -1084,6 +1085,19 @@ function FilesToolSession({
     }
   }, [openFile, sessionId, setSelectedPath])
 
+  function collapseAllFolders(): void {
+    if (rootState.status !== 'ready') return
+
+    const expandedPaths = [...context.expandedPaths].sort(
+      (left, right) => right.split('/').length - left.split('/').length
+    )
+    for (const path of expandedPaths) {
+      const item = treeModel.getItem(toFilesTreePath(path, rootState.tree.entries))
+      if (item && 'collapse' in item && item.isExpanded()) item.collapse()
+      setExpanded(sessionId, path, false)
+    }
+  }
+
   function startResize(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault()
     const startX = event.clientX
@@ -1188,6 +1202,15 @@ function FilesToolSession({
                     onClick={() => openCreateDialog('folder')}
                   >
                     <FolderSimplePlus aria-hidden className="size-4" />
+                  </button>
+                  <button
+                    aria-label="Collapse all folders"
+                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
+                    title="Collapse all folders"
+                    type="button"
+                    onClick={collapseAllFolders}
+                  >
+                    <ArrowsInLineVertical aria-hidden className="size-4" />
                   </button>
                   <button
                     aria-label="Collapse Files explorer"
