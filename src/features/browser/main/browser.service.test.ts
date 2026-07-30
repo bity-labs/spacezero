@@ -135,6 +135,11 @@ function createContextRepository(
   }
 }
 
+const projectHomeContext = {
+  contextKey: 'project:project-1',
+  context: { kind: 'project-home' as const, projectId: 'project-1' }
+}
+
 const projectContext = {
   contextKey: 'session:project-session-1',
   context: {
@@ -192,6 +197,21 @@ describe('normalizeBrowserUrl', () => {
 })
 
 describe('BrowserService', () => {
+  it('authorizes Project Home from its registered project identity with isolated Browser state', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const findSessionById = vi.fn(createContextRepository().findSessionById)
+    const service = new BrowserService(
+      adapter,
+      createContextRepository({ findSessionById })
+    )
+
+    const state = await service.getState(projectHomeContext)
+
+    expect(state.contextKey).toBe('project:project-1')
+    expect(state.tabs).toHaveLength(1)
+    expect(findSessionById).not.toHaveBeenCalled()
+  })
+
   it('creates one blank tab per authenticated context using the dedicated profile', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const service = new BrowserService(adapter, createContextRepository())

@@ -83,6 +83,9 @@ type GitToolProps = {
 export function GitTool({ context, sessionId, filesHandoff }: GitToolProps): React.JSX.Element {
   const gitContext = context ?? (sessionId ? { kind: 'project-session' as const, sessionId } : null)
   if (!gitContext) throw new Error('GitTool requires a Git context.')
+  if (gitContext.kind === 'project-home') {
+    return <GitToolSession context={gitContext} filesHandoff={filesHandoff} />
+  }
   if (gitContext.kind === 'project-session') {
     return (
       <ProjectGitTool key={gitContext.sessionId} context={gitContext} filesHandoff={filesHandoff} />
@@ -250,7 +253,9 @@ function ProjectGitToolSession({
 }
 
 function getGitContextMemoryKey(context: GitContext): string {
-  return context.kind === 'knowledge-base' ? context.contextKey : `session:${context.sessionId}`
+  if (context.kind === 'knowledge-base') return context.contextKey
+  if (context.kind === 'project-home') return `project:${context.projectId}`
+  return `session:${context.sessionId}`
 }
 
 function GitToolSession({

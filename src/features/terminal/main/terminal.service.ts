@@ -722,10 +722,17 @@ export function createTerminalService({
   }
 
   async function resolveInitialCwd(context: TerminalCreateRequest['context']): Promise<string> {
+    if (context.kind === 'project-home') return resolveProjectRoot(context.projectId)
     if (context.kind === 'project-session') return resolveProjectSessionWorktree(context.sessionId)
     if (context.kind === 'workspace-session') return resolveWorkspaceSessionRoot(context.sessionId)
     if (context.kind === 'global-chat') return storageSettings.getSpaceZeroHome()
     return knowledgeBaseRoot.getVerifiedRoot()
+  }
+
+  async function resolveProjectRoot(projectId: string): Promise<string> {
+    const project = await repository.findProjectById(projectId)
+    if (!project || project.archivedAt) throw new Error('terminal.projectNotFound')
+    return project.path
   }
 
   async function resolveWorkspaceSessionRoot(sessionId: string): Promise<string> {
@@ -1259,6 +1266,7 @@ function deletionContextKey(context: TerminalCreateRequest['context']): string {
 
 function terminalContextIdentity(context: TerminalCreateRequest['context']): string {
   if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
+  if (context.kind === 'project-home') return `${context.kind}:${context.projectId}`
   return `${context.kind}:${context.sessionId}`
 }
 

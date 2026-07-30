@@ -74,7 +74,12 @@ function tabToRow(tab: PersistedTerminalTab): typeof schema.terminalTabs.$inferI
   return {
     contextKey: contextKey(tab.context),
     contextKind: tab.context.kind,
-    contextSessionId: 'sessionId' in tab.context ? tab.context.sessionId : null,
+    contextSessionId:
+      tab.context.kind === 'project-home'
+        ? tab.context.projectId
+        : 'sessionId' in tab.context
+          ? tab.context.sessionId
+          : null,
     tabId: tab.tabId,
     sortOrder: tab.order,
     title: tab.title,
@@ -98,6 +103,7 @@ function rowToTab(row: typeof schema.terminalTabs.$inferSelect): PersistedTermin
 function rowToContext(kind: string, sessionId: string | null): TerminalContext {
   if (kind === 'global-chat') return { kind: 'global-chat' }
   if (kind === 'knowledge-base') return { kind: 'knowledge-base' }
+  if (kind === 'project-home' && sessionId) return { kind, projectId: sessionId }
   if (kind === 'project-session' && sessionId) return { kind, sessionId }
   if (kind === 'workspace-session' && sessionId) return { kind, sessionId }
   throw new Error('terminal.invalidPersistedContext')
@@ -109,5 +115,6 @@ function contextWhere(context: TerminalContext) {
 
 function contextKey(context: TerminalContext): string {
   if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
+  if (context.kind === 'project-home') return `${context.kind}:${context.projectId}`
   return `${context.kind}:${context.sessionId}`
 }
