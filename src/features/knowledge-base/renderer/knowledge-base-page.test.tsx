@@ -222,8 +222,9 @@ describe('KnowledgeBasePage', () => {
     expect(await screen.findByText('Retained only in the old chat')).toBeInTheDocument()
     const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/cl' } })
-    const clearOption = screen.getByRole('option', { name: /\/clear/ })
+    const clearOption = screen.getByRole('option', { name: /Clear/ })
     expect(clearOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(clearOption).not.toHaveTextContent('/clear')
     expect(clearOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: '/clear' } })
@@ -305,7 +306,8 @@ describe('KnowledgeBasePage', () => {
 
     const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
     fireEvent.change(input, { target: { value: '/res' } })
-    const resumeCommand = screen.getByRole('option', { name: /\/resume/ })
+    const resumeCommand = screen.getByRole('option', { name: /Resume/ })
+    expect(resumeCommand).not.toHaveTextContent('/resume')
     expect(resumeCommand.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
     fireEvent.change(input, { target: { value: '/resume' } })
     fireEvent.keyDown(input, { key: 'Enter' })

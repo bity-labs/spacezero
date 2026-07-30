@@ -210,8 +210,9 @@ describe('ProjectSessionHostSurface', () => {
     expect(await screen.findByText('Only in the prior Chat Context')).toBeInTheDocument()
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
     await userEvent.type(input, '/cl')
-    const clearOption = screen.getByRole('option', { name: /\/clear/ })
+    const clearOption = screen.getByRole('option', { name: /Clear/ })
     expect(clearOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(clearOption).not.toHaveTextContent('/clear')
     expect(clearOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
     await userEvent.clear(input)
@@ -296,8 +297,9 @@ describe('ProjectSessionHostSurface', () => {
 
     const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
     await userEvent.type(input, '/res')
-    const resumeOption = screen.getByRole('option', { name: /\/resume/ })
+    const resumeOption = screen.getByRole('option', { name: /Resume/ })
     expect(resumeOption).toHaveAttribute('data-suggestion-kind', 'command')
+    expect(resumeOption).not.toHaveTextContent('/resume')
     expect(resumeOption.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
 
     await userEvent.clear(input)
