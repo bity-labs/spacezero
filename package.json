@@ -1,6 +1,6 @@
 {
   "name": "spacezero",
-  "version": "0.1.0-beta.2",
+  "version": "0.1.0-beta.3",
   "description": "The zero-friction workspace for agentic development.",
   "main": "./out/main/index.js",
   "author": "Bity Labs",
@@ -120,7 +120,8 @@
       "buildResources": "resources"
     },
     "files": [
-      "out/**"
+      "out/**",
+      "!**/*.map"
     ],
     "extraResources": [
       {
@@ -156,7 +157,6 @@
       "category": "Development"
     },
     "detectUpdateChannel": true,
-    "generateUpdatesFilesForAllChannels": false,
-    "afterPack": "scripts/prune-packaged-source-maps.cjs"
+    "generateUpdatesFilesForAllChannels": false
   }
 }
