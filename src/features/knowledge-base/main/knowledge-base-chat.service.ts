@@ -48,6 +48,45 @@ export function createKnowledgeBaseChatService({
   deleteSession: (sessionId: string) => Promise<void>
 }): KnowledgeBaseChatService {
   let pending: Promise<KnowledgeBaseChatContext> | undefined
+  let latestMutationGeneration = 0
+  let mutationQueue = Promise.resolve()
+
+  function beginCurrentContextMutation(): number {
+    latestMutationGeneration += 1
+    return latestMutationGeneration
+  }
+
+  function isLatestCurrentContextMutation(generation: number): boolean {
+    return latestMutationGeneration === generation
+  }
+
+  async function runCurrentContextMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = mutationQueue.then(operation, operation)
+    mutationQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  async function rollbackCreatedSession(
+    sessionId: string,
+    creationFailure: unknown
+  ): Promise<never> {
+    try {
+      await deleteSession(sessionId)
+    } catch (rollbackFailure) {
+      const rollbackError = new Error('knowledgeBaseChat.creationRollbackFailed', {
+        cause: creationFailure
+      })
+      Object.defineProperty(rollbackError, 'rollbackFailures', {
+        value: [rollbackFailure],
+        enumerable: false
+      })
+      throw rollbackError
+    }
+    throw creationFailure
+  }
 
   async function createAndPersist(): Promise<KnowledgeBaseChatContext> {
     const createdSession = await createSession()
@@ -58,9 +97,23 @@ export function createKnowledgeBaseChatService({
         toManagedChatAgentSession(createdSession)
       )
     } catch (error) {
-      await deleteSession(createdSession.id).catch(() => undefined)
-      throw error
+      return rollbackCreatedSession(createdSession.id, error)
     }
+  }
+
+  async function getPersistedCurrentChatContext(): Promise<KnowledgeBaseChatContext> {
+    const currentChatContext = await getCurrentChatContext()
+    if (
+      !currentChatContext ||
+      currentChatContext.workspaceContextKey !== KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY
+    ) {
+      throw new Error('Knowledge Base Chat Context is unavailable.')
+    }
+    const storedSession = await findSessionById(currentChatContext.agentSessionId)
+    if (!isKnowledgeBaseSession(storedSession)) {
+      throw new Error('Knowledge Base Chat Context is unavailable.')
+    }
+    return toKnowledgeBaseChatContext(currentChatContext, toManagedChatAgentSession(storedSession))
   }
 
   async function getOrCreate(): Promise<KnowledgeBaseChatContext> {
@@ -126,10 +179,11 @@ export function createKnowledgeBaseChatService({
       return history.filter((item): item is KnowledgeBaseChatHistoryItem => Boolean(item))
     },
     async resumeChatContext(chatContextId) {
+      const generation = beginCurrentContextMutation()
       const status = await getStatus()
       if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
 
-      const chatContext = await findChatContextById(chatContextId)
+      const chatContext = await findChatContextById(chatContextId.trim())
       if (
         !chatContext ||
         chatContext.workspaceContextKey !== KNOWLEDGE_BASE_WORKSPACE_CONTEXT_KEY
@@ -141,13 +195,45 @@ export function createKnowledgeBaseChatService({
         throw new Error('Knowledge Base Chat Context is not available.')
       }
 
-      const selectedContext = await setCurrentChatContext(chatContext.id)
-      return toKnowledgeBaseChatContext(selectedContext, toManagedChatAgentSession(storedSession))
+      const selectedContext = await runCurrentContextMutation(async () => {
+        if (!isLatestCurrentContextMutation(generation)) return undefined
+        return setCurrentChatContext(chatContext.id)
+      })
+      return selectedContext
+        ? toKnowledgeBaseChatContext(selectedContext, toManagedChatAgentSession(storedSession))
+        : getPersistedCurrentChatContext()
     },
     async clearChat() {
+      const generation = beginCurrentContextMutation()
       const status = await getStatus()
       if (status.setupState !== 'configured') throw new Error('Knowledge Base is not available.')
-      return createAndPersist()
+      const createdSession = await createSession()
+      const mutationResult = await runCurrentContextMutation(async () => {
+        if (!isLatestCurrentContextMutation(generation)) {
+          return { createdContext: undefined, needsCleanup: true }
+        }
+        let createdContext: StoredChatContext
+        try {
+          createdContext = await createCurrentChatContext(createdSession.id)
+        } catch (error) {
+          return rollbackCreatedSession(createdSession.id, error)
+        }
+        if (!isLatestCurrentContextMutation(generation)) {
+          await deleteSession(createdSession.id)
+          return { createdContext: undefined, needsCleanup: false }
+        }
+        return { createdContext, needsCleanup: false }
+      })
+
+      if (mutationResult.createdContext) {
+        return toKnowledgeBaseChatContext(
+          mutationResult.createdContext,
+          toManagedChatAgentSession(createdSession)
+        )
+      }
+
+      if (mutationResult.needsCleanup) await deleteSession(createdSession.id)
+      return getPersistedCurrentChatContext()
     }
   }
 }

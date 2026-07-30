@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { BookOpenText, GitBranch, Plus } from '@phosphor-icons/react'
 
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
@@ -228,40 +228,54 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   const [chatContext, setChatContext] = useState<KnowledgeBaseChatContext | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
-  const [isClearingChat, setClearingChat] = useState(false)
+  const [clearingResolution, setClearingResolution] = useState<number>()
   const [chatHistory, setChatHistory] = useState<KnowledgeBaseChatHistoryItem[] | undefined>()
+  const chatContextResolution = useRef(0)
+  const chatHistoryResolution = useRef(0)
+  const isClearingChat = clearingResolution !== undefined
 
   useEffect(() => {
-    let current = true
+    const resolution = ++chatContextResolution.current
     window.spacezero.knowledgeBase.getCurrentChatContext().then(
       (nextChatContext) => {
-        if (current) setChatContext(nextChatContext)
+        if (chatContextResolution.current === resolution) setChatContext(nextChatContext)
       },
       (loadError: unknown) => {
-        if (current) setError(getErrorMessage(loadError, 'Unable to open Knowledge Base Chat.'))
+        if (chatContextResolution.current === resolution) {
+          setError(getErrorMessage(loadError, 'Unable to open Knowledge Base Chat.'))
+        }
       }
     )
     return () => {
-      current = false
+      chatContextResolution.current += 1
+      chatHistoryResolution.current += 1
     }
   }, [requestId])
 
   async function openChatHistory(): Promise<void> {
+    const resolution = ++chatHistoryResolution.current
     setError(null)
     try {
-      setChatHistory(await window.spacezero.knowledgeBase.listChatHistory())
+      const history = await window.spacezero.knowledgeBase.listChatHistory()
+      if (chatHistoryResolution.current === resolution) setChatHistory(history)
     } catch (historyError) {
-      setError(getErrorMessage(historyError, 'Unable to load Knowledge Base Chat history.'))
-      throw historyError
+      if (chatHistoryResolution.current === resolution) {
+        setError(getErrorMessage(historyError, 'Unable to load Knowledge Base Chat history.'))
+        throw historyError
+      }
     }
   }
 
   async function resumeChatContext(chatContextId: string): Promise<void> {
+    const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
+    setClearingResolution(undefined)
     setError(null)
     try {
       const nextChatContext = await window.spacezero.knowledgeBase.resumeChatContext({
         chatContextId
       })
+      if (chatContextResolution.current !== resolution) return
       setChatContext(nextChatContext)
       setChatHistory(undefined)
       window.dispatchEvent(
@@ -270,28 +284,37 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
         })
       )
     } catch (resumeError) {
-      setError(getErrorMessage(resumeError, 'Unable to resume Knowledge Base Chat.'))
-      throw resumeError
+      if (chatContextResolution.current === resolution) {
+        setError(getErrorMessage(resumeError, 'Unable to resume Knowledge Base Chat.'))
+        throw resumeError
+      }
     }
   }
 
   async function clearChat(): Promise<void> {
-    setClearingChat(true)
+    const resolution = ++chatContextResolution.current
+    chatHistoryResolution.current += 1
+    setClearingResolution(resolution)
+    setChatHistory(undefined)
     setError(null)
     try {
       const nextChatContext = await window.spacezero.knowledgeBase.clearChat()
+      if (chatContextResolution.current !== resolution) return
       setChatContext(nextChatContext)
-      setChatHistory(undefined)
       window.dispatchEvent(
         new CustomEvent(KNOWLEDGE_BASE_CHAT_CONTEXT_CHANGED_EVENT, {
           detail: nextChatContext
         })
       )
     } catch (clearError) {
-      setError(getErrorMessage(clearError, 'Unable to clear Knowledge Base Chat.'))
-      throw clearError
+      if (chatContextResolution.current === resolution) {
+        setError(getErrorMessage(clearError, 'Unable to clear Knowledge Base Chat.'))
+        throw clearError
+      }
     } finally {
-      setClearingChat(false)
+      setClearingResolution((currentResolution) =>
+        currentResolution === resolution ? undefined : currentResolution
+      )
     }
   }
 
