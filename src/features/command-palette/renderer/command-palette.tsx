@@ -154,8 +154,10 @@ function CommandOption({ command, onSelect }: CommandOptionProps): React.JSX.Ele
       value={command.id}
       onSelect={onSelect}
     >
-      <span className="font-medium">{command.title}</span>
-      <span className="ml-auto text-xs text-muted-foreground">{command.category}</span>
+      <span className="min-w-0 flex-1 truncate font-medium">{command.title}</span>
+      <span className="w-36 shrink-0 text-left text-xs text-muted-foreground">
+        {command.category}
+      </span>
     </CommandItem>
   )
 }
