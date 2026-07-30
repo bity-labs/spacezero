@@ -144,6 +144,10 @@ describe('createProjectAgentSession', () => {
         workspaceTools: expect.arrayContaining([
           expect.objectContaining({ name: 'workspace.getStatus', safetyLevel: 'read' }),
           expect.objectContaining({ name: 'knowledgeBase.createDocument', safetyLevel: 'write' }),
+          expect.objectContaining({
+            name: 'github.createOrReusePullRequest',
+            safetyLevel: 'dangerous'
+          }),
           expect.objectContaining({ name: 'knowledgeBase.createFolder', safetyLevel: 'write' })
         ]),
         appendSystemPrompt: [expect.stringContaining('not configured')],
@@ -1706,9 +1710,55 @@ describe('createWorkspaceAgentSession', () => {
         ])
       })
     )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'github.createOrReusePullRequest' })
+        ])
+      })
+    )
     await expect(repository.listWorkspaceSessions()).resolves.toEqual([
       expect.objectContaining({ id: 'workspace-session-1', projectId: null })
     ])
+  })
+
+  it('does not expose Git or Project Session GitHub tools to Global Chat', async () => {
+    const repository = createRepository()
+    const utilityHost = {
+      createSession: vi.fn(async () => createState()),
+      deleteSession: vi.fn(async () => undefined)
+    }
+
+    await createWorkspaceAgentSession({
+      repository,
+      utilityHost,
+      createSessionId: () => 'global-chat-session-1',
+      readModelDefaults,
+      getWorkspaceSessionCwd: () => '/tmp/spacezero-workspace-sessions',
+      managedContext: 'global-chat'
+    })
+
+    expect(utilityHost.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'global-chat-session-1',
+        kind: 'workspace',
+        projectId: null
+      })
+    )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'knowledgeBase.git.inspect' })
+        ])
+      })
+    )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'github.createOrReusePullRequest' })
+        ])
+      })
+    )
   })
 
   it('scopes Knowledge Base Git Workspace Tools to the managed Knowledge Base chat Session', async () => {
@@ -1748,6 +1798,13 @@ describe('createWorkspaceAgentSession', () => {
             name: 'knowledgeBase.git.abortConflictResolution',
             safetyLevel: 'dangerous'
           })
+        ])
+      })
+    )
+    expect(utilityHost.createSession).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        workspaceTools: expect.arrayContaining([
+          expect.objectContaining({ name: 'github.createOrReusePullRequest' })
         ])
       })
     )
