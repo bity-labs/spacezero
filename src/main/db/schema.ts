@@ -52,7 +52,7 @@ export const sessions = sqliteTable('sessions', {
   sourceUrl: text('source_url'),
   sourceTitle: text('source_title'),
   archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
-  managedContext: text('managed_context', { enum: ['knowledge-base'] }),
+  managedContext: text('managed_context', { enum: ['knowledge-base', 'global-chat'] }),
   workspaceContextSessionId: text('workspace_context_session_id').references(
     (): AnySQLiteColumn => sessions.id,
     { onDelete: 'cascade' }
@@ -87,7 +87,7 @@ export const terminalTabs = sqliteTable(
   {
     contextKey: text('context_key').notNull(),
     contextKind: text('context_kind', {
-      enum: ['project-session', 'workspace-session', 'knowledge-base']
+      enum: ['project-session', 'workspace-session', 'global-chat', 'knowledge-base']
     }).notNull(),
     contextSessionId: text('context_session_id'),
     tabId: text('tab_id').notNull(),
@@ -105,7 +105,7 @@ export const browserTabs = sqliteTable(
   {
     contextKey: text('context_key').notNull(),
     contextKind: text('context_kind', {
-      enum: ['project-session', 'workspace-session', 'knowledge-base']
+      enum: ['project-session', 'workspace-session', 'global-chat', 'knowledge-base']
     }).notNull(),
     contextSessionId: text('context_session_id'),
     contextProjectId: text('context_project_id'),

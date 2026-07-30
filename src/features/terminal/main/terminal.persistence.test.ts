@@ -559,7 +559,12 @@ function createFakeTabsRepository(
 
 function sameContext(left: TerminalContext, right: TerminalContext): boolean {
   if (left.kind !== right.kind) return false
-  if (left.kind === 'knowledge-base' || right.kind === 'knowledge-base') return true
+  if (
+    left.kind === 'knowledge-base' ||
+    left.kind === 'global-chat' ||
+    right.kind === 'knowledge-base' ||
+    right.kind === 'global-chat'
+  ) return true
   return left.sessionId === right.sessionId
 }
 

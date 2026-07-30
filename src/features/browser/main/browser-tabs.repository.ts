@@ -84,6 +84,7 @@ function rowToContext(
   sessionId: string | null,
   projectId: string | null
 ): BrowserContext | undefined {
+  if (kind === 'global-chat') return { kind: 'global-chat' }
   if (kind === 'knowledge-base') return { kind: 'knowledge-base' }
   if (kind === 'workspace-session' && sessionId) return { kind, sessionId }
   if (kind === 'project-session' && sessionId && projectId) return { kind, sessionId, projectId }
