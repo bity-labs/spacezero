@@ -52,9 +52,7 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
         return stored
       },
       deleteSession: async (sessionId) => {
-        await getAgentUtilityProcessHost()
-          .deleteSession({ sessionId })
-          .catch(() => undefined)
+        await getAgentUtilityProcessHost().deleteSession({ sessionId })
         await sessionsRepository.deleteById(sessionId)
       }
     })
