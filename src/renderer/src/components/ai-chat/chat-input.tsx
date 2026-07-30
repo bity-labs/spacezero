@@ -204,6 +204,9 @@ export function ChatInput({
     knowledgeBaseMentionOptions[
       Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
     ]
+  const selectedHistoryItem = historyItems?.[
+    Math.min(activeSuggestionIndex, historyItems.length - 1)
+  ]
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
@@ -302,6 +305,39 @@ export function ChatInput({
       return
     }
 
+    if (historyItems !== undefined) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setActiveSuggestionIndex(0)
+        onHistoryDismiss?.()
+        return
+      }
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        if (historyItems.length > 0) {
+          setActiveSuggestionIndex((index) => (index + 1) % historyItems.length)
+        }
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        if (historyItems.length > 0) {
+          setActiveSuggestionIndex(
+            (index) => (index - 1 + historyItems.length) % historyItems.length
+          )
+        }
+        return
+      }
+
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        if (selectedHistoryItem) selectHistoryItem(selectedHistoryItem.id)
+      }
+      return
+    }
+
     if (slashSuggestions.length === 0) return
 
     if (event.key === 'ArrowDown') {
@@ -351,6 +387,11 @@ export function ChatInput({
     if (!activeKnowledgeBaseMention) return
     const encodedPath = encodeKnowledgeBaseMentionPath(path)
     setInputValue(`${inputValue.slice(0, activeKnowledgeBaseMention.start)}@kb/${encodedPath} `)
+  }
+
+  function selectHistoryItem(historyItemId: string): void {
+    setActiveSuggestionIndex(0)
+    void Promise.resolve(onHistorySelect?.(historyItemId)).catch(() => undefined)
   }
 
   return (
@@ -580,17 +621,15 @@ export function ChatInput({
               No older Chat Contexts with prompts.
             </p>
           ) : (
-            historyItems.map((item) => (
+            historyItems.map((item, index) => (
               <button
                 key={item.id}
                 type="button"
                 role="option"
-                aria-selected="false"
-                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted"
+                aria-selected={index === Math.min(activeSuggestionIndex, historyItems.length - 1)}
+                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  void Promise.resolve(onHistorySelect?.(item.id)).catch(() => undefined)
-                }}
+                onClick={() => selectHistoryItem(item.id)}
               >
                 <FileText
                   data-chat-history-icon="true"

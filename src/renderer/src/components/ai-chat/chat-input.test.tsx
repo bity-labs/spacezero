@@ -119,6 +119,32 @@ describe('ChatInput', () => {
     )
   })
 
+  it('navigates and selects Chat Context history with the keyboard', () => {
+    const handleHistorySelect = vi.fn()
+    render(
+      <ChatInput
+        historyItems={[
+          { id: 'chat-context-first', initialPrompt: 'First prompt' },
+          { id: 'chat-context-second', initialPrompt: 'Second prompt' }
+        ]}
+        onHistorySelect={handleHistorySelect}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    const firstOption = screen.getByRole('option', { name: /First prompt/i })
+    const secondOption = screen.getByRole('option', { name: /Second prompt/i })
+
+    expect(firstOption).toHaveAttribute('aria-selected', 'true')
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(secondOption).toHaveAttribute('aria-selected', 'true')
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(handleHistorySelect).toHaveBeenCalledWith('chat-context-second')
+  })
+
   it('discovers skills from slash commands and submits the native Pi command', () => {
     const handleSubmit = vi.fn()
     render(
