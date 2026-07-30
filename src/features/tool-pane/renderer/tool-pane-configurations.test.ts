@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  createGlobalChatToolPaneConfiguration,
   createKnowledgeBaseToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration,
   createWorkspaceSessionToolPaneConfiguration
@@ -13,6 +14,7 @@ describe('Tool Pane contextual configurations', () => {
       projectId: 'project-1'
     })
     const workspace = createWorkspaceSessionToolPaneConfiguration({ id: 'workspace-session-1' })
+    const globalChat = createGlobalChatToolPaneConfiguration()
     const knowledgeBase = createKnowledgeBaseToolPaneConfiguration()
 
     expect(project).toMatchObject({
@@ -40,6 +42,14 @@ describe('Tool Pane contextual configurations', () => {
       capabilities: { kind: 'workspace-session', sessionId: 'workspace-session-1' }
     })
     expect(workspace.tools.map((tool) => tool.id)).toEqual(['browser', 'terminal'])
+
+    expect(globalChat).toMatchObject({
+      contextKey: 'global-chat',
+      defaultToolId: 'browser',
+      capabilities: { kind: 'global-chat' }
+    })
+    expect(globalChat.tools.map((tool) => tool.id)).toEqual(['browser', 'terminal'])
+    expect(globalChat.tools.some((tool) => tool.id === 'files' || tool.id === 'git')).toBe(false)
 
     expect(knowledgeBase).toMatchObject({
       contextKey: 'knowledge-base',

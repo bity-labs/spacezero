@@ -21,7 +21,7 @@ export function getWorkspaceToolRegistry() {
 }
 
 export function listWorkspaceToolDescriptorsForSession(context?: {
-  managedContext?: 'knowledge-base' | null
+  managedContext?: 'knowledge-base' | 'global-chat' | null
 }) {
   const includeKnowledgeBaseGit = context?.managedContext === 'knowledge-base'
   return registry
