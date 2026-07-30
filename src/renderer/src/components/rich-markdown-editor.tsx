@@ -13,6 +13,7 @@ import {
   ListChecksIcon,
   ListNumbersIcon,
   MinusIcon,
+  PlusIcon,
   QuotesIcon,
   TableIcon,
   TextBIcon,
@@ -508,6 +509,7 @@ export function RichMarkdownEditor({
                 if (result) emitPropertyChange(result.markdown)
               }}
             >
+              <PlusIcon aria-hidden="true" />
               Add property
             </Button>
             {propertyError ? (
