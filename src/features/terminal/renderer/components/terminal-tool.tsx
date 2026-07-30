@@ -83,7 +83,9 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const terminalContextKind = context.kind
   const terminalContextSessionId = 'sessionId' in context ? context.sessionId : undefined
   const terminalContext = useMemo<TerminalContext>(() => {
-    if (terminalContextKind === 'knowledge-base') return { kind: 'knowledge-base' }
+    if (terminalContextKind === 'knowledge-base' || terminalContextKind === 'global-chat') {
+      return { kind: terminalContextKind }
+    }
     return { kind: terminalContextKind, sessionId: terminalContextSessionId ?? '' }
   }, [terminalContextKind, terminalContextSessionId])
   const terminalContextKey = useMemo(
