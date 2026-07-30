@@ -92,6 +92,9 @@ describe('database migrations', () => {
       'ALTER TABLE sessions ADD COLUMN agent_definition_snapshot TEXT'
     )
     expect(statements.join('\n')).toContain(
+      "ALTER TABLE sessions ADD COLUMN agent_lifecycle_state TEXT NOT NULL DEFAULT 'active'"
+    )
+    expect(statements.join('\n')).toContain(
       'ALTER TABLE sessions ADD COLUMN workspace_context_session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE'
     )
     expect(statements.join('\n')).toContain('CREATE TABLE IF NOT EXISTS terminal_tabs')
