@@ -155,6 +155,8 @@ const api: SpaceZeroAPI = {
   sessions: {
     listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
     listWorkspaceSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listWorkspaceSessions),
+    getCurrentGlobalChatContext: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.getCurrentGlobalChatContext),
     createProjectSession: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request),
     getCurrentProjectChatContext: (request) =>

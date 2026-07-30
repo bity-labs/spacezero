@@ -1,3 +1,4 @@
+export * from './global-chat-page'
 export * from './hooks/use-project-sessions'
 export * from './hooks/use-workspace-sessions'
 export * from './components/session-host-surface'

@@ -114,7 +114,7 @@ export type CreateWorkspaceAgentSessionHandlerDependencies = Omit<
 > & {
   getWorkspaceSessionCwd?: () => string
   title?: string
-  managedContext?: 'knowledge-base'
+  managedContext?: 'knowledge-base' | 'global-chat'
   agentDefinition?: AgentDefinitionReference
 }
 

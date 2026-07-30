@@ -29,7 +29,7 @@ import { useCommandPaletteController } from '../../features/command-palette/rend
 import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-manager'
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { Project } from '../../features/projects/shared'
-import type { ProjectSession, WorkspaceSession } from '../../features/sessions/shared'
+import type { ProjectSession } from '../../features/sessions/shared'
 import {
   AddProjectDialog,
   EditProjectDialog,
@@ -40,20 +40,18 @@ import {
   useProjects
 } from '../../features/projects/renderer'
 import {
+  GlobalChatPage,
   ProjectSessionHostSurface,
-  WorkspaceSessionHostSurface,
   getFocusedSessionTab,
   syncSessionTabs,
   useProjectSessions,
   useSessionWorkspaceStore,
-  useWorkspaceSessions,
-  WorkspaceSessionList,
   type SessionWorkspaceTab
 } from '../../features/sessions/renderer'
 import {
+  createGlobalChatToolPaneConfiguration,
   createKnowledgeBaseToolPaneConfiguration,
   createProjectSessionToolPaneConfiguration,
-  createWorkspaceSessionToolPaneConfiguration,
   getRenderedToolPaneWidth,
   ToolPaneHeaderControls,
   TOOL_PANE_COLLAPSED_HEADER_WIDTH,
@@ -108,11 +106,10 @@ export function WorkspaceShell(): React.JSX.Element {
   const commandPalette = useCommandPaletteController()
   const { t } = useTranslation()
   const [isAddProjectOpen, setAddProjectOpen] = useState(false)
-  const [activePrimaryView, setActivePrimaryView] = useState<'workspace' | 'knowledge-base'>(
-    'workspace'
-  )
+  const [activePrimaryView, setActivePrimaryView] = useState<
+    'workspace' | 'global-chat' | 'knowledge-base'
+  >('workspace')
   const [isKnowledgeBaseConfigured, setKnowledgeBaseConfigured] = useState(false)
-  const [isWorkspaceSessionsExpanded, setWorkspaceSessionsExpanded] = useState(true)
   const [isProjectsExpanded, setProjectsExpanded] = useState(true)
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -124,9 +121,6 @@ export function WorkspaceShell(): React.JSX.Element {
   const resetSessionWorkspaceLayout = useSessionWorkspaceStore((state) => state.resetLayout)
   const openProjectSessionInWorkspace = useSessionWorkspaceStore(
     (state) => state.openProjectSession
-  )
-  const openWorkspaceSessionInWorkspace = useSessionWorkspaceStore(
-    (state) => state.openWorkspaceSession
   )
   const {
     projects,
@@ -144,15 +138,6 @@ export function WorkspaceShell(): React.JSX.Element {
     deleteProject
   } = useProjects()
   const {
-    workspaceSessions,
-    status: workspaceSessionsStatus,
-    error: workspaceSessionsError,
-    upsertWorkspaceSession,
-    renameWorkspaceSession,
-    archiveWorkspaceSession,
-    deleteWorkspaceSession
-  } = useWorkspaceSessions()
-  const {
     sessions,
     sessionsByProjectId,
     status: sessionsStatus,
@@ -164,15 +149,14 @@ export function WorkspaceShell(): React.JSX.Element {
     deleteSession
   } = useProjectSessions()
   const syncedSessionWorkspaceLayout = useMemo(
-    () => syncSessionTabs(sessionWorkspaceLayout, sessions, workspaceSessions),
-    [sessionWorkspaceLayout, sessions, workspaceSessions]
+    () => syncSessionTabs(sessionWorkspaceLayout, sessions, []),
+    [sessionWorkspaceLayout, sessions]
   )
   const activeTab = getFocusedSessionTab(syncedSessionWorkspaceLayout)
   const activeProjectSession =
     activeTab?.kind === 'project'
       ? (sessions.find((session) => session.id === activeTab.sessionId) ?? null)
       : null
-  const activeWorkspaceSession = activeTab?.kind === 'workspace' ? activeTab.session : null
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
     : null
@@ -190,14 +174,10 @@ export function WorkspaceShell(): React.JSX.Element {
     if (activePrimaryView === 'knowledge-base') {
       return isKnowledgeBaseConfigured ? createKnowledgeBaseToolPaneConfiguration() : null
     }
-    if (activeProjectSession) {
-      return createProjectSessionToolPaneConfiguration(activeProjectSession)
-    }
-    if (activeWorkspaceSession) {
-      return createWorkspaceSessionToolPaneConfiguration(activeWorkspaceSession)
-    }
+    if (activePrimaryView === 'global-chat') return createGlobalChatToolPaneConfiguration()
+    if (activeProjectSession) return createProjectSessionToolPaneConfiguration(activeProjectSession)
     return null
-  }, [activePrimaryView, activeProjectSession, activeWorkspaceSession, isKnowledgeBaseConfigured])
+  }, [activePrimaryView, activeProjectSession, isKnowledgeBaseConfigured])
   const toolPaneController = useToolPaneController(toolPaneConfiguration)
   const savedToolPaneWidth = useToolPaneStore((state) =>
     toolPaneConfiguration ? state.contexts[toolPaneConfiguration.contextKey]?.width : null
@@ -207,21 +187,6 @@ export function WorkspaceShell(): React.JSX.Element {
     setActivePrimaryView('workspace')
     void action()
   }, [])
-
-  const openWorkspaceSession = useCallback(
-    (session: WorkspaceSession): void => {
-      runInWorkspaceView(() => openWorkspaceSessionInWorkspace(session))
-    },
-    [openWorkspaceSessionInWorkspace, runInWorkspaceView]
-  )
-
-  const handleNewWorkspaceSession = useCallback((): void => {
-    runInWorkspaceView(async () => {
-      const session = await window.spacezero.agent.createWorkspaceSession()
-      upsertWorkspaceSession(session)
-      openWorkspaceSessionInWorkspace(session)
-    })
-  }, [openWorkspaceSessionInWorkspace, runInWorkspaceView, upsertWorkspaceSession])
 
   const workspaceCommands = useMemo<readonly AppCommand[]>(
     () => [
@@ -238,16 +203,9 @@ export function WorkspaceShell(): React.JSX.Element {
         category: t('appCommands.categories.workspace'),
         keywords: ['tools', 'pane', 'switcher'],
         handler: toolPaneController.toggle
-      },
-      {
-        id: 'workspace.open-workspace-session',
-        title: t('workspace.sidebar.newAgent'),
-        category: t('appCommands.categories.workspace'),
-        keywords: ['agent', 'global', 'workspace session'],
-        handler: () => void handleNewWorkspaceSession()
       }
     ],
-    [isLeftPanelOpen, handleNewWorkspaceSession, t, toolPaneController.toggle, toggleLeftPanel]
+    [isLeftPanelOpen, t, toolPaneController.toggle, toggleLeftPanel]
   )
 
   useRegisterAppCommands(workspaceCommands)
@@ -339,17 +297,6 @@ export function WorkspaceShell(): React.JSX.Element {
     if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
   }
 
-  async function handleArchiveWorkspaceSession(sessionId: string): Promise<void> {
-    await archiveWorkspaceSession(sessionId)
-    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
-  }
-
-  async function handleDeleteWorkspaceSession(sessionId: string): Promise<void> {
-    if (!window.confirm('Delete this workspace session permanently? This cannot be undone.')) return
-    await deleteWorkspaceSession(sessionId)
-    if (getTabSessionId(activeTab) === sessionId) resetSessionWorkspaceLayout()
-  }
-
   async function handleRenameProjectSession(session: ProjectSession, title: string): Promise<void> {
     setSidebarSessionError(null)
     try {
@@ -360,25 +307,8 @@ export function WorkspaceShell(): React.JSX.Element {
     }
   }
 
-  async function handleRenameWorkspaceSession(
-    session: WorkspaceSession,
-    title: string
-  ): Promise<void> {
-    setSidebarSessionError(null)
-    try {
-      await renameWorkspaceSession(session.id, title)
-    } catch (error) {
-      setSidebarSessionError(sessionRenameErrorMessage(error))
-      throw error
-    }
-  }
-
   async function handleRenameActiveSession(title: string): Promise<void> {
-    if (activeProjectSession) {
-      await handleRenameProjectSession(activeProjectSession, title)
-      return
-    }
-    if (activeWorkspaceSession) await handleRenameWorkspaceSession(activeWorkspaceSession, title)
+    if (activeProjectSession) await handleRenameProjectSession(activeProjectSession, title)
   }
 
   async function handleArchiveProject(project: Project): Promise<void> {
@@ -463,10 +393,10 @@ export function WorkspaceShell(): React.JSX.Element {
 
         <div className="flex h-full w-full items-center justify-start px-3">
           <WorkspaceBreadcrumb
+            globalChatActive={activePrimaryView === 'global-chat'}
             knowledgeBaseActive={activePrimaryView === 'knowledge-base'}
             project={activeSessionProject ?? activeProject}
             projectSession={activeProjectSession}
-            workspaceSession={activeWorkspaceSession}
             projectSessions={
               activeProjectSession
                 ? sessions.filter((session) => session.projectId === activeProjectSession.projectId)
@@ -500,44 +430,16 @@ export function WorkspaceShell(): React.JSX.Element {
                 />
                 <SidebarNavItem
                   icon={PaperPlaneTilt}
-                  label={t('workspace.sidebar.newAgent')}
-                  active={activePrimaryView === 'workspace' && activeTab?.kind === 'workspace'}
-                  onClick={() => void handleNewWorkspaceSession()}
+                  label="Chat"
+                  active={activePrimaryView === 'global-chat'}
+                  onClick={() => setActivePrimaryView('global-chat')}
                 />
               </SidebarMenu>
             }
             footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
           >
             <SidebarGroup
-              className="mt-8 min-h-0 max-h-[45%] shrink-0"
-              aria-label={t('sessions.workspaceList.sectionLabel')}
-            >
-              <SidebarSectionHeader
-                label={t('sessions.workspaceList.sectionLabel')}
-                expandable
-                expanded={isWorkspaceSessionsExpanded}
-                onToggle={() => setWorkspaceSessionsExpanded((expanded) => !expanded)}
-              />
-              {isWorkspaceSessionsExpanded ? (
-                <div className="min-h-0 overflow-x-hidden overflow-y-auto">
-                  <WorkspaceSessionList
-                    workspaceSessions={workspaceSessions}
-                    activeSessionId={activeWorkspaceSession?.id ?? null}
-                    status={workspaceSessionsStatus}
-                    error={workspaceSessionsError}
-                    onSelectSession={openWorkspaceSession}
-                    onRenameSession={(session, title) =>
-                      handleRenameWorkspaceSession(session, title)
-                    }
-                    onArchiveSession={(session) => void handleArchiveWorkspaceSession(session.id)}
-                    onDeleteSession={(session) => void handleDeleteWorkspaceSession(session.id)}
-                  />
-                </div>
-              ) : null}
-            </SidebarGroup>
-
-            <SidebarGroup
-              className="min-h-0 flex-1 overflow-hidden"
+              className="mt-8 min-h-0 flex-1 overflow-hidden"
               aria-label={t('projects.sidebar.label')}
             >
               <SidebarSectionHeader
@@ -639,6 +541,10 @@ export function WorkspaceShell(): React.JSX.Element {
             ) : (
               <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
             )
+          ) : activePrimaryView === 'global-chat' && toolPaneConfiguration ? (
+            <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+              <GlobalChatPage />
+            </ToolPaneShell>
           ) : activeTab ? (
             toolPaneConfiguration ? (
               <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
@@ -706,9 +612,7 @@ function SessionWorkspaceTabSurface({
   const project = session ? (projects.find((item) => item.id === session.projectId) ?? null) : null
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {tab.kind === 'workspace' ? (
-        <WorkspaceSessionHostSurface key={tab.session.id} session={tab.session} />
-      ) : session && project ? (
+      {tab.kind === 'project' && session && project ? (
         <ProjectSessionHostSurface key={session.id} project={project} session={session} />
       ) : (
         <div className="flex min-h-0 flex-1 items-center justify-center p-4 text-xs text-muted-foreground">
@@ -720,26 +624,38 @@ function SessionWorkspaceTabSurface({
 }
 
 function WorkspaceBreadcrumb({
+  globalChatActive,
   knowledgeBaseActive,
   project,
   projectSession,
-  workspaceSession,
   projectSessions,
   onOpenProjectHome,
   onSelectProjectSession,
   onOpenProjectSessionSource,
   onRenameSession
 }: {
+  globalChatActive: boolean
   knowledgeBaseActive: boolean
   project: Project | null
   projectSession: ProjectSession | null
-  workspaceSession: WorkspaceSession | null
   projectSessions: readonly ProjectSession[]
   onOpenProjectHome: (project: Project) => void
   onSelectProjectSession: (session: ProjectSession) => void
   onOpenProjectSessionSource: (session: ProjectSession) => void
   onRenameSession: (title: string) => Promise<void>
 }): React.JSX.Element {
+  if (globalChatActive) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList className="justify-start text-xs">
+          <BreadcrumbItem>
+            <BreadcrumbPage>Chat</BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    )
+  }
+
   if (knowledgeBaseActive) {
     return (
       <Breadcrumb>
@@ -834,19 +750,6 @@ function WorkspaceBreadcrumb({
                 {projectSession.source.type === 'issue' ? 'Issue' : 'Pull Request'} #
                 {projectSession.source.number}
               </button>
-            </BreadcrumbItem>
-          </>
-        ) : null}
-        {workspaceSession ? (
-          <>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <InlineSessionTitleEditor
-                key={workspaceSession.id}
-                title={workspaceSession.title}
-                label="Rename Workspace Session"
-                onSave={onRenameSession}
-              />
             </BreadcrumbItem>
           </>
         ) : null}

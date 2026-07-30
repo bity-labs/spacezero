@@ -783,6 +783,6 @@ function getViewportStore(contextKey: string): Map<string, number> {
 }
 
 function terminalContextIdentity(context: TerminalContext): string {
-  if (context.kind === 'knowledge-base') return context.kind
+  if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
   return `${context.kind}:${context.sessionId}`
 }

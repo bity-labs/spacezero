@@ -596,6 +596,54 @@ describe('ProjectSessionHostSurface', () => {
     })
   })
 
+  it('routes Global Chat links through the stable Global Chat Browser context', async () => {
+    const user = userEvent.setup()
+    let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined
+    const createTab = vi.fn(async () => ({
+      contextKey: 'global-chat',
+      activeTabId: 'tab-1',
+      tabs: []
+    }))
+    window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
+      projectionListener = nextListener
+      return () => undefined
+    }
+    window.spacezero.browser.createTab = createTab
+    window.spacezero.settings.getChatLinkSettings = async () => ({
+      openChatLinksIn: 'space-zero-browser'
+    })
+
+    render(
+      <WorkspaceSessionHostSurface
+        session={{ ...workspaceSession, id: 'rotatable-global-chat-agent-session' }}
+        chatLinkContext={{ kind: 'global-chat' }}
+      />
+    )
+
+    await act(async () => {
+      projectionListener?.(
+        chatSnapshotEvent(
+          'rotatable-global-chat-agent-session',
+          'Open [site](https://spacezero.dev).'
+        )
+      )
+    })
+    await user.click(await screen.findByRole('link', { name: 'site' }))
+
+    expect(createTab).toHaveBeenCalledWith({
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' },
+      input: 'https://spacezero.dev/'
+    })
+    expect(useToolPaneStore.getState().contexts['global-chat']).toMatchObject({
+      isOpen: true,
+      activeToolId: 'browser'
+    })
+    expect(
+      useToolPaneStore.getState().contexts['session:rotatable-global-chat-agent-session']
+    ).toBeUndefined()
+  })
+
   it('routes Workspace Session chat HTTP links to the default browser when selected', async () => {
     const user = userEvent.setup()
     let projectionListener: ((event: AgentSessionProjectionEvent) => void) | undefined

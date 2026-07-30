@@ -9,6 +9,7 @@ export const browserContextSchema = z.discriminatedUnion('kind', [
     sessionId: z.string().min(1)
   }),
   z.object({ kind: z.literal('workspace-session'), sessionId: z.string().min(1) }),
+  z.object({ kind: z.literal('global-chat') }),
   z.object({ kind: z.literal('knowledge-base') })
 ])
 
