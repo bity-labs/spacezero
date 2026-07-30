@@ -49,7 +49,8 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
 
   constructor(
     securityPolicy?: BrowserSecurityPolicy,
-    private readonly downloadsService?: BrowserDownloadsService
+    private readonly downloadsService?: BrowserDownloadsService,
+    private readonly platform: NodeJS.Platform = process.platform
   ) {
     this.securityPolicy =
       securityPolicy ?? createNativeBrowserSecurityPolicy(() => this.activeOwnerWindow())
@@ -82,7 +83,11 @@ export class ElectronBrowserViewAdapter implements BrowserViewAdapter {
     this.installWindowOpenGestureObserver(view.webContents)
     view.webContents.setWindowOpenHandler((details) => this.handleWindowOpen(tabId, details))
     view.webContents.on('before-input-event', (event, input) => {
-      const commandId = browserCommandForInput(input, this.views.get(tabId)?.shortcutBindings ?? [])
+      const commandId = browserCommandForInput(
+        input,
+        this.views.get(tabId)?.shortcutBindings ?? [],
+        this.platform
+      )
       if (!commandId) return
       event.preventDefault()
       this.service?.handleNativeCommand(tabId, commandId)
@@ -615,19 +620,24 @@ function closeBrowserWindow(window: BrowserChildWindow): void {
 
 function browserCommandForInput(
   input: Input,
-  shortcutBindings: BrowserShortcutBinding[]
+  shortcutBindings: BrowserShortcutBinding[],
+  platform: NodeJS.Platform
 ): BrowserShortcutBinding['commandId'] | null {
   if (input.type !== 'keyDown' || input.isAutoRepeat) return null
 
   for (const shortcutBinding of shortcutBindings) {
-    if (inputMatchesKeybinding(input, shortcutBinding.keybinding.normalized))
+    if (inputMatchesKeybinding(input, shortcutBinding.keybinding.normalized, platform))
       return shortcutBinding.commandId
   }
 
   return null
 }
 
-function inputMatchesKeybinding(input: Input, normalized: string): boolean {
+function inputMatchesKeybinding(
+  input: Input,
+  normalized: string,
+  platform: NodeJS.Platform
+): boolean {
   const tokens = normalized
     .toLowerCase()
     .split('+')
@@ -642,7 +652,7 @@ function inputMatchesKeybinding(input: Input, normalized: string): boolean {
   const wantsCtrl = modifiers.has('ctrl')
   const wantsAlt = modifiers.has('alt')
   const wantsShift = modifiers.has('shift')
-  const isMac = process.platform === 'darwin'
+  const isMac = platform === 'darwin'
 
   if (isMac) {
     if (input.meta !== wantsMod) return false
