@@ -32,7 +32,7 @@ export type TerminalRepository = {
         worktreeBranch?: string | null
         worktreeBaseRevision?: string | null
         archivedAt?: Date | null
-        managedContext?: 'knowledge-base' | null
+        managedContext?: 'knowledge-base' | 'global-chat' | null
       }
     | undefined
   >
@@ -724,6 +724,7 @@ export function createTerminalService({
   async function resolveInitialCwd(context: TerminalCreateRequest['context']): Promise<string> {
     if (context.kind === 'project-session') return resolveProjectSessionWorktree(context.sessionId)
     if (context.kind === 'workspace-session') return resolveWorkspaceSessionRoot(context.sessionId)
+    if (context.kind === 'global-chat') return storageSettings.getSpaceZeroHome()
     return knowledgeBaseRoot.getVerifiedRoot()
   }
 
@@ -1257,7 +1258,7 @@ function deletionContextKey(context: TerminalCreateRequest['context']): string {
 }
 
 function terminalContextIdentity(context: TerminalCreateRequest['context']): string {
-  if (context.kind === 'knowledge-base') return context.kind
+  if (context.kind === 'knowledge-base' || context.kind === 'global-chat') return context.kind
   return `${context.kind}:${context.sessionId}`
 }
 

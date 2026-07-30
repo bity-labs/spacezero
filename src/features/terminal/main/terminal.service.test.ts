@@ -48,6 +48,7 @@ const secondWorkspaceContext = {
   kind: 'workspace-session' as const,
   sessionId: secondWorkspaceSession.id
 }
+const globalChatContext = { kind: 'global-chat' as const }
 const knowledgeBaseContext = { kind: 'knowledge-base' as const }
 
 function createHarness() {
@@ -127,15 +128,18 @@ describe('Terminal service', () => {
     expect(ptys).toHaveLength(1)
   })
 
-  it('launches workspace-session and knowledge-base PTYs from their main-resolved roots', async () => {
+  it('launches global-chat, workspace-session, and knowledge-base PTYs from main-resolved roots', async () => {
     const { adapter, ptys, service, worktrees } = createHarness()
 
     await expect(
-      service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
+      service.create({ ownerWindowId: 1, request: { context: globalChatContext } })
     ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-1' })
     await expect(
-      service.create({ ownerWindowId: 1, request: { context: knowledgeBaseContext } })
+      service.create({ ownerWindowId: 1, request: { context: workspaceContext } })
     ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-2' })
+    await expect(
+      service.create({ ownerWindowId: 1, request: { context: knowledgeBaseContext } })
+    ).resolves.toMatchObject({ status: 'running', terminalId: 'terminal-3' })
 
     expect(adapter.spawn).toHaveBeenNthCalledWith(
       1,
@@ -143,10 +147,14 @@ describe('Terminal service', () => {
     )
     expect(adapter.spawn).toHaveBeenNthCalledWith(
       2,
+      expect.objectContaining({ cwd: '/home/builder/SpaceZero' })
+    )
+    expect(adapter.spawn).toHaveBeenNthCalledWith(
+      3,
       expect.objectContaining({ cwd: '/home/builder/SpaceZero/knowledge-base' })
     )
     expect(worktrees.validate).not.toHaveBeenCalled()
-    expect(ptys).toHaveLength(2)
+    expect(ptys).toHaveLength(3)
   })
 
   it('keeps terminal identity, PTY, output, and events isolated across project, workspace, and knowledge-base contexts', async () => {

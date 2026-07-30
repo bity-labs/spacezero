@@ -66,7 +66,7 @@ export type BrowserContextRepository = {
         id: string
         projectId: string | null
         archivedAt?: Date | null
-        managedContext?: 'knowledge-base' | null
+        managedContext?: 'knowledge-base' | 'global-chat' | null
       }
     | undefined
   >
@@ -691,6 +691,8 @@ export class BrowserService {
         }
         return expectedKey
       }
+      case 'global-chat':
+        return expectedKey
       case 'knowledge-base': {
         const currentSessionId = await this.contextRepository.getCurrentKnowledgeBaseSessionId()
         if (!currentSessionId) throw new Error('Browser context is not authorized.')

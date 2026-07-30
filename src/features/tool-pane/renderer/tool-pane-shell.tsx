@@ -18,6 +18,7 @@ export type ToolId = 'files' | 'git' | 'browser' | 'terminal'
 export type ToolPaneContextCapabilities =
   | { kind: 'project-session'; projectId: string; sessionId: string }
   | { kind: 'workspace-session'; sessionId: string }
+  | { kind: 'global-chat' }
   | { kind: 'knowledge-base' }
 
 export type ToolDescriptor = {

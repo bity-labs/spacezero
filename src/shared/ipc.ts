@@ -81,8 +81,10 @@ import type {
 } from '../features/github/shared/github.model'
 import type {
   CreateProjectSessionRequest,
+  GlobalChatContext,
   ProjectSession,
   ProjectSessionChatContext,
+  ProjectSessionChatHistoryItem,
   RenameSessionTitleRequest,
   Session,
   WorkspaceSession
@@ -177,8 +179,11 @@ export const IPC_CHANNELS = {
   sessions: {
     listProjectSessions: 'sessions:listProjectSessions',
     listWorkspaceSessions: 'sessions:listWorkspaceSessions',
+    getCurrentGlobalChatContext: 'sessions:getCurrentGlobalChatContext',
     createProjectSession: 'sessions:createProjectSession',
     getCurrentProjectChatContext: 'sessions:getCurrentProjectChatContext',
+    listProjectChatHistory: 'sessions:listProjectChatHistory',
+    resumeProjectChat: 'sessions:resumeProjectChat',
     clearProjectChat: 'sessions:clearProjectChat',
     rename: 'sessions:rename',
     archive: 'sessions:archive',
@@ -341,9 +346,17 @@ export type SpaceZeroAPI = {
   sessions: {
     listProjectSessions: () => Promise<ProjectSession[]>
     listWorkspaceSessions: () => Promise<WorkspaceSession[]>
+    getCurrentGlobalChatContext: () => Promise<GlobalChatContext>
     createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
     getCurrentProjectChatContext: (request: {
       sessionId: string
+    }) => Promise<ProjectSessionChatContext>
+    listProjectChatHistory: (request: {
+      sessionId: string
+    }) => Promise<ProjectSessionChatHistoryItem[]>
+    resumeProjectChat: (request: {
+      sessionId: string
+      chatContextId: string
     }) => Promise<ProjectSessionChatContext>
     clearProjectChat: (request: { sessionId: string }) => Promise<ProjectSessionChatContext>
     rename: (request: RenameSessionTitleRequest) => Promise<Session>

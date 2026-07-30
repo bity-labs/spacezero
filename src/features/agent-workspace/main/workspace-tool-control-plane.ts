@@ -24,7 +24,7 @@ export function getWorkspaceToolRegistry() {
 
 export function listWorkspaceToolDescriptorsForSession(context?: {
   kind?: 'project' | 'workspace'
-  managedContext?: 'knowledge-base' | null
+  managedContext?: 'knowledge-base' | 'global-chat' | null
 }) {
   const includeKnowledgeBaseGit = context?.managedContext === 'knowledge-base'
   const includeGitHubPullRequestCreation = context?.kind === 'project'

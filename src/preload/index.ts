@@ -157,10 +157,16 @@ const api: SpaceZeroAPI = {
   sessions: {
     listProjectSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectSessions),
     listWorkspaceSessions: () => ipcRenderer.invoke(IPC_CHANNELS.sessions.listWorkspaceSessions),
+    getCurrentGlobalChatContext: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.getCurrentGlobalChatContext),
     createProjectSession: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.createProjectSession, request),
     getCurrentProjectChatContext: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.getCurrentProjectChatContext, request),
+    listProjectChatHistory: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.listProjectChatHistory, request),
+    resumeProjectChat: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.sessions.resumeProjectChat, request),
     clearProjectChat: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.sessions.clearProjectChat, request),
     rename: (request) => ipcRenderer.invoke(IPC_CHANNELS.sessions.rename, request),

@@ -41,11 +41,25 @@ export type ProjectSessionChatContext = {
   updatedAt: string
 }
 
+export type ProjectSessionChatHistoryItem = {
+  id: string
+  initialPrompt: string
+  createdAt?: string
+}
+
 export type WorkspaceSession = {
   id: string
   kind: 'workspace'
   title: string
   status: SessionStatus
+  createdAt: string
+  updatedAt: string
+}
+
+export type GlobalChatContext = {
+  id: string
+  workspaceContext: { kind: 'global-chat'; key: 'global-chat' }
+  agentSession: WorkspaceSession
   createdAt: string
   updatedAt: string
 }

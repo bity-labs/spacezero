@@ -197,7 +197,8 @@ describe('WorkspaceShell sidebar navigation', () => {
     render(<WorkspaceShell />)
 
     expect(screen.getByRole('button', { name: 'Knowledge Base' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'workspace.sidebar.newAgent' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.queryByText('sessions.workspaceList.sectionLabel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'workspace.openAppSettings' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'workspace.sidebar.search' })).not.toBeInTheDocument()
