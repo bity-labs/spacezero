@@ -1273,6 +1273,7 @@ function FilesToolSession({
                 <TreesFileTree
                   key={sessionId}
                   aria-label={treeLabel}
+                  className="pt-1"
                   model={treeModel}
                   style={treeHostStyle}
                   onDoubleClick={() => {

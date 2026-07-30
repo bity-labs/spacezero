@@ -403,6 +403,7 @@ vi.mock('@pierre/trees/react', async () => {
       }
     ) => React.ReactNode
     'aria-label'?: string
+    className?: string
     style?: Record<string, unknown>
   }): React.JSX.Element {
     treesMock.renderProps.push(props)
@@ -510,7 +511,11 @@ vi.mock('@pierre/trees/react', async () => {
     }, [model, revision])
 
     return (
-      <div data-testid="tree-overflow-boundary" style={{ overflow: 'hidden' }}>
+      <div
+        className={props.className}
+        data-testid="tree-overflow-boundary"
+        style={{ overflow: 'hidden' }}
+      >
         <ul role="tree" aria-label={props['aria-label']}>
           {rows}
         </ul>
@@ -777,6 +782,17 @@ describe('Files Tool', () => {
       '--trees-focus-ring-color-override': 'var(--ring)',
       '--trees-font-family-override': 'var(--font-sans)'
     })
+  })
+
+  it('adds top spacing between Files search and the first tree row', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+
+    render(<FilesTool sessionId="session-1" />)
+
+    const tree = await screen.findByRole('tree', { name: 'Project files' })
+    expect(tree.parentElement).toHaveClass('pt-1')
   })
 
   it('defaults to Files search and filters Trees rows by path/name without calling content search IPC', async () => {
