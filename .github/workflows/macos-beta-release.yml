@@ -69,13 +69,18 @@ jobs:
           set -euo pipefail
           umask 077
           key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+          cert_path="$RUNNER_TEMP/SpaceZeroDeveloperID.p12"
           cleanup() {
-            rm -f "$key_path"
+            rm -f "$key_path" "$cert_path"
           }
           trap cleanup EXIT HUP INT TERM
           printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          if ! printf '%s' "$CSC_LINK" | base64 --decode > "$cert_path" 2>/dev/null; then
+            printf '%s' "$CSC_LINK" | base64 -D > "$cert_path"
+          fi
           export APPLE_API_KEY="$key_path"
           export APPLE_API_ISSUER="$APPLE_ISSUER"
+          export CSC_LINK="$cert_path"
           pnpm exec electron-builder --mac --publish never -c.forceCodeSigning=true
 
       - name: Verify complete macOS release artifact set
