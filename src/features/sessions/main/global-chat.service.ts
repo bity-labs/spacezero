@@ -41,6 +41,42 @@ export function createGlobalChatService({
   deleteSession: (sessionId: string) => Promise<void>
 }): GlobalChatService {
   let pending: Promise<GlobalChatContext> | undefined
+  let latestMutationGeneration = 0
+  let mutationQueue = Promise.resolve()
+
+  function beginCurrentContextMutation(): number {
+    latestMutationGeneration += 1
+    return latestMutationGeneration
+  }
+
+  function isLatestCurrentContextMutation(generation: number): boolean {
+    return latestMutationGeneration === generation
+  }
+
+  async function runCurrentContextMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const result = mutationQueue.then(operation, operation)
+    mutationQueue = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
+  async function rollbackCreatedSession(sessionId: string, creationFailure: unknown): Promise<never> {
+    try {
+      await deleteSession(sessionId)
+    } catch (rollbackFailure) {
+      const rollbackError = new Error('globalChat.creationRollbackFailed', {
+        cause: creationFailure
+      })
+      Object.defineProperty(rollbackError, 'rollbackFailures', {
+        value: [rollbackFailure],
+        enumerable: false
+      })
+      throw rollbackError
+    }
+    throw creationFailure
+  }
 
   async function createAndPersist(): Promise<GlobalChatContext> {
     const createdSession = await createSession()
@@ -48,9 +84,23 @@ export function createGlobalChatService({
       const createdContext = await createCurrentChatContext(createdSession.id)
       return toGlobalChatContext(createdContext, toWorkspaceSession(createdSession))
     } catch (error) {
-      await deleteSession(createdSession.id).catch(() => undefined)
-      throw error
+      return rollbackCreatedSession(createdSession.id, error)
     }
+  }
+
+  async function getPersistedCurrentChatContext(): Promise<GlobalChatContext> {
+    const currentContext = await getCurrentChatContext()
+    if (
+      !currentContext ||
+      currentContext.workspaceContextKey !== GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY
+    ) {
+      throw new Error('Global Chat Context is unavailable.')
+    }
+    const storedSession = await findSessionById(currentContext.agentSessionId)
+    if (!isGlobalChatSession(storedSession)) {
+      throw new Error('Global Chat Context is unavailable.')
+    }
+    return toGlobalChatContext(currentContext, toWorkspaceSession(storedSession))
   }
 
   async function getOrCreate(): Promise<GlobalChatContext> {
@@ -104,6 +154,7 @@ export function createGlobalChatService({
       return history.filter((item): item is GlobalChatHistoryItem => Boolean(item))
     },
     async resumeChatContext(chatContextId) {
+      const generation = beginCurrentContextMutation()
       const chatContext = await findChatContextById(chatContextId.trim())
       if (!chatContext || chatContext.workspaceContextKey !== GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY) {
         throw new Error('Global Chat Context was not found.')
@@ -113,10 +164,44 @@ export function createGlobalChatService({
         throw new Error('Global Chat Context is unavailable.')
       }
 
-      const selectedContext = await setCurrentChatContext(chatContext.id)
-      return toGlobalChatContext(selectedContext, toWorkspaceSession(storedSession))
+      const selectedContext = await runCurrentContextMutation(async () => {
+        if (!isLatestCurrentContextMutation(generation)) return undefined
+        return setCurrentChatContext(chatContext.id)
+      })
+      return selectedContext
+        ? toGlobalChatContext(selectedContext, toWorkspaceSession(storedSession))
+        : getPersistedCurrentChatContext()
     },
-    clearChat: createAndPersist
+    async clearChat() {
+      const generation = beginCurrentContextMutation()
+      const createdSession = await createSession()
+      const mutationResult = await runCurrentContextMutation(async () => {
+        if (!isLatestCurrentContextMutation(generation)) {
+          return { createdContext: undefined, needsCleanup: true }
+        }
+        let createdContext: StoredGlobalChatContext
+        try {
+          createdContext = await createCurrentChatContext(createdSession.id)
+        } catch (error) {
+          return rollbackCreatedSession(createdSession.id, error)
+        }
+        if (!isLatestCurrentContextMutation(generation)) {
+          await deleteSession(createdSession.id)
+          return { createdContext: undefined, needsCleanup: false }
+        }
+        return { createdContext, needsCleanup: false }
+      })
+
+      if (mutationResult.createdContext) {
+        return toGlobalChatContext(
+          mutationResult.createdContext,
+          toWorkspaceSession(createdSession)
+        )
+      }
+
+      if (mutationResult.needsCleanup) await deleteSession(createdSession.id)
+      return getPersistedCurrentChatContext()
+    }
   }
 }
 

@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionState } from '../../../shared/agent-protocol'
+import { BrowserService, type BrowserViewAdapter } from '../../browser/main/browser.service'
+import type { BrowserClearDataResult } from '../../browser/shared'
+import {
+  createTerminalService,
+  type PtyProcess,
+  type TerminalPtyAdapter
+} from '../../terminal/main/terminal.service'
 import type { StoredGlobalChatContext } from './global-chat.repository'
 import { createGlobalChatService as createService } from './global-chat.service'
 import type { StoredSession } from './sessions.service'
@@ -53,6 +60,14 @@ function storedChatContext(
     updatedAt: now,
     ...overrides
   }
+}
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
 }
 
 describe('Global Chat Context', () => {
@@ -129,6 +144,27 @@ describe('Global Chat Context', () => {
     expect(deleteSession).toHaveBeenCalledWith(session.id)
   })
 
+  it('surfaces creation and cleanup diagnostics when persistence rollback fails', async () => {
+    const creationFailure = new Error('Unable to persist Global Chat Context')
+    const cleanupFailure = new Error('Unable to delete fresh agent Session')
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => undefined,
+      createCurrentChatContext: async () => {
+        throw creationFailure
+      },
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: vi.fn(),
+      createSession: async () => storedSession(),
+      deleteSession: async () => {
+        throw cleanupFailure
+      }
+    })
+
+    const opening = service.getOrCreateCurrentChatContext()
+    await expect(opening).rejects.toThrow('globalChat.creationRollbackFailed')
+    await expect(opening).rejects.toMatchObject({ cause: creationFailure })
+  })
+
   it('coalesces concurrent opens into one current Chat Context creation', async () => {
     const session = storedSession()
     const context = storedChatContext()
@@ -201,6 +237,206 @@ describe('Global Chat Context', () => {
     ])
   })
 
+  it('keeps the latest resume persisted when resume lookups complete in reverse order', async () => {
+    const initialContext = storedChatContext()
+    const firstContext = storedChatContext({
+      id: 'global-chat-context-first',
+      agentSessionId: 'global-chat-agent-session-first'
+    })
+    const secondContext = storedChatContext({
+      id: 'global-chat-context-second',
+      agentSessionId: 'global-chat-agent-session-second'
+    })
+    const firstLookup = deferred<StoredGlobalChatContext | undefined>()
+    let currentContext = initialContext
+    const setCurrentChatContext = vi.fn(async (chatContextId: string) => {
+      currentContext = chatContextId === firstContext.id ? firstContext : secondContext
+      return currentContext
+    })
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: async (chatContextId) =>
+        chatContextId === firstContext.id ? firstLookup.promise : secondContext,
+      setCurrentChatContext,
+      createCurrentChatContext: vi.fn(),
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: vi.fn(),
+      deleteSession: vi.fn()
+    })
+
+    const firstResume = service.resumeChatContext(firstContext.id)
+    await expect(service.resumeChatContext(secondContext.id)).resolves.toMatchObject({
+      id: secondContext.id,
+      agentSession: { id: secondContext.agentSessionId }
+    })
+    firstLookup.resolve(firstContext)
+
+    await expect(firstResume).resolves.toMatchObject({ id: secondContext.id })
+    expect(currentContext).toBe(secondContext)
+    expect(setCurrentChatContext).toHaveBeenCalledOnce()
+    expect(setCurrentChatContext).toHaveBeenCalledWith(secondContext.id)
+  })
+
+  it('keeps a later resume current and deletes a superseded fresh Session when clear finishes late', async () => {
+    const initialContext = storedChatContext()
+    const selectedContext = storedChatContext({
+      id: 'global-chat-context-selected',
+      agentSessionId: 'global-chat-agent-session-selected'
+    })
+    const supersededSession = storedSession({ id: 'global-chat-agent-session-superseded' })
+    const freshSession = deferred<StoredSession>()
+    let currentContext = initialContext
+    const deleteSession = vi.fn(async () => undefined)
+    const createCurrentChatContext = vi.fn(async (sessionId: string) => {
+      currentContext = storedChatContext({
+        id: `global-chat-context-${sessionId}`,
+        agentSessionId: sessionId
+      })
+      return currentContext
+    })
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: async () => selectedContext,
+      setCurrentChatContext: async () => {
+        currentContext = selectedContext
+        return currentContext
+      },
+      createCurrentChatContext,
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: () => freshSession.promise,
+      deleteSession
+    })
+
+    const clearing = service.clearChat()
+    await expect(service.resumeChatContext(selectedContext.id)).resolves.toMatchObject({
+      id: selectedContext.id
+    })
+    freshSession.resolve(supersededSession)
+
+    await expect(clearing).resolves.toMatchObject({ id: selectedContext.id })
+    expect(currentContext).toBe(selectedContext)
+    expect(createCurrentChatContext).not.toHaveBeenCalled()
+    expect(deleteSession).toHaveBeenCalledWith(supersededSession.id)
+  })
+
+  it('deletes a fresh Session superseded while its Chat Context write is in flight', async () => {
+    const initialContext = storedChatContext()
+    const selectedContext = storedChatContext({
+      id: 'global-chat-context-selected',
+      agentSessionId: 'global-chat-agent-session-selected'
+    })
+    const freshSession = storedSession({ id: 'global-chat-agent-session-superseded' })
+    const freshContext = storedChatContext({
+      id: 'global-chat-context-superseded',
+      agentSessionId: freshSession.id
+    })
+    const contextWrite = deferred<StoredGlobalChatContext>()
+    let currentContext = initialContext
+    const deleteSession = vi.fn(async () => undefined)
+    const createCurrentChatContext = vi.fn(async () => {
+      const created = await contextWrite.promise
+      currentContext = created
+      return created
+    })
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: async () => selectedContext,
+      setCurrentChatContext: async () => {
+        currentContext = selectedContext
+        return selectedContext
+      },
+      createCurrentChatContext,
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: async () => freshSession,
+      deleteSession
+    })
+
+    const clearing = service.clearChat()
+    await vi.waitFor(() => expect(createCurrentChatContext).toHaveBeenCalledOnce())
+    const resuming = service.resumeChatContext(selectedContext.id)
+    contextWrite.resolve(freshContext)
+
+    await expect(resuming).resolves.toMatchObject({ id: selectedContext.id })
+    await expect(clearing).resolves.toMatchObject({ id: selectedContext.id })
+    expect(currentContext).toBe(selectedContext)
+    expect(deleteSession).toHaveBeenCalledWith(freshSession.id)
+  })
+
+  it('keeps a later clear current when an earlier resume lookup finishes late', async () => {
+    const initialContext = storedChatContext()
+    const selectedContext = storedChatContext({
+      id: 'global-chat-context-selected',
+      agentSessionId: 'global-chat-agent-session-selected'
+    })
+    const freshSession = storedSession({ id: 'global-chat-agent-session-fresh' })
+    const freshContext = storedChatContext({
+      id: 'global-chat-context-fresh',
+      agentSessionId: freshSession.id
+    })
+    const selectedLookup = deferred<StoredGlobalChatContext | undefined>()
+    let currentContext = initialContext
+    const setCurrentChatContext = vi.fn(async () => {
+      currentContext = selectedContext
+      return currentContext
+    })
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: () => selectedLookup.promise,
+      setCurrentChatContext,
+      createCurrentChatContext: async () => {
+        currentContext = freshContext
+        return freshContext
+      },
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: async () => freshSession,
+      deleteSession: vi.fn()
+    })
+
+    const resuming = service.resumeChatContext(selectedContext.id)
+    await expect(service.clearChat()).resolves.toMatchObject({ id: freshContext.id })
+    selectedLookup.resolve(selectedContext)
+
+    await expect(resuming).resolves.toMatchObject({ id: freshContext.id })
+    expect(currentContext).toBe(freshContext)
+    expect(setCurrentChatContext).not.toHaveBeenCalled()
+  })
+
+  it('surfaces cleanup failures for a superseded fresh Session', async () => {
+    const selectedContext = storedChatContext({
+      id: 'global-chat-context-selected',
+      agentSessionId: 'global-chat-agent-session-selected'
+    })
+    const supersededSession = storedSession({ id: 'global-chat-agent-session-superseded' })
+    const freshSession = deferred<StoredSession>()
+    const cleanupFailure = new Error('utility cleanup failed')
+    let currentContext = storedChatContext()
+    const service = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: async () => selectedContext,
+      setCurrentChatContext: async () => {
+        currentContext = selectedContext
+        return selectedContext
+      },
+      createCurrentChatContext: vi.fn(),
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) => storedSession({ id: sessionId }),
+      createSession: () => freshSession.promise,
+      deleteSession: async () => {
+        throw cleanupFailure
+      }
+    })
+
+    const clearing = service.clearChat()
+    await service.resumeChatContext(selectedContext.id)
+    freshSession.resolve(supersededSession)
+
+    await expect(clearing).rejects.toBe(cleanupFailure)
+  })
+
   it('resumes only a persisted Global Chat Context and makes it current', async () => {
     const selectedContext = storedChatContext({
       id: 'global-chat-context-selected',
@@ -244,6 +480,105 @@ describe('Global Chat Context', () => {
       'Global Chat Context was not found'
     )
     expect(setCurrentChatContext).not.toHaveBeenCalled()
+  })
+
+  it('keeps Browser and Terminal tab identities under global-chat across clear and resume', async () => {
+    const originalSession = storedSession()
+    const originalContext = storedChatContext()
+    const freshSession = storedSession({ id: 'global-chat-agent-session-fresh' })
+    const freshContext = storedChatContext({
+      id: 'global-chat-context-fresh',
+      agentSessionId: freshSession.id
+    })
+    let currentContext = originalContext
+    const chatService = createGlobalChatService({
+      getCurrentChatContext: async () => currentContext,
+      findChatContextById: async (chatContextId) =>
+        chatContextId === originalContext.id ? originalContext : undefined,
+      setCurrentChatContext: async () => {
+        currentContext = originalContext
+        return originalContext
+      },
+      createCurrentChatContext: async () => {
+        currentContext = freshContext
+        return freshContext
+      },
+      clearCurrentChatContext: vi.fn(),
+      findSessionById: async (sessionId) =>
+        sessionId === originalSession.id ? originalSession : freshSession,
+      createSession: async () => freshSession,
+      deleteSession: vi.fn()
+    })
+    const clearedProfile: BrowserClearDataResult = {
+      status: 'cleared',
+      cleared: ['cookies-and-site-storage', 'cache', 'temporary-grants'],
+      failures: []
+    }
+    const browserAdapter: BrowserViewAdapter = {
+      createView: vi.fn(),
+      showView: vi.fn(),
+      hideView: vi.fn(),
+      destroyView: vi.fn(),
+      loadUrl: vi.fn(),
+      goBack: vi.fn(),
+      goForward: vi.fn(),
+      reload: vi.fn(),
+      stop: vi.fn(),
+      clearProfileData: async () => clearedProfile
+    }
+    const browserService = new BrowserService(browserAdapter)
+    const ptyProcess: PtyProcess = {
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(async () => undefined),
+      onData: vi.fn(() => () => undefined),
+      onExit: vi.fn(() => () => undefined)
+    }
+    const pty: TerminalPtyAdapter = { spawn: vi.fn(async () => ptyProcess) }
+    const terminalService = createTerminalService({
+      repository: {
+        findSessionById: vi.fn(async () => undefined),
+        findProjectById: vi.fn(async () => undefined)
+      },
+      worktrees: { validate: vi.fn(async () => true) },
+      storageSettings: { getSpaceZeroHome: vi.fn(async () => '/home/builder/SpaceZero') },
+      knowledgeBaseRoot: {
+        getVerifiedRoot: vi.fn(async () => '/home/builder/SpaceZero/knowledge-base')
+      },
+      pty,
+      createId: () => 'terminal-global-chat',
+      resolveShell: () => ({ executable: '/bin/zsh', args: [] }),
+      emitToWindow: vi.fn()
+    })
+    const browserRequest = {
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' as const }
+    }
+    const terminalRequest = { context: { kind: 'global-chat' as const } }
+
+    const initialBrowser = await browserService.getState(browserRequest)
+    const initialTerminal = await terminalService.create({ ownerWindowId: 1, request: terminalRequest })
+
+    await chatService.clearChat()
+    const afterClearBrowser = await browserService.getState(browserRequest)
+    const afterClearTerminal = await terminalService.create({
+      ownerWindowId: 1,
+      request: terminalRequest
+    })
+    await chatService.resumeChatContext(originalContext.id)
+    const afterResumeBrowser = await browserService.getState(browserRequest)
+    const afterResumeTerminal = await terminalService.create({
+      ownerWindowId: 1,
+      request: terminalRequest
+    })
+
+    expect(afterClearBrowser.activeTabId).toBe(initialBrowser.activeTabId)
+    expect(afterResumeBrowser.activeTabId).toBe(initialBrowser.activeTabId)
+    expect(afterClearTerminal.terminalId).toBe(initialTerminal.terminalId)
+    expect(afterResumeTerminal.terminalId).toBe(initialTerminal.terminalId)
+    expect(browserAdapter.createView).toHaveBeenCalledOnce()
+    expect(pty.spawn).toHaveBeenCalledOnce()
+    expect(currentContext).toBe(originalContext)
   })
 
   it('clears into a fresh current Global Chat Context while retaining the previous context', async () => {
