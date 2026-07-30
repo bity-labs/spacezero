@@ -17,18 +17,12 @@ function createRepository(): SessionsRepository {
     async listProjectSessions() {
       return sessions.filter((session) => session.projectId !== null)
     },
-    async listWorkspaceSessions() {
-      return sessions.filter((session) => session.projectId === null)
-    },
     async create(session) {
       sessions.push(session)
       return session
     },
     async countByProjectId(projectId) {
       return sessions.filter((session) => session.projectId === projectId).length
-    },
-    async countWorkspaceSessions() {
-      return sessions.filter((session) => session.projectId === null).length
     },
     async projectExists(projectId) {
       return projectId === 'project-1'

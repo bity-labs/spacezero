@@ -41,13 +41,6 @@
       "error": "Impossible de charger les sessions.",
       "empty": "Aucune session pour le moment."
     },
-    "workspaceList": {
-      "sectionLabel": "Sessions d’espace de travail",
-      "label": "Liste des sessions d’espace de travail",
-      "loading": "Chargement des sessions d’espace de travail…",
-      "error": "Impossible de charger les sessions d’espace de travail.",
-      "empty": "Aucune session d’espace de travail pour le moment."
-    },
     "workspace": {
       "layoutLabel": "Disposition de l’espace des sessions",
       "panelLabel": "Panneau de session",

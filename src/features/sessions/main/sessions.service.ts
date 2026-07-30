@@ -4,11 +4,10 @@ import { nanoid } from 'nanoid'
 import type {
   CreateProjectSessionRequest,
   ProjectSession,
-  Session,
   SessionGitHubSource,
   SessionStatus,
   SessionWorktree,
-  WorkspaceSession
+  ManagedChatAgentSession
 } from '../shared'
 import type { ResolvedAgentDefinition } from '../../../shared/agent-protocol'
 import type { ThinkingLevel } from '../../../shared/model-settings'
@@ -54,23 +53,21 @@ export type CreateProjectAgentSessionRequest = {
   agentDefinitionSnapshot?: ResolvedAgentDefinition
 }
 
-export type CreateWorkspaceAgentSessionRequest = {
+export type CreateManagedChatAgentSessionRequest = {
   id: string
   transcriptPath?: string
   modelProvider?: string
   modelId?: string
   thinkingLevel?: ThinkingLevel
-  title?: string
-  managedContext?: 'knowledge-base' | 'global-chat'
+  title: string
+  managedContext: 'knowledge-base' | 'global-chat'
   agentDefinitionSnapshot?: ResolvedAgentDefinition
 }
 
 export type SessionsRepository = {
   listProjectSessions: () => Promise<StoredSession[]>
-  listWorkspaceSessions: () => Promise<StoredSession[]>
   create: (session: StoredSession) => Promise<StoredSession>
   countByProjectId: (projectId: string) => Promise<number>
-  countWorkspaceSessions: () => Promise<number>
   projectExists: (projectId: string) => Promise<boolean>
   findProjectById: (projectId: string) => Promise<
     | {
@@ -104,13 +101,12 @@ type InvalidSessionMetadata = {
 
 export type SessionsService = {
   listProjectSessions: () => Promise<ProjectSession[]>
-  listWorkspaceSessions: () => Promise<WorkspaceSession[]>
   createProjectSession: (request: CreateProjectSessionRequest) => Promise<ProjectSession>
   createProjectAgentSession: (request: CreateProjectAgentSessionRequest) => Promise<ProjectSession>
-  createWorkspaceAgentSession: (
-    request: CreateWorkspaceAgentSessionRequest
-  ) => Promise<WorkspaceSession>
-  renameSession: (sessionId: string, title: string) => Promise<Session>
+  createManagedChatAgentSession: (
+    request: CreateManagedChatAgentSessionRequest
+  ) => Promise<ManagedChatAgentSession>
+  renameSession: (sessionId: string, title: string) => Promise<ProjectSession>
   archiveSession: (sessionId: string) => Promise<void>
   archiveProjectSessions: (projectId: string) => Promise<StoredSession[]>
   updateAgentModel: (
@@ -144,12 +140,6 @@ export function createSessionsService({
         }
       }
       return sessions
-    },
-
-    async listWorkspaceSessions() {
-      return (await repository.listWorkspaceSessions())
-        .filter((session) => !session.managedContext)
-        .map(toWorkspaceSession)
     },
 
     async createProjectSession(request) {
@@ -211,13 +201,11 @@ export function createSessionsService({
       )
     },
 
-    async createWorkspaceAgentSession(request) {
+    async createManagedChatAgentSession(request) {
       const timestamp = now()
-      const title = request.title
-        ? normalizeTitle(request.title)
-        : `Workspace Session ${(await repository.countWorkspaceSessions()) + 1}`
+      const title = normalizeTitle(request.title)
 
-      return toWorkspaceSession(
+      return toManagedChatAgentSession(
         await repository.create({
           id: request.id.trim(),
           projectId: null,
@@ -237,15 +225,15 @@ export function createSessionsService({
 
     async renameSession(sessionId, title) {
       const session = await repository.findSessionById(sessionId.trim())
-      if (!session) throw new Error('Session not found')
+      if (!session?.projectId || session.workspaceContextSessionId) {
+        throw new Error('Session not found')
+      }
       const updatedSession = await repository.update({
         ...session,
         title: normalizeRenameTitle(title),
         updatedAt: now()
       })
-      return updatedSession.projectId
-        ? toProjectSession(updatedSession)
-        : toWorkspaceSession(updatedSession)
+      return toProjectSession(updatedSession)
     },
 
     async archiveSession(sessionId) {
@@ -390,7 +378,7 @@ function toSessionSource(session: StoredSession): SessionGitHubSource | undefine
   }
 }
 
-export function toWorkspaceSession(session: StoredSession): WorkspaceSession {
+export function toManagedChatAgentSession(session: StoredSession): ManagedChatAgentSession {
   if (session.projectId) throw new Error('Workspace session must not have a project')
 
   return {

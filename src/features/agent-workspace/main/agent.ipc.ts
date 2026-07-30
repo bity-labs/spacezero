@@ -18,7 +18,6 @@ import {
 import {
   applyAgentDefinitionToFreshSession,
   createProjectAgentSession,
-  createWorkspaceAgentSession,
   restoreAgentSessionState
 } from './agent-session-handler'
 import {
@@ -30,19 +29,9 @@ import { getAgentUtilityProcessHost } from './agent-utility-process'
 
 const PING_SESSION_ID = 'agent-ping'
 
-const agentDefinitionReferenceSchema = z.object({
-  id: z.string().trim().min(1)
-})
-
 const sessionIdRequestSchema = z.object({
   sessionId: z.string().trim().min(1)
 })
-
-const createWorkspaceSessionRequestSchema = z
-  .object({
-    agentDefinition: agentDefinitionReferenceSchema.optional()
-  })
-  .optional()
 
 const promptRequestSchema = sessionIdRequestSchema.extend({
   message: z.string().trim().min(1)
@@ -82,17 +71,6 @@ export function registerAgentIpc(): void {
       getKnowledgeBaseStatus: getVerifiedKnowledgeBaseStatus,
       readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
       resolveSkillPaths: resolveAgentSkillPaths
-    })
-  })
-
-  ipcMain.handle(IPC_CHANNELS.agent.createWorkspaceSession, (_event, input) => {
-    const request = createWorkspaceSessionRequestSchema.parse(input)
-    return createWorkspaceAgentSession({
-      repository: createSessionsRepository(),
-      utilityHost: getAgentUtilityProcessHost(),
-      readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
-      resolveSkillPaths: resolveAgentSkillPaths,
-      ...(request?.agentDefinition ? { agentDefinition: request.agentDefinition } : {})
     })
   })
 

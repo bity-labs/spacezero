@@ -234,7 +234,7 @@ function readVersion(info: unknown): string | null {
 
 function hasActiveWork(activeWork: UpdateActiveWorkSummary): boolean {
   return (
-    activeWork.projectSessions > 0 || activeWork.workspaceSessions > 0 || activeWork.terminalTabs > 0
+    activeWork.projectSessions > 0 || activeWork.chatContexts > 0 || activeWork.terminalTabs > 0
   )
 }
 
@@ -245,7 +245,7 @@ async function getCurrentActiveWork(): Promise<UpdateActiveWorkSummary> {
       (session) =>
         (session.kind === 'project' || Boolean(session.projectId)) && session.status === 'running'
     ).length,
-    workspaceSessions: sessions.filter(
+    chatContexts: sessions.filter(
       (session) =>
         (session.kind === 'workspace' || !session.projectId) && session.status === 'running'
     ).length,
