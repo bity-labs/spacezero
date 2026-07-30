@@ -1,8 +1,13 @@
-import { createWorkspaceAgentSession } from '../../agent-workspace/main/agent-session-handler'
+import {
+  createWorkspaceAgentSession,
+  restoreAgentSessionState
+} from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
 import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-paths'
 import { getAgentUtilityProcessHost } from '../../agent-workspace/main/agent-utility-process'
+import { getKnowledgeBaseService } from '../../knowledge-base/main'
 import { createGlobalChatRepository } from './global-chat.repository'
+import { getManagedWorktreeService } from './managed-worktree.runtime'
 import { createGlobalChatService, type GlobalChatService } from './global-chat.service'
 import { createSessionsRepository } from './sessions.repository'
 
@@ -14,9 +19,21 @@ export function getGlobalChatService(): GlobalChatService {
     const sessionsRepository = createSessionsRepository()
     service = createGlobalChatService({
       getCurrentChatContext: chatRepository.getCurrentChatContext,
+      listChatContexts: chatRepository.listChatContexts,
+      findChatContextById: chatRepository.findChatContextById,
       createCurrentChatContext: chatRepository.createCurrentChatContext,
+      setCurrentChatContext: chatRepository.setCurrentChatContext,
       clearCurrentChatContext: chatRepository.clearCurrentChatContext,
       findSessionById: sessionsRepository.findSessionById,
+      getSessionState: (request) =>
+        restoreAgentSessionState(request, {
+          repository: sessionsRepository,
+          utilityHost: getAgentUtilityProcessHost(),
+          worktrees: getManagedWorktreeService(),
+          getKnowledgeBaseStatus: () => getKnowledgeBaseService().getStatus(),
+          readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+          resolveSkillPaths: resolveAgentSkillPaths
+        }),
       createSession: async () => {
         const session = await createWorkspaceAgentSession({
           repository: sessionsRepository,
@@ -31,9 +48,7 @@ export function getGlobalChatService(): GlobalChatService {
         return stored
       },
       deleteSession: async (sessionId) => {
-        await getAgentUtilityProcessHost()
-          .deleteSession({ sessionId })
-          .catch(() => undefined)
+        await getAgentUtilityProcessHost().deleteSession({ sessionId })
         await sessionsRepository.deleteById(sessionId)
       }
     })

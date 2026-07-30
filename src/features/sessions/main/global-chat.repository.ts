@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 
 import { getDatabase } from '../../../main/db'
@@ -21,6 +21,28 @@ export function createGlobalChatRepository({
   createId?: () => string
   now?: () => Date
 } = {}) {
+  async function findChatContextById(
+    chatContextId: string
+  ): Promise<StoredGlobalChatContext | undefined> {
+    const [chatContext] = await getDatabase()
+      .select({
+        id: schema.chatContexts.id,
+        workspaceContextKey: schema.chatContexts.workspaceContextKey,
+        agentSessionId: schema.chatContexts.agentSessionId,
+        createdAt: schema.chatContexts.createdAt,
+        updatedAt: schema.chatContexts.updatedAt
+      })
+      .from(schema.chatContexts)
+      .where(
+        and(
+          eq(schema.chatContexts.id, chatContextId),
+          eq(schema.chatContexts.workspaceContextKey, GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY)
+        )
+      )
+      .limit(1)
+    return chatContext
+  }
+
   async function getCurrentChatContext(): Promise<StoredGlobalChatContext | undefined> {
     const [chatContext] = await getDatabase()
       .select({
@@ -48,6 +70,21 @@ export function createGlobalChatRepository({
 
   return {
     getCurrentChatContext,
+    findChatContextById,
+
+    async listChatContexts(): Promise<StoredGlobalChatContext[]> {
+      return getDatabase()
+        .select({
+          id: schema.chatContexts.id,
+          workspaceContextKey: schema.chatContexts.workspaceContextKey,
+          agentSessionId: schema.chatContexts.agentSessionId,
+          createdAt: schema.chatContexts.createdAt,
+          updatedAt: schema.chatContexts.updatedAt
+        })
+        .from(schema.chatContexts)
+        .where(eq(schema.chatContexts.workspaceContextKey, GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY))
+        .orderBy(desc(schema.chatContexts.createdAt))
+    },
 
     async createCurrentChatContext(agentSessionId: string): Promise<StoredGlobalChatContext> {
       const timestamp = now()
@@ -74,6 +111,26 @@ export function createGlobalChatRepository({
           })
           .run()
       })
+      return chatContext
+    },
+
+    async setCurrentChatContext(chatContextId: string): Promise<StoredGlobalChatContext> {
+      const chatContext = await findChatContextById(chatContextId)
+      if (!chatContext) throw new Error('Global Chat Context was not found.')
+
+      const timestamp = now()
+      await getDatabase()
+        .insert(schema.workspaceChatContexts)
+        .values({
+          workspaceContextKey: GLOBAL_CHAT_WORKSPACE_CONTEXT_KEY,
+          workspaceContextKind: 'global-chat',
+          currentChatContextId: chatContext.id,
+          updatedAt: timestamp
+        })
+        .onConflictDoUpdate({
+          target: schema.workspaceChatContexts.workspaceContextKey,
+          set: { currentChatContextId: chatContext.id, updatedAt: timestamp }
+        })
       return chatContext
     },
 
