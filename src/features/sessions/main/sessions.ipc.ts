@@ -8,6 +8,7 @@ import { resolveAgentSkillPaths } from '../../agent-workspace/main/agent-skill-p
 import {
   createProjectSessionRequestSchema,
   renameSessionTitleRequestSchema,
+  resumeGlobalChatContextRequestSchema,
   resumeProjectChatContextRequestSchema
 } from '../shared'
 import { createSessionsRepository } from './sessions.repository'
@@ -33,6 +34,14 @@ export function registerSessionsIpc(): void {
   ipcMain.handle(IPC_CHANNELS.sessions.getCurrentGlobalChatContext, () =>
     getGlobalChatService().getOrCreateCurrentChatContext()
   )
+  ipcMain.handle(IPC_CHANNELS.sessions.listGlobalChatHistory, () =>
+    getGlobalChatService().listChatHistory()
+  )
+  ipcMain.handle(IPC_CHANNELS.sessions.resumeGlobalChat, async (_event, input: unknown) => {
+    const { chatContextId } = resumeGlobalChatContextRequestSchema.parse(input)
+    return getGlobalChatService().resumeChatContext(chatContextId)
+  })
+  ipcMain.handle(IPC_CHANNELS.sessions.clearGlobalChat, () => getGlobalChatService().clearChat())
   ipcMain.handle(IPC_CHANNELS.sessions.createProjectSession, async (_event, input: unknown) => {
     const request = createProjectSessionRequestSchema.parse(input)
     const { session } = await createManagedProjectAgentSession(request, {
