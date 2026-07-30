@@ -1,5 +1,6 @@
 import {
   createManagedChatAgentSession,
+  prepareManagedChatAgentSession,
   restoreAgentSessionState
 } from '../../agent-workspace/main/agent-session-handler'
 import { getDisabledGlobalSkillPaths } from '../../agent-workspace/main/agent-skill-settings.service'
@@ -50,6 +51,27 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
         const stored = await sessionsRepository.findSessionById(session.id)
         if (!stored) throw new Error('Knowledge Base Session was not persisted.')
         return stored
+      },
+      prepareSession: async () => {
+        const prepared = await prepareManagedChatAgentSession({
+          repository: sessionsRepository,
+          utilityHost: getAgentUtilityProcessHost(),
+          title: 'Knowledge Base Chat',
+          managedContext: 'knowledge-base',
+          readDisabledGlobalSkillPaths: getDisabledGlobalSkillPaths,
+          resolveSkillPaths: resolveAgentSkillPaths
+        })
+        const stored = await sessionsRepository.findSessionById(prepared.session.id)
+        if (!stored) throw new Error('Knowledge Base Session was not persisted.')
+        return {
+          session: stored,
+          activate: async () => {
+            const activated = await prepared.activate()
+            const activatedStored = await sessionsRepository.findSessionById(activated.id)
+            if (!activatedStored) throw new Error('Knowledge Base Session was not persisted.')
+            return activatedStored
+          }
+        }
       },
       deleteSession: async (sessionId) => {
         await getAgentUtilityProcessHost().deleteSession({ sessionId })

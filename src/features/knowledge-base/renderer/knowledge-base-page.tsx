@@ -232,6 +232,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   const [chatHistory, setChatHistory] = useState<KnowledgeBaseChatHistoryItem[] | undefined>()
   const chatContextResolution = useRef(0)
   const chatHistoryResolution = useRef(0)
+  const clearingResolutionRef = useRef<number | undefined>(undefined)
   const isClearingChat = clearingResolution !== undefined
 
   useEffect(() => {
@@ -269,6 +270,7 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   async function resumeChatContext(chatContextId: string): Promise<void> {
     const resolution = ++chatContextResolution.current
     chatHistoryResolution.current += 1
+    clearingResolutionRef.current = undefined
     setClearingResolution(undefined)
     setError(null)
     try {
@@ -292,7 +294,10 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
   }
 
   async function clearChat(): Promise<void> {
+    if (clearingResolutionRef.current !== undefined) return
+
     const resolution = ++chatContextResolution.current
+    clearingResolutionRef.current = resolution
     chatHistoryResolution.current += 1
     setClearingResolution(resolution)
     setChatHistory(undefined)
@@ -312,6 +317,9 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
         throw clearError
       }
     } finally {
+      if (clearingResolutionRef.current === resolution) {
+        clearingResolutionRef.current = undefined
+      }
       setClearingResolution((currentResolution) =>
         currentResolution === resolution ? undefined : currentResolution
       )
@@ -360,6 +368,11 @@ function ConfiguredKnowledgeBase({ setupWarning }: { setupWarning?: string }): R
         <Alert className="m-4 mb-0" variant="destructive">
           <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
         </Alert>
+      ) : null}
+      {isClearingChat ? (
+        <div className="px-4 pt-3 text-sm text-muted-foreground" role="status">
+          Starting a fresh Knowledge Base Chat…
+        </div>
       ) : null}
       <ManagedChatHostSurface
         key={chatContext.id}

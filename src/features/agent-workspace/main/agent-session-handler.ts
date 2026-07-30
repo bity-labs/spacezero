@@ -11,7 +11,10 @@ import {
   type ProjectLifecycleLock
 } from '../../projects/main/project-lifecycle-lock'
 import type { Clock, SessionsRepository, StoredSession } from '../../sessions/main/sessions.service'
-import { createSessionsService } from '../../sessions/main/sessions.service'
+import {
+  createSessionsService,
+  toManagedChatAgentSession
+} from '../../sessions/main/sessions.service'
 import type { KnowledgeBaseStatus } from '../../knowledge-base/shared'
 import type {
   ProjectSession,
@@ -45,6 +48,7 @@ import { resolveAgentDefinitionSourcesForSession } from '../../agents/main/agent
 const agentDefinitionReferenceSchema = z.object({
   id: z.string().trim().min(1)
 })
+const AGENT_SESSION_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/
 
 const agentDefinitionSpawnsSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('none') }).strict(),
@@ -783,7 +787,18 @@ function parseStoredAgentDefinitionSnapshot(
   }
 }
 
-export async function createManagedChatAgentSession({
+export type PreparedManagedChatAgentSession = {
+  session: ManagedChatAgentSession
+  activate: () => Promise<ManagedChatAgentSession>
+}
+
+export async function createManagedChatAgentSession(
+  dependencies: CreateManagedChatAgentSessionHandlerDependencies
+): Promise<ManagedChatAgentSession> {
+  return (await prepareManagedChatAgentSession(dependencies)).activate()
+}
+
+export async function prepareManagedChatAgentSession({
   repository,
   utilityHost,
   createSessionId = nanoid,
@@ -797,8 +812,8 @@ export async function createManagedChatAgentSession({
   resolveAgentDefinition = resolveAgentDefinitionForSession,
   resolveDelegationDefinitions = resolveAgentDefinitionsForDelegation,
   resolveAgentDefinitionSources = resolveAgentDefinitionSourcesForSession
-}: CreateManagedChatAgentSessionHandlerDependencies): Promise<ManagedChatAgentSession> {
-  const sessionId = createSessionId()
+}: CreateManagedChatAgentSessionHandlerDependencies): Promise<PreparedManagedChatAgentSession> {
+  const sessionId = createPiCompatibleSessionId(createSessionId())
   const cwd = resolve(getManagedChatCwd())
   await mkdir(cwd, { recursive: true })
 
@@ -817,38 +832,67 @@ export async function createManagedChatAgentSession({
     resolveDelegationDefinitions,
     agentDefinitionSources
   )
-  const state = await utilityHost.createSession({
-    sessionId,
-    kind: 'workspace',
-    projectId: null,
-    cwd,
-    workspaceTools: listWorkspaceToolDescriptorsForSession({
-      kind: 'workspace',
-      managedContext
-    }),
-    ...(skillPaths ? { skillPaths } : {}),
-    ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
-    defaultModel: modelDefaults.defaultModel,
-    thinkingLevel: modelDefaults.defaultThinking,
-    ...(agentDefinition ? { agentDefinition } : {}),
-    ...createDelegationDefinitionsRequest(delegationDefinitions)
+  const reservedSession = await createSessionsService({
+    repository
+  }).createManagedChatAgentSession({
+    id: sessionId,
+    title,
+    managedContext,
+    agentDefinitionSnapshot: agentDefinition
   })
+  let activation: Promise<ManagedChatAgentSession> | undefined
 
-  try {
-    return await createSessionsService({ repository }).createManagedChatAgentSession({
-      id: sessionId,
-      transcriptPath: state.transcriptPath,
-      modelProvider: state.modelProvider,
-      modelId: state.modelId,
-      thinkingLevel: state.thinkingLevel,
-      title,
-      managedContext,
-      agentDefinitionSnapshot: agentDefinition
-    })
-  } catch (error) {
-    await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
-    throw error
+  return {
+    session: reservedSession,
+    activate() {
+      activation ??= (async () => {
+        let utilitySessionCreated = false
+        try {
+          const state = await utilityHost.createSession({
+            sessionId,
+            kind: 'workspace',
+            projectId: null,
+            cwd,
+            workspaceTools: listWorkspaceToolDescriptorsForSession({
+              kind: 'workspace',
+              managedContext
+            }),
+            ...(skillPaths ? { skillPaths } : {}),
+            ...(disabledGlobalSkillPaths.length > 0 ? { disabledGlobalSkillPaths } : {}),
+            defaultModel: modelDefaults.defaultModel,
+            thinkingLevel: modelDefaults.defaultThinking,
+            ...(agentDefinition ? { agentDefinition } : {}),
+            ...createDelegationDefinitionsRequest(delegationDefinitions)
+          })
+          utilitySessionCreated = true
+          const storedSession = await repository.findSessionById(sessionId)
+          if (!storedSession) throw new Error('Managed Chat Session reservation was not found.')
+          return toManagedChatAgentSession(
+            await repository.update({
+              ...storedSession,
+              transcriptPath: state.transcriptPath,
+              modelProvider: state.modelProvider,
+              modelId: state.modelId,
+              thinkingLevel: state.thinkingLevel
+            })
+          )
+        } catch (error) {
+          if (utilitySessionCreated) {
+            await utilityHost.deleteSession({ sessionId }).catch(() => undefined)
+          }
+          await repository.deleteById(sessionId).catch(() => undefined)
+          throw error
+        }
+      })()
+      return activation
+    }
   }
+}
+
+function createPiCompatibleSessionId(candidate: string): string {
+  const sessionId = candidate.replace(/^[-_]/, '0').replace(/[-_]$/, '0')
+  if (!AGENT_SESSION_ID_PATTERN.test(sessionId)) throw new Error('agent.invalidSessionId')
+  return sessionId
 }
 
 async function readProjectTrustForProject(
