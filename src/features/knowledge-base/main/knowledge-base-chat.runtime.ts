@@ -77,11 +77,19 @@ export function getKnowledgeBaseChatService(): KnowledgeBaseChatService {
         currentSessionRepository.publishPreparedCurrentChatContext(session),
       recoverPreparedSessions: () =>
         recoverPreparedKnowledgeBaseSessions({
-          listPreparingSessions: currentSessionRepository.listPreparingAgentSessions,
+          listPreparingSessions: currentSessionRepository.listRecoverableAgentSessions,
           deleteUtilitySession: (sessionId) =>
             getAgentUtilityProcessHost().deleteSession({ sessionId }),
           deleteSessionMetadata: sessionsRepository.deleteById
         }),
+      retryPendingCleanup: () =>
+        recoverPreparedKnowledgeBaseSessions({
+          listPreparingSessions: currentSessionRepository.listAgentSessionsPendingCleanup,
+          deleteUtilitySession: (sessionId) =>
+            getAgentUtilityProcessHost().deleteSession({ sessionId }),
+          deleteSessionMetadata: sessionsRepository.deleteById
+        }),
+      markSessionPendingCleanup: currentSessionRepository.markAgentSessionPendingCleanup,
       deleteSession: async (sessionId) => {
         await getAgentUtilityProcessHost().deleteSession({ sessionId })
         await sessionsRepository.deleteById(sessionId)

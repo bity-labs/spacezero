@@ -58,7 +58,9 @@ export const sessions = sqliteTable('sessions', {
     { onDelete: 'cascade' }
   ),
   agentDefinitionSnapshot: text('agent_definition_snapshot'),
-  agentLifecycleState: text('agent_lifecycle_state', { enum: ['preparing', 'active'] })
+  agentLifecycleState: text('agent_lifecycle_state', {
+    enum: ['preparing', 'active', 'cleanup-pending']
+  })
     .notNull()
     .default('active')
 })

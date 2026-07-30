@@ -48,7 +48,9 @@ const mocks = vi.hoisted(() => {
     findChatContextById: vi.fn(async (chatContextId: string) =>
       chatContextId === selectedContext.id ? selectedContext : undefined
     ),
-    listPreparingAgentSessions: vi.fn(async () => []),
+    listRecoverableAgentSessions: vi.fn(async () => []),
+    listAgentSessionsPendingCleanup: vi.fn(async () => []),
+    markAgentSessionPendingCleanup: vi.fn(async () => undefined),
     createCurrentChatContext: vi.fn(),
     publishPreparedCurrentChatContext: vi.fn(),
     setCurrentChatContext: vi.fn(async () => {
