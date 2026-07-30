@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   appendKnowledgeBaseMentionContext,
   encodeKnowledgeBaseMentionPath,
+  getActiveKnowledgeBaseMentionQuery,
   parseKnowledgeBaseMentions,
   stripKnowledgeBaseMentionContext
 } from './knowledge-base-mentions'
@@ -53,6 +54,16 @@ describe('parseKnowledgeBaseMentions', () => {
     expect(parseKnowledgeBaseMentions('@kb/ @kb/note.md @kb/note.md')).toEqual([
       { raw: '@kb/note.md', relativePath: 'note.md', kind: 'file' }
     ])
+  })
+})
+
+describe('getActiveKnowledgeBaseMentionQuery', () => {
+  it('activates on @kb before the path slash is typed', () => {
+    expect(getActiveKnowledgeBaseMentionQuery('Read @kb')).toEqual({ start: 5, query: '' })
+    expect(getActiveKnowledgeBaseMentionQuery('Read @kb/notes')).toEqual({
+      start: 5,
+      query: 'notes'
+    })
   })
 })
 
