@@ -8,6 +8,8 @@ import { getKnowledgeBaseProjectsService } from '../../knowledge-base/main'
 import { getSessionCleanupService } from '../../sessions/main/session-cleanup.runtime'
 import { createSessionsRepository } from '../../sessions/main/sessions.repository'
 import { createSessionsService } from '../../sessions/main/sessions.service'
+import { runWithLiveTerminalConfirmation } from '../../terminal/main/terminal-confirmation.service'
+import { getTerminalService } from '../../terminal/main/terminal.runtime'
 import {
   addProjectFromFolderRequestSchema,
   createEmptyProjectRequestSchema,
@@ -47,14 +49,30 @@ export function registerProjectsIpc(): void {
       sessionsService,
       projectsService,
       deleteUtilitySession: (request) => getAgentUtilityProcessHost().deleteSession(request),
-      closeBrowsersForSession: (session) => getBrowserService().closeSessionContext(session.id)
+      closeBrowsersForSession: (session) => getBrowserService().closeSessionContext(session.id),
+      closeProjectHomeTerminals: closeProjectHomeTerminalsForArchive,
+      closeProjectHomeBrowser: (projectId) =>
+        getBrowserService().closeContext({ kind: 'project-home', projectId })
     })
   })
   ipcMain.handle(IPC_CHANNELS.projects.delete, async (_event, input: unknown) => {
     const { projectId } = projectIdRequestSchema.parse(input)
     return deleteProjectLifecycle(projectId, {
       sessionCleanupService: getSessionCleanupService(),
-      projectsService
+      projectsService,
+      destroyProjectHomeBrowser: (projectId) =>
+        getBrowserService().destroyContext({ kind: 'project-home', projectId })
     })
+  })
+}
+
+async function closeProjectHomeTerminalsForArchive(projectId: string): Promise<void> {
+  const terminalService = getTerminalService()
+  const context = { kind: 'project-home' as const, projectId }
+  await runWithLiveTerminalConfirmation({
+    operationKey: `archive-project:${projectId}`,
+    purpose: 'archive-context',
+    countLiveTerminals: () => terminalService.countLiveTerminalsForContext(context),
+    run: () => terminalService.closeAllForContext(context)
   })
 }

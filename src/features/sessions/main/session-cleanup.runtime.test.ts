@@ -128,7 +128,7 @@ describe('Session cleanup runtime coordination', () => {
     const runWithConfirmation = vi.fn(async (request) => {
       expect(request.operationKey).toBe('delete-project:project-1')
       expect(request.purpose).toBe('delete-context')
-      expect(await request.countLiveTerminals()).toBe(2)
+      expect(await request.countLiveTerminals()).toBe(3)
       throw new Error('terminal.confirmationCancelled')
     })
     const harness = await setupRuntime({
@@ -142,11 +142,13 @@ describe('Session cleanup runtime coordination', () => {
       createdAt: new Date('2026-07-18T00:00:00.000Z'),
       updatedAt: new Date('2026-07-18T00:00:00.000Z')
     }))
+    const destroyProjectHomeBrowser = vi.fn(async () => undefined)
 
     await expect(
       harness.deleteProjectLifecycle('project-1', {
         sessionCleanupService: harness.service,
-        projectsService: { deleteProject }
+        projectsService: { deleteProject },
+        destroyProjectHomeBrowser
       })
     ).rejects.toThrow('terminal.confirmationCancelled')
 
@@ -157,7 +159,39 @@ describe('Session cleanup runtime coordination', () => {
     expect(harness.removeWorktree).not.toHaveBeenCalled()
     expect(harness.repository.deleteById).not.toHaveBeenCalled()
     expect(harness.destroySessionContext).not.toHaveBeenCalled()
+    expect(destroyProjectHomeBrowser).not.toHaveBeenCalled()
     expect(deleteProject).not.toHaveBeenCalled()
+  })
+
+  it('cleans Project Home Terminal and Browser contexts even when the Project has no Sessions', async () => {
+    const runWithConfirmation = vi.fn(async (request) => {
+      expect(await request.countLiveTerminals()).toBe(1)
+      return request.run()
+    })
+    const harness = await setupRuntime({ sessions: [], runWithConfirmation })
+    const destroyProjectHomeBrowser = vi.fn(async () => undefined)
+    const deleteProject = vi.fn(async () => ({
+      id: 'project-1',
+      name: 'Space Zero',
+      path: '/repos/spacezero',
+      createdAt: new Date('2026-07-18T00:00:00.000Z'),
+      updatedAt: new Date('2026-07-18T00:00:00.000Z')
+    }))
+
+    await expect(
+      harness.deleteProjectLifecycle('project-1', {
+        sessionCleanupService: harness.service,
+        projectsService: { deleteProject },
+        destroyProjectHomeBrowser
+      })
+    ).resolves.toEqual({ deletedSessionIds: [] })
+
+    expect(harness.closeTerminalContext).toHaveBeenCalledWith({
+      kind: 'project-home',
+      projectId: 'project-1'
+    })
+    expect(destroyProjectHomeBrowser).toHaveBeenCalledWith('project-1')
+    expect(deleteProject).toHaveBeenCalledWith('project-1')
   })
 
   it('propagates Browser metadata deletion failure before deleting Project metadata', async () => {
@@ -221,7 +255,15 @@ describe('Session cleanup runtime coordination', () => {
     await Promise.all([projectDeletion, childDeletion])
 
     expect(runWithConfirmation).toHaveBeenCalledTimes(1)
-    expect(harness.closeTerminalContext).toHaveBeenCalledTimes(1)
+    expect(harness.closeTerminalContext).toHaveBeenCalledTimes(2)
+    expect(harness.closeTerminalContext).toHaveBeenNthCalledWith(1, {
+      kind: 'project-home',
+      projectId: 'project-1'
+    })
+    expect(harness.closeTerminalContext).toHaveBeenNthCalledWith(2, {
+      kind: 'project-session',
+      sessionId: 'session-1'
+    })
     expect(harness.deleteUtilitySession).toHaveBeenCalledTimes(1)
     expect(harness.removeWorktree).toHaveBeenCalledTimes(1)
     expect(harness.repository.deleteById).toHaveBeenCalledTimes(1)
