@@ -20,7 +20,17 @@ describe('Global Chat IPC', () => {
       createdAt: new Date(0).toISOString(),
       updatedAt: new Date(0).toISOString()
     }
+    const history = [
+      {
+        id: 'global-chat-context-retained',
+        initialPrompt: 'Inspect the workspace',
+        createdAt: new Date(0).toISOString()
+      }
+    ]
     const getOrCreateCurrentChatContext = vi.fn(async () => context)
+    const listChatHistory = vi.fn(async () => history)
+    const resumeChatContext = vi.fn(async () => context)
+    const clearChat = vi.fn(async () => context)
 
     vi.doMock('electron', () => ({
       ipcMain: {
@@ -35,7 +45,12 @@ describe('Global Chat IPC', () => {
       createSessionsRepository: () => ({})
     }))
     vi.doMock('./global-chat.runtime', () => ({
-      getGlobalChatService: () => ({ getOrCreateCurrentChatContext })
+      getGlobalChatService: () => ({
+        getOrCreateCurrentChatContext,
+        listChatHistory,
+        resumeChatContext,
+        clearChat
+      })
     }))
     vi.doMock('./project-session-chat.runtime', () => ({
       getProjectSessionChatService: vi.fn()
@@ -62,5 +77,18 @@ describe('Global Chat IPC', () => {
       handlers.get('sessions:getCurrentGlobalChatContext')?.({}, undefined)
     ).resolves.toEqual(context)
     expect(getOrCreateCurrentChatContext).toHaveBeenCalledOnce()
+
+    await expect(handlers.get('sessions:listGlobalChatHistory')?.({}, undefined)).resolves.toEqual(
+      history
+    )
+    await expect(
+      handlers.get('sessions:resumeGlobalChat')?.({}, { chatContextId: 'global-chat-context-1' })
+    ).resolves.toEqual(context)
+    await expect(handlers.get('sessions:clearGlobalChat')?.({}, undefined)).resolves.toEqual(
+      context
+    )
+    expect(listChatHistory).toHaveBeenCalledOnce()
+    expect(resumeChatContext).toHaveBeenCalledWith('global-chat-context-1')
+    expect(clearChat).toHaveBeenCalledOnce()
   })
 })

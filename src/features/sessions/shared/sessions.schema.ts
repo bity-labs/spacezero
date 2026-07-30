@@ -5,6 +5,10 @@ export const createProjectSessionRequestSchema = z.object({
   title: z.string().trim().min(1).optional()
 })
 
+export const resumeGlobalChatContextRequestSchema = z.object({
+  chatContextId: z.string().trim().min(1).max(255)
+})
+
 export const resumeProjectChatContextRequestSchema = z.object({
   sessionId: z.string().trim().min(1).max(255),
   chatContextId: z.string().trim().min(1).max(255)

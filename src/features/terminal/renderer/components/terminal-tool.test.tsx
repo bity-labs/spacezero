@@ -32,6 +32,13 @@ vi.mock('@xterm/addon-fit', () => ({
 }))
 
 const context = { kind: 'project-session' as const, sessionId: 'session-1' }
+const terminalContexts = [
+  ['Project Home', { kind: 'project-home', projectId: 'project-1' }],
+  ['Project Session', { kind: 'project-session', sessionId: 'project-session-1' }],
+  ['Workspace Session', { kind: 'workspace-session', sessionId: 'workspace-session-1' }],
+  ['Global Chat', { kind: 'global-chat' }],
+  ['Knowledge Base', { kind: 'knowledge-base' }]
+] as const
 const terminalApiDefaults = {
   listTabs: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
   selectTab: vi.fn(async ({ terminalId }: { terminalId: string }) => ({
@@ -308,7 +315,7 @@ describe('TerminalTool', () => {
     })
   })
 
-  it('uses the owning workspace-session or knowledge-base context without rewriting it to a project session', async () => {
+  it.each(terminalContexts)('uses the exact owning %s IPC context', async (_name, exactContext) => {
     const create = vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' }))
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -326,58 +333,50 @@ describe('TerminalTool', () => {
       onEvent: vi.fn(() => () => undefined)
     }
 
-    const workspaceContext = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
-    const mounted = render(<TerminalTool context={workspaceContext} />)
-    await waitFor(() =>
-      expect(create).toHaveBeenCalledWith(expect.objectContaining({ context: workspaceContext }))
-    )
+    render(<TerminalTool context={exactContext} />)
 
-    mounted.unmount()
-    const knowledgeBaseContext = { kind: 'knowledge-base' as const }
-    render(<TerminalTool context={knowledgeBaseContext} />)
     await waitFor(() =>
-      expect(create).toHaveBeenLastCalledWith(
-        expect.objectContaining({ context: knowledgeBaseContext })
-      )
+      expect(create).toHaveBeenCalledWith(expect.objectContaining({ context: exactContext }))
     )
   })
 
-  it('does not recreate or resubscribe when rerendered with an equivalent terminal context', async () => {
-    const removeEventListener = vi.fn()
-    const unsubscribe = vi.fn(async () => undefined)
-    window.spacezero.terminal = {
-      ...terminalApiDefaults,
-      create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
-      subscribe: vi.fn(async () => ({
-        terminalId: 'terminal-1',
-        events: [],
-        oldestSequence: 1,
-        nextSequence: 1
-      })),
-      unsubscribe,
-      writeInput: vi.fn(async () => undefined),
-      resize: vi.fn(async () => undefined),
-      close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
-      onEvent: vi.fn(() => removeEventListener)
+  it.each(terminalContexts)(
+    'keeps %s Terminal state stable when rerendered with an equivalent context',
+    async (_name, stableContext) => {
+      const removeEventListener = vi.fn()
+      const unsubscribe = vi.fn(async () => undefined)
+      window.spacezero.terminal = {
+        ...terminalApiDefaults,
+        create: vi.fn(async () => ({ status: 'running' as const, terminalId: 'terminal-1' })),
+        subscribe: vi.fn(async () => ({
+          terminalId: 'terminal-1',
+          events: [],
+          oldestSequence: 1,
+          nextSequence: 1
+        })),
+        unsubscribe,
+        writeInput: vi.fn(async () => undefined),
+        resize: vi.fn(async () => undefined),
+        close: vi.fn(async () => ({ tabs: [], activeTerminalId: null })),
+        onEvent: vi.fn(() => removeEventListener)
+      }
+
+      const mounted = render(<TerminalTool context={{ ...stableContext }} />)
+      await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1))
+      const firstPresentation = lastTerminal
+
+      mounted.rerender(<TerminalTool context={{ ...stableContext }} />)
+      await Promise.resolve()
+
+      expect(window.spacezero.terminal.create).toHaveBeenCalledTimes(1)
+      expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1)
+      expect(window.spacezero.terminal.onEvent).toHaveBeenCalledTimes(1)
+      expect(unsubscribe).not.toHaveBeenCalled()
+      expect(removeEventListener).not.toHaveBeenCalled()
+      expect(firstPresentation?.dispose).not.toHaveBeenCalled()
+      expect(allTerminals).toHaveLength(1)
     }
-
-    const mounted = render(
-      <TerminalTool context={{ kind: 'project-session', sessionId: 'same' }} />
-    )
-    await waitFor(() => expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1))
-    const firstPresentation = lastTerminal
-
-    mounted.rerender(<TerminalTool context={{ kind: 'project-session', sessionId: 'same' }} />)
-    await Promise.resolve()
-
-    expect(window.spacezero.terminal.create).toHaveBeenCalledTimes(1)
-    expect(window.spacezero.terminal.subscribe).toHaveBeenCalledTimes(1)
-    expect(window.spacezero.terminal.onEvent).toHaveBeenCalledTimes(1)
-    expect(unsubscribe).not.toHaveBeenCalled()
-    expect(removeEventListener).not.toHaveBeenCalled()
-    expect(firstPresentation?.dispose).not.toHaveBeenCalled()
-    expect(allTerminals).toHaveLength(1)
-  })
+  )
 
   it('recreates presentation and subscription only when the semantic terminal context changes', async () => {
     window.spacezero.terminal = {
