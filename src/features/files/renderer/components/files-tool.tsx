@@ -1136,7 +1136,7 @@ function FilesToolSession({
   return (
     <section
       aria-label="Files explorer"
-      className="flex h-full min-h-0 bg-background"
+      className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background"
       onFocusCapture={() => shortcutManager.setContext({ editorFocused: true })}
       onBlurCapture={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) {
@@ -1313,7 +1313,7 @@ function FilesToolSession({
         </>
       )}
       <div
-        className="relative flex min-w-0 flex-1 flex-col bg-background"
+        className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
         onKeyDown={handleEditorKeyDown}
       >
         <FilesTabStrip
@@ -1807,7 +1807,7 @@ function FilesReadyEditorPanel({
   )
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
         <div className="min-w-0">
           <span className="font-medium">{document.name}</span>
@@ -1894,7 +1894,7 @@ function FilesReadyEditorPanel({
           {richModeLimitation}
         </div>
       ) : null}
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {activeMode === 'rich' ? (
           <RichMarkdownEditor
             key={`${sessionId}:${document.editorStateKey}`}
