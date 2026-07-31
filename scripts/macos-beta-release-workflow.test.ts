@@ -19,6 +19,7 @@ interface WorkflowJob {
   permissions?: Record<string, string>
   'runs-on'?: string
   env?: Record<string, string>
+  if?: string
   needs?: string
   steps?: WorkflowStep[]
 }
@@ -28,6 +29,7 @@ interface Workflow {
     push?: {
       tags?: string[]
     }
+    workflow_dispatch?: null | Record<string, never>
   }
   permissions?: Record<string, string>
   jobs?: Record<string, WorkflowJob>
@@ -48,10 +50,17 @@ function stepNamed(job: WorkflowJob | undefined, name: string) {
 const fullShaPattern = /^[a-f0-9]{40}$/
 
 describe('public macOS beta release workflow', () => {
-  it('runs only for beta version tags and defaults to read-only repository contents access', async () => {
+  it('runs for beta tags or manual package-only verification and defaults to read-only access', async () => {
     const workflow = await readWorkflow()
+    const packageJob = workflow.jobs?.['package-macos-beta']
+    const publishJob = workflow.jobs?.['publish-macos-beta']
 
     expect(workflow.on?.push?.tags).toEqual(['v*-beta.*'])
+    expect(workflow.on).toHaveProperty('workflow_dispatch')
+    expect(stepNamed(packageJob, 'Validate beta release tag matches package version')?.if).toBe(
+      "github.event_name == 'push'"
+    )
+    expect(publishJob?.if).toBe("github.event_name == 'push'")
     expect(workflow.permissions).toEqual({ contents: 'read' })
     expect(Object.keys(workflow.permissions ?? {})).toEqual(['contents'])
   })
@@ -80,7 +89,8 @@ describe('public macOS beta release workflow', () => {
     expect(publishJob?.permissions).toEqual({ contents: 'write' })
     expect(packageJob?.env).toEqual({
       SPACEZERO_GITHUB_CLIENT_ID: '${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}',
-      SPACEZERO_GITHUB_APP_SLUG: '${{ vars.SPACEZERO_GITHUB_APP_SLUG }}'
+      SPACEZERO_GITHUB_APP_SLUG: '${{ vars.SPACEZERO_GITHUB_APP_SLUG }}',
+      NODE_OPTIONS: '--max-old-space-size=4096'
     })
 
     const prepublicationStepNames = [
@@ -140,24 +150,69 @@ describe('public macOS beta release workflow', () => {
     expect(workflow.permissions).not.toHaveProperty('id-token')
   })
 
+  it('installs G2 in the login keychain and makes electron-builder use the prepared signing keychain', async () => {
+    const workflow = await readWorkflow()
+    const packageJob = workflow.jobs?.['package-macos-beta']
+    const packageRun =
+      stepNamed(packageJob, 'Package, Developer ID sign, and notarize artifacts without publishing')
+        ?.run ?? ''
+    const verifyRun =
+      stepNamed(packageJob, 'Verify Developer ID signature and notarization')?.run ?? ''
+
+    expect(packageRun).toContain('https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer')
+    expect(packageRun).toContain('f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a')
+    expect(packageRun).toContain('security import "$g2_path" -k "$login_keychain"')
+    expect(packageRun).toContain('security import "$cert_path"')
+    expect(packageRun).toContain('-S apple-tool:,apple:')
+    expect(packageRun).toContain('export CSC_KEYCHAIN="$signing_keychain"')
+    expect(packageRun).toContain("export CSC_NAME='bitylabs (XFC6SG6TLY)'")
+    expect(packageRun).toContain('unset CSC_LINK CSC_KEY_PASSWORD')
+    expect(packageRun.indexOf('unset CSC_LINK CSC_KEY_PASSWORD')).toBeLessThan(
+      packageRun.indexOf('pnpm exec electron-builder')
+    )
+    expect(verifyRun).toContain('codesign --verify --deep --strict')
+    expect(verifyRun).toContain('spctl --assess --type execute')
+    expect(verifyRun).toContain('xcrun stapler validate')
+  })
+
   it('removes the plaintext App Store Connect key through a trap when packaging fails immediately after creation', async () => {
     const workflow = await readWorkflow()
     const packageStep = stepNamed(
       workflow.jobs?.['package-macos-beta'],
       'Package, Developer ID sign, and notarize artifacts without publishing'
     )
+    const originalRun = packageStep?.run ?? ''
+    const keyWrite = `printf '%s' "$APPLE_API_KEY_P8" > "$api_key_path"`
+    const runWithFailureAfterKeyCreation = originalRun.replace(keyWrite, `${keyWrite}\nexit 42`)
     const tempDir = await mkdtemp(join(tmpdir(), 'spacezero-key-cleanup-'))
     const binDir = join(tempDir, 'bin')
-    const pnpmPath = join(binDir, 'pnpm')
+    const loginKeychain = join(tempDir, 'login.keychain-db')
 
+    expect(runWithFailureAfterKeyCreation).not.toBe(originalRun)
     await import('node:fs/promises').then(({ mkdir }) => mkdir(binDir))
-    await writeFile(pnpmPath, '#!/usr/bin/env bash\nexit 42\n', { mode: 0o700 })
+    await writeFile(loginKeychain, '')
+    await writeFile(
+      join(binDir, 'security'),
+      `#!/usr/bin/env bash
+if [[ "$1" == "default-keychain" ]]; then
+  printf '    "%s"\\n' "$TEST_LOGIN_KEYCHAIN"
+elif [[ "$1" == "list-keychains" && "$*" != *" -s "* ]]; then
+  printf '    "%s"\\n' "$TEST_LOGIN_KEYCHAIN"
+fi
+exit 0
+`,
+      { mode: 0o700 }
+    )
+    await writeFile(join(binDir, 'openssl'), '#!/usr/bin/env bash\nprintf "test-password\\n"\n', {
+      mode: 0o700
+    })
 
-    const result = spawnSync('bash', ['-c', packageStep?.run ?? ''], {
+    const result = spawnSync('bash', ['-c', runWithFailureAfterKeyCreation], {
       env: {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ''}`,
         RUNNER_TEMP: tempDir,
+        TEST_LOGIN_KEYCHAIN: loginKeychain,
         APPLE_API_KEY_ID: 'TESTKEY',
         APPLE_API_KEY_P8: 'PRIVATE KEY CONTENTS',
         APPLE_ISSUER: 'issuer',

@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*-beta.*'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -49,6 +50,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate beta release tag matches package version
+        if: github.event_name == 'push'
         run: pnpm release:validate-tag
 
       - name: Prepare public GitHub App config
@@ -68,20 +70,130 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-          key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+
+          api_key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
           cert_path="$RUNNER_TEMP/SpaceZeroDeveloperID.p12"
+          g2_path="$RUNNER_TEMP/DeveloperIDG2CA.cer"
+          signing_keychain="$RUNNER_TEMP/spacezero-signing.keychain-db"
+          login_keychain="$(security default-keychain -d user | tr -d '[:space:]\"')"
+          keychain_password="$(openssl rand -base64 32)"
+          existing_keychains=()
+          existing_keychain_count=0
+
+          while IFS= read -r keychain; do
+            keychain="${keychain#*\"}"
+            keychain="${keychain%\"*}"
+            if [[ -n "$keychain" ]]; then
+              existing_keychains[$existing_keychain_count]="$keychain"
+              existing_keychain_count=$((existing_keychain_count + 1))
+            fi
+          done < <(security list-keychains -d user)
+
           cleanup() {
-            rm -f "$key_path" "$cert_path"
+            if ((existing_keychain_count > 0)); then
+              security list-keychains -d user -s "${existing_keychains[@]}" >/dev/null 2>&1 || true
+            elif [[ -n "$login_keychain" && -f "$login_keychain" ]]; then
+              security list-keychains -d user -s "$login_keychain" >/dev/null 2>&1 || true
+            fi
+            security delete-keychain "$signing_keychain" >/dev/null 2>&1 || true
+            rm -f "$api_key_path" "$cert_path" "$g2_path" "$signing_keychain"
           }
-          trap cleanup EXIT HUP INT TERM
-          printf '%s' "$APPLE_API_KEY_P8" > "$key_path"
+          trap cleanup EXIT
+          trap 'exit 129' HUP
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+
+          if [[ -z "$login_keychain" || ! -f "$login_keychain" ]]; then
+            echo "Unable to find the runner login keychain" >&2
+            exit 1
+          fi
+
+          printf '%s' "$APPLE_API_KEY_P8" > "$api_key_path"
           if ! printf '%s' "$CSC_LINK" | base64 --decode > "$cert_path" 2>/dev/null; then
             printf '%s' "$CSC_LINK" | base64 -D > "$cert_path"
           fi
-          export APPLE_API_KEY="$key_path"
+          test -s "$cert_path"
+
+          curl --fail --silent --show-error --location \
+            https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer \
+            --output "$g2_path"
+          printf '%s  %s\n' \
+            'f16cd3c54c7f83cea4bf1a3e6a0819c8aaa8e4a1528fd144715f350643d2df3a' \
+            "$g2_path" \
+            | shasum -a 256 --check
+
+          login_certificates="$(security find-certificate -a -Z "$login_keychain" 2>/dev/null || true)"
+          if [[ "$login_certificates" != *'5B45F61068B29FCC8FFFF1A7E99B78DA9E9C4635'* ]]; then
+            security import "$g2_path" -k "$login_keychain" >/dev/null
+          fi
+
+          security delete-keychain "$signing_keychain" >/dev/null 2>&1 || rm -f "$signing_keychain"
+          security create-keychain -p "$keychain_password" "$signing_keychain" >/dev/null
+          security unlock-keychain -p "$keychain_password" "$signing_keychain" >/dev/null
+          security set-keychain-settings -lut 21600 "$signing_keychain" >/dev/null
+          security import "$cert_path" \
+            -k "$signing_keychain" \
+            -f pkcs12 \
+            -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/productbuild \
+            >/dev/null
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$signing_keychain" \
+            >/dev/null
+          if ((existing_keychain_count > 0)); then
+            security list-keychains -d user -s "$signing_keychain" "${existing_keychains[@]}"
+          else
+            security list-keychains -d user -s "$signing_keychain" "$login_keychain"
+          fi
+
+          identities="$(security find-identity -v -p codesigning "$signing_keychain")"
+          printf '%s\n' "$identities"
+          if [[ "$identities" != *'Developer ID Application: bitylabs (XFC6SG6TLY)'* ]]; then
+            echo "Expected Developer ID Application identity was not found" >&2
+            exit 1
+          fi
+
+          export APPLE_API_KEY="$api_key_path"
           export APPLE_API_ISSUER="$APPLE_ISSUER"
-          export CSC_LINK="$cert_path"
+          export CSC_KEYCHAIN="$signing_keychain"
+          export CSC_NAME='bitylabs (XFC6SG6TLY)'
+          unset CSC_LINK CSC_KEY_PASSWORD
+
           pnpm exec electron-builder --mac --publish never -c.forceCodeSigning=true
+
+      - name: Verify Developer ID signature and notarization
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find dist -maxdepth 3 -type d -name 'Space Zero.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "Packaged Space Zero.app was not found" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=4 "$app_path"
+          signature_info="$(codesign -dv --verbose=4 "$app_path" 2>&1)"
+          printf '%s\n' "$signature_info"
+
+          if [[ "$signature_info" != *'Authority=Developer ID Application: bitylabs (XFC6SG6TLY)'* ]]; then
+            echo "Packaged app was not signed by the expected Developer ID identity" >&2
+            exit 1
+          fi
+          if [[ "$signature_info" != *'TeamIdentifier=XFC6SG6TLY'* ]]; then
+            echo "Packaged app has the wrong Apple team identifier" >&2
+            exit 1
+          fi
+          if [[ "$signature_info" != *'Timestamp='* ]]; then
+            echo "Packaged app does not have a secure signing timestamp" >&2
+            exit 1
+          fi
+
+          spctl --assess --type execute --verbose=4 "$app_path"
+          xcrun stapler validate "$app_path"
 
       - name: Verify complete macOS release artifact set
         run: node scripts/verify-macos-release-artifacts.mjs
@@ -101,6 +213,7 @@ jobs:
 
   publish-macos-beta:
     name: Publish verified macOS beta artifacts
+    if: github.event_name == 'push'
     needs: package-macos-beta
     runs-on: ubuntu-latest
     timeout-minutes: 15
