@@ -9,7 +9,7 @@ import {
   useToolPaneStore,
   type ToolDescriptor
 } from '../../tool-pane/renderer'
-import type { KnowledgeBaseChatContext } from '../shared'
+import type { KnowledgeBaseChatContext, KnowledgeBaseStatus } from '../shared'
 import { KnowledgeBasePage } from './knowledge-base-page'
 
 const managedSession = {
@@ -721,6 +721,29 @@ describe('KnowledgeBasePage', () => {
     await waitFor(() =>
       expect(screen.getByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
     )
+  })
+
+  it('recovers when clone setup persists configuration before the setup request resolves', async () => {
+    const clone = deferred<{ setupState: 'configured'; rootPath: string }>()
+    let statusChecks = 0
+    window.spacezero.knowledgeBase.getStatus = vi.fn(async (): Promise<KnowledgeBaseStatus> => {
+      statusChecks += 1
+      return statusChecks === 1
+        ? { setupState: 'unconfigured' }
+        : { setupState: 'configured', rootPath: '/home/builder/SpaceZero/knowledge-base' }
+    })
+    window.spacezero.knowledgeBase.cloneFromGit = vi.fn(() => clone.promise)
+    window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
+
+    render(<KnowledgeBasePage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Clone from Git repository' }))
+    fireEvent.change(screen.getByLabelText('Git repository URL'), {
+      target: { value: 'https://github.com/you/knowledge-base.git' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Clone repository' }))
+
+    expect(await screen.findByRole('button', { name: 'Cloning…' })).toBeDisabled()
+    expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
   })
 })
 

@@ -30,6 +30,7 @@ export function KnowledgeBasePage({
   const [isCloning, setCloning] = useState(false)
   const [isRecovering, setRecovering] = useState(false)
   const [gitUrl, setGitUrl] = useState('')
+  const isSetupInProgress = isCreating || isCloning
 
   useEffect(() => {
     let current = true
@@ -49,6 +50,32 @@ export function KnowledgeBasePage({
   useEffect(() => {
     if (status) onConfiguredChange?.(status.setupState === 'configured')
   }, [onConfiguredChange, status])
+
+  useEffect(() => {
+    if (!isSetupInProgress) return undefined
+
+    let current = true
+    const pollStatus = async (): Promise<void> => {
+      try {
+        const nextStatus = await window.spacezero.knowledgeBase.getStatus()
+        if (!current) return
+        if (nextStatus.setupState === 'configured') {
+          setStatus(nextStatus)
+          setCreating(false)
+          setCloning(false)
+          setError(null)
+        }
+      } catch {
+        // Keep the setup request as the primary source of errors while it is still running.
+      }
+    }
+
+    const interval = window.setInterval(() => void pollStatus(), 1000)
+    return () => {
+      current = false
+      window.clearInterval(interval)
+    }
+  }, [isSetupInProgress])
 
   async function reconnect(): Promise<void> {
     setRecovering(true)
@@ -81,7 +108,8 @@ export function KnowledgeBasePage({
     try {
       setStatus(await window.spacezero.knowledgeBase.createNew())
     } catch (setupError) {
-      setError(getErrorMessage(setupError, 'Unable to create the Knowledge Base.'))
+      const recovered = await recoverConfiguredStatus()
+      if (!recovered) setError(getErrorMessage(setupError, 'Unable to create the Knowledge Base.'))
     } finally {
       setCreating(false)
     }
@@ -94,9 +122,22 @@ export function KnowledgeBasePage({
     try {
       setStatus(await window.spacezero.knowledgeBase.cloneFromGit({ gitUrl: gitUrl.trim() }))
     } catch (setupError) {
-      setError(getErrorMessage(setupError, 'Unable to clone the Knowledge Base.'))
+      const recovered = await recoverConfiguredStatus()
+      if (!recovered) setError(getErrorMessage(setupError, 'Unable to clone the Knowledge Base.'))
     } finally {
       setCloning(false)
+    }
+  }
+
+  async function recoverConfiguredStatus(): Promise<boolean> {
+    try {
+      const nextStatus = await window.spacezero.knowledgeBase.getStatus()
+      if (nextStatus.setupState !== 'configured') return false
+      setStatus(nextStatus)
+      setError(null)
+      return true
+    } catch {
+      return false
     }
   }
 
