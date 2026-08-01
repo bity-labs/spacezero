@@ -1,8 +1,28 @@
 # Public macOS beta release workflow
 
-Space Zero public macOS beta artifacts are published by GitHub Actions from version tags. Do not run the first public release by building and uploading artifacts from a local machine.
+Space Zero public macOS beta artifacts may be produced by the resumable local release pipeline or by GitHub Actions. Artifact production never implies publication: uploading assets and creating a public prerelease remain separate, explicit release-owner actions. Do not use ad hoc Electron Builder commands as a release process.
 
-For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md).
+For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local artifact-production decision is recorded in [ADR 0021](./adr/0021-local-multi-architecture-macos-release-artifacts.md).
+
+## Local multi-architecture artifacts
+
+After committing the intended beta version and ensuring the Developer ID G2 intermediate is installed in the login keychain, inspect the non-publishing plan:
+
+```bash
+pnpm release:macos:local -- --plan
+```
+
+Then create separate Apple Silicon and Intel artifacts:
+
+```bash
+pnpm release:macos:local
+```
+
+The command prompts locally for the Developer ID `.p12` password and Apple Issuer UUID. It creates an ephemeral signing keychain, builds shared JavaScript once, and serially processes `arm64` and `x64`. For each architecture it signs, notarizes, and staples the app; creates the updater ZIP and securely timestamped DMG; then notarizes and staples the DMG. It finally regenerates architecture-aware updater metadata and verifies both mounted disk images.
+
+Each Apple submission ID is retained in the run's logs. If a submission is rejected or does not reach `Accepted`, the command stops and preserves its payload. Inspect that submission instead of starting another release blindly.
+
+The command refuses tracked repository changes and never publishes, pushes, tags, or creates a GitHub release. A final x64 smoke test on a real Intel Mac or Intel runner is recommended before publication.
 
 ## Trigger and version rule
 
