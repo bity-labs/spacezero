@@ -24,4 +24,13 @@ describe('local macOS release entrypoint', () => {
     expect(script).not.toContain('gh release')
     expect(script).not.toContain('publish-macos-beta-release')
   })
+
+  it('checks active macOS native modules without rejecting bundled foreign prebuilds', async () => {
+    const script = await readFile('scripts/release-macos-local.sh', 'utf8')
+
+    expect(script).toContain('*/better-sqlite3/build/Release/better_sqlite3.node')
+    expect(script).toContain('*/node-pty/build/Release/pty.node')
+    expect(script).toContain('*darwin-"$release_arch"*.node')
+    expect(script).not.toContain('verify_macho_architecture "$native_module" "$macho_arch"\n  done')
+  })
 })

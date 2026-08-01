@@ -279,9 +279,27 @@ verify_app_architecture() {
   verify_macho_architecture \
     "$app_path/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework" \
     "$macho_arch"
+  local found_better_sqlite3=false
+  local found_node_pty=false
   while IFS= read -r native_module; do
-    verify_macho_architecture "$native_module" "$macho_arch"
+    case "$native_module" in
+      */better-sqlite3/build/Release/better_sqlite3.node)
+        found_better_sqlite3=true
+        verify_macho_architecture "$native_module" "$macho_arch"
+        ;;
+      */node-pty/build/Release/pty.node)
+        found_node_pty=true
+        verify_macho_architecture "$native_module" "$macho_arch"
+        ;;
+      */build/Release/*.node|*darwin-universal*.node|*darwin-"$release_arch"*.node)
+        verify_macho_architecture "$native_module" "$macho_arch"
+        ;;
+    esac
   done < <(find "$app_path" -type f -name '*.node' -print)
+  if [[ "$found_better_sqlite3" != true || "$found_node_pty" != true ]]; then
+    echo "Required native modules were not packaged for $release_arch." >&2
+    return 1
+  fi
 }
 
 verify_signed_app() {
