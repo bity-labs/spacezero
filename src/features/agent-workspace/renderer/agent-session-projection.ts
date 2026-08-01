@@ -1,6 +1,7 @@
 import type { AiChatMessage, AiChatMessagePart } from '@renderer/components/ai-chat'
 
 import type {
+  AgentAssistantContent,
   AgentAssistantMessage,
   AgentSessionProjectionEvent,
   AgentTextContent,
@@ -181,6 +182,8 @@ export function projectAgentSessionMessages(
         group = {
           firstIndex: index,
           createdAt: createdAtOf(message.timestamp),
+          firstTimestamp: message.timestamp,
+          lastTimestamp: message.timestamp,
           parts: [],
           lastAssistant: message
         }
@@ -191,6 +194,7 @@ export function projectAgentSessionMessages(
     }
 
     if (isToolResultMessage(message)) {
+      if (group) group.lastTimestamp = message.timestamp
       return
     }
 
@@ -248,6 +252,8 @@ function replaceAt<T>(items: readonly T[], index: number, value: T): T[] {
 type AssistantGroup = {
   firstIndex: number
   createdAt: string | undefined
+  firstTimestamp: number | undefined
+  lastTimestamp: number | undefined
   parts: AiChatMessagePart[]
   lastAssistant: AgentAssistantMessage
 }
@@ -259,6 +265,7 @@ function projectAssistantInto(
   toolResults: Map<string, ToolResultProjection>
 ): void {
   group.lastAssistant = message
+  group.lastTimestamp = message.timestamp
 
   if (message.errorMessage) {
     group.parts.push({ type: 'text', text: message.errorMessage })
@@ -273,7 +280,7 @@ function projectAssistantInto(
     if (part.type === 'thinking') {
       group.parts.push({
         type: 'thinking',
-        text: part.redacted ? '[reasoning redacted]' : part.thinking,
+        text: part.redacted ? '[reasoning redacted]' : thinkingDisplayText(part),
         state: state.status === 'running' ? 'streaming' : 'complete',
         collapsed: true
       })
@@ -309,18 +316,77 @@ function projectAssistantInto(
   }
 }
 
+function thinkingDisplayText(part: Extract<AgentAssistantContent, { type: 'thinking' }>): string {
+  if (part.thinking.trim().length > 0) return part.thinking
+
+  if (part.thinkingSignature) {
+    const fromSignature = extractThinkingSignatureText(part.thinkingSignature)
+    if (fromSignature) return fromSignature
+  }
+
+  return part.thinking
+}
+
+function extractThinkingSignatureText(signature: string): string | undefined {
+  try {
+    const parsed = JSON.parse(signature) as unknown
+    return extractThinkingSummaryText(parsed) ?? extractThinkingContentText(parsed)
+  } catch {
+    return undefined
+  }
+}
+
+function extractThinkingSummaryText(value: unknown): string | undefined {
+  const summary = (value as { summary?: unknown } | undefined)?.summary
+  if (!Array.isArray(summary)) return undefined
+
+  const text = summary
+    .map((entry) => (typeof (entry as { text?: unknown }).text === 'string' ? (entry as { text: string }).text : ''))
+    .filter(Boolean)
+    .join('\n\n')
+
+  return text.trim().length > 0 ? text : undefined
+}
+
+function extractThinkingContentText(value: unknown): string | undefined {
+  const content = (value as { content?: unknown } | undefined)?.content
+  if (!Array.isArray(content)) return undefined
+
+  const text = content
+    .map((entry) => (typeof (entry as { text?: unknown }).text === 'string' ? (entry as { text: string }).text : ''))
+    .filter(Boolean)
+    .join('\n\n')
+
+  return text.trim().length > 0 ? text : undefined
+}
+
 function buildAssistantMessage(
   group: AssistantGroup,
   state: AgentSessionProjectionState,
   isLastMessageInTranscript: boolean
 ): AiChatMessage {
+  const status = assistantStatus(group, state, isLastMessageInTranscript)
+
   return {
     id: projectedMessageId(group.firstIndex),
     role: 'assistant',
     createdAt: group.createdAt,
-    status: assistantStatus(group, state, isLastMessageInTranscript),
+    status,
+    ...(status !== 'streaming' && hasAssistantActivityParts(group)
+      ? { activityDurationSeconds: assistantActivityDuration(group) }
+      : {}),
     parts: group.parts
   }
+}
+
+function assistantActivityDuration(group: AssistantGroup): number | undefined {
+  if (group.firstTimestamp === undefined || group.lastTimestamp === undefined) return undefined
+
+  return Math.max(1, Math.ceil((group.lastTimestamp - group.firstTimestamp) / 1000))
+}
+
+function hasAssistantActivityParts(group: AssistantGroup): boolean {
+  return group.parts.some((part) => part.type === 'thinking' || part.type === 'tool-call')
 }
 
 function assistantStatus(

@@ -8,6 +8,7 @@ export type AgentTextContent = {
 export type AgentThinkingContent = {
   type: 'thinking'
   thinking: string
+  thinkingSignature?: string
   redacted?: boolean
 }
 

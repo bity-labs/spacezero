@@ -18,6 +18,7 @@ export type AiChatMessage = {
   parts: AiChatMessagePart[]
   status?: AiChatMessageStatus
   createdAt?: string
+  activityDurationSeconds?: number
 }
 
 export type AiChatMessagePart =
