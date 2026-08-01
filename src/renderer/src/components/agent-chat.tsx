@@ -61,6 +61,8 @@ export function AgentChat({
   onToolConfirmationResolve,
   onOpenLink
 }: AgentChatProps) {
+  const [isSubmitPending, setIsSubmitPending] = useState(false)
+
   useEffect(() => {
     if (status !== 'running' || !onAbort) return undefined
 
@@ -73,6 +75,18 @@ export function AgentChat({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onAbort, status])
+
+  useEffect(() => {
+    if (status !== 'running' && !hasAssistantActivity(messages)) return undefined
+
+    const timer = window.setTimeout(() => setIsSubmitPending(false), 0)
+    return () => window.clearTimeout(timer)
+  }, [messages, status])
+
+  const displayMessages = useMemo(
+    () => withOptimisticThinkingMessage(messages, sessionId, isSubmitPending || status === 'running'),
+    [isSubmitPending, messages, sessionId, status]
+  )
 
   const modelControls = useAgentChatModelControls(sessionId, sessionState)
   const definitionControls = useAgentDefinitionControls(sessionId, messages, sessionState)
@@ -96,11 +110,17 @@ export function AgentChat({
       onHistorySelect={onHistorySelect}
       onHistoryDismiss={onHistoryDismiss}
       onSubmit={async ({ text, files, agentDefinitionId }) => {
-        const prompt = await appendFilesAsContext(text, files)
-        await onSubmit?.(
-          prompt,
-          agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
-        )
+        setIsSubmitPending(true)
+        try {
+          const prompt = await appendFilesAsContext(text, files)
+          await onSubmit?.(
+            prompt,
+            agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
+          )
+        } catch (error) {
+          setIsSubmitPending(false)
+          throw error
+        }
       }}
       onAbort={onAbort}
       placeholder={placeholder}
@@ -126,7 +146,7 @@ export function AgentChat({
         </div>
       ) : null}
       <ChatTranscript
-        messages={messages}
+        messages={displayMessages}
         emptyState={emptyState}
         contentClassName={contentClassName}
         onToolConfirmationResolve={onToolConfirmationResolve}
@@ -138,6 +158,32 @@ export function AgentChat({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function withOptimisticThinkingMessage(
+  messages: AgentChatMessage[],
+  sessionId: string,
+  shouldShow: boolean
+): AgentChatMessage[] {
+  if (!shouldShow || hasAssistantActivity(messages)) return messages
+
+  return [
+    ...messages,
+    {
+      id: `${sessionId}-optimistic-thinking`,
+      role: 'assistant',
+      status: 'streaming',
+      parts: []
+    }
+  ]
+}
+
+function hasAssistantActivity(messages: readonly AgentChatMessage[]): boolean {
+  return messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      (message.status === 'streaming' || message.parts.length > 0)
   )
 }
 

@@ -1166,8 +1166,20 @@ function toAssistantContent(content: unknown): AgentAssistantContent[] {
     if (!isRecord(part)) return []
     if (part.type === 'text' && typeof part.text === 'string')
       return [{ type: 'text', text: part.text }]
-    if (part.type === 'thinking' && typeof part.thinking === 'string') {
-      return [{ type: 'thinking', thinking: part.thinking, redacted: part.redacted === true }]
+    if (part.type === 'thinking') {
+      const thinking = extractThinkingText(part)
+      if (thinking !== undefined) {
+        return [
+          {
+            type: 'thinking',
+            thinking,
+            ...(typeof part.thinkingSignature === 'string'
+              ? { thinkingSignature: part.thinkingSignature }
+              : {}),
+            redacted: part.redacted === true
+          }
+        ]
+      }
     }
     if (part.type === 'toolCall' && typeof part.id === 'string' && typeof part.name === 'string') {
       return [
@@ -1181,6 +1193,56 @@ function toAssistantContent(content: unknown): AgentAssistantContent[] {
     }
     return []
   })
+}
+
+function extractThinkingText(part: Record<string, unknown>): string | undefined {
+  if (typeof part.thinking === 'string' && part.thinking.trim().length > 0) {
+    return part.thinking
+  }
+
+  if (typeof part.thinkingSignature === 'string') {
+    const fromSignature = extractThinkingTextFromSignature(part.thinkingSignature)
+    if (fromSignature) return fromSignature
+  }
+
+  return typeof part.thinking === 'string' ? part.thinking : undefined
+}
+
+function extractThinkingTextFromSignature(signature: string): string | undefined {
+  try {
+    const parsed = JSON.parse(signature) as unknown
+    const summary = extractSummaryText(parsed)
+    if (summary) return summary
+    return extractContentText(parsed)
+  } catch {
+    return undefined
+  }
+}
+
+function extractSummaryText(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  const summary = value.summary
+  if (!Array.isArray(summary)) return undefined
+
+  const text = summary
+    .map((entry) => (isRecord(entry) && typeof entry.text === 'string' ? entry.text : ''))
+    .filter(Boolean)
+    .join('\n\n')
+
+  return text.trim().length > 0 ? text : undefined
+}
+
+function extractContentText(value: unknown): string | undefined {
+  if (!isRecord(value)) return undefined
+  const content = value.content
+  if (!Array.isArray(content)) return undefined
+
+  const text = content
+    .map((entry) => (isRecord(entry) && typeof entry.text === 'string' ? entry.text : ''))
+    .filter(Boolean)
+    .join('\n\n')
+
+  return text.trim().length > 0 ? text : undefined
 }
 
 function toAssistantStopReason(

@@ -119,6 +119,7 @@ describe('agent session projection reducer', () => {
         role: 'assistant',
         createdAt: '1970-01-01T00:00:00.101Z',
         status: 'complete',
+        activityDurationSeconds: 1,
         parts: [
           { type: 'text', text: 'I will check. ' },
           {
@@ -212,6 +213,44 @@ describe('agent session projection reducer', () => {
           { type: 'text', text: 'I will check that.' }
         ]
       }
+    ])
+  })
+
+  it('uses reasoning summary text from thinking signatures when the thinking field is empty', () => {
+    const state = reduceAgentSessionProjectionState(createAgentSessionProjectionState('session-1'), {
+      type: 'snapshot',
+      sessionId: 'session-1',
+      seq: 1,
+      snapshot: {
+        status: 'idle',
+        messages: [
+          {
+            role: 'assistant',
+            timestamp: 100,
+            content: [
+              {
+                type: 'thinking',
+                thinking: '',
+                thinkingSignature: JSON.stringify({
+                  type: 'reasoning',
+                  summary: [{ type: 'summary_text', text: 'Planning UI updates.' }]
+                })
+              },
+              { type: 'text', text: 'Done.' }
+            ]
+          }
+        ]
+      }
+    })
+
+    expect(projectAgentSessionMessages(state)[0]?.parts).toEqual([
+      {
+        type: 'thinking',
+        text: 'Planning UI updates.',
+        state: 'complete',
+        collapsed: true
+      },
+      { type: 'text', text: 'Done.' }
     ])
   })
 
