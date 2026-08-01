@@ -28,10 +28,7 @@ import { ThinkingSelector } from './thinking-selector'
 
 import {
   PromptInput,
-  PromptInputActionAddAttachments,
-  PromptInputActionMenu,
-  PromptInputActionMenuContent,
-  PromptInputActionMenuTrigger,
+  PromptInputAddAttachmentButton,
   PromptInputAttachments,
   PromptInputFooter,
   PromptInputSubmit,
@@ -59,9 +56,15 @@ export type ChatInputModel = {
   supportedThinkingLevels?: AiChatThinkingLevel[]
 }
 
+export type ChatInputSubmitFile = {
+  name: string
+  type: string
+  path: string
+}
+
 export type ChatInputSubmit = {
   text: string
-  files: File[]
+  files: ChatInputSubmitFile[]
   modelId?: string
   agentDefinitionId?: string
 }
@@ -261,7 +264,11 @@ export function ChatInput({
       } else {
         await onSubmit({
           text,
-          files: files.map((item) => item.file),
+          files: files.map((item) => ({
+            name: item.file.name,
+            type: item.file.type,
+            path: item.path
+          })),
           modelId: activeModelId,
           ...(selectedAgentDefinition ? { agentDefinitionId: selectedAgentDefinition.id } : {})
         })
@@ -399,6 +406,7 @@ export function ChatInput({
       <PromptInput
         className={className}
         disabled={isRunning}
+        resolveFilePath={window.spacezero.app.getSelectedFilePath}
         onSubmit={(message) => handleSubmit(message)}
       >
         <PromptInputAttachments />
@@ -437,12 +445,7 @@ export function ChatInput({
         />
         <PromptInputFooter>
           <PromptInputTools>
-            <PromptInputActionMenu>
-              <PromptInputActionMenuTrigger aria-label="Add attachment" disabled={isRunning} />
-              <PromptInputActionMenuContent>
-                <PromptInputActionAddAttachments />
-              </PromptInputActionMenuContent>
-            </PromptInputActionMenu>
+            <PromptInputAddAttachmentButton aria-label="Add attachment" disabled={isRunning} />
             <div className="flex items-center gap-1">
               {showAgentDefinitionPicker ? (
                 <ModelSelector

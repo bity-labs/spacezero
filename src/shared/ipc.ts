@@ -263,6 +263,7 @@ export type SpaceZeroAPI = {
   app: {
     getInfo: () => Promise<AppInfo>
     ping: () => Promise<string>
+    getSelectedFilePath: (file: File) => string
   }
   db: {
     health: () => Promise<DbHealth>

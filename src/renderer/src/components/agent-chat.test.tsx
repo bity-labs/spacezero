@@ -46,6 +46,27 @@ describe('AgentChat', () => {
     expect(screen.getByLabelText('Conversation')).toHaveClass('overflow-y-auto', 'no-scrollbar')
   })
 
+  it('submits selected file paths as prompt context without reading contents', async () => {
+    const handleSubmit = vi.fn()
+    const file = new File(['export const answer = 42\n'], 'answer.ts', { type: 'text/typescript' })
+    const readText = vi.spyOn(file, 'text')
+    render(<AgentChat sessionId="session-1" messages={[]} onSubmit={handleSubmit} />)
+
+    fireEvent.change(screen.getByLabelText('Upload files'), { target: { files: [file] } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'Use this' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() =>
+      expect(handleSubmit).toHaveBeenCalledWith(
+        'Use this\n\nSelected file context paths:\n- /tmp/answer.ts (text/typescript)\n\nRead these files if you need their contents.',
+        undefined
+      )
+    )
+    expect(readText).not.toHaveBeenCalled()
+  })
+
   it('reconciles displayed thinking to the effective runtime state after switching model capabilities', async () => {
     const user = userEvent.setup()
     const availableModels: AvailableModel[] = [

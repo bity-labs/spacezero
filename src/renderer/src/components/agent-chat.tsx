@@ -8,7 +8,8 @@ import {
   type ChatInputAgentDefinition,
   type ChatInputCommand,
   type ChatInputHistoryItem,
-  type ChatInputModel
+  type ChatInputModel,
+  type ChatInputSubmitFile
 } from '@renderer/components/ai-chat'
 import { cn } from '@renderer/lib/utils'
 import type { AgentDefinitionReference, AgentSessionState } from '@shared/agent-protocol'
@@ -94,9 +95,10 @@ export function AgentChat({
       onCommand={onCommand}
       onHistorySelect={onHistorySelect}
       onHistoryDismiss={onHistoryDismiss}
-      onSubmit={async ({ text, agentDefinitionId }) => {
+      onSubmit={async ({ text, files, agentDefinitionId }) => {
+        const prompt = await appendFilesAsContext(text, files)
         await onSubmit?.(
-          text,
+          prompt,
           agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
         )
       }}
@@ -137,6 +139,17 @@ export function AgentChat({
       ) : null}
     </section>
   )
+}
+
+async function appendFilesAsContext(text: string, files: ChatInputSubmitFile[]): Promise<string> {
+  if (files.length === 0) return text
+
+  const fileReferences = files
+    .map((file) => `- ${file.path}${file.type ? ` (${file.type})` : ''}`)
+    .join('\n')
+  const intro = text.trim().length > 0 ? text.trim() : 'Use the selected files as context.'
+
+  return `${intro}\n\nSelected file context paths:\n${fileReferences}\n\nRead these files if you need their contents.`
 }
 
 function useAgentDefinitionControls(
