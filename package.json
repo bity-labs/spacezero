@@ -1,6 +1,6 @@
 {
   "name": "spacezero",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0-beta.5",
   "description": "The zero-friction workspace for agentic development.",
   "main": "./out/main/index.js",
   "author": "Bity Labs",
@@ -26,7 +26,8 @@
     "build:mac": "npm run build && npm run package:prepare-github && electron-builder --mac",
     "build:win": "npm run build && npm run package:prepare-github && electron-builder --win",
     "build:linux": "npm run build && npm run package:prepare-github && electron-builder --linux",
-    "release:validate-tag": "node scripts/validate-release-tag.mjs"
+    "release:validate-tag": "node scripts/validate-release-tag.mjs",
+    "release:macos:local": "bash scripts/release-macos-local.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
