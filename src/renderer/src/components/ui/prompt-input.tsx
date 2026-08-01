@@ -40,6 +40,7 @@ import { cn } from '@renderer/lib/utils'
 export type PromptInputFile = {
   id: string
   file: File
+  path: string
 }
 
 export type PromptInputMessage = {
@@ -67,12 +68,14 @@ const usePromptInput = () => {
 
 export type PromptInputProps = Omit<HTMLAttributes<HTMLFormElement>, 'onSubmit'> & {
   disabled?: boolean
+  resolveFilePath?: (file: File) => string
   onSubmit: (message: PromptInputMessage, event: FormEvent<HTMLFormElement>) => void
 }
 
 export const PromptInput = ({
   className,
   disabled = false,
+  resolveFilePath,
   onSubmit,
   children,
   ...props
@@ -92,12 +95,16 @@ export const PromptInput = ({
     if (selectedFiles.length > 0) {
       setFiles((currentFiles) => [
         ...currentFiles,
-        ...selectedFiles.map((file) => ({ id: nanoid(), file }))
+        ...selectedFiles.map((file) => ({
+          id: nanoid(),
+          file,
+          path: resolveFilePath?.(file) ?? file.name
+        }))
       ])
     }
 
     event.currentTarget.value = ''
-  }, [])
+  }, [resolveFilePath])
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -227,6 +234,30 @@ export const PromptInputActionMenuTrigger = ({
   </DropdownMenuTrigger>
 )
 
+export type PromptInputAddAttachmentButtonProps = PromptInputButtonProps
+
+export const PromptInputAddAttachmentButton = ({
+  children,
+  onClick,
+  type = 'button',
+  ...props
+}: PromptInputAddAttachmentButtonProps) => {
+  const { openFileDialog } = usePromptInput()
+
+  return (
+    <PromptInputButton
+      {...props}
+      onClick={(event) => {
+        onClick?.(event)
+        if (!event.defaultPrevented) openFileDialog()
+      }}
+      type={type}
+    >
+      {children ?? <PaperclipIcon className="size-4" />}
+    </PromptInputButton>
+  )
+}
+
 export type PromptInputActionMenuContentProps = ComponentProps<typeof DropdownMenuContent>
 
 export const PromptInputActionMenuContent = ({
@@ -273,15 +304,15 @@ export const PromptInputAttachments = ({ className, ...props }: PromptInputAttac
   }
 
   return (
-    <div className={cn('flex flex-wrap gap-1 px-2.5 pt-2', className)} {...props}>
-      {files.map(({ id, file }) => (
+    <div className={cn('flex w-full flex-wrap justify-start gap-1 px-2.5 pt-2', className)} {...props}>
+      {files.map(({ id, file, path }) => (
         <button
           key={id}
           className="flex max-w-48 items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
           onClick={() => removeFile(id)}
           type="button"
         >
-          <span className="truncate">{file.name}</span>
+          <span className="truncate">{path || file.name}</span>
           <XIcon className="size-3" aria-hidden="true" />
           <span className="sr-only">Remove {file.name}</span>
         </button>

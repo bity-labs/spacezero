@@ -1,11 +1,12 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 
 import { IPC_CHANNELS, type SpaceZeroAPI } from '../shared/ipc'
 
 const api: SpaceZeroAPI = {
   app: {
     getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.app.getInfo),
-    ping: () => ipcRenderer.invoke(IPC_CHANNELS.app.ping)
+    ping: () => ipcRenderer.invoke(IPC_CHANNELS.app.ping),
+    getSelectedFilePath: (file) => webUtils.getPathForFile(file)
   },
   db: {
     health: () => ipcRenderer.invoke(IPC_CHANNELS.db.health)

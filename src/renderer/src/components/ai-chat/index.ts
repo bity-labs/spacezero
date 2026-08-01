@@ -21,7 +21,8 @@ export {
   type ChatInputHistoryItem,
   type ChatInputModel,
   type ChatInputProps,
-  type ChatInputSkill
+  type ChatInputSkill,
+  type ChatInputSubmitFile
 } from './chat-input'
 export { ChatMessage, type ChatMessageProps } from './chat-message'
 export { ChatThinkingBlock, type ChatThinkingBlockProps } from './chat-thinking-block'

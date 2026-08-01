@@ -339,6 +339,17 @@ describe('ChatInput', () => {
     expect(handleSubmit).toHaveBeenCalledWith({ text: 'run checks', files: [], modelId: undefined })
   })
 
+  it('opens the native file selector when the attachment button is clicked', async () => {
+    const user = userEvent.setup()
+    const inputClick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined)
+    render(<ChatInput onSubmit={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'Add attachment' }))
+
+    expect(inputClick).toHaveBeenCalledOnce()
+    inputClick.mockRestore()
+  })
+
   it('includes attachments and selected model in submitted input', () => {
     const handleSubmit = vi.fn()
     const file = new File(['hello'], 'context.txt', { type: 'text/plain' })
@@ -350,6 +361,9 @@ describe('ChatInput', () => {
     )
 
     fireEvent.change(screen.getByLabelText('Upload files'), { target: { files: [file] } })
+    expect(screen.getByRole('button', { name: /Remove context.txt/ })).toHaveTextContent(
+      '/tmp/context.txt'
+    )
     fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
       target: { value: 'use this context' }
     })
@@ -357,7 +371,7 @@ describe('ChatInput', () => {
 
     expect(handleSubmit).toHaveBeenCalledWith({
       text: 'use this context',
-      files: [file],
+      files: [{ name: 'context.txt', type: 'text/plain', path: '/tmp/context.txt' }],
       modelId: 'sonnet'
     })
   })
