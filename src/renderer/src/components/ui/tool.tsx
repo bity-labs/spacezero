@@ -24,7 +24,7 @@ export type ToolProps = ComponentProps<typeof Collapsible>
 export function Tool({ className, ...props }: ToolProps) {
   return (
     <Collapsible
-      className={cn('group not-prose mb-4 w-full rounded-md border bg-card', className)}
+      className={cn('group not-prose mb-3 w-full rounded-md border bg-card', className)}
       {...props}
     />
   )
@@ -71,7 +71,7 @@ export function ToolHeader({ className, title, type, state, toolName, ...props }
 
   return (
     <CollapsibleTrigger
-      className={cn('flex w-full items-center justify-between gap-4 p-3', className)}
+      className={cn('flex w-full items-center justify-between gap-3 px-3 py-2', className)}
       {...props}
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -89,7 +89,7 @@ export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
 export function ToolContent({ className, ...props }: ToolContentProps) {
   return (
     <CollapsibleContent
-      className={cn('space-y-4 p-4 text-popover-foreground outline-none', className)}
+      className={cn('space-y-3 p-3 text-popover-foreground outline-none', className)}
       {...props}
     />
   )
@@ -109,7 +109,7 @@ export function ToolInput({ className, input, ...props }: ToolInputProps) {
       <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
         Parameters
       </h4>
-      <pre className="overflow-x-auto rounded-md bg-muted/50 p-3 text-xs">
+      <pre className="overflow-x-auto rounded-md bg-muted/50 p-2 text-xs">
         {formatToolValue(input)}
       </pre>
     </div>
@@ -133,7 +133,7 @@ export function ToolOutput({ className, output, errorText, ...props }: ToolOutpu
       </h4>
       <div
         className={cn(
-          'overflow-x-auto rounded-md p-3 text-xs',
+          'overflow-x-auto rounded-md p-2 text-xs',
           errorText ? 'bg-destructive/10 text-destructive' : 'bg-muted/50 text-foreground'
         )}
       >

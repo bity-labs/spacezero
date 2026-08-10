@@ -34,7 +34,7 @@ export const Conversation = ({
 export type ConversationContentProps = ComponentProps<typeof MessageScroller.Content>
 
 export const ConversationContent = ({ className, ...props }: ConversationContentProps) => (
-  <MessageScroller.Content className={cn('flex min-h-full flex-col gap-8 p-4', className)} {...props} />
+  <MessageScroller.Content className={cn('flex min-h-full flex-col gap-5 p-3', className)} {...props} />
 )
 
 export type ConversationItemProps = ComponentProps<typeof MessageScroller.Item>
@@ -59,7 +59,7 @@ export const ConversationEmptyState = ({
 }: ConversationEmptyStateProps) => (
   <div
     className={cn(
-      'flex size-full flex-col items-center justify-center gap-3 p-8 text-center',
+      'flex size-full flex-col items-center justify-center gap-2 p-6 text-center',
       className
     )}
     {...props}
@@ -68,8 +68,8 @@ export const ConversationEmptyState = ({
       <>
         {icon && <div className="text-muted-foreground">{icon}</div>}
         <div className="space-y-1">
-          <h3 className="font-medium text-sm">{title}</h3>
-          {description && <p className="text-muted-foreground text-sm">{description}</p>}
+          <h3 className="text-sm font-medium">{title}</h3>
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
       </>
     )}
