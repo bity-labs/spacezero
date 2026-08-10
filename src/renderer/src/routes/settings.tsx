@@ -32,6 +32,7 @@ import { AccountSettings } from '../../../features/github/renderer'
 import { AccountMenu } from '../components/app-shell/account-menu'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
+import { UiDebugPage } from '../../../features/settings/renderer/components/ui-debug-page'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../components/sidebar/sidebar-layout'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
@@ -62,7 +63,14 @@ import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'account' | 'general' | 'models' | 'skills' | 'agents' | 'about'
+type SettingsSectionId =
+  | 'account'
+  | 'general'
+  | 'models'
+  | 'skills'
+  | 'agents'
+  | 'about'
+  | 'debug'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -74,7 +82,8 @@ export const Route = createFileRoute('/settings')({
     search.section === 'models' ||
     search.section === 'skills' ||
     search.section === 'agents' ||
-    search.section === 'about'
+    search.section === 'about' ||
+    search.section === 'debug'
       ? { section: search.section }
       : {},
   component: SettingsPage
@@ -86,7 +95,8 @@ const settingsNavigation = [
   { id: 'models', translationKey: 'models', icon: Cube },
   { id: 'agents', translationKey: 'agents', icon: UserCircle },
   { id: 'skills', translationKey: 'skills', icon: Sparkle },
-  { id: 'about', translationKey: 'about', icon: Info }
+  { id: 'about', translationKey: 'about', icon: Info },
+  { id: 'debug', translationKey: 'debug', icon: GearSix }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
   translationKey: string
@@ -108,7 +118,10 @@ function SettingsPage(): React.JSX.Element {
     () =>
       settingsNavigation.map((item) => ({
         ...item,
-        label: t(`settings.navigation.${item.translationKey}`)
+        label:
+          item.id === 'debug'
+            ? 'UI Debug'
+            : t(`settings.navigation.${item.translationKey}`)
       })),
     [t]
   )
@@ -238,6 +251,8 @@ function SettingsPage(): React.JSX.Element {
             <AgentsSettingsSection />
           ) : selectedSection === 'about' ? (
             <AboutSettingsSection />
+          ) : selectedSection === 'debug' ? (
+            <UiDebugPage />
           ) : (
             <ModelsSettingsSection />
           )}
