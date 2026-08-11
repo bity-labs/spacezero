@@ -70,15 +70,13 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { Input } from '@renderer/components/ui/input'
@@ -174,9 +172,11 @@ type DebugFontFamily =
   | 'monaco'
   | 'jetbrains-mono'
   | 'monospace'
+type UiDebugTab = 'primitives' | 'ai' | 'typography' | 'components'
 
 export function UiDebugPage(): React.JSX.Element {
   const [switchEnabled, setSwitchEnabled] = useState(true)
+  const [selectedTab, setSelectedTab] = useState<UiDebugTab>('primitives')
   const { resolvedTheme } = useColorMode()
   const [debugThemePreview, setDebugThemePreview] = useState<DebugThemePreview>(
     resolvedTheme === 'dark' ? 'dark' : 'light'
@@ -285,8 +285,51 @@ export function UiDebugPage(): React.JSX.Element {
         </div>
       </div>
 
-      <div className="space-y-4">
-        <DebugRow title="alert">
+      <div className="mb-6 flex gap-1 border-b border-border">
+        <DebugTabButton
+          active={selectedTab === 'primitives'}
+          onClick={() => setSelectedTab('primitives')}
+        >
+          Primitive
+        </DebugTabButton>
+        <DebugTabButton
+          active={selectedTab === 'ai'}
+          onClick={() => setSelectedTab('ai')}
+        >
+          AI Components
+        </DebugTabButton>
+        <DebugTabButton
+          active={selectedTab === 'typography'}
+          onClick={() => setSelectedTab('typography')}
+        >
+          Typography
+        </DebugTabButton>
+        <DebugTabButton
+          active={selectedTab === 'components'}
+          onClick={() => setSelectedTab('components')}
+        >
+          Components
+        </DebugTabButton>
+      </div>
+
+      {selectedTab === 'primitives' ? <PrimitiveDebugContent switchEnabled={switchEnabled} setSwitchEnabled={setSwitchEnabled} /> : null}
+      {selectedTab === 'ai' ? <AiComponentsDebugContent /> : null}
+      {selectedTab === 'typography' ? <TypographyDebugContent /> : null}
+      {selectedTab === 'components' ? <ComponentsDebugContent /> : null}
+    </>
+  )
+}
+
+function PrimitiveDebugContent({
+  switchEnabled,
+  setSwitchEnabled
+}: {
+  switchEnabled: boolean
+  setSwitchEnabled: (enabled: boolean) => void
+}): React.JSX.Element {
+  return (
+    <div className="space-y-4">
+      <DebugRow title="alert">
           <Alert>
             <CheckCircle className="size-4" />
             <AlertTitle>Default alert</AlertTitle>
@@ -380,18 +423,6 @@ export function UiDebugPage(): React.JSX.Element {
           </Command>
         </DebugRow>
 
-        <DebugRow title="confirmation">
-          <Confirmation approval={{ id: 'debug-confirmation' }} state="approval-requested" className="max-w-md">
-            <ConfirmationTitle>Allow agent to run pnpm test?</ConfirmationTitle>
-            <ConfirmationRequest>
-              <ConfirmationActions>
-                <ConfirmationAction variant="outline">Reject</ConfirmationAction>
-                <ConfirmationAction>Approve</ConfirmationAction>
-              </ConfirmationActions>
-            </ConfirmationRequest>
-          </Confirmation>
-        </DebugRow>
-
         <DebugRow title="context-menu">
           <ContextMenu>
             <ContextMenuTrigger>
@@ -405,18 +436,6 @@ export function UiDebugPage(): React.JSX.Element {
               <ContextMenuItem variant="destructive">Delete</ContextMenuItem>
             </ContextMenuContent>
           </ContextMenu>
-        </DebugRow>
-
-        <DebugRow title="conversation">
-          <div className="h-56 w-full max-w-md overflow-hidden rounded-lg border">
-            <Conversation>
-              <ConversationContent>
-                <ConversationItem>
-                  <ConversationEmptyState title="Conversation empty state" description="Shown before messages arrive." />
-                </ConversationItem>
-              </ConversationContent>
-            </Conversation>
-          </div>
         </DebugRow>
 
         <DebugRow title="dialog">
@@ -436,13 +455,11 @@ export function UiDebugPage(): React.JSX.Element {
           <DropdownMenu>
             <DropdownMenuTrigger render={<Button variant="outline" />}>Open menu</DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem><Plus className="size-4" /> New <DropdownMenuShortcut>⌘N</DropdownMenuShortcut></DropdownMenuItem>
-              <DropdownMenuCheckboxItem checked>Enabled</DropdownMenuCheckboxItem>
-              <DropdownMenuSub>
-                <DropdownMenuSubTrigger>More</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent><DropdownMenuItem>Sub action</DropdownMenuItem></DropdownMenuSubContent>
-              </DropdownMenuSub>
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuItem><Plus className="size-4" /> New <DropdownMenuShortcut>⌘N</DropdownMenuShortcut></DropdownMenuItem>
+                <DropdownMenuCheckboxItem checked>Enabled</DropdownMenuCheckboxItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
               <DropdownMenuRadioGroup value="agent">
                 <DropdownMenuRadioItem value="agent">Agent</DropdownMenuRadioItem>
@@ -467,54 +484,6 @@ export function UiDebugPage(): React.JSX.Element {
             <InputGroupAddon align="block-start" className="border-b"><InputGroupText>Prompt</InputGroupText></InputGroupAddon>
             <Textarea placeholder="Textarea inside input group" />
           </InputGroup>
-        </DebugRow>
-
-        <DebugRow title="message">
-          <div className="w-full max-w-md space-y-4 rounded-lg border p-4">
-            <Message from="user"><MessageContent>Add project search.</MessageContent></Message>
-            <Message from="assistant">
-              <MessageContent>
-                <MessageResponse>{'I will inspect the project list and add search.\n\n- Read files\n- Add tests'}</MessageResponse>
-              </MessageContent>
-              <MessageToolbar><Button size="xs" variant="ghost">Copy</Button></MessageToolbar>
-            </Message>
-          </div>
-        </DebugRow>
-
-        <DebugRow title="model-selector">
-          <ModelSelector>
-            <ModelSelectorTrigger render={<Button variant="outline" />}>Choose model</ModelSelectorTrigger>
-            <ModelSelectorContent>
-              <ModelSelectorInput placeholder="Search models..." />
-              <ModelSelectorList>
-                <ModelSelectorEmpty>No model found.</ModelSelectorEmpty>
-                <ModelSelectorGroup heading="Anthropic">
-                  <ModelSelectorItem value="sonnet">
-                    <ModelSelectorLogo provider="anthropic" />
-                    <ModelSelectorName>Claude Sonnet</ModelSelectorName>
-                    <ModelSelectorShortcut>Default</ModelSelectorShortcut>
-                  </ModelSelectorItem>
-                </ModelSelectorGroup>
-              </ModelSelectorList>
-            </ModelSelectorContent>
-          </ModelSelector>
-        </DebugRow>
-
-        <DebugRow title="prompt-input">
-          <PromptInput className="max-w-md" onSubmit={() => undefined}>
-            <PromptInputTextarea placeholder="Ask follow-up..." />
-            <PromptInputFooter>
-              <PromptInputTools><PromptInputAddAttachmentButton variant="ghost" /></PromptInputTools>
-              <PromptInputSubmit />
-            </PromptInputFooter>
-          </PromptInput>
-        </DebugRow>
-
-        <DebugRow title="reasoning">
-          <Reasoning defaultOpen duration={7} className="w-full max-w-md">
-            <ReasoningTrigger />
-            <ReasoningContent>{'I need to inspect the project structure before editing.'}</ReasoningContent>
-          </Reasoning>
         </DebugRow>
 
         <DebugRow title="select">
@@ -583,6 +552,93 @@ export function UiDebugPage(): React.JSX.Element {
 
         <DebugRow title="textarea"><Textarea className="max-w-md" placeholder="Textarea" /></DebugRow>
 
+        <DebugRow title="tooltip">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger render={<Button variant="outline" />}>Hover me</TooltipTrigger>
+              <TooltipContent>Tooltip content</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </DebugRow>
+    </div>
+  )
+}
+
+function AiComponentsDebugContent(): React.JSX.Element {
+  return (
+    <div className="space-y-4">
+        <DebugRow title="confirmation">
+          <Confirmation approval={{ id: 'debug-confirmation' }} state="approval-requested" className="max-w-md">
+            <ConfirmationTitle>Allow agent to run pnpm test?</ConfirmationTitle>
+            <ConfirmationRequest>
+              <ConfirmationActions>
+                <ConfirmationAction variant="outline">Reject</ConfirmationAction>
+                <ConfirmationAction>Approve</ConfirmationAction>
+              </ConfirmationActions>
+            </ConfirmationRequest>
+          </Confirmation>
+        </DebugRow>
+
+        <DebugRow title="conversation">
+          <div className="h-56 w-full max-w-md overflow-hidden rounded-lg border">
+            <Conversation>
+              <ConversationContent>
+                <ConversationItem>
+                  <ConversationEmptyState title="Conversation empty state" description="Shown before messages arrive." />
+                </ConversationItem>
+              </ConversationContent>
+            </Conversation>
+          </div>
+        </DebugRow>
+
+        <DebugRow title="message">
+          <div className="w-full max-w-md space-y-4 rounded-lg border p-4">
+            <Message from="user"><MessageContent>Add project search.</MessageContent></Message>
+            <Message from="assistant">
+              <MessageContent>
+                <MessageResponse>{'I will inspect the project list and add search.\n\n- Read files\n- Add tests'}</MessageResponse>
+              </MessageContent>
+              <MessageToolbar><Button size="xs" variant="ghost">Copy</Button></MessageToolbar>
+            </Message>
+          </div>
+        </DebugRow>
+
+        <DebugRow title="model-selector">
+          <ModelSelector>
+            <ModelSelectorTrigger render={<Button variant="outline" />}>Choose model</ModelSelectorTrigger>
+            <ModelSelectorContent>
+              <ModelSelectorInput placeholder="Search models..." />
+              <ModelSelectorList>
+                <ModelSelectorEmpty>No model found.</ModelSelectorEmpty>
+                <ModelSelectorGroup heading="Anthropic">
+                  <ModelSelectorItem value="sonnet">
+                    <ModelSelectorLogo provider="anthropic" />
+                    <ModelSelectorName>Claude Sonnet</ModelSelectorName>
+                    <ModelSelectorShortcut>Default</ModelSelectorShortcut>
+                  </ModelSelectorItem>
+                </ModelSelectorGroup>
+              </ModelSelectorList>
+            </ModelSelectorContent>
+          </ModelSelector>
+        </DebugRow>
+
+        <DebugRow title="prompt-input">
+          <PromptInput className="max-w-md" onSubmit={() => undefined}>
+            <PromptInputTextarea placeholder="Ask follow-up..." />
+            <PromptInputFooter>
+              <PromptInputTools><PromptInputAddAttachmentButton variant="ghost" /></PromptInputTools>
+              <PromptInputSubmit />
+            </PromptInputFooter>
+          </PromptInput>
+        </DebugRow>
+
+        <DebugRow title="reasoning">
+          <Reasoning defaultOpen duration={7} className="w-full max-w-md">
+            <ReasoningTrigger />
+            <ReasoningContent>{'I need to inspect the project structure before editing.'}</ReasoningContent>
+          </Reasoning>
+        </DebugRow>
+
         <DebugRow title="tool">
           <Tool defaultOpen className="max-w-md">
             <ToolHeader type="tool-read" title="Read file" state="output-available" />
@@ -595,22 +651,89 @@ export function UiDebugPage(): React.JSX.Element {
           <ToolStatusBadge state="output-error" />
         </DebugRow>
 
-        <DebugRow title="tooltip">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger render={<Button variant="outline" />}>Hover me</TooltipTrigger>
-              <TooltipContent>Tooltip content</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        </DebugRow>
-      </div>
-    </>
+    </div>
+  )
+}
+
+function TypographyDebugContent(): React.JSX.Element {
+  return (
+    <div className="space-y-6">
+      <DebugRow title="headings">
+        <div className="space-y-2">
+          <h1 className="text-2xl font-semibold">Workspace heading</h1>
+          <h2 className="text-xl font-medium">Surface heading</h2>
+          <h3 className="text-sm font-medium">Section heading</h3>
+        </div>
+      </DebugRow>
+      <DebugRow title="body text">
+        <div className="max-w-xl space-y-2">
+          <p className="text-sm text-foreground">
+            Space Zero is an agent-first workspace for builders. Body text should be readable,
+            compact, and calm.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Muted metadata should stay readable without competing with primary content.
+          </p>
+        </div>
+      </DebugRow>
+      <DebugRow title="code text">
+        <pre className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
+          pnpm typecheck --filter spacezero
+        </pre>
+      </DebugRow>
+    </div>
+  )
+}
+
+function ComponentsDebugContent(): React.JSX.Element {
+  return (
+    <div className="space-y-6">
+      <DebugRow title="empty state">
+        <div className="max-w-md space-y-2">
+          <h3 className="text-sm font-medium">No agent work yet</h3>
+          <p className="text-xs text-muted-foreground">
+            Start an agent session to see messages, tool calls, changed files, and results here.
+          </p>
+          <Button size="sm">Start session</Button>
+        </div>
+      </DebugRow>
+      <DebugRow title="status row">
+        <div className="flex items-center gap-3 text-sm">
+          <Badge variant="secondary">Running</Badge>
+          <span className="text-muted-foreground">Inspecting project files…</span>
+        </div>
+      </DebugRow>
+    </div>
+  )
+}
+
+function DebugTabButton({
+  active,
+  children,
+  onClick
+}: {
+  active: boolean
+  children: React.ReactNode
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`border-b-2 px-3 py-2 text-sm transition-colors ${
+        active
+          ? 'border-foreground text-foreground'
+          : 'border-transparent text-muted-foreground hover:text-foreground'
+      }`}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   )
 }
 
 function DebugRow({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="grid gap-4 rounded-xl bg-card p-4 text-card-foreground lg:grid-cols-[180px_1fr]">
+    <section className="grid gap-4 py-4 text-card-foreground lg:grid-cols-[180px_1fr]">
       <div>
         <h3 className="font-mono text-sm font-medium">{title}</h3>
       </div>
