@@ -157,6 +157,7 @@ import { Switch } from '@renderer/components/ui/switch'
 import { Textarea } from '@renderer/components/ui/textarea'
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ToolStatusBadge } from '@renderer/components/ui/tool'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/components/ui/tooltip'
+import { CodeText, Heading, Kbd, Text } from '@renderer/components/ui/typography'
 import { useColorMode } from '@renderer/color-mode-provider'
 
 type DebugThemePreview = 'light' | 'dark' | 'dark-high-contrast'
@@ -226,10 +227,12 @@ export function UiDebugPage(): React.JSX.Element {
 
   return (
     <>
-      <h2 className="mb-2 text-xl font-medium">UI Debug</h2>
-      <p className="mb-6 text-sm text-muted-foreground">
+      <Heading as="h2" level="h2" className="mb-2">
+        UI Debug
+      </Heading>
+      <Text variant="muted" className="mb-6">
         Debug-only gallery for installed shadcn and shadcn-compatible primitives.
-      </p>
+      </Text>
 
       <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border bg-card px-4 py-3 text-card-foreground">
         <div>
@@ -658,25 +661,43 @@ function AiComponentsDebugContent(): React.JSX.Element {
 function TypographyDebugContent(): React.JSX.Element {
   return (
     <div className="space-y-6">
-      <DebugRow title="headings">
+      <DebugRow title="heading">
         <div className="space-y-2">
-          <h1 className="text-2xl font-semibold">Workspace heading</h1>
-          <h2 className="text-xl font-medium">Surface heading</h2>
-          <h3 className="text-sm font-medium">Section heading</h3>
+          <Heading as="h1" level="h1">Workspace heading</Heading>
+          <Heading as="h2" level="h2">Surface heading</Heading>
+          <Heading as="h3" level="h3">Panel heading</Heading>
+          <Heading as="h4" level="h4">Section heading</Heading>
+          <Heading as="h5" level="h5">Eyebrow heading</Heading>
         </div>
       </DebugRow>
-      <DebugRow title="body text">
+      <DebugRow title="text">
         <div className="max-w-xl space-y-2">
-          <p className="text-sm text-foreground">
+          <Text>
             Space Zero is an agent-first workspace for builders. Body text should be readable,
             compact, and calm.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Muted metadata should stay readable without competing with primary content.
-          </p>
+          </Text>
+          <Text variant="muted">
+            Muted text is useful for descriptions that should not compete with primary content.
+          </Text>
+          <Text variant="small">Small text is for dense rows and secondary labels.</Text>
+          <Text variant="subtle">Subtle text is for metadata and low-emphasis helper copy.</Text>
+          <Text variant="meta">Updated 2 minutes ago · 3 files changed</Text>
+          <Text variant="danger">Destructive or failed state text.</Text>
         </div>
       </DebugRow>
-      <DebugRow title="code text">
+      <DebugRow title="inline code">
+        <Text>
+          Run <CodeText>pnpm typecheck</CodeText> before committing.
+        </Text>
+      </DebugRow>
+      <DebugRow title="keyboard">
+        <div className="flex items-center gap-2">
+          <Kbd>⌘</Kbd>
+          <Kbd>K</Kbd>
+          <Text as="span" variant="subtle">Open command palette</Text>
+        </div>
+      </DebugRow>
+      <DebugRow title="code block">
         <pre className="rounded-md bg-muted px-3 py-2 font-mono text-xs">
           pnpm typecheck --filter spacezero
         </pre>
