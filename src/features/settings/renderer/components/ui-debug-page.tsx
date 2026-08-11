@@ -160,6 +160,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@rende
 import { CodeText, Heading, Kbd, Text } from '@renderer/components/ui/typography'
 import { useColorMode } from '@renderer/color-mode-provider'
 
+import { SettingsPageHeader } from './settings-page-header'
+import { SettingsRow } from './settings-row'
+import { SettingsSection } from './settings-section'
+
 type DebugThemePreview = 'light' | 'dark' | 'dark-high-contrast'
 type DebugFontFamily =
   | 'system'
@@ -709,19 +713,50 @@ function TypographyDebugContent(): React.JSX.Element {
 function ComponentsDebugContent(): React.JSX.Element {
   return (
     <div className="space-y-6">
+      <DebugRow title="settings-page-header">
+        <SettingsPageHeader
+          title="Appearance"
+          description="Configure the theme, typography, and interface density."
+        />
+      </DebugRow>
+      <DebugRow title="settings-section">
+        <div className="w-full max-w-2xl">
+          <SettingsSection
+            title="Theme"
+            description="Choose how Space Zero surfaces should look while you work."
+            footer={<Text variant="subtle">Changes apply immediately in the app preview.</Text>}
+          >
+            <SettingsRow title="Theme" description="Choose between light, dark, and high contrast themes.">
+              <Select defaultValue="dark">
+                <SelectTrigger size="sm" className="w-44">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="light">Light</SelectItem>
+                  <SelectItem value="dark">Dark</SelectItem>
+                  <SelectItem value="dark-high-contrast">Dark high contrast</SelectItem>
+                </SelectContent>
+              </Select>
+            </SettingsRow>
+            <SettingsRow title="Use thin font anti-aliasing" description="Preview thinner browser-style font rendering.">
+              <Switch size="sm" />
+            </SettingsRow>
+          </SettingsSection>
+        </div>
+      </DebugRow>
       <DebugRow title="empty state">
         <div className="max-w-md space-y-2">
-          <h3 className="text-sm font-medium">No agent work yet</h3>
-          <p className="text-xs text-muted-foreground">
+          <Heading as="h3" level="h4">No agent work yet</Heading>
+          <Text variant="subtle">
             Start an agent session to see messages, tool calls, changed files, and results here.
-          </p>
+          </Text>
           <Button size="sm">Start session</Button>
         </div>
       </DebugRow>
       <DebugRow title="status row">
         <div className="flex items-center gap-3 text-sm">
           <Badge variant="secondary">Running</Badge>
-          <span className="text-muted-foreground">Inspecting project files…</span>
+          <Text as="span" variant="muted">Inspecting project files…</Text>
         </div>
       </DebugRow>
     </div>
