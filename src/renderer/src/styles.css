@@ -54,21 +54,21 @@
   color-scheme: light;
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.17 0 0);
-  --card: oklch(0.975 0 0);
+  --card: oklch(0.955 0 0);
   --card-foreground: oklch(0.17 0 0);
-  --popover: oklch(0.99 0 0);
+  --popover: oklch(0.975 0 0);
   --popover-foreground: oklch(0.17 0 0);
   --primary: oklch(0.24 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.94 0 0);
+  --secondary: oklch(0.925 0 0);
   --secondary-foreground: oklch(0.22 0 0);
-  --muted: oklch(0.925 0 0);
-  --muted-foreground: oklch(0.48 0 0);
-  --accent: oklch(0.94 0 0);
+  --muted: oklch(0.905 0 0);
+  --muted-foreground: oklch(0.46 0 0);
+  --accent: oklch(0.91 0 0);
   --accent-foreground: oklch(0.2 0 0);
   --destructive: oklch(0.55 0.22 27.325);
-  --border: oklch(0.84 0 0);
-  --input: oklch(0.86 0 0);
+  --border: oklch(0.8 0 0);
+  --input: oklch(0.82 0 0);
   --ring: oklch(0.58 0 0);
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -94,23 +94,23 @@
 
 .dark {
   color-scheme: dark;
-  --background: oklch(0.135 0 0);
+  --background: oklch(0.155 0 0);
   --foreground: oklch(0.88 0 0);
-  --card: oklch(0.17 0 0);
+  --card: oklch(0.195 0 0);
   --card-foreground: oklch(0.88 0 0);
-  --popover: oklch(0.19 0 0);
+  --popover: oklch(0.205 0 0);
   --popover-foreground: oklch(0.88 0 0);
   --primary: oklch(0.88 0 0);
   --primary-foreground: oklch(0.18 0 0);
-  --secondary: oklch(0.235 0 0);
+  --secondary: oklch(0.24 0 0);
   --secondary-foreground: oklch(0.88 0 0);
-  --muted: oklch(0.225 0 0);
-  --muted-foreground: oklch(0.64 0 0);
-  --accent: oklch(0.245 0 0);
+  --muted: oklch(0.25 0 0);
+  --muted-foreground: oklch(0.66 0 0);
+  --accent: oklch(0.275 0 0);
   --accent-foreground: oklch(0.9 0 0);
   --destructive: oklch(0.66 0.18 22.216);
-  --border: oklch(1 0 0 / 8%);
-  --input: oklch(1 0 0 / 10%);
+  --border: oklch(1 0 0 / 12%);
+  --input: oklch(1 0 0 / 20%);
   --ring: oklch(0.62 0 0);
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -131,6 +131,109 @@
   --sidebar-accent-foreground: oklch(0.9 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+
+.dark-high-contrast {
+  color-scheme: dark;
+  --background: oklch(0.08 0 0);
+  --foreground: oklch(0.94 0 0);
+  --card: oklch(0.14 0 0);
+  --card-foreground: oklch(0.94 0 0);
+  --popover: oklch(0.15 0 0);
+  --popover-foreground: oklch(0.94 0 0);
+  --primary: oklch(0.94 0 0);
+  --primary-foreground: oklch(0.13 0 0);
+  --secondary: oklch(0.19 0 0);
+  --secondary-foreground: oklch(0.94 0 0);
+  --muted: oklch(0.19 0 0);
+  --muted-foreground: oklch(0.74 0 0);
+  --accent: oklch(0.25 0 0);
+  --accent-foreground: oklch(0.96 0 0);
+  --destructive: oklch(0.7 0.2 22.216);
+  --border: oklch(1 0 0 / 20%);
+  --input: oklch(1 0 0 / 24%);
+  --ring: oklch(0.74 0 0);
+  --status-running: oklch(0.74 0.15 245);
+  --status-waiting: oklch(0.82 0.14 80);
+  --status-blocked: oklch(0.78 0.16 55);
+  --status-failed: oklch(0.72 0.2 27);
+  --status-done: oklch(0.74 0.14 150);
+  --status-review: oklch(0.78 0.15 285);
+  --sidebar: oklch(0.105 0 0);
+  --sidebar-foreground: oklch(0.9 0 0);
+  --sidebar-primary: oklch(0.62 0.2 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.2 0 0);
+  --sidebar-accent-foreground: oklch(0.96 0 0);
+  --sidebar-border: oklch(1 0 0 / 18%);
+  --sidebar-ring: oklch(0.74 0 0);
+}
+
+.font-family-system,
+.font-family-system body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+}
+
+.font-family-geist,
+.font-family-geist body {
+  font-family: 'Geist Variable', sans-serif;
+}
+
+.font-family-sf-pro,
+.font-family-sf-pro body {
+  font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-family-inter,
+.font-family-inter body {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.font-family-helvetica,
+.font-family-helvetica body {
+  font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+}
+
+.font-family-arial,
+.font-family-arial body {
+  font-family: Arial, sans-serif;
+}
+
+.font-family-sf-mono,
+.font-family-sf-mono body {
+  font-family: 'SF Mono', ui-monospace, monospace;
+}
+
+.font-family-menlo,
+.font-family-menlo body {
+  font-family: Menlo, Monaco, Consolas, monospace;
+}
+
+.font-family-monaco,
+.font-family-monaco body {
+  font-family: Monaco, Menlo, Consolas, monospace;
+}
+
+.font-family-jetbrains-mono,
+.font-family-jetbrains-mono body {
+  font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+}
+
+.font-family-monospace,
+.font-family-monospace body {
+  font-family:
+    'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.font-smoothing-native {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+.font-smoothing-antialiased {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 @utility no-scrollbar {

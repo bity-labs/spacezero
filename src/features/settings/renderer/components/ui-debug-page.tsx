@@ -8,7 +8,7 @@ import {
   Trash,
   WarningCircle
 } from '@phosphor-icons/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@renderer/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@renderer/components/ui/avatar'
@@ -161,24 +161,68 @@ import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ToolStatusBadge }
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { useColorMode } from '@renderer/color-mode-provider'
 
+type DebugThemePreview = 'light' | 'dark' | 'dark-high-contrast'
+type DebugFontFamily =
+  | 'system'
+  | 'geist'
+  | 'sf-pro'
+  | 'inter'
+  | 'helvetica'
+  | 'arial'
+  | 'sf-mono'
+  | 'menlo'
+  | 'monaco'
+  | 'jetbrains-mono'
+  | 'monospace'
+
 export function UiDebugPage(): React.JSX.Element {
   const [switchEnabled, setSwitchEnabled] = useState(true)
-  const [themeError, setThemeError] = useState(false)
-  const [isThemeChanging, setIsThemeChanging] = useState(false)
-  const { resolvedTheme, updateThemePreference } = useColorMode()
+  const { resolvedTheme } = useColorMode()
+  const [debugThemePreview, setDebugThemePreview] = useState<DebugThemePreview>(
+    resolvedTheme === 'dark' ? 'dark' : 'light'
+  )
+  const [useThinFontSmoothing, setUseThinFontSmoothing] = useState(false)
+  const [debugFontFamily, setDebugFontFamily] = useState<DebugFontFamily>('system')
 
-  async function handleDebugThemeChange(checked: boolean): Promise<void> {
-    setIsThemeChanging(true)
-    setThemeError(false)
+  useEffect(() => {
+    const root = document.documentElement
 
-    try {
-      await updateThemePreference(checked ? 'dark' : 'light')
-    } catch {
-      setThemeError(true)
-    } finally {
-      setIsThemeChanging(false)
+    root.classList.toggle('dark', debugThemePreview !== 'light')
+    root.classList.toggle('dark-high-contrast', debugThemePreview === 'dark-high-contrast')
+    root.classList.toggle('font-family-system', debugFontFamily === 'system')
+    root.classList.toggle('font-family-geist', debugFontFamily === 'geist')
+    root.classList.toggle('font-family-sf-pro', debugFontFamily === 'sf-pro')
+    root.classList.toggle('font-family-inter', debugFontFamily === 'inter')
+    root.classList.toggle('font-family-helvetica', debugFontFamily === 'helvetica')
+    root.classList.toggle('font-family-arial', debugFontFamily === 'arial')
+    root.classList.toggle('font-family-sf-mono', debugFontFamily === 'sf-mono')
+    root.classList.toggle('font-family-menlo', debugFontFamily === 'menlo')
+    root.classList.toggle('font-family-monaco', debugFontFamily === 'monaco')
+    root.classList.toggle('font-family-jetbrains-mono', debugFontFamily === 'jetbrains-mono')
+    root.classList.toggle('font-family-monospace', debugFontFamily === 'monospace')
+    root.classList.toggle('font-smoothing-native', !useThinFontSmoothing)
+    root.classList.toggle('font-smoothing-antialiased', useThinFontSmoothing)
+    root.style.colorScheme = debugThemePreview === 'light' ? 'light' : 'dark'
+
+    return () => {
+      root.classList.toggle('dark', resolvedTheme === 'dark')
+      root.classList.remove('dark-high-contrast')
+      root.classList.remove('font-family-system')
+      root.classList.remove('font-family-geist')
+      root.classList.remove('font-family-sf-pro')
+      root.classList.remove('font-family-inter')
+      root.classList.remove('font-family-helvetica')
+      root.classList.remove('font-family-arial')
+      root.classList.remove('font-family-sf-mono')
+      root.classList.remove('font-family-menlo')
+      root.classList.remove('font-family-monaco')
+      root.classList.remove('font-family-jetbrains-mono')
+      root.classList.remove('font-family-monospace')
+      root.classList.remove('font-smoothing-native')
+      root.classList.remove('font-smoothing-antialiased')
+      root.style.colorScheme = resolvedTheme
     }
-  }
+  }, [debugFontFamily, debugThemePreview, resolvedTheme, useThinFontSmoothing])
 
   return (
     <>
@@ -191,20 +235,54 @@ export function UiDebugPage(): React.JSX.Element {
         <div>
           <p className="text-sm font-medium">Theme preview</p>
           <p className="text-xs text-muted-foreground">
-            Toggle between light and dark while reviewing primitives.
+            Preview light, dark, and dark high contrast without changing saved settings.
           </p>
-          {themeError ? <p className="mt-1 text-xs text-destructive">Could not update theme.</p> : null}
         </div>
-        <label className="flex items-center gap-3 text-sm text-muted-foreground">
-          <span>Light</span>
-          <Switch
-            aria-label="Toggle UI debug theme preview"
-            checked={resolvedTheme === 'dark'}
-            disabled={isThemeChanging}
-            onCheckedChange={(checked) => void handleDebugThemeChange(Boolean(checked))}
-          />
-          <span>Dark</span>
-        </label>
+        <div className="flex flex-col items-end gap-3">
+          <Select
+            value={debugThemePreview}
+            onValueChange={(value) => setDebugThemePreview(value as DebugThemePreview)}
+          >
+            <SelectTrigger className="w-44" aria-label="UI debug theme preview">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="light">Light</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+              <SelectItem value="dark-high-contrast">Dark high contrast</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select
+            value={debugFontFamily}
+            onValueChange={(value) => setDebugFontFamily(value as DebugFontFamily)}
+          >
+            <SelectTrigger className="w-44" aria-label="UI debug font family preview">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="system">System font</SelectItem>
+              <SelectItem value="geist">Geist</SelectItem>
+              <SelectItem value="sf-pro">SF Pro Text</SelectItem>
+              <SelectItem value="inter">Inter</SelectItem>
+              <SelectItem value="helvetica">Helvetica Neue</SelectItem>
+              <SelectItem value="arial">Arial</SelectItem>
+              <SelectItem value="sf-mono">SF Mono</SelectItem>
+              <SelectItem value="menlo">Menlo</SelectItem>
+              <SelectItem value="monaco">Monaco</SelectItem>
+              <SelectItem value="jetbrains-mono">JetBrains Mono</SelectItem>
+              <SelectItem value="monospace">Generic monospace</SelectItem>
+            </SelectContent>
+          </Select>
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Use thin font anti-aliasing</span>
+            <Switch
+              size="sm"
+              aria-label="Toggle thin font anti-aliasing preview"
+              checked={useThinFontSmoothing}
+              onCheckedChange={(checked) => setUseThinFontSmoothing(Boolean(checked))}
+            />
+          </label>
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -532,7 +610,7 @@ export function UiDebugPage(): React.JSX.Element {
 
 function DebugRow({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <section className="grid gap-4 rounded-xl border bg-card p-4 text-card-foreground lg:grid-cols-[180px_1fr]">
+    <section className="grid gap-4 rounded-xl bg-card p-4 text-card-foreground lg:grid-cols-[180px_1fr]">
       <div>
         <h3 className="font-mono text-sm font-medium">{title}</h3>
       </div>
