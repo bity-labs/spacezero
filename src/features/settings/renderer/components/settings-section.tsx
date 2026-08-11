@@ -1,4 +1,5 @@
 import { Card } from '@renderer/components/ui/card'
+import { Heading, Text } from '@renderer/components/ui/typography'
 
 type SettingsSectionProps = {
   title: string
@@ -16,9 +17,13 @@ function SettingsSection({
   return (
     <section className="space-y-3">
       <div className="px-2">
-        <h3 className="text-sm text-muted-foreground">{title}</h3>
+        <Heading as="h3" level="h5">
+          {title}
+        </Heading>
         {description ? (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
+          <Text variant="subtle" className="mt-1">
+            {description}
+          </Text>
         ) : null}
       </div>
       <Card className="gap-0 py-0">{children}</Card>
