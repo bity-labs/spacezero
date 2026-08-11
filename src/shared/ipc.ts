@@ -88,6 +88,7 @@ import type {
   ProjectSessionChatHistoryItem,
   RenameSessionTitleRequest
 } from '../features/sessions/shared/session.model'
+import type { AppearanceSettings, UpdateAppearanceSettingsRequest } from './appearance-settings'
 import type { ThemePreference, ThemeSettings } from './theme'
 import type { StorageSettings } from './storage-settings'
 import type { TerminalSettings, UpdateTerminalSettingsRequest } from './terminal-settings'
@@ -234,6 +235,8 @@ export const IPC_CHANNELS = {
     updateLanguagePreference: 'settings:updateLanguagePreference',
     getThemeSettings: 'settings:getThemeSettings',
     updateThemePreference: 'settings:updateThemePreference',
+    getAppearanceSettings: 'settings:getAppearanceSettings',
+    updateAppearanceSettings: 'settings:updateAppearanceSettings',
     getStorageSettings: 'settings:getStorageSettings',
     chooseSpaceZeroHome: 'settings:chooseSpaceZeroHome',
     getModelDefaults: 'settings:getModelDefaults',
@@ -424,6 +427,8 @@ export type SpaceZeroAPI = {
     updateLanguagePreference: (preference: LanguagePreference) => Promise<LanguageSettings>
     getThemeSettings: () => Promise<ThemeSettings>
     updateThemePreference: (preference: ThemePreference) => Promise<ThemeSettings>
+    getAppearanceSettings: () => Promise<AppearanceSettings>
+    updateAppearanceSettings: (request: UpdateAppearanceSettingsRequest) => Promise<AppearanceSettings>
     getStorageSettings: () => Promise<StorageSettings>
     chooseSpaceZeroHome: () => Promise<StorageSettings | null>
     getModelDefaults: () => Promise<ModelDefaults>
