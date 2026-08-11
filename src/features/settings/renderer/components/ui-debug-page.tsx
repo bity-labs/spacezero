@@ -79,6 +79,7 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
+import { EmptyState } from '@renderer/components/ui/empty'
 import { Input } from '@renderer/components/ui/input'
 import {
   InputGroup,
@@ -744,14 +745,14 @@ function ComponentsDebugContent(): React.JSX.Element {
           </SettingsSection>
         </div>
       </DebugRow>
-      <DebugRow title="empty state">
-        <div className="max-w-md space-y-2">
-          <Heading as="h3" level="h4">No agent work yet</Heading>
-          <Text variant="subtle">
-            Start an agent session to see messages, tool calls, changed files, and results here.
-          </Text>
-          <Button size="sm">Start session</Button>
-        </div>
+      <DebugRow title="empty-state">
+        <EmptyState
+          className="w-full max-w-md rounded-lg bg-card"
+          icon={<FileText />}
+          title="No agent work yet"
+          description="Start an agent session to see messages, tool calls, changed files, and results here."
+          actions={<Button size="sm">Start session</Button>}
+        />
       </DebugRow>
       <DebugRow title="status row">
         <div className="flex items-center gap-3 text-sm">
