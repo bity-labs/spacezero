@@ -34,7 +34,10 @@ async function readThemePreference(): Promise<ThemePreference> {
     .where(eq(schema.appSettings.key, THEME_PREFERENCE_KEY))
     .limit(1)
 
-  return storedPreference?.value === 'light' || storedPreference?.value === 'dark' || storedPreference?.value === 'system'
+  return storedPreference?.value === 'light' ||
+    storedPreference?.value === 'dark' ||
+    storedPreference?.value === 'dark-high-contrast' ||
+    storedPreference?.value === 'system'
     ? storedPreference.value
     : 'system'
 }

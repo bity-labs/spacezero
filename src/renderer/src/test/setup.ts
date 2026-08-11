@@ -951,6 +951,14 @@ beforeEach(async () => {
         preference,
         resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
       }),
+      getAppearanceSettings: async () => ({
+        fontFamily: 'system',
+        thinFontAntialiasing: true
+      }),
+      updateAppearanceSettings: async (request) => ({
+        fontFamily: request.fontFamily ?? 'system',
+        thinFontAntialiasing: request.thinFontAntialiasing ?? true
+      }),
       getStorageSettings: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
         projectsPath: '/tmp/SpaceZero/projects',
