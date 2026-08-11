@@ -30,6 +30,7 @@ import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/
 import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
 import { AccountMenu } from '../components/app-shell/account-menu'
+import { SettingsPageHeader } from '../../../features/settings/renderer/components/settings-page-header'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
 import { UiDebugPage } from '../../../features/settings/renderer/components/ui-debug-page'
@@ -58,18 +59,20 @@ import {
 } from '../components/ui/select'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
+import { Text } from '../components/ui/typography'
 import { useColorMode } from '../color-mode-provider'
 import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
 type SettingsSectionId =
-  | 'account'
   | 'general'
   | 'models'
-  | 'skills'
-  | 'agents'
+  | 'account'
+  | 'appearance'
   | 'about'
+  | 'agents'
+  | 'skills'
   | 'debug'
 
 type SettingsSearch = {
@@ -80,22 +83,32 @@ export const Route = createFileRoute('/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch =>
     search.section === 'account' ||
     search.section === 'models' ||
-    search.section === 'skills' ||
-    search.section === 'agents' ||
+    search.section === 'account' ||
+    search.section === 'appearance' ||
     search.section === 'about' ||
+    search.section === 'agents' ||
+    search.section === 'skills' ||
     search.section === 'debug'
       ? { section: search.section }
       : {},
   component: SettingsPage
 })
 
-const settingsNavigation = [
-  { id: 'account', translationKey: 'account', icon: UserCircle },
+const primarySettingsNavigation = [
   { id: 'general', translationKey: 'general', icon: GearSix },
   { id: 'models', translationKey: 'models', icon: Cube },
+  { id: 'account', translationKey: 'account', icon: UserCircle },
+  { id: 'appearance', translationKey: 'appearance', icon: GearSix },
+  { id: 'about', translationKey: 'about', icon: Info }
+] as const satisfies ReadonlyArray<{
+  id: SettingsSectionId
+  translationKey: string
+  icon: React.ComponentType<{ className?: string }>
+}>
+
+const secondarySettingsNavigation = [
   { id: 'agents', translationKey: 'agents', icon: UserCircle },
   { id: 'skills', translationKey: 'skills', icon: Sparkle },
-  { id: 'about', translationKey: 'about', icon: Info },
   { id: 'debug', translationKey: 'debug', icon: GearSix }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
@@ -114,15 +127,12 @@ function SettingsPage(): React.JSX.Element {
   const [themeError, setThemeError] = useState(false)
   const { themePreference, updateThemePreference } = useColorMode()
   const leftSidebarResize = useSidebarResize({ width: sidebarWidth, setWidth: setSidebarWidth })
-  const navigationItems = useMemo(
-    () =>
-      settingsNavigation.map((item) => ({
-        ...item,
-        label:
-          item.id === 'debug'
-            ? 'UI Debug'
-            : t(`settings.navigation.${item.translationKey}`)
-      })),
+  const primaryNavigationItems = useMemo(
+    () => primarySettingsNavigation.map((item) => ({ ...item, label: getSettingsNavLabel(item, t) })),
+    [t]
+  )
+  const secondaryNavigationItems = useMemo(
+    () => secondarySettingsNavigation.map((item) => ({ ...item, label: getSettingsNavLabel(item, t) })),
     [t]
   )
 
@@ -193,27 +203,17 @@ function SettingsPage(): React.JSX.Element {
         </Link>
 
         <SidebarMenu aria-label={t('settings.navigationLabel')}>
-          {navigationItems.map((item) => {
-            const Icon = item.icon
+          {primaryNavigationItems.map((item) => (
+            <SettingsNavigationItem key={item.id} item={item} selectedSection={selectedSection} />
+          ))}
+        </SidebarMenu>
 
-            return (
-              <SidebarMenuItem key={item.id}>
-                <SidebarMenuButton
-                  render={
-                    <Link
-                      to="/settings"
-                      search={item.id === 'general' ? {} : { section: item.id }}
-                    />
-                  }
-                  isActive={selectedSection === item.id}
-                  className="text-muted-foreground"
-                >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )
-          })}
+        <div className="my-4 border-t border-sidebar-border" />
+
+        <SidebarMenu aria-label="Experimental settings">
+          {secondaryNavigationItems.map((item) => (
+            <SettingsNavigationItem key={item.id} item={item} selectedSection={selectedSection} />
+          ))}
         </SidebarMenu>
       </AppSidebar>
 
@@ -249,6 +249,8 @@ function SettingsPage(): React.JSX.Element {
             <SkillsSettingsSection />
           ) : selectedSection === 'agents' ? (
             <AgentsSettingsSection />
+          ) : selectedSection === 'appearance' ? (
+            <AppearanceSettingsSection />
           ) : selectedSection === 'about' ? (
             <AboutSettingsSection />
           ) : selectedSection === 'debug' ? (
@@ -259,6 +261,47 @@ function SettingsPage(): React.JSX.Element {
         </div>
       </main>
     </div>
+  )
+}
+
+type SettingsNavigationEntry = {
+  id: SettingsSectionId
+  translationKey: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+}
+
+function getSettingsNavLabel(
+  item: { id: SettingsSectionId; translationKey: string },
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (item.id === 'appearance') return 'Appearance'
+  if (item.id === 'debug') return 'UI Debug'
+  return t(`settings.navigation.${item.translationKey}`)
+}
+
+function SettingsNavigationItem({
+  item,
+  selectedSection
+}: {
+  item: SettingsNavigationEntry
+  selectedSection: SettingsSectionId
+}): React.JSX.Element {
+  const Icon = item.icon
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={
+          <Link to="/settings" search={item.id === 'general' ? {} : { section: item.id }} />
+        }
+        isActive={selectedSection === item.id}
+        className="text-muted-foreground"
+      >
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }
 
@@ -283,6 +326,17 @@ function formatUpdateCheckedAt(
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(lastCheckedAt))
+}
+
+function AppearanceSettingsSection(): React.JSX.Element {
+  return (
+    <>
+      <h2 className="mb-2 text-xl font-medium">Appearance</h2>
+      <p className="mb-6 text-sm text-muted-foreground">
+        Theme and typography settings will live here.
+      </p>
+    </>
+  )
 }
 
 function AccountSettingsSection(): React.JSX.Element {
@@ -512,7 +566,7 @@ function GeneralSettingsSection({
 
   return (
     <>
-      <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.general')}</h2>
+      <SettingsPageHeader title={t('settings.navigation.general')} />
 
       <div className="space-y-8">
         <StorageSettingsSection />
@@ -566,15 +620,19 @@ function GeneralSettingsSection({
             </Select>
           </SettingsRow>
           {!languageSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.language.loading')}
-            </p>
+            </Text>
           ) : null}
           {languageError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">{t('settings.language.saveError')}</p>
+            <Text variant="danger" className="px-4 pb-3">
+              {t('settings.language.saveError')}
+            </Text>
           ) : null}
           {themeError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">{t('settings.theme.saveError')}</p>
+            <Text variant="danger" className="px-4 pb-3">
+              {t('settings.theme.saveError')}
+            </Text>
           ) : null}
           <SettingsRow
             title={t('settings.chatLinks.label')}
@@ -603,14 +661,14 @@ function GeneralSettingsSection({
             </Select>
           </SettingsRow>
           {!chatLinkSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.chatLinks.loading')}
-            </p>
+            </Text>
           ) : null}
           {chatLinkError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">
+            <Text variant="danger" className="px-4 pb-3">
               {t('settings.chatLinks.saveError')}
-            </p>
+            </Text>
           ) : null}
           <SettingsRow
             title={t('settings.gitPrimaryAction.label')}
@@ -642,14 +700,14 @@ function GeneralSettingsSection({
             </Select>
           </SettingsRow>
           {!gitActionSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.gitPrimaryAction.loading')}
-            </p>
+            </Text>
           ) : null}
           {gitActionError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">
+            <Text variant="danger" className="px-4 pb-3">
               {t('settings.gitPrimaryAction.saveError')}
-            </p>
+            </Text>
           ) : null}
         </SettingsSection>
       </div>
@@ -704,16 +762,14 @@ function BrowserDataSettingsSection(): React.JSX.Element {
           {isClearing ? t('settings.browserData.clearing') : t('settings.browserData.clearAction')}
         </Button>
       </SettingsRow>
-      <p className="px-4 pb-3 text-xs text-muted-foreground">
-        {t('settings.browserData.scopeNote')}
-      </p>
       {message ? (
-        <p
+        <Text
           role="status"
-          className={`px-4 pb-3 text-sm ${message.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}
+          variant={message.kind === 'error' ? 'danger' : 'muted'}
+          className="px-4 pb-3"
         >
           {message.text}
-        </p>
+        </Text>
       ) : null}
       <Dialog open={isConfirmOpen} onOpenChange={(open) => !isClearing && setIsConfirmOpen(open)}>
         <DialogContent>
@@ -798,10 +854,14 @@ function TerminalSafetySettingsSection(): React.JSX.Element {
         />
       </SettingsRow>
       {!terminalSettings ? (
-        <p className="px-4 pb-3 text-sm text-muted-foreground">{t('settings.terminal.loading')}</p>
+        <Text variant="muted" className="px-4 pb-3">
+          {t('settings.terminal.loading')}
+        </Text>
       ) : null}
       {error ? (
-        <p className="px-4 pb-3 text-sm text-destructive">{t('settings.terminal.saveError')}</p>
+        <Text variant="danger" className="px-4 pb-3">
+          {t('settings.terminal.saveError')}
+        </Text>
       ) : null}
     </SettingsSection>
   )
@@ -860,19 +920,21 @@ function StorageSettingsSection(): React.JSX.Element {
             {storageSettings?.spaceZeroHome ?? t('settings.storage.loading')}
           </span>
           <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-2"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
             disabled={!storageSettings || isChanging}
+            aria-label={isChanging ? t('settings.storage.changing') : t('settings.storage.change')}
             onClick={() => void handleChooseSpaceZeroHome()}
           >
             <FolderOpen className="h-4 w-4" aria-hidden="true" />
-            {isChanging ? t('settings.storage.changing') : t('settings.storage.change')}
           </Button>
         </div>
       </SettingsRow>
       {error ? (
-        <p className="px-4 pb-3 text-sm text-destructive">{t('settings.storage.error')}</p>
+        <Text variant="danger" className="px-4 pb-3">
+          {t('settings.storage.error')}
+        </Text>
       ) : null}
     </SettingsSection>
   )
