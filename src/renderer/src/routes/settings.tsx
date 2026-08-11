@@ -569,12 +569,6 @@ function GeneralSettingsSection({
       <SettingsPageHeader title={t('settings.navigation.general')} />
 
       <div className="space-y-8">
-        <StorageSettingsSection />
-
-        <TerminalSafetySettingsSection />
-
-        <BrowserDataSettingsSection />
-
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -710,6 +704,14 @@ function GeneralSettingsSection({
             </Text>
           ) : null}
         </SettingsSection>
+
+        <StorageSettingsSection />
+
+        <TerminalSafetySettingsSection />
+
+        <BrowserDataSettingsSection />
+
+
       </div>
     </>
   )
