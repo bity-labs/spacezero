@@ -486,9 +486,6 @@ describe('Files renderer state', () => {
     expect(store.beginOpenTab('session-external-clean', 'README.md', 'permanent', 1)).toBe(true)
     store.finishOpenTab('session-external-clean', textDocument('README.md', '# old'), 1)
     store.setEditorMode('session-external-clean', 'README.md', 'source')
-    const editorStateKey =
-      useFilesStore.getState().contexts['session-external-clean'].tabs[0].editorStateKey
-
     store.reloadCleanExternalDocument('session-external-clean', {
       ...textDocument('README.md', '# new'),
       revision: 'new-revision'
@@ -501,7 +498,7 @@ describe('Files renderer state', () => {
       dirty: false,
       revision: 'new-revision',
       editorMode: 'source',
-      editorStateKey
+      editorStateKey: 'README.md:revision:new-revision'
     })
   })
 
@@ -601,7 +598,7 @@ describe('Files renderer state', () => {
     expect(store.beginOpenTab('session-1', 'src/index.ts', 'permanent', 1)).toBe(true)
     store.finishOpenTab('session-1', textDocument('src/index.ts'), 1)
     store.setEditorMode('session-1', 'src/index.ts', 'source')
-    store.setMonacoViewState('session-1', 'src/index.ts', {
+    store.setSourceViewState('session-1', 'src/index.ts', {
       cursorState: [{ position: { lineNumber: 2, column: 3 } }]
     })
     expect(store.beginOpenTab('session-1', 'preview.txt', 'preview', 2)).toBe(true)
@@ -634,7 +631,7 @@ describe('Files renderer state', () => {
       ],
       editorViewStates: {
         'src/index.ts': {
-          monacoViewState: { cursorState: [{ position: { lineNumber: 2, column: 3 } }] }
+          sourceViewState: { cursorState: [{ position: { lineNumber: 2, column: 3 } }] }
         }
       }
     })

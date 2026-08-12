@@ -22,6 +22,7 @@ type FilesTabBase = {
   preview: boolean
   openRequestId?: number
   targetLine?: number
+  targetCharacter?: number
   locationRequestId?: number
   editorStateKey: string
   restoreEditorMode?: FilesEditorMode
@@ -47,7 +48,7 @@ export type FilesTabState =
 export type FilesActiveDocumentState = FilesTabState
 
 export type FilesEditorViewState = {
-  monacoViewState?: unknown
+  sourceViewState?: unknown
   richScrollTop?: number
 }
 
@@ -85,7 +86,8 @@ type FilesStore = {
     intent: FilesOpenTabIntent,
     openRequestId: number,
     targetLine?: number,
-    revalidateExisting?: boolean
+    revalidateExisting?: boolean,
+    targetCharacter?: number
   ) => boolean
   finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => boolean
   failOpenTab: (
@@ -123,7 +125,7 @@ type FilesStore = {
   discardAllDirtyTabs: (sessionId: string) => void
   rewritePaths: (sessionId: string, sourcePath: string, destinationPath: string) => void
   closeTabsInPath: (sessionId: string, relativePath: string) => void
-  setMonacoViewState: (sessionId: string, relativePath: string, viewState: unknown) => void
+  setSourceViewState: (sessionId: string, relativePath: string, viewState: unknown) => void
   setRichScrollTop: (sessionId: string, relativePath: string, scrollTop: number) => void
   clearContext: (sessionId: string) => void
 }
@@ -155,7 +157,8 @@ const useFilesStore = create<FilesStore>()(
         intent,
         openRequestId,
         targetLine,
-        revalidateExisting = false
+        revalidateExisting = false,
+        targetCharacter
       ) => {
         let shouldOpen = false
         set((state) => {
@@ -173,10 +176,18 @@ const useFilesStore = create<FilesStore>()(
                   ...tab,
                   preview: nextPreview,
                   targetLine,
+                  targetCharacter,
                   locationRequestId: openRequestId
                 }
               }
-              return loadingTab(relativePath, nextPreview, openRequestId, targetLine)
+              return loadingTab(
+                relativePath,
+                nextPreview,
+                openRequestId,
+                targetLine,
+                undefined,
+                targetCharacter
+              )
             })
             return updateContext(state, sessionId, {
               tabs,
@@ -187,7 +198,14 @@ const useFilesStore = create<FilesStore>()(
 
           shouldOpen = true
           const previewIndex = context.tabs.findIndex(canReplacePreviewTab)
-          const nextTab = loadingTab(relativePath, intent === 'preview', openRequestId, targetLine)
+          const nextTab = loadingTab(
+            relativePath,
+            intent === 'preview',
+            openRequestId,
+            targetLine,
+            undefined,
+            targetCharacter
+          )
           const tabs =
             intent === 'preview' && previewIndex >= 0
               ? context.tabs.map((tab, index) => (index === previewIndex ? nextTab : tab))
@@ -221,7 +239,8 @@ const useFilesStore = create<FilesStore>()(
                     tab.targetLine,
                     tab.locationRequestId,
                     tab.editorStateKey,
-                    tab.restoreEditorMode
+                    tab.restoreEditorMode,
+                    tab.targetCharacter
                   )
                 : candidate
             )
@@ -249,6 +268,7 @@ const useFilesStore = create<FilesStore>()(
                 message,
                 preview: tab.preview,
                 targetLine: tab.targetLine,
+                targetCharacter: tab.targetCharacter,
                 locationRequestId: tab.locationRequestId
               }
             })
@@ -262,7 +282,12 @@ const useFilesStore = create<FilesStore>()(
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((tab) =>
               tab.relativePath === relativePath && tab.locationRequestId === locationRequestId
-                ? { ...tab, targetLine: undefined, locationRequestId: undefined }
+                ? {
+                    ...tab,
+                    targetLine: undefined,
+                    targetCharacter: undefined,
+                    locationRequestId: undefined
+                  }
                 : tab
             )
           })
@@ -309,8 +334,14 @@ const useFilesStore = create<FilesStore>()(
           const context = state.contexts[sessionId] ?? createDefaultContext()
           return updateContext(state, sessionId, {
             tabs: context.tabs.map((tab) =>
-              tab.relativePath === relativePath && tab.status === 'ready'
-                ? { ...tab, editorMode }
+              tab.relativePath === relativePath &&
+              tab.status === 'ready' &&
+              tab.editorMode !== editorMode
+                ? {
+                    ...tab,
+                    editorMode,
+                    editorStateKey: `${tab.editorStateKey}:mode:${editorMode}`
+                  }
                 : tab
             )
           })
@@ -365,7 +396,11 @@ const useFilesStore = create<FilesStore>()(
               activeDocument.draft === request.content ? document.content : activeDocument.draft
             return {
               ...document,
-              editorStateKey: activeDocument.editorStateKey,
+              editorStateKey:
+                request.conflictResolution?.kind === 'recreate' &&
+                activeDocument.editorMode === 'source'
+                  ? createRevisionBaselineKey(document)
+                  : activeDocument.editorStateKey,
               status: 'ready',
               draft,
               dirty: draft !== document.content,
@@ -390,8 +425,9 @@ const useFilesStore = create<FilesStore>()(
                 tab.preview,
                 tab.targetLine,
                 tab.locationRequestId,
-                tab.editorStateKey,
-                tab.status === 'ready' ? tab.editorMode : undefined
+                createRevisionBaselineKey(document),
+                tab.status === 'ready' ? tab.editorMode : undefined,
+                tab.targetCharacter
               )
             })
           })
@@ -407,8 +443,9 @@ const useFilesStore = create<FilesStore>()(
                     false,
                     tab.targetLine,
                     tab.locationRequestId,
-                    tab.editorStateKey,
-                    tab.status === 'ready' ? tab.editorMode : undefined
+                    createRevisionBaselineKey(document),
+                    tab.status === 'ready' ? tab.editorMode : undefined,
+                    tab.targetCharacter
                   )
                 : tab
             )
@@ -512,8 +549,8 @@ const useFilesStore = create<FilesStore>()(
             )
           })
         }),
-      setMonacoViewState: (sessionId, relativePath, monacoViewState) =>
-        set((state) => setEditorViewState(state, sessionId, relativePath, { monacoViewState })),
+      setSourceViewState: (sessionId, relativePath, sourceViewState) =>
+        set((state) => setEditorViewState(state, sessionId, relativePath, { sourceViewState })),
       setRichScrollTop: (sessionId, relativePath, richScrollTop) =>
         set((state) => setEditorViewState(state, sessionId, relativePath, { richScrollTop })),
       clearContext: (sessionId) =>
@@ -624,7 +661,8 @@ export function toReadyDocument(
   targetLine?: number,
   locationRequestId?: number,
   editorStateKey = `${document.relativePath}:ready`,
-  preferredEditorMode?: FilesEditorMode
+  preferredEditorMode?: FilesEditorMode,
+  targetCharacter?: number
 ): Extract<FilesTabState, { status: 'ready' }> {
   const defaultEditorMode = getDefaultEditorMode(document.relativePath, document.content)
   return {
@@ -633,6 +671,7 @@ export function toReadyDocument(
     editorStateKey,
     preview,
     targetLine,
+    targetCharacter,
     locationRequestId,
     status: 'ready',
     draft: document.content,
@@ -775,7 +814,8 @@ function loadingTab(
   preview: boolean,
   openRequestId: number,
   targetLine?: number,
-  restoreEditorMode?: FilesEditorMode
+  restoreEditorMode?: FilesEditorMode,
+  targetCharacter?: number
 ): Extract<FilesTabState, { status: 'loading' }> {
   return {
     relativePath,
@@ -784,6 +824,7 @@ function loadingTab(
     preview,
     openRequestId,
     targetLine,
+    targetCharacter,
     locationRequestId: openRequestId,
     restoreEditorMode,
     status: 'loading'
@@ -796,7 +837,8 @@ function toTabDocument(
   targetLine?: number,
   locationRequestId?: number,
   editorStateKey = `${document.relativePath}:ready`,
-  preferredEditorMode?: FilesEditorMode
+  preferredEditorMode?: FilesEditorMode,
+  targetCharacter?: number
 ): FilesTabState {
   return document.contentKind === 'text'
     ? toReadyDocument(
@@ -805,7 +847,8 @@ function toTabDocument(
         targetLine,
         locationRequestId,
         editorStateKey,
-        preferredEditorMode
+        preferredEditorMode,
+        targetCharacter
       )
     : {
         ...document,
@@ -813,9 +856,14 @@ function toTabDocument(
         editorStateKey,
         preview,
         targetLine,
+        targetCharacter,
         locationRequestId,
         status: 'metadata'
       }
+}
+
+function createRevisionBaselineKey(document: FilesDocument): string {
+  return `${document.relativePath}:revision:${document.revision}`
 }
 
 function isPathAffectedBy(candidatePath: string, relativePath: string): boolean {
