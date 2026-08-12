@@ -49,19 +49,19 @@ import {
   type SessionWorkspaceTab
 } from '../../features/sessions/renderer'
 import {
-  createGlobalChatToolPaneConfiguration,
-  createKnowledgeBaseToolPaneConfiguration,
-  createProjectHomeToolPaneConfiguration,
-  createProjectSessionToolPaneConfiguration,
-  getRenderedToolPaneWidth,
-  ToolPaneHeaderControls,
-  TOOL_PANE_COLLAPSED_HEADER_WIDTH,
-  TOOL_PANE_HANDLE_WIDTH,
-  ToolPaneShell,
-  useToolPaneController,
-  useToolPaneStore,
-  type ToolPaneConfiguration
-} from '../../features/tool-pane/renderer'
+  createGlobalChatSidePaneConfiguration,
+  createKnowledgeBaseSidePaneConfiguration,
+  createProjectHomeSidePaneConfiguration,
+  createProjectSessionSidePaneConfiguration,
+  getRenderedSidePaneWidth,
+  SidePaneHeaderControls,
+  SIDE_PANE_COLLAPSED_HEADER_WIDTH,
+  SIDE_PANE_HANDLE_WIDTH,
+  SidePaneShell,
+  useSidePaneController,
+  useSidePaneStore,
+  type SidePaneConfiguration
+} from '../../features/side-pane/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
 import { AppSidebar } from './components/sidebar/app-sidebar'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
@@ -89,10 +89,10 @@ import { useUiLayoutStore } from './stores/ui-layout-store'
 
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
   { commandId: 'workspace.toggle-left-panel', defaultKeybinding: { normalized: 'mod+b' } },
-  { commandId: 'workspace.toggle-tool-pane', defaultKeybinding: { normalized: 'mod+shift+b' } }
+  { commandId: 'workspace.toggle-side-pane', defaultKeybinding: { normalized: 'mod+shift+b' } }
 ]
 
-const RESIZE_HANDLE_WIDTH = TOOL_PANE_HANDLE_WIDTH
+const RESIZE_HANDLE_WIDTH = SIDE_PANE_HANDLE_WIDTH
 
 export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
@@ -170,18 +170,20 @@ export function WorkspaceShell(): React.JSX.Element {
     return () => window.removeEventListener('resize', updateWindowWidth)
   }, [])
 
-  const toolPaneConfiguration = useMemo<ToolPaneConfiguration | null>(() => {
+  const sidePaneConfiguration = useMemo<SidePaneConfiguration | null>(() => {
     if (activePrimaryView === 'knowledge-base') {
-      return isKnowledgeBaseConfigured ? createKnowledgeBaseToolPaneConfiguration() : null
+      return isKnowledgeBaseConfigured ? createKnowledgeBaseSidePaneConfiguration() : null
     }
-    if (activePrimaryView === 'global-chat') return createGlobalChatToolPaneConfiguration()
-    if (activeProjectSession) return createProjectSessionToolPaneConfiguration(activeProjectSession)
-    if (activeProject) return createProjectHomeToolPaneConfiguration(activeProject)
+    if (activePrimaryView === 'global-chat') return createGlobalChatSidePaneConfiguration()
+    if (activeProjectSession) return createProjectSessionSidePaneConfiguration(activeProjectSession)
+    if (activeProject) return createProjectHomeSidePaneConfiguration(activeProject)
     return null
   }, [activePrimaryView, activeProject, activeProjectSession, isKnowledgeBaseConfigured])
-  const toolPaneController = useToolPaneController(toolPaneConfiguration)
-  const savedToolPaneWidth = useToolPaneStore((state) =>
-    toolPaneConfiguration ? state.contexts[toolPaneConfiguration.contextKey]?.width : null
+  const sidePaneController = useSidePaneController(sidePaneConfiguration)
+  const openSidePaneCategory = sidePaneController.openCategory
+  const toggleSidePane = sidePaneController.toggle
+  const savedSidePaneWidth = useSidePaneStore((state) =>
+    sidePaneConfiguration ? state.contexts[sidePaneConfiguration.contextKey]?.width : null
   )
 
   const runInWorkspaceView = useCallback((action: () => void | Promise<void>): void => {
@@ -199,14 +201,30 @@ export function WorkspaceShell(): React.JSX.Element {
         handler: toggleLeftPanel
       },
       {
-        id: 'workspace.toggle-tool-pane',
-        title: 'Toggle Tool Pane',
+        id: 'workspace.toggle-side-pane',
+        title: 'Toggle Side Pane',
         category: t('appCommands.categories.workspace'),
-        keywords: ['tools', 'pane', 'switcher'],
-        handler: toolPaneController.toggle
-      }
+        keywords: ['side', 'pane', 'tabs'],
+        handler: toggleSidePane
+      },
+      ...(sidePaneConfiguration?.categories
+        .filter((sidePaneCategory) => sidePaneCategory.available)
+        .map((sidePaneCategory) => ({
+          id: `workspace.open-side-pane.${sidePaneCategory.id}`,
+          title: `Open ${sidePaneCategory.label} in Side Pane`,
+          category: t('appCommands.categories.workspace'),
+          keywords: ['side', 'pane', sidePaneCategory.label],
+          handler: () => openSidePaneCategory(sidePaneCategory.id)
+        })) ?? [])
     ],
-    [isLeftPanelOpen, t, toolPaneController.toggle, toggleLeftPanel]
+    [
+      isLeftPanelOpen,
+      sidePaneConfiguration,
+      openSidePaneCategory,
+      toggleSidePane,
+      t,
+      toggleLeftPanel
+    ]
   )
 
   useRegisterAppCommands(workspaceCommands)
@@ -342,17 +360,17 @@ export function WorkspaceShell(): React.JSX.Element {
     .filter(Boolean)
     .join(' ')
 
-  const toolPaneContainerWidth = Math.max(
+  const sidePaneContainerWidth = Math.max(
     0,
     windowWidth - (isLeftPanelOpen ? leftPanelWidth + RESIZE_HANDLE_WIDTH : 0)
   )
-  const toolPaneHeaderWidth = toolPaneController.isOpen
-    ? `${getRenderedToolPaneWidth(toolPaneContainerWidth, savedToolPaneWidth)}px`
-    : `${TOOL_PANE_COLLAPSED_HEADER_WIDTH}px`
+  const sidePaneHeaderWidth = sidePaneController.isOpen
+    ? `${getRenderedSidePaneWidth(sidePaneContainerWidth, savedSidePaneWidth)}px`
+    : `${SIDE_PANE_COLLAPSED_HEADER_WIDTH}px`
   const titlebarGridTemplateColumns = [
     isLeftPanelOpen ? `${leftPanelWidth}px` : 'minmax(0, 1fr)',
     'minmax(0, 1fr)',
-    toolPaneHeaderWidth
+    sidePaneHeaderWidth
   ].join(' ')
 
   return (
@@ -412,7 +430,7 @@ export function WorkspaceShell(): React.JSX.Element {
         </div>
 
         <div className="flex h-full w-full min-w-0 items-center">
-          <ToolPaneHeaderControls configuration={toolPaneConfiguration} />
+          <SidePaneHeaderControls configuration={sidePaneConfiguration} />
         </div>
       </header>
 
@@ -536,32 +554,32 @@ export function WorkspaceShell(): React.JSX.Element {
             </Alert>
           ) : null}
           {activePrimaryView === 'knowledge-base' ? (
-            toolPaneConfiguration ? (
-              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+            sidePaneConfiguration ? (
+              <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
                 <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
-              </ToolPaneShell>
+              </SidePaneShell>
             ) : (
               <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
             )
-          ) : activePrimaryView === 'global-chat' && toolPaneConfiguration ? (
-            <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+          ) : activePrimaryView === 'global-chat' && sidePaneConfiguration ? (
+            <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
               <GlobalChatPage />
-            </ToolPaneShell>
+            </SidePaneShell>
           ) : activeTab ? (
-            toolPaneConfiguration ? (
-              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+            sidePaneConfiguration ? (
+              <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
                 <SessionWorkspaceTabSurface
                   tab={activeTab}
                   projects={projects}
                   sessions={sessions}
                 />
-              </ToolPaneShell>
+              </SidePaneShell>
             ) : (
               <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
             )
           ) : activeProject ? (
-            toolPaneConfiguration ? (
-              <ToolPaneShell {...toolPaneConfiguration} showInlineHeaderSwitcher={false}>
+            sidePaneConfiguration ? (
+              <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
                 <ProjectHome
                   key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
                   project={activeProject}
@@ -572,7 +590,7 @@ export function WorkspaceShell(): React.JSX.Element {
                     projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
                   }
                 />
-              </ToolPaneShell>
+              </SidePaneShell>
             ) : null
           ) : (
             <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">

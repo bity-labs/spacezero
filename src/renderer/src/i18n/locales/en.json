@@ -402,7 +402,7 @@
     "browserData": {
       "sectionTitle": "Browser Data",
       "clearAction": "Clear Browser Data",
-      "description": "Clear cookies, site storage, cache, and temporary Browser permissions across every Tool Pane context. Saved tabs and URLs stay in place.",
+      "description": "Clear cookies, site storage, cache, and temporary Browser permissions across every Side Pane context. Saved tabs and URLs stay in place.",
       "scopeNote": "Only the dedicated Space Zero Browser profile is affected. The app renderer and your default browser profile are not cleared.",
       "confirmTitle": "Clear Browser Data?",
       "confirmDescription": "This signs sites out across Space Zero Browser contexts and reloads live tabs into clean sessions. Saved tab order, active selection, and URLs remain.",

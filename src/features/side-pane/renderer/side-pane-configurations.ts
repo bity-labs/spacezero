@@ -6,8 +6,8 @@ import { openFilesLocation } from '../../files/renderer/files-open-location'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
 import type { TerminalContext } from '../../terminal/shared'
-import type { ToolDescriptor, ToolPaneConfiguration } from './tool-pane-shell'
-import { useToolPaneStore } from './tool-pane-store'
+import type { SidePaneCategoryDescriptor, SidePaneConfiguration } from './side-pane-shell'
+import { useSidePaneStore } from './side-pane-store'
 
 const FilesTool = lazy(async () => {
   const module = await import('../../files/renderer/components/files-tool')
@@ -29,24 +29,24 @@ const GitTool = lazy(async () => {
   return { default: module.GitTool }
 })
 
-const toolRegistry = {
+const categoryRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
-  git: { id: 'git', label: 'Git', available: false, icon: GitBranch },
+  git: { id: 'git', label: 'Git Diff', available: false, icon: GitBranch },
   browser: { id: 'browser', label: 'Browser', available: false, icon: Browser },
   terminal: { id: 'terminal', label: 'Terminal', available: false, icon: TerminalWindow }
-} satisfies Record<ToolDescriptor['id'], ToolDescriptor>
+} satisfies Record<SidePaneCategoryDescriptor['id'], SidePaneCategoryDescriptor>
 
-export function createProjectHomeToolPaneConfiguration(project: {
+export function createProjectHomeSidePaneConfiguration(project: {
   id: string
-}): ToolPaneConfiguration {
+}): SidePaneConfiguration {
   const contextKey = projectContextKey(project.id)
   return {
     contextKey,
     capabilities: { kind: 'project-home', projectId: project.id },
-    defaultToolId: 'files',
-    tools: [
+    defaultCategoryId: 'files',
+    categories: [
       {
-        ...toolRegistry.files,
+        ...categoryRegistry.files,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-home'
@@ -61,7 +61,7 @@ export function createProjectHomeToolPaneConfiguration(project: {
             : null
       },
       {
-        ...toolRegistry.git,
+        ...categoryRegistry.git,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-home'
@@ -71,7 +71,8 @@ export function createProjectHomeToolPaneConfiguration(project: {
                 createElement(GitTool, {
                   context: { kind: 'project-home', projectId: capabilities.projectId },
                   filesHandoff: {
-                    openFilesTool: () => useToolPaneStore.getState().openTool(contextKey, 'files'),
+                    openFilesTool: () =>
+                      useSidePaneStore.getState().openCategory(contextKey, 'files'),
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey,
@@ -87,9 +88,9 @@ export function createProjectHomeToolPaneConfiguration(project: {
               )
             : null
       },
-      createBrowserToolDescriptor(),
+      createBrowserSidePaneCategoryDescriptor(),
       {
-        ...toolRegistry.terminal,
+        ...categoryRegistry.terminal,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-home'
@@ -108,10 +109,10 @@ export function createProjectHomeToolPaneConfiguration(project: {
   }
 }
 
-export function createProjectSessionToolPaneConfiguration(session: {
+export function createProjectSessionSidePaneConfiguration(session: {
   id: string
   projectId: string
-}): ToolPaneConfiguration {
+}): SidePaneConfiguration {
   return {
     contextKey: sessionContextKey(session.id),
     capabilities: {
@@ -119,10 +120,10 @@ export function createProjectSessionToolPaneConfiguration(session: {
       projectId: session.projectId,
       sessionId: session.id
     },
-    defaultToolId: 'files',
-    tools: [
+    defaultCategoryId: 'files',
+    categories: [
       {
-        ...toolRegistry.files,
+        ...categoryRegistry.files,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-session'
@@ -137,7 +138,7 @@ export function createProjectSessionToolPaneConfiguration(session: {
             : null
       },
       {
-        ...toolRegistry.git,
+        ...categoryRegistry.git,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-session'
@@ -148,9 +149,9 @@ export function createProjectSessionToolPaneConfiguration(session: {
                   sessionId: capabilities.sessionId,
                   filesHandoff: {
                     openFilesTool: () =>
-                      useToolPaneStore
+                      useSidePaneStore
                         .getState()
-                        .openTool(sessionContextKey(capabilities.sessionId), 'files'),
+                        .openCategory(sessionContextKey(capabilities.sessionId), 'files'),
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey: capabilities.sessionId,
@@ -163,9 +164,9 @@ export function createProjectSessionToolPaneConfiguration(session: {
               )
             : null
       },
-      createBrowserToolDescriptor(),
+      createBrowserSidePaneCategoryDescriptor(),
       {
-        ...toolRegistry.terminal,
+        ...categoryRegistry.terminal,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'project-session'
@@ -188,15 +189,15 @@ export function createProjectSessionToolPaneConfiguration(session: {
   }
 }
 
-export function createGlobalChatToolPaneConfiguration(): ToolPaneConfiguration {
+export function createGlobalChatSidePaneConfiguration(): SidePaneConfiguration {
   return {
     contextKey: 'global-chat',
     capabilities: { kind: 'global-chat' },
-    defaultToolId: 'browser',
-    tools: [
-      createBrowserToolDescriptor(),
+    defaultCategoryId: 'browser',
+    categories: [
+      createBrowserSidePaneCategoryDescriptor(),
       {
-        ...toolRegistry.terminal,
+        ...categoryRegistry.terminal,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'global-chat'
@@ -215,15 +216,15 @@ export function createGlobalChatToolPaneConfiguration(): ToolPaneConfiguration {
   }
 }
 
-export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguration {
+export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguration {
   return {
     contextKey: 'knowledge-base',
     capabilities: { kind: 'knowledge-base' },
-    defaultToolId: 'files',
+    defaultCategoryId: 'files',
     defaultOpen: true,
-    tools: [
+    categories: [
       {
-        ...toolRegistry.files,
+        ...categoryRegistry.files,
         available: true,
         render: ({ contextKey, capabilities }) =>
           capabilities.kind === 'knowledge-base'
@@ -243,7 +244,7 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
             : null
       },
       {
-        ...toolRegistry.git,
+        ...categoryRegistry.git,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'knowledge-base'
@@ -254,7 +255,7 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
                   context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
                   filesHandoff: {
                     openFilesTool: () =>
-                      useToolPaneStore.getState().openTool('knowledge-base', 'files'),
+                      useSidePaneStore.getState().openCategory('knowledge-base', 'files'),
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey: 'knowledge-base',
@@ -270,9 +271,9 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
               )
             : null
       },
-      createBrowserToolDescriptor(),
+      createBrowserSidePaneCategoryDescriptor(),
       {
-        ...toolRegistry.terminal,
+        ...categoryRegistry.terminal,
         available: true,
         render: ({ capabilities }) =>
           capabilities.kind === 'knowledge-base'
@@ -291,9 +292,9 @@ export function createKnowledgeBaseToolPaneConfiguration(): ToolPaneConfiguratio
   }
 }
 
-function createBrowserToolDescriptor(): ToolDescriptor {
+function createBrowserSidePaneCategoryDescriptor(): SidePaneCategoryDescriptor {
   return {
-    ...toolRegistry.browser,
+    ...categoryRegistry.browser,
     available: true,
     render: ({ contextKey, capabilities }) =>
       createElement(
@@ -318,7 +319,7 @@ function TerminalWithBrowserHandoff({
     browserHandoff: {
       contextKey: browserContextKey,
       context: browserContext,
-      openBrowserTool: () => useToolPaneStore.getState().openTool(browserContextKey, 'browser')
+      openBrowserTool: () => useSidePaneStore.getState().openCategory(browserContextKey, 'browser')
     }
   })
 }
