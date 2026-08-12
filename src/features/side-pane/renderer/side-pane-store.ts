@@ -22,6 +22,11 @@ type SidePaneStore = {
   closeTab: (contextKey: string, tabId: string) => void
   collapse: (contextKey: string) => void
   openCategory: (contextKey: string, categoryId: SidePaneCategoryId) => void
+  reconcileCategories: (
+    contextKey: string,
+    availableCategoryIds: readonly SidePaneCategoryId[],
+    fallbackCategoryId: SidePaneCategoryId
+  ) => void
   reorderTab: (
     contextKey: string,
     sourceId: string,
@@ -148,6 +153,43 @@ const useSidePaneStore = create<SidePaneStore>()(
                 activeTabId: tab.id,
                 tabs,
                 categoryMru: { ...context.categoryMru, [categoryId]: tab.id }
+              }
+            }
+          }
+        }),
+      reconcileCategories: (contextKey, availableCategoryIds, fallbackCategoryId) =>
+        set((state) => {
+          const context = state.contexts[contextKey]
+          if (!context) return state
+          const availableCategories = new Set(availableCategoryIds)
+          const tabs = context.tabs.filter((tab) => availableCategories.has(tab.categoryId))
+          let activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? null
+          if (!activeTab) {
+            activeTab = tabs.find((tab) => tab.categoryId === fallbackCategoryId) ?? tabs[0] ?? null
+          }
+          if (!activeTab && context.isOpen && availableCategories.has(fallbackCategoryId)) {
+            activeTab = { id: `${fallbackCategoryId}:1`, categoryId: fallbackCategoryId }
+            tabs.push(activeTab)
+          }
+          const tabIds = new Set(tabs.map((tab) => tab.id))
+          const categoryMru = Object.fromEntries(
+            Object.entries(context.categoryMru).filter(
+              ([categoryId, tabId]) =>
+                availableCategories.has(categoryId as SidePaneCategoryId) &&
+                typeof tabId === 'string' &&
+                tabIds.has(tabId)
+            )
+          ) as Partial<Record<SidePaneCategoryId, string>>
+          if (activeTab) categoryMru[activeTab.categoryId] = activeTab.id
+          return {
+            contexts: {
+              ...state.contexts,
+              [contextKey]: {
+                ...context,
+                isOpen: context.isOpen && activeTab !== null,
+                activeTabId: activeTab?.id ?? null,
+                tabs,
+                categoryMru
               }
             }
           }
