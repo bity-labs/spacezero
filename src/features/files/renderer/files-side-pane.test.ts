@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetSidePaneStore, useSidePaneStore } from '../../side-pane/renderer'
-import type { FilesTextDocument } from '../shared'
+import type { FilesTextDocument, SaveFilesDocumentResult } from '../shared'
 import { resetFilesStore, useFilesStore } from './files-store'
 import { requestCloseFilesSidePaneTab, synchronizeFilesSidePaneTabs } from './files-side-pane'
 
@@ -53,6 +53,63 @@ describe('Files Side Pane coordination', () => {
       dirty: true,
       saveStatus: 'error',
       error: 'Couldn’t save this file. Your changes are still in memory.'
+    })
+  })
+
+  it('keeps a newer dirty draft and its Side Pane tab when Save and close settles', async () => {
+    const filesContextKey = 'session-1'
+    const sidePaneContextKey = 'session:session-1'
+    const files = useFilesStore.getState()
+    files.beginOpenTab(filesContextKey, 'README.md', 'permanent', 1)
+    files.finishOpenTab(filesContextKey, textDocument('README.md'), 1)
+    files.updateDraft(filesContextKey, 'draft-1')
+    useSidePaneStore.getState().openCategory(sidePaneContextKey, 'files')
+    synchronizeFilesSidePaneTabs(filesContextKey, sidePaneContextKey, true)
+    vi.spyOn(window, 'prompt').mockReturnValue('save')
+
+    let resolveSave!: (result: SaveFilesDocumentResult) => void
+    window.spacezero.files.saveDocument = vi.fn(
+      () =>
+        new Promise<SaveFilesDocumentResult>((resolve) => {
+          resolveSave = resolve
+        })
+    )
+
+    const closeRequest = requestCloseFilesSidePaneTab({
+      filesContextKey,
+      ipcContext: { kind: 'project-session', sessionId: filesContextKey },
+      tab: {
+        id: 'files:README.md',
+        categoryId: 'files',
+        resourceId: 'README.md'
+      }
+    })
+
+    useFilesStore.getState().updateDraft(filesContextKey, 'draft-2')
+    resolveSave({
+      status: 'saved',
+      document: {
+        ...textDocument('README.md'),
+        content: 'draft-1',
+        revision: 'saved-revision'
+      }
+    })
+    const canClose = await closeRequest
+    if (canClose) useSidePaneStore.getState().closeTab(sidePaneContextKey, 'files:README.md')
+
+    expect(canClose).toBe(false)
+    expect(useSidePaneStore.getState().contexts[sidePaneContextKey].tabs).toContainEqual(
+      expect.objectContaining({
+        id: 'files:README.md',
+        resourceId: 'README.md'
+      })
+    )
+    expect(useFilesStore.getState().contexts[filesContextKey].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      content: 'draft-1',
+      draft: 'draft-2',
+      dirty: true,
+      saveStatus: 'idle'
     })
   })
 
