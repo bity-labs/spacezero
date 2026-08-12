@@ -144,7 +144,18 @@ describe('KnowledgeBasePage', () => {
     const createTab = vi.fn(async () => ({
       contextKey: 'knowledge-base',
       activeTabId: 'tab-1',
-      tabs: []
+      tabs: [
+        {
+          id: 'tab-1',
+          url: 'https://example.com/kb',
+          title: null,
+          faviconUrl: null,
+          isLoading: false,
+          canGoBack: false,
+          canGoForward: false,
+          error: null
+        }
+      ]
     }))
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
@@ -193,7 +204,7 @@ describe('KnowledgeBasePage', () => {
     )
     expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
       isOpen: true,
-      activeTabId: 'browser:1'
+      activeTabId: 'tab-1'
     })
   })
 

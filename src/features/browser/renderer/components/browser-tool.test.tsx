@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -14,6 +14,7 @@ import {
   ModelSelectorTrigger
 } from '@renderer/components/ui/model-selector'
 import type { BrowserContext, BrowserEvent } from '../../shared'
+import { resetSidePaneStore, useSidePaneStore } from '../../../side-pane/renderer/side-pane-store'
 import { BrowserTool } from './browser-tool'
 
 const context = { kind: 'workspace-session' as const, sessionId: 'workspace-1' }
@@ -62,7 +63,12 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
         activeTabId: tabId,
         tabs: state.tabs.map((tab) =>
           tab.id === tabId
-            ? { ...tab, url: request.input.startsWith('http') ? request.input : `http://${request.input}/`, isLoading: true, error: null }
+            ? {
+                ...tab,
+                url: request.input.startsWith('http') ? request.input : `http://${request.input}/`,
+                isLoading: true,
+                error: null
+              }
             : tab
         )
       }
@@ -72,11 +78,15 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
     goForward: vi.fn(async () => state),
     reload: vi.fn(async () => ({
       ...state,
-      tabs: state.tabs.map((tab) => (tab.id === state.activeTabId ? { ...tab, isLoading: true } : tab))
+      tabs: state.tabs.map((tab) =>
+        tab.id === state.activeTabId ? { ...tab, isLoading: true } : tab
+      )
     })),
     stop: vi.fn(async () => ({
       ...state,
-      tabs: state.tabs.map((tab) => (tab.id === state.activeTabId ? { ...tab, isLoading: false } : tab))
+      tabs: state.tabs.map((tab) =>
+        tab.id === state.activeTabId ? { ...tab, isLoading: false } : tab
+      )
     })),
     openInDefaultBrowser: vi.fn(async () => undefined),
     openDownload: vi.fn(async () => undefined),
@@ -100,7 +110,12 @@ function installBrowserApi(initialTab: Partial<TestTab> = {}, initialTabs?: Test
       return state
     }),
     reorderTabs: vi.fn(async (request: { tabIds: string[] }) => {
-      state = { ...state, tabs: request.tabIds.map((tabId) => state.tabs.find((tab) => tab.id === tabId) ?? makeTab(tabId)) }
+      state = {
+        ...state,
+        tabs: request.tabIds.map(
+          (tabId) => state.tabs.find((tab) => tab.id === tabId) ?? makeTab(tabId)
+        )
+      }
       return state
     }),
     onEvent: vi.fn((listener: (event: BrowserEvent) => void) => {
@@ -158,7 +173,9 @@ function renderBrowserToolWithModelSelector(): ReturnType<typeof render> {
   return render(
     <TestProviders>
       <ModelSelector>
-        <ModelSelectorTrigger render={<button type="button" />}>Open model selector</ModelSelectorTrigger>
+        <ModelSelectorTrigger render={<button type="button" />}>
+          Open model selector
+        </ModelSelectorTrigger>
         <ModelSelectorContent>Model options</ModelSelectorContent>
       </ModelSelector>
       <BrowserTool context={context} contextKey={contextKey} />
@@ -203,12 +220,17 @@ async function settlePresentationFrame(): Promise<void> {
 
 describe('BrowserTool', () => {
   beforeEach(() => {
+    window.localStorage.clear()
+    resetSidePaneStore()
     class ResizeObserverStub {
       observe(): void {}
       unobserve(): void {}
       disconnect(): void {}
     }
-    Object.defineProperty(window, 'ResizeObserver', { configurable: true, value: ResizeObserverStub })
+    Object.defineProperty(window, 'ResizeObserver', {
+      configurable: true,
+      value: ResizeObserverStub
+    })
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 400,
       y: 100,
@@ -381,7 +403,9 @@ describe('BrowserTool', () => {
 
     const input = await screen.findByLabelText('Browser URL')
     await waitFor(() => expect(input).toHaveFocus())
-    expect(screen.queryByText('Enter a URL or search terms to open a secure Browser page.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Enter a URL or search terms to open a secure Browser page.')
+    ).not.toBeInTheDocument()
     expect(input).toHaveAttribute('placeholder', 'Enter a URL or search terms')
 
     await user.type(input, 'localhost:4173')
@@ -464,7 +488,9 @@ describe('BrowserTool', () => {
     expect(screen.queryByText('Stop')).not.toBeInTheDocument()
     await user.click(stop)
 
-    await waitFor(() => expect(browser.stop).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' }))
+    await waitFor(() =>
+      expect(browser.stop).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
+    )
     expect(browser.reload).not.toHaveBeenCalled()
   })
 
@@ -502,7 +528,9 @@ describe('BrowserTool', () => {
     expect(screen.getByRole('button', { name: 'Forward' })).toHaveAttribute('title', 'Forward')
     expect(screen.getByRole('button', { name: 'Reload' })).toHaveAttribute('title', 'Reload')
     expect(screen.getByRole('button', { name: 'Go' })).toHaveAttribute('title', 'Go')
-    expect(screen.queryByRole('button', { name: 'Open in default browser' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Open in default browser' })
+    ).not.toBeInTheDocument()
     expect(screen.queryByText('Reload')).not.toBeInTheDocument()
     expect(screen.queryByText('Go')).not.toBeInTheDocument()
   })
@@ -603,7 +631,11 @@ describe('BrowserTool', () => {
     const otherContext = { kind: 'workspace-session' as const, sessionId: 'workspace-2' }
 
     const view = renderBrowserTool()
-    expect(await screen.findByRole('tab', { name: 'Context A' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts[contextKey]?.tabs).toContainEqual(
+        expect.objectContaining({ id: 'browser-tab-1', title: 'Context A' })
+      )
+    )
     await waitFor(() => expect(browser.onEvent).toHaveBeenCalled())
 
     act(() => {
@@ -627,10 +659,10 @@ describe('BrowserTool', () => {
       </TestProviders>
     )
 
-    expect(screen.queryByRole('tab', { name: 'Context A' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Browser URL')).toHaveValue('')
     expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByText('state unavailable')).toBeInTheDocument())
-    expect(screen.queryByRole('tab', { name: 'Context A' })).not.toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts['session:workspace-2']).toBeUndefined()
     expect(screen.queryByLabelText('Browser downloads')).not.toBeInTheDocument()
 
     view.rerender(
@@ -639,7 +671,9 @@ describe('BrowserTool', () => {
       </TestProviders>
     )
 
-    expect(await screen.findByRole('tab', { name: 'Context A' })).toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Browser URL')).toHaveValue('https://a.example/download')
+    )
     expect(screen.getByLabelText('Browser downloads')).toHaveTextContent('a.zip')
   })
 
@@ -730,86 +764,36 @@ describe('BrowserTool', () => {
     expect(input).toHaveValue('draft search')
   })
 
-  it('creates, selects, closes, and labels multiple normal tabs', async () => {
-    const browser = installBrowserApi({}, [
-      makeTab('browser-tab-1', { url: 'https://example.com/path', title: 'Example', faviconUrl: 'https://example.com/favicon.ico' }),
-      makeTab('browser-tab-2', { url: 'https://docs.spacezero.dev/guide' })
-    ])
-    const user = userEvent.setup()
-
-    renderBrowserTool()
-
-    expect(await screen.findByRole('tab', { name: /Example/ })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /docs.spacezero.dev/ })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('tab', { name: /docs.spacezero.dev/ }))
-    expect(browser.selectTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' })
-
-    await user.click(screen.getByRole('button', { name: 'New tab' }))
-    expect(browser.createTab).toHaveBeenCalledWith({ contextKey, context })
-    expect(await screen.findByRole('tab', { name: /New tab/ })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /Close New tab/ }))
-    expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-3' })
-  })
-
-  it('hides overflow scrollbars and maps vertical wheel movement to horizontal scrolling', async () => {
+  it('projects every Browser page into the peer Side Pane strip without a nested tab strip', async () => {
     installBrowserApi({}, [
-      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
-      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' })
+      makeTab('browser-tab-1', { title: 'Example', url: 'https://example.com/' }),
+      makeTab('browser-tab-2', { title: 'Docs', url: 'https://docs.example/' })
     ])
 
     renderBrowserTool()
-
-    const tablist = await screen.findByRole('tablist', { name: 'Browser tabs' })
-    expect(tablist).toHaveClass('no-scrollbar', 'overflow-x-auto')
-    fireEvent.wheel(tablist, { deltaY: 32 })
-    expect(tablist.scrollLeft).toBe(32)
-  })
-
-  it('closes active and inactive Browser tabs with middle-click without selecting them first', async () => {
-    const browser = installBrowserApi({}, [
-      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
-      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' }),
-      makeTab('browser-tab-3', { title: 'Third', url: 'https://third.example/' })
-    ])
-
-    renderBrowserTool()
-
-    const second = await screen.findByRole('tab', { name: 'Second', selected: false })
-    fireEvent.mouseDown(second, { button: 1 })
-    fireEvent(second, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
 
     await waitFor(() =>
-      expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' })
+      expect(useSidePaneStore.getState().contexts[contextKey]).toMatchObject({
+        isOpen: true,
+        activeTabId: 'browser-tab-1',
+        tabs: [
+          { id: 'browser-tab-1', categoryId: 'browser', title: 'Example' },
+          { id: 'browser-tab-2', categoryId: 'browser', title: 'Docs' }
+        ]
+      })
     )
-    expect(browser.selectTab).not.toHaveBeenCalled()
-
-    const first = await screen.findByRole('tab', { name: 'First', selected: true })
-    fireEvent.mouseDown(first, { button: 1 })
-    fireEvent(first, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
-
-    await waitFor(() =>
-      expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
-    )
-    expect(browser.selectTab).not.toHaveBeenCalled()
+    expect(screen.queryByRole('tablist', { name: 'Browser tabs' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'New tab' })).not.toBeInTheDocument()
   })
 
-  it('shows data favicons, updates them from state, and omits missing favicons cleanly', async () => {
-    const browser = installBrowserApi({}, [
-      makeTab('browser-tab-1', {
-        title: 'Example',
-        url: 'https://example.com/',
-        faviconUrl: 'data:image/png;base64,old'
-      }),
-      makeTab('browser-tab-2', { title: 'No icon', url: 'https://no-icon.example/' })
-    ])
+  it('promotes a supported native popup into a newly active peer Side Pane tab', async () => {
+    const browser = installBrowserApi({ title: 'Parent', url: 'https://parent.example/' })
 
     renderBrowserTool()
-
-    const exampleTab = await screen.findByRole('tab', { name: 'Example' })
-    expect(exampleTab.querySelector('img')).toHaveAttribute('src', 'data:image/png;base64,old')
-    expect(screen.getByRole('tab', { name: 'No icon' }).querySelector('img')).toBeNull()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Browser URL')).toHaveValue('https://parent.example/')
+    )
+    await waitFor(() => expect(browser.show).toHaveBeenCalled())
 
     act(() => {
       browser.emitBrowserEvent({
@@ -817,110 +801,51 @@ describe('BrowserTool', () => {
         contextKey,
         state: {
           contextKey,
-          activeTabId: 'browser-tab-1',
+          activeTabId: 'browser-tab-2',
           tabs: [
-            makeTab('browser-tab-1', {
-              title: 'Example',
-              url: 'https://example.com/',
-              faviconUrl: 'data:image/png;base64,new'
-            }),
-            makeTab('browser-tab-2', { title: 'No icon', url: 'https://no-icon.example/' })
+            makeTab('browser-tab-1', { title: 'Parent', url: 'https://parent.example/' }),
+            makeTab('browser-tab-2', { title: 'Popup', url: 'https://popup.example/' })
           ]
         }
       })
     })
 
-    expect(screen.getByRole('tab', { name: 'Example' }).querySelector('img')).toHaveAttribute(
-      'src',
-      'data:image/png;base64,new'
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts[contextKey]).toMatchObject({
+        activeTabId: 'browser-tab-2',
+        tabs: [
+          { id: 'browser-tab-1', categoryId: 'browser', title: 'Parent' },
+          { id: 'browser-tab-2', categoryId: 'browser', title: 'Popup' }
+        ]
+      })
     )
   })
 
-  it('hides a favicon image if the sanitized favicon source still fails to load', async () => {
-    installBrowserApi({}, [
-      makeTab('browser-tab-1', {
-        title: 'Example',
-        url: 'https://example.com/',
-        faviconUrl: 'data:image/png;base64,broken'
-      })
-    ])
-
-    renderBrowserTool()
-
-    const favicon = (await screen.findByRole('tab', { name: 'Example' })).querySelector('img')
-    expect(favicon).not.toBeNull()
-    fireEvent.error(favicon as HTMLImageElement)
-
-    expect(favicon).toHaveStyle({ display: 'none' })
-  })
-
-  it('selects inactive tabs with roving tab keyboard navigation and keeps close controls separate', async () => {
-    const browser = installBrowserApi({}, [
-      makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
-      makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' }),
-      makeTab('browser-tab-3', { title: 'Third', url: 'https://third.example/' })
-    ])
-    const user = userEvent.setup()
-
-    renderBrowserTool()
-
-    const first = await screen.findByRole('tab', { name: 'First' })
-    expect(first).toHaveAttribute('tabIndex', '0')
-    expect(screen.getByRole('tab', { name: 'Second' })).toHaveAttribute('tabIndex', '-1')
-    expect(first).not.toContainElement(screen.getByRole('button', { name: 'Close First' }))
-
-    first.focus()
-    await user.keyboard('{ArrowRight}')
-    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-2' }))
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'Second' })).toHaveFocus())
-
-    await user.keyboard('{End}')
-    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
-    await user.keyboard('{Home}')
-    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-1' }))
-    await waitFor(() => expect(screen.getByRole('tab', { name: 'First' })).toHaveFocus())
-    await user.keyboard('{ArrowLeft}')
-    await waitFor(() => expect(browser.selectTab).toHaveBeenLastCalledWith({ contextKey, context, tabId: 'browser-tab-3' }))
-  })
-
-  it('reorders tabs with drag and drop while preserving the active selection', async () => {
+  it('selects the main-owned page when its peer Side Pane tab becomes active', async () => {
     const browser = installBrowserApi({}, [
       makeTab('browser-tab-1', { title: 'First', url: 'https://first.example/' }),
       makeTab('browser-tab-2', { title: 'Second', url: 'https://second.example/' })
     ])
 
     renderBrowserTool()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Browser URL')).toHaveValue('https://first.example/')
+    )
 
-    const first = await screen.findByRole('tab', { name: /First/ })
-    const second = screen.getByRole('tab', { name: /Second/ })
-    fireEvent.dragStart(first, {
-      dataTransfer: { effectAllowed: '', setData: vi.fn(), getData: vi.fn(() => 'browser-tab-1') }
-    })
-    fireEvent.drop(second, {
-      dataTransfer: { getData: vi.fn(() => 'browser-tab-1') }
+    act(() => {
+      useSidePaneStore.getState().activateTab(contextKey, 'browser-tab-2')
     })
 
     await waitFor(() =>
-      expect(browser.reorderTabs).toHaveBeenCalledWith({
+      expect(browser.selectTab).toHaveBeenCalledWith({
         contextKey,
         context,
-        tabIds: ['browser-tab-2', 'browser-tab-1']
+        tabId: 'browser-tab-2'
       })
     )
-    expect(browser.selectTab).not.toHaveBeenCalled()
-  })
-
-  it('returns to a focused blank tab after closing the final tab', async () => {
-    const browser = installBrowserApi({ url: 'https://example.com/' })
-    const user = userEvent.setup()
-
-    renderBrowserTool()
-
-    await user.click(await screen.findByRole('button', { name: /Close example.com/ }))
-
-    expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-1' })
-    await waitFor(() => expect(screen.getByLabelText('Browser URL')).toHaveFocus())
-    expect(screen.queryByText('Enter a URL or search terms to open a secure Browser page.')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.getByLabelText('Browser URL')).toHaveValue('https://second.example/')
+    )
   })
 
   it('runs focus-scoped mod+t and mod+w through stable Browser command identities', async () => {
@@ -929,12 +854,14 @@ describe('BrowserTool', () => {
 
     renderBrowserTool()
 
-    await user.click(await screen.findByRole('tab', { name: /example.com/ }))
+    await user.click(await screen.findByLabelText('Browser URL'))
     await user.keyboard('{Control>}t{/Control}')
     await waitFor(() => expect(browser.createTab).toHaveBeenCalledWith({ contextKey, context }))
 
     await user.keyboard('{Control>}w{/Control}')
-    await waitFor(() => expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' }))
+    await waitFor(() =>
+      expect(browser.closeTab).toHaveBeenCalledWith({ contextKey, context, tabId: 'browser-tab-2' })
+    )
   })
 
   it('focuses the chrome address field from native Browser command events', async () => {
@@ -945,7 +872,11 @@ describe('BrowserTool', () => {
     const input = await screen.findByLabelText('Browser URL')
     input.blur()
     act(() => {
-      browser.emitBrowserEvent({ type: 'command-requested', contextKey, commandId: 'browser.focusAddress' })
+      browser.emitBrowserEvent({
+        type: 'command-requested',
+        contextKey,
+        commandId: 'browser.focusAddress'
+      })
     })
 
     await waitFor(() => expect(input).toHaveFocus())

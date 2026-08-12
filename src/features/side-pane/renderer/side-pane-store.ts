@@ -6,6 +6,8 @@ export type SidePaneCategoryId = 'files' | 'git' | 'browser' | 'terminal'
 export type SidePaneTab = {
   id: string
   categoryId: SidePaneCategoryId
+  title?: string
+  faviconUrl?: string | null
 }
 
 export type SidePaneLayoutState = {
@@ -34,6 +36,13 @@ type SidePaneStore = {
     position: 'before' | 'after'
   ) => void
   setWidth: (contextKey: string, width: number) => void
+  syncCategoryTabs: (
+    contextKey: string,
+    categoryId: SidePaneCategoryId,
+    tabs: SidePaneTab[],
+    activeTabId: string | null,
+    activate: boolean
+  ) => void
 }
 
 const initialSidePaneState = { contexts: {} }
@@ -219,6 +228,72 @@ const useSidePaneStore = create<SidePaneStore>()(
             contexts: {
               ...state.contexts,
               [contextKey]: { ...context, width }
+            }
+          }
+        }),
+      syncCategoryTabs: (contextKey, categoryId, categoryTabs, activeCategoryTabId, activate) =>
+        set((state) => {
+          const context = state.contexts[contextKey] ?? emptyContext()
+          const incomingById = new Map(categoryTabs.map((tab) => [tab.id, tab]))
+          const existingCategoryTabs = context.tabs.filter((tab) => tab.categoryId === categoryId)
+          const retainedIncomingIds = new Set<string>()
+          const tabs = context.tabs.flatMap((tab) => {
+            if (tab.categoryId !== categoryId) return [tab]
+            const incoming = incomingById.get(tab.id)
+            if (!incoming) return []
+            retainedIncomingIds.add(tab.id)
+            return [incoming]
+          })
+          const missingTabs = categoryTabs.filter((tab) => !retainedIncomingIds.has(tab.id))
+          if (missingTabs.length > 0) {
+            const hadMatchingResource = existingCategoryTabs.some((tab) => incomingById.has(tab.id))
+            const existingCategoryIndex = context.tabs.findIndex(
+              (tab) => tab.categoryId === categoryId
+            )
+            if (!hadMatchingResource && existingCategoryIndex >= 0) {
+              const insertionIndex = Math.min(existingCategoryIndex, tabs.length)
+              tabs.splice(insertionIndex, 0, ...missingTabs)
+            } else {
+              const lastCategoryIndex = tabs.findLastIndex((tab) => tab.categoryId === categoryId)
+              tabs.splice(
+                lastCategoryIndex >= 0 ? lastCategoryIndex + 1 : tabs.length,
+                0,
+                ...missingTabs
+              )
+            }
+          }
+
+          const nextTabIds = new Set(tabs.map((tab) => tab.id))
+          const nextActiveCategoryTab =
+            activeCategoryTabId && incomingById.has(activeCategoryTabId)
+              ? activeCategoryTabId
+              : null
+          let activeTabId = context.activeTabId
+          if (activate && nextActiveCategoryTab) activeTabId = nextActiveCategoryTab
+          else if (!activeTabId || !nextTabIds.has(activeTabId)) {
+            const priorActiveIndex = context.tabs.findIndex((tab) => tab.id === activeTabId)
+            activeTabId = tabs[Math.min(Math.max(priorActiveIndex, 0), tabs.length - 1)]?.id ?? null
+          }
+
+          const categoryMru = { ...context.categoryMru }
+          const priorMru = categoryMru[categoryId]
+          if (activate && nextActiveCategoryTab) categoryMru[categoryId] = nextActiveCategoryTab
+          else if (!priorMru || !nextTabIds.has(priorMru)) {
+            const fallback = [...tabs].reverse().find((tab) => tab.categoryId === categoryId)
+            if (fallback) categoryMru[categoryId] = fallback.id
+            else delete categoryMru[categoryId]
+          }
+
+          return {
+            contexts: {
+              ...state.contexts,
+              [contextKey]: {
+                ...context,
+                isOpen: tabs.length > 0 && (activate || context.isOpen),
+                activeTabId,
+                tabs,
+                categoryMru
+              }
             }
           }
         })
