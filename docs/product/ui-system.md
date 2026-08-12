@@ -15,20 +15,25 @@ Use this document with:
 
 - `docs/product/workspace-surfaces.md`
 - `src/renderer/src/components/ui/`
+- `src/features/settings/renderer/components/`
 - Settings → UI Debug
 
 ## Locked Defaults
 
 - Default app theme: **Dark**.
 - Default font: **System font**.
-- Theme choices should become real Appearance settings:
-  - Light
-  - Dark
-  - Dark High Contrast
-- Font choice should become part of Settings → Appearance.
+- Thin font anti-aliasing is **on by default**.
+- Appearance settings are real product settings, not only debug previews:
+  - Theme: System, Light, Dark, Dark high contrast
+  - Font: System font plus the UI Debug font options
+  - Font anti-aliasing: thin/browser-style rendering toggle
+- `System` theme follows the OS color scheme. If the OS resolves dark, Space
+  Zero uses regular `Dark`, not `Dark high contrast`.
+- Dark high contrast is an explicit preference only.
 
-The UI Debug page may expose experimental previews before they become real
-settings.
+The UI Debug page remains a place to preview primitives, AI components,
+typography, component patterns, theme behavior, font choices, and contrast
+variants before broader rollout.
 
 ## Visual Direction
 
@@ -83,7 +88,8 @@ Role:
 > The main surface level above app background.
 
 Use for panels, cards, grouped rows, settings sections, debug rows, and agent
-workflow containers. Cards do not need borders by default.
+workflow containers. Cards do not need borders by default, but settings sections
+may use a subtle border to define dense grouped rows.
 
 ### Level 2 — Nested / control background
 
@@ -133,10 +139,11 @@ Role:
 
 Rules:
 
-- Cards do not have a default border.
+- Cards do not have a default border everywhere.
+- Settings row groups may use a subtle card border and row dividers.
 - Inputs/selects usually need a visible border.
 - Alerts may use a light border and subtle shadow.
-- Dark High Contrast uses stronger borders.
+- Dark high contrast uses stronger borders.
 
 ### Hover / active state
 
@@ -153,6 +160,12 @@ Role:
 Rule:
 
 > Hover states must be visible in every theme.
+
+### Native scrollbars
+
+Space Zero uses global native scrollbar styling rather than wrapping every scroll
+area in a custom component. This keeps desktop scrolling behavior and gives the
+app a consistent dense workbench feel.
 
 ## Primitive Usage Rules
 
@@ -176,6 +189,8 @@ Examples:
 - Use `Alert` for notices, but let parent layout decide placement.
 - Use `Input`, `Textarea`, `Select`, and `InputGroup` instead of ad hoc control
   styling.
+- Use `EmptyState` for empty product areas with a title, short explanation, and
+  one relevant action.
 
 ## Typography Components
 
@@ -250,10 +265,114 @@ Use for inline commands, file paths, code identifiers, and similar references.
 
 Use for keyboard shortcuts.
 
+## Settings Patterns
+
+Settings now provide the first real product application of this UI system.
+Prefer the composed settings components for settings surfaces:
+
+```txt
+src/features/settings/renderer/components/settings-page-header.tsx
+src/features/settings/renderer/components/settings-section.tsx
+src/features/settings/renderer/components/settings-row.tsx
+```
+
+Rules:
+
+- Use `SettingsPageHeader` for the page title.
+- Page headers should usually have only a title. Avoid subtitles unless the page
+  truly needs extra context.
+- `SettingsSection` groups rows inside a compact card. Its title and description
+  are optional; omit the section title when it repeats the page title or creates
+  visual noise.
+- `SettingsSection` headers and cards align to the same left edge as the page
+  title. Do not add extra horizontal inset around section headers.
+- Use `SettingsRow` for dense settings controls and status rows.
+- Put persistent actions in the relevant row when the action affects that row.
+  Example: About → “Check for updates” belongs in the “Update state” row.
+- Prefer outline buttons for secondary settings actions.
+- Avoid unnecessary uppercase section labels in Settings.
+
+Current Settings navigation order:
+
+1. General
+2. Providers
+3. Account
+4. Appearance
+5. About
+6. separator
+7. Agents
+8. Skills
+9. UI Debug
+
+### General
+
+General owns language and product behavior preferences such as chat link handling
+and Git primary action. Theme no longer lives in General.
+
+### Providers
+
+The former “Models” settings page is now “Providers” because setup starts with
+provider configuration.
+
+Rules:
+
+- Use `EmptyState` for subscription and API key empty states.
+- Empty-state CTAs should include “Add new”.
+- When configured entries exist, place the add action in the section footer as
+  an outline button.
+- Do not show API key testing controls.
+- Do not show an “Available Models” section on this page.
+- Do not show provider source badges such as “Stored”.
+- Remove/trash actions should be icon-only with accessible labels.
+- Default model picker rows should be clickable; do not use a separate “Use as
+  default” button.
+- Sort the current default model first.
+- In model picker rows, the second line should show provider only and should not
+  repeat the model id.
+
+### Appearance
+
+Appearance owns theme and typography.
+
+Rules:
+
+- Use only the page title “Appearance”; do not add a page subtitle.
+- Do not add a redundant section title above the controls.
+- Theme description: “Choose how Space Zero picks the app appearance.”
+- Theme values: System, Light, Dark, Dark high contrast.
+- Font selection mirrors UI Debug font options.
+- Thin font anti-aliasing is checked by default and uses the regular settings
+  switch size.
+- All controls should be displayed through `SettingsSection` and `SettingsRow`.
+
+### About
+
+About uses the same compact row system as other Settings pages.
+
+Rules:
+
+- Use only the page title “About”; do not add a page subtitle.
+- Do not add a redundant “About & Updates” section title.
+- Do not show a Beta channel badge in the version row.
+- Put “Check for updates” in the “Update state” row as an outline button.
+- Do not show a GitHub release notes button in the main About settings surface.
+
+### UI Debug
+
+UI Debug is intentionally a diagnostics/development surface. Tabs:
+
+1. Primitive
+2. AI Components
+3. Typography
+4. Components
+
+Use it to inspect primitive states, AI components, typography, reusable settings
+patterns, fonts, and dark high contrast behavior.
+
 ## Workspace Layout Patterns
 
 These are product-level patterns. They should be implemented as composed
-components only when the real product screens show repeated needs.
+components when real product screens show repeated needs.
 
 ### Surface Header
 
@@ -272,7 +391,7 @@ Grouped content inside a surface.
 
 Usually contains:
 
-- section title
+- optional section title
 - optional description
 - content rows
 
@@ -310,6 +429,12 @@ Rule:
 > Panels structure the workspace. Cards highlight objects.
 
 ### Empty State
+
+Use `EmptyState` from:
+
+```txt
+src/renderer/src/components/ui/empty.tsx
+```
 
 Should include:
 
@@ -357,6 +482,7 @@ terminal, diff, and orchestration surfaces.
 When building UI:
 
 - Use existing primitives from `src/renderer/src/components/ui`.
+- Use composed settings components for Settings pages.
 - Use typography primitives instead of ad hoc text classes.
 - Keep generic primitives domain-free.
 - Do not create new one-off card/panel styles unless necessary.
@@ -364,6 +490,7 @@ When building UI:
 - Keep controls visible on card/panel surfaces.
 - Avoid transparent inputs/selects unless there is a specific reason.
 - Do not use arbitrary colors when a theme token exists.
+- Use `EmptyState` for empty product states.
 - Check Settings → UI Debug when changing primitives or theme tokens.
 
 ## What Is Not Solved Yet
@@ -372,9 +499,8 @@ The current UI system is enough to start product work, but it is not final.
 
 Still missing:
 
-- stable product-level surface components
 - Agent Work Session-specific components
 - shared status component
-- final Appearance settings UI
 - broader application of typography primitives across existing screens
+- broader rollout of Settings patterns to non-settings workspace surfaces
 - future visual regression/screenshot testing if needed
