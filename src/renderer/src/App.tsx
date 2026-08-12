@@ -8,7 +8,7 @@ import { GitHubQueryProvider } from '../../features/github/renderer'
 import { KeyboardShortcutsProvider } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { OnboardingGate } from '../../features/onboarding/renderer'
 import { AppCommandRegistration } from './app-command-registration'
-import { ColorModeProvider } from './color-mode-provider'
+import { AppearanceProvider } from './appearance-provider'
 import { router } from './router'
 import './i18n'
 
@@ -17,7 +17,7 @@ export function App(): React.JSX.Element {
 
   return (
     <GitHubQueryProvider>
-      <ColorModeProvider>
+      <AppearanceProvider>
         <OnboardingGate>
           <AppCommandProvider>
             <CommandPaletteControllerProvider>
@@ -28,7 +28,7 @@ export function App(): React.JSX.Element {
             </CommandPaletteControllerProvider>
           </AppCommandProvider>
         </OnboardingGate>
-      </ColorModeProvider>
+      </AppearanceProvider>
     </GitHubQueryProvider>
   )
 }
