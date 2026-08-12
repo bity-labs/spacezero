@@ -2,8 +2,15 @@ import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
 import type { BrowserContext } from '../../browser/shared'
+import { FilesTabIcon } from '../../files/renderer/components/files-tab-icon'
 import { openFilesLocation } from '../../files/renderer/files-open-location'
-import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
+import {
+  activateFilesSidePaneTab,
+  promoteFilesSidePaneTab,
+  requestCloseFilesSidePaneTab,
+  synchronizeFilesSidePaneTabs
+} from '../../files/renderer/files-side-pane'
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
 import type { TerminalContext } from '../../terminal/shared'
 import type { SidePaneCategoryDescriptor, SidePaneConfiguration } from './side-pane-shell'
@@ -45,21 +52,11 @@ export function createProjectHomeSidePaneConfiguration(project: {
     capabilities: { kind: 'project-home', projectId: project.id },
     defaultCategoryId: 'files',
     categories: [
-      {
-        ...categoryRegistry.files,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-home'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(FilesToolLoading) },
-                createElement(FilesTool, {
-                  contextKey,
-                  ipcContext: { kind: 'project-home', projectId: capabilities.projectId }
-                })
-              )
-            : null
-      },
+      createFilesSidePaneCategoryDescriptor({
+        sidePaneContextKey: contextKey,
+        filesContextKey: contextKey,
+        ipcContext: { kind: 'project-home', projectId: project.id }
+      }),
       {
         ...categoryRegistry.git,
         available: true,
@@ -76,12 +73,14 @@ export function createProjectHomeSidePaneConfiguration(project: {
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey,
+                        sidePaneContextKey: contextKey,
                         ipcContext: {
                           kind: 'project-home',
                           projectId: capabilities.projectId
                         },
                         relativePath,
-                        line
+                        line,
+                        intent: 'permanent'
                       })
                   }
                 })
@@ -122,21 +121,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
     },
     defaultCategoryId: 'files',
     categories: [
-      {
-        ...categoryRegistry.files,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-session'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(FilesToolLoading) },
-                createElement(FilesTool, {
-                  contextKey: capabilities.sessionId,
-                  ipcContext: { kind: 'project-session', sessionId: capabilities.sessionId }
-                })
-              )
-            : null
-      },
+      createFilesSidePaneCategoryDescriptor({
+        sidePaneContextKey: sessionContextKey(session.id),
+        filesContextKey: session.id,
+        ipcContext: { kind: 'project-session', sessionId: session.id }
+      }),
       {
         ...categoryRegistry.git,
         available: true,
@@ -155,9 +144,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey: capabilities.sessionId,
+                        sidePaneContextKey: sessionContextKey(capabilities.sessionId),
                         ipcContext: { kind: 'project-session', sessionId: capabilities.sessionId },
                         relativePath,
-                        line
+                        line,
+                        intent: 'permanent'
                       })
                   }
                 })
@@ -223,26 +214,16 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
     defaultCategoryId: 'files',
     defaultOpen: true,
     categories: [
-      {
-        ...categoryRegistry.files,
-        available: true,
-        render: ({ contextKey, capabilities }) =>
-          capabilities.kind === 'knowledge-base'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(FilesToolLoading) },
-                createElement(FilesTool, {
-                  contextKey,
-                  ipcContext: {
-                    kind: 'knowledge-base',
-                    contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
-                  },
-                  createRichImageAdapter: createKnowledgeBaseRichImageAdapter,
-                  treeLabel: 'Files'
-                })
-              )
-            : null
-      },
+      createFilesSidePaneCategoryDescriptor({
+        sidePaneContextKey: 'knowledge-base',
+        filesContextKey: 'knowledge-base',
+        ipcContext: {
+          kind: 'knowledge-base',
+          contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
+        },
+        createRichImageAdapter: createKnowledgeBaseRichImageAdapter,
+        treeLabel: 'Files'
+      }),
       {
         ...categoryRegistry.git,
         available: true,
@@ -259,12 +240,14 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
                     openLocation: ({ relativePath, line }) =>
                       openFilesLocation({
                         contextKey: 'knowledge-base',
+                        sidePaneContextKey: 'knowledge-base',
                         ipcContext: {
                           kind: 'knowledge-base',
                           contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
                         },
                         relativePath,
-                        line
+                        line,
+                        intent: 'permanent'
                       })
                   }
                 })
@@ -289,6 +272,46 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
             : null
       }
     ]
+  }
+}
+
+function createFilesSidePaneCategoryDescriptor({
+  sidePaneContextKey,
+  filesContextKey,
+  ipcContext,
+  createRichImageAdapter,
+  treeLabel
+}: {
+  sidePaneContextKey: string
+  filesContextKey: string
+  ipcContext: FilesContext
+  createRichImageAdapter?: typeof createKnowledgeBaseRichImageAdapter
+  treeLabel?: string
+}): SidePaneCategoryDescriptor {
+  return {
+    ...categoryRegistry.files,
+    available: true,
+    renderTabIcon: (tab) =>
+      tab.label ? createElement(FilesTabIcon, { fileName: tab.label }) : createElement(Files),
+    onActivateTab: (tab) => activateFilesSidePaneTab(filesContextKey, tab),
+    onDoubleClickTab: (tab) => {
+      promoteFilesSidePaneTab(filesContextKey, tab)
+      synchronizeFilesSidePaneTabs(filesContextKey, sidePaneContextKey, false)
+    },
+    onRequestCloseTab: (tab) => requestCloseFilesSidePaneTab({ filesContextKey, ipcContext, tab }),
+    render: ({ activeTab }) =>
+      createElement(
+        Suspense,
+        { fallback: createElement(FilesToolLoading) },
+        createElement(FilesTool, {
+          contextKey: filesContextKey,
+          ipcContext,
+          sidePaneContextKey,
+          activeRelativePath: activeTab.resourceId,
+          createRichImageAdapter,
+          treeLabel
+        })
+      )
   }
 }
 

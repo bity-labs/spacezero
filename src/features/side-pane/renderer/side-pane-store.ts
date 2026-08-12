@@ -6,6 +6,10 @@ export type SidePaneCategoryId = 'files' | 'git' | 'browser' | 'terminal'
 export type SidePaneTab = {
   id: string
   categoryId: SidePaneCategoryId
+  resourceId?: string
+  label?: string
+  preview?: boolean
+  dirty?: boolean
 }
 
 export type SidePaneLayoutState = {
@@ -34,6 +38,13 @@ type SidePaneStore = {
     position: 'before' | 'after'
   ) => void
   setWidth: (contextKey: string, width: number) => void
+  synchronizeCategoryTabs: (
+    contextKey: string,
+    categoryId: SidePaneCategoryId,
+    tabs: SidePaneTab[],
+    activeTabId: string | null,
+    activate: boolean
+  ) => void
 }
 
 const initialSidePaneState = { contexts: {} }
@@ -68,6 +79,28 @@ function migratePersistedState(persistedState: unknown, version: number): unknow
     }
   }
   return { contexts }
+}
+
+function toPersistedContext(context: SidePaneLayoutState): SidePaneLayoutState {
+  const tabs = context.tabs
+    .filter((tab) => !tab.preview)
+    .map(({ dirty: _dirty, preview: _preview, ...tab }) => tab)
+  const activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? tabs[0] ?? null
+  const tabIds = new Set(tabs.map((tab) => tab.id))
+  const categoryMru = Object.fromEntries(
+    Object.entries(context.categoryMru).filter(
+      ([, tabId]) => typeof tabId === 'string' && tabIds.has(tabId)
+    )
+  ) as Partial<Record<SidePaneCategoryId, string>>
+  for (const tab of tabs) categoryMru[tab.categoryId] ??= tab.id
+  if (activeTab) categoryMru[activeTab.categoryId] = activeTab.id
+  return {
+    ...context,
+    isOpen: context.isOpen && activeTab !== null,
+    activeTabId: activeTab?.id ?? null,
+    tabs,
+    categoryMru
+  }
 }
 
 function isSidePaneCategoryId(value: unknown): value is SidePaneCategoryId {
@@ -221,11 +254,63 @@ const useSidePaneStore = create<SidePaneStore>()(
               [contextKey]: { ...context, width }
             }
           }
+        }),
+      synchronizeCategoryTabs: (contextKey, categoryId, synchronizedTabs, activeTabId, activate) =>
+        set((state) => {
+          const context = state.contexts[contextKey] ?? emptyContext()
+          const remainingTabs = [...synchronizedTabs]
+          const tabs = context.tabs.flatMap((tab) => {
+            if (tab.categoryId !== categoryId) return [tab]
+            const matchingIndex = remainingTabs.findIndex((candidate) => candidate.id === tab.id)
+            if (matchingIndex >= 0) {
+              const [matchingTab] = remainingTabs.splice(matchingIndex, 1)
+              return matchingTab ? [matchingTab] : []
+            }
+            const replacement = remainingTabs.shift()
+            return replacement ? [replacement] : []
+          })
+          tabs.push(...remainingTabs)
+          const synchronizedTabIds = new Set(tabs.map((tab) => tab.id))
+          const currentActiveTab = tabs.find((tab) => tab.id === context.activeTabId)
+          const requestedActiveTab = tabs.find((tab) => tab.id === activeTabId)
+          const shouldFollowCategoryActive =
+            context.tabs.find((tab) => tab.id === context.activeTabId)?.categoryId === categoryId
+          const nextActiveTab =
+            activate || shouldFollowCategoryActive
+              ? (requestedActiveTab ?? currentActiveTab ?? tabs[0] ?? null)
+              : (currentActiveTab ?? null)
+          const categoryMru = Object.fromEntries(
+            Object.entries(context.categoryMru).filter(
+              ([, tabId]) => typeof tabId === 'string' && synchronizedTabIds.has(tabId)
+            )
+          ) as Partial<Record<SidePaneCategoryId, string>>
+          if (requestedActiveTab) categoryMru[categoryId] = requestedActiveTab.id
+          if (nextActiveTab) categoryMru[nextActiveTab.categoryId] = nextActiveTab.id
+          return {
+            contexts: {
+              ...state.contexts,
+              [contextKey]: {
+                ...context,
+                isOpen: activate ? nextActiveTab !== null : context.isOpen && tabs.length > 0,
+                activeTabId: nextActiveTab?.id ?? null,
+                tabs,
+                categoryMru
+              }
+            }
+          }
         })
     }),
     {
       name: 'spacezero.sidePane',
       storage: sidePaneStorage,
+      partialize: (state) => ({
+        contexts: Object.fromEntries(
+          Object.entries(state.contexts).map(([contextKey, context]) => [
+            contextKey,
+            toPersistedContext(context)
+          ])
+        )
+      }),
       version: 1,
       migrate: migratePersistedState
     }

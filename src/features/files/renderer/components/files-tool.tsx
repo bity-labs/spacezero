@@ -31,7 +31,6 @@ import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
-import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 import {
   ContextMenu,
@@ -59,11 +58,11 @@ import {
   useFilesStore,
   type FilesEditorMode,
   type FilesOpenTabIntent,
-  type FilesTabDropPosition,
   type FilesTabState
 } from '../files-store'
 import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
+import { synchronizeFilesSidePaneTabs } from '../files-side-pane'
 import { createFilesDocumentCacheKey } from '../lib/files-document-identity'
 import { getFilesRowDecoration } from '../lib/files-row-annotations'
 import {
@@ -71,7 +70,6 @@ import {
   type FilesDiffsEditorHandle,
   type FilesSourceEditorState
 } from './files-diffs-editor'
-import { FilesTabIcon } from './files-tab-icon'
 
 type RootState =
   | { status: 'loading' }
@@ -153,14 +151,18 @@ function createFilesRowDecorationTabsKey(tabs: readonly FilesTabState[]): string
     .join('\0')
 }
 
-type FilesToolProps =
-  | { sessionId: string; treeLabel?: string; createRichImageAdapter?: RichImageAdapterFactory }
+type FilesToolProps = (
+  | { sessionId: string }
   | {
       contextKey: string
       ipcContext: FilesContext
-      treeLabel?: string
-      createRichImageAdapter?: RichImageAdapterFactory
     }
+) & {
+  activeRelativePath?: string
+  sidePaneContextKey?: string
+  treeLabel?: string
+  createRichImageAdapter?: RichImageAdapterFactory
+}
 
 type RichImageAdapterFactory = (documentRelativePath: string) => RichMarkdownImageAdapter
 
@@ -180,6 +182,8 @@ export function FilesTool(props: FilesToolProps): React.JSX.Element {
       key={contextKey}
       contextKey={contextKey}
       ipcContext={ipcContext}
+      activeRelativePath={props.activeRelativePath}
+      sidePaneContextKey={props.sidePaneContextKey}
       createRichImageAdapter={props.createRichImageAdapter}
       treeLabel={props.treeLabel ?? 'Project files'}
     />
@@ -189,27 +193,32 @@ export function FilesTool(props: FilesToolProps): React.JSX.Element {
 function FilesToolSession({
   contextKey,
   ipcContext,
+  activeRelativePath,
+  sidePaneContextKey,
   createRichImageAdapter,
   treeLabel
 }: {
   contextKey: string
   ipcContext: FilesContext
+  activeRelativePath?: string
+  sidePaneContextKey?: string
   createRichImageAdapter?: RichImageAdapterFactory
   treeLabel: string
 }): React.JSX.Element {
   const shortcutManager = useKeyboardShortcutsManager()
   const sessionId = contextKey
+  const freshFilesContextRef = useRef(!useFilesStore.getState().contexts[contextKey])
   const context =
     useFilesStore((state) => state.contexts[contextKey]) ?? createDefaultFilesContext()
   const setExplorerWidth = useFilesStore((state) => state.setExplorerWidth)
   const setExplorerCollapsed = useFilesStore((state) => state.setExplorerCollapsed)
+  const setExplorerScrollTop = useFilesStore((state) => state.setExplorerScrollTop)
   const setSelectedPath = useFilesStore((state) => state.setSelectedPath)
   const setExpanded = useFilesStore((state) => state.setExpanded)
+  const setExplorerSearch = useFilesStore((state) => state.setExplorerSearch)
   const activateTab = useFilesStore((state) => state.activateTab)
-  const promoteTab = useFilesStore((state) => state.promoteTab)
   const closeTab = useFilesStore((state) => state.closeTab)
   const discardAndCloseTab = useFilesStore((state) => state.discardAndCloseTab)
-  const reorderTabs = useFilesStore((state) => state.reorderTabs)
   const setEditorMode = useFilesStore((state) => state.setEditorMode)
   const updateDraft = useFilesStore((state) => state.updateDraft)
   const markSaving = useFilesStore((state) => state.markSaving)
@@ -224,9 +233,11 @@ function FilesToolSession({
   const rewritePaths = useFilesStore((state) => state.rewritePaths)
   const closeTabsInPath = useFilesStore((state) => state.closeTabsInPath)
   const [rootState, setRootState] = useState<RootState>({ status: 'loading' })
-  const [explorerSearchMode, setExplorerSearchMode] = useState<ExplorerSearchMode>('files')
-  const [filesSearchQuery, setFilesSearchQuery] = useState('')
-  const [contentSearchQuery, setContentSearchQuery] = useState('')
+  const [explorerSearchMode, setExplorerSearchMode] = useState<ExplorerSearchMode>(
+    context.explorerSearchMode
+  )
+  const [filesSearchQuery, setFilesSearchQuery] = useState(context.filesSearchQuery)
+  const [contentSearchQuery, setContentSearchQuery] = useState(context.contentSearchQuery)
   const [contentSearchState, setContentSearchState] = useState<ContentSearchState>({
     status: 'idle'
   })
@@ -239,7 +250,12 @@ function FilesToolSession({
   const activeSessionRef = useRef(sessionId)
   const expandedPathsRef = useRef(context.expandedPaths)
   const restoredRootRef = useRef(false)
+  const initializedEmptyRootLayoutRef = useRef(false)
+  const restoredExplorerScrollTopRef = useRef(context.explorerScrollTop)
   const searchRequestRef = useRef(0)
+  const restoredContentSearchQueryRef = useRef(
+    context.explorerSearchMode === 'contents' ? context.contentSearchQuery.trim() : ''
+  )
   const activeSearchRequestIdRef = useRef<string | null>(null)
   const observedDocumentReadSequencesRef = useRef(new Map<string, number>())
   const observedPathGenerationsRef = useRef(new Map<string, number>())
@@ -322,7 +338,10 @@ function FilesToolSession({
 
   useEffect(() => {
     tabsRef.current = context.tabs
-  }, [context.tabs])
+    if (sidePaneContextKey) {
+      synchronizeFilesSidePaneTabs(sessionId, sidePaneContextKey, false)
+    }
+  }, [context.tabs, sessionId, sidePaneContextKey])
 
   useEffect(() => {
     if (treeModel.getFileTreeContainer()) treeModel.render({})
@@ -335,6 +354,14 @@ function FilesToolSession({
   useEffect(() => {
     filesSearchQueryRef.current = filesSearchQuery
   }, [filesSearchQuery])
+
+  useEffect(() => {
+    setExplorerSearch(
+      sessionId,
+      explorerSearchMode,
+      explorerSearchMode === 'files' ? filesSearchQuery : contentSearchQuery
+    )
+  }, [contentSearchQuery, explorerSearchMode, filesSearchQuery, sessionId, setExplorerSearch])
 
   useEffect(() => {
     treeModel.setSearch(explorerSearchMode === 'files' ? filesSearchQuery : null)
@@ -371,6 +398,7 @@ function FilesToolSession({
     ): Promise<void> => {
       await openFilesLocation({
         contextKey: sessionId,
+        sidePaneContextKey,
         ipcContext,
         relativePath,
         intent,
@@ -379,7 +407,7 @@ function FilesToolSession({
         allowMetadata: true
       })
     },
-    [ipcContext, sessionId]
+    [ipcContext, sessionId, sidePaneContextKey]
   )
 
   const cancelActiveSearch = useCallback((): void => {
@@ -449,6 +477,13 @@ function FilesToolSession({
     [cancelActiveSearch, ipcContext, sessionId]
   )
 
+  useEffect(() => {
+    const restoredQuery = restoredContentSearchQueryRef.current
+    if (!restoredQuery) return
+    restoredContentSearchQueryRef.current = ''
+    void performSearch(restoredQuery)
+  }, [performSearch])
+
   const refreshActiveSearch = useCallback((): void => {
     const state = contentSearchStateRef.current
     if (state.status === 'idle') return
@@ -475,6 +510,13 @@ function FilesToolSession({
     },
     [loadRoot, sessionId, setExpanded, setSelectedPath, treeModel]
   )
+
+  useEffect(() => {
+    if (!activeRelativePath) return
+    activateTab(sessionId, activeRelativePath)
+    const revealTimeout = window.setTimeout(() => void revealTreePath(activeRelativePath), 0)
+    return () => window.clearTimeout(revealTimeout)
+  }, [activateTab, activeRelativePath, revealTreePath, sessionId])
 
   const saveDocumentSnapshot = useCallback(
     async (document: Extract<FilesTabState, { status: 'ready' }>): Promise<boolean> => {
@@ -881,14 +923,13 @@ function FilesToolSession({
 
   useEffect(() => {
     activeSessionRef.current = sessionId
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- session changes must reset local search before loading the new tree.
-    invalidateSearchResults()
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mounting a context must begin its main-owned root load.
     void loadRoot()
     return () => {
       cancelActiveSearch()
       if (activeSessionRef.current === sessionId) activeSessionRef.current = ''
     }
-  }, [cancelActiveSearch, invalidateSearchResults, loadRoot, sessionId])
+  }, [cancelActiveSearch, loadRoot, sessionId])
 
   useEffect(() => {
     const restoredTabs =
@@ -1026,6 +1067,21 @@ function FilesToolSession({
   ])
 
   useEffect(() => {
+    if (
+      !sidePaneContextKey ||
+      !freshFilesContextRef.current ||
+      initializedEmptyRootLayoutRef.current ||
+      rootState.status !== 'ready' ||
+      context.tabs.length > 0
+    ) {
+      return
+    }
+    initializedEmptyRootLayoutRef.current = true
+    freshFilesContextRef.current = false
+    setExplorerCollapsed(sessionId, rootState.tree.entries.length === 0)
+  }, [context.tabs.length, rootState, sessionId, setExplorerCollapsed, sidePaneContextKey])
+
+  useEffect(() => {
     if (rootState.status !== 'ready' || !preparedTreeInput) return
     treeEntriesRef.current = rootState.tree.entries
     treeModel.resetPaths({
@@ -1035,6 +1091,10 @@ function FilesToolSession({
       )
     })
     treeModel.setGitStatus(rootState.tree.gitStatus)
+    window.requestAnimationFrame(() => {
+      const treeElement = treeContainerRef.current?.querySelector<HTMLElement>('[role="tree"]')
+      if (treeElement) treeElement.scrollTop = restoredExplorerScrollTopRef.current
+    })
     restoredRootRef.current = true
   }, [context.expandedPaths, expandedPathsKey, preparedTreeInput, rootState, treeModel])
 
@@ -1252,7 +1312,16 @@ function FilesToolSession({
                 </div>
               </form>
             </header>
-            <div ref={treeContainerRef} className="min-h-0 flex-1 overflow-hidden">
+            <div
+              ref={treeContainerRef}
+              className="min-h-0 flex-1 overflow-hidden"
+              onScrollCapture={(event) => {
+                const target = event.target
+                if (target instanceof HTMLElement && target.getAttribute('role') === 'tree') {
+                  setExplorerScrollTop(sessionId, target.scrollTop)
+                }
+              }}
+            >
               {explorerSearchMode === 'contents' ? (
                 <FilesSearchResults
                   state={contentSearchState}
@@ -1315,19 +1384,12 @@ function FilesToolSession({
         className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
         onKeyDown={handleEditorKeyDown}
       >
-        <FilesTabStrip
-          activeTabPath={context.activeTabPath}
-          sessionId={sessionId}
-          tabs={context.tabs}
-          onActivate={activateTab}
-          onClose={requestCloseTab}
-          onPromote={promoteTab}
-          onReorder={reorderTabs}
-        />
         <FilesEditorPanel
           document={activeDocument}
           sessionId={sessionId}
           ipcContext={ipcContext}
+          emptyRoot={rootState.status === 'ready' && rootState.tree.entries.length === 0}
+          onCreateFile={() => openCreateDialog('file')}
           onChange={(draft) => updateDraft(sessionId, draft)}
           createRichImageAdapter={createRichImageAdapter}
           onSave={saveActiveDocument}
@@ -1525,80 +1587,11 @@ function FilesSearchResults({
   )
 }
 
-function FilesTabStrip({
-  activeTabPath,
-  sessionId,
-  tabs,
-  onActivate,
-  onClose,
-  onPromote,
-  onReorder
-}: {
-  activeTabPath: string | null
-  sessionId: string
-  tabs: FilesTabState[]
-  onActivate: (sessionId: string, relativePath: string) => void
-  onClose: (sessionId: string, relativePath: string) => void
-  onPromote: (sessionId: string, relativePath: string) => void
-  onReorder: (
-    sessionId: string,
-    sourcePath: string,
-    targetPath: string,
-    dropPosition: FilesTabDropPosition
-  ) => void
-}): React.JSX.Element | null {
-  const draggedPathRef = useRef<string | null>(null)
-
-  if (tabs.length === 0) return null
-
-  return (
-    <TabBar ariaLabel="Open files">
-      {tabs.map((tab) => {
-        const active = tab.relativePath === activeTabPath
-        const dirty = tab.status === 'ready' && tab.dirty
-        return (
-          <Tab
-            key={tab.relativePath}
-            closeTitle={
-              dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
-            }
-            draggable
-            icon={<FilesTabIcon fileName={tab.name} />}
-            label={tab.name}
-            labelSuffix={tab.preview ? <span className="sr-only"> preview</span> : null}
-            leading={dirty ? <span>● </span> : null}
-            preview={tab.preview}
-            selected={active}
-            onSelect={() => onActivate(sessionId, tab.relativePath)}
-            onClose={() => onClose(sessionId, tab.relativePath)}
-            onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
-            onDragOver={(event) => event.preventDefault()}
-            onDragStart={() => {
-              draggedPathRef.current = tab.relativePath
-            }}
-            onDrop={(event) => {
-              event.preventDefault()
-              const sourcePath = draggedPathRef.current
-              draggedPathRef.current = null
-              if (sourcePath) {
-                onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
-              }
-            }}
-          />
-        )
-      })}
-    </TabBar>
-  )
-}
-
-function tabDropPosition(event: React.DragEvent<HTMLElement>): FilesTabDropPosition {
-  const bounds = event.currentTarget.getBoundingClientRect()
-  return event.clientX > bounds.left + bounds.width / 2 ? 'after' : 'before'
-}
-
 function FilesEditorPanel({
   document,
   sessionId,
+  emptyRoot,
+  onCreateFile,
   onChange,
   createRichImageAdapter,
   onSave,
@@ -1612,6 +1605,8 @@ function FilesEditorPanel({
   document: FilesTabState | null
   sessionId: string
   ipcContext: FilesContext
+  emptyRoot: boolean
+  onCreateFile: () => void
   createRichImageAdapter?: RichImageAdapterFactory
   onChange: (draft: string) => void
   onSave: () => void | Promise<void>
@@ -1625,8 +1620,13 @@ function FilesEditorPanel({
 }): React.JSX.Element {
   if (!document) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center p-6 text-center text-sm text-muted-foreground">
-        Select a file to open it.
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
+        <p>{emptyRoot ? 'No files yet.' : 'Select a file to open it.'}</p>
+        {emptyRoot ? (
+          <Button type="button" onClick={onCreateFile}>
+            Create new file
+          </Button>
+        ) : null}
       </div>
     )
   }
