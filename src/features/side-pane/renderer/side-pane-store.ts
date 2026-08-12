@@ -59,24 +59,61 @@ const sidePaneStorage = createJSONStorage(() => ({
 }))
 
 function migratePersistedState(persistedState: unknown, version: number): unknown {
-  if (version >= 1 || !persistedState || typeof persistedState !== 'object') return persistedState
-  const legacyContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
-  if (!legacyContexts) return persistedState
-  const contexts: Record<string, SidePaneLayoutState> = {}
-  for (const [contextKey, value] of Object.entries(legacyContexts)) {
-    if (!value || typeof value !== 'object') continue
-    const legacy = value as { isOpen?: boolean; width?: number | null; activeToolId?: unknown }
-    const categoryId = isSidePaneCategoryId(legacy.activeToolId) ? legacy.activeToolId : null
-    const tab = categoryId ? { id: `${categoryId}:1`, categoryId } : null
+  if (!persistedState || typeof persistedState !== 'object') return persistedState
+  let nextState = persistedState
+  if (version < 1) {
+    const legacyContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
+    if (!legacyContexts) return persistedState
+    const contexts: Record<string, SidePaneLayoutState> = {}
+    for (const [contextKey, value] of Object.entries(legacyContexts)) {
+      if (!value || typeof value !== 'object') continue
+      const legacy = value as { isOpen?: boolean; width?: number | null; activeToolId?: unknown }
+      const categoryId = isSidePaneCategoryId(legacy.activeToolId) ? legacy.activeToolId : null
+      const tab = categoryId ? { id: `${categoryId}:1`, categoryId } : null
+      contexts[contextKey] = {
+        isOpen: Boolean(legacy.isOpen && tab),
+        width: typeof legacy.width === 'number' ? legacy.width : null,
+        activeTabId: tab?.id ?? null,
+        tabs: tab ? [tab] : [],
+        categoryMru: tab ? { [tab.categoryId]: tab.id } : {}
+      }
+    }
+    nextState = { contexts }
+  }
+  return version < 2 ? removeSyntheticBrowserTabs(nextState) : nextState
+}
+
+function removeSyntheticBrowserTabs(persistedState: unknown): unknown {
+  if (!persistedState || typeof persistedState !== 'object') return persistedState
+  const persistedContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
+  if (!persistedContexts) return persistedState
+  const contexts: Record<string, unknown> = {}
+  for (const [contextKey, value] of Object.entries(persistedContexts)) {
+    if (!value || typeof value !== 'object') {
+      contexts[contextKey] = value
+      continue
+    }
+    const context = value as Partial<SidePaneLayoutState>
+    const tabs = Array.isArray(context.tabs)
+      ? context.tabs.filter((tab) => tab.categoryId !== 'browser' || tab.id !== 'browser:1')
+      : []
+    const activeTabId =
+      tabs.find((tab) => tab.id === context.activeTabId)?.id ?? tabs[0]?.id ?? null
+    const tabIds = new Set(tabs.map((tab) => tab.id))
+    const categoryMru = Object.fromEntries(
+      Object.entries(context.categoryMru ?? {}).filter(
+        ([, tabId]) => typeof tabId === 'string' && tabIds.has(tabId)
+      )
+    ) as Partial<Record<SidePaneCategoryId, string>>
     contexts[contextKey] = {
-      isOpen: Boolean(legacy.isOpen && tab),
-      width: typeof legacy.width === 'number' ? legacy.width : null,
-      activeTabId: tab?.id ?? null,
-      tabs: tab ? [tab] : [],
-      categoryMru: tab ? { [tab.categoryId]: tab.id } : {}
+      ...context,
+      isOpen: Boolean(context.isOpen && activeTabId),
+      activeTabId,
+      tabs,
+      categoryMru
     }
   }
-  return { contexts }
+  return { ...(persistedState as object), contexts }
 }
 
 function isSidePaneCategoryId(value: unknown): value is SidePaneCategoryId {
@@ -149,8 +186,17 @@ const useSidePaneStore = create<SidePaneStore>()(
         set((state) => {
           const context = state.contexts[contextKey] ?? emptyContext()
           const existingTab =
-            context.tabs.find((tab) => tab.id === context.categoryMru[categoryId]) ??
-            context.tabs.find((tab) => tab.categoryId === categoryId)
+            context.tabs.find(
+              (tab) =>
+                tab.id === context.categoryMru[categoryId] &&
+                (categoryId !== 'browser' || tab.id !== 'browser:1')
+            ) ??
+            context.tabs.find(
+              (tab) =>
+                tab.categoryId === categoryId &&
+                (categoryId !== 'browser' || tab.id !== 'browser:1')
+            )
+          if (!existingTab && categoryId === 'browser') return state
           const tab = existingTab ?? { id: `${categoryId}:1`, categoryId }
           const tabs = existingTab ? context.tabs : [...context.tabs, tab]
           return {
@@ -171,12 +217,21 @@ const useSidePaneStore = create<SidePaneStore>()(
           const context = state.contexts[contextKey]
           if (!context) return state
           const availableCategories = new Set(availableCategoryIds)
-          const tabs = context.tabs.filter((tab) => availableCategories.has(tab.categoryId))
+          const tabs = context.tabs.filter(
+            (tab) =>
+              availableCategories.has(tab.categoryId) &&
+              (tab.categoryId !== 'browser' || tab.id !== 'browser:1')
+          )
           let activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? null
           if (!activeTab) {
             activeTab = tabs.find((tab) => tab.categoryId === fallbackCategoryId) ?? tabs[0] ?? null
           }
-          if (!activeTab && context.isOpen && availableCategories.has(fallbackCategoryId)) {
+          if (
+            !activeTab &&
+            context.isOpen &&
+            fallbackCategoryId !== 'browser' &&
+            availableCategories.has(fallbackCategoryId)
+          ) {
             activeTab = { id: `${fallbackCategoryId}:1`, categoryId: fallbackCategoryId }
             tabs.push(activeTab)
           }
@@ -301,7 +356,7 @@ const useSidePaneStore = create<SidePaneStore>()(
     {
       name: 'spacezero.sidePane',
       storage: sidePaneStorage,
-      version: 1,
+      version: 2,
       migrate: migratePersistedState
     }
   )

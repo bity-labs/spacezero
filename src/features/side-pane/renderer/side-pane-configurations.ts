@@ -2,7 +2,11 @@ import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
 import type { BrowserContext } from '../../browser/shared'
-import { closeBrowserSidePaneTab, createBrowserSidePaneTab } from './browser-side-pane'
+import {
+  closeBrowserSidePaneTab,
+  createBrowserSidePaneTab,
+  focusOrCreateBrowserSidePaneTab
+} from './browser-side-pane'
 import { openFilesLocation } from '../../files/renderer/files-open-location'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
@@ -308,10 +312,11 @@ function createBrowserSidePaneCategoryDescriptor(
   return {
     ...categoryRegistry.browser,
     available: true,
+    open: () => {
+      void focusOrCreateBrowserSidePaneTab({ contextKey, context }).catch(() => undefined)
+    },
     create: () => {
-      void createBrowserSidePaneTab({ contextKey, context }).catch(() => {
-        useSidePaneStore.getState().openCategory(contextKey, 'browser')
-      })
+      void createBrowserSidePaneTab({ contextKey, context }).catch(() => undefined)
     },
     close: (tab) => {
       void closeBrowserSidePaneTab({ contextKey, context, tabId: tab.id }).catch(() => undefined)
