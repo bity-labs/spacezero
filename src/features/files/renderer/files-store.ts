@@ -718,6 +718,7 @@ function discardDirtyTabs(
       matchesPath(tab.relativePath) && tab.status === 'ready'
         ? {
             ...tab,
+            editorStateKey: `${tab.editorStateKey}:discard`,
             draft: tab.content,
             dirty: false,
             saveStatus: 'idle',
