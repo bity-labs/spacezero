@@ -8,7 +8,7 @@ import type { AgentSessionProjectionEvent } from '../../../../shared/agent-sessi
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
 import { GitTool } from '../../../git/renderer/components/git-tool'
-import { resetToolPaneStore, useToolPaneStore } from '../../../tool-pane/renderer'
+import { resetSidePaneStore, useSidePaneStore } from '../../../side-pane/renderer'
 import { ProjectSessionHostSurface, ManagedChatHostSurface } from './session-host-surface'
 
 const project: Project = {
@@ -39,7 +39,7 @@ const managedChatSession: ManagedChatAgentSession = {
 }
 
 beforeEach(() => {
-  resetToolPaneStore()
+  resetSidePaneStore()
 })
 
 describe('ProjectSessionHostSurface', () => {
@@ -156,7 +156,7 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeInTheDocument()
   })
 
-  it('shows /clear and switches to a fresh Chat Context without changing stable Tool Pane state', async () => {
+  it('shows /clear and switches to a fresh Chat Context without changing stable Side Pane state', async () => {
     const originalContext = {
       id: 'chat-context-1',
       workspaceContext: {
@@ -200,9 +200,9 @@ describe('ProjectSessionHostSurface', () => {
             ]
           : []
     }))
-    useToolPaneStore.getState().openTool('session:session-1', 'git')
+    useSidePaneStore.getState().openCategory('session:session-1', 'git')
     const stableToolState = structuredClone(
-      useToolPaneStore.getState().contexts['session:session-1']
+      useSidePaneStore.getState().contexts['session:session-1']
     )
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
@@ -226,7 +226,7 @@ describe('ProjectSessionHostSurface', () => {
     expect(
       screen.getByText('Ask the agent to work on this project. Streamed replies appear here.')
     ).toBeInTheDocument()
-    expect(useToolPaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
   })
 
   it('shows scoped /resume history, renders the selected transcript, and continues it in the same workspace', async () => {
@@ -288,9 +288,9 @@ describe('ProjectSessionHostSurface', () => {
           : []
     }))
     window.spacezero.agent.prompt = prompt
-    useToolPaneStore.getState().openTool('session:session-1', 'terminal')
+    useSidePaneStore.getState().openCategory('session:session-1', 'terminal')
     const stableToolState = structuredClone(
-      useToolPaneStore.getState().contexts['session:session-1']
+      useSidePaneStore.getState().contexts['session:session-1']
     )
 
     render(<ProjectSessionHostSurface project={project} session={session} />)
@@ -338,7 +338,7 @@ describe('ProjectSessionHostSurface', () => {
         message: 'continue here'
       })
     )
-    expect(useToolPaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toEqual(stableToolState)
   })
 
   it('clears pending UI state after a superseded clear finishes later than resume', async () => {
@@ -592,9 +592,9 @@ describe('ProjectSessionHostSurface', () => {
       context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
       input: 'https://example.com/docs'
     })
-    expect(useToolPaneStore.getState().contexts['session:session-1']).toMatchObject({
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toMatchObject({
       isOpen: true,
-      activeToolId: 'browser'
+      activeTabId: 'browser:1'
     })
   })
 
@@ -637,12 +637,12 @@ describe('ProjectSessionHostSurface', () => {
       context: { kind: 'global-chat' },
       input: 'https://spacezero.dev/'
     })
-    expect(useToolPaneStore.getState().contexts['global-chat']).toMatchObject({
+    expect(useSidePaneStore.getState().contexts['global-chat']).toMatchObject({
       isOpen: true,
-      activeToolId: 'browser'
+      activeTabId: 'browser:1'
     })
     expect(
-      useToolPaneStore.getState().contexts['session:rotatable-global-chat-agent-session']
+      useSidePaneStore.getState().contexts['session:rotatable-global-chat-agent-session']
     ).toBeUndefined()
   })
 
@@ -681,7 +681,7 @@ describe('ProjectSessionHostSurface', () => {
 
     expect(openUrlInDefaultBrowser).toHaveBeenCalledWith({ url: 'https://spacezero.dev/' })
     expect(createTab).not.toHaveBeenCalled()
-    expect(useToolPaneStore.getState().contexts['global-chat']).toBeUndefined()
+    expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
   })
 
   it('fails closed for unsupported chat link protocols before Browser routing', async () => {

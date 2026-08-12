@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { browserContextKey, type BrowserContext } from '../../../browser/shared'
-import { useToolPaneStore } from '../../../tool-pane/renderer'
+import { useSidePaneStore } from '../../../side-pane/renderer'
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import type { Project } from '../../../projects/shared'
 import type {
@@ -406,7 +406,7 @@ function SessionHostFrame({
     },
     [onSubmit]
   )
-  const openBrowserTool = useToolPaneStore((state) => state.openTool)
+  const openBrowserSidePane = useSidePaneStore((state) => state.openCategory)
   const alertMessage = submissionError ?? (error ? `Agent prompt failed: ${error}` : undefined)
   const openChatLink = useCallback(
     async (url: string) => {
@@ -420,9 +420,9 @@ function SessionHostFrame({
 
       const contextKey = browserContextKey(chatLinkContext)
       await window.spacezero.browser.createTab({ contextKey, context: chatLinkContext, input: url })
-      openBrowserTool(contextKey, 'browser')
+      openBrowserSidePane(contextKey, 'browser')
     },
-    [chatLinkContext, openBrowserTool]
+    [chatLinkContext, openBrowserSidePane]
   )
 
   return (
