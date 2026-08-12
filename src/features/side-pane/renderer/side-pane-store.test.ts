@@ -63,6 +63,48 @@ describe('Side Pane store', () => {
     expect(useSidePaneStore.getState().contexts).toEqual(contexts)
   })
 
+  it('migrates Browser resource order into peer Side Pane tabs without moving other categories', () => {
+    useSidePaneStore.setState({
+      contexts: {
+        'session:session-1': {
+          isOpen: true,
+          width: 600,
+          activeTabId: 'browser:1',
+          tabs: [
+            { id: 'files:1', categoryId: 'files' },
+            { id: 'browser:1', categoryId: 'browser' },
+            { id: 'terminal:1', categoryId: 'terminal' }
+          ],
+          categoryMru: { browser: 'browser:1' }
+        }
+      }
+    })
+
+    useSidePaneStore.getState().syncCategoryTabs(
+      'session:session-1',
+      'browser',
+      [
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Docs' },
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'App' }
+      ],
+      'browser-tab-2',
+      true
+    )
+
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toEqual({
+      isOpen: true,
+      width: 600,
+      activeTabId: 'browser-tab-2',
+      tabs: [
+        { id: 'files:1', categoryId: 'files' },
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Docs' },
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'App' },
+        { id: 'terminal:1', categoryId: 'terminal' }
+      ],
+      categoryMru: { browser: 'browser-tab-2' }
+    })
+  })
+
   it('keeps tab, width, open state, and MRU mutations isolated to their context', () => {
     useSidePaneStore.getState().openCategory('project:project-1', 'files')
     useSidePaneStore.getState().setWidth('project:project-1', 620)

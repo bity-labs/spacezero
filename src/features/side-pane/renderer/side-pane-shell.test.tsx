@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetSidePaneStore, useSidePaneStore } from './side-pane-store'
 import {
@@ -277,6 +277,55 @@ describe('SidePaneShell', () => {
 
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('Terminal session')).toBeInTheDocument()
+  })
+
+  it('renders Browser page metadata directly in the peer Side Pane tab strip', () => {
+    useSidePaneStore.getState().syncCategoryTabs(
+      configuration.contextKey,
+      'browser',
+      [
+        {
+          id: 'browser-tab-1',
+          categoryId: 'browser',
+          title: 'Space Zero Docs',
+          faviconUrl: 'data:image/png;base64,aWNvbg=='
+        }
+      ],
+      'browser-tab-1',
+      true
+    )
+
+    render(
+      <SidePaneShell {...configuration}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    const tab = screen.getByRole('tab', { name: 'Space Zero Docs' })
+    expect(tab.querySelector('img')).toHaveAttribute('src', 'data:image/png;base64,aWNvbg==')
+    expect(screen.queryByRole('tablist', { name: 'Browser tabs' })).not.toBeInTheDocument()
+  })
+
+  it('uses a category creation capability for explicit plus-menu Browser pages', async () => {
+    const createBrowserPage = vi.fn()
+    const creationCategories = categories.map((category) =>
+      category.id === 'browser' ? { ...category, create: createBrowserPage } : category
+    )
+    const user = userEvent.setup()
+    render(
+      <SidePaneShell {...configuration} categories={creationCategories}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Side Pane Tab' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browser' }))
+
+    expect(createBrowserPage).toHaveBeenCalledTimes(1)
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey]?.tabs).toEqual([
+      { id: 'files:1', categoryId: 'files' }
+    ])
   })
 
   it('keeps category tabs as ordered peers and focuses an existing Git Diff singleton', async () => {

@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { BrowserTab } from '../../../browser/shared'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession, ManagedChatAgentSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
@@ -27,6 +28,19 @@ const session: ProjectSession = {
   status: 'idle',
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString()
+}
+
+function browserTab(id: string, url: string): BrowserTab {
+  return {
+    id,
+    url,
+    title: null,
+    faviconUrl: null,
+    isLoading: false,
+    canGoBack: false,
+    canGoForward: false,
+    error: null
+  }
 }
 
 const managedChatSession: ManagedChatAgentSession = {
@@ -568,7 +582,7 @@ describe('ProjectSessionHostSurface', () => {
     const createTab = vi.fn(async () => ({
       contextKey: 'session:session-1',
       activeTabId: 'tab-1',
-      tabs: []
+      tabs: [browserTab('tab-1', 'https://example.com/docs')]
     }))
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener
@@ -594,7 +608,7 @@ describe('ProjectSessionHostSurface', () => {
     })
     expect(useSidePaneStore.getState().contexts['session:session-1']).toMatchObject({
       isOpen: true,
-      activeTabId: 'browser:1'
+      activeTabId: 'tab-1'
     })
   })
 
@@ -604,7 +618,7 @@ describe('ProjectSessionHostSurface', () => {
     const createTab = vi.fn(async () => ({
       contextKey: 'global-chat',
       activeTabId: 'tab-1',
-      tabs: []
+      tabs: [browserTab('tab-1', 'https://spacezero.dev/')]
     }))
     window.spacezero.agent.onSessionProjectionEvent = (nextListener) => {
       projectionListener = nextListener
@@ -639,7 +653,7 @@ describe('ProjectSessionHostSurface', () => {
     })
     expect(useSidePaneStore.getState().contexts['global-chat']).toMatchObject({
       isOpen: true,
-      activeTabId: 'browser:1'
+      activeTabId: 'tab-1'
     })
     expect(
       useSidePaneStore.getState().contexts['session:rotatable-global-chat-agent-session']

@@ -2,6 +2,7 @@ import { createElement, lazy, Suspense } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
 import type { BrowserContext } from '../../browser/shared'
+import { closeBrowserSidePaneTab, createBrowserSidePaneTab } from './browser-side-pane'
 import { openFilesLocation } from '../../files/renderer/files-open-location'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
@@ -88,7 +89,10 @@ export function createProjectHomeSidePaneConfiguration(project: {
               )
             : null
       },
-      createBrowserSidePaneCategoryDescriptor(),
+      createBrowserSidePaneCategoryDescriptor(contextKey, {
+        kind: 'project-home',
+        projectId: project.id
+      }),
       {
         ...categoryRegistry.terminal,
         available: true,
@@ -113,8 +117,9 @@ export function createProjectSessionSidePaneConfiguration(session: {
   id: string
   projectId: string
 }): SidePaneConfiguration {
+  const contextKey = sessionContextKey(session.id)
   return {
-    contextKey: sessionContextKey(session.id),
+    contextKey,
     capabilities: {
       kind: 'project-session',
       projectId: session.projectId,
@@ -164,7 +169,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
               )
             : null
       },
-      createBrowserSidePaneCategoryDescriptor(),
+      createBrowserSidePaneCategoryDescriptor(contextKey, {
+        kind: 'project-session',
+        projectId: session.projectId,
+        sessionId: session.id
+      }),
       {
         ...categoryRegistry.terminal,
         available: true,
@@ -195,7 +204,7 @@ export function createGlobalChatSidePaneConfiguration(): SidePaneConfiguration {
     capabilities: { kind: 'global-chat' },
     defaultCategoryId: 'browser',
     categories: [
-      createBrowserSidePaneCategoryDescriptor(),
+      createBrowserSidePaneCategoryDescriptor('global-chat', { kind: 'global-chat' }),
       {
         ...categoryRegistry.terminal,
         available: true,
@@ -271,7 +280,7 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
               )
             : null
       },
-      createBrowserSidePaneCategoryDescriptor(),
+      createBrowserSidePaneCategoryDescriptor('knowledge-base', { kind: 'knowledge-base' }),
       {
         ...categoryRegistry.terminal,
         available: true,
@@ -292,15 +301,26 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
   }
 }
 
-function createBrowserSidePaneCategoryDescriptor(): SidePaneCategoryDescriptor {
+function createBrowserSidePaneCategoryDescriptor(
+  contextKey: string,
+  context: BrowserContext
+): SidePaneCategoryDescriptor {
   return {
     ...categoryRegistry.browser,
     available: true,
-    render: ({ contextKey, capabilities }) =>
+    create: () => {
+      void createBrowserSidePaneTab({ contextKey, context }).catch(() => {
+        useSidePaneStore.getState().openCategory(contextKey, 'browser')
+      })
+    },
+    close: (tab) => {
+      void closeBrowserSidePaneTab({ contextKey, context, tabId: tab.id }).catch(() => undefined)
+    },
+    render: () =>
       createElement(
         Suspense,
         { fallback: createElement(BrowserToolLoading) },
-        createElement(BrowserTool, { contextKey, context: capabilities })
+        createElement(BrowserTool, { contextKey, context })
       )
   }
 }
@@ -317,9 +337,13 @@ function TerminalWithBrowserHandoff({
   return createElement(TerminalTool, {
     context: terminalContext,
     browserHandoff: {
-      contextKey: browserContextKey,
-      context: browserContext,
-      openBrowserTool: () => useSidePaneStore.getState().openCategory(browserContextKey, 'browser')
+      openBrowserPage: async (url: string) => {
+        await createBrowserSidePaneTab({
+          contextKey: browserContextKey,
+          context: browserContext,
+          input: url
+        })
+      }
     }
   })
 }

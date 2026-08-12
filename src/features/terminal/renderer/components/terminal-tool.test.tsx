@@ -138,13 +138,7 @@ describe('TerminalTool', () => {
   })
 
   it('exposes HTTP and HTTPS output as Terminal Links that activate only on mod+click and hand off to the contextual Browser', async () => {
-    const createTab = vi.fn(async () => ({
-      contextKey: 'session:session-1',
-      activeTabId: 'browser-tab-1',
-      tabs: []
-    }))
-    const openBrowserTool = vi.fn()
-    window.spacezero.browser.createTab = createTab
+    const openBrowserPage = vi.fn(async (_url: string) => undefined)
     window.spacezero.browser.openUrlInDefaultBrowser = vi.fn(async () => undefined)
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -162,16 +156,7 @@ describe('TerminalTool', () => {
       onEvent: vi.fn(() => () => undefined)
     }
 
-    render(
-      <TerminalTool
-        context={context}
-        browserHandoff={{
-          contextKey: 'session:session-1',
-          context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
-          openBrowserTool
-        }}
-      />
-    )
+    render(<TerminalTool context={context} browserHandoff={{ openBrowserPage }} />)
 
     await waitFor(() => expect(lastTerminal?.linkProviders).toHaveLength(1))
     lastTerminal!.setLines(['server: http://localhost:5173/ and https://example.com/docs.'])
@@ -191,29 +176,18 @@ describe('TerminalTool', () => {
       links[0]!.activate(new MouseEvent('click'), links[0]!.text)
       await Promise.resolve()
     })
-    expect(createTab).not.toHaveBeenCalled()
+    expect(openBrowserPage).not.toHaveBeenCalled()
 
     await act(async () => {
       links[0]!.activate(new MouseEvent('click', { metaKey: true }), links[0]!.text)
       await Promise.resolve()
     })
 
-    expect(createTab).toHaveBeenCalledWith({
-      contextKey: 'session:session-1',
-      context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
-      input: 'http://localhost:5173/'
-    })
-    expect(openBrowserTool).toHaveBeenCalledTimes(1)
+    expect(openBrowserPage).toHaveBeenCalledWith('http://localhost:5173/')
     expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
   })
 
   it('builds Terminal Links from complete wrapped logical lines with cell-aware ranges', async () => {
-    const createTab = vi.fn(async () => ({
-      contextKey: 'session:session-1',
-      activeTabId: 'browser-tab-1',
-      tabs: []
-    }))
-    window.spacezero.browser.createTab = createTab
     window.spacezero.browser.openUrlInDefaultBrowser = vi.fn(async () => undefined)
     window.spacezero.terminal = {
       ...terminalApiDefaults,
@@ -234,11 +208,7 @@ describe('TerminalTool', () => {
     render(
       <TerminalTool
         context={context}
-        browserHandoff={{
-          contextKey: 'session:session-1',
-          context: { kind: 'project-session', projectId: 'project-1', sessionId: 'session-1' },
-          openBrowserTool: vi.fn()
-        }}
+        browserHandoff={{ openBrowserPage: vi.fn(async () => undefined) }}
       />
     )
 
@@ -1154,7 +1124,10 @@ describe('TerminalTool', () => {
     fireEvent(inactiveTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
 
     await waitFor(() =>
-      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: 'terminal-2', context })
+      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({
+        terminalId: 'terminal-2',
+        context
+      })
     )
     expect(window.spacezero.terminal.selectTab).not.toHaveBeenCalled()
 
@@ -1166,7 +1139,10 @@ describe('TerminalTool', () => {
     fireEvent(activeTab, new MouseEvent('auxclick', { bubbles: true, button: 1 }))
 
     await waitFor(() =>
-      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({ terminalId: 'terminal-1', context })
+      expect(window.spacezero.terminal.close).toHaveBeenCalledWith({
+        terminalId: 'terminal-1',
+        context
+      })
     )
   })
 
@@ -1227,7 +1203,9 @@ describe('TerminalTool', () => {
 
     act(() => lastTerminal?.emitKeyDown('w', '\u0017'))
     await waitFor(() =>
-      expect(window.confirm).toHaveBeenCalledWith('Close this live terminal and terminate its shell?')
+      expect(window.confirm).toHaveBeenCalledWith(
+        'Close this live terminal and terminate its shell?'
+      )
     )
     expect(window.confirm).toHaveBeenCalledTimes(1)
     expect(close).not.toHaveBeenCalled()
@@ -1296,18 +1274,26 @@ describe('TerminalTool', () => {
       await user.click(lastTerminal!.getInputElement()!)
       await user.keyboard('{Control>}w{/Control}')
 
-      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[0], context }))
+      await waitFor(() =>
+        expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[0], context })
+      )
       await waitFor(() => expect(lastTerminal?.focus).toHaveBeenCalled())
       await user.keyboard('{Control>}w{/Control}')
 
-      await waitFor(() => expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[1], context }))
+      await waitFor(() =>
+        expect(close).toHaveBeenCalledWith({ terminalId: expectedSequentialCloses[1], context })
+      )
       expect(close).toHaveBeenCalledTimes(2)
       expect(window.spacezero.terminal.writeInput).not.toHaveBeenCalled()
     }
   )
 
   it.each([
-    { name: 'middle', initialActiveTerminalId: 'terminal-2', expectedActiveTerminalId: 'terminal-3' },
+    {
+      name: 'middle',
+      initialActiveTerminalId: 'terminal-2',
+      expectedActiveTerminalId: 'terminal-3'
+    },
     { name: 'last', initialActiveTerminalId: 'terminal-3', expectedActiveTerminalId: 'terminal-2' }
   ])(
     'keeps the adjacent $name-tab close selection synchronized with main state across remount',
@@ -1334,8 +1320,14 @@ describe('TerminalTool', () => {
       window.spacezero.terminal = {
         ...terminalApiDefaults,
         create: vi.fn(async () => {
-          if (!activeTerminalId) return { status: 'empty' as const, terminalId: null, tabs, activeTerminalId }
-          return { status: 'running' as const, terminalId: activeTerminalId, tabs, activeTerminalId }
+          if (!activeTerminalId)
+            return { status: 'empty' as const, terminalId: null, tabs, activeTerminalId }
+          return {
+            status: 'running' as const,
+            terminalId: activeTerminalId,
+            tabs,
+            activeTerminalId
+          }
         }),
         selectTab,
         subscribe: vi.fn(async ({ terminalId }) => ({
@@ -1382,8 +1374,8 @@ describe('TerminalTool', () => {
       { terminalId: 'terminal-3', title: 'three' }
     ]
     let activeTerminalId: string | null = 'terminal-2'
-    let resolveClose: ((value: { tabs: typeof tabs; activeTerminalId: string | null }) => void) | null =
-      null
+    let resolveClose:
+      ((value: { tabs: typeof tabs; activeTerminalId: string | null }) => void) | null = null
     window.spacezero.settings.getTerminalSettings = vi.fn(async () => ({
       confirmBeforeClosingLiveTerminals: false
     }))
@@ -1430,7 +1422,9 @@ describe('TerminalTool', () => {
 
     await screen.findByRole('tab', { name: 'Select terminal tab two', selected: true })
     await user.click(screen.getByRole('button', { name: 'Close Terminal' }))
-    await waitFor(() => expect(selectTab).toHaveBeenCalledWith({ terminalId: 'terminal-3', context }))
+    await waitFor(() =>
+      expect(selectTab).toHaveBeenCalledWith({ terminalId: 'terminal-3', context })
+    )
     await waitFor(() => expect(resolveClose).toBeTruthy())
 
     act(() => {
