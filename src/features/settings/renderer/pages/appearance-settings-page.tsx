@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { FontFamilyPreference } from '@shared/appearance-settings'
-import type { ThemePreference } from '@shared/theme'
+import type { FontFamilyPreference, ThemePreference } from '@shared/appearance-settings'
 
-import { useColorMode } from '@renderer/color-mode-provider'
+import { useAppearance } from '@renderer/appearance-provider'
 import {
   Select,
   SelectContent,
@@ -20,15 +19,15 @@ import { SettingsSection } from '../components/settings-section'
 
 export function AppearanceSettingsPage(): React.JSX.Element {
   const { t } = useTranslation()
-  const { themePreference, appearanceSettings, updateThemePreference, updateAppearanceSettings } =
-    useColorMode()
+  const { themePreference, fontFamily, thinFontAntialiasing, updateAppearanceSettings } =
+    useAppearance()
   const [appearanceError, setAppearanceError] = useState(false)
 
   async function handleThemePreferenceChange(preference: ThemePreference): Promise<void> {
     setAppearanceError(false)
 
     try {
-      await updateThemePreference(preference)
+      await updateAppearanceSettings({ themePreference: preference })
     } catch {
       setAppearanceError(true)
     }
@@ -82,7 +81,7 @@ export function AppearanceSettingsPage(): React.JSX.Element {
           </SettingsRow>
           <SettingsRow title="Font" description="Choose the interface typeface.">
             <Select
-              value={appearanceSettings.fontFamily}
+              value={fontFamily}
               onValueChange={(value) => void handleFontFamilyChange(value as FontFamilyPreference)}
             >
               <SelectTrigger size="sm" className="w-48" aria-label="Font">
@@ -110,7 +109,7 @@ export function AppearanceSettingsPage(): React.JSX.Element {
             description="Use thinner browser-style font rendering."
           >
             <Switch
-              checked={appearanceSettings.thinFontAntialiasing}
+              checked={thinFontAntialiasing}
               onCheckedChange={(checked) => void handleThinFontAntialiasingChange(Boolean(checked))}
             />
           </SettingsRow>
