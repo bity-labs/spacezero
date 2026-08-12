@@ -4,11 +4,11 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { AgentSessionProjectionEvent } from '../../../shared/agent-session-projection.model'
 
 import {
-  createKnowledgeBaseToolPaneConfiguration,
-  ToolPaneShell,
-  useToolPaneStore,
-  type ToolDescriptor
-} from '../../tool-pane/renderer'
+  createKnowledgeBaseSidePaneConfiguration,
+  SidePaneShell,
+  useSidePaneStore,
+  type SidePaneCategoryDescriptor
+} from '../../side-pane/renderer'
 import type { KnowledgeBaseChatContext, KnowledgeBaseStatus } from '../shared'
 import { KnowledgeBasePage } from './knowledge-base-page'
 
@@ -27,6 +27,17 @@ const managedChatContext = {
   agentSession: managedSession,
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString()
+}
+
+function sidePaneContext(categoryId: 'files' | 'browser', width: number) {
+  const tab = { id: `${categoryId}:1`, categoryId }
+  return {
+    isOpen: true,
+    width,
+    activeTabId: tab.id,
+    tabs: [tab],
+    categoryMru: { [categoryId]: tab.id }
+  }
 }
 
 function knowledgeBaseChatContext(id: string, agentSessionId: string): KnowledgeBaseChatContext {
@@ -109,22 +120,22 @@ describe('KnowledgeBasePage', () => {
     })
     window.spacezero.knowledgeBase.getCurrentChatContext = async () => managedChatContext
 
-    const configuration = createKnowledgeBaseToolPaneConfiguration()
-    const tools = configuration.tools.map((tool) =>
-      tool.id === 'files'
-        ? { ...tool, render: () => <section aria-label="Files explorer" /> }
-        : tool
+    const configuration = createKnowledgeBaseSidePaneConfiguration()
+    const categories = configuration.categories.map((category) =>
+      category.id === 'files'
+        ? { ...category, render: () => <section aria-label="Files explorer" /> }
+        : category
     )
 
     render(
-      <ToolPaneShell {...configuration} tools={tools}>
+      <SidePaneShell {...configuration} categories={categories}>
         <KnowledgeBasePage />
-      </ToolPaneShell>
+      </SidePaneShell>
     )
 
     expect(await screen.findByPlaceholderText('Ask about your Knowledge Base…')).toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Files' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
     expect(await screen.findByLabelText('Files explorer')).toBeInTheDocument()
   })
 
@@ -180,9 +191,9 @@ describe('KnowledgeBasePage', () => {
         input: 'https://example.com/kb'
       })
     )
-    expect(useToolPaneStore.getState().contexts['knowledge-base']).toMatchObject({
+    expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
       isOpen: true,
-      activeToolId: 'browser'
+      activeTabId: 'browser:1'
     })
   })
 
@@ -322,17 +333,17 @@ describe('KnowledgeBasePage', () => {
     })
     const prompt = vi.fn(async () => undefined)
     window.spacezero.agent.prompt = prompt
-    useToolPaneStore.setState({
+    useSidePaneStore.setState({
       contexts: {
-        'knowledge-base': { isOpen: true, width: 612, activeToolId: 'files' }
+        'knowledge-base': sidePaneContext('files', 612)
       }
     })
 
-    const configuration = createKnowledgeBaseToolPaneConfiguration()
+    const configuration = createKnowledgeBaseSidePaneConfiguration()
     render(
-      <ToolPaneShell {...configuration}>
+      <SidePaneShell {...configuration}>
         <KnowledgeBasePage />
-      </ToolPaneShell>
+      </SidePaneShell>
     )
 
     const input = await screen.findByRole('textbox', { name: 'Agent prompt' })
@@ -364,10 +375,10 @@ describe('KnowledgeBasePage', () => {
         message: 'Continue this reasoning.'
       })
     )
-    expect(useToolPaneStore.getState().contexts['knowledge-base']).toMatchObject({
+    expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
       isOpen: true,
       width: 612,
-      activeToolId: 'files'
+      activeTabId: 'files:1'
     })
   })
 
@@ -526,7 +537,7 @@ describe('KnowledgeBasePage', () => {
     })
   })
 
-  it('preserves Tool Pane and tool-owned state across chat rotation and layout across restart', async () => {
+  it('preserves Side Pane and tool-owned state across chat rotation and layout across restart', async () => {
     window.spacezero.knowledgeBase.getStatus = async () => ({
       setupState: 'configured',
       rootPath: '/home/builder/SpaceZero/knowledge-base'
@@ -544,13 +555,13 @@ describe('KnowledgeBasePage', () => {
       return replacementContext
     }
     const getState = vi.spyOn(window.spacezero.agent, 'getState')
-    useToolPaneStore.setState({
+    useSidePaneStore.setState({
       contexts: {
-        'knowledge-base': { isOpen: true, width: 640, activeToolId: 'browser' }
+        'knowledge-base': sidePaneContext('browser', 640)
       }
     })
 
-    const tools: readonly ToolDescriptor[] = [
+    const categories: readonly SidePaneCategoryDescriptor[] = [
       {
         id: 'browser',
         label: 'Browser',
@@ -561,14 +572,14 @@ describe('KnowledgeBasePage', () => {
     ]
     const renderKnowledgeBase = () =>
       render(
-        <ToolPaneShell
+        <SidePaneShell
           contextKey="knowledge-base"
           capabilities={{ kind: 'knowledge-base' }}
-          defaultToolId="browser"
-          tools={tools}
+          defaultCategoryId="browser"
+          categories={categories}
         >
           <KnowledgeBasePage />
-        </ToolPaneShell>
+        </SidePaneShell>
       )
 
     const firstRender = renderKnowledgeBase()
@@ -584,27 +595,27 @@ describe('KnowledgeBasePage', () => {
         sessionId: replacementSession.id
       })
     )
-    expect(screen.getByRole('complementary', { name: 'Tool Pane' })).toHaveStyle({ width: '640px' })
-    expect(screen.getByRole('button', { name: 'Browser' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toHaveStyle({ width: '640px' })
+    expect(screen.getByRole('tab', { name: 'Browser' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('textbox', { name: 'Browser draft' })).toHaveValue(
       'preserved tool draft'
     )
 
-    const persistedLayout = window.localStorage.getItem('spacezero.toolPane')
+    const persistedLayout = window.localStorage.getItem('spacezero.sidePane')
     expect(persistedLayout).not.toBeNull()
     firstRender.unmount()
-    useToolPaneStore.setState({ contexts: {} })
-    window.localStorage.setItem('spacezero.toolPane', persistedLayout!)
+    useSidePaneStore.setState({ contexts: {} })
+    window.localStorage.setItem('spacezero.sidePane', persistedLayout!)
     await act(async () => {
-      await useToolPaneStore.persist.rehydrate()
+      await useSidePaneStore.persist.rehydrate()
     })
 
     renderKnowledgeBase()
 
-    expect(await screen.findByRole('complementary', { name: 'Tool Pane' })).toHaveStyle({
+    expect(await screen.findByRole('complementary', { name: 'Side Pane' })).toHaveStyle({
       width: '640px'
     })
-    expect(screen.getByRole('button', { name: 'Browser' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('tab', { name: 'Browser' })).toHaveAttribute('aria-selected', 'true')
   })
 
   it('keeps the previous chat available and shows an actionable replacement failure', async () => {

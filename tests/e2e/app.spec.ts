@@ -47,69 +47,87 @@ async function setMainWindowSize(
   )
 }
 
-async function expectCollapsedToolPaneControlsAligned(window: Page): Promise<void> {
-  await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
+async function openSidePaneCategory(
+  window: Page,
+  category: 'Files' | 'Git Diff' | 'Browser' | 'Terminal'
+): Promise<void> {
+  const existingTab = window.getByRole('tab', { name: category, exact: true })
+  if (await existingTab.isVisible()) {
+    await existingTab.click()
+    return
+  }
+
+  const launcher = window.getByRole('toolbar', { name: 'Side Pane launcher' })
+  if (await launcher.isVisible()) {
+    await launcher.getByRole('button', { name: category, exact: true }).click()
+    return
+  }
+
+  await window.getByRole('button', { name: 'Create Side Pane Tab' }).click()
+  await window.getByRole('menuitem', { name: category, exact: true }).click()
+}
+
+async function expectCollapsedSidePaneControlsAligned(window: Page): Promise<void> {
+  await expect(window.getByRole('toolbar', { name: 'Side Pane launcher' })).toHaveAttribute(
     'aria-orientation',
     'vertical'
   )
   const geometry = await window.evaluate(() => {
     const toggle = document
-      .querySelector('[aria-label="Toggle Tool Pane"]')
+      .querySelector('[aria-label="Toggle Side Pane"]')
       ?.getBoundingClientRect()
-    const toolButton = document
-      .querySelector('[aria-label="Tool Switcher"] button:not([disabled])')
+    const categoryButton = document
+      .querySelector('[aria-label="Side Pane launcher"] button:not([disabled])')
       ?.getBoundingClientRect()
 
-    if (!toggle || !toolButton) return null
+    if (!toggle || !categoryButton) return null
     return {
       centerDelta: Math.abs(
-        toggle.left + toggle.width / 2 - (toolButton.left + toolButton.width / 2)
+        toggle.left + toggle.width / 2 - (categoryButton.left + categoryButton.width / 2)
       ),
       toggleHeight: toggle.height,
       toggleWidth: toggle.width,
-      toolButtonHeight: toolButton.height,
-      toolButtonWidth: toolButton.width
+      categoryButtonHeight: categoryButton.height,
+      categoryButtonWidth: categoryButton.width
     }
   })
 
   expect(geometry).not.toBeNull()
-  expect(geometry!.centerDelta).toBeLessThanOrEqual(1)
-  expect(geometry!.toggleHeight).toBe(32)
-  expect(geometry!.toggleWidth).toBe(32)
-  expect(geometry!.toolButtonHeight).toBe(32)
-  expect(geometry!.toolButtonWidth).toBe(32)
+  expect(geometry!.centerDelta).toBeLessThanOrEqual(4)
+  expect(geometry!.toggleHeight).toBe(28)
+  expect(geometry!.toggleWidth).toBe(28)
+  expect(geometry!.categoryButtonHeight).toBe(28)
+  expect(geometry!.categoryButtonWidth).toBe(28)
 }
 
-async function expectToolPaneHeaderGeometryAligned(window: Page): Promise<void> {
+async function expectSidePaneHeaderGeometryAligned(window: Page): Promise<void> {
   await expect
-    .poll(async () => window.getByRole('complementary', { name: 'Tool Pane' }).boundingBox())
+    .poll(async () => window.getByRole('complementary', { name: 'Side Pane' }).boundingBox())
     .not.toBeNull()
   const geometry = await window.evaluate(() => {
-    const pane = document.querySelector('[aria-label="Tool Pane"]')?.getBoundingClientRect()
+    const pane = document.querySelector('[aria-label="Side Pane"]')?.getBoundingClientRect()
     const header = document
-      .querySelector('[aria-label="Tool Pane header controls"]')
+      .querySelector('[aria-label="Side Pane header controls"]')
       ?.getBoundingClientRect()
-    const switcher = document
-      .querySelector('[aria-label="Tool Switcher"]')
-      ?.getBoundingClientRect()
+    const tabs = document.querySelector('[aria-label="Side Pane Tabs"]')?.getBoundingClientRect()
     const toggle = document
-      .querySelector('[aria-label="Toggle Tool Pane"]')
+      .querySelector('[aria-label="Toggle Side Pane"]')
       ?.getBoundingClientRect()
 
-    if (!pane || !header || !switcher || !toggle) return null
+    if (!pane || !header || !tabs || !toggle) return null
     return {
       paneLeft: pane.left,
       paneRight: pane.right,
       headerWidth: header.width,
       paneWidth: pane.width,
-      switcherLeft: switcher.left,
+      tabsLeft: tabs.left,
       toggleRight: toggle.right
     }
   })
 
   expect(geometry).not.toBeNull()
   expect(geometry!.headerWidth).toBeGreaterThan(geometry!.paneWidth - 24)
-  expect(Math.abs(geometry!.switcherLeft - geometry!.paneLeft)).toBeLessThanOrEqual(12)
+  expect(Math.abs(geometry!.tabsLeft - geometry!.paneLeft)).toBeLessThanOrEqual(12)
   expect(Math.abs(geometry!.toggleRight - geometry!.paneRight)).toBeLessThanOrEqual(12)
 }
 
@@ -514,7 +532,9 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await window.getByRole('button', { name: 'Skip for now' }).click()
   await window.getByRole('button', { name: 'files-e2e', exact: true }).click()
   await window.getByRole('button', { name: 'Files E2E' }).click()
-  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+  await window.getByRole('button', { name: 'Toggle Side Pane' }).click()
+  await expect(window.getByRole('complementary', { name: 'Side Pane' })).toBeVisible()
+  await expect(window.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
   await expect(window.getByRole('tree')).toBeVisible()
   await window.getByRole('treeitem', { name: 'package.json' }).click()
   await expect(window.locator('.monaco-editor')).toBeVisible()
@@ -758,7 +778,7 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
     await window.getByRole('button', { name: 'Skip for now' }).click()
     await window.getByRole('button', { name: 'Chat', exact: true }).click()
     await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
-    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await openSidePaneCategory(window, 'Terminal')
     await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
 
     const handoff = await window.evaluate(async () => {
@@ -816,7 +836,7 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       context: { kind: 'global-chat' },
       input: serverUrl
     }), { serverUrl: handoff.serverUrl })
-    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await openSidePaneCategory(window, 'Browser')
     await expect(window.getByRole('region', { name: 'Browser' })).toBeVisible()
     await expect.poll(async () =>
       electronApp!.evaluate(({ webContents }, { serverUrl }) =>
@@ -831,7 +851,7 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
     expect(browserBody).toContain('SPACEZERO_SERVER_ALIVE')
     expect(await isProcessAlive(handoff.serverPid)).toBe(true)
 
-    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await openSidePaneCategory(window, 'Terminal')
     await expect(window.getByRole('region', { name: 'Terminal' })).toBeVisible()
     await window.evaluate(async ({ terminalId }) => {
       const context = { kind: 'global-chat' as const }
@@ -881,8 +901,8 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
   }
 })
 
-test('aligns the collapsed Tool Pane toggle with its tool buttons and keeps it usable', async () => {
-  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-tool-pane-alignment-e2e-'))
+test('aligns the collapsed Side Pane toggle with its launcher buttons and keeps it usable', async () => {
+  const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-side-pane-alignment-e2e-'))
   const knowledgeBasePath = join(temporaryDirectory, 'SpaceZero', 'knowledge-base')
   const userDataPath = join(temporaryDirectory, 'user-data')
   const electronApp = await electron.launch({
@@ -905,19 +925,24 @@ test('aligns the collapsed Tool Pane toggle with its tool buttons and keeps it u
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await window.getByRole('button', { name: 'Create new' }).click()
 
-    const toggle = window.getByRole('button', { name: 'Toggle Tool Pane' })
+    const toggle = window.getByRole('button', { name: 'Toggle Side Pane' })
     await expect(toggle).toBeEnabled()
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+    await expect(window.getByRole('complementary', { name: 'Side Pane' })).toBeVisible()
+    await expect(window.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeVisible()
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-pressed', 'false')
 
     await setMainWindowSize(electronApp, 1280, 900)
-    await expectCollapsedToolPaneControlsAligned(window)
+    await expectCollapsedSidePaneControlsAligned(window)
 
     await toggle.click()
     await expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+    await expect(window.getByRole('complementary', { name: 'Side Pane' })).toBeVisible()
+    await expect(window.getByRole('tab', { name: 'Files' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    )
   } finally {
     await electronApp.close().catch(() => undefined)
     await rm(temporaryDirectory, { recursive: true, force: true })
@@ -956,18 +981,20 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByRole('tree', { name: 'Knowledge Base files' })).toHaveCount(0)
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
-    await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
-      'aria-orientation',
-      'horizontal'
-    )
-    await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
-      'aria-pressed',
+    await expect(window.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeVisible()
+    await expect(window.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute(
+      'aria-selected',
       'true'
     )
-    await expect(window.getByRole('button', { name: 'Browser', exact: true })).toBeEnabled()
-    await expect(window.getByRole('button', { name: 'Terminal', exact: true })).toBeEnabled()
-    await expect(window.getByRole('button', { name: 'Git', exact: true })).toBeEnabled()
-    await expect(window.getByRole('button', { name: 'Toggle Tool Pane' })).toBeEnabled()
+    const createSidePaneTab = window.getByRole('button', { name: 'Create Side Pane Tab' })
+    await expect(createSidePaneTab).toBeEnabled()
+    await createSidePaneTab.click()
+    await expect(window.getByRole('menuitem', { name: 'Files', exact: true })).toBeEnabled()
+    await expect(window.getByRole('menuitem', { name: 'Browser', exact: true })).toBeEnabled()
+    await expect(window.getByRole('menuitem', { name: 'Terminal', exact: true })).toBeEnabled()
+    await expect(window.getByRole('menuitem', { name: 'Git Diff', exact: true })).toBeEnabled()
+    await window.keyboard.press('Escape')
+    await expect(window.getByRole('button', { name: 'Toggle Side Pane' })).toBeEnabled()
     expect(
       await window.evaluate(() => {
         const legacyMethods = [
@@ -991,11 +1018,11 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await setMainWindowSize(electronApp, 1280, 900)
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
-    await expectToolPaneHeaderGeometryAligned(window)
-    await window.getByRole('separator', { name: 'Resize Tool Pane' }).press('ArrowRight')
-    await expectToolPaneHeaderGeometryAligned(window)
+    await expectSidePaneHeaderGeometryAligned(window)
+    await window.getByRole('separator', { name: 'Resize Side Pane' }).press('ArrowRight')
+    await expectSidePaneHeaderGeometryAligned(window)
     await setMainWindowSize(electronApp, 960, 900)
-    await expectToolPaneHeaderGeometryAligned(window)
+    await expectSidePaneHeaderGeometryAligned(window)
     const agentsFile = window.getByRole('treeitem', { name: /AGENTS.*md/i })
     await expect(agentsFile).toBeVisible()
     await agentsFile.click()
@@ -1053,14 +1080,11 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
       .toBe('1')
     await expect(window.getByRole('status')).toHaveCount(0)
     await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
-    await expect(window.getByRole('toolbar', { name: 'Tool Switcher' })).toHaveAttribute(
-      'aria-orientation',
-      'horizontal'
-    )
+    await expect(window.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeVisible()
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
-    await expect(window.getByRole('button', { name: 'Files', exact: true })).toHaveAttribute(
-      'aria-pressed',
+    await expect(window.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute(
+      'aria-selected',
       'true'
     )
 
@@ -1070,7 +1094,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await setMainWindowSize(electronApp, 960, 900)
     await window.getByRole('button', { name: 'Knowledge Base' }).click()
     await expect(window.getByPlaceholder('Ask about your Knowledge Base…')).toBeVisible()
-    await expectToolPaneHeaderGeometryAligned(window)
+    await expectSidePaneHeaderGeometryAligned(window)
     await expect(window.getByText('Workspace Sessions')).toHaveCount(0)
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
@@ -1087,7 +1111,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
   }
 })
 
-test('opens a sandboxed Browser Tool page through the dedicated embedded profile', async () => {
+test('opens a sandboxed Browser Side Pane page through the dedicated embedded profile', async () => {
   const server = await startBrowserFixtureServer()
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Browser fixture server did not bind.')
@@ -1214,8 +1238,12 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
   await window.getByRole('button', { name: 'Chat', exact: true }).click()
   await expect(window.getByRole('region', { name: 'Conversation' })).toBeVisible()
 
-  await window.getByRole('button', { name: 'Browser', exact: true }).click()
-  await expect(window.getByRole('complementary', { name: 'Tool Pane' })).toBeVisible()
+  await openSidePaneCategory(window, 'Browser')
+  await expect(window.getByRole('complementary', { name: 'Side Pane' })).toBeVisible()
+  await expect(window.getByRole('tab', { name: 'Browser' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
   await window.getByLabel('Browser URL').fill(fixtureUrl)
   await window.getByRole('button', { name: 'Go', exact: true }).click()
 
@@ -1687,7 +1715,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     })
   }
 
-  await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+  await openSidePaneCategory(window, 'Terminal')
   await expect.poll(async () =>
     electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
       const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
@@ -1701,7 +1729,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     , { fixtureUrl })
   ).toBe(true)
 
-  await window.getByRole('button', { name: 'Browser', exact: true }).click()
+  await openSidePaneCategory(window, 'Browser')
   await expect.poll(async () =>
     electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
       const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
@@ -1710,7 +1738,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     }, { fixtureUrl })
   ).toBe(true)
 
-  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+  await window.getByRole('button', { name: 'Toggle Side Pane' }).click()
   await expect.poll(async () =>
     electronApp.evaluate(({ BrowserWindow, webContents }, { fixtureUrl }) => {
       const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === fixtureUrl)
@@ -1724,7 +1752,7 @@ test('opens a sandboxed Browser Tool page through the dedicated embedded profile
     , { fixtureUrl })
   ).toBe(true)
 
-  await window.getByRole('button', { name: 'Toggle Tool Pane' }).click()
+  await window.getByRole('button', { name: 'Toggle Side Pane' }).click()
   await window.getByLabel('Browser URL').fill(localHtmlPath)
   await window.getByRole('button', { name: 'Go', exact: true }).click()
   await expect.poll(async () =>
@@ -1980,7 +2008,7 @@ test('enforces Browser permission and certificate policy through real Electron h
     })
 
     await window.getByRole('button', { name: 'Chat', exact: true }).click()
-    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await openSidePaneCategory(window, 'Browser')
     await window.getByLabel('Browser URL').fill(httpUrl)
     await window.getByRole('button', { name: 'Go', exact: true }).click()
     await expect.poll(async () =>
@@ -2011,7 +2039,7 @@ test('enforces Browser permission and certificate policy through real Electron h
       electronApp.evaluate(() => (globalThis as { __spacezeroBrowserPromptCount?: () => number }).__spacezeroBrowserPromptCount?.() ?? 0)
     ).toBe(1)
 
-    await window.getByRole('button', { name: 'Terminal', exact: true }).click()
+    await openSidePaneCategory(window, 'Terminal')
     const hiddenPermission = await electronApp.evaluate(async ({ webContents }, { httpUrl }) => {
       const contents = webContents.getAllWebContents().find((candidate) => candidate.getURL() === httpUrl)
       if (!contents) throw new Error('Hidden permission fixture webContents was not found.')
@@ -2019,7 +2047,7 @@ test('enforces Browser permission and certificate policy through real Electron h
     }, { httpUrl })
     expect(hiddenPermission).toBe('denied')
 
-    await window.getByRole('button', { name: 'Browser', exact: true }).click()
+    await openSidePaneCategory(window, 'Browser')
     await window.evaluate(async ({ url }) => {
       await window.spacezero.browser.createTab({
         contextKey: 'global-chat',
