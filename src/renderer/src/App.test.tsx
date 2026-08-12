@@ -974,6 +974,41 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Close settings' })).toBeInTheDocument()
   })
 
+  it('preserves Settings navigation order and opens every Settings page', async () => {
+    await act(async () => {
+      await router.navigate({ to: '/settings' })
+    })
+    render(<App />)
+
+    await screen.findByRole('main', { name: 'Settings' })
+    const primaryNavigation = screen.getByRole('list', { name: 'Settings navigation' })
+    const secondaryNavigation = screen.getByRole('list', { name: 'Experimental settings' })
+
+    expect(
+      within(primaryNavigation)
+        .getAllByRole('link')
+        .map((link) => link.textContent)
+    ).toEqual(['General', 'Providers', 'Account', 'Appearance', 'About'])
+    expect(
+      within(secondaryNavigation)
+        .getAllByRole('link')
+        .map((link) => link.textContent)
+    ).toEqual(['Agents', 'Skills', 'UI Debug'])
+
+    for (const page of [
+      'Providers',
+      'Account',
+      'Appearance',
+      'About',
+      'Agents',
+      'Skills',
+      'UI Debug'
+    ]) {
+      fireEvent.click(screen.getByRole('link', { name: page }))
+      expect(await screen.findByRole('heading', { name: page })).toBeInTheDocument()
+    }
+  })
+
   it('shows only implemented Settings categories and opens the account area from the sidebar', async () => {
     render(<App />)
 

@@ -161,9 +161,9 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@rende
 import { CodeText, Heading, Kbd, Text } from '@renderer/components/ui/typography'
 import { useAppearance } from '@renderer/appearance-provider'
 
-import { SettingsPageHeader } from './settings-page-header'
-import { SettingsRow } from './settings-row'
-import { SettingsSection } from './settings-section'
+import { SettingsPageHeader } from '../components/settings-page-header'
+import { SettingsRow } from '../components/settings-row'
+import { SettingsSection } from '../components/settings-section'
 
 type DebugThemePreview = 'light' | 'dark' | 'dark-high-contrast'
 type DebugFontFamily =
@@ -180,7 +180,7 @@ type DebugFontFamily =
   | 'monospace'
 type UiDebugTab = 'primitives' | 'ai' | 'typography' | 'components'
 
-export function UiDebugPage(): React.JSX.Element {
+export function UiDebugSettingsPage(): React.JSX.Element {
   const [switchEnabled, setSwitchEnabled] = useState(true)
   const [selectedTab, setSelectedTab] = useState<UiDebugTab>('primitives')
   const { resolvedTheme } = useAppearance()
