@@ -31,6 +31,7 @@ export type SidePaneCategoryDescriptor = {
   label: string
   available: boolean
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
+  open?: () => void
   create?: () => void
   close?: (tab: SidePaneTab) => void
   render?: (context: { contextKey: string; capabilities: SidePaneContextCapabilities }) => ReactNode
@@ -231,9 +232,9 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   const openCategory = useCallback(
     (categoryId: SidePaneCategoryId) => {
       const category = configuration?.categories.find((candidate) => candidate.id === categoryId)
-      if (configuration && category?.available) {
-        openCategoryInContext(configuration.contextKey, categoryId)
-      }
+      if (!configuration || !category?.available) return
+      if (category.open) category.open()
+      else openCategoryInContext(configuration.contextKey, categoryId)
     },
     [configuration, openCategoryInContext]
   )

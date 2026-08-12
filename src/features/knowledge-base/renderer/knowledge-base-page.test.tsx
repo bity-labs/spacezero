@@ -30,7 +30,10 @@ const managedChatContext = {
 }
 
 function sidePaneContext(categoryId: 'files' | 'browser', width: number) {
-  const tab = { id: `${categoryId}:1`, categoryId }
+  const tab = {
+    id: categoryId === 'browser' ? 'browser-tab-main-owned' : `${categoryId}:1`,
+    categoryId
+  }
   return {
     isOpen: true,
     width,
