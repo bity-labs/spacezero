@@ -91,6 +91,60 @@ describe('SidePaneShell', () => {
     ])
   })
 
+  it('restores a persisted-empty Knowledge Base with its initial Files tab once per mount', async () => {
+    window.localStorage.setItem(
+      'spacezero.sidePane',
+      JSON.stringify({
+        state: {
+          contexts: {
+            'knowledge-base': {
+              isOpen: false,
+              width: 640,
+              activeTabId: null,
+              tabs: [],
+              categoryMru: {}
+            }
+          }
+        },
+        version: 1
+      })
+    )
+    await useSidePaneStore.persist.rehydrate()
+    const user = userEvent.setup()
+
+    render(
+      <SidePaneShell
+        {...configuration}
+        capabilities={{ kind: 'knowledge-base' }}
+        contextKey="knowledge-base"
+        defaultOpen
+      >
+        <div>Knowledge Base Chat</div>
+      </SidePaneShell>
+    )
+
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toHaveTextContent(
+      'Files for knowledge-base'
+    )
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
+    expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
+      isOpen: true,
+      width: 640,
+      activeTabId: 'files:1',
+      tabs: [{ id: 'files:1', categoryId: 'files' }]
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Close Files' }))
+
+    expect(screen.queryByRole('complementary', { name: 'Side Pane' })).not.toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Side Pane launcher' })).toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
+      isOpen: false,
+      activeTabId: null,
+      tabs: []
+    })
+  })
+
   it('uses the expanded plus menu to create and focus category tabs', async () => {
     const user = userEvent.setup()
     render(

@@ -68,6 +68,7 @@ export function SidePaneShell({
   const openDefaultCategory = useSidePaneStore((state) => state.openCategory)
   const setWidth = useSidePaneStore((state) => state.setWidth)
   const containerRef = useRef<HTMLDivElement>(null)
+  const initializedDefaultOpenContextsRef = useRef(new Set<string>())
   const [containerWidth, setContainerWidth] = useState(() => window.innerWidth)
   const activeCategory = categories.find(
     (category) => category.id === controller.activeTab?.categoryId
@@ -76,7 +77,11 @@ export function SidePaneShell({
   const renderedWidth = getRenderedSidePaneWidth(containerWidth, savedState?.width)
 
   useLayoutEffect(() => {
-    if (!savedState && defaultOpen) openDefaultCategory(contextKey, defaultCategoryId)
+    if (!defaultOpen || initializedDefaultOpenContextsRef.current.has(contextKey)) return
+    initializedDefaultOpenContextsRef.current.add(contextKey)
+    if (!savedState || savedState.tabs.length === 0) {
+      openDefaultCategory(contextKey, defaultCategoryId)
+    }
   }, [contextKey, defaultCategoryId, defaultOpen, openDefaultCategory, savedState])
 
   useLayoutEffect(() => {
