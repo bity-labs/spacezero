@@ -6,15 +6,14 @@ export type FilesOpenLocation = {
   ipcContext: FilesContext
   relativePath: string
   line?: number
+  character?: number
   intent?: FilesOpenTabIntent
   revalidateExisting?: boolean
   allowMetadata?: boolean
 }
 
 export type FilesOpenLocationResult =
-  | { status: 'opened' }
-  | { status: 'ignored' }
-  | { status: 'failed'; message: string }
+  { status: 'opened' } | { status: 'ignored' } | { status: 'failed'; message: string }
 
 let nextOpenLocationRequestId = 10_000
 
@@ -23,6 +22,7 @@ export async function openFilesLocation({
   ipcContext,
   relativePath,
   line,
+  character,
   intent = 'preview',
   revalidateExisting = true,
   allowMetadata = false
@@ -36,7 +36,8 @@ export async function openFilesLocation({
     intent,
     requestId,
     line,
-    revalidateExisting
+    revalidateExisting,
+    character
   )
   if (!shouldFetch) return { status: 'opened' }
 

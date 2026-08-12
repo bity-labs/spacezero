@@ -64,14 +64,14 @@ import {
 } from '../files-store'
 import { registerFilesEditorViewStateFlush } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
-import { migrateFilesMonacoEditorState } from '../lib/files-editor-state-migration'
-import { createFilesMonacoModelPath, getFilesEditorLanguage } from '../lib/files-editor-model'
+import { createFilesDocumentCacheKey } from '../lib/files-document-identity'
 import { getFilesRowDecoration } from '../lib/files-row-annotations'
-import { configureFilesMonacoEnvironment } from '../lib/monaco-environment'
-import { FilesMonacoEditor, type FilesMonacoEditorMount } from './files-monaco-editor'
+import {
+  FilesDiffsEditor,
+  type FilesDiffsEditorHandle,
+  type FilesSourceEditorState
+} from './files-diffs-editor'
 import { FilesTabIcon } from './files-tab-icon'
-
-configureFilesMonacoEnvironment()
 
 type RootState =
   | { status: 'loading' }
@@ -739,7 +739,6 @@ function FilesToolSession({
         destinationPath: destinationPath.trim()
       })
       const destination = destinationPath.trim()
-      migrateFilesMonacoEditorState(sessionId, sourcePath, destination)
       rewritePaths(sessionId, sourcePath, destination)
       await revealTreePath(destination)
       refreshActiveSearch()
@@ -1554,40 +1553,40 @@ function FilesTabStrip({
 
   return (
     <TabBar ariaLabel="Open files">
-        {tabs.map((tab) => {
-          const active = tab.relativePath === activeTabPath
-          const dirty = tab.status === 'ready' && tab.dirty
-          return (
-            <Tab
-              key={tab.relativePath}
-              closeTitle={
-                dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
+      {tabs.map((tab) => {
+        const active = tab.relativePath === activeTabPath
+        const dirty = tab.status === 'ready' && tab.dirty
+        return (
+          <Tab
+            key={tab.relativePath}
+            closeTitle={
+              dirty ? 'Save or discard changes before closing this tab.' : `Close ${tab.name}`
+            }
+            draggable
+            icon={<FilesTabIcon fileName={tab.name} />}
+            label={tab.name}
+            labelSuffix={tab.preview ? <span className="sr-only"> preview</span> : null}
+            leading={dirty ? <span>● </span> : null}
+            preview={tab.preview}
+            selected={active}
+            onSelect={() => onActivate(sessionId, tab.relativePath)}
+            onClose={() => onClose(sessionId, tab.relativePath)}
+            onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
+            onDragOver={(event) => event.preventDefault()}
+            onDragStart={() => {
+              draggedPathRef.current = tab.relativePath
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              const sourcePath = draggedPathRef.current
+              draggedPathRef.current = null
+              if (sourcePath) {
+                onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
               }
-              draggable
-              icon={<FilesTabIcon fileName={tab.name} />}
-              label={tab.name}
-              labelSuffix={tab.preview ? <span className="sr-only"> preview</span> : null}
-              leading={dirty ? <span>● </span> : null}
-              preview={tab.preview}
-              selected={active}
-              onSelect={() => onActivate(sessionId, tab.relativePath)}
-              onClose={() => onClose(sessionId, tab.relativePath)}
-              onDoubleClick={() => onPromote(sessionId, tab.relativePath)}
-              onDragOver={(event) => event.preventDefault()}
-              onDragStart={() => {
-                draggedPathRef.current = tab.relativePath
-              }}
-              onDrop={(event) => {
-                event.preventDefault()
-                const sourcePath = draggedPathRef.current
-                draggedPathRef.current = null
-                if (sourcePath) {
-                  onReorder(sessionId, sourcePath, tab.relativePath, tabDropPosition(event))
-                }
-              }}
-            />
-          )
-        })}
+            }}
+          />
+        )
+      })}
     </TabBar>
   )
 }
@@ -1722,15 +1721,10 @@ function FilesReadyEditorPanel({
   onCloseDeletedTab: (relativePath: string) => void
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
-  const onSaveRef = useRef(onSave)
-  const editorRef = useRef<Parameters<FilesMonacoEditorMount>[0] | null>(null)
+  const editorRef = useRef<FilesDiffsEditorHandle | null>(null)
   const richScrollContainerRef = useRef<HTMLElement | null>(null)
   const flushEditorViewState = useCallback(() => {
-    const editor = editorRef.current
-    const viewState = typeof editor?.saveViewState === 'function' ? editor.saveViewState() : null
-    if (viewState) {
-      useFilesStore.getState().setMonacoViewState(sessionId, document.relativePath, viewState)
-    }
+    editorRef.current?.getState()
     const richScrollContainer = richScrollContainerRef.current
     if (richScrollContainer) {
       useFilesStore
@@ -1738,29 +1732,6 @@ function FilesReadyEditorPanel({
         .setRichScrollTop(sessionId, document.relativePath, richScrollContainer.scrollTop)
     }
   }, [document.relativePath, sessionId])
-  useEffect(() => {
-    onSaveRef.current = onSave
-  }, [onSave])
-  const editorOptions = useMemo(
-    () => ({ minimap: { enabled: false }, scrollBeyondLastLine: false }),
-    []
-  )
-  const handleEditorMount = useCallback<FilesMonacoEditorMount>(
-    (editor, monaco) => {
-      editorRef.current = editor
-      const savedViewState = getFilesEditorViewState(
-        sessionId,
-        document.relativePath
-      )?.monacoViewState
-      if (savedViewState) {
-        editor.restoreViewState(savedViewState as Parameters<typeof editor.restoreViewState>[0])
-      }
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
-        void onSaveRef.current()
-      })
-    },
-    [document.relativePath, sessionId]
-  )
 
   useEffect(() => {
     return registerFilesEditorViewStateFlush(flushEditorViewState)
@@ -1774,19 +1745,6 @@ function FilesReadyEditorPanel({
     }
   }, [flushEditorViewState])
 
-  useEffect(() => {
-    if (document.targetLine === undefined) return
-    const editor = editorRef.current
-    if (!editor) return
-    editor.revealLineInCenter(document.targetLine)
-    editor.setPosition({ lineNumber: document.targetLine, column: 1 })
-    editor.focus()
-    if (document.locationRequestId !== undefined) {
-      useFilesStore
-        .getState()
-        .clearLocationTarget(sessionId, document.relativePath, document.locationRequestId)
-    }
-  }, [document.locationRequestId, document.relativePath, document.targetLine, sessionId])
   const supportsRichMode = isMarkdownDocumentPath(document.relativePath)
   const richModeLimitation = supportsRichMode
     ? getRichMarkdownLimitation(document.draft, { isMdx: isMdxPath(document.relativePath) })
@@ -1799,8 +1757,6 @@ function FilesReadyEditorPanel({
       ? 'rich'
       : 'source'
   const { resolvedTheme } = useAppearance()
-  const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
-  const language = getFilesEditorLanguage(document.relativePath)
   const richImageAdapter = useMemo(
     () => createRichImageAdapter?.(document.relativePath),
     [createRichImageAdapter, document.relativePath]
@@ -1913,15 +1869,40 @@ function FilesReadyEditorPanel({
             }}
           />
         ) : (
-          <FilesMonacoEditor
-            height="100%"
-            language={language}
-            options={editorOptions}
-            path={createFilesMonacoModelPath(sessionId, document.relativePath)}
-            theme={monacoTheme}
+          <FilesDiffsEditor
+            ref={editorRef}
+            cacheKey={createFilesDocumentCacheKey(
+              sessionId,
+              document.relativePath,
+              document.editorStateKey
+            )}
+            contextKey={sessionId}
+            fileName={document.relativePath}
+            initialState={
+              getFilesEditorViewState(sessionId, document.relativePath)?.sourceViewState as
+                FilesSourceEditorState | undefined
+            }
+            targetLocation={
+              document.targetLine === undefined
+                ? undefined
+                : { line: document.targetLine, character: document.targetCharacter }
+            }
+            theme={resolvedTheme}
             value={document.draft}
-            onChange={(value) => onChange(value ?? '')}
-            onMount={handleEditorMount}
+            onChange={onChange}
+            onSave={onSave}
+            onStateChange={(viewState) =>
+              useFilesStore
+                .getState()
+                .setSourceViewState(sessionId, document.relativePath, viewState)
+            }
+            onTargetLocationApplied={() => {
+              if (document.locationRequestId !== undefined) {
+                useFilesStore
+                  .getState()
+                  .clearLocationTarget(sessionId, document.relativePath, document.locationRequestId)
+              }
+            }}
           />
         )}
       </div>
