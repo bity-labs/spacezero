@@ -22,8 +22,10 @@ describe('Files renderer state', () => {
     const store = useFilesStore.getState()
     store.setExplorerWidth('session-1', 280)
     store.setExplorerCollapsed('session-1', true)
+    store.setExplorerScrollTop('session-1', 144)
     store.setSelectedPath('session-1', 'src/one.ts')
     store.setExpanded('session-1', 'src', true)
+    store.setExplorerSearch('session-1', 'contents', 'revision conflict')
 
     store.setExplorerWidth('session-2', 360)
     store.setSelectedPath('session-2', 'README.md')
@@ -32,14 +34,22 @@ describe('Files renderer state', () => {
       'session-1': {
         explorerWidth: 280,
         explorerCollapsed: true,
+        explorerScrollTop: 144,
         selectedPath: 'src/one.ts',
-        expandedPaths: ['src']
+        expandedPaths: ['src'],
+        explorerSearchMode: 'contents',
+        filesSearchQuery: '',
+        contentSearchQuery: 'revision conflict'
       },
       'session-2': {
         explorerWidth: 360,
         explorerCollapsed: false,
+        explorerScrollTop: 0,
         selectedPath: 'README.md',
-        expandedPaths: []
+        expandedPaths: [],
+        explorerSearchMode: 'files',
+        filesSearchQuery: '',
+        contentSearchQuery: ''
       }
     })
   })

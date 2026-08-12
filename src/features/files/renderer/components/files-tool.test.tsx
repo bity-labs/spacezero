@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useRef, type ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const diffsEditorMock = vi.hoisted(() => ({
@@ -373,6 +374,7 @@ vi.mock('@pierre/trees/react', async () => {
     return model
   }
 
+  /* eslint-disable react-hooks/refs -- the Trees fake keeps one imperative model identity across test renders. */
   function useFileTree(options: TreeOptions): { model: MockModel } {
     treesMock.options.push(options)
     const [, setRevision] = React.useState(0)
@@ -387,6 +389,7 @@ vi.mock('@pierre/trees/react', async () => {
     }
     return { model: modelRef.current }
   }
+  /* eslint-enable react-hooks/refs */
 
   function FileTree({
     model,
@@ -614,6 +617,7 @@ vi.mock('./files-diffs-editor', async () => {
           diffsEditorMock.focus()
           onTargetLocationApplied?.()
         }, [onTargetLocationApplied, targetLocation])
+        // eslint-disable-next-line react-hooks/immutability -- the editor fake exposes the latest save handler to assertions.
         diffsEditorMock.saveCommand = onSave
         return (
           <textarea
@@ -722,10 +726,82 @@ vi.mock('@renderer/components/rich-markdown-editor', async () => {
   }
 })
 
+import { Tab, TabBar } from '@renderer/components/tab-bar'
+import { resetSidePaneStore, useSidePaneStore } from '../../../side-pane/renderer'
 import { flushFilesEditorViewStates } from '../files-editor-view-state-registry'
 import { openFilesLocation } from '../files-open-location'
-import { useFilesStore } from '../files-store'
-import { FILES_SAVE_ALL_COMMAND_ID, FilesTool } from './files-tool'
+import { resetFilesStore, useFilesStore } from '../files-store'
+import {
+  FILES_CLOSE_ACTIVE_TAB_COMMAND_ID,
+  FILES_SAVE_ALL_COMMAND_ID,
+  FilesTool as FilesToolSurface
+} from './files-tool'
+import { FilesTabIcon } from './files-tab-icon'
+
+function FilesTool(props: ComponentProps<typeof FilesToolSurface>): React.JSX.Element {
+  const contextKey = 'sessionId' in props ? props.sessionId : props.contextKey
+  const context = useFilesStore((state) => state.contexts[contextKey])
+  const draggedPathRef = useRef<string | null>(null)
+
+  return (
+    <>
+      {context?.tabs.length ? (
+        <TabBar ariaLabel="Open files">
+          {context.tabs.map((tab) => {
+            const dirty = tab.status === 'ready' && tab.dirty
+            return (
+              <Tab
+                key={tab.relativePath}
+                closeTitle={dirty ? 'Save or discard changes before closing this tab.' : undefined}
+                draggable
+                icon={<FilesTabIcon fileName={tab.name} />}
+                label={tab.name}
+                labelSuffix={tab.preview ? <span className="sr-only"> preview</span> : null}
+                leading={dirty ? <span>● </span> : null}
+                preview={tab.preview}
+                selected={tab.relativePath === context.activeTabPath}
+                onSelect={() => useFilesStore.getState().activateTab(contextKey, tab.relativePath)}
+                onClose={() => {
+                  if (!dirty) {
+                    useFilesStore.getState().closeTab(contextKey, tab.relativePath)
+                    return
+                  }
+                  useFilesStore.getState().activateTab(contextKey, tab.relativePath)
+                  appCommandMock.registeredCommands
+                    .find(({ id }) => id === FILES_CLOSE_ACTIVE_TAB_COMMAND_ID)
+                    ?.handler()
+                }}
+                onDoubleClick={() =>
+                  useFilesStore.getState().promoteTab(contextKey, tab.relativePath)
+                }
+                onDragOver={(event) => event.preventDefault()}
+                onDragStart={() => {
+                  draggedPathRef.current = tab.relativePath
+                }}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  const sourcePath = draggedPathRef.current
+                  draggedPathRef.current = null
+                  if (!sourcePath) return
+                  const bounds = event.currentTarget.getBoundingClientRect()
+                  useFilesStore
+                    .getState()
+                    .reorderTabs(
+                      contextKey,
+                      sourcePath,
+                      tab.relativePath,
+                      event.clientX > bounds.left + bounds.width / 2 ? 'after' : 'before'
+                    )
+                }}
+              />
+            )
+          })}
+        </TabBar>
+      ) : null}
+      <FilesToolSurface {...props} />
+    </>
+  )
+}
 
 function requestContextKey(
   request: Parameters<typeof window.spacezero.files.listDirectory>[0]
@@ -759,6 +835,8 @@ function invokeRegisteredSaveAllCommand(): void {
 
 describe('Files Tool', () => {
   beforeEach(() => {
+    resetFilesStore()
+    resetSidePaneStore()
     appearanceMock.resolvedTheme = 'light'
     appearanceMock.updateAppearanceSettings.mockClear()
     diffsEditorMock.saveCommand = undefined
@@ -770,6 +848,74 @@ describe('Files Tool', () => {
     treesMock.options = []
     treesMock.renderProps = []
     treesMock.gitStatuses = []
+  })
+
+  it('promotes opened documents into the Side Pane without rendering a nested Files tab strip', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      content: 'hello',
+      revision: 'revision',
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(
+      <FilesToolSurface
+        sessionId="session-peer-tabs"
+        sidePaneContextKey="session:session-peer-tabs"
+      />
+    )
+
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'README.md' }))
+
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts['session:session-peer-tabs']?.tabs).toMatchObject(
+        [
+          {
+            categoryId: 'files',
+            resourceId: 'README.md',
+            label: 'README.md',
+            preview: true
+          }
+        ]
+      )
+    )
+    expect(screen.queryByRole('tablist', { name: 'Open files' })).not.toBeInTheDocument()
+  })
+
+  it('collapses a fresh empty-root explorer and offers Create new file in the file view', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [])
+
+    render(
+      <FilesToolSurface
+        sessionId="session-empty-root"
+        sidePaneContextKey="session:session-empty-root"
+      />
+    )
+
+    expect(await screen.findByRole('button', { name: 'Create new file' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Expand Files explorer' })).toBeInTheDocument()
+  })
+
+  it('restores shared explorer search state after switching away from Files', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    const view = render(<FilesToolSurface sessionId="session-search-state" />)
+    const search = await screen.findByRole('textbox', { name: 'Files search' })
+    fireEvent.change(search, { target: { value: 'readme' } })
+    view.unmount()
+
+    render(<FilesToolSurface sessionId="session-search-state" />)
+
+    expect(await screen.findByRole('textbox', { name: 'Files search' })).toHaveValue('readme')
   })
 
   it('configures Trees as the Files explorer renderer with compact sticky folder browsing', async () => {
