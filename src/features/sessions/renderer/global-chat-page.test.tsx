@@ -1,9 +1,20 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { useToolPaneStore } from '../../tool-pane/renderer'
+import { useSidePaneStore } from '../../side-pane/renderer'
 import type { GlobalChatContext } from '../shared'
 import { GlobalChatPage } from './global-chat-page'
+
+function sidePaneContext(categoryId: 'browser' | 'terminal', width: number) {
+  const tab = { id: `${categoryId}:1`, categoryId }
+  return {
+    isOpen: true,
+    width,
+    activeTabId: tab.id,
+    tabs: [tab],
+    categoryMru: { [categoryId]: tab.id }
+  }
+}
 
 function globalChatContext(
   id = 'global-chat-context-1',
@@ -120,12 +131,12 @@ describe('GlobalChatPage', () => {
           ? [{ role: 'user' as const, timestamp: 1, content: 'Only in the previous Global Chat' }]
           : []
     }))
-    useToolPaneStore.setState({
+    useSidePaneStore.setState({
       contexts: {
-        'global-chat': { isOpen: true, width: 620, activeToolId: 'terminal' }
+        'global-chat': sidePaneContext('terminal', 620)
       }
     })
-    const stableToolState = structuredClone(useToolPaneStore.getState().contexts['global-chat'])
+    const stableToolState = structuredClone(useSidePaneStore.getState().contexts['global-chat'])
 
     render(<GlobalChatPage />)
 
@@ -147,7 +158,7 @@ describe('GlobalChatPage', () => {
       })
     )
     expect(screen.queryByText('Only in the previous Global Chat')).not.toBeInTheDocument()
-    expect(useToolPaneStore.getState().contexts['global-chat']).toEqual(stableToolState)
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual(stableToolState)
   })
 
   it('shows scoped /resume metadata, selects its transcript, and continues the selected context', async () => {
@@ -196,12 +207,12 @@ describe('GlobalChatPage', () => {
           : []
     }))
     window.spacezero.agent.prompt = prompt
-    useToolPaneStore.setState({
+    useSidePaneStore.setState({
       contexts: {
-        'global-chat': { isOpen: true, width: 680, activeToolId: 'browser' }
+        'global-chat': sidePaneContext('browser', 680)
       }
     })
-    const stableToolState = structuredClone(useToolPaneStore.getState().contexts['global-chat'])
+    const stableToolState = structuredClone(useSidePaneStore.getState().contexts['global-chat'])
 
     render(<GlobalChatPage />)
 
@@ -241,7 +252,7 @@ describe('GlobalChatPage', () => {
         message: 'Continue here.'
       })
     )
-    expect(useToolPaneStore.getState().contexts['global-chat']).toEqual(stableToolState)
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual(stableToolState)
   })
 
   it('renders only the latest resume when resume responses complete in reverse order', async () => {

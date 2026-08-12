@@ -10,7 +10,7 @@ import type {
 } from '../../../features/files/shared'
 import { resetFilesStore } from '../../../features/files/renderer/files-store'
 import { resetSessionWorkspaceStore } from '../../../features/sessions/renderer'
-import { resetToolPaneStore } from '../../../features/tool-pane/renderer/tool-pane-store'
+import { resetSidePaneStore } from '../../../features/side-pane/renderer/side-pane-store'
 import { resetUiLayoutStore } from '../stores/ui-layout-store'
 
 class TestResizeObserver implements ResizeObserver {
@@ -90,7 +90,7 @@ beforeEach(async () => {
   resetUiLayoutStore()
   resetFilesStore()
   resetSessionWorkspaceStore()
-  resetToolPaneStore()
+  resetSidePaneStore()
   window.location.hash = ''
   await i18n.changeLanguage('en')
 

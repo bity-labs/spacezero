@@ -19,11 +19,32 @@ type TestProjectSession = {
 
 const mocks = vi.hoisted(() => {
   const projects: TestProject[] = [
-    { id: 'project-1', name: 'Deleted Project', path: '/tmp/project-1', updatedAt: '2024-01-01T00:00:00.000Z' }
+    {
+      id: 'project-1',
+      name: 'Deleted Project',
+      path: '/tmp/project-1',
+      updatedAt: '2024-01-01T00:00:00.000Z'
+    }
   ]
   const sessions: TestProjectSession[] = [
-    { id: 'session-deleted-1', kind: 'project', projectId: 'project-1', title: 'One', status: 'idle', createdAt: '', updatedAt: '' },
-    { id: 'session-unrelated', kind: 'project', projectId: 'project-2', title: 'Other', status: 'idle', createdAt: '', updatedAt: '' }
+    {
+      id: 'session-deleted-1',
+      kind: 'project',
+      projectId: 'project-1',
+      title: 'One',
+      status: 'idle',
+      createdAt: '',
+      updatedAt: ''
+    },
+    {
+      id: 'session-unrelated',
+      kind: 'project',
+      projectId: 'project-2',
+      title: 'Other',
+      status: 'idle',
+      createdAt: '',
+      updatedAt: ''
+    }
   ]
   const state: {
     projects: TestProject[]
@@ -52,11 +73,11 @@ const mocks = vi.hoisted(() => {
     openProjectSession: vi.fn((session: TestProjectSession) => {
       state.activeTab = { kind: 'project', sessionId: session.id }
     }),
-    createProjectHomeToolPaneConfiguration: vi.fn((project: TestProject) => ({
+    createProjectHomeSidePaneConfiguration: vi.fn((project: TestProject) => ({
       contextKey: `project:${project.id}`,
       capabilities: { kind: 'project-home', projectId: project.id },
-      defaultToolId: 'files',
-      tools: []
+      defaultCategoryId: 'files',
+      categories: []
     }))
   }
 })
@@ -84,8 +105,16 @@ vi.mock('../../features/knowledge-base/renderer', () => ({
 vi.mock('../../features/projects/renderer', () => ({
   AddProjectDialog: () => null,
   EditProjectDialog: () => null,
-  ProjectHome: ({ project }: { project: { name: string } }) => <div>Project Home: {project.name}</div>,
-  ProjectSidebarList: ({ projects, onDeleteProject }: { projects: { id: string; name: string }[]; onDeleteProject: (project: { id: string; name: string }) => void }) => (
+  ProjectHome: ({ project }: { project: { name: string } }) => (
+    <div>Project Home: {project.name}</div>
+  ),
+  ProjectSidebarList: ({
+    projects,
+    onDeleteProject
+  }: {
+    projects: { id: string; name: string }[]
+    onDeleteProject: (project: { id: string; name: string }) => void
+  }) => (
     <button type="button" onClick={() => onDeleteProject(projects[0])}>
       Delete project
     </button>
@@ -109,7 +138,9 @@ vi.mock('../../features/projects/renderer', () => ({
 }))
 
 vi.mock('../../features/sessions/renderer', () => ({
-  ProjectSessionHostSurface: ({ session }: { session: TestProjectSession }) => <div>Project Session: {session.title}</div>,
+  ProjectSessionHostSurface: ({ session }: { session: TestProjectSession }) => (
+    <div>Project Session: {session.title}</div>
+  ),
   WorkspaceSessionHostSurface: () => <div />,
   WorkspaceSessionList: () => <div />,
   getFocusedSessionTab: () => mocks.state.activeTab,
@@ -128,7 +159,14 @@ vi.mock('../../features/sessions/renderer', () => ({
     archiveSession: vi.fn(),
     deleteSession: vi.fn()
   }),
-  useSessionWorkspaceStore: (selector: (state: { layout: unknown; resetLayout: () => void; openProjectSession: (session: TestProjectSession) => void; openWorkspaceSession: () => void }) => unknown) =>
+  useSessionWorkspaceStore: (
+    selector: (state: {
+      layout: unknown
+      resetLayout: () => void
+      openProjectSession: (session: TestProjectSession) => void
+      openWorkspaceSession: () => void
+    }) => unknown
+  ) =>
     selector({
       layout: {},
       resetLayout: mocks.resetLayout,
@@ -146,27 +184,33 @@ vi.mock('../../features/sessions/renderer', () => ({
   })
 }))
 
-vi.mock('../../features/tool-pane/renderer', () => ({
-  createGlobalChatToolPaneConfiguration: vi.fn(),
-  createKnowledgeBaseToolPaneConfiguration: vi.fn(),
-  createProjectHomeToolPaneConfiguration: mocks.createProjectHomeToolPaneConfiguration,
-  createProjectSessionToolPaneConfiguration: vi.fn(),
-  createWorkspaceSessionToolPaneConfiguration: vi.fn(),
-  getRenderedToolPaneWidth: (containerWidth: number, savedWidth: number | null | undefined) =>
+vi.mock('../../features/side-pane/renderer', () => ({
+  createGlobalChatSidePaneConfiguration: vi.fn(),
+  createKnowledgeBaseSidePaneConfiguration: vi.fn(),
+  createProjectHomeSidePaneConfiguration: mocks.createProjectHomeSidePaneConfiguration,
+  createProjectSessionSidePaneConfiguration: vi.fn(),
+  createWorkspaceSessionSidePaneConfiguration: vi.fn(),
+  getRenderedSidePaneWidth: (containerWidth: number, savedWidth: number | null | undefined) =>
     savedWidth ?? Math.round(containerWidth * 0.6),
-  ToolPaneHeaderControls: () => <button type="button">Toggle tool pane</button>,
-  ToolPaneShell: ({ children, contextKey }: { children: React.ReactNode; contextKey: string }) => (
-    <div data-testid="tool-pane-shell" data-context-key={contextKey}>{children}</div>
+  SidePaneHeaderControls: () => <button type="button">Toggle side pane</button>,
+  SidePaneShell: ({ children, contextKey }: { children: React.ReactNode; contextKey: string }) => (
+    <div data-testid="side-pane-shell" data-context-key={contextKey}>
+      {children}
+    </div>
   ),
-  TOOL_PANE_COLLAPSED_HEADER_WIDTH: 48,
-  TOOL_PANE_HANDLE_WIDTH: 4,
-  ToolPaneToggleButton: () => <button type="button">Toggle tool pane</button>,
-  useToolPaneController: () => ({ isOpen: false, toggle: vi.fn() }),
-  useToolPaneStore: (selector: (state: { contexts: Record<string, { width: number | null }> }) => unknown) => selector({ contexts: {} })
+  SIDE_PANE_COLLAPSED_HEADER_WIDTH: 48,
+  SIDE_PANE_HANDLE_WIDTH: 4,
+  SidePaneToggleButton: () => <button type="button">Toggle side pane</button>,
+  useSidePaneController: () => ({ isOpen: false, openCategory: vi.fn(), toggle: vi.fn() }),
+  useSidePaneStore: (
+    selector: (state: { contexts: Record<string, { width: number | null }> }) => unknown
+  ) => selector({ contexts: {} })
 }))
 
 vi.mock('./components/app-shell/account-menu', () => ({
-  AccountMenu: ({ settingsLabel }: { settingsLabel: string }) => <button type="button">{settingsLabel}</button>
+  AccountMenu: ({ settingsLabel }: { settingsLabel: string }) => (
+    <button type="button">{settingsLabel}</button>
+  )
 }))
 vi.mock('./components/sidebar/app-sidebar', () => ({
   AppSidebar: ({
@@ -211,9 +255,15 @@ describe('WorkspaceShell sidebar navigation', () => {
     expect(screen.queryByText('sessions.workspaceList.sectionLabel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete project' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'workspace.openAppSettings' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'workspace.sidebar.search' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'workspace.sidebar.automations' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'workspace.sidebar.customize' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'workspace.sidebar.search' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'workspace.sidebar.automations' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'workspace.sidebar.customize' })
+    ).not.toBeInTheDocument()
   })
 })
 
@@ -225,15 +275,15 @@ describe('WorkspaceShell Project Home tools', () => {
     mocks.state.activeProject = mocks.state.projects[0]
   })
 
-  it('uses a Project-owned Tool Pane context instead of inheriting a prior Project Session context', () => {
+  it('uses a Project-owned Side Pane context instead of inheriting a prior Project Session context', () => {
     mocks.state.activeTab = null
 
     render(<WorkspaceShell />)
 
-    expect(mocks.createProjectHomeToolPaneConfiguration).toHaveBeenCalledWith(
+    expect(mocks.createProjectHomeSidePaneConfiguration).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'project-1', path: '/tmp/project-1' })
     )
-    expect(screen.getByTestId('tool-pane-shell')).toHaveAttribute(
+    expect(screen.getByTestId('side-pane-shell')).toHaveAttribute(
       'data-context-key',
       'project:project-1'
     )
@@ -247,9 +297,33 @@ describe('WorkspaceShell project session breadcrumbs', () => {
     vi.clearAllMocks()
     resetMockState()
     mocks.state.sessions = [
-      { id: 'session-active', kind: 'project', projectId: 'project-1', title: 'Active Session', status: 'idle', createdAt: '', updatedAt: '' },
-      { id: 'session-next', kind: 'project', projectId: 'project-1', title: 'Next Session', status: 'idle', createdAt: '', updatedAt: '' },
-      { id: 'session-other-project', kind: 'project', projectId: 'project-2', title: 'Other Project Session', status: 'idle', createdAt: '', updatedAt: '' }
+      {
+        id: 'session-active',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Active Session',
+        status: 'idle',
+        createdAt: '',
+        updatedAt: ''
+      },
+      {
+        id: 'session-next',
+        kind: 'project',
+        projectId: 'project-1',
+        title: 'Next Session',
+        status: 'idle',
+        createdAt: '',
+        updatedAt: ''
+      },
+      {
+        id: 'session-other-project',
+        kind: 'project',
+        projectId: 'project-2',
+        title: 'Other Project Session',
+        status: 'idle',
+        createdAt: '',
+        updatedAt: ''
+      }
     ]
     mocks.state.activeTab = { kind: 'project', sessionId: 'session-active' }
   })
@@ -270,22 +344,33 @@ describe('WorkspaceShell project session breadcrumbs', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch Project Session' }))
 
-    expect(await screen.findByRole('menuitem', { name: /Active Session/ })).toHaveAttribute('aria-current', 'page')
+    expect(await screen.findByRole('menuitem', { name: /Active Session/ })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
     expect(screen.getByRole('menuitem', { name: 'Next Session' })).toBeInTheDocument()
-    expect(screen.queryByRole('menuitem', { name: 'Other Project Session' })).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('menuitem', { name: 'Other Project Session' })
+    ).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('menuitem', { name: 'Next Session' }))
     rerender(<WorkspaceShell />)
 
     expect(mocks.openProjectSession).toHaveBeenCalledWith(mocks.state.sessions[1])
-    expect(screen.getByRole('button', { name: 'Switch Project Session' })).toHaveTextContent('Next Session')
+    expect(screen.getByRole('button', { name: 'Switch Project Session' })).toHaveTextContent(
+      'Next Session'
+    )
     expect(screen.getByText('Project Session: Next Session')).toBeInTheDocument()
   })
 
   it('keeps Issue source breadcrumb actions routed to Project Home', () => {
     mocks.state.sessions[0] = {
       ...mocks.state.sessions[0],
-      source: { type: 'issue', number: 122, url: 'https://github.com/bity-labs/spacezero/issues/122' }
+      source: {
+        type: 'issue',
+        number: 122,
+        url: 'https://github.com/bity-labs/spacezero/issues/122'
+      }
     }
     const { rerender } = render(<WorkspaceShell />)
 
@@ -332,12 +417,33 @@ describe('WorkspaceShell project deletion Files cleanup', () => {
 
 function resetMockState(): void {
   mocks.state.projects = [
-    { id: 'project-1', name: 'Deleted Project', path: '/tmp/project-1', updatedAt: '2024-01-01T00:00:00.000Z' }
+    {
+      id: 'project-1',
+      name: 'Deleted Project',
+      path: '/tmp/project-1',
+      updatedAt: '2024-01-01T00:00:00.000Z'
+    }
   ]
   mocks.state.activeProject = null
   mocks.state.sessions = [
-    { id: 'session-deleted-1', kind: 'project', projectId: 'project-1', title: 'One', status: 'idle', createdAt: '', updatedAt: '' },
-    { id: 'session-unrelated', kind: 'project', projectId: 'project-2', title: 'Other', status: 'idle', createdAt: '', updatedAt: '' }
+    {
+      id: 'session-deleted-1',
+      kind: 'project',
+      projectId: 'project-1',
+      title: 'One',
+      status: 'idle',
+      createdAt: '',
+      updatedAt: ''
+    },
+    {
+      id: 'session-unrelated',
+      kind: 'project',
+      projectId: 'project-2',
+      title: 'Other',
+      status: 'idle',
+      createdAt: '',
+      updatedAt: ''
+    }
   ]
   mocks.state.activeTab = null
 }
