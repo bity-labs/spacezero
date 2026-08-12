@@ -67,7 +67,11 @@ export async function requestCloseFilesSidePaneTab({
     }
     useFilesStore.getState().markSaved(filesContextKey, result.document, request)
     useFilesStore.getState().closeTab(filesContextKey, document.relativePath)
-    return true
+    return !useFilesStore
+      .getState()
+      .contexts[filesContextKey]?.tabs.some(
+        (candidate) => candidate.relativePath === document.relativePath
+      )
   } catch {
     useFilesStore
       .getState()
