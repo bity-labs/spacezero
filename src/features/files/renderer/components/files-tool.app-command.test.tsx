@@ -12,7 +12,7 @@ import {
   FilesTool
 } from './files-tool'
 
-const monacoMock = vi.hoisted(() => ({
+const diffsEditorMock = vi.hoisted(() => ({
   saveCommand: undefined as undefined | (() => void),
   revealLineInCenter: vi.fn<(line: number) => void>(),
   setPosition: vi.fn<(position: { lineNumber: number; column: number }) => void>(),
@@ -21,53 +21,54 @@ const monacoMock = vi.hoisted(() => ({
   restoreViewState: vi.fn<(state: unknown) => void>()
 }))
 
-vi.mock('./files-monaco-editor', () => ({
-  FilesMonacoEditor: ({
-    value,
-    onChange,
-    onMount
-  }: {
-    value?: string
-    onChange?: (value: string | undefined) => void
-    onMount?: (
-      editor: {
-        addCommand: (_keybinding: number, callback: () => void) => void
-        revealLineInCenter: (line: number) => void
-        setPosition: (position: { lineNumber: number; column: number }) => void
-        focus: () => void
-        saveViewState: () => unknown
-        restoreViewState: (state: unknown) => void
-      },
-      monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }
-    ) => void
-  }) => {
-    onMount?.(
-      {
-        addCommand: (_keybinding, callback) => {
-          monacoMock.saveCommand = callback
+vi.mock('./files-diffs-editor', async () => {
+  const React = await vi.importActual<typeof import('react')>('react')
+  return {
+    FilesDiffsEditor: React.forwardRef(
+      (
+        {
+          value,
+          onChange,
+          onSave,
+          onStateChange
+        }: {
+          value: string
+          onChange: (value: string) => void
+          onSave: () => void
+          onStateChange: (state: unknown) => void
         },
-        revealLineInCenter: monacoMock.revealLineInCenter,
-        setPosition: monacoMock.setPosition,
-        focus: monacoMock.focus,
-        saveViewState: monacoMock.saveViewState,
-        restoreViewState: monacoMock.restoreViewState
-      },
-      { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } }
-    )
-
-    return (
-      <textarea
-        aria-label="Monaco editor"
-        value={value ?? ''}
-        onChange={(event) => onChange?.(event.currentTarget.value)}
-      />
+        ref
+      ) => {
+        React.useImperativeHandle(ref, () => ({
+          applyEdits: vi.fn(),
+          blur: vi.fn(),
+          canRedo: () => false,
+          canUndo: () => false,
+          focus: ({ line, character }: { line: number; character?: number }) => {
+            diffsEditorMock.revealLineInCenter(line)
+            diffsEditorMock.setPosition({ lineNumber: line, column: character ?? 1 })
+            diffsEditorMock.focus()
+          },
+          getState: () => {
+            const state = diffsEditorMock.saveViewState()
+            onStateChange(state)
+            return state
+          },
+          redo: vi.fn(),
+          undo: vi.fn()
+        }))
+        diffsEditorMock.saveCommand = onSave
+        return (
+          <textarea
+            aria-label="Source editor"
+            value={value}
+            onChange={(event) => onChange(event.currentTarget.value)}
+          />
+        )
+      }
     )
   }
-}))
-
-vi.mock('../lib/monaco-environment', () => ({
-  configureFilesMonacoEnvironment: vi.fn()
-}))
+})
 
 vi.mock('@renderer/appearance-provider', () => ({
   useAppearance: () => ({
@@ -104,7 +105,7 @@ function requestContextKey(
 
 describe('Files Tool App Commands', () => {
   beforeEach(() => {
-    monacoMock.saveCommand = undefined
+    diffsEditorMock.saveCommand = undefined
   })
 
   it('keeps one stable Save All command ID while rebinding the handler to the active Files context across remounts', async () => {
@@ -166,7 +167,7 @@ describe('Files Tool App Commands', () => {
         intent: 'preview'
       })
     })
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'session one draft' }
     })
 
@@ -192,7 +193,7 @@ describe('Files Tool App Commands', () => {
         intent: 'preview'
       })
     })
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'session two draft' }
     })
 
