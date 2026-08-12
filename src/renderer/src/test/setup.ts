@@ -943,22 +943,22 @@ beforeEach(async () => {
         resolvedLanguage: preference === 'system' ? 'en' : preference,
         systemLanguage: 'en-US'
       }),
-      getThemeSettings: async () => ({
-        preference: 'system',
-        resolvedTheme: prefersDark ? 'dark' : 'light'
-      }),
-      updateThemePreference: async (preference) => ({
-        preference,
-        resolvedTheme: preference === 'system' ? (prefersDark ? 'dark' : 'light') : preference
-      }),
       getAppearanceSettings: async () => ({
+        themePreference: 'system',
+        resolvedTheme: prefersDark ? 'dark' : 'light',
         fontFamily: 'system',
         thinFontAntialiasing: true
       }),
-      updateAppearanceSettings: async (request) => ({
-        fontFamily: request.fontFamily ?? 'system',
-        thinFontAntialiasing: request.thinFontAntialiasing ?? true
-      }),
+      updateAppearanceSettings: async (request) => {
+        const themePreference = request.themePreference ?? 'system'
+        return {
+          themePreference,
+          resolvedTheme:
+            themePreference === 'system' ? (prefersDark ? 'dark' : 'light') : themePreference,
+          fontFamily: request.fontFamily ?? 'system',
+          thinFontAntialiasing: request.thinFontAntialiasing ?? true
+        }
+      },
       getStorageSettings: async () => ({
         spaceZeroHome: '/tmp/SpaceZero',
         projectsPath: '/tmp/SpaceZero/projects',

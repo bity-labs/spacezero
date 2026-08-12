@@ -8,7 +8,6 @@ import { updateChatLinkSettingsRequestSchema } from '../../../shared/chat-link-s
 import { updateGitActionSettingsRequestSchema } from '../../../shared/git-action-settings'
 import { updateModelDefaultsRequestSchema } from '../../../shared/model-settings'
 import { terminalSettingsSchema } from '../../../shared/terminal-settings'
-import { themePreferenceSchema } from '../../../shared/theme'
 import { getChatLinkSettings, updateChatLinkSettings } from './chat-link-settings.service'
 import { getGitActionSettings, updateGitActionSettings } from './git-action-settings.service'
 import { getLanguageSettings, updateLanguagePreference } from './language-settings.service'
@@ -23,7 +22,6 @@ import {
   removeApiKey
 } from './model-auth-settings.service'
 import { getAppearanceSettings, updateAppearanceSettings } from './appearance-settings.service'
-import { getThemeSettings, updateThemePreference } from './theme-settings.service'
 import { chooseSpaceZeroHome, getStorageSettings } from './storage-settings.service'
 import { getTerminalSettings, updateTerminalSettings } from './terminal-settings.service'
 
@@ -38,18 +36,6 @@ export function registerSettingsIpc(): void {
     }
 
     return updateLanguagePreference(parsedPreference.data)
-  })
-
-  ipcMain.handle(IPC_CHANNELS.settings.getThemeSettings, () => getThemeSettings())
-
-  ipcMain.handle(IPC_CHANNELS.settings.updateThemePreference, (_event, preference: unknown) => {
-    const parsedPreference = themePreferenceSchema.safeParse(preference)
-
-    if (!parsedPreference.success) {
-      throw new Error('settings.invalidThemePreference')
-    }
-
-    return updateThemePreference(parsedPreference.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.settings.getAppearanceSettings, () => getAppearanceSettings())

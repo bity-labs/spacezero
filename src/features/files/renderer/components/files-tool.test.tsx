@@ -11,9 +11,9 @@ const monacoMock = vi.hoisted(() => ({
   }))
 }))
 
-const colorModeMock = vi.hoisted(() => ({
+const appearanceMock = vi.hoisted(() => ({
   resolvedTheme: 'light' as 'light' | 'dark',
-  updateThemePreference: vi.fn()
+  updateAppearanceSettings: vi.fn()
 }))
 
 const appCommandMock = vi.hoisted(() => ({
@@ -620,11 +620,11 @@ vi.mock('../lib/monaco-environment', () => ({
   configureFilesMonacoEnvironment: vi.fn()
 }))
 
-vi.mock('@renderer/color-mode-provider', () => ({
-  useColorMode: () => ({
+vi.mock('@renderer/appearance-provider', () => ({
+  useAppearance: () => ({
     themePreference: 'system',
-    resolvedTheme: colorModeMock.resolvedTheme,
-    updateThemePreference: colorModeMock.updateThemePreference
+    resolvedTheme: appearanceMock.resolvedTheme,
+    updateAppearanceSettings: appearanceMock.updateAppearanceSettings
   })
 }))
 
@@ -741,8 +741,8 @@ function invokeRegisteredSaveAllCommand(): void {
 
 describe('Files Tool', () => {
   beforeEach(() => {
-    colorModeMock.resolvedTheme = 'light'
-    colorModeMock.updateThemePreference.mockClear()
+    appearanceMock.resolvedTheme = 'light'
+    appearanceMock.updateAppearanceSettings.mockClear()
     monacoMock.saveCommand = undefined
     monacoMock.revealLineInCenter.mockClear()
     monacoMock.setPosition.mockClear()
@@ -2031,7 +2031,7 @@ describe('Files Tool', () => {
 
     expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs')
 
-    colorModeMock.resolvedTheme = 'dark'
+    appearanceMock.resolvedTheme = 'dark'
     view.rerender(<FilesTool sessionId="session-1" />)
 
     expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs-dark')
