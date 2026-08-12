@@ -180,7 +180,7 @@
       "profile": "Profile",
       "appearance": "Appearance",
       "agents": "Agents",
-      "models": "Models",
+      "models": "Providers",
       "skills": "Skills",
       "about": "About",
       "cloudAgents": "Cloud Agents"
@@ -302,7 +302,7 @@
       "subscriptions": {
         "title": "Subscriptions",
         "description": "Connect subscription providers through your browser to unlock their models.",
-        "add": "Add subscription",
+        "add": "Add new",
         "disconnect": "Disconnect",
         "emptyTitle": "No subscriptions connected.",
         "emptyDescription": "Connect a subscription provider to unlock its models.",
@@ -319,7 +319,7 @@
       "apiKeys": {
         "title": "API Keys",
         "description": "Add and manage API keys for Pi model providers.",
-        "add": "Add API key",
+        "add": "Add new",
         "remove": "Remove",
         "emptyTitle": "No API keys configured.",
         "emptyDescription": "Add an API key to unlock models from API-key providers.",

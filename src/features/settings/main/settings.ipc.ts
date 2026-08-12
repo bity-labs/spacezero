@@ -3,6 +3,7 @@ import { ipcMain } from 'electron'
 import { languagePreferenceSchema } from '../../../shared/i18n'
 import { IPC_CHANNELS } from '../../../shared/ipc'
 import { addApiKeyRequestSchema, providerRequestSchema } from '../../../shared/model-auth'
+import { updateAppearanceSettingsRequestSchema } from '../../../shared/appearance-settings'
 import { updateChatLinkSettingsRequestSchema } from '../../../shared/chat-link-settings'
 import { updateGitActionSettingsRequestSchema } from '../../../shared/git-action-settings'
 import { updateModelDefaultsRequestSchema } from '../../../shared/model-settings'
@@ -21,6 +22,7 @@ import {
   logoutOAuth,
   removeApiKey
 } from './model-auth-settings.service'
+import { getAppearanceSettings, updateAppearanceSettings } from './appearance-settings.service'
 import { getThemeSettings, updateThemePreference } from './theme-settings.service'
 import { chooseSpaceZeroHome, getStorageSettings } from './storage-settings.service'
 import { getTerminalSettings, updateTerminalSettings } from './terminal-settings.service'
@@ -48,6 +50,18 @@ export function registerSettingsIpc(): void {
     }
 
     return updateThemePreference(parsedPreference.data)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.settings.getAppearanceSettings, () => getAppearanceSettings())
+
+  ipcMain.handle(IPC_CHANNELS.settings.updateAppearanceSettings, (_event, request: unknown) => {
+    const parsedRequest = updateAppearanceSettingsRequestSchema.safeParse(request)
+
+    if (!parsedRequest.success) {
+      throw new Error('settings.invalidAppearanceSettingsRequest')
+    }
+
+    return updateAppearanceSettings(parsedRequest.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.settings.getStorageSettings, () => getStorageSettings())

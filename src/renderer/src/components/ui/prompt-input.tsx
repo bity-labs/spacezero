@@ -182,7 +182,7 @@ export const PromptInputTextarea = ({
 
   return (
     <InputGroupTextarea
-      className={cn('field-sizing-content max-h-48 min-h-16', className)}
+      className={cn('field-sizing-content max-h-40 min-h-14', className)}
       name="message"
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
@@ -304,7 +304,7 @@ export const PromptInputAttachments = ({ className, ...props }: PromptInputAttac
   }
 
   return (
-    <div className={cn('flex w-full flex-wrap justify-start gap-1 px-2.5 pt-2', className)} {...props}>
+    <div className={cn('flex w-full flex-wrap justify-start gap-1 px-2 pt-2', className)} {...props}>
       {files.map(({ id, file, path }) => (
         <button
           key={id}
