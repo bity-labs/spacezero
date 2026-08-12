@@ -15,14 +15,13 @@ import {
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
-import type { FontFamilyPreference } from '@shared/appearance-settings'
+import type { FontFamilyPreference, ThemePreference } from '@shared/appearance-settings'
 import type { ChatLinkDestination, ChatLinkSettings } from '@shared/chat-link-settings'
 import type { GitActionSettings, GitComposerAction } from '@shared/git-action-settings'
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 import type { AuthProviderOption, AuthProviderStatus, ModelAuthSettings } from '@shared/model-auth'
 import type { AvailableModel, ModelDefaults, ThinkingLevel } from '@shared/model-settings'
 import { THINKING_LEVELS } from '@shared/model-settings'
-import type { ThemePreference } from '@shared/theme'
 import type { StorageSettings } from '@shared/storage-settings'
 import type { TerminalSettings } from '@shared/terminal-settings'
 import type { UpdateStatus } from '../../../features/updates/shared'
@@ -61,7 +60,7 @@ import {
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
 import { Text } from '../components/ui/typography'
-import { useColorMode } from '../color-mode-provider'
+import { useAppearance } from '../appearance-provider'
 import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
@@ -316,15 +315,15 @@ function formatUpdateCheckedAt(
 
 function AppearanceSettingsSection(): React.JSX.Element {
   const { t } = useTranslation()
-  const { themePreference, appearanceSettings, updateThemePreference, updateAppearanceSettings } =
-    useColorMode()
+  const { themePreference, fontFamily, thinFontAntialiasing, updateAppearanceSettings } =
+    useAppearance()
   const [appearanceError, setAppearanceError] = useState(false)
 
   async function handleThemePreferenceChange(preference: ThemePreference): Promise<void> {
     setAppearanceError(false)
 
     try {
-      await updateThemePreference(preference)
+      await updateAppearanceSettings({ themePreference: preference })
     } catch {
       setAppearanceError(true)
     }
@@ -375,7 +374,7 @@ function AppearanceSettingsSection(): React.JSX.Element {
           </SettingsRow>
           <SettingsRow title="Font" description="Choose the interface typeface.">
             <Select
-              value={appearanceSettings.fontFamily}
+              value={fontFamily}
               onValueChange={(value) => void handleFontFamilyChange(value as FontFamilyPreference)}
             >
               <SelectTrigger size="sm" className="w-48" aria-label="Font">
@@ -401,7 +400,7 @@ function AppearanceSettingsSection(): React.JSX.Element {
             description="Use thinner browser-style font rendering."
           >
             <Switch
-              checked={appearanceSettings.thinFontAntialiasing}
+              checked={thinFontAntialiasing}
               onCheckedChange={(checked) => void handleThinFontAntialiasingChange(Boolean(checked))}
             />
           </SettingsRow>
