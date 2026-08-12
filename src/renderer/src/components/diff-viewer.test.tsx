@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { ColorModeProvider } from '../color-mode-provider'
 import { DiffViewer } from './diff-viewer'
 
 type MockCodeViewItem = {
@@ -89,7 +90,7 @@ describe('DiffViewer', () => {
     expect(call).toMatchObject({
       disableWorkerPool: true,
       options: {
-        theme: 'pierre-dark',
+        theme: 'pierre-dark-soft',
         themeType: 'dark',
         diffStyle: 'unified',
         diffIndicators: 'none',
@@ -103,6 +104,39 @@ describe('DiffViewer', () => {
     expect(screen.getByText('renamed from old.ts')).toBeInTheDocument()
 
     document.documentElement.classList.remove('dark')
+  })
+
+  it('uses the stronger Pierre dark theme in dark high contrast mode', async () => {
+    codeViewCalls.length = 0
+    window.spacezero.settings.getThemeSettings = async () => ({
+      preference: 'dark-high-contrast',
+      resolvedTheme: 'dark-high-contrast'
+    })
+
+    const { unmount } = render(
+      <ColorModeProvider>
+        <DiffViewer
+          items={[
+            {
+              id: 'high-contrast',
+              path: 'example.ts',
+              patch:
+                'diff --git a/example.ts b/example.ts\n@@ -1 +1 @@\n-const oldValue = false\n+const newValue = true\n'
+            }
+          ]}
+        />
+      </ColorModeProvider>
+    )
+
+    await waitFor(() =>
+      expect(codeViewCalls.at(-1)?.options).toMatchObject({
+        theme: 'pierre-dark',
+        themeType: 'dark'
+      })
+    )
+
+    unmount()
+    document.documentElement.classList.remove('dark', 'dark-high-contrast')
   })
 
   it('normalizes untracked-file patches without hunk headers before handing them to CodeView', () => {
@@ -122,9 +156,9 @@ describe('DiffViewer', () => {
     )
 
     expect(screen.getByTestId('pierre-code-view')).toBeInTheDocument()
-    expect(codeViewCalls[0]?.items[0]?.fileDiff).toMatchObject({
-      name: 'new-note.md',
-      type: 'new'
+    expect(codeViewCalls[0]).toMatchObject({
+      options: { theme: 'pierre-light', themeType: 'light' },
+      items: [{ fileDiff: { name: 'new-note.md', type: 'new' } }]
     })
     expect(codeViewCalls[0]?.items[0]?.fileDiff.hunks.length).toBeGreaterThan(0)
   })
