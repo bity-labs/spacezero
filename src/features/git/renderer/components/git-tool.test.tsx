@@ -175,6 +175,35 @@ describe('GitTool', () => {
     )
   })
 
+  it('keeps Project Home Git Diff on the registered checkout as a manual surface without agent actions', async () => {
+    const getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n+Project Home change\n'
+        }
+      ]
+    }))
+    window.spacezero.git.getReview = getReview
+
+    render(<GitTool context={{ kind: 'project-home', projectId: 'project-1' }} />)
+
+    expect(await screen.findByText('+Project Home change')).toBeInTheDocument()
+    expect(getReview).toHaveBeenCalledWith({
+      context: { kind: 'project-home', projectId: 'project-1' },
+      filter: 'uncommitted'
+    })
+    expect(screen.queryByLabelText('Commit instructions')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resolve with agent' })).not.toBeInTheDocument()
+  })
+
   it('toggles diffs from the header while keeping filename navigation independent', async () => {
     const openFilesTool = vi.fn()
     const openLocation = vi.fn(async () => ({ status: 'opened' as const }))

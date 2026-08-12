@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ComponentType,
@@ -66,6 +67,7 @@ export function SidePaneShell({
   const controller = useSidePaneController(configuration)
   const savedState = useSidePaneStore((state) => state.contexts[contextKey])
   const openDefaultCategory = useSidePaneStore((state) => state.openCategory)
+  const reconcileCategories = useSidePaneStore((state) => state.reconcileCategories)
   const setWidth = useSidePaneStore((state) => state.setWidth)
   const containerRef = useRef<HTMLDivElement>(null)
   const initializedDefaultOpenContextsRef = useRef(new Set<string>())
@@ -75,6 +77,14 @@ export function SidePaneShell({
   )
   const { minWidth, maxWidth } = getSidePaneWidthLimits(containerWidth)
   const renderedWidth = getRenderedSidePaneWidth(containerWidth, savedState?.width)
+  const availableCategoryIds = useMemo(
+    () => categories.filter((category) => category.available).map((category) => category.id),
+    [categories]
+  )
+
+  useLayoutEffect(() => {
+    reconcileCategories(contextKey, availableCategoryIds, defaultCategoryId)
+  }, [availableCategoryIds, contextKey, defaultCategoryId, reconcileCategories])
 
   useLayoutEffect(() => {
     if (!defaultOpen || initializedDefaultOpenContextsRef.current.has(contextKey)) return

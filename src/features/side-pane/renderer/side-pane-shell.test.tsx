@@ -145,6 +145,124 @@ describe('SidePaneShell', () => {
     })
   })
 
+  it('keeps saved Knowledge Base tabs collapsed instead of applying the fresh-context default', () => {
+    useSidePaneStore.setState({
+      contexts: {
+        'knowledge-base': {
+          isOpen: false,
+          width: 590,
+          activeTabId: 'files:1',
+          tabs: [{ id: 'files:1', categoryId: 'files' }],
+          categoryMru: { files: 'files:1' }
+        }
+      }
+    })
+
+    render(
+      <SidePaneShell
+        {...configuration}
+        capabilities={{ kind: 'knowledge-base' }}
+        contextKey="knowledge-base"
+        defaultOpen
+      >
+        <div>Knowledge Base Chat</div>
+      </SidePaneShell>
+    )
+
+    expect(screen.getByRole('toolbar', { name: 'Side Pane launcher' })).toBeInTheDocument()
+    expect(screen.queryByRole('complementary', { name: 'Side Pane' })).not.toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts['knowledge-base']).toMatchObject({
+      isOpen: false,
+      width: 590,
+      activeTabId: 'files:1',
+      tabs: [{ id: 'files:1', categoryId: 'files' }]
+    })
+  })
+
+  it('falls back to an available category when restored state targets an unavailable category', () => {
+    useSidePaneStore.setState({
+      contexts: {
+        'global-chat': {
+          isOpen: true,
+          width: 620,
+          activeTabId: 'files:1',
+          tabs: [{ id: 'files:1', categoryId: 'files' }],
+          categoryMru: { files: 'files:1' }
+        }
+      }
+    })
+    const globalChatCategories = categories.filter(
+      (category) => category.id === 'browser' || category.id === 'terminal'
+    )
+
+    render(
+      <SidePaneShell
+        categories={globalChatCategories}
+        capabilities={{ kind: 'global-chat' }}
+        contextKey="global-chat"
+        defaultCategoryId="browser"
+      >
+        <div>Global Chat</div>
+      </SidePaneShell>
+    )
+
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toHaveTextContent(
+      'Browser page'
+    )
+    expect(screen.getByRole('tab', { name: 'Browser' })).toHaveAttribute('aria-selected', 'true')
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
+      isOpen: true,
+      width: 620,
+      activeTabId: 'browser:1',
+      tabs: [{ id: 'browser:1', categoryId: 'browser' }],
+      categoryMru: { browser: 'browser:1' }
+    })
+  })
+
+  it('does not let a resource event for an inactive context mutate the visible context', () => {
+    useSidePaneStore.getState().openCategory('project:project-1', 'browser')
+    useSidePaneStore.getState().setWidth('project:project-1', 610)
+    useSidePaneStore.getState().openCategory('session:session-2', 'terminal')
+    useSidePaneStore.getState().setWidth('session:session-2', 520)
+    const sessionTwoConfiguration: SidePaneConfiguration = {
+      ...configuration,
+      contextKey: 'session:session-2',
+      capabilities: {
+        kind: 'project-session',
+        projectId: 'project-1',
+        sessionId: 'session-2'
+      }
+    }
+    const firstContextConfiguration: SidePaneConfiguration = {
+      ...configuration,
+      contextKey: 'project:project-1',
+      capabilities: { kind: 'project-home', projectId: 'project-1' }
+    }
+    const { rerender } = render(
+      <SidePaneShell {...firstContextConfiguration}>
+        <div>Project Home</div>
+      </SidePaneShell>
+    )
+    expect(screen.getByText('Browser page')).toBeInTheDocument()
+
+    rerender(
+      <SidePaneShell {...sessionTwoConfiguration}>
+        <div>Second Session</div>
+      </SidePaneShell>
+    )
+    const visibleContextState = structuredClone(
+      useSidePaneStore.getState().contexts['session:session-2']
+    )
+
+    act(() => {
+      useSidePaneStore.getState().openCategory('project:project-1', 'git')
+    })
+
+    expect(screen.getByText('Terminal session')).toBeInTheDocument()
+    expect(screen.queryByText('Git changes')).not.toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts['session:session-2']).toEqual(visibleContextState)
+  })
+
   it('uses the expanded plus menu to create and focus category tabs', async () => {
     const user = userEvent.setup()
     render(
