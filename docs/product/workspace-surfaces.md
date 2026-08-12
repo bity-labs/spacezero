@@ -34,6 +34,27 @@ This model exists to avoid feature sprawl and UI drift. A surface is not good
 enough merely because the capability exists; it should feel intentional,
 coherent, and excellent at its narrow responsibility.
 
+## Side Pane Composition
+
+The resizable surface beside the context's primary content is the **Side Pane**. It composes supporting
+workspace surfaces as peer tabs rather than hiding each category behind a
+one-tool-at-a-time switcher.
+
+Side Pane tabs have four categories:
+
+- **Files** — a shared explorer beside one file editor, with preview and permanent
+  file tabs living directly in the Side Pane tab strip;
+- **Git Diff** — one repository review tab per repository-backed context;
+- **Browser** — one web page per tab; and
+- **Terminal** — one interactive PTY per tab.
+
+Each Project Session, Project Home, Global Chat, and Knowledge Base context owns
+an isolated tab collection. The collapsed Side Pane shows a compact category
+launcher; the expanded Side Pane hides that launcher and shows the tab strip,
+its **+** creation menu, and active content. This gives open work one visible
+navigation model while preserving category-specific lifecycle and security
+boundaries.
+
 ## Shared Quality Principle
 
 > Every workspace surface exists to reduce ambiguity during agentic development.

@@ -6,6 +6,10 @@ title: Use a read-oriented Git Tool with agent-assisted mutations
 
 Accepted
 
+## Supersession Note
+
+ADR 0022 replaces the Git Tool container with the singleton Git Diff Side Pane Tab. ADR 0023 supersedes the view-only diff-content rule by allowing edits to the shared unsaved document buffer. Direct Git mutations remain agent-assisted as decided here.
+
 ## Context
 
 Project Sessions and the Knowledge Base need Git review beside chat. A traditional embedded Git client would require Space Zero to own staging selection, discard/reset safety, commit forms, remote management, divergence handling, pull/rebase/push orchestration, and conflict workflows in renderer UI.

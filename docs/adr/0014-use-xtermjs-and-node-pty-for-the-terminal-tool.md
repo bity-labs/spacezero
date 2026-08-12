@@ -6,6 +6,10 @@ title: Use xterm.js and node-pty for the Terminal Tool
 
 Accepted
 
+## Supersession Note
+
+ADR 0022 supersedes this ADR's Tool Pane and internal Terminal-tab layout assumptions. Its xterm.js, PTY ownership, security boundary, and lifecycle decisions remain accepted; each terminal/PTY is now represented by one Side Pane Tab.
+
 ## Context
 
 Space Zero needs one shared interactive Terminal Tool for Project Sessions, Workspace Sessions, and the Knowledge Base. It must provide terminal emulation in the renderer while keeping shell creation, process access, and native capabilities outside the renderer under the secure Electron boundaries established by ADR 0002.
