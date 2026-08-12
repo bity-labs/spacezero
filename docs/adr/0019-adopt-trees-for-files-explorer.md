@@ -6,6 +6,10 @@ title: Adopt Trees for the Files Explorer
 
 Accepted
 
+## Supersession Note
+
+ADR 0022 moves Files tabs into the Side Pane while retaining one shared Trees explorer model per context. ADR 0023 supersedes references to Monaco source models. Trees' renderer-only explorer role and the main-owned filesystem boundary remain accepted.
+
 ## Context
 
 ADR 0015 selected a composable Files architecture: Space Zero owns product state and main-owned filesystem services, while renderer libraries provide focused UI foundations. It named `react-arborist` as the controlled, virtualized file-tree foundation and `material-icon-theme` as the source for detailed file icons.

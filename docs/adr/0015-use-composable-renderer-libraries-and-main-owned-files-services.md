@@ -6,6 +6,10 @@ title: Use composable renderer libraries and main-owned services for Files
 
 Accepted
 
+## Supersession Note
+
+ADR 0019 supersedes this ADR's explorer-library choice. ADR 0022 supersedes its internal Files-tab and Tool Pane layout assumptions. ADR 0023 supersedes Monaco as the source editor and the original Markdown mode-switch behavior. Space Zero-owned Files state, main-owned filesystem services, and secure process boundaries remain accepted.
+
 ## Context
 
 Space Zero needs one shared Files Tool for Project Sessions and the Knowledge Base. Project Session Files operates on an authenticated managed worktree, while Knowledge Base Files operates on its verified repository. Ordinary Workspace Sessions do not expose Files.

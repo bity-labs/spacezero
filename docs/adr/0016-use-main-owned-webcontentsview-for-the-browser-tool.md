@@ -6,6 +6,10 @@ title: Use main-owned WebContentsView surfaces and a dedicated profile for the B
 
 Accepted
 
+## Supersession Note
+
+ADR 0022 supersedes this ADR's Tool Pane and internal Browser-tab layout assumptions. Its main-owned `WebContentsView`, dedicated profile, security boundary, and page lifecycle decisions remain accepted; each browser page is now represented by one Side Pane Tab.
+
 ## Context
 
 Space Zero needs one shared Browser Tool in Project Sessions, Workspace Sessions, and the Knowledge Base. Browser pages include arbitrary remote content, localhost project previews, authentication flows, downloads, and permission requests. That content is untrusted and must not share the privileged Space Zero renderer, its preload API, or its Electron session.

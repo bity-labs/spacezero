@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-07-29
 - Amends: ADR 0006, ADR 0013
+- Supersession note: ADR 0022 replaces Tool Pane state with context-scoped Side Pane tab state. The stable Workspace Context versus rotatable Chat Context distinction remains accepted, and Side Pane state keys off the same stable workspace identity.
 
 ## Context
 
