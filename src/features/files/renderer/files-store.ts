@@ -15,6 +15,7 @@ export type FilesSaveRequestSnapshot = {
 }
 
 export type FilesEditorMode = 'rich' | 'source'
+export type FilesExplorerSearchMode = 'files' | 'contents'
 
 type FilesTabBase = {
   relativePath: string
@@ -55,8 +56,12 @@ export type FilesEditorViewState = {
 export type FilesContextState = {
   explorerWidth: number
   explorerCollapsed: boolean
+  explorerScrollTop: number
   selectedPath: string | null
   expandedPaths: string[]
+  explorerSearchMode: FilesExplorerSearchMode
+  filesSearchQuery: string
+  contentSearchQuery: string
   tabs: FilesTabState[]
   activeTabPath: string | null
   editorViewStates: Record<string, FilesEditorViewState>
@@ -78,8 +83,10 @@ type FilesStore = {
   contexts: Record<string, FilesContextState>
   setExplorerWidth: (sessionId: string, width: number) => void
   setExplorerCollapsed: (sessionId: string, collapsed: boolean) => void
+  setExplorerScrollTop: (sessionId: string, scrollTop: number) => void
   setSelectedPath: (sessionId: string, path: string | null) => void
   setExpanded: (sessionId: string, path: string, expanded: boolean) => void
+  setExplorerSearch: (sessionId: string, mode: FilesExplorerSearchMode, query: string) => void
   beginOpenTab: (
     sessionId: string,
     relativePath: string,
@@ -141,6 +148,8 @@ const useFilesStore = create<FilesStore>()(
         set((state) => updateContext(state, sessionId, { explorerWidth: width })),
       setExplorerCollapsed: (sessionId, explorerCollapsed) =>
         set((state) => updateContext(state, sessionId, { explorerCollapsed })),
+      setExplorerScrollTop: (sessionId, explorerScrollTop) =>
+        set((state) => updateContext(state, sessionId, { explorerScrollTop })),
       setSelectedPath: (sessionId, selectedPath) =>
         set((state) => updateContext(state, sessionId, { selectedPath })),
       setExpanded: (sessionId, path, expanded) =>
@@ -151,6 +160,15 @@ const useFilesStore = create<FilesStore>()(
             : context.expandedPaths.filter((candidate) => candidate !== path)
           return updateContext(state, sessionId, { expandedPaths })
         }),
+      setExplorerSearch: (sessionId, explorerSearchMode, query) =>
+        set((state) =>
+          updateContext(state, sessionId, {
+            explorerSearchMode,
+            ...(explorerSearchMode === 'files'
+              ? { filesSearchQuery: query }
+              : { contentSearchQuery: query })
+          })
+        ),
       beginOpenTab: (
         sessionId,
         relativePath,
@@ -783,6 +801,10 @@ function toPersistedContext(context: FilesContextState): PersistedFilesContextSt
   return {
     explorerWidth: context.explorerWidth,
     explorerCollapsed: context.explorerCollapsed,
+    explorerScrollTop: context.explorerScrollTop,
+    explorerSearchMode: context.explorerSearchMode,
+    filesSearchQuery: context.filesSearchQuery,
+    contentSearchQuery: context.contentSearchQuery,
     selectedPath: context.selectedPath,
     expandedPaths: context.expandedPaths,
     tabs: permanentTabs.map((tab) => ({
@@ -802,8 +824,12 @@ function createDefaultContext(): FilesContextState {
   return {
     explorerWidth: DEFAULT_EXPLORER_WIDTH,
     explorerCollapsed: false,
+    explorerScrollTop: 0,
     selectedPath: null,
     expandedPaths: [],
+    explorerSearchMode: 'files',
+    filesSearchQuery: '',
+    contentSearchQuery: '',
     tabs: [],
     activeTabPath: null,
     editorViewStates: {}

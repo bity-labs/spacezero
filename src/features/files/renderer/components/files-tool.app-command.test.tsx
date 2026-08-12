@@ -5,7 +5,7 @@ import { AppCommandProvider } from '../../../app-commands/renderer/app-command-c
 import { AppCommandRegistry } from '../../../app-commands/renderer/app-command-registry'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import { openFilesLocation } from '../files-open-location'
-import { useFilesStore } from '../files-store'
+import { resetFilesStore, useFilesStore } from '../files-store'
 import {
   FILES_CLOSE_ACTIVE_TAB_COMMAND_ID,
   FILES_SAVE_ALL_COMMAND_ID,
@@ -105,6 +105,7 @@ function requestContextKey(
 
 describe('Files Tool App Commands', () => {
   beforeEach(() => {
+    resetFilesStore()
     diffsEditorMock.saveCommand = undefined
   })
 
@@ -275,11 +276,14 @@ describe('Files Tool App Commands', () => {
         intent: 'permanent'
       })
     })
-    const tab = await screen.findByRole('tab', { name: 'notes.txt' })
-    tab.focus()
+    const editor = await screen.findByLabelText('Source editor')
+    editor.focus()
     fireEvent.keyDown(window, { key: 'w', ctrlKey: true })
 
-    await waitFor(() => expect(screen.queryByRole('tab', { name: 'notes.txt' })).toBeNull())
+    await waitFor(() =>
+      expect(useFilesStore.getState().contexts['session-close']?.tabs).toEqual([])
+    )
+    expect(screen.queryByLabelText('Source editor')).toBeNull()
     expect(registry.list().map((command) => command.id)).toContain(
       FILES_CLOSE_ACTIVE_TAB_COMMAND_ID
     )
