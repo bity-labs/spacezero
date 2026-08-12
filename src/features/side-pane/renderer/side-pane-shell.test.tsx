@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { resetSidePaneStore, useSidePaneStore } from './side-pane-store'
 import {
@@ -277,6 +277,58 @@ describe('SidePaneShell', () => {
 
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('Terminal session')).toBeInTheDocument()
+  })
+
+  it('presents and delegates Files resource tab activation, pinning, and protected close', async () => {
+    const onActivateTab = vi.fn()
+    const onDoubleClickTab = vi.fn()
+    const onRequestCloseTab = vi.fn(async () => false)
+    const fileCategories: readonly SidePaneCategoryDescriptor[] = categories.map((category) =>
+      category.id === 'files'
+        ? { ...category, onActivateTab, onDoubleClickTab, onRequestCloseTab }
+        : category
+    )
+    useSidePaneStore.setState({
+      contexts: {
+        [configuration.contextKey]: {
+          isOpen: true,
+          width: 600,
+          activeTabId: 'files:README.md',
+          tabs: [
+            {
+              id: 'files:README.md',
+              categoryId: 'files',
+              resourceId: 'README.md',
+              label: 'README.md',
+              preview: true,
+              dirty: true
+            }
+          ],
+          categoryMru: { files: 'files:README.md' }
+        }
+      }
+    })
+
+    render(
+      <SidePaneShell {...configuration} categories={fileCategories}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    const fileTab = screen.getByRole('tab', { name: /README\.md preview/ })
+    expect(fileTab).toHaveTextContent('●')
+    fireEvent.click(fileTab)
+    fireEvent.doubleClick(fileTab)
+    fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+
+    expect(onActivateTab).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'README.md' }))
+    expect(onDoubleClickTab).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'README.md' })
+    )
+    expect(onRequestCloseTab).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'README.md' })
+    )
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey].tabs).toHaveLength(1)
   })
 
   it('keeps category tabs as ordered peers and focuses an existing Git Diff singleton', async () => {
