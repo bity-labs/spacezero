@@ -159,7 +159,7 @@ import { Textarea } from '@renderer/components/ui/textarea'
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput, ToolStatusBadge } from '@renderer/components/ui/tool'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/components/ui/tooltip'
 import { CodeText, Heading, Kbd, Text } from '@renderer/components/ui/typography'
-import { useColorMode } from '@renderer/color-mode-provider'
+import { useAppearance } from '@renderer/appearance-provider'
 
 import { SettingsPageHeader } from './settings-page-header'
 import { SettingsRow } from './settings-row'
@@ -183,7 +183,7 @@ type UiDebugTab = 'primitives' | 'ai' | 'typography' | 'components'
 export function UiDebugPage(): React.JSX.Element {
   const [switchEnabled, setSwitchEnabled] = useState(true)
   const [selectedTab, setSelectedTab] = useState<UiDebugTab>('primitives')
-  const { resolvedTheme } = useColorMode()
+  const { resolvedTheme } = useAppearance()
   const [debugThemePreview, setDebugThemePreview] = useState<DebugThemePreview>(
     resolvedTheme === 'dark' ? 'dark' : 'light'
   )

@@ -20,7 +20,7 @@ import type {
   FileTreeRowDecoration
 } from '@pierre/trees'
 
-import { useColorMode } from '@renderer/color-mode-provider'
+import { useAppearance } from '@renderer/appearance-provider'
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
 import type { AppCommand } from '../../../app-commands/renderer/app-command.model'
 import {
@@ -1798,7 +1798,7 @@ function FilesReadyEditorPanel({
     document.editorMode === 'rich'
       ? 'rich'
       : 'source'
-  const { resolvedTheme } = useColorMode()
+  const { resolvedTheme } = useAppearance()
   const monacoTheme = resolvedTheme === 'dark' ? 'vs-dark' : 'vs'
   const language = getFilesEditorLanguage(document.relativePath)
   const richImageAdapter = useMemo(

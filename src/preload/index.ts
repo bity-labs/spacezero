@@ -293,9 +293,6 @@ const api: SpaceZeroAPI = {
     getLanguageSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getLanguageSettings),
     updateLanguagePreference: (preference) =>
       ipcRenderer.invoke(IPC_CHANNELS.settings.updateLanguagePreference, preference),
-    getThemeSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getThemeSettings),
-    updateThemePreference: (preference) =>
-      ipcRenderer.invoke(IPC_CHANNELS.settings.updateThemePreference, preference),
     getAppearanceSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getAppearanceSettings),
     updateAppearanceSettings: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.settings.updateAppearanceSettings, request),

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { parsePatchFiles } from '@pierre/diffs'
 import { CodeView, type CodeViewItem } from '@pierre/diffs/react'
 
-import { useOptionalColorMode } from '@renderer/color-mode-provider'
+import { useOptionalAppearance } from '@renderer/appearance-provider'
 import { cn } from '@renderer/lib/utils'
 
 export type DiffViewerItem = {
@@ -46,8 +46,8 @@ export function DiffViewer({
   fallbackMessage = DEFAULT_FALLBACK_MESSAGE,
   ariaLabel = 'Diff Viewer'
 }: DiffViewerProps): React.JSX.Element {
-  const colorMode = useOptionalColorMode()
-  const resolvedTheme = colorMode?.resolvedTheme ?? getDocumentResolvedTheme()
+  const appearance = useOptionalAppearance()
+  const resolvedTheme = appearance?.resolvedTheme ?? getDocumentResolvedTheme()
   const { codeViewItems, fallbackItems, sourceItems } = useMemo(
     () => buildCodeViewItems(items, fallbackMessage),
     [items, fallbackMessage]

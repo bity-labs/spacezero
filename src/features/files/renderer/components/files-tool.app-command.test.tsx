@@ -69,11 +69,11 @@ vi.mock('../lib/monaco-environment', () => ({
   configureFilesMonacoEnvironment: vi.fn()
 }))
 
-vi.mock('@renderer/color-mode-provider', () => ({
-  useColorMode: () => ({
+vi.mock('@renderer/appearance-provider', () => ({
+  useAppearance: () => ({
     themePreference: 'system',
     resolvedTheme: 'light',
-    updateThemePreference: vi.fn()
+    updateAppearanceSettings: vi.fn()
   })
 }))
 
