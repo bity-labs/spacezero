@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const monacoMock = vi.hoisted(() => ({
+const diffsEditorMock = vi.hoisted(() => ({
   saveCommand: undefined as undefined | (() => void),
   revealLineInCenter: vi.fn<(line: number) => void>(),
   setPosition: vi.fn<(position: { lineNumber: number; column: number }) => void>(),
@@ -270,7 +270,8 @@ vi.mock('@pierre/trees/react', async () => {
         if (!path || options.renaming === false || options.renaming == null) return false
         const normalizedPath = paths.includes(path) ? path : normalizeDirectoryPath(path)
         if (!paths.includes(normalizedPath)) return false
-        const canRename = typeof options.renaming === 'object' ? options.renaming.canRename : undefined
+        const canRename =
+          typeof options.renaming === 'object' ? options.renaming.canRename : undefined
         if (
           canRename?.({ isFolder: isDirectoryPath(normalizedPath), path: normalizedPath }) === false
         ) {
@@ -556,69 +557,86 @@ vi.mock('../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider', () =>
   useRegisterKeyboardShortcuts: vi.fn()
 }))
 
-vi.mock('./files-monaco-editor', () => ({
-  FilesMonacoEditor: ({
-    value,
-    language,
-    path,
-    theme,
-    onChange,
-    onMount
-  }: {
-    value?: string
-    language?: string
-    path?: string
-    theme?: string
-    onChange?: (value: string | undefined) => void
-    onMount?: (
-      editor: {
-        addCommand: (_keybinding: number, callback: () => void) => void
-        revealLineInCenter: (line: number) => void
-        setPosition: (position: { lineNumber: number; column: number }) => void
-        focus: () => void
-        saveViewState: () => unknown
-      },
-      monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }
-    ) => void
-  }) => {
-    if (!monacoMock.saveCommand) {
-      onMount?.(
+vi.mock('./files-diffs-editor', async () => {
+  const React = await vi.importActual<typeof import('react')>('react')
+
+  return {
+    FilesDiffsEditor: React.forwardRef(
+      (
         {
-          addCommand: (_keybinding, callback) => {
-            monacoMock.saveCommand = callback
-          },
-          revealLineInCenter: monacoMock.revealLineInCenter,
-          setPosition: monacoMock.setPosition,
-          focus: monacoMock.focus,
-          saveViewState: monacoMock.saveViewState
+          cacheKey,
+          fileName,
+          theme,
+          value,
+          onChange,
+          onSave,
+          onStateChange,
+          onTargetLocationApplied,
+          targetLocation
+        }: {
+          cacheKey: string
+          fileName: string
+          theme: string
+          value: string
+          onChange: (value: string) => void
+          onSave: () => void
+          onStateChange: (state: unknown) => void
+          onTargetLocationApplied?: () => void
+          targetLocation?: { line: number; character?: number }
         },
-        { KeyMod: { CtrlCmd: 1 }, KeyCode: { KeyS: 2 } }
-      )
-    }
-
-    return (
-      <textarea
-        aria-label="Monaco editor"
-        data-language={language}
-        data-model-path={path}
-        data-theme={theme}
-        value={value ?? ''}
-        onChange={(event) => onChange?.(event.currentTarget.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-            event.preventDefault()
-            event.stopPropagation()
-            monacoMock.saveCommand?.()
-          }
-        }}
-      />
-    )
+        ref
+      ) => {
+        React.useImperativeHandle(ref, () => ({
+          applyEdits: vi.fn(),
+          blur: vi.fn(),
+          canRedo: () => false,
+          canUndo: () => false,
+          focus: ({ line, character }: { line: number; character?: number }) => {
+            diffsEditorMock.revealLineInCenter(line)
+            diffsEditorMock.setPosition({ lineNumber: line, column: character ?? 1 })
+            diffsEditorMock.focus()
+          },
+          getState: () => {
+            const state = diffsEditorMock.saveViewState()
+            onStateChange(state)
+            return state
+          },
+          redo: vi.fn(),
+          undo: vi.fn()
+        }))
+        React.useEffect(() => {
+          if (!targetLocation) return
+          diffsEditorMock.revealLineInCenter(targetLocation.line)
+          diffsEditorMock.setPosition({
+            lineNumber: targetLocation.line,
+            column: targetLocation.character ?? 1
+          })
+          diffsEditorMock.focus()
+          onTargetLocationApplied?.()
+        }, [onTargetLocationApplied, targetLocation])
+        diffsEditorMock.saveCommand = onSave
+        return (
+          <textarea
+            aria-label="Source editor"
+            data-language={fileName.split('.').at(-1) ?? 'text'}
+            data-model-path={cacheKey}
+            data-theme={theme}
+            value={value}
+            onChange={(event) => onChange(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
+                event.preventDefault()
+                event.stopPropagation()
+                onSave()
+              }
+            }}
+          />
+        )
+      }
+    ),
+    resetFilesDiffsEditorContext: vi.fn()
   }
-}))
-
-vi.mock('../lib/monaco-environment', () => ({
-  configureFilesMonacoEnvironment: vi.fn()
-}))
+})
 
 vi.mock('@renderer/appearance-provider', () => ({
   useAppearance: () => ({
@@ -743,11 +761,11 @@ describe('Files Tool', () => {
   beforeEach(() => {
     appearanceMock.resolvedTheme = 'light'
     appearanceMock.updateAppearanceSettings.mockClear()
-    monacoMock.saveCommand = undefined
-    monacoMock.revealLineInCenter.mockClear()
-    monacoMock.setPosition.mockClear()
-    monacoMock.focus.mockClear()
-    monacoMock.saveViewState.mockClear()
+    diffsEditorMock.saveCommand = undefined
+    diffsEditorMock.revealLineInCenter.mockClear()
+    diffsEditorMock.setPosition.mockClear()
+    diffsEditorMock.focus.mockClear()
+    diffsEditorMock.saveViewState.mockClear()
     appCommandMock.registeredCommands = []
     treesMock.options = []
     treesMock.renderProps = []
@@ -895,7 +913,7 @@ describe('Files Tool', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Expand src' }))
     fireEvent.click(await screen.findByRole('treeitem', { name: 'index.ts' }))
 
-    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
     expect(openDocument).toHaveBeenCalledWith({
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'src/index.ts'
@@ -1076,8 +1094,8 @@ describe('Files Tool', () => {
     fireEvent.click(
       within(screen.getByLabelText('Search results')).getByRole('button', { name: /app.ts/ })
     )
-    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
-    expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3)
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3)
 
     fireEvent.click(screen.getByRole('button', { name: 'Files search' }))
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
@@ -1337,7 +1355,7 @@ describe('Files Tool', () => {
     expect(await screen.findByText('index.ts')).toBeInTheDocument()
     expect(await screen.findByText('guide.md')).toBeInTheDocument()
     fireEvent.click(screen.getByText('index.ts'))
-    expect(await screen.findByLabelText('Monaco editor')).toHaveValue('content')
+    expect(await screen.findByLabelText('Source editor')).toHaveValue('content')
     enterContentsSearchMode()
     fireEvent.change(contentsSearchInput(), { target: { value: 'index' } })
     fireEvent.submit(screen.getByRole('search'))
@@ -1498,8 +1516,7 @@ describe('Files Tool', () => {
       lineEnding: 'lf' as const
     }))
     let observationListener:
-      | Parameters<typeof window.spacezero.files.onObservationEvent>[0]
-      | undefined
+      Parameters<typeof window.spacezero.files.onObservationEvent>[0] | undefined
     window.spacezero.files.onObservationEvent = vi.fn((listener) => {
       observationListener = listener
       return () => undefined
@@ -1507,7 +1524,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-row-conflict" />)
     fireEvent.click(await screen.findByRole('treeitem', { name: 'conflict.txt' }))
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), { target: { value: 'draft' } })
+    fireEvent.change(await screen.findByLabelText('Source editor'), { target: { value: 'draft' } })
 
     await act(async () => {
       observationListener?.({
@@ -1553,7 +1570,7 @@ describe('Files Tool', () => {
     )
   })
 
-  it('flushes active Monaco view state for normal exit without saving document content', async () => {
+  it('flushes active Diffs view state for normal exit without saving document content', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
     ])
@@ -1574,13 +1591,13 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('app.ts'))
-    expect(await screen.findByLabelText('Monaco editor')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
 
     act(() => flushFilesEditorViewStates())
 
-    expect(monacoMock.saveViewState).toHaveBeenCalledTimes(1)
+    expect(diffsEditorMock.saveViewState).toHaveBeenCalledTimes(1)
     expect(
-      useFilesStore.getState().contexts['session-1'].editorViewStates['app.ts'].monacoViewState
+      useFilesStore.getState().contexts['session-1'].editorViewStates['app.ts'].sourceViewState
     ).toEqual({ cursorState: [{ position: { lineNumber: 4, column: 2 } }] })
     expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
   })
@@ -1660,14 +1677,14 @@ describe('Files Tool', () => {
 
     const richEditor = await screen.findByLabelText('Rich Markdown editor')
     expect(richEditor).toHaveDisplayValue('# Saved')
-    expect(screen.queryByLabelText('Monaco editor')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
 
     fireEvent.change(richEditor, { target: { value: '## Rich draft' } })
     expect(screen.getByRole('tab', { name: /●\s*README\.md/ })).toBeInTheDocument()
     expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Source' }))
 
-    const sourceEditor = await screen.findByLabelText('Monaco editor')
+    const sourceEditor = await screen.findByLabelText('Source editor')
     expect(sourceEditor).toHaveDisplayValue('## Rich draft')
     fireEvent.change(sourceEditor, { target: { value: '## Source draft' } })
     fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
@@ -1784,7 +1801,7 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('page.mdx'))
 
-    expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-language', 'mdx')
+    expect(await screen.findByLabelText('Source editor')).toHaveAttribute('data-language', 'mdx')
     expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
     expect(screen.getByText(/rich mode cannot preserve/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Rich' })).toBeDisabled()
@@ -1810,7 +1827,7 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('note.md'))
 
-    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue(
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue(
       markdown.replaceAll('\r\n', '\n')
     )
     expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
@@ -1857,7 +1874,7 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('page.mdx'))
 
-    const sourceEditor = await screen.findByLabelText('Monaco editor')
+    const sourceEditor = await screen.findByLabelText('Source editor')
     expect(sourceEditor).toHaveAttribute('data-language', 'mdx')
     expect(sourceEditor).toHaveDisplayValue(mdxContent)
     expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
@@ -1896,14 +1913,14 @@ describe('Files Tool', () => {
     fireEvent.click(await screen.findByText('page.mdx'))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-1')
     fireEvent.click(screen.getByRole('button', { name: 'Source' }))
-    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# session-1')
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# session-1')
 
     view.rerender(<FilesTool sessionId="session-2" />)
     fireEvent.click(await screen.findByText('page.mdx'))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-2')
 
     view.rerender(<FilesTool sessionId="session-1" />)
-    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# session-1')
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# session-1')
   })
 
   it('isolates rich editor history when switching between Markdown tabs', async () => {
@@ -1968,7 +1985,7 @@ describe('Files Tool', () => {
     )
   })
 
-  it('bounds source editor layout so Monaco horizontal scroll stays inside Files', async () => {
+  it('bounds source editor layout so Diffs horizontal scroll stays inside Files', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
     ])
@@ -1990,7 +2007,7 @@ describe('Files Tool', () => {
     const filesRegion = screen.getByRole('region', { name: 'Files explorer' })
     expect(filesRegion).toHaveClass('min-w-0', 'overflow-hidden')
 
-    const sourceEditor = await screen.findByLabelText('Monaco editor')
+    const sourceEditor = await screen.findByLabelText('Source editor')
     expect(sourceEditor.parentElement).toHaveClass(
       'flex',
       'h-full',
@@ -2008,7 +2025,7 @@ describe('Files Tool', () => {
     )
   })
 
-  it('passes the resolved app theme to Monaco and updates open source editors', async () => {
+  it('passes the resolved app theme to Diffs and updates open source editors', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
     ])
@@ -2029,15 +2046,15 @@ describe('Files Tool', () => {
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('app.ts'))
 
-    expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs')
+    expect(await screen.findByLabelText('Source editor')).toHaveAttribute('data-theme', 'light')
 
     appearanceMock.resolvedTheme = 'dark'
     view.rerender(<FilesTool sessionId="session-1" />)
 
-    expect(await screen.findByLabelText('Monaco editor')).toHaveAttribute('data-theme', 'vs-dark')
+    expect(await screen.findByLabelText('Source editor')).toHaveAttribute('data-theme', 'dark')
   })
 
-  it('opens a text file in Monaco with context-scoped model identity and explicit save', async () => {
+  it('opens a text file in Diffs with context-scoped document identity and explicit save', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'src', relativePath: 'src', kind: 'directory' as const },
       { name: 'package.json', relativePath: 'package.json', kind: 'file' as const }
@@ -2073,9 +2090,11 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('package.json'))
 
-    const editor = await screen.findByLabelText('Monaco editor')
+    const editor = await screen.findByLabelText('Source editor')
     expect(editor).toHaveAttribute('data-language', 'json')
-    expect(editor).toHaveAttribute('data-model-path', 'spacezero-files://session-1/package.json')
+    expect(editor.getAttribute('data-model-path')).toMatch(
+      /^spacezero-files:session-1:document:package\.json:/
+    )
     fireEvent.change(editor, { target: { value: '{"name":"updated"}\n' } })
     expect(screen.getByRole('tab', { name: /●\s*package\.json/ })).toBeInTheDocument()
     expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
@@ -2254,24 +2273,22 @@ describe('Files Tool', () => {
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('shared.txt'))
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'session-1 draft' }
     })
 
     view.rerender(<FilesTool sessionId="session-2" />)
     fireEvent.click(await screen.findByText('shared.txt'))
     expect(await screen.findByDisplayValue('session-2 saved')).toBeInTheDocument()
-    expect(screen.getByLabelText('Monaco editor')).toHaveAttribute(
-      'data-model-path',
-      'spacezero-files://session-2/shared.txt'
+    expect(screen.getByLabelText('Source editor').getAttribute('data-model-path')).toMatch(
+      /^spacezero-files:session-2:document:shared\.txt:/
     )
 
     view.unmount()
     render(<FilesTool sessionId="session-1" />)
     expect(await screen.findByDisplayValue('session-1 draft')).toBeInTheDocument()
-    expect(screen.getByLabelText('Monaco editor')).toHaveAttribute(
-      'data-model-path',
-      'spacezero-files://session-1/shared.txt'
+    expect(screen.getByLabelText('Source editor').getAttribute('data-model-path')).toMatch(
+      /^spacezero-files:session-1:document:shared\.txt:/
     )
   })
 
@@ -2440,7 +2457,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('one.txt'))
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'one.txt draft' }
     })
     fireEvent.click(screen.getByText('two.txt'))
@@ -2840,9 +2857,7 @@ describe('Files Tool', () => {
         destinationPath: 'src/old.txt'
       })
     )
-    expect(useFilesStore.getState().contexts['session-dnd-move'].activeTabPath).toBe(
-      'src/old.txt'
-    )
+    expect(useFilesStore.getState().contexts['session-dnd-move'].activeTabPath).toBe('src/old.txt')
     expect(screen.getByRole('tab', { name: /old\.txt/ })).toBeInTheDocument()
   })
 
@@ -3135,7 +3150,7 @@ describe('Files Tool', () => {
 
       fireEvent.click(screen.getByRole('tab', { name: /two\.txt/ }))
       expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
-      fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+      fireEvent.change(await screen.findByLabelText('Source editor'), {
         target: { value: 'two draft' }
       })
 
@@ -3183,11 +3198,11 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-save-all" />)
     fireEvent.click(await screen.findByText('one.txt'))
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'one draft' }
     })
     fireEvent.click(screen.getByText('two.txt'))
-    fireEvent.change(await screen.findByLabelText('Monaco editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'two draft' }
     })
 
@@ -3822,7 +3837,7 @@ describe('Files Tool', () => {
     }
   )
 
-  it('opens an external Files location in the matching context, reveals the requested line, and preserves dirty buffers', async () => {
+  it('opens an external Files location in the matching context, focuses its line and character, and preserves dirty buffers', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'app.ts', relativePath: 'app.ts', kind: 'file' as const }
     ])
@@ -3846,17 +3861,18 @@ describe('Files Tool', () => {
         contextKey: 'session-1',
         ipcContext: { kind: 'project-session', sessionId: 'session-1' },
         relativePath: 'app.ts',
-        line: 3
+        line: 3,
+        character: 4
       })
     })
 
     await waitFor(() =>
-      expect(screen.getByLabelText('Monaco editor')).toHaveValue('line 1\nline 2\nline 3')
+      expect(screen.getByLabelText('Source editor')).toHaveValue('line 1\nline 2\nline 3')
     )
-    await waitFor(() => expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3))
-    expect(monacoMock.setPosition).toHaveBeenCalledWith({ lineNumber: 3, column: 1 })
+    await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3))
+    expect(diffsEditorMock.setPosition).toHaveBeenCalledWith({ lineNumber: 3, column: 4 })
 
-    fireEvent.change(screen.getByLabelText('Monaco editor'), {
+    fireEvent.change(screen.getByLabelText('Source editor'), {
       target: { value: 'dirty draft' }
     })
     await act(async () => {
@@ -3870,7 +3886,7 @@ describe('Files Tool', () => {
 
     expect(screen.getByDisplayValue('dirty draft')).toBeInTheDocument()
     expect(openDocument).toHaveBeenCalledTimes(1)
-    await waitFor(() => expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(2))
+    await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(2))
   })
 
   it('consumes external line targets after reveal so Markdown can return to Rich mode with its buffer', async () => {
@@ -3900,7 +3916,7 @@ describe('Files Tool', () => {
       })
     })
 
-    await waitFor(() => expect(monacoMock.revealLineInCenter).toHaveBeenCalledWith(3))
+    await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
       '# Title\n\nbody line'
     )
@@ -3908,7 +3924,7 @@ describe('Files Tool', () => {
       target: { value: '# Dirty' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Source' }))
-    expect(await screen.findByLabelText('Monaco editor')).toHaveDisplayValue('# Dirty')
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty')
     fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty')
   })
@@ -4056,7 +4072,7 @@ describe('Files Tool', () => {
     expect(
       await screen.findByText('This file is binary and cannot be edited here.')
     ).toBeInTheDocument()
-    expect(screen.queryByLabelText('Monaco editor')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
   })
 
   it('keeps the collapsible and keyboard-resizable explorer layout per Project Session', async () => {
