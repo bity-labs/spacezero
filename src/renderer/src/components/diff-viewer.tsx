@@ -53,6 +53,7 @@ export function DiffViewer({
     [items, fallbackMessage]
   )
   const hasHeaderActions = codeViewItems.some((item) => sourceItems.get(item.id)?.headerActions)
+  const codeThemeType = resolvedTheme === 'light' ? 'light' : 'dark'
 
   return (
     <div aria-label={ariaLabel} className={cn('overflow-hidden rounded-lg border', className)}>
@@ -61,8 +62,8 @@ export function DiffViewer({
           disableWorkerPool
           items={codeViewItems}
           options={{
-            theme: resolvedTheme === 'dark' ? 'pierre-dark' : 'pierre-light',
-            themeType: resolvedTheme,
+            theme: codeThemeType === 'dark' ? 'pierre-dark' : 'pierre-light',
+            themeType: codeThemeType,
             diffStyle: 'unified',
             diffIndicators: 'none',
             hunkSeparators: 'line-info-basic',

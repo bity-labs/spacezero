@@ -296,6 +296,9 @@ const api: SpaceZeroAPI = {
     getThemeSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getThemeSettings),
     updateThemePreference: (preference) =>
       ipcRenderer.invoke(IPC_CHANNELS.settings.updateThemePreference, preference),
+    getAppearanceSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getAppearanceSettings),
+    updateAppearanceSettings: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.settings.updateAppearanceSettings, request),
     getStorageSettings: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getStorageSettings),
     chooseSpaceZeroHome: () => ipcRenderer.invoke(IPC_CHANNELS.settings.chooseSpaceZeroHome),
     getModelDefaults: () => ipcRenderer.invoke(IPC_CHANNELS.settings.getModelDefaults),

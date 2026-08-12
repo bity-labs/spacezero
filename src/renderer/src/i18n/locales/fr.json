@@ -180,7 +180,7 @@
       "profile": "Profil",
       "appearance": "Apparence",
       "agents": "Agents",
-      "models": "Modèles",
+      "models": "Fournisseurs",
       "skills": "Compétences",
       "about": "À propos",
       "cloudAgents": "Agents cloud"
@@ -302,7 +302,7 @@
       "subscriptions": {
         "title": "Abonnements",
         "description": "Connectez des fournisseurs d’abonnement dans votre navigateur pour débloquer leurs modèles.",
-        "add": "Ajouter un abonnement",
+        "add": "Ajouter",
         "disconnect": "Déconnecter",
         "emptyTitle": "Aucun abonnement connecté.",
         "emptyDescription": "Connectez un fournisseur d’abonnement pour débloquer ses modèles.",
@@ -319,7 +319,7 @@
       "apiKeys": {
         "title": "Clés API",
         "description": "Ajoutez et gérez les clés API des fournisseurs de modèles Pi.",
-        "add": "Ajouter une clé API",
+        "add": "Ajouter",
         "remove": "Supprimer",
         "emptyTitle": "Aucune clé API configurée.",
         "emptyDescription": "Ajoutez une clé API pour débloquer les modèles des fournisseurs à clé API.",

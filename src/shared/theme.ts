@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-export const THEME_PREFERENCES = ['system', 'light', 'dark'] as const
-export const RESOLVED_THEMES = ['light', 'dark'] as const
+export const THEME_PREFERENCES = ['system', 'light', 'dark', 'dark-high-contrast'] as const
+export const RESOLVED_THEMES = ['light', 'dark', 'dark-high-contrast'] as const
 
 export type ThemePreference = (typeof THEME_PREFERENCES)[number]
 export type ResolvedTheme = (typeof RESOLVED_THEMES)[number]

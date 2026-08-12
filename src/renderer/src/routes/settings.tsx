@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
+import type { FontFamilyPreference } from '@shared/appearance-settings'
 import type { ChatLinkDestination, ChatLinkSettings } from '@shared/chat-link-settings'
 import type { GitActionSettings, GitComposerAction } from '@shared/git-action-settings'
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
@@ -30,15 +31,17 @@ import type { AgentGlobalSkill } from '../../../features/agent-workspace/shared/
 import { AgentsSettingsSection } from '../../../features/agents/renderer'
 import { AccountSettings } from '../../../features/github/renderer'
 import { AccountMenu } from '../components/app-shell/account-menu'
+import { SettingsPageHeader } from '../../../features/settings/renderer/components/settings-page-header'
 import { SettingsRow } from '../../../features/settings/renderer/components/settings-row'
 import { SettingsSection } from '../../../features/settings/renderer/components/settings-section'
+import { UiDebugPage } from '../../../features/settings/renderer/components/ui-debug-page'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../components/sidebar/sidebar-layout'
 import { SidebarResizeHandle } from '../components/sidebar/sidebar-resize-handle'
 import { AppSidebar } from '../components/sidebar/app-sidebar'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import { Badge } from '../components/ui/badge'
 import { Button, buttonVariants } from '../components/ui/button'
-import { Card } from '../components/ui/card'
+import { EmptyState } from '../components/ui/empty'
 import {
   Dialog,
   DialogContent,
@@ -57,12 +60,21 @@ import {
 } from '../components/ui/select'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '../components/ui/sidebar'
 import { Switch } from '../components/ui/switch'
+import { Text } from '../components/ui/typography'
 import { useColorMode } from '../color-mode-provider'
 import { i18n } from '../i18n'
 import { useSidebarResize } from '../hooks/use-sidebar-resize'
 import { useUiLayoutStore } from '../stores/ui-layout-store'
 
-type SettingsSectionId = 'account' | 'general' | 'models' | 'skills' | 'agents' | 'about'
+type SettingsSectionId =
+  | 'general'
+  | 'models'
+  | 'account'
+  | 'appearance'
+  | 'about'
+  | 'agents'
+  | 'skills'
+  | 'debug'
 
 type SettingsSearch = {
   section?: SettingsSectionId
@@ -72,21 +84,33 @@ export const Route = createFileRoute('/settings')({
   validateSearch: (search: Record<string, unknown>): SettingsSearch =>
     search.section === 'account' ||
     search.section === 'models' ||
-    search.section === 'skills' ||
+    search.section === 'account' ||
+    search.section === 'appearance' ||
+    search.section === 'about' ||
     search.section === 'agents' ||
-    search.section === 'about'
+    search.section === 'skills' ||
+    search.section === 'debug'
       ? { section: search.section }
       : {},
   component: SettingsPage
 })
 
-const settingsNavigation = [
-  { id: 'account', translationKey: 'account', icon: UserCircle },
+const primarySettingsNavigation = [
   { id: 'general', translationKey: 'general', icon: GearSix },
   { id: 'models', translationKey: 'models', icon: Cube },
+  { id: 'account', translationKey: 'account', icon: UserCircle },
+  { id: 'appearance', translationKey: 'appearance', icon: GearSix },
+  { id: 'about', translationKey: 'about', icon: Info }
+] as const satisfies ReadonlyArray<{
+  id: SettingsSectionId
+  translationKey: string
+  icon: React.ComponentType<{ className?: string }>
+}>
+
+const secondarySettingsNavigation = [
   { id: 'agents', translationKey: 'agents', icon: UserCircle },
   { id: 'skills', translationKey: 'skills', icon: Sparkle },
-  { id: 'about', translationKey: 'about', icon: Info }
+  { id: 'debug', translationKey: 'debug', icon: GearSix }
 ] as const satisfies ReadonlyArray<{
   id: SettingsSectionId
   translationKey: string
@@ -101,15 +125,13 @@ function SettingsPage(): React.JSX.Element {
   const setSidebarWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
   const [languageError, setLanguageError] = useState(false)
-  const [themeError, setThemeError] = useState(false)
-  const { themePreference, updateThemePreference } = useColorMode()
   const leftSidebarResize = useSidebarResize({ width: sidebarWidth, setWidth: setSidebarWidth })
-  const navigationItems = useMemo(
-    () =>
-      settingsNavigation.map((item) => ({
-        ...item,
-        label: t(`settings.navigation.${item.translationKey}`)
-      })),
+  const primaryNavigationItems = useMemo(
+    () => primarySettingsNavigation.map((item) => ({ ...item, label: getSettingsNavLabel(item, t) })),
+    [t]
+  )
+  const secondaryNavigationItems = useMemo(
+    () => secondarySettingsNavigation.map((item) => ({ ...item, label: getSettingsNavLabel(item, t) })),
     [t]
   )
 
@@ -144,16 +166,6 @@ function SettingsPage(): React.JSX.Element {
     }
   }
 
-  async function handleThemePreferenceChange(preference: ThemePreference): Promise<void> {
-    setThemeError(false)
-
-    try {
-      await updateThemePreference(preference)
-    } catch {
-      setThemeError(true)
-    }
-  }
-
   return (
     <div className="flex h-screen min-h-screen bg-background text-foreground">
       <AppSidebar
@@ -180,27 +192,17 @@ function SettingsPage(): React.JSX.Element {
         </Link>
 
         <SidebarMenu aria-label={t('settings.navigationLabel')}>
-          {navigationItems.map((item) => {
-            const Icon = item.icon
+          {primaryNavigationItems.map((item) => (
+            <SettingsNavigationItem key={item.id} item={item} selectedSection={selectedSection} />
+          ))}
+        </SidebarMenu>
 
-            return (
-              <SidebarMenuItem key={item.id}>
-                <SidebarMenuButton
-                  render={
-                    <Link
-                      to="/settings"
-                      search={item.id === 'general' ? {} : { section: item.id }}
-                    />
-                  }
-                  isActive={selectedSection === item.id}
-                  className="text-muted-foreground"
-                >
-                  <Icon className="h-4 w-4" aria-hidden="true" />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            )
-          })}
+        <div className="my-4 border-t border-sidebar-border" />
+
+        <SidebarMenu aria-label="Experimental settings">
+          {secondaryNavigationItems.map((item) => (
+            <SettingsNavigationItem key={item.id} item={item} selectedSection={selectedSection} />
+          ))}
         </SidebarMenu>
       </AppSidebar>
 
@@ -227,23 +229,65 @@ function SettingsPage(): React.JSX.Element {
             <GeneralSettingsSection
               languageSettings={languageSettings}
               languageError={languageError}
-              themePreference={themePreference}
-              themeError={themeError}
               onLanguagePreferenceChange={handleLanguagePreferenceChange}
-              onThemePreferenceChange={handleThemePreferenceChange}
             />
           ) : selectedSection === 'skills' ? (
             <SkillsSettingsSection />
           ) : selectedSection === 'agents' ? (
             <AgentsSettingsSection />
+          ) : selectedSection === 'appearance' ? (
+            <AppearanceSettingsSection />
           ) : selectedSection === 'about' ? (
             <AboutSettingsSection />
+          ) : selectedSection === 'debug' ? (
+            <UiDebugPage />
           ) : (
             <ModelsSettingsSection />
           )}
         </div>
       </main>
     </div>
+  )
+}
+
+type SettingsNavigationEntry = {
+  id: SettingsSectionId
+  translationKey: string
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+}
+
+function getSettingsNavLabel(
+  item: { id: SettingsSectionId; translationKey: string },
+  t: ReturnType<typeof useTranslation>['t']
+): string {
+  if (item.id === 'appearance') return 'Appearance'
+  if (item.id === 'debug') return 'UI Debug'
+  return t(`settings.navigation.${item.translationKey}`)
+}
+
+function SettingsNavigationItem({
+  item,
+  selectedSection
+}: {
+  item: SettingsNavigationEntry
+  selectedSection: SettingsSectionId
+}): React.JSX.Element {
+  const Icon = item.icon
+
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        render={
+          <Link to="/settings" search={item.id === 'general' ? {} : { section: item.id }} />
+        }
+        isActive={selectedSection === item.id}
+        className="text-muted-foreground"
+      >
+        <Icon className="h-4 w-4" aria-hidden="true" />
+        <span>{item.label}</span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   )
 }
 
@@ -268,6 +312,108 @@ function formatUpdateCheckedAt(
     dateStyle: 'medium',
     timeStyle: 'short'
   }).format(new Date(lastCheckedAt))
+}
+
+function AppearanceSettingsSection(): React.JSX.Element {
+  const { t } = useTranslation()
+  const { themePreference, appearanceSettings, updateThemePreference, updateAppearanceSettings } =
+    useColorMode()
+  const [appearanceError, setAppearanceError] = useState(false)
+
+  async function handleThemePreferenceChange(preference: ThemePreference): Promise<void> {
+    setAppearanceError(false)
+
+    try {
+      await updateThemePreference(preference)
+    } catch {
+      setAppearanceError(true)
+    }
+  }
+
+  async function handleFontFamilyChange(fontFamily: FontFamilyPreference): Promise<void> {
+    setAppearanceError(false)
+
+    try {
+      await updateAppearanceSettings({ fontFamily })
+    } catch {
+      setAppearanceError(true)
+    }
+  }
+
+  async function handleThinFontAntialiasingChange(thinFontAntialiasing: boolean): Promise<void> {
+    setAppearanceError(false)
+
+    try {
+      await updateAppearanceSettings({ thinFontAntialiasing })
+    } catch {
+      setAppearanceError(true)
+    }
+  }
+
+  return (
+    <>
+      <SettingsPageHeader title="Appearance" />
+      <div className="space-y-8">
+        <SettingsSection>
+          <SettingsRow title={t('settings.theme.label')} description={t('settings.theme.description')}>
+            <Select
+              value={themePreference}
+              onValueChange={(value) => void handleThemePreferenceChange(value as ThemePreference)}
+            >
+              <SelectTrigger size="sm" className="w-48" aria-label={t('settings.theme.label')}>
+                <SelectValue>
+                  {(value: ThemePreference) => getThemePreferenceLabel(value, t)}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">{t('settings.theme.system')}</SelectItem>
+                <SelectItem value="light">{t('settings.theme.light')}</SelectItem>
+                <SelectItem value="dark">{t('settings.theme.dark')}</SelectItem>
+                <SelectItem value="dark-high-contrast">Dark high contrast</SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+          <SettingsRow title="Font" description="Choose the interface typeface.">
+            <Select
+              value={appearanceSettings.fontFamily}
+              onValueChange={(value) => void handleFontFamilyChange(value as FontFamilyPreference)}
+            >
+              <SelectTrigger size="sm" className="w-48" aria-label="Font">
+                <SelectValue>{(value: FontFamilyPreference) => getFontFamilyLabel(value)}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="system">System font</SelectItem>
+                <SelectItem value="geist">Geist</SelectItem>
+                <SelectItem value="sf-pro">SF Pro Text</SelectItem>
+                <SelectItem value="inter">Inter</SelectItem>
+                <SelectItem value="helvetica">Helvetica Neue</SelectItem>
+                <SelectItem value="arial">Arial</SelectItem>
+                <SelectItem value="sf-mono">SF Mono</SelectItem>
+                <SelectItem value="menlo">Menlo</SelectItem>
+                <SelectItem value="monaco">Monaco</SelectItem>
+                <SelectItem value="jetbrains-mono">JetBrains Mono</SelectItem>
+                <SelectItem value="monospace">Generic monospace</SelectItem>
+              </SelectContent>
+            </Select>
+          </SettingsRow>
+          <SettingsRow
+            title="Use thin font anti-aliasing"
+            description="Use thinner browser-style font rendering."
+          >
+            <Switch
+              checked={appearanceSettings.thinFontAntialiasing}
+              onCheckedChange={(checked) => void handleThinFontAntialiasingChange(Boolean(checked))}
+            />
+          </SettingsRow>
+          {appearanceError ? (
+            <Text variant="danger" className="px-4 pb-3">
+              Could not update appearance settings.
+            </Text>
+          ) : null}
+        </SettingsSection>
+      </div>
+    </>
+  )
 }
 
 function AccountSettingsSection(): React.JSX.Element {
@@ -338,100 +484,68 @@ function AboutSettingsSection(): React.JSX.Element {
 
   return (
     <>
-      <h2 className="mb-6 text-xl font-medium">{t('settings.about.title')}</h2>
+      <SettingsPageHeader title={t('settings.about.title')} />
       <div className="space-y-8">
-        <SettingsSection title={t('settings.about.updatesSectionTitle')}>
-          <div className="space-y-4 rounded-xl border bg-card p-4">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium">{t('settings.about.versionLabel')}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {updateStatus?.currentVersion ?? t('settings.about.loading')}
-                </p>
-              </div>
-              {updateStatus ? (
-                <Badge variant="secondary">{t('settings.about.betaChannel')}</Badge>
-              ) : null}
-            </div>
-
-            <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">{t('settings.about.updateStateLabel')}</dt>
-                <dd className="mt-1 font-medium">
-                  {getUpdateStateLabel(updateStatus, t, loadError)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('settings.about.lastCheckedLabel')}</dt>
-                <dd className="mt-1 font-medium">
-                  {formatUpdateCheckedAt(updateStatus?.lastCheckedAt, t)}
-                </dd>
-              </div>
+        <SettingsSection>
+          <SettingsRow
+            title={t('settings.about.versionLabel')}
+            description={updateStatus?.currentVersion ?? t('settings.about.loading')}
+          >
+            {null}
+          </SettingsRow>
+          <SettingsRow
+            title={t('settings.about.updateStateLabel')}
+            description={getUpdateStateLabel(updateStatus, t, loadError)}
+          >
+            <div className="flex items-center gap-2">
               {updateStatus?.availableVersion ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    {t('settings.about.availableVersionLabel')}
-                  </dt>
-                  <dd className="mt-1 font-medium">{updateStatus.availableVersion}</dd>
-                </div>
+                <Badge variant="outline">{updateStatus.availableVersion}</Badge>
               ) : null}
-              {updateStatus?.downloadedVersion ? (
-                <div>
-                  <dt className="text-muted-foreground">
-                    {t('settings.about.downloadedVersionLabel')}
-                  </dt>
-                  <dd className="mt-1 font-medium">{updateStatus.downloadedVersion}</dd>
-                </div>
-              ) : null}
-            </dl>
-
-            {loadError || updateStatus?.state === 'error' ? (
+              <UpdateRestartControl placement="settings" />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleCheckForUpdates()}
+                disabled={isChecking}
+              >
+                {isChecking ? t('settings.about.checkingAction') : t('settings.about.checkAction')}
+              </Button>
+            </div>
+          </SettingsRow>
+          <SettingsRow
+            title={t('settings.about.lastCheckedLabel')}
+            description={formatUpdateCheckedAt(updateStatus?.lastCheckedAt, t)}
+          >
+            {updateStatus?.downloadedVersion ? (
+              <Badge variant="outline">{updateStatus.downloadedVersion}</Badge>
+            ) : null}
+          </SettingsRow>
+          {loadError || updateStatus?.state === 'error' ? (
+            <div className="border-t border-border/70 p-4">
               <Alert variant="destructive">
                 <AlertDescription>
                   {updateStatus?.errorMessage ?? t('settings.about.loadError')}
                 </AlertDescription>
               </Alert>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-3">
-              <UpdateRestartControl placement="settings" />
-              <Button onClick={() => void handleCheckForUpdates()} disabled={isChecking}>
-                {isChecking ? t('settings.about.checkingAction') : t('settings.about.checkAction')}
-              </Button>
-              <a
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                href={
-                  updateStatus?.releaseNotesUrl ?? 'https://github.com/bity-labs/spacezero/releases'
-                }
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t('settings.about.releaseNotesAction')}
-              </a>
             </div>
-          </div>
+          ) : null}
         </SettingsSection>
       </div>
     </>
   )
+
 }
 
 type GeneralSettingsSectionProps = {
   languageSettings: LanguageSettings | null
   languageError: boolean
-  themePreference: ThemePreference
-  themeError: boolean
   onLanguagePreferenceChange: (preference: LanguagePreference) => Promise<void>
-  onThemePreferenceChange: (preference: ThemePreference) => Promise<void>
 }
 
 function GeneralSettingsSection({
   languageSettings,
   languageError,
-  themePreference,
-  themeError,
-  onLanguagePreferenceChange,
-  onThemePreferenceChange
+  onLanguagePreferenceChange
 }: GeneralSettingsSectionProps): React.JSX.Element {
   const { t } = useTranslation()
   const [chatLinkSettings, setChatLinkSettings] = useState<ChatLinkSettings | null>(null)
@@ -497,15 +611,9 @@ function GeneralSettingsSection({
 
   return (
     <>
-      <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.general')}</h2>
+      <SettingsPageHeader title={t('settings.navigation.general')} />
 
       <div className="space-y-8">
-        <StorageSettingsSection />
-
-        <TerminalSafetySettingsSection />
-
-        <BrowserDataSettingsSection />
-
         <SettingsSection title={t('settings.preferences.sectionTitle')}>
           <SettingsRow
             title={t('settings.language.label')}
@@ -530,36 +638,15 @@ function GeneralSettingsSection({
               </SelectContent>
             </Select>
           </SettingsRow>
-          <SettingsRow
-            title={t('settings.theme.label')}
-            description={t('settings.theme.description')}
-          >
-            <Select
-              value={themePreference}
-              onValueChange={(value) => void onThemePreferenceChange(value as ThemePreference)}
-            >
-              <SelectTrigger size="sm" className="w-40" aria-label={t('settings.theme.label')}>
-                <SelectValue>
-                  {(value: ThemePreference) => getThemePreferenceLabel(value, t)}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="system">{t('settings.theme.system')}</SelectItem>
-                <SelectItem value="light">{t('settings.theme.light')}</SelectItem>
-                <SelectItem value="dark">{t('settings.theme.dark')}</SelectItem>
-              </SelectContent>
-            </Select>
-          </SettingsRow>
           {!languageSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.language.loading')}
-            </p>
+            </Text>
           ) : null}
           {languageError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">{t('settings.language.saveError')}</p>
-          ) : null}
-          {themeError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">{t('settings.theme.saveError')}</p>
+            <Text variant="danger" className="px-4 pb-3">
+              {t('settings.language.saveError')}
+            </Text>
           ) : null}
           <SettingsRow
             title={t('settings.chatLinks.label')}
@@ -588,14 +675,14 @@ function GeneralSettingsSection({
             </Select>
           </SettingsRow>
           {!chatLinkSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.chatLinks.loading')}
-            </p>
+            </Text>
           ) : null}
           {chatLinkError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">
+            <Text variant="danger" className="px-4 pb-3">
               {t('settings.chatLinks.saveError')}
-            </p>
+            </Text>
           ) : null}
           <SettingsRow
             title={t('settings.gitPrimaryAction.label')}
@@ -627,16 +714,24 @@ function GeneralSettingsSection({
             </Select>
           </SettingsRow>
           {!gitActionSettings ? (
-            <p className="px-4 pb-3 text-sm text-muted-foreground">
+            <Text variant="muted" className="px-4 pb-3">
               {t('settings.gitPrimaryAction.loading')}
-            </p>
+            </Text>
           ) : null}
           {gitActionError ? (
-            <p className="px-4 pb-3 text-sm text-destructive">
+            <Text variant="danger" className="px-4 pb-3">
               {t('settings.gitPrimaryAction.saveError')}
-            </p>
+            </Text>
           ) : null}
         </SettingsSection>
+
+        <StorageSettingsSection />
+
+        <TerminalSafetySettingsSection />
+
+        <BrowserDataSettingsSection />
+
+
       </div>
     </>
   )
@@ -689,16 +784,14 @@ function BrowserDataSettingsSection(): React.JSX.Element {
           {isClearing ? t('settings.browserData.clearing') : t('settings.browserData.clearAction')}
         </Button>
       </SettingsRow>
-      <p className="px-4 pb-3 text-xs text-muted-foreground">
-        {t('settings.browserData.scopeNote')}
-      </p>
       {message ? (
-        <p
+        <Text
           role="status"
-          className={`px-4 pb-3 text-sm ${message.kind === 'error' ? 'text-destructive' : 'text-muted-foreground'}`}
+          variant={message.kind === 'error' ? 'danger' : 'muted'}
+          className="px-4 pb-3"
         >
           {message.text}
-        </p>
+        </Text>
       ) : null}
       <Dialog open={isConfirmOpen} onOpenChange={(open) => !isClearing && setIsConfirmOpen(open)}>
         <DialogContent>
@@ -783,10 +876,14 @@ function TerminalSafetySettingsSection(): React.JSX.Element {
         />
       </SettingsRow>
       {!terminalSettings ? (
-        <p className="px-4 pb-3 text-sm text-muted-foreground">{t('settings.terminal.loading')}</p>
+        <Text variant="muted" className="px-4 pb-3">
+          {t('settings.terminal.loading')}
+        </Text>
       ) : null}
       {error ? (
-        <p className="px-4 pb-3 text-sm text-destructive">{t('settings.terminal.saveError')}</p>
+        <Text variant="danger" className="px-4 pb-3">
+          {t('settings.terminal.saveError')}
+        </Text>
       ) : null}
     </SettingsSection>
   )
@@ -845,19 +942,21 @@ function StorageSettingsSection(): React.JSX.Element {
             {storageSettings?.spaceZeroHome ?? t('settings.storage.loading')}
           </span>
           <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 gap-2"
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
             disabled={!storageSettings || isChanging}
+            aria-label={isChanging ? t('settings.storage.changing') : t('settings.storage.change')}
             onClick={() => void handleChooseSpaceZeroHome()}
           >
             <FolderOpen className="h-4 w-4" aria-hidden="true" />
-            {isChanging ? t('settings.storage.changing') : t('settings.storage.change')}
           </Button>
         </div>
       </SettingsRow>
       {error ? (
-        <p className="px-4 pb-3 text-sm text-destructive">{t('settings.storage.error')}</p>
+        <Text variant="danger" className="px-4 pb-3">
+          {t('settings.storage.error')}
+        </Text>
       ) : null}
     </SettingsSection>
   )
@@ -1029,7 +1128,35 @@ function getThemePreferenceLabel(
 ): string {
   if (preference === 'system') return t('settings.theme.system')
   if (preference === 'dark') return t('settings.theme.dark')
+  if (preference === 'dark-high-contrast') return 'Dark high contrast'
   return t('settings.theme.light')
+}
+
+function getFontFamilyLabel(fontFamily: FontFamilyPreference): string {
+  switch (fontFamily) {
+    case 'system':
+      return 'System font'
+    case 'geist':
+      return 'Geist'
+    case 'sf-pro':
+      return 'SF Pro Text'
+    case 'inter':
+      return 'Inter'
+    case 'helvetica':
+      return 'Helvetica Neue'
+    case 'arial':
+      return 'Arial'
+    case 'sf-mono':
+      return 'SF Mono'
+    case 'menlo':
+      return 'Menlo'
+    case 'monaco':
+      return 'Monaco'
+    case 'jetbrains-mono':
+      return 'JetBrains Mono'
+    case 'monospace':
+      return 'Generic monospace'
+  }
 }
 
 function getChatLinkDestinationLabel(
@@ -1066,9 +1193,7 @@ function ModelsSettingsSection(): React.JSX.Element {
     null
   )
   const [apiKey, setApiKey] = useState('')
-  const [authTestResults, setAuthTestResults] = useState<Record<string, string>>({})
   const [defaultModelPickerOpen, setDefaultModelPickerOpen] = useState(false)
-  const [availableModelsOpen, setAvailableModelsOpen] = useState(false)
 
   async function loadModelSettings(): Promise<{
     authSettings: ModelAuthSettings
@@ -1186,10 +1311,6 @@ function ModelsSettingsSection(): React.JSX.Element {
         providerId: selectedApiKeyProvider.providerId,
         apiKey: apiKey.trim()
       })
-      setAuthTestResults((results) => {
-        const { [selectedApiKeyProvider.providerId]: _removed, ...remainingResults } = results
-        return remainingResults
-      })
       closeApiKeyDialog()
       await refreshModelSettings()
     } catch {
@@ -1208,35 +1329,9 @@ function ModelsSettingsSection(): React.JSX.Element {
 
     try {
       await window.spacezero.agent.removeApiKey({ providerId: provider.providerId })
-      setAuthTestResults((results) => {
-        const { [provider.providerId]: _removed, ...remainingResults } = results
-        return remainingResults
-      })
       await refreshModelSettings()
     } catch {
       setError(t('settings.models.apiKeys.removeError'))
-    } finally {
-      setPendingProviderId(null)
-    }
-  }
-
-  async function handleTestAuth(provider: AuthProviderStatus): Promise<void> {
-    setPendingProviderId(provider.providerId)
-    setError(null)
-
-    try {
-      const result = await window.spacezero.agent.testAuth({ providerId: provider.providerId })
-      setAuthTestResults((results) => ({
-        ...results,
-        [provider.providerId]: result.ok
-          ? t('settings.models.auth.testSuccess')
-          : result.message || t('settings.models.auth.testFailed')
-      }))
-    } catch {
-      setAuthTestResults((results) => ({
-        ...results,
-        [provider.providerId]: t('settings.models.auth.testFailed')
-      }))
     } finally {
       setPendingProviderId(null)
     }
@@ -1273,7 +1368,7 @@ function ModelsSettingsSection(): React.JSX.Element {
 
   return (
     <>
-      <h2 className="mb-6 text-xl font-medium">{t('settings.navigation.models')}</h2>
+      <SettingsPageHeader title={t('settings.navigation.models')} />
 
       <div className="space-y-8">
         {error ? (
@@ -1310,8 +1405,6 @@ function ModelsSettingsSection(): React.JSX.Element {
           pendingProviderId={pendingProviderId}
           onAdd={() => setApiKeyPickerOpen(true)}
           onRemove={handleRemoveApiKey}
-          onTestAuth={(provider) => void handleTestAuth(provider)}
-          testResults={authTestResults}
           removeLabel={t('settings.models.apiKeys.remove')}
         />
 
@@ -1325,14 +1418,6 @@ function ModelsSettingsSection(): React.JSX.Element {
           onSelectDefaultThinking={(thinking) => void handleUpdateDefaultThinking(thinking)}
         />
 
-        <AvailableModelsCard
-          isLoading={isLoading}
-          models={availableModels}
-          modelDefaults={modelDefaults}
-          open={availableModelsOpen}
-          onOpenChange={setAvailableModelsOpen}
-          onMakeDefault={(model) => void handleUpdateDefaultModel(model)}
-        />
       </div>
 
       <ProviderPickerDialog
@@ -1424,22 +1509,23 @@ function ModelDefaultsCard({
   const hasUnavailableDefault = Boolean(modelDefaults?.defaultModel && !selectedModel)
 
   return (
-    <SettingsSection title={t('settings.models.defaults.sectionTitle')}>
-      <Card className="gap-0 py-0">
+    <>
+      <SettingsSection title={t('settings.models.defaults.sectionTitle')}>
         {isLoading ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
+          <Text variant="muted" className="px-4 py-6">
             {t('settings.models.defaults.loading')}
-          </div>
+          </Text>
         ) : availableModels.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            {t('settings.models.defaults.empty')}
-          </div>
+          <EmptyState
+            title={t('settings.models.defaults.empty')}
+            description={t('settings.models.defaults.defaultModelDescription')}
+          />
         ) : (
           <>
             {hasUnavailableDefault ? (
-              <div className="border-b border-border/70 px-4 py-3 text-sm text-destructive">
+              <Text variant="danger" className="border-b border-border/70 px-4 py-3">
                 {t('settings.models.defaults.unavailable')}
-              </div>
+              </Text>
             ) : null}
             <SettingsRow
               title={t('settings.models.defaults.defaultModel')}
@@ -1482,7 +1568,7 @@ function ModelDefaultsCard({
             </SettingsRow>
           </>
         )}
-      </Card>
+      </SettingsSection>
 
       <ModelBrowserDialog
         open={pickerOpen}
@@ -1490,89 +1576,10 @@ function ModelDefaultsCard({
         description={t('settings.models.defaults.pickerDescription')}
         models={availableModels}
         modelDefaults={modelDefaults}
-        actionLabel={t('settings.models.defaults.useAsDefault')}
         onOpenChange={onPickerOpenChange}
         onAction={onSelectDefaultModel}
       />
-    </SettingsSection>
-  )
-}
-
-type AvailableModelsCardProps = {
-  isLoading: boolean
-  models: AvailableModel[]
-  modelDefaults: ModelDefaults | null
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onMakeDefault: (model: AvailableModel) => void
-}
-
-function AvailableModelsCard({
-  isLoading,
-  models,
-  modelDefaults,
-  open,
-  onOpenChange,
-  onMakeDefault
-}: AvailableModelsCardProps): React.JSX.Element {
-  const { t } = useTranslation()
-  const providerSummaries = getProviderSummaries(models)
-
-  return (
-    <SettingsSection title={t('settings.models.available.sectionTitle')}>
-      <Card className="gap-0 py-0">
-        {isLoading ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            {t('settings.models.available.loading')}
-          </div>
-        ) : models.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            {t('settings.models.available.empty')}
-          </div>
-        ) : (
-          <div className="space-y-4 px-4 py-5">
-            <div>
-              <p className="text-sm font-medium">
-                {t('settings.models.available.summary', {
-                  count: models.length,
-                  providerCount: providerSummaries.length
-                })}
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('settings.models.available.summaryDescription')}
-              </p>
-            </div>
-            <div className="space-y-2">
-              {providerSummaries.map((provider) => (
-                <div
-                  key={provider.providerId}
-                  className="flex items-center justify-between text-sm"
-                >
-                  <span>{provider.providerLabel}</span>
-                  <span className="text-muted-foreground">
-                    {t('settings.models.available.providerCount', { count: provider.count })}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <Button variant="outline" size="sm" onClick={() => onOpenChange(true)}>
-              {t('settings.models.available.browse')}
-            </Button>
-          </div>
-        )}
-      </Card>
-
-      <ModelBrowserDialog
-        open={open}
-        title={t('settings.models.available.browserTitle')}
-        description={t('settings.models.available.browserDescription')}
-        models={models}
-        modelDefaults={modelDefaults}
-        actionLabel={t('settings.models.available.makeDefault')}
-        onOpenChange={onOpenChange}
-        onAction={onMakeDefault}
-      />
-    </SettingsSection>
+    </>
   )
 }
 
@@ -1582,9 +1589,62 @@ type ModelBrowserDialogProps = {
   description: string
   models: AvailableModel[]
   modelDefaults: ModelDefaults | null
-  actionLabel: string
   onOpenChange: (open: boolean) => void
   onAction: (model: AvailableModel) => void
+}
+
+type ProviderSettingsItemProps = {
+  title: string
+  description?: string
+  details?: string
+  badge?: React.ReactNode
+  action?: React.ReactNode
+  onClick?: () => void
+}
+
+function ProviderSettingsItem({
+  title,
+  description,
+  details,
+  badge,
+  action,
+  onClick
+}: ProviderSettingsItemProps): React.JSX.Element {
+  const content = (
+    <>
+      <div className="min-w-0 flex-1">
+        <Text as="div" variant="label" className="truncate leading-5">
+          {title}
+        </Text>
+        {description ? (
+          <Text as="div" variant="subtle" className="mt-1 truncate leading-4">
+            {description}
+          </Text>
+        ) : null}
+        {details ? (
+          <Text as="div" variant="subtle" className="mt-1 line-clamp-2 leading-4">
+            {details}
+          </Text>
+        ) : null}
+      </div>
+      {badge ? <div className="shrink-0">{badge}</div> : null}
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </>
+  )
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="flex w-full items-center gap-3 rounded-md border px-3 py-3 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+        onClick={onClick}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return <div className="flex min-h-[72px] items-center gap-4 border-b border-border/70 px-4 py-4 last:border-b-0">{content}</div>
 }
 
 function ModelBrowserDialog({
@@ -1593,14 +1653,13 @@ function ModelBrowserDialog({
   description,
   models,
   modelDefaults,
-  actionLabel,
   onOpenChange,
   onAction
 }: ModelBrowserDialogProps): React.JSX.Element {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const filteredModels = filterModels(models, query)
-  const providerGroups = groupModelsByProvider(filteredModels)
+  const providerGroups = groupModelsByProvider(filteredModels, modelDefaults?.defaultModel)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1627,40 +1686,30 @@ function ModelBrowserDialog({
                 aria-label={group.providerLabel}
                 className="space-y-2"
               >
-                <h4 className="text-xs font-medium text-muted-foreground">{group.providerLabel}</h4>
+                <h4>
+                  <Text as="span" variant="label" className="text-muted-foreground">
+                    {group.providerLabel}
+                  </Text>
+                </h4>
                 <div className="space-y-2">
                   {group.models.map((model) => {
                     const isDefault = isSameModel(model, modelDefaults?.defaultModel)
 
                     return (
-                      <div
+                      <ProviderSettingsItem
                         key={`${model.providerId}-${model.modelId}`}
-                        className="flex items-center gap-3 rounded-md border px-3 py-3"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium">{model.modelLabel}</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {t('settings.models.modelDisplay', {
-                              provider: model.providerLabel,
-                              model: model.modelId
-                            })}
-                          </p>
-                          {model.description ? (
-                            <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                              {model.description}
-                            </p>
-                          ) : null}
-                        </div>
-                        {isDefault ? (
-                          <Badge variant="secondary">
-                            {t('settings.models.available.defaultBadge')}
-                          </Badge>
-                        ) : (
-                          <Button variant="outline" size="sm" onClick={() => onAction(model)}>
-                            {actionLabel}
-                          </Button>
-                        )}
-                      </div>
+                        title={model.modelLabel}
+                        description={model.providerLabel}
+                        details={model.description}
+                        badge={
+                          isDefault ? (
+                            <Badge variant="secondary">
+                              {t('settings.models.available.defaultBadge')}
+                            </Badge>
+                          ) : null
+                        }
+                        onClick={() => onAction(model)}
+                      />
                     )
                   })}
                 </div>
@@ -1685,41 +1734,45 @@ function isSameModel(model: AvailableModel, defaultModel: ModelDefaults['default
   return model.providerId === defaultModel?.providerId && model.modelId === defaultModel.modelId
 }
 
-function getProviderSummaries(models: AvailableModel[]): Array<{
-  providerId: string
-  providerLabel: string
-  count: number
-}> {
-  const summaries = new Map<string, { providerId: string; providerLabel: string; count: number }>()
-
-  for (const model of models) {
-    const existing = summaries.get(model.providerId)
-    if (existing) {
-      existing.count += 1
-    } else {
-      summaries.set(model.providerId, {
-        providerId: model.providerId,
-        providerLabel: model.providerLabel,
-        count: 1
-      })
-    }
-  }
-
-  return [...summaries.values()].sort((a, b) => a.providerLabel.localeCompare(b.providerLabel))
-}
-
-function groupModelsByProvider(models: AvailableModel[]): Array<{
+function groupModelsByProvider(
+  models: AvailableModel[],
+  defaultModel: ModelDefaults['defaultModel']
+): Array<{
   providerId: string
   providerLabel: string
   models: AvailableModel[]
 }> {
-  return getProviderSummaries(models).map((provider) => ({
-    providerId: provider.providerId,
-    providerLabel: provider.providerLabel,
-    models: models
-      .filter((model) => model.providerId === provider.providerId)
-      .sort((a, b) => a.modelLabel.localeCompare(b.modelLabel))
-  }))
+  const groups = new Map<string, { providerId: string; providerLabel: string; models: AvailableModel[] }>()
+
+  for (const model of models) {
+    const existing = groups.get(model.providerId)
+    if (existing) {
+      existing.models.push(model)
+    } else {
+      groups.set(model.providerId, {
+        providerId: model.providerId,
+        providerLabel: model.providerLabel,
+        models: [model]
+      })
+    }
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      models: group.models.sort((a, b) => {
+        if (isSameModel(a, defaultModel)) return -1
+        if (isSameModel(b, defaultModel)) return 1
+        return a.modelLabel.localeCompare(b.modelLabel)
+      })
+    }))
+    .sort((a, b) => {
+      const aHasDefault = a.models.some((model) => isSameModel(model, defaultModel))
+      const bHasDefault = b.models.some((model) => isSameModel(model, defaultModel))
+      if (aHasDefault) return -1
+      if (bHasDefault) return 1
+      return a.providerLabel.localeCompare(b.providerLabel)
+    })
 }
 
 function filterModels(models: AvailableModel[], query: string): AvailableModel[] {
@@ -1756,8 +1809,6 @@ type ModelAuthCardProps = {
   disabledReason?: string
   onAdd: () => void
   onRemove: (provider: AuthProviderStatus) => Promise<void>
-  onTestAuth?: (provider: AuthProviderStatus) => void
-  testResults?: Record<string, string>
 }
 
 function ModelAuthCard({
@@ -1775,106 +1826,73 @@ function ModelAuthCard({
   addDisabled = false,
   disabledReason,
   onAdd,
-  onRemove,
-  onTestAuth,
-  testResults = {}
+  onRemove
 }: ModelAuthCardProps): React.JSX.Element {
   const { t } = useTranslation()
+  const showAddFooter = !isLoading && providers.length > 0
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between gap-4 px-2">
-        <div>
-          <h3 className="text-sm text-muted-foreground">{title}</h3>
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {disabledReason ? <Badge variant="secondary">{disabledReason}</Badge> : null}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            disabled={addDisabled}
-            onClick={onAdd}
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            {addLabel}
-          </Button>
-        </div>
-      </div>
-      <Card className="gap-0 py-0">
-        {statusMessage ? (
-          <div
-            role="status"
-            aria-live="polite"
-            className="border-b border-border/70 px-4 py-3 text-sm text-muted-foreground"
-          >
-            {statusMessage}
+    <SettingsSection
+      title={title}
+      description={description}
+      footer={
+        showAddFooter ? (
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" className="gap-2" disabled={addDisabled} onClick={onAdd}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {addLabel}
+            </Button>
+            {disabledReason ? <Badge variant="secondary">{disabledReason}</Badge> : null}
           </div>
-        ) : null}
-        {isLoading ? (
-          <div className="px-4 py-6 text-sm text-muted-foreground">
-            {t('settings.models.auth.loading')}
-          </div>
-        ) : providers.length === 0 ? (
-          <div className="flex items-start gap-3 px-4 py-6">
-            <div className="rounded-md border p-2 text-muted-foreground">{icon}</div>
-            <div>
-              <p className="text-sm font-medium">{emptyTitle}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{emptyDescription}</p>
-            </div>
-          </div>
-        ) : (
-          providers.map((provider) => (
-            <div
-              key={`${provider.providerId}-${provider.source ?? 'unknown'}`}
-              className="flex min-h-[72px] items-center gap-4 border-b border-border/70 px-4 py-4 last:border-b-0"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-medium leading-5 text-foreground">{provider.label}</p>
-                  <Badge variant="outline">{getAuthSourceLabel(provider, t)}</Badge>
-                </div>
-                <p className="mt-1 text-xs leading-4 text-muted-foreground">
-                  {provider.displayLabel ?? t('settings.models.auth.connected')}
-                </p>
-                {testResults[provider.providerId] ? (
-                  <p className="mt-1 text-xs leading-4 text-muted-foreground">
-                    {testResults[provider.providerId]}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex items-center gap-2">
-                {onTestAuth ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={pendingProviderId === provider.providerId}
-                    onClick={() => onTestAuth(provider)}
-                  >
-                    {t('settings.models.auth.test')}
-                  </Button>
-                ) : null}
-                {provider.removable ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-2"
-                    disabled={pendingProviderId === provider.providerId}
-                    onClick={() => void onRemove(provider)}
-                  >
-                    <Trash className="h-4 w-4" aria-hidden="true" />
-                    {removeLabel}
-                  </Button>
-                ) : (
-                  <Badge variant="secondary">{t('settings.models.auth.notRemovable')}</Badge>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-      </Card>
-    </section>
+        ) : null
+      }
+    >
+      {statusMessage ? (
+        <Text role="status" aria-live="polite" variant="muted" className="border-b border-border/70 px-4 py-3">
+          {statusMessage}
+        </Text>
+      ) : null}
+      {isLoading ? (
+        <Text variant="muted" className="px-4 py-6">
+          {t('settings.models.auth.loading')}
+        </Text>
+      ) : providers.length === 0 ? (
+        <EmptyState
+          icon={icon}
+          title={emptyTitle}
+          description={emptyDescription}
+          actions={
+            <Button variant="outline" size="sm" className="gap-2" disabled={addDisabled} onClick={onAdd}>
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {addLabel}
+            </Button>
+          }
+        />
+      ) : (
+        providers.map((provider) => (
+          <ProviderSettingsItem
+            key={`${provider.providerId}-${provider.source ?? 'unknown'}`}
+            title={provider.label}
+            description={provider.displayLabel ?? t('settings.models.auth.connected')}
+            action={
+              provider.removable ? (
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  disabled={pendingProviderId === provider.providerId}
+                  aria-label={removeLabel}
+                  onClick={() => void onRemove(provider)}
+                >
+                  <Trash className="h-4 w-4" aria-hidden="true" />
+                </Button>
+              ) : (
+                <Badge variant="secondary">{t('settings.models.auth.notRemovable')}</Badge>
+              )
+            }
+          />
+        ))
+      )}
+    </SettingsSection>
   )
 }
 
@@ -1948,14 +1966,3 @@ function ProviderPickerDialog({
   )
 }
 
-function getAuthSourceLabel(
-  provider: AuthProviderStatus,
-  t: ReturnType<typeof useTranslation>['t']
-): string {
-  if (provider.source === 'environment') return t('settings.models.auth.source.environment')
-  if (provider.source === 'runtime') return t('settings.models.auth.source.runtime')
-  if (provider.source === 'models_json_key' || provider.source === 'models_json_command') {
-    return t('settings.models.auth.source.modelConfig')
-  }
-  return t('settings.models.auth.source.stored')
-}

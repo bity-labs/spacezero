@@ -1,7 +1,8 @@
 import { Card } from '@renderer/components/ui/card'
+import { Text } from '@renderer/components/ui/typography'
 
 type SettingsSectionProps = {
-  title: string
+  title?: string
   description?: string
   footer?: React.ReactNode
   children: React.ReactNode
@@ -15,14 +16,24 @@ function SettingsSection({
 }: SettingsSectionProps): React.JSX.Element {
   return (
     <section className="space-y-3">
-      <div className="px-2">
-        <h3 className="text-sm text-muted-foreground">{title}</h3>
-        {description ? (
-          <p className="mt-1 text-xs text-muted-foreground">{description}</p>
-        ) : null}
-      </div>
+      {title || description ? (
+        <div>
+          {title ? (
+            <h3>
+              <Text as="span" variant="muted">
+                {title}
+              </Text>
+            </h3>
+          ) : null}
+          {description ? (
+            <Text variant="subtle" className={title ? 'mt-1' : undefined}>
+              {description}
+            </Text>
+          ) : null}
+        </div>
+      ) : null}
       <Card className="gap-0 py-0">{children}</Card>
-      {footer ? <footer className="px-2">{footer}</footer> : null}
+      {footer ? <footer>{footer}</footer> : null}
     </section>
   )
 }
