@@ -286,11 +286,9 @@ export class BrowserService {
       }
     }
     if (context.tabs.length === 0) {
-      const blank = this.createBlankTab()
-      context.tabs.push(blank)
-      context.activeTabId = blank.id
+      context.activeTabId = ''
     } else if (!context.tabs.some((candidate) => candidate.id === context.activeTabId)) {
-      context.activeTabId = context.tabs[0]?.id ?? context.activeTabId
+      context.activeTabId = context.tabs[0]?.id ?? ''
     }
     return this.publishState(context)
   }
@@ -371,8 +369,7 @@ export class BrowserService {
         continue
       }
       context.tabs = remainingTabs
-      if (closedTabIds.has(context.activeTabId))
-        context.activeTabId = remainingTabs[0]?.id ?? context.activeTabId
+      if (closedTabIds.has(context.activeTabId)) context.activeTabId = remainingTabs[0]?.id ?? ''
       this.publishState(context)
     }
   }

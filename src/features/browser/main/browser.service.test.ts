@@ -200,10 +200,7 @@ describe('BrowserService', () => {
   it('authorizes Project Home from its registered project identity with isolated Browser state', async () => {
     const adapter = new FakeBrowserViewAdapter()
     const findSessionById = vi.fn(createContextRepository().findSessionById)
-    const service = new BrowserService(
-      adapter,
-      createContextRepository({ findSessionById })
-    )
+    const service = new BrowserService(adapter, createContextRepository({ findSessionById }))
 
     const state = await service.getState(projectHomeContext)
 
@@ -421,9 +418,9 @@ describe('BrowserService', () => {
       'preview/index.html',
       String.raw`preview\index.html`
     ]) {
-      await expect(
-        service.navigate({ ...workspaceContext, input: relativePath })
-      ).rejects.toThrow('Enter an absolute local HTML file path for this operating system.')
+      await expect(service.navigate({ ...workspaceContext, input: relativePath })).rejects.toThrow(
+        'Enter an absolute local HTML file path for this operating system.'
+      )
     }
     await expect(
       service.navigate({ ...workspaceContext, input: foreignPlatformPath })
@@ -756,6 +753,25 @@ describe('BrowserService', () => {
     const closed = await service.closeTab({ ...projectContext, tabId: project.activeTabId })
     expect(closed.tabs.map((tab) => tab.id)).toEqual([withSecondTab.activeTabId])
     expect(adapter.destroyed).toEqual([project.activeTabId])
+  })
+
+  it('disposes the final page without creating a replacement until Browser is launched again', async () => {
+    const adapter = new FakeBrowserViewAdapter()
+    const service = new BrowserService(adapter, createContextRepository())
+    const initial = await service.getState(workspaceContext)
+
+    const closed = await service.closeTab({ ...workspaceContext, tabId: initial.activeTabId })
+
+    expect(closed).toEqual({
+      contextKey: workspaceContext.contextKey,
+      activeTabId: '',
+      tabs: []
+    })
+    expect(adapter.destroyed).toEqual([initial.activeTabId])
+
+    const relaunched = await service.createTab(workspaceContext)
+    expect(relaunched.tabs).toHaveLength(1)
+    expect(relaunched.activeTabId).not.toBe(initial.activeTabId)
   })
 
   it('persists tab creation, navigation, active selection, reordering, and close metadata by context', async () => {
@@ -1332,7 +1348,11 @@ describe('BrowserService', () => {
 
     const state = await service.navigate({ ...projectContext, input: 'https://a.example/' })
     service.markNavigationCommitted(state.activeTabId, 'https://a.example/')
-    await service.navigate({ ...projectContext, tabId: state.activeTabId, input: 'https://b.example/' })
+    await service.navigate({
+      ...projectContext,
+      tabId: state.activeTabId,
+      input: 'https://b.example/'
+    })
     const oldDocumentFavicon = service.markFaviconChanged(state.activeTabId, [
       'https://a.example/favicon.png'
     ])
@@ -1428,8 +1448,8 @@ describe('BrowserService', () => {
     ])
     expect(adapter.hidden).toEqual([state.activeTabId])
     expect(adapter.destroyed).toEqual([state.activeTabId])
-    expect(closed.tabs).toHaveLength(1)
-    expect(closed.tabs[0]?.url).toBeNull()
+    expect(closed.tabs).toHaveLength(0)
+    expect(closed.activeTabId).toBe('')
   })
 
   it('keeps every live tab while hiding or switching and destroys every tab when a multi-tab context is deleted', async () => {

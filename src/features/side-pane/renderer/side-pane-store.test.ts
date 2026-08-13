@@ -48,9 +48,9 @@ describe('Side Pane store', () => {
       'global-chat': {
         isOpen: false,
         width: 504,
-        activeTabId: 'browser:1',
-        tabs: [{ id: 'browser:1', categoryId: 'browser' as const }],
-        categoryMru: { browser: 'browser:1' }
+        activeTabId: 'browser-tab-main-owned',
+        tabs: [{ id: 'browser-tab-main-owned', categoryId: 'browser' as const }],
+        categoryMru: { browser: 'browser-tab-main-owned' }
       }
     }
     window.localStorage.setItem(
@@ -63,10 +63,89 @@ describe('Side Pane store', () => {
     expect(useSidePaneStore.getState().contexts).toEqual(contexts)
   })
 
+  it('removes legacy synthetic Browser descriptors during rehydration', async () => {
+    window.localStorage.setItem(
+      'spacezero.sidePane',
+      JSON.stringify({
+        state: {
+          contexts: {
+            'global-chat': {
+              isOpen: true,
+              width: 504,
+              activeTabId: 'browser:1',
+              tabs: [{ id: 'browser:1', categoryId: 'browser' }],
+              categoryMru: { browser: 'browser:1' }
+            }
+          }
+        },
+        version: 1
+      })
+    )
+
+    await useSidePaneStore.persist.rehydrate()
+
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
+      isOpen: false,
+      width: 504,
+      activeTabId: null,
+      tabs: [],
+      categoryMru: {}
+    })
+    expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
+  })
+
+  it('migrates Browser resource order into peer Side Pane tabs without moving other categories', () => {
+    useSidePaneStore.setState({
+      contexts: {
+        'session:session-1': {
+          isOpen: true,
+          width: 600,
+          activeTabId: 'browser-tab-stale',
+          tabs: [
+            { id: 'files:1', categoryId: 'files' },
+            { id: 'browser-tab-stale', categoryId: 'browser' },
+            { id: 'terminal:1', categoryId: 'terminal' }
+          ],
+          categoryMru: { browser: 'browser-tab-stale' }
+        }
+      }
+    })
+
+    useSidePaneStore.getState().synchronizeCategoryTabs(
+      'session:session-1',
+      'browser',
+      [
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Docs' },
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'App' }
+      ],
+      'browser-tab-2',
+      true
+    )
+
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toEqual({
+      isOpen: true,
+      width: 600,
+      activeTabId: 'browser-tab-2',
+      tabs: [
+        { id: 'files:1', categoryId: 'files' },
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Docs' },
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'App' },
+        { id: 'terminal:1', categoryId: 'terminal' }
+      ],
+      categoryMru: { browser: 'browser-tab-2' }
+    })
+  })
+
   it('promotes Files resources into peer tabs while preserving their positions among other categories', () => {
     const store = useSidePaneStore.getState()
     store.openCategory('session:session-1', 'files')
-    store.openCategory('session:session-1', 'browser')
+    store.synchronizeCategoryTabs(
+      'session:session-1',
+      'browser',
+      [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
+      'browser-tab-main-owned',
+      true
+    )
 
     store.synchronizeCategoryTabs(
       'session:session-1',
@@ -93,7 +172,7 @@ describe('Side Pane store', () => {
           resourceId: 'README.md',
           preview: true
         },
-        { id: 'browser:1', categoryId: 'browser' }
+        { id: 'browser-tab-main-owned', categoryId: 'browser' }
       ]
     })
 
@@ -155,7 +234,15 @@ describe('Side Pane store', () => {
   it('keeps tab, width, open state, and MRU mutations isolated to their context', () => {
     useSidePaneStore.getState().openCategory('project:project-1', 'files')
     useSidePaneStore.getState().setWidth('project:project-1', 620)
-    useSidePaneStore.getState().openCategory('global-chat', 'browser')
+    useSidePaneStore
+      .getState()
+      .synchronizeCategoryTabs(
+        'global-chat',
+        'browser',
+        [{ id: 'browser-tab-global', categoryId: 'browser' }],
+        'browser-tab-global',
+        true
+      )
     useSidePaneStore.getState().setWidth('global-chat', 480)
     const globalChatState = structuredClone(useSidePaneStore.getState().contexts['global-chat'])
 
