@@ -1,12 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import {
-  ArrowsInLineVertical,
-  FilePlus,
-  FolderSimplePlus,
-  MagnifyingGlass,
-  SidebarSimple,
-  TreeStructure
-} from '@phosphor-icons/react'
 import { preparePresortedFileTreeInput, type FileTreePreparedInput } from '@pierre/trees'
 import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
 import type {
@@ -31,22 +23,12 @@ import {
   RichMarkdownEditor,
   type RichMarkdownImageAdapter
 } from '@renderer/components/rich-markdown-editor'
-import { Button } from '@renderer/components/ui/button'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem as ContextMenuAction,
   ContextMenuSeparator
 } from '@renderer/components/ui/context-menu'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from '@renderer/components/ui/dialog'
-import { Input } from '@renderer/components/ui/input'
 import { getRichMarkdownLimitation } from '@renderer/lib/rich-markdown'
 import type { FilesContext, FilesEntry, FilesSearchResult, FilesTree } from '../../shared'
 import {
@@ -65,6 +47,7 @@ import { openFilesLocation } from '../files-open-location'
 import { synchronizeFilesSidePaneTabs } from '../files-side-pane'
 import { createFilesDocumentCacheKey } from '../lib/files-document-identity'
 import { getFilesRowDecoration } from '../lib/files-row-annotations'
+import { FilesEditorView, FilesToolView } from './files-tool-view'
 import {
   FilesDiffsEditor,
   resetFilesDiffsEditorDocument,
@@ -763,11 +746,7 @@ function FilesToolSession({
         ) {
           resetFilesDiffsEditorDocument(
             sessionId,
-            createFilesDocumentCacheKey(
-              sessionId,
-              document.relativePath,
-              document.editorStateKey
-            )
+            createFilesDocumentCacheKey(sessionId, document.relativePath, document.editorStateKey)
           )
         }
       }
@@ -781,9 +760,7 @@ function FilesToolSession({
       const dirtyDocuments = [
         ...(context?.tabs.filter(
           (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
-            tab.status === 'ready' &&
-            tab.dirty &&
-            isPathAffectedBy(tab.relativePath, relativePath)
+            tab.status === 'ready' && tab.dirty && isPathAffectedBy(tab.relativePath, relativePath)
         ) ?? []),
         ...Object.values(context?.detachedDocuments ?? {}).filter(
           (document) => document.dirty && isPathAffectedBy(document.relativePath, relativePath)
@@ -810,12 +787,7 @@ function FilesToolSession({
       }
       return false
     },
-    [
-      discardDirtyTabsInPath,
-      resetSourceEditorsInPath,
-      saveDocumentSnapshot,
-      sessionId
-    ]
+    [discardDirtyTabsInPath, resetSourceEditorsInPath, saveDocumentSnapshot, sessionId]
   )
 
   const openCreateDialog = useCallback((kind: 'file' | 'folder', parentPath = ''): void => {
@@ -1285,152 +1257,16 @@ function FilesToolSession({
     }
   }
 
-  return (
-    <section
-      aria-label="Files explorer"
-      className="flex h-full min-h-0 min-w-0 overflow-hidden bg-background"
-      onFocusCapture={() => shortcutManager.setContext({ editorFocused: true })}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          shortcutManager.setContext({ editorFocused: false })
-        }
-      }}
-    >
-      {context.explorerCollapsed ? (
-        <button
-          aria-label="Expand Files explorer"
-          className="m-2 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-          title="Expand Files explorer"
-          type="button"
-          onClick={() => setExplorerCollapsed(sessionId, false)}
-        >
-          <SidebarSimple aria-hidden className="size-4" />
-        </button>
-      ) : (
-        <>
-          <div
-            className="flex min-h-0 shrink-0 flex-col border-r bg-background"
-            style={{ width: clampExplorerWidth(context.explorerWidth) }}
-          >
-            <header className="flex shrink-0 flex-col gap-2 border-b p-2">
-              <div className="flex h-7 items-center justify-between gap-2">
-                <div className="flex items-center gap-1" aria-label="Files explorer views">
-                  <button
-                    aria-label="Files search"
-                    aria-pressed={explorerSearchMode === 'files'}
-                    className={explorerViewButtonClass(explorerSearchMode === 'files')}
-                    title="Files search"
-                    type="button"
-                    onClick={selectFilesSearchMode}
-                  >
-                    <TreeStructure aria-hidden className="size-4" />
-                  </button>
-                  <button
-                    aria-label="Contents search"
-                    aria-pressed={explorerSearchMode === 'contents'}
-                    className={explorerViewButtonClass(explorerSearchMode === 'contents')}
-                    title="Contents search"
-                    type="button"
-                    onClick={() => setExplorerSearchMode('contents')}
-                  >
-                    <MagnifyingGlass aria-hidden className="size-4" />
-                  </button>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    aria-label="New file"
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    title="New file"
-                    type="button"
-                    onClick={() => openCreateDialog('file')}
-                  >
-                    <FilePlus aria-hidden className="size-4" />
-                  </button>
-                  <button
-                    aria-label="New folder"
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    title="New folder"
-                    type="button"
-                    onClick={() => openCreateDialog('folder')}
-                  >
-                    <FolderSimplePlus aria-hidden className="size-4" />
-                  </button>
-                  <button
-                    aria-label="Collapse all folders"
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    title="Collapse all folders"
-                    type="button"
-                    onClick={collapseAllFolders}
-                  >
-                    <ArrowsInLineVertical aria-hidden className="size-4" />
-                  </button>
-                  <button
-                    aria-label="Collapse Files explorer"
-                    className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent"
-                    title="Collapse Files explorer"
-                    type="button"
-                    onClick={() => setExplorerCollapsed(sessionId, true)}
-                  >
-                    <SidebarSimple aria-hidden className="size-4" />
-                  </button>
-                </div>
-              </div>
-              <form
-                aria-label={explorerSearchMode === 'files' ? 'Files search' : 'Contents search'}
-                className="flex items-center gap-1"
-                role="search"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  if (explorerSearchMode === 'contents') void performSearch(contentSearchQuery)
-                }}
-              >
-                <div className="flex min-w-0 flex-1 items-center rounded-md border px-2">
-                  <MagnifyingGlass
-                    aria-hidden
-                    className="mr-1 size-3 shrink-0 text-muted-foreground"
-                  />
-                  <input
-                    ref={explorerSearchMode === 'contents' ? searchInputRef : undefined}
-                    aria-label={explorerSearchMode === 'files' ? 'Files search' : 'Contents search'}
-                    className="h-7 min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
-                    placeholder={
-                      explorerSearchMode === 'files' ? 'Search files by path' : 'Search contents'
-                    }
-                    value={explorerSearchMode === 'files' ? filesSearchQuery : contentSearchQuery}
-                    onChange={(event) => {
-                      if (explorerSearchMode === 'files') setFilesSearchQuery(event.target.value)
-                      else setContentSearchQuery(event.target.value)
-                    }}
-                  />
-                </div>
-              </form>
-            </header>
-            <div
-              ref={treeContainerRef}
-              className="min-h-0 flex-1 overflow-hidden"
-              onScrollCapture={(event) => {
-                const target = event.target
-                if (target instanceof HTMLElement && target.getAttribute('role') === 'tree') {
-                  setExplorerScrollTop(sessionId, target.scrollTop)
-                }
-              }}
-            >
-              {explorerSearchMode === 'contents' ? (
-                <FilesSearchResults
-                  state={contentSearchState}
-                  onOpen={(result) => {
-                    const targetLine = result.snippets[0]?.line
-                    void openFile(result.relativePath, 'preview', targetLine)
-                  }}
-                  onRetry={() => void performSearch(contentSearchQuery)}
-                />
-              ) : rootState.status === 'loading' ? (
-                <FilesState message="Loading files…" />
-              ) : rootState.status === 'error' ? (
-                <FilesState message={rootState.message} actionLabel="Retry" onAction={loadRoot} />
-              ) : rootState.tree.entries.length === 0 ? (
-                <FilesState message="This worktree is empty." />
-              ) : (
+  const treeState =
+    rootState.status === 'loading'
+      ? ({ status: 'loading' } as const)
+      : rootState.status === 'error'
+        ? ({ status: 'error', message: rootState.message } as const)
+        : rootState.tree.entries.length === 0
+          ? ({ status: 'empty' } as const)
+          : ({
+              status: 'ready',
+              content: (
                 <TreesFileTree
                   key={sessionId}
                   aria-label={treeLabel}
@@ -1456,27 +1292,19 @@ function FilesToolSession({
                     />
                   )}
                 />
-              )}
-            </div>
-          </div>
-          <div
-            aria-label="Resize Files explorer"
-            aria-orientation="vertical"
-            aria-valuemax={EXPLORER_MAX_WIDTH}
-            aria-valuemin={EXPLORER_MIN_WIDTH}
-            aria-valuenow={context.explorerWidth}
-            className="w-1 shrink-0 cursor-col-resize focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            role="separator"
-            tabIndex={0}
-            onKeyDown={resizeWithKeyboard}
-            onPointerDown={startResize}
-          />
-        </>
-      )}
-      <div
-        className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-background"
-        onKeyDown={handleEditorKeyDown}
-      >
+              )
+            } as const)
+
+  return (
+    <FilesToolView
+      explorerCollapsed={context.explorerCollapsed}
+      explorerWidth={clampExplorerWidth(context.explorerWidth)}
+      searchMode={explorerSearchMode}
+      filesSearchQuery={filesSearchQuery}
+      contentSearchQuery={contentSearchQuery}
+      treeState={treeState}
+      contentSearchState={contentSearchState}
+      editorContent={
         <FilesEditorPanel
           document={activeDocument}
           sessionId={sessionId}
@@ -1492,191 +1320,59 @@ function FilesToolSession({
           onCloseDeletedTab={(relativePath) => discardAndCloseTab(sessionId, relativePath)}
           onSetEditorMode={(relativePath, mode) => void requestEditorMode(relativePath, mode)}
         />
-        {closePromptPath ? (
-          <DirtyTabCloseDialog
-            fileName={pathName(closePromptPath)}
-            onCancel={() => setClosePromptPath(null)}
-            onDiscard={discardAndClosePromptTab}
-            onSave={() => void saveAndClosePromptTab()}
-          />
-        ) : null}
-      </div>
-      <CreateEntryDialog
-        inputRef={createInputRef}
-        rootLabel={createRootDestinationLabel(ipcContext)}
-        state={createDialog}
-        onCancel={() => setCreateDialog(null)}
-        onChange={(name) =>
-          setCreateDialog((dialog) => (dialog ? { ...dialog, name, error: null } : dialog))
+      }
+      createDialog={
+        createDialog
+          ? {
+              ...createDialog,
+              destination: formatCreateDestination(
+                createDialog.parentPath,
+                createRootDestinationLabel(ipcContext)
+              )
+            }
+          : null
+      }
+      closePromptFileName={closePromptPath ? pathName(closePromptPath) : null}
+      createInputRef={createInputRef}
+      searchInputRef={searchInputRef}
+      treeContainerRef={treeContainerRef}
+      onCollapseAll={collapseAllFolders}
+      onCollapseExplorer={() => setExplorerCollapsed(sessionId, true)}
+      onContentSearchChange={setContentSearchQuery}
+      onCreateDialogCancel={() => setCreateDialog(null)}
+      onCreateDialogChange={(name) =>
+        setCreateDialog((dialog) => (dialog ? { ...dialog, name, error: null } : dialog))
+      }
+      onCreateDialogSubmit={() => void confirmCreateEntry()}
+      onCreateFile={() => openCreateDialog('file')}
+      onCreateFolder={() => openCreateDialog('folder')}
+      onEditorFocusChange={(focused) => shortcutManager.setContext({ editorFocused: focused })}
+      onEditorKeyDown={handleEditorKeyDown}
+      onExpandExplorer={() => setExplorerCollapsed(sessionId, false)}
+      onExplorerKeyDown={resizeWithKeyboard}
+      onExplorerPointerDown={startResize}
+      onExplorerScroll={(event) => {
+        const target = event.target
+        if (target instanceof HTMLElement && target.getAttribute('role') === 'tree') {
+          setExplorerScrollTop(sessionId, target.scrollTop)
         }
-        onSubmit={() => void confirmCreateEntry()}
-      />
-    </section>
-  )
-}
-
-function CreateEntryDialog({
-  inputRef,
-  rootLabel,
-  state,
-  onCancel,
-  onChange,
-  onSubmit
-}: {
-  inputRef: React.RefObject<HTMLInputElement | null>
-  rootLabel: string
-  state: CreateDialogState | null
-  onCancel: () => void
-  onChange: (name: string) => void
-  onSubmit: () => void
-}): React.JSX.Element | null {
-  if (!state) return null
-  const title = state.kind === 'file' ? 'New File' : 'New Folder'
-  const placeholder = state.kind === 'file' ? 'File name' : 'Folder name'
-  const destination = formatCreateDestination(state.parentPath, rootLabel)
-  const isSubmitting = state.status === 'submitting'
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(open) => {
-        if (!open && !isSubmitting) onCancel()
       }}
-    >
-      <DialogContent showCloseButton={!isSubmitting}>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>Create in {destination}</DialogDescription>
-        </DialogHeader>
-        <form
-          className="grid gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onSubmit()
-          }}
-        >
-          <div className="grid gap-2">
-            <Input
-              ref={inputRef}
-              aria-describedby={state.error ? 'files-create-error' : undefined}
-              aria-invalid={state.error ? true : undefined}
-              disabled={isSubmitting}
-              placeholder={placeholder}
-              value={state.name}
-              onChange={(event) => onChange(event.currentTarget.value)}
-            />
-            {state.error ? (
-              <p id="files-create-error" className="text-xs text-destructive">
-                {state.error}
-              </p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button disabled={isSubmitting} type="button" variant="outline" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button disabled={isSubmitting} type="submit">
-              Create
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function DirtyTabCloseDialog({
-  fileName,
-  onCancel,
-  onDiscard,
-  onSave
-}: {
-  fileName: string
-  onCancel: () => void
-  onDiscard: () => void
-  onSave: () => void
-}): React.JSX.Element {
-  return (
-    <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60 p-4">
-      <div
-        aria-modal="true"
-        className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-lg"
-        role="dialog"
-      >
-        <h2 className="text-sm font-semibold">Save changes to {fileName}?</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          This tab has unsaved changes. Save, discard, or cancel before closing it.
-        </p>
-        <div className="mt-4 flex justify-end gap-2">
-          <button
-            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
-            type="button"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-          <button
-            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
-            type="button"
-            onClick={onDiscard}
-          >
-            Discard
-          </button>
-          <button
-            className="rounded-md border px-3 py-1 text-sm hover:bg-accent"
-            type="button"
-            onClick={onSave}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function FilesSearchResults({
-  state,
-  onOpen,
-  onRetry
-}: {
-  state: ContentSearchState
-  onOpen: (result: ContentSearchResult) => void
-  onRetry: () => void | Promise<void>
-}): React.JSX.Element {
-  if (state.status === 'loading') return <FilesState message="Searching contents…" />
-  if (state.status === 'error') {
-    return <FilesState message={state.message} actionLabel="Retry" onAction={onRetry} />
-  }
-  if (state.status === 'idle') return <FilesState message="Enter a content search query." />
-  if (state.results.length === 0) return <FilesState message={`No results for “${state.query}”.`} />
-
-  return (
-    <div className="h-full overflow-auto p-2" aria-label="Search results">
-      <p className="mb-2 text-xs text-muted-foreground">
-        {state.results.length} result{state.results.length === 1 ? '' : 's'} for “{state.query}”
-      </p>
-      <div className="space-y-1">
-        {state.results.map((result, index) => (
-          <button
-            key={`${result.kind}:${result.relativePath}:${index}`}
-            className="w-full rounded-md px-2 py-1 text-left text-xs hover:bg-accent"
-            type="button"
-            onClick={() => onOpen(result)}
-          >
-            <span className="block truncate font-medium text-foreground">{result.name}</span>
-            <span className="block truncate text-muted-foreground">{result.relativePath}</span>
-            <span className="mt-1 block space-y-1 text-muted-foreground">
-              {result.snippets.map((snippet) => (
-                <span key={`${snippet.line}:${snippet.column}`} className="block truncate">
-                  {snippet.line}:{snippet.column} {snippet.text}
-                </span>
-              ))}
-            </span>
-          </button>
-        ))}
-      </div>
-    </div>
+      onFilesSearchChange={setFilesSearchQuery}
+      onOpenSearchResult={(result) => {
+        const targetLine = result.snippets[0]?.line
+        void openFile(result.relativePath, 'preview', targetLine)
+      }}
+      onRetryContentSearch={() => void performSearch(contentSearchQuery)}
+      onRetryTree={loadRoot}
+      onSearchModeChange={(mode) => {
+        if (mode === 'files') selectFilesSearchMode()
+        else setExplorerSearchMode('contents')
+      }}
+      onSubmitContentSearch={() => void performSearch(contentSearchQuery)}
+      onClosePromptCancel={() => setClosePromptPath(null)}
+      onClosePromptDiscard={discardAndClosePromptTab}
+      onClosePromptSave={() => void saveAndClosePromptTab()}
+    />
   )
 }
 
@@ -1712,24 +1408,13 @@ function FilesEditorPanel({
   onSetEditorMode: (relativePath: string, mode: FilesEditorMode) => void
 }): React.JSX.Element {
   if (!document) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-sm text-muted-foreground">
-        <p>{emptyRoot ? 'No files yet.' : 'Select a file to open it.'}</p>
-        {emptyRoot ? (
-          <Button type="button" onClick={onCreateFile}>
-            Create new file
-          </Button>
-        ) : null}
-      </div>
-    )
+    return <FilesEditorView state={{ status: 'empty', emptyRoot }} onCreateFile={onCreateFile} />
   }
 
-  if (document.status === 'loading') {
-    return <FilesState message="Opening file…" />
-  }
+  if (document.status === 'loading') return <FilesEditorView state={{ status: 'loading' }} />
 
   if (document.status === 'error') {
-    return <FilesState message={document.message} />
+    return <FilesEditorView state={{ status: 'error', message: document.message }} />
   }
 
   if (document.status === 'metadata') {
@@ -1850,151 +1535,79 @@ function FilesReadyEditorPanel({
     [createRichImageAdapter, document.relativePath]
   )
 
-  return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-9 shrink-0 items-center justify-between border-b px-3 text-xs">
-        <div className="min-w-0">
-          <span className="font-medium">{document.name}</span>
-          {document.preview ? <span className="ml-2 text-muted-foreground">Preview</span> : null}
-        </div>
-        <div className="flex items-center gap-3 text-muted-foreground">
-          {supportsRichMode ? (
-            <div className="flex items-center rounded-md border p-0.5" aria-label="Editor mode">
-              <button
-                aria-pressed={activeMode === 'rich'}
-                className={`rounded px-2 py-0.5 text-foreground disabled:opacity-50 ${activeMode === 'rich' ? 'bg-muted' : 'hover:bg-accent'}`}
-                disabled={Boolean(richModeLimitation)}
-                title={richModeLimitation ?? 'Use rich Markdown editing'}
-                type="button"
-                onClick={() => onSetEditorMode(document.relativePath, 'rich')}
-              >
-                Rich
-              </button>
-              <button
-                aria-pressed={activeMode === 'source'}
-                className={`rounded px-2 py-0.5 text-foreground ${activeMode === 'source' ? 'bg-muted' : 'hover:bg-accent'}`}
-                type="button"
-                onClick={() => onSetEditorMode(document.relativePath, 'source')}
-              >
-                Source
-              </button>
-            </div>
-          ) : null}
-        </div>
-      </header>
-      {document.externalStatus ? (
-        <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
-          <span>
-            {document.externalStatus.kind === 'deleted'
-              ? 'Deleted on disk. Your buffer is still open.'
-              : 'Changed on disk. Choose how to resolve before saving.'}
-          </span>
-          <span className="flex shrink-0 items-center gap-2">
-            {document.externalStatus.kind === 'conflict' ? (
-              <>
-                <button
-                  className="rounded-md border px-2 py-1 hover:bg-background"
-                  type="button"
-                  onClick={() => void onReloadFromDisk(document.relativePath)}
-                >
-                  Reload from disk
-                </button>
-                <button
-                  className="rounded-md border px-2 py-1 hover:bg-background"
-                  type="button"
-                  onClick={() => void onOverwriteDisk(document)}
-                >
-                  Overwrite disk
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="rounded-md border px-2 py-1 hover:bg-background"
-                  type="button"
-                  onClick={() => void onRecreateDeletedFile(document)}
-                >
-                  Recreate file
-                </button>
-                <button
-                  className="rounded-md border px-2 py-1 hover:bg-background"
-                  type="button"
-                  onClick={() => onCloseDeletedTab(document.relativePath)}
-                >
-                  Close tab
-                </button>
-              </>
-            )}
-          </span>
-        </div>
-      ) : null}
-      {document.error ? (
-        <div className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-          {document.error}
-        </div>
-      ) : null}
-      {richModeLimitation ? (
-        <div className="border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">
-          {richModeLimitation}
-        </div>
-      ) : null}
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {activeMode === 'rich' ? (
-          <RichMarkdownEditor
-            key={`${sessionId}:${document.editorStateKey}`}
-            documentRelativePath={document.relativePath}
-            imageAdapter={richImageAdapter}
-            initialScrollTop={
-              getFilesEditorViewState(sessionId, document.relativePath)?.richScrollTop ?? 0
-            }
-            markdown={document.draft}
-            onChange={onChange}
-            onScrollContainerChange={(element) => {
-              richScrollContainerRef.current = element
-            }}
-            onScrollTopChange={(scrollTop) => {
-              useFilesStore.getState().setRichScrollTop(sessionId, document.relativePath, scrollTop)
-            }}
-          />
-        ) : (
-          <FilesDiffsEditor
-            ref={editorRef}
-            cacheKey={createFilesDocumentCacheKey(
-              sessionId,
-              document.relativePath,
-              document.editorStateKey
-            )}
-            contextKey={sessionId}
-            fileName={document.relativePath}
-            initialState={
-              getFilesEditorViewState(sessionId, document.relativePath)?.sourceViewState as
-                FilesSourceEditorState | undefined
-            }
-            targetLocation={
-              document.targetLine === undefined
-                ? undefined
-                : { line: document.targetLine, character: document.targetCharacter }
-            }
-            theme={resolvedTheme}
-            value={document.draft}
-            onChange={onChange}
-            onSave={onSave}
-            onStateChange={(viewState) =>
-              useFilesStore
-                .getState()
-                .setSourceViewState(sessionId, document.relativePath, viewState)
-            }
-            onTargetLocationApplied={() => {
-              if (document.locationRequestId !== undefined) {
-                useFilesStore
-                  .getState()
-                  .clearLocationTarget(sessionId, document.relativePath, document.locationRequestId)
-              }
-            }}
-          />
+  const editorContent =
+    activeMode === 'rich' ? (
+      <RichMarkdownEditor
+        key={`${sessionId}:${document.editorStateKey}`}
+        documentRelativePath={document.relativePath}
+        imageAdapter={richImageAdapter}
+        initialScrollTop={
+          getFilesEditorViewState(sessionId, document.relativePath)?.richScrollTop ?? 0
+        }
+        markdown={document.draft}
+        onChange={onChange}
+        onScrollContainerChange={(element) => {
+          richScrollContainerRef.current = element
+        }}
+        onScrollTopChange={(scrollTop) => {
+          useFilesStore.getState().setRichScrollTop(sessionId, document.relativePath, scrollTop)
+        }}
+      />
+    ) : (
+      <FilesDiffsEditor
+        ref={editorRef}
+        cacheKey={createFilesDocumentCacheKey(
+          sessionId,
+          document.relativePath,
+          document.editorStateKey
         )}
-      </div>
-    </div>
+        contextKey={sessionId}
+        fileName={document.relativePath}
+        initialState={
+          getFilesEditorViewState(sessionId, document.relativePath)?.sourceViewState as
+            FilesSourceEditorState | undefined
+        }
+        targetLocation={
+          document.targetLine === undefined
+            ? undefined
+            : { line: document.targetLine, character: document.targetCharacter }
+        }
+        theme={resolvedTheme}
+        value={document.draft}
+        onChange={onChange}
+        onSave={onSave}
+        onStateChange={(viewState) =>
+          useFilesStore.getState().setSourceViewState(sessionId, document.relativePath, viewState)
+        }
+        onTargetLocationApplied={() => {
+          if (document.locationRequestId !== undefined) {
+            useFilesStore
+              .getState()
+              .clearLocationTarget(sessionId, document.relativePath, document.locationRequestId)
+          }
+        }}
+      />
+    )
+
+  return (
+    <FilesEditorView
+      state={{
+        status: 'ready',
+        name: document.name,
+        preview: document.preview,
+        supportsRichMode,
+        activeMode,
+        richModeLimitation,
+        externalStatus: document.externalStatus?.kind,
+        error: document.error,
+        content: editorContent
+      }}
+      onSetEditorMode={(mode) => onSetEditorMode(document.relativePath, mode)}
+      onReloadFromDisk={() => void onReloadFromDisk(document.relativePath)}
+      onOverwriteDisk={() => void onOverwriteDisk(document)}
+      onRecreateFile={() => void onRecreateDeletedFile(document)}
+      onCloseTab={() => onCloseDeletedTab(document.relativePath)}
+    />
   )
 }
 
@@ -2133,31 +1746,6 @@ function FilesRevealButton({
       </button>
       {error ? <span className="text-xs text-destructive">{error}</span> : null}
     </span>
-  )
-}
-
-function FilesState({
-  message,
-  actionLabel,
-  onAction
-}: {
-  message: string
-  actionLabel?: string
-  onAction?: () => void | Promise<void>
-}): React.JSX.Element {
-  return (
-    <div className="flex h-full min-h-28 flex-col items-center justify-center gap-2 p-4 text-center text-xs text-muted-foreground">
-      <p>{message}</p>
-      {actionLabel && onAction ? (
-        <button
-          className="underline underline-offset-2"
-          type="button"
-          onClick={() => void onAction()}
-        >
-          {actionLabel}
-        </button>
-      ) : null}
-    </div>
   )
 }
 
@@ -2397,13 +1985,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} bytes`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`
-}
-
-function explorerViewButtonClass(isActive: boolean): string {
-  const base = 'flex size-7 items-center justify-center rounded-md hover:bg-accent'
-  return isActive
-    ? `${base} bg-accent text-accent-foreground ring-1 ring-ring`
-    : `${base} text-muted-foreground`
 }
 
 function clampExplorerWidth(width: number): number {
