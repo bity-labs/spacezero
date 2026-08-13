@@ -201,6 +201,27 @@ describe('Side Pane store', () => {
     ).toEqual(['files:src/index.ts', 'browser:'])
   })
 
+  it('persists terminal restoration identity without persisting stale runtime PTY ids', () => {
+    useSidePaneStore.getState().synchronizeCategoryTabs(
+      'session:session-1',
+      'terminal',
+      [
+        {
+          id: 'terminal:restoration-a',
+          categoryId: 'terminal',
+          resourceId: 'runtime-pty-a',
+          title: 'api'
+        }
+      ],
+      'terminal:restoration-a',
+      true
+    )
+
+    const persisted = window.localStorage.getItem('spacezero.sidePane') ?? ''
+    expect(persisted).toContain('terminal:restoration-a')
+    expect(persisted).not.toContain('runtime-pty-a')
+  })
+
   it('persists permanent Files references without preview resources, dirty state, or unsaved content', () => {
     useSidePaneStore.getState().synchronizeCategoryTabs(
       'session:session-1',

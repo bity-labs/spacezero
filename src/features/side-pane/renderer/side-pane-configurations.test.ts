@@ -135,6 +135,51 @@ describe('Side Pane contextual configurations', () => {
     expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
   })
 
+  it('keeps rejected Terminal launcher requests resource-free', async () => {
+    const create = vi.fn(async () => {
+      throw new Error('Terminal unavailable')
+    })
+    window.spacezero.terminal.create = create
+    const terminalCategory = createGlobalChatSidePaneConfiguration().categories.find(
+      (category) => category.id === 'terminal'
+    )
+
+    terminalCategory?.open?.()
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({ context: { kind: 'global-chat' }, forceNew: false })
+    )
+    expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
+  })
+
+  it('shows an actionable error when a persisted Terminal tab cannot restore', async () => {
+    window.spacezero.terminal.create = vi.fn(async () => {
+      throw new Error('Terminal unavailable')
+    })
+    useSidePaneStore.setState({
+      contexts: {
+        'global-chat': {
+          isOpen: true,
+          width: null,
+          activeTabId: 'terminal:saved-shell',
+          tabs: [{ id: 'terminal:saved-shell', categoryId: 'terminal', title: 'Shell' }],
+          categoryMru: { terminal: 'terminal:saved-shell' }
+        }
+      }
+    })
+    const configuration = createGlobalChatSidePaneConfiguration()
+
+    render(
+      createElement(SidePaneShell, {
+        ...configuration,
+        children: createElement('div', null, 'Global Chat')
+      })
+    )
+
+    expect(await screen.findByText('Terminal failed to restore')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry Terminal' })).toBeEnabled()
+  })
+
   it('does not fall back to a synthetic Browser resource when explicit creation is rejected', async () => {
     const createTab = vi.fn(async () => {
       throw new Error('Browser unavailable')

@@ -395,8 +395,8 @@ describe('Terminal service', () => {
     await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
       activeTerminalId: second.terminalId,
       tabs: [
-        { terminalId: first.terminalId, title: 'session-1' },
-        { terminalId: second.terminalId, title: 'session-1' }
+        { terminalId: first.terminalId, restorationId: 'terminal-2', title: 'session-1' },
+        { terminalId: second.terminalId, restorationId: 'terminal-3', title: 'session-1' }
       ]
     })
   })
@@ -1102,7 +1102,7 @@ describe('Terminal service', () => {
       )
 
       await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
-        tabs: [{ terminalId, title: outsideRoot.split('/').at(-1) }],
+        tabs: [{ terminalId, restorationId: 'terminal-2', title: outsideRoot.split('/').at(-1) }],
         activeTerminalId: terminalId
       })
     } finally {
@@ -1184,13 +1184,13 @@ describe('Terminal service', () => {
       ptys[1]?.emitData(`\u001B]7;file://localhost${validCwd}\u0007`)
       await vi.waitFor(async () =>
         expect(await service.listTabs({ ownerWindowId: 1, request: { context: secondProjectContext } })).toEqual({
-          tabs: [{ terminalId: second.terminalId, title: validCwd.split('/').at(-1) }],
+          tabs: [{ terminalId: second.terminalId, restorationId: 'terminal-3', title: validCwd.split('/').at(-1) }],
           activeTerminalId: second.terminalId
         })
       )
 
       await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
-        tabs: [{ terminalId: first.terminalId, title: 'session-1' }],
+        tabs: [{ terminalId: first.terminalId, restorationId: 'terminal-2', title: 'session-1' }],
         activeTerminalId: first.terminalId
       })
     } finally {
