@@ -452,6 +452,10 @@ function createPersistedContext(relativePath: string) {
   return {
     explorerWidth: 260,
     explorerCollapsed: false,
+    explorerScrollTop: 0,
+    explorerSearchMode: 'files' as const,
+    filesSearchQuery: '',
+    contentSearchQuery: '',
     selectedPath: relativePath,
     expandedPaths: [],
     tabs: [],

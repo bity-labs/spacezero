@@ -34,7 +34,15 @@ export type SidePaneCategoryDescriptor = {
   open?: () => void
   create?: () => void
   close?: (tab: SidePaneTab) => void
-  render?: (context: { contextKey: string; capabilities: SidePaneContextCapabilities }) => ReactNode
+  render?: (context: {
+    contextKey: string
+    capabilities: SidePaneContextCapabilities
+    activeTab: SidePaneTab
+  }) => ReactNode
+  renderTabIcon?: (tab: SidePaneTab) => ReactNode
+  onActivateTab?: (tab: SidePaneTab) => void
+  onDoubleClickTab?: (tab: SidePaneTab) => void
+  onRequestCloseTab?: (tab: SidePaneTab) => boolean | Promise<boolean>
 }
 
 export type SidePaneConfiguration = {
@@ -184,11 +192,17 @@ export function SidePaneShell({
               />
             ) : null}
             <div
-              id={`${contextKey}-${controller.activeTab?.id ?? 'active'}-panel`}
+              id={`${contextKey}-${activeCategory.id}-panel`}
               className="min-h-0 flex-1 overflow-auto"
               role="tabpanel"
             >
-              {activeCategory.render?.({ contextKey, capabilities })}
+              {controller.activeTab
+                ? activeCategory.render?.({
+                    contextKey,
+                    capabilities,
+                    activeTab: controller.activeTab
+                  })
+                : null}
             </div>
           </aside>
         </>
@@ -343,6 +357,20 @@ function SidePaneTabStrip({
   onCreateCategory: (categoryId: SidePaneCategoryId) => void
   onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
 }): React.JSX.Element {
+  function activateTab(tabId: string): void {
+    const tab = tabs.find((candidate) => candidate.id === tabId)
+    if (!tab) return
+    onActivate(tabId)
+    categories.find((category) => category.id === tab.categoryId)?.onActivateTab?.(tab)
+  }
+
+  function requestCloseTab(tab: SidePaneTab): void {
+    const category = categories.find((candidate) => candidate.id === tab.categoryId)
+    void Promise.resolve(category?.onRequestCloseTab?.(tab) ?? true).then((canClose) => {
+      if (canClose) onClose(tab.id)
+    })
+  }
+
   return (
     <div className="titlebar-control flex h-9 min-w-0 flex-1 shrink-0 border-b bg-muted/40 p-1">
       <div
@@ -361,8 +389,9 @@ function SidePaneTabStrip({
               contextKey={contextKey}
               tab={tab}
               tabs={tabs}
-              onActivate={onActivate}
-              onClose={onClose}
+              onActivate={activateTab}
+              onClose={() => requestCloseTab(tab)}
+              onDoubleClick={() => category.onDoubleClickTab?.(tab)}
               onReorder={onReorder}
             />
           )
@@ -401,6 +430,7 @@ function SidePaneTabButton({
   tabs,
   onActivate,
   onClose,
+  onDoubleClick,
   onReorder
 }: {
   active: boolean
@@ -410,11 +440,25 @@ function SidePaneTabButton({
   tabs: SidePaneTab[]
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
+  onDoubleClick: () => void
   onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
 }): React.JSX.Element {
   const tabRef = useRef<HTMLDivElement>(null)
   const Icon = category.icon
-  const label = tab.title ?? category.label
+  const label = tab.label ?? tab.title ?? category.label
+  const renderedIcon =
+    tab.categoryId === 'browser' && tab.faviconUrl ? (
+      <img
+        alt=""
+        className="size-3.5 shrink-0"
+        src={tab.faviconUrl}
+        onError={(event) => {
+          event.currentTarget.style.display = 'none'
+        }}
+      />
+    ) : (
+      (category.renderTabIcon?.(tab) ?? <Icon aria-hidden className="size-3.5 shrink-0" />)
+    )
 
   useEffect(() => {
     if (!active || !tabRef.current) return
@@ -468,7 +512,8 @@ function SidePaneTabButton({
       }}
     >
       <button
-        aria-controls={`${contextKey}-${tab.id}-panel`}
+        aria-controls={`${contextKey}-${tab.categoryId}-panel`}
+        aria-label={`${tab.dirty ? 'Modified ' : ''}${label}${tab.preview ? ' preview' : ''}`}
         aria-selected={active}
         data-side-pane-tab-id={tab.id}
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-t-md px-2 pr-7 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -476,21 +521,13 @@ function SidePaneTabButton({
         tabIndex={active ? 0 : -1}
         type="button"
         onClick={() => onActivate(tab.id)}
+        onDoubleClick={onDoubleClick}
         onKeyDown={handleKeyDown}
       >
-        {tab.categoryId === 'browser' && tab.faviconUrl ? (
-          <img
-            alt=""
-            className="size-3.5 shrink-0"
-            src={tab.faviconUrl}
-            onError={(event) => {
-              event.currentTarget.style.display = 'none'
-            }}
-          />
-        ) : (
-          <Icon aria-hidden className="size-3.5 shrink-0" />
-        )}
-        <span className="truncate">{label}</span>
+        {renderedIcon}
+        {tab.dirty ? <span aria-hidden>●</span> : null}
+        <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{label}</span>
+        {tab.preview ? <span className="sr-only"> preview</span> : null}
       </button>
       <button
         aria-label={`Close ${label}`}
