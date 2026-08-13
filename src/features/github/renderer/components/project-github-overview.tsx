@@ -9,6 +9,26 @@ import { githubReadErrorMessage } from '../github-error-messages'
 import { useProjectIssues } from '../hooks/use-project-issues'
 import { useProjectPullRequests } from '../hooks/use-project-pull-requests'
 
+type ProjectGitHubSummaryState<T> = {
+  loading: boolean
+  refreshing: boolean
+  error: string | null
+  items: T[]
+}
+
+export type ProjectGitHubOverviewViewProps = {
+  issues: ProjectGitHubSummaryState<GitHubIssue>
+  pullRequests: ProjectGitHubSummaryState<GitHubPullRequestSummary>
+  onOpenIssue: (number: number) => void
+  onViewIssues: () => void
+  onRetryIssues: () => void
+  onRefreshIssues: () => void
+  onOpenPullRequest: (number: number) => void
+  onViewPullRequests: () => void
+  onRetryPullRequests: () => void
+  onRefreshPullRequests: () => void
+}
+
 export function ProjectGitHubOverviewLoading({
   onViewIssues,
   onViewPullRequests
@@ -17,40 +37,18 @@ export function ProjectGitHubOverviewLoading({
   onViewPullRequests: () => void
 }): React.JSX.Element {
   return (
-    <>
-      <SummaryCard
-        title="Recent Issues"
-        description="Recent open Issues from the linked repository."
-        loadingLabel="Loading Recent Issues"
-        refreshLabel="Refresh Issues"
-        refreshing
-        loading
-        error={null}
-        emptyMessage="No Issues to show."
-        items={[]}
-        onRetry={() => undefined}
-        onRefresh={() => undefined}
-        onViewAll={onViewIssues}
-        viewAllLabel="View all Issues"
-        renderItem={() => null}
-      />
-      <SummaryCard
-        title="Open Pull Requests"
-        description="Open Pull Requests from the linked repository."
-        loadingLabel="Loading Open Pull Requests"
-        refreshLabel="Refresh Pull Requests"
-        refreshing
-        loading
-        error={null}
-        emptyMessage="No Pull Requests to show."
-        items={[]}
-        onRetry={() => undefined}
-        onRefresh={() => undefined}
-        onViewAll={onViewPullRequests}
-        viewAllLabel="View all Pull Requests"
-        renderItem={() => null}
-      />
-    </>
+    <ProjectGitHubOverviewView
+      issues={{ loading: true, refreshing: true, error: null, items: [] }}
+      pullRequests={{ loading: true, refreshing: true, error: null, items: [] }}
+      onOpenIssue={() => undefined}
+      onViewIssues={onViewIssues}
+      onRetryIssues={() => undefined}
+      onRefreshIssues={() => undefined}
+      onOpenPullRequest={() => undefined}
+      onViewPullRequests={onViewPullRequests}
+      onRetryPullRequests={() => undefined}
+      onRefreshPullRequests={() => undefined}
+    />
   )
 }
 
@@ -70,19 +68,59 @@ export function ProjectGitHubOverview({
   const issues = useProjectIssues(project.id, 1)
   const pullRequests = useProjectPullRequests(project.id, 1)
   return (
+    <ProjectGitHubOverviewView
+      issues={{
+        loading: issues.isPending,
+        refreshing: issues.isFetching,
+        error: issues.error ? githubReadErrorMessage(issues.error, 'Recent Issues') : null,
+        items: featuredIssues(issues.data?.items ?? [])
+      }}
+      pullRequests={{
+        loading: pullRequests.isPending,
+        refreshing: pullRequests.isFetching,
+        error: pullRequests.error
+          ? githubReadErrorMessage(pullRequests.error, 'Open Pull Requests')
+          : null,
+        items: featuredPullRequests(pullRequests.data?.items ?? [])
+      }}
+      onOpenIssue={onOpenIssue}
+      onViewIssues={onViewIssues}
+      onRetryIssues={() => void issues.refetch()}
+      onRefreshIssues={() => void issues.refetch()}
+      onOpenPullRequest={onOpenPullRequest}
+      onViewPullRequests={onViewPullRequests}
+      onRetryPullRequests={() => void pullRequests.refetch()}
+      onRefreshPullRequests={() => void pullRequests.refetch()}
+    />
+  )
+}
+
+export function ProjectGitHubOverviewView({
+  issues,
+  pullRequests,
+  onOpenIssue,
+  onViewIssues,
+  onRetryIssues,
+  onRefreshIssues,
+  onOpenPullRequest,
+  onViewPullRequests,
+  onRetryPullRequests,
+  onRefreshPullRequests
+}: ProjectGitHubOverviewViewProps): React.JSX.Element {
+  return (
     <>
       <SummaryCard
         title="Recent Issues"
         description="Recent open Issues from the linked repository."
         loadingLabel="Loading Recent Issues"
         refreshLabel="Refresh Issues"
-        refreshing={issues.isFetching}
-        loading={issues.isPending}
+        refreshing={issues.refreshing}
+        loading={issues.loading}
         error={issues.error}
         emptyMessage="No Issues to show."
-        items={featuredIssues(issues.data?.items ?? [])}
-        onRetry={() => void issues.refetch()}
-        onRefresh={() => void issues.refetch()}
+        items={issues.items}
+        onRetry={onRetryIssues}
+        onRefresh={onRefreshIssues}
         onViewAll={onViewIssues}
         viewAllLabel="View all Issues"
         renderItem={(issue) => (
@@ -100,13 +138,13 @@ export function ProjectGitHubOverview({
         description="Open Pull Requests from the linked repository."
         loadingLabel="Loading Open Pull Requests"
         refreshLabel="Refresh Pull Requests"
-        refreshing={pullRequests.isFetching}
-        loading={pullRequests.isPending}
+        refreshing={pullRequests.refreshing}
+        loading={pullRequests.loading}
         error={pullRequests.error}
         emptyMessage="No Pull Requests to show."
-        items={featuredPullRequests(pullRequests.data?.items ?? [])}
-        onRetry={() => void pullRequests.refetch()}
-        onRefresh={() => void pullRequests.refetch()}
+        items={pullRequests.items}
+        onRetry={onRetryPullRequests}
+        onRefresh={onRefreshPullRequests}
         onViewAll={onViewPullRequests}
         viewAllLabel="View all Pull Requests"
         renderItem={(pullRequest) => (
@@ -145,7 +183,7 @@ function SummaryCard<T>({
   refreshLabel: string
   refreshing: boolean
   loading: boolean
-  error: unknown
+  error: string | null
   emptyMessage: string
   items: T[]
   onRetry: () => void
@@ -178,7 +216,7 @@ function SummaryCard<T>({
         {loading ? <SummaryRowsSkeleton label={loadingLabel} /> : null}
         {error ? (
           <div className="space-y-2 rounded-lg border border-destructive/40 p-3" role="alert">
-            <p className="text-sm">{githubReadErrorMessage(error, title)}</p>
+            <p className="text-sm">{error}</p>
             <Button variant="outline" size="sm" onClick={onRetry}>
               Retry {title}
             </Button>
