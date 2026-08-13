@@ -3,6 +3,16 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  dirtyTabFilesToolFixture,
+  fileNameSearchEmptyFilesToolFixture,
+  fileNameSearchFilesToolFixture,
+  FilesToolSidePaneFixture,
+  nestedTreeFilesToolFixture,
+  permanentTabFilesToolFixture,
+  previewTabFilesToolFixture,
+  richMarkdownFilesEditorFixture
+} from './files-tool-view.fixtures'
+import {
   FilesEditorView,
   FilesToolView,
   type FilesContentSearchViewState,
@@ -122,7 +132,7 @@ describe('FilesToolView', () => {
     expect(screen.getByText(message)).toBeInTheDocument()
   })
 
-  it('shows preview, dirty, missing, and conflict document signals through the editor view', async () => {
+  it('shows preview, missing, and conflict document signals through the editor view', async () => {
     const user = userEvent.setup()
     const onReloadFromDisk = vi.fn()
     const { rerender } = render(
@@ -131,14 +141,12 @@ describe('FilesToolView', () => {
           status: 'ready',
           name: 'notes.md',
           preview: true,
-          dirty: true,
           content: <p>Draft notes</p>
         }}
       />
     )
 
     expect(screen.getByText('Preview')).toBeInTheDocument()
-    expect(screen.getByText('Unsaved')).toBeInTheDocument()
 
     rerender(
       <FilesEditorView
@@ -188,5 +196,46 @@ describe('FilesToolView', () => {
     expect(screen.getByRole('heading', { name: 'New File' })).toBeInTheDocument()
     expect(screen.getByText('Create in src')).toBeInTheDocument()
     expect(screen.getByText('Save changes to notes.md?')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['preview', previewTabFilesToolFixture, 'README.md preview', false],
+    ['permanent', permanentTabFilesToolFixture, 'README.md', false],
+    ['dirty', dirtyTabFilesToolFixture, 'Modified README.md', true]
+  ])(
+    'composes the %s Files state through the production Side Pane tab strip',
+    (_, fixture, name, dirty) => {
+      render(<FilesToolSidePaneFixture {...fixture} />)
+
+      expect(screen.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeInTheDocument()
+      const tab = screen.getByRole('tab', { name })
+      expect(tab).toHaveAttribute('aria-selected', 'true')
+      expect(tab).toHaveTextContent(dirty ? '●' : 'README.md')
+      expect(screen.getByRole('region', { name: 'Files explorer' })).toBeInTheDocument()
+    }
+  )
+
+  it('renders real rich Markdown content when the rich mode is selected', async () => {
+    render(<FilesToolSidePaneFixture {...richMarkdownFilesEditorFixture} />)
+
+    expect(await screen.findByRole('textbox', { name: 'Rich Markdown editor' })).toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Markdown formatting' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['nested', nestedTreeFilesToolFixture, ''],
+    ['active search', fileNameSearchFilesToolFixture, 'context'],
+    ['no search results', fileNameSearchEmptyFilesToolFixture, 'does-not-exist']
+  ])('uses the production Trees adapter for the %s story', async (_, fixture, query) => {
+    render(<FilesToolSidePaneFixture {...fixture} />)
+
+    const tree = await screen.findByLabelText('Project files')
+    expect(tree).toHaveStyle({
+      '--trees-fg-override': 'var(--foreground)',
+      '--trees-font-family-override': 'var(--font-sans)'
+    })
+    expect(screen.getByRole('textbox', { name: 'Files search' })).toHaveValue(query)
+    expect(screen.queryByLabelText('No matching files')).not.toBeInTheDocument()
   })
 })

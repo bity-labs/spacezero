@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import type {
+  CSSProperties,
   FocusEvent,
   FormEvent,
   KeyboardEvent,
@@ -7,6 +9,7 @@ import type {
   RefObject,
   UIEvent
 } from 'react'
+import { FileTree as TreesFileTree, type FileTreeProps } from '@pierre/trees/react'
 import {
   ArrowsInLineVertical,
   FilePlus,
@@ -44,6 +47,45 @@ export type FilesTreeViewState =
   | { status: 'error'; message: string }
   | { status: 'empty' }
   | { status: 'ready'; content: ReactNode }
+
+type FilesTreeHostStyle = CSSProperties & Record<`--${string}`, string | number>
+
+export type FilesTreeViewProps = Omit<FileTreeProps, 'style'> & {
+  height: number
+  searchQuery: string | null
+}
+
+export function FilesTreeView({
+  height,
+  model,
+  searchQuery,
+  ...props
+}: FilesTreeViewProps): React.JSX.Element {
+  useEffect(() => {
+    model.setSearch(searchQuery)
+  }, [model, searchQuery])
+
+  const style: FilesTreeHostStyle = {
+    height,
+    width: '100%',
+    '--trees-bg-override': 'var(--background)',
+    '--trees-bg-muted-override': 'var(--muted)',
+    '--trees-fg-override': 'var(--foreground)',
+    '--trees-fg-muted-override': 'var(--muted-foreground)',
+    '--trees-selected-bg-override': 'var(--accent)',
+    '--trees-selected-fg-override': 'var(--accent-foreground)',
+    '--trees-selected-focused-border-color-override': 'var(--ring)',
+    '--trees-border-color-override': 'var(--border)',
+    '--trees-focus-ring-color-override': 'var(--ring)',
+    '--trees-input-bg-override': 'var(--background)',
+    '--trees-search-bg-override': 'var(--background)',
+    '--trees-indent-guide-bg-override': 'var(--border)',
+    '--trees-scrollbar-thumb-override': 'var(--muted-foreground)',
+    '--trees-font-family-override': 'var(--font-sans)'
+  }
+
+  return <TreesFileTree {...props} model={model} style={style} />
+}
 
 export type FilesCreateDialogViewState = {
   kind: 'file' | 'folder'
@@ -375,7 +417,6 @@ export type FilesEditorViewModel =
       status: 'ready'
       name: string
       preview: boolean
-      dirty?: boolean
       supportsRichMode?: boolean
       activeMode?: 'rich' | 'source'
       richModeLimitation?: string | null
@@ -423,7 +464,6 @@ export function FilesEditorView({
         <div className="min-w-0">
           <span className="font-medium">{state.name}</span>
           {state.preview ? <span className="ml-2 text-muted-foreground">Preview</span> : null}
-          {state.dirty ? <span className="ml-2 text-muted-foreground">Unsaved</span> : null}
         </div>
         {state.supportsRichMode ? (
           <div className="flex items-center rounded-md border p-0.5" aria-label="Editor mode">
