@@ -11,6 +11,7 @@ import {
   createFolderDialogFilesToolFixture,
   dirtyTabFilesToolFixture,
   emptyTreeFilesToolFixture,
+  FilesToolSidePaneFixture,
   fileNameSearchEmptyFilesToolFixture,
   fileNameSearchFilesToolFixture,
   missingFileFilesToolFixture,
@@ -23,21 +24,20 @@ import {
   treeLoadingFilesToolFixture,
   unsavedChangesDialogFilesToolFixture
 } from './files-tool-view.fixtures'
-import { FilesToolView } from './files-tool-view'
 
 const meta = {
   title: 'Screens/Files/Tool',
-  component: FilesToolView,
+  component: FilesToolSidePaneFixture,
   parameters: { layout: 'fullscreen' },
   decorators: [
     (Story) => (
-      <div className="h-screen min-h-[620px] w-screen min-w-[860px] bg-background">
+      <div className="h-screen min-h-[620px] w-screen min-w-[1120px] bg-background">
         <Story />
       </div>
     )
   ],
   args: baseFilesToolFixture
-} satisfies Meta<typeof FilesToolView>
+} satisfies Meta<typeof FilesToolSidePaneFixture>
 
 export default meta
 

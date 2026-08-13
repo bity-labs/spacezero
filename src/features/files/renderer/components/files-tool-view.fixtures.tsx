@@ -1,48 +1,59 @@
 /* eslint-disable react-refresh/only-export-components -- visual fixture components are intentionally co-located with fixture props. */
-import { FileTree as TreesFileTree, useFileTree } from '@pierre/trees/react'
+import { FileCode } from '@phosphor-icons/react'
+import { useFileTree } from '@pierre/trees/react'
 
+import { RichMarkdownEditor } from '@renderer/components/rich-markdown-editor'
+import { richMarkdownEditorFixture } from '@renderer/components/rich-markdown-editor.fixtures'
+import {
+  SidePaneShellView,
+  type SidePaneCategoryDescriptor,
+  type SidePaneTab
+} from '../../../side-pane/renderer'
+import { FilesTabIcon } from './files-tab-icon'
 import {
   FilesEditorView,
+  FilesToolView,
+  FilesTreeView,
   type FilesEditorViewModel,
   type FilesToolViewProps
 } from './files-tool-view'
 
 const noop = (): void => undefined
 
-function FixtureTree({ filtered = false }: { filtered?: boolean }): React.JSX.Element {
+function FixtureTree({ searchQuery = '' }: { searchQuery?: string }): React.JSX.Element {
   const { model } = useFileTree({
     density: 'compact',
     fileTreeSearchMode: 'hide-non-matches',
     flattenEmptyDirectories: true,
     icons: { set: 'complete', colored: true },
-    id: filtered ? 'files-story-filtered-tree' : 'files-story-nested-tree',
+    id: `files-story-tree-${searchQuery || 'nested'}`,
     initialExpansion: 'open',
-    paths: filtered
-      ? ['docs/', 'docs/context.md']
-      : [
-          '.agents/',
-          '.agents/skills/',
-          '.agents/skills/implement-with-tdd/',
-          '.agents/skills/implement-with-tdd/SKILL.md',
-          'docs/',
-          'docs/context.md',
-          'src/',
-          'src/features/',
-          'src/features/files/',
-          'src/features/files/files-tool.tsx',
-          'package.json',
-          'README.md'
-        ],
+    initialSearchQuery: searchQuery,
+    paths: [
+      '.agents/',
+      '.agents/skills/',
+      '.agents/skills/implement-with-tdd/',
+      '.agents/skills/implement-with-tdd/SKILL.md',
+      'docs/',
+      'docs/context.md',
+      'src/',
+      'src/features/',
+      'src/features/files/',
+      'src/features/files/files-tool.tsx',
+      'package.json',
+      'README.md'
+    ],
     search: false,
     stickyFolders: true
   })
 
   return (
-    <TreesFileTree
+    <FilesTreeView
       aria-label="Project files"
       className="pt-1"
+      height={552}
       model={model}
-      style={{ height: 552, width: '100%' }}
+      searchQuery={searchQuery}
     />
   )
 }
@@ -71,6 +82,54 @@ function editor(
   )
 }
 
+export type FilesToolSidePaneFixtureProps = FilesToolViewProps & {
+  sidePaneTab: SidePaneTab
+}
+
+const filesCategory: SidePaneCategoryDescriptor = {
+  id: 'files',
+  label: 'Files',
+  available: true,
+  icon: FileCode,
+  renderTabIcon: (tab) =>
+    tab.label ? <FilesTabIcon fileName={tab.label} /> : <FileCode aria-hidden className="size-4" />
+}
+
+export function FilesToolSidePaneFixture({
+  sidePaneTab,
+  ...filesToolProps
+}: FilesToolSidePaneFixtureProps): React.JSX.Element {
+  return (
+    <div className="flex h-full min-h-[620px] min-w-0">
+      <SidePaneShellView
+        activeContent={<FilesToolView {...filesToolProps} />}
+        activeTabId={sidePaneTab.id}
+        canOpen
+        categories={[filesCategory]}
+        categoryMru={{ files: sidePaneTab.id }}
+        contextKey="session:files-story"
+        isOpen
+        maxWidth={960}
+        minWidth={600}
+        renderedWidth={860}
+        tabs={[sidePaneTab]}
+        onActivateTab={noop}
+        onCloseTab={noop}
+        onCreateCategory={noop}
+        onOpenCategory={noop}
+        onReorderTab={noop}
+      >
+        <main
+          aria-label="Project Session workspace"
+          className="flex min-h-0 min-w-[240px] flex-1 items-center justify-center bg-muted/20 p-6 text-center text-xs text-muted-foreground"
+        >
+          Project Session
+        </main>
+      </SidePaneShellView>
+    </div>
+  )
+}
+
 export const baseFilesToolFixture = {
   explorerCollapsed: false,
   explorerWidth: 252,
@@ -86,6 +145,12 @@ export const baseFilesToolFixture = {
   }),
   createDialog: null,
   closePromptFileName: null,
+  sidePaneTab: {
+    id: 'files:files-tool.tsx',
+    categoryId: 'files',
+    resourceId: 'src/features/files/files-tool.tsx',
+    label: 'files-tool.tsx'
+  },
   onCollapseAll: noop,
   onCollapseExplorer: noop,
   onContentSearchChange: noop,
@@ -109,7 +174,7 @@ export const baseFilesToolFixture = {
   onClosePromptCancel: noop,
   onClosePromptDiscard: noop,
   onClosePromptSave: noop
-} satisfies FilesToolViewProps
+} satisfies FilesToolSidePaneFixtureProps
 
 export const noFileSelectedFilesToolFixture = {
   ...baseFilesToolFixture,
@@ -137,17 +202,17 @@ export const nestedTreeFilesToolFixture = baseFilesToolFixture
 export const fileNameSearchFilesToolFixture = {
   ...baseFilesToolFixture,
   filesSearchQuery: 'context',
-  treeState: { status: 'ready', content: <FixtureTree filtered /> }
-} satisfies FilesToolViewProps
+  treeState: { status: 'ready', content: <FixtureTree searchQuery="context" /> }
+} satisfies FilesToolSidePaneFixtureProps
 
 export const fileNameSearchEmptyFilesToolFixture = {
   ...baseFilesToolFixture,
   filesSearchQuery: 'does-not-exist',
   treeState: {
     status: 'ready',
-    content: <div aria-label="No matching files" className="h-full" />
+    content: <FixtureTree searchQuery="does-not-exist" />
   }
-} satisfies FilesToolViewProps
+} satisfies FilesToolSidePaneFixtureProps
 
 export const contentSearchLoadingFilesToolFixture = {
   ...baseFilesToolFixture,
@@ -194,18 +259,31 @@ export const contentSearchErrorFilesToolFixture = {
 
 export const previewTabFilesToolFixture = {
   ...baseFilesToolFixture,
+  sidePaneTab: {
+    id: 'files:README.md',
+    categoryId: 'files',
+    resourceId: 'README.md',
+    label: 'README.md',
+    preview: true
+  },
   editorContent: editor({ status: 'ready', name: 'README.md', preview: true })
-} satisfies FilesToolViewProps
+} satisfies FilesToolSidePaneFixtureProps
 
 export const permanentTabFilesToolFixture = {
   ...baseFilesToolFixture,
+  sidePaneTab: {
+    id: 'files:README.md',
+    categoryId: 'files',
+    resourceId: 'README.md',
+    label: 'README.md'
+  },
   editorContent: editor({ status: 'ready', name: 'README.md', preview: false })
-} satisfies FilesToolViewProps
+} satisfies FilesToolSidePaneFixtureProps
 
 export const dirtyTabFilesToolFixture = {
-  ...baseFilesToolFixture,
-  editorContent: editor({ status: 'ready', name: 'README.md', preview: false, dirty: true })
-} satisfies FilesToolViewProps
+  ...permanentTabFilesToolFixture,
+  sidePaneTab: { ...permanentTabFilesToolFixture.sidePaneTab, dirty: true }
+} satisfies FilesToolSidePaneFixtureProps
 
 export const missingFileFilesToolFixture = {
   ...baseFilesToolFixture,
@@ -230,7 +308,6 @@ export const conflictFilesToolFixture = {
         status: 'ready',
         name: 'README.md',
         preview: false,
-        dirty: true,
         externalStatus: 'conflict',
         content: <SourceEditorFixture markdown />
       }}
@@ -266,12 +343,17 @@ export const unsavedChangesDialogFilesToolFixture = {
 } satisfies FilesToolViewProps
 
 export const richMarkdownFilesEditorFixture = {
-  ...baseFilesToolFixture,
-  editorContent: editor({
-    status: 'ready',
-    name: 'README.md',
-    preview: false,
-    supportsRichMode: true,
-    activeMode: 'rich'
-  })
-} satisfies FilesToolViewProps
+  ...permanentTabFilesToolFixture,
+  editorContent: (
+    <FilesEditorView
+      state={{
+        status: 'ready',
+        name: 'README.md',
+        preview: false,
+        supportsRichMode: true,
+        activeMode: 'rich',
+        content: <RichMarkdownEditor {...richMarkdownEditorFixture} />
+      }}
+    />
+  )
+} satisfies FilesToolSidePaneFixtureProps
