@@ -19,6 +19,7 @@ import {
   type ChatInputHistoryItem
 } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
+import { Button } from '@renderer/components/ui/button'
 import { SessionHostScreen } from './session-host-screen'
 
 type ProjectSessionHostSurfaceProps = {
@@ -288,8 +289,13 @@ export function ManagedChatHostSurface({
   const agentSession = useAgentSession(session.id)
 
   const screenLabel = chatLinkContext.kind === 'global-chat' ? 'Global Chat' : 'Knowledge Base Chat'
+  const hasReadySession = agentSession.sessionState !== undefined
+  const runtimeRefreshError =
+    requireRuntimeReady && hasReadySession && agentSession.runtimeReadiness === 'error'
+      ? agentSession.restoreError
+      : undefined
 
-  if (requireRuntimeReady && agentSession.runtimeReadiness === 'loading') {
+  if (requireRuntimeReady && !hasReadySession && agentSession.runtimeReadiness === 'loading') {
     return (
       <SessionHostScreen
         label={screenLabel}
@@ -298,7 +304,7 @@ export function ManagedChatHostSurface({
     )
   }
 
-  if (requireRuntimeReady && agentSession.runtimeReadiness === 'error') {
+  if (requireRuntimeReady && !hasReadySession && agentSession.runtimeReadiness === 'error') {
     return (
       <SessionHostScreen
         label={screenLabel}
@@ -318,7 +324,9 @@ export function ManagedChatHostSurface({
       sessionId={session.id}
       status={agentSession.status}
       messages={agentSession.messages}
-      error={agentSession.lastError ?? null}
+      error={runtimeRefreshError ? null : (agentSession.lastError ?? null)}
+      runtimeRefreshError={runtimeRefreshError}
+      onRetryRuntimeRefresh={agentSession.retryRestore}
       sessionState={agentSession.sessionState}
       placeholder={placeholder}
       onSubmit={async (text, options) => {
@@ -350,6 +358,8 @@ type SessionHostFrameProps = {
   status: 'idle' | 'running'
   messages: AiChatMessage[]
   error?: string | null
+  runtimeRefreshError?: string
+  onRetryRuntimeRefresh?: () => void
   sessionState?: AgentSessionState
   placeholder: string
   onSubmit?: (
@@ -372,6 +382,8 @@ function SessionHostFrame({
   status,
   messages,
   error,
+  runtimeRefreshError,
+  onRetryRuntimeRefresh,
   sessionState,
   placeholder,
   onSubmit,
@@ -405,7 +417,9 @@ function SessionHostFrame({
     },
     [onSubmit]
   )
-  const alertMessage = submissionError ?? (error ? `Agent prompt failed: ${error}` : undefined)
+  const alertMessage = runtimeRefreshError
+    ? `Unable to refresh the agent Session: ${runtimeRefreshError}. Your previous chat remains available.`
+    : (submissionError ?? (error ? `Agent prompt failed: ${error}` : undefined))
   const openChatLink = useCallback(
     async (url: string) => {
       if (!chatLinkContext || !isHttpChatLink(url)) return
@@ -429,7 +443,17 @@ function SessionHostFrame({
           className="border-b border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
           role="alert"
         >
-          {alertMessage}
+          <span>{alertMessage}</span>
+          {runtimeRefreshError && onRetryRuntimeRefresh ? (
+            <Button
+              className="ml-3"
+              size="xs"
+              variant="destructive"
+              onClick={onRetryRuntimeRefresh}
+            >
+              Retry refresh
+            </Button>
+          ) : null}
         </div>
       ) : null}
       <AgentChat
