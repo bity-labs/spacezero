@@ -46,6 +46,7 @@ export type FilesTabState =
   | (Exclude<FilesDocument, FilesTextDocument> & FilesTabBase & { status: 'metadata' })
 
 export type FilesActiveDocumentState = FilesTabState
+export type FilesWorkingDocumentState = Extract<FilesTabState, { status: 'ready' }>
 
 export type FilesEditorViewState = {
   sourceViewState?: unknown
@@ -62,6 +63,7 @@ export type FilesContextState = {
   filesSearchQuery: string
   contentSearchQuery: string
   tabs: FilesTabState[]
+  detachedDocuments: Record<string, FilesWorkingDocumentState>
   activeTabPath: string | null
   editorViewStates: Record<string, FilesEditorViewState>
 }
@@ -73,7 +75,7 @@ type PersistedFilesTabReference = {
   relativePath: string
 }
 
-type PersistedFilesContextState = Omit<FilesContextState, 'tabs'> & {
+type PersistedFilesContextState = Omit<FilesContextState, 'tabs' | 'detachedDocuments'> & {
   tabs: PersistedFilesTabReference[]
 }
 
@@ -95,6 +97,9 @@ type FilesStore = {
     targetCharacter?: number
   ) => boolean
   finishOpenTab: (sessionId: string, document: FilesDocument, openRequestId: number) => boolean
+  ensureWorkingDocument: (sessionId: string, document: FilesTextDocument) => void
+  updateWorkingDocumentDraft: (sessionId: string, relativePath: string, draft: string) => void
+  discardDetachedWorkingDocument: (sessionId: string, relativePath: string) => void
   failOpenTab: (
     sessionId: string,
     relativePath: string,
@@ -244,24 +249,57 @@ const useFilesStore = create<FilesStore>()(
           )
           if (!tab) return state
           accepted = true
+          const detachedDocument = context.detachedDocuments[document.relativePath]
+          const detachedDocuments = { ...context.detachedDocuments }
+          delete detachedDocuments[document.relativePath]
           return updateContext(state, sessionId, {
-            tabs: context.tabs.map((candidate) =>
-              candidate === tab
-                ? toTabDocument(
-                    document,
-                    tab.preview,
-                    tab.targetLine,
-                    tab.locationRequestId,
-                    tab.editorStateKey,
-                    undefined,
-                    tab.targetCharacter
-                  )
-                : candidate
-            )
+            detachedDocuments,
+            tabs: context.tabs.map((candidate) => {
+              if (candidate !== tab) return candidate
+              if (detachedDocument) {
+                return {
+                  ...detachedDocument,
+                  preview: detachedDocument.dirty ? false : tab.preview,
+                  targetLine: tab.targetLine,
+                  targetCharacter: tab.targetCharacter,
+                  locationRequestId: tab.locationRequestId
+                }
+              }
+              return toTabDocument(
+                document,
+                tab.preview,
+                tab.targetLine,
+                tab.locationRequestId,
+                tab.editorStateKey,
+                undefined,
+                tab.targetCharacter
+              )
+            })
           })
         })
         return accepted
       },
+      ensureWorkingDocument: (sessionId, document) =>
+        set((state) => ensureWorkingDocument(state, sessionId, document)),
+      updateWorkingDocumentDraft: (sessionId, relativePath, draft) =>
+        set((state) =>
+          updateMatchingReadyTab(state, sessionId, relativePath, (workingDocument) => ({
+            ...workingDocument,
+            draft,
+            dirty: draft !== workingDocument.content,
+            preview: false,
+            saveStatus: workingDocument.saveStatus === 'saving' ? 'saving' : 'idle',
+            error: undefined
+          }))
+        ),
+      discardDetachedWorkingDocument: (sessionId, relativePath) =>
+        set((state) => {
+          const context = state.contexts[sessionId]
+          if (!context?.detachedDocuments[relativePath]) return state
+          const detachedDocuments = { ...context.detachedDocuments }
+          delete detachedDocuments[relativePath]
+          return updateContext(state, sessionId, { detachedDocuments })
+        }),
       failOpenTab: (sessionId, relativePath, message, openRequestId) => {
         let accepted = false
         set((state) => {
@@ -507,7 +545,15 @@ const useFilesStore = create<FilesStore>()(
           discardDirtyTabs(state, sessionId, (path) => isPathAffectedBy(path, relativePath))
         ),
       discardAllDirtyTabs: (sessionId) =>
-        set((state) => discardDirtyTabs(state, sessionId, () => true)),
+        set((state) => {
+          const discarded = discardDirtyTabs(state, sessionId, () => true)
+          const context = discarded.contexts[sessionId] ?? createDefaultContext()
+          return updateContext(discarded, sessionId, {
+            detachedDocuments: Object.fromEntries(
+              Object.entries(context.detachedDocuments).filter(([, document]) => !document.dirty)
+            )
+          })
+        }),
       rewritePaths: (sessionId, sourcePath, destinationPath) =>
         set((state) => {
           const context = state.contexts[sessionId] ?? createDefaultContext()
@@ -615,6 +661,7 @@ const useFilesStore = create<FilesStore>()(
                   ...createDefaultContext(),
                   ...context,
                   tabs: restoredTabs,
+                  detachedDocuments: {},
                   activeTabPath: restoredActiveTabPath,
                   editorViewStates: sanitizeEditorViewStates(context.editorViewStates)
                 }
@@ -660,6 +707,23 @@ export function getFilesEditorViewState(
   relativePath: string
 ): FilesEditorViewState | undefined {
   return useFilesStore.getState().contexts[sessionId]?.editorViewStates[relativePath]
+}
+
+export function getFilesWorkingDocument(
+  sessionId: string,
+  relativePath: string
+): FilesWorkingDocumentState | undefined {
+  const context = useFilesStore.getState().contexts[sessionId]
+  return (
+    context?.tabs.find(
+      (tab): tab is FilesWorkingDocumentState =>
+        tab.status === 'ready' && tab.relativePath === relativePath
+    ) ?? context?.detachedDocuments[relativePath]
+  )
+}
+
+export function getDetachedFilesWorkingDocuments(sessionId: string): FilesWorkingDocumentState[] {
+  return Object.values(useFilesStore.getState().contexts[sessionId]?.detachedDocuments ?? {})
 }
 
 export function createDefaultFilesContext(): FilesContextState {
@@ -742,22 +806,77 @@ function discardDirtyTabs(
   })
 }
 
+function ensureWorkingDocument(
+  state: Pick<FilesStore, 'contexts'>,
+  sessionId: string,
+  document: FilesTextDocument
+): Pick<FilesStore, 'contexts'> {
+  const context = state.contexts[sessionId] ?? createDefaultContext()
+  const openDocument = context.tabs.find(
+    (tab): tab is FilesWorkingDocumentState =>
+      tab.status === 'ready' && tab.relativePath === document.relativePath
+  )
+  const existing = openDocument ?? context.detachedDocuments[document.relativePath]
+  if (!existing) {
+    return updateContext(state, sessionId, {
+      detachedDocuments: {
+        ...context.detachedDocuments,
+        [document.relativePath]: toReadyDocument(
+          document,
+          false,
+          undefined,
+          undefined,
+          createRevisionBaselineKey(document)
+        )
+      }
+    })
+  }
+  if (existing.revision === document.revision) return state
+  if (existing.dirty) {
+    return updateMatchingReadyTab(state, sessionId, document.relativePath, (workingDocument) => ({
+      ...workingDocument,
+      preview: false,
+      saveStatus: 'error',
+      error: 'This file changed on disk. Reload from disk or explicitly overwrite disk.',
+      saveRequest: undefined,
+      externalStatus: { kind: 'conflict', diskRevision: document.revision }
+    }))
+  }
+  const replacement = toReadyDocument(
+    document,
+    existing.preview,
+    existing.targetLine,
+    existing.locationRequestId,
+    createRevisionBaselineKey(document),
+    existing.editorMode,
+    existing.targetCharacter
+  )
+  return updateMatchingReadyTab(state, sessionId, document.relativePath, () => replacement)
+}
+
 function updateMatchingReadyTab(
   state: Pick<FilesStore, 'contexts'>,
   sessionId: string,
   relativePath: string,
-  update: (
-    document: Extract<FilesTabState, { status: 'ready' }>
-  ) => Extract<FilesTabState, { status: 'ready' }>
+  update: (document: FilesWorkingDocumentState) => FilesWorkingDocumentState
 ): Pick<FilesStore, 'contexts'> {
   const context = state.contexts[sessionId] ?? createDefaultContext()
   const matchingDocument = context.tabs.find(
-    (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+    (tab): tab is FilesWorkingDocumentState =>
       tab.status === 'ready' && tab.relativePath === relativePath
   )
-  if (!matchingDocument) return state
+  if (matchingDocument) {
+    return updateContext(state, sessionId, {
+      tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
+    })
+  }
+  const detachedDocument = context.detachedDocuments[relativePath]
+  if (!detachedDocument) return state
   return updateContext(state, sessionId, {
-    tabs: context.tabs.map((tab) => (tab === matchingDocument ? update(matchingDocument) : tab))
+    detachedDocuments: {
+      ...context.detachedDocuments,
+      [relativePath]: update(detachedDocument)
+    }
   })
 }
 
@@ -823,6 +942,7 @@ function createDefaultContext(): FilesContextState {
     filesSearchQuery: '',
     contentSearchQuery: '',
     tabs: [],
+    detachedDocuments: {},
     activeTabPath: null,
     editorViewStates: {}
   }

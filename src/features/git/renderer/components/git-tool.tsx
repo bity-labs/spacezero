@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
+import { useOptionalAppearance } from '@renderer/appearance-provider'
 import { DiffViewer } from '@renderer/components/diff-viewer'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -14,6 +15,13 @@ import type { ProjectSessionChatContext } from '../../../sessions/shared'
 import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
+import {
+  FilesDiffsEditor,
+  type FilesSourceEditorState
+} from '../../../files/renderer/components/files-diffs-editor'
+import { createFilesDocumentCacheKey } from '../../../files/renderer/lib/files-document-identity'
+import { useFilesStore, type FilesWorkingDocumentState } from '../../../files/renderer/files-store'
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../../../files/shared'
 import type { GitComposerAction } from '../../../../shared/git-action-settings'
 import type {
   GitChangeFilter,
@@ -40,6 +48,7 @@ type GitViewMemory = {
   collapsedPaths: Set<string>
   instructions: string
   scrollTop: number
+  diffViewStates: Map<string, FilesSourceEditorState>
 }
 
 const gitViewMemoryBySession = new Map<string, GitViewMemory>()
@@ -56,7 +65,8 @@ function getGitViewMemory(memoryKey: string): GitViewMemory {
     expandedPaths: new Set<string>(),
     collapsedPaths: new Set<string>(),
     instructions: '',
-    scrollTop: 0
+    scrollTop: 0,
+    diffViewStates: new Map()
   }
   gitViewMemoryBySession.set(memoryKey, created)
   return created
@@ -258,6 +268,31 @@ function getGitContextMemoryKey(context: GitContext): string {
   return `session:${context.sessionId}`
 }
 
+function getGitFilesContext(context: GitContext): {
+  contextKey: string
+  ipcContext: FilesContext
+} {
+  if (context.kind === 'project-home') {
+    return {
+      contextKey: `project:${context.projectId}`,
+      ipcContext: { kind: 'project-home', projectId: context.projectId }
+    }
+  }
+  if (context.kind === 'project-session') {
+    return {
+      contextKey: context.sessionId,
+      ipcContext: { kind: 'project-session', sessionId: context.sessionId }
+    }
+  }
+  return {
+    contextKey: context.contextKey,
+    ipcContext: {
+      kind: 'knowledge-base',
+      contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
+    }
+  }
+}
+
 function GitToolSession({
   context,
   filesHandoff,
@@ -268,6 +303,8 @@ function GitToolSession({
   agentSession?: GitAgentSession | null
 }): React.JSX.Element {
   const gitMemoryKey = getGitContextMemoryKey(context)
+  const filesContext = useMemo(() => getGitFilesContext(context), [context])
+  const filesState = useFilesStore((store) => store.contexts[filesContext.contextKey])
   const initialMemory = useMemo(() => getGitViewMemory(gitMemoryKey), [gitMemoryKey])
   const [filter, setFilterState] = useState<GitChangeFilter>(initialMemory.filter)
   const [state, setState] = useState<GitReviewState | null>(null)
@@ -276,8 +313,7 @@ function GitToolSession({
     () => new Set(initialMemory.expandedPaths)
   )
   const [primaryActionState, setPrimaryActionState] = useState<
-    | { status: 'loading' }
-    | { status: 'ready'; action: GitComposerAction }
+    { status: 'loading' } | { status: 'ready'; action: GitComposerAction }
   >({ status: 'loading' })
   const [instructions, setInstructionsState] = useState(initialMemory.instructions)
   const [watchDiagnostic, setWatchDiagnostic] = useState<string | null>(null)
@@ -503,6 +539,33 @@ function GitToolSession({
     [actionState, context.kind]
   )
   const conflictFiles = useMemo(() => getConflictFiles(actionState), [actionState])
+  const reviewFiles = useMemo(() => (state?.status === 'ok' ? state.files : []), [state])
+  const workingDocuments = useMemo(() => {
+    const documents = new Map<string, FilesWorkingDocumentState>()
+    for (const tab of filesState?.tabs ?? []) {
+      if (tab.status === 'ready') documents.set(tab.relativePath, tab)
+    }
+    for (const document of Object.values(filesState?.detachedDocuments ?? {})) {
+      documents.set(document.relativePath, document)
+    }
+    return documents
+  }, [filesState])
+  const ordinaryEditablePaths = useMemo(
+    () =>
+      new Set(
+        reviewFiles.filter((file) => isGitFileEditable(file, filter)).map((file) => file.path)
+      ),
+    [filter, reviewFiles]
+  )
+  const pendingDocuments = useMemo(
+    () =>
+      Object.values(filesState?.detachedDocuments ?? {}).filter(
+        (document) =>
+          document.dirty &&
+          (!ordinaryEditablePaths.has(document.relativePath) || Boolean(document.externalStatus))
+      ),
+    [filesState?.detachedDocuments, ordinaryEditablePaths]
+  )
   const hasConflicts = conflictFiles.length > 0
   const busy = currentAgentStatus === 'running'
   const primaryAction =
@@ -575,7 +638,7 @@ function GitToolSession({
       state={state}
       watchDiagnostic={watchDiagnostic}
     >
-      {state.status === 'clean' ? (
+      {reviewFiles.length === 0 && pendingDocuments.length === 0 ? (
         <GitStateMessage
           title={`No ${getFilterLabel(filter).toLowerCase()} changes`}
           message="This managed worktree is clean for the selected filter."
@@ -595,13 +658,51 @@ function GitToolSession({
               {handoffError}
             </div>
           ) : null}
-          {state.files.map((file) => (
+          {pendingDocuments.length > 0 ? (
+            <section className="space-y-2" aria-label="Pending edits">
+              <h3 className="text-sm font-semibold">Pending edits</h3>
+              <p className="text-xs text-muted-foreground">
+                Unsaved diff edits remain recoverable even though the selected Git view no longer
+                shows their ordinary diff.
+              </p>
+              {pendingDocuments.map((document) => (
+                <PendingGitEdit
+                  key={document.relativePath}
+                  contextKey={filesContext.contextKey}
+                  document={document}
+                  initialState={
+                    initialMemory.diffViewStates.get(`${filter}:${document.relativePath}`) ?? {
+                      view: { scrollLeft: 0, scrollTop: 0 }
+                    }
+                  }
+                  onStateChange={(viewState) =>
+                    initialMemory.diffViewStates.set(
+                      `${filter}:${document.relativePath}`,
+                      viewState
+                    )
+                  }
+                />
+              ))}
+            </section>
+          ) : null}
+          {reviewFiles.map((file) => (
             <GitDiffCard
               key={`${file.oldPath ?? ''}:${file.path}`}
               expanded={expandedPaths.has(file.path)}
               file={file}
+              filesContext={filesContext}
               filesHandoff={filesHandoff}
+              filter={filter}
+              initialState={
+                initialMemory.diffViewStates.get(`${filter}:${file.path}`) ?? {
+                  view: { scrollLeft: 0, scrollTop: 0 }
+                }
+              }
+              workingDocument={workingDocuments.get(file.path)}
               onHandoffError={setHandoffError}
+              onStateChange={(viewState) =>
+                initialMemory.diffViewStates.set(`${filter}:${file.path}`, viewState)
+              }
               onToggle={() =>
                 setExpandedPaths((current) => {
                   const memory = getGitViewMemory(gitMemoryKey)
@@ -805,16 +906,63 @@ function GitShell({
 function GitDiffCard({
   file,
   expanded,
+  filesContext,
   filesHandoff,
+  filter,
+  initialState,
+  workingDocument,
   onHandoffError,
+  onStateChange,
   onToggle
 }: {
   file: GitFileDiff
   expanded: boolean
+  filesContext: { contextKey: string; ipcContext: FilesContext }
   filesHandoff?: GitFilesHandoff
+  filter: GitChangeFilter
+  initialState: FilesSourceEditorState
+  workingDocument?: FilesWorkingDocumentState
   onHandoffError: (message: string | null) => void
+  onStateChange: (state: FilesSourceEditorState) => void
   onToggle: () => void
 }): React.JSX.Element {
+  const documentLoadAttempted = useRef<string | null>(null)
+  const [documentUnavailable, setDocumentUnavailable] = useState(false)
+  const editable = isGitFileEditable(file, filter)
+  const documentLoadKey = `${filter}:${file.diff ?? ''}`
+  const richModeBlocked =
+    Boolean(workingDocument?.editorMode === 'rich') && isMarkdownDocumentPath(file.path)
+  const externalConflict = Boolean(workingDocument?.externalStatus)
+
+  useEffect(() => {
+    if (!editable || documentLoadAttempted.current === documentLoadKey) return
+    let canceled = false
+    documentLoadAttempted.current = documentLoadKey
+    void window.spacezero.files
+      .openDocument({ context: filesContext.ipcContext, relativePath: file.path })
+      .then((document) => {
+        if (canceled) return
+        if (document.contentKind !== 'text') {
+          setDocumentUnavailable(true)
+          return
+        }
+        useFilesStore.getState().ensureWorkingDocument(filesContext.contextKey, document)
+        setDocumentUnavailable(false)
+      })
+      .catch(() => {
+        if (!canceled) setDocumentUnavailable(true)
+      })
+    return () => {
+      canceled = true
+    }
+  }, [
+    documentLoadKey,
+    editable,
+    file.path,
+    filesContext.contextKey,
+    filesContext.ipcContext,
+    workingDocument
+  ])
   const canOpenInFiles = isFilesHandoffSupported(file, filesHandoff)
   const openInFiles = async (line?: number): Promise<void> => {
     if (!filesHandoff || !canOpenInFiles) return
@@ -831,7 +979,7 @@ function GitDiffCard({
   const hasRenderableTextDiff = Boolean(file.diff && !file.binary && !file.large)
 
   if (hasRenderableTextDiff) {
-    return (
+    const diffViewer = (
       <DiffViewer
         ariaLabel={`Diff for ${file.path}`}
         items={[
@@ -846,10 +994,59 @@ function GitDiffCard({
               fileNameTitle: filesHandoffUnavailableMessage(file, filesHandoff),
               onFileNameClick: canOpenInFiles ? () => void openInFiles() : undefined,
               onToggle
-            }
+            },
+            editable:
+              editable && workingDocument && !richModeBlocked && !externalConflict
+                ? {
+                    cacheKey: createFilesDocumentCacheKey(
+                      filesContext.contextKey,
+                      file.path,
+                      workingDocument.editorStateKey
+                    ),
+                    contextKey: filesContext.contextKey,
+                    value: workingDocument.draft,
+                    initialState,
+                    onChange: (draft) =>
+                      useFilesStore
+                        .getState()
+                        .updateWorkingDocumentDraft(filesContext.contextKey, file.path, draft),
+                    onStateChange
+                  }
+                : undefined
           }
         ]}
       />
+    )
+    if (editable && documentUnavailable) {
+      return (
+        <section className="space-y-2">
+          {diffViewer}
+          <p className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+            This working document could not be opened for safe diff editing.
+          </p>
+        </section>
+      )
+    }
+    if (!richModeBlocked) return diffViewer
+    return (
+      <section className="space-y-2">
+        {diffViewer}
+        <div className="flex items-center justify-between gap-3 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800">
+          <span>
+            Diff editing is unavailable while this Markdown file uses Rich mode. Save and switch the
+            Files tab to Source first.
+          </span>
+          <Button
+            disabled={!canOpenInFiles}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => void openInFiles()}
+          >
+            Focus {file.path} in Files
+          </Button>
+        </div>
+      </section>
     )
   }
 
@@ -896,6 +1093,74 @@ function GitDiffCard({
       ) : null}
     </section>
   )
+}
+
+function PendingGitEdit({
+  contextKey,
+  document,
+  initialState,
+  onStateChange
+}: {
+  contextKey: string
+  document: FilesWorkingDocumentState
+  initialState: FilesSourceEditorState
+  onStateChange: (state: FilesSourceEditorState) => void
+}): React.JSX.Element {
+  const appearance = useOptionalAppearance()
+  return (
+    <article
+      aria-label={`Pending edit ${document.relativePath}`}
+      className="overflow-hidden rounded-lg border bg-card"
+    >
+      <header className="border-b px-3 py-2 text-sm font-medium">{document.relativePath}</header>
+      {document.error ? (
+        <p className="border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {document.error}
+        </p>
+      ) : null}
+      <div className="h-56 min-h-0">
+        <FilesDiffsEditor
+          cacheKey={createFilesDocumentCacheKey(
+            contextKey,
+            document.relativePath,
+            document.editorStateKey
+          )}
+          contextKey={contextKey}
+          fileName={document.relativePath}
+          initialState={initialState}
+          theme={appearance?.resolvedTheme ?? (getDocumentTheme() === 'light' ? 'light' : 'dark')}
+          value={document.draft}
+          onChange={(draft) =>
+            useFilesStore
+              .getState()
+              .updateWorkingDocumentDraft(contextKey, document.relativePath, draft)
+          }
+          onSave={() => undefined}
+          onStateChange={onStateChange}
+        />
+      </div>
+    </article>
+  )
+}
+
+function isGitFileEditable(file: GitFileDiff, filter: GitChangeFilter): boolean {
+  return (
+    filter !== 'staged' &&
+    file.kind !== 'deleted' &&
+    file.kind !== 'conflicted' &&
+    Boolean(file.diff) &&
+    !file.binary &&
+    !file.large
+  )
+}
+
+function isMarkdownDocumentPath(relativePath: string): boolean {
+  const lowerPath = relativePath.toLowerCase()
+  return lowerPath.endsWith('.md') || lowerPath.endsWith('.mdx')
+}
+
+function getDocumentTheme(): 'light' | 'dark' {
+  return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
 }
 
 const PROJECT_COMPOSER_ACTIONS: GitComposerAction[] = [
@@ -1072,8 +1337,7 @@ function getActionAvailability(
   return {
     commit: state.status === 'ok' && hasChanges,
     'commit-and-push': hasChanges || branchAhead,
-    'commit-and-create-pr':
-      contextKind === 'project-session' && (hasChanges || branchAhead)
+    'commit-and-create-pr': contextKind === 'project-session' && (hasChanges || branchAhead)
   }
 }
 

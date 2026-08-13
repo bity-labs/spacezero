@@ -72,11 +72,14 @@ type FilesDiffsEditorProps = {
   onTargetLocationApplied?: () => void
 }
 
-type FilesEditor = Editor<undefined>
+export type FilesEditor = Editor<undefined>
 
 const contextEditors = new Map<string, FilesEditor>()
 
-function getOrCreateEditor(contextKey: string, options: EditorOptions<undefined>): FilesEditor {
+export function getOrCreateFilesDiffsEditor(
+  contextKey: string,
+  options: EditorOptions<undefined>
+): FilesEditor {
   const existing = contextEditors.get(contextKey)
   if (existing) {
     existing.setOptions(options)
@@ -172,7 +175,7 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
     )
 
     const createEditor = useCallback(
-      (options: EditorOptions<undefined>) => getOrCreateEditor(contextKey, options),
+      (options: EditorOptions<undefined>) => getOrCreateFilesDiffsEditor(contextKey, options),
       [contextKey]
     )
 

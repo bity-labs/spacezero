@@ -52,9 +52,10 @@ function getDirtyFilesContexts(): DirtyFilesContext[] {
     .map(([contextKey, context]) => ({
       contextKey,
       ipcContext: toIpcContext(contextKey),
-      tabs: context.tabs.filter(
-        (tab): tab is DirtyFilesTab => tab.status === 'ready' && tab.dirty
-      )
+      tabs: [
+        ...context.tabs.filter((tab): tab is DirtyFilesTab => tab.status === 'ready' && tab.dirty),
+        ...Object.values(context.detachedDocuments).filter((document) => document.dirty)
+      ]
     }))
     .filter((context) => context.tabs.length > 0)
 }
@@ -118,7 +119,7 @@ function hasDirtySavingTabs(contexts: DirtyFilesContext[]): boolean {
   return Object.entries(useFilesStore.getState().contexts).some(
     ([contextKey, context]) =>
       contextKeys.has(contextKey) &&
-      context.tabs.some(
+      [...context.tabs, ...Object.values(context.detachedDocuments)].some(
         (tab) => tab.status === 'ready' && tab.dirty && tab.saveStatus === 'saving'
       )
   )
