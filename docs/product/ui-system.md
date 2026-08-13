@@ -31,9 +31,8 @@ Use this document with:
   Zero uses regular `Dark`, not `Dark high contrast`.
 - Dark high contrast is an explicit preference only.
 
-Storybook is the local workbench for previewing primitives, typography,
-component patterns, theme behavior, font choices, and contrast variants before
-broader rollout.
+Storybook is the local workbench for previewing primitives, typography, and
+component patterns before broader rollout.
 
 ## Visual Direction
 
