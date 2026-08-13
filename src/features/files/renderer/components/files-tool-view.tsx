@@ -9,7 +9,11 @@ import type {
   RefObject,
   UIEvent
 } from 'react'
-import { FileTree as TreesFileTree, type FileTreeProps } from '@pierre/trees/react'
+import {
+  FileTree as TreesFileTree,
+  type FileTreeProps,
+  useFileTreeSearch
+} from '@pierre/trees/react'
 import {
   ArrowsInLineVertical,
   FilePlus,
@@ -61,13 +65,18 @@ export function FilesTreeView({
   searchQuery,
   ...props
 }: FilesTreeViewProps): React.JSX.Element {
+  const search = useFileTreeSearch(model)
+
   useEffect(() => {
     model.setSearch(searchQuery)
   }, [model, searchQuery])
 
+  const hasNoMatchingFiles =
+    Boolean(searchQuery?.trim()) && search.isOpen && search.matchingPaths.length === 0
   const style: FilesTreeHostStyle = {
     height,
     width: '100%',
+    visibility: hasNoMatchingFiles ? 'hidden' : 'visible',
     '--trees-bg-override': 'var(--background)',
     '--trees-bg-muted-override': 'var(--muted)',
     '--trees-fg-override': 'var(--foreground)',
@@ -84,7 +93,20 @@ export function FilesTreeView({
     '--trees-font-family-override': 'var(--font-sans)'
   }
 
-  return <TreesFileTree {...props} model={model} style={style} />
+  return (
+    <div className="relative w-full" style={{ height }}>
+      <TreesFileTree {...props} model={model} style={style} />
+      {hasNoMatchingFiles ? (
+        <div
+          aria-label="No matching files"
+          className="absolute inset-0 flex items-start justify-center pt-4 text-xs text-muted-foreground"
+          role="status"
+        >
+          No matching files
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 export type FilesCreateDialogViewState = {

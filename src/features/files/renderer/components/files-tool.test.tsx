@@ -392,6 +392,23 @@ vi.mock('@pierre/trees/react', async () => {
   }
   /* eslint-enable react-hooks/refs */
 
+  function useFileTreeSearch(model: MockModel): {
+    isOpen: boolean
+    matchingPaths: readonly string[]
+  } {
+    const searchValue = React.useSyncExternalStore(
+      model.subscribe,
+      model.__getSearch,
+      model.__getSearch
+    )
+    return {
+      isOpen: searchValue !== null,
+      matchingPaths: searchValue
+        ? model.__getPaths().filter((path) => path.toLowerCase().includes(searchValue))
+        : []
+    }
+  }
+
   function FileTree({
     model,
     renderContextMenu,
@@ -545,7 +562,7 @@ vi.mock('@pierre/trees/react', async () => {
     )
   }
 
-  return { FileTree, useFileTree }
+  return { FileTree, useFileTree, useFileTreeSearch }
 })
 
 vi.mock('../../../app-commands/renderer/app-command-context', () => ({

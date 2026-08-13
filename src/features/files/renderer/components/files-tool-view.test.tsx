@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -236,6 +236,27 @@ describe('FilesToolView', () => {
       '--trees-font-family-override': 'var(--font-sans)'
     })
     expect(screen.getByRole('textbox', { name: 'Files search' })).toHaveValue(query)
-    expect(screen.queryByLabelText('No matching files')).not.toBeInTheDocument()
+  })
+
+  it('shows matching Trees rows and hides unrelated rows for an active search', async () => {
+    render(<FilesToolSidePaneFixture {...fileNameSearchFilesToolFixture} />)
+
+    const tree = await screen.findByLabelText('Project files')
+    await waitFor(() => {
+      const visiblePaths = Array.from(
+        tree.shadowRoot?.querySelectorAll<HTMLElement>('[data-type="item"]') ?? []
+      ).map((row) => row.dataset.itemPath)
+      expect(visiblePaths).toContain('docs/context.md')
+      expect(visiblePaths).not.toContain('package.json')
+    })
+    expect(screen.queryByRole('status', { name: 'No matching files' })).not.toBeInTheDocument()
+  })
+
+  it('shows a production no-match state without exposing unrelated Trees rows', async () => {
+    render(<FilesToolSidePaneFixture {...fileNameSearchEmptyFilesToolFixture} />)
+
+    const tree = await screen.findByLabelText('Project files')
+    expect(await screen.findByRole('status', { name: 'No matching files' })).toBeVisible()
+    expect(tree).toHaveStyle({ visibility: 'hidden' })
   })
 })
