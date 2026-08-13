@@ -8,21 +8,26 @@ type SettingsSearch = {
 }
 
 export const Route = createFileRoute('/settings')({
-  validateSearch: (search: Record<string, unknown>): SettingsSearch =>
-    search.section === 'models' ||
-    search.section === 'account' ||
-    search.section === 'appearance' ||
-    search.section === 'about' ||
-    search.section === 'agents' ||
-    search.section === 'skills' ||
-    search.section === 'debug'
-      ? { section: search.section }
-      : {},
+  validateSearch: (search: Record<string, unknown>): SettingsSearch => {
+    const section = getSupportedSettingsSection(search.section)
+    return section ? { section } : {}
+  },
   component: SettingsRoute
 })
 
 function SettingsRoute(): React.JSX.Element {
   const { section } = Route.useSearch()
 
-  return <SettingsLayout selectedSection={section ?? 'general'} />
+  return <SettingsLayout selectedSection={getSupportedSettingsSection(section) ?? 'general'} />
+}
+
+function getSupportedSettingsSection(section: unknown): SettingsSectionId | undefined {
+  return section === 'models' ||
+    section === 'account' ||
+    section === 'appearance' ||
+    section === 'about' ||
+    section === 'agents' ||
+    section === 'skills'
+    ? section
+    : undefined
 }

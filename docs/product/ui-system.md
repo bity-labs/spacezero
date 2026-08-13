@@ -16,24 +16,24 @@ Use this document with:
 - `docs/product/workspace-surfaces.md`
 - `src/renderer/src/components/ui/`
 - `src/features/settings/renderer/components/`
-- Settings → UI Debug
+- the co-located Storybook stories available through `pnpm storybook`
 
 ## Locked Defaults
 
 - Default app theme: **Dark**.
 - Default font: **System font**.
 - Thin font anti-aliasing is **on by default**.
-- Appearance settings are real product settings, not only debug previews:
+- Appearance settings are real product settings, not only workbench previews:
   - Theme: System, Light, Dark, Dark high contrast
-  - Font: System font plus the UI Debug font options
+  - Font: System font plus the available app font options
   - Font anti-aliasing: thin/browser-style rendering toggle
 - `System` theme follows the OS color scheme. If the OS resolves dark, Space
   Zero uses regular `Dark`, not `Dark high contrast`.
 - Dark high contrast is an explicit preference only.
 
-The UI Debug page remains a place to preview primitives, AI components,
-typography, component patterns, theme behavior, font choices, and contrast
-variants before broader rollout.
+Storybook is the local workbench for previewing primitives, typography,
+component patterns, theme behavior, font choices, and contrast variants before
+broader rollout.
 
 ## Visual Direction
 
@@ -302,7 +302,6 @@ Current Settings navigation order:
 6. separator
 7. Agents
 8. Skills
-9. UI Debug
 
 ### General
 
@@ -340,7 +339,7 @@ Rules:
 - Do not add a redundant section title above the controls.
 - Theme description: “Choose how Space Zero picks the app appearance.”
 - Theme values: System, Light, Dark, Dark high contrast.
-- Font selection mirrors UI Debug font options.
+- Font selection uses the established app font options.
 - Thin font anti-aliasing is checked by default and uses the regular settings
   switch size.
 - All controls should be displayed through `SettingsSection` and `SettingsRow`.
@@ -356,18 +355,6 @@ Rules:
 - Do not show a Beta channel badge in the version row.
 - Put “Check for updates” in the “Update state” row as an outline button.
 - Do not show a GitHub release notes button in the main About settings surface.
-
-### UI Debug
-
-UI Debug is intentionally a diagnostics/development surface. Tabs:
-
-1. Primitive
-2. AI Components
-3. Typography
-4. Components
-
-Use it to inspect primitive states, AI components, typography, reusable settings
-patterns, fonts, and dark high contrast behavior.
 
 ## Workspace Layout Patterns
 
@@ -491,7 +478,7 @@ When building UI:
 - Avoid transparent inputs/selects unless there is a specific reason.
 - Do not use arbitrary colors when a theme token exists.
 - Use `EmptyState` for empty product states.
-- Check Settings → UI Debug when changing primitives or theme tokens.
+- Check the relevant Storybook stories when changing primitives or theme tokens.
 
 ## What Is Not Solved Yet
 
