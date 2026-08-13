@@ -29,6 +29,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+type ThemePreferenceValue = 'system' | 'light' | 'dark'
+
+const themePreferenceLabels: Record<ThemePreferenceValue, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark'
+}
+
 export const Appearance: Story = {
   args: {
     title: 'Appearance',
@@ -39,7 +47,9 @@ export const Appearance: Story = {
         <SettingsRow title="Theme" description="Choose the interface color theme.">
           <Select defaultValue="dark">
             <SelectTrigger aria-label="Theme" size="sm" className="w-44">
-              <SelectValue />
+              <SelectValue>
+                {(value: ThemePreferenceValue) => themePreferenceLabels[value]}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="system">System</SelectItem>
