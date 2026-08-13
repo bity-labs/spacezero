@@ -19,6 +19,7 @@ export {
   type ChatInputAgentDefinition,
   type ChatInputCommand,
   type ChatInputHistoryItem,
+  type ChatInputKnowledgeBaseMentionResult,
   type ChatInputModel,
   type ChatInputProps,
   type ChatInputSkill,
