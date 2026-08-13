@@ -1,24 +1,5 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-  type PointerEvent
-} from 'react'
-import {
-  BookOpenText,
-  CaretDown,
-  DotsSixVertical,
-  FolderPlus,
-  FunnelSimple,
-  MagnifyingGlass,
-  PaperPlaneTilt,
-  PencilSimple,
-  Sidebar
-} from '@phosphor-icons/react'
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
+import { CaretDown, PencilSimple } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
 import { useRegisterAppCommands } from '../../features/app-commands/renderer/app-command-context'
@@ -65,10 +46,8 @@ import {
   type SidePaneConfiguration
 } from '../../features/side-pane/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { AppSidebar } from './components/sidebar/app-sidebar'
-import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from './components/sidebar/sidebar-layout'
-import { SidebarNavItem } from './components/sidebar/sidebar-nav-item'
-import { SidebarSectionHeader } from './components/sidebar/sidebar-section-header'
+import { WorkspaceShellLayout } from './components/app-shell/workspace-shell-layout'
+import { WorkspaceSidebar } from './components/app-shell/workspace-sidebar'
 import { Alert, AlertDescription } from './components/ui/alert'
 import {
   Breadcrumb,
@@ -77,16 +56,13 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator
 } from './components/ui/breadcrumb'
-import { Button } from './components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger
 } from './components/ui/dropdown-menu'
-import { SidebarGroup, SidebarMenu } from './components/ui/sidebar'
 import { useSidebarResize } from './hooks/use-sidebar-resize'
-import { cn } from './lib/utils'
 import { useUiLayoutStore } from './stores/ui-layout-store'
 
 const workspaceShortcuts: readonly KeyboardShortcutDefinition[] = [
@@ -100,6 +76,7 @@ export function WorkspaceShell(): React.JSX.Element {
   const isLeftPanelOpen = useUiLayoutStore((state) => state.isLeftSidebarOpen)
   const leftPanelWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
   const setLeftPanelWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
+  const setLeftPanelOpen = useUiLayoutStore((state) => state.setLeftSidebarOpen)
   const toggleLeftPanel = useUiLayoutStore((state) => state.toggleLeftSidebar)
   const leftPanelResize = useSidebarResize({
     side: 'left',
@@ -359,63 +336,33 @@ export function WorkspaceShell(): React.JSX.Element {
     }
   }
 
-  const gridTemplateColumns = [isLeftPanelOpen ? `${leftPanelWidth}px 4px` : '', 'minmax(0, 1fr)']
-    .filter(Boolean)
-    .join(' ')
-
   const sidePaneContainerWidth = Math.max(
     0,
     windowWidth - (isLeftPanelOpen ? leftPanelWidth + RESIZE_HANDLE_WIDTH : 0)
   )
   const sidePaneHeaderWidth = sidePaneController.isOpen
-    ? `${getRenderedSidePaneWidth(sidePaneContainerWidth, savedSidePaneWidth)}px`
-    : `${SIDE_PANE_COLLAPSED_HEADER_WIDTH}px`
-  const titlebarGridTemplateColumns = [
-    isLeftPanelOpen ? `${leftPanelWidth}px` : 'minmax(0, 1fr)',
-    'minmax(0, 1fr)',
-    sidePaneHeaderWidth
-  ].join(' ')
+    ? getRenderedSidePaneWidth(sidePaneContainerWidth, savedSidePaneWidth)
+    : SIDE_PANE_COLLAPSED_HEADER_WIDTH
 
   return (
-    <div className="flex h-screen min-h-screen flex-col bg-background text-foreground">
+    <>
       <TerminalSidePaneLifecycle />
-      <header
-        className="app-titlebar grid h-12 items-stretch bg-background"
-        style={{ gridTemplateColumns: titlebarGridTemplateColumns }}
-      >
-        <div
-          className={cn(
-            'flex items-center justify-start px-3',
-            isLeftPanelOpen ? 'border-r border-sidebar-border bg-sidebar' : 'bg-background'
-          )}
-        >
-          <div className="mac-traffic-light-space shrink-0" />
-          <div className="titlebar-control flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground"
-              aria-label={
-                isLeftPanelOpen ? t('workspace.hideLeftPanel') : t('workspace.showLeftPanel')
-              }
-              aria-pressed={isLeftPanelOpen}
-              onClick={toggleLeftPanel}
-            >
-              <Sidebar className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground"
-              aria-label={t('app.openCommandPalette')}
-              onClick={() => commandPalette.open()}
-            >
-              <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="flex h-full w-full items-center justify-start px-3">
+      <WorkspaceShellLayout
+        isLeftSidebarOpen={isLeftPanelOpen}
+        leftSidebarWidth={leftPanelWidth}
+        sidePaneHeaderWidth={sidePaneHeaderWidth}
+        labels={{
+          hideLeftSidebar: t('workspace.hideLeftPanel'),
+          showLeftSidebar: t('workspace.showLeftPanel'),
+          openCommandPalette: t('app.openCommandPalette'),
+          mainContent: t('workspace.mainLabel'),
+          resizeLeftSidebar: t('workspace.resizeLeftPanel')
+        }}
+        onToggleLeftSidebar={toggleLeftPanel}
+        onOpenCommandPalette={() => commandPalette.open()}
+        onResizeLeftSidebarPointerDown={leftPanelResize.startResize}
+        onResizeLeftSidebarKeyDown={leftPanelResize.resizeWithKeyboard}
+        titlebarCenter={
           <WorkspaceBreadcrumb
             globalChatActive={activePrimaryView === 'global-chat'}
             knowledgeBaseActive={activePrimaryView === 'knowledge-base'}
@@ -431,193 +378,161 @@ export function WorkspaceShell(): React.JSX.Element {
             onOpenProjectSessionSource={handleOpenSessionSource}
             onRenameSession={handleRenameActiveSession}
           />
-        </div>
-
-        <div className="flex h-full w-full min-w-0 items-center">
-          <SidePaneHeaderControls configuration={sidePaneConfiguration} />
-        </div>
-      </header>
-
-      <div className="grid min-h-0 flex-1" style={{ gridTemplateColumns }}>
-        {isLeftPanelOpen ? (
-          <AppSidebar
-            aria-label={t('workspace.leftPanel')}
-            className="pt-4"
-            contentClassName="px-0 overflow-hidden"
-            header={
-              <SidebarMenu className="px-0" aria-label={t('workspace.navigation')} role="menu">
-                <SidebarNavItem
-                  icon={BookOpenText}
-                  label="Knowledge Base"
-                  active={activePrimaryView === 'knowledge-base'}
-                  onClick={() => setActivePrimaryView('knowledge-base')}
-                />
-                <SidebarNavItem
-                  icon={PaperPlaneTilt}
-                  label="Chat"
-                  active={activePrimaryView === 'global-chat'}
-                  onClick={() => setActivePrimaryView('global-chat')}
-                />
-              </SidebarMenu>
-            }
-            footer={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
-          >
-            <SidebarGroup
-              className="mt-8 min-h-0 flex-1 overflow-hidden"
-              aria-label={t('projects.sidebar.label')}
-            >
-              <SidebarSectionHeader
-                label={t('projects.sidebar.label')}
-                expandable
-                expanded={isProjectsExpanded}
-                onToggle={() => setProjectsExpanded((expanded) => !expanded)}
-                actions={[
-                  { label: t('projects.sidebar.filter'), icon: FunnelSimple },
-                  {
-                    label: t('projects.sidebar.add'),
-                    icon: FolderPlus,
-                    onClick: () => setAddProjectOpen(true)
-                  }
-                ]}
+        }
+        sidePaneHeader={<SidePaneHeaderControls configuration={sidePaneConfiguration} />}
+        leftSidebar={
+          <WorkspaceSidebar
+            open={isLeftPanelOpen}
+            activeView={activePrimaryView}
+            projectsExpanded={isProjectsExpanded}
+            labels={{
+              sidebar: t('workspace.leftPanel'),
+              navigation: t('workspace.navigation'),
+              knowledgeBase: 'Knowledge Base',
+              globalChat: 'Chat',
+              projects: t('projects.sidebar.label'),
+              filterProjects: t('projects.sidebar.filter'),
+              addProject: t('projects.sidebar.add')
+            }}
+            onOpenChange={setLeftPanelOpen}
+            onSelectKnowledgeBase={() => setActivePrimaryView('knowledge-base')}
+            onSelectGlobalChat={() => setActivePrimaryView('global-chat')}
+            onToggleProjects={() => setProjectsExpanded((expanded) => !expanded)}
+            onFilterProjects={() => undefined}
+            onAddProject={() => setAddProjectOpen(true)}
+            accountMenu={<AccountMenu settingsLabel={t('workspace.openAppSettings')} />}
+            projectsContent={
+              <ProjectSidebarList
+                projects={projects}
+                activeProject={activeProject}
+                status={projectsStatus}
+                error={projectsError}
+                onAddProject={() => setAddProjectOpen(true)}
+                onSelectProject={(project) => {
+                  runInWorkspaceView(() => {
+                    setProjectHomeRequest(null)
+                    selectProject(project)
+                    if (activeProjectSession?.projectId !== project.id) {
+                      resetSessionWorkspaceLayout()
+                    }
+                  })
+                }}
+                onEditProject={setEditingProject}
+                onArchiveProject={(project) => void handleArchiveProject(project)}
+                onDeleteProject={(project) => void handleDeleteProject(project)}
+                sessionsByProjectId={sessionsByProjectId}
+                activeSessionId={activeProjectSession?.id ?? null}
+                sessionsStatus={sessionsStatus}
+                sessionsError={sessionsError}
+                onNewSession={(project) => {
+                  setSidebarSessionError(null)
+                  void handleNewSession(project).catch((error) => {
+                    setSidebarSessionError(projectSessionSetupErrorMessage(error))
+                  })
+                }}
+                onSelectSession={handleSelectSession}
+                onRenameSession={(session, title) => handleRenameProjectSession(session, title)}
+                onArchiveSession={(session) => void handleArchiveSession(session.id)}
+                onDeleteSession={(session) => void handleDeleteSession(session.id)}
               />
-              {isProjectsExpanded ? (
-                <div className="min-h-0 flex-1 overflow-auto">
-                  <ProjectSidebarList
-                    projects={projects}
-                    activeProject={activeProject}
-                    status={projectsStatus}
-                    error={projectsError}
-                    onAddProject={() => setAddProjectOpen(true)}
-                    onSelectProject={(project) => {
-                      runInWorkspaceView(() => {
-                        setProjectHomeRequest(null)
-                        selectProject(project)
-                        if (activeProjectSession?.projectId !== project.id) {
-                          resetSessionWorkspaceLayout()
-                        }
-                      })
-                    }}
-                    onEditProject={setEditingProject}
-                    onArchiveProject={(project) => void handleArchiveProject(project)}
-                    onDeleteProject={(project) => void handleDeleteProject(project)}
-                    sessionsByProjectId={sessionsByProjectId}
-                    activeSessionId={activeProjectSession?.id ?? null}
-                    sessionsStatus={sessionsStatus}
-                    sessionsError={sessionsError}
-                    onNewSession={(project) => {
-                      setSidebarSessionError(null)
-                      void handleNewSession(project).catch((error) => {
-                        setSidebarSessionError(projectSessionSetupErrorMessage(error))
-                      })
-                    }}
-                    onSelectSession={handleSelectSession}
-                    onRenameSession={(session, title) => handleRenameProjectSession(session, title)}
-                    onArchiveSession={(session) => void handleArchiveSession(session.id)}
-                    onDeleteSession={(session) => void handleDeleteSession(session.id)}
-                  />
-                </div>
-              ) : null}
-            </SidebarGroup>
-
-            <AddProjectDialog
-              open={isAddProjectOpen}
-              onOpenChange={setAddProjectOpen}
-              onCreateEmptyProject={createEmptyProject}
-              onAddFromFolder={addProjectFromFolder}
-              onGitHubProjectReady={handleGitHubProjectReady}
-            />
-            <EditProjectDialog
-              key={editingProject?.id ?? 'no-project'}
-              open={editingProject !== null}
-              project={editingProject}
-              onOpenChange={(open) => {
-                if (!open) setEditingProject(null)
-              }}
-              onUpdateProject={updateProject}
-            />
-          </AppSidebar>
-        ) : null}
-
-        {isLeftPanelOpen ? (
-          <ResizeHandle
-            label={t('workspace.resizeLeftPanel')}
-            value={leftPanelWidth}
-            onPointerDown={leftPanelResize.startResize}
-            onKeyDown={leftPanelResize.resizeWithKeyboard}
+            }
+            overlays={
+              <>
+                <AddProjectDialog
+                  open={isAddProjectOpen}
+                  onOpenChange={setAddProjectOpen}
+                  onCreateEmptyProject={createEmptyProject}
+                  onAddFromFolder={addProjectFromFolder}
+                  onGitHubProjectReady={handleGitHubProjectReady}
+                />
+                <EditProjectDialog
+                  key={editingProject?.id ?? 'no-project'}
+                  open={editingProject !== null}
+                  project={editingProject}
+                  onOpenChange={(open) => {
+                    if (!open) setEditingProject(null)
+                  }}
+                  onUpdateProject={updateProject}
+                />
+              </>
+            }
           />
-        ) : null}
-
-        <section
-          aria-label={t('workspace.mainLabel')}
-          className="flex min-h-0 min-w-0 flex-col bg-background"
-          role="main"
-        >
-          {projectsWarning ? (
-            <Alert className="m-4 mb-0 w-auto">
-              <AlertDescription>{projectsWarning}</AlertDescription>
-            </Alert>
-          ) : null}
-          {activePrimaryView === 'knowledge-base' ? (
-            sidePaneConfiguration ? (
-              <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
+        }
+        mainContent={
+          <>
+            {projectsWarning ? (
+              <Alert className="m-4 mb-0 w-auto">
+                <AlertDescription>{projectsWarning}</AlertDescription>
+              </Alert>
+            ) : null}
+            {activePrimaryView === 'knowledge-base' ? (
+              sidePaneConfiguration ? (
+                <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
+                  <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
+                </SidePaneShell>
+              ) : (
                 <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
-              </SidePaneShell>
-            ) : (
-              <KnowledgeBasePage onConfiguredChange={setKnowledgeBaseConfigured} />
-            )
-          ) : activePrimaryView === 'global-chat' && sidePaneConfiguration ? (
-            <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
-              <GlobalChatPage />
-            </SidePaneShell>
-          ) : activeTab ? (
-            sidePaneConfiguration ? (
+              )
+            ) : activePrimaryView === 'global-chat' && sidePaneConfiguration ? (
               <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
+                <GlobalChatPage />
+              </SidePaneShell>
+            ) : activeTab ? (
+              sidePaneConfiguration ? (
+                <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
+                  <SessionWorkspaceTabSurface
+                    tab={activeTab}
+                    projects={projects}
+                    sessions={sessions}
+                  />
+                </SidePaneShell>
+              ) : (
                 <SessionWorkspaceTabSurface
                   tab={activeTab}
                   projects={projects}
                   sessions={sessions}
                 />
-              </SidePaneShell>
+              )
+            ) : activeProject ? (
+              sidePaneConfiguration ? (
+                <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
+                  <ProjectHome
+                    key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
+                    project={activeProject}
+                    onProjectLinked={upsertProject}
+                    onNewSession={() => handleNewSession(activeProject)}
+                    onSessionCreated={(session) => void handleGitHubSessionCreated(session)}
+                    initialGitHubTarget={
+                      projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
+                    }
+                  />
+                </SidePaneShell>
+              ) : null
             ) : (
-              <SessionWorkspaceTabSurface tab={activeTab} projects={projects} sessions={sessions} />
-            )
-          ) : activeProject ? (
-            sidePaneConfiguration ? (
-              <SidePaneShell {...sidePaneConfiguration} showInlineHeaderTabs={false}>
-                <ProjectHome
-                  key={`${activeProject.id}:${activeProject.updatedAt}:${projectHomeRequest?.requestId ?? 'default'}`}
-                  project={activeProject}
-                  onProjectLinked={upsertProject}
-                  onNewSession={() => handleNewSession(activeProject)}
-                  onSessionCreated={(session) => void handleGitHubSessionCreated(session)}
-                  initialGitHubTarget={
-                    projectHomeRequest?.projectId === activeProject.id ? projectHomeRequest : null
-                  }
-                />
-              </SidePaneShell>
-            ) : null
-          ) : (
-            <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
-              <div>
-                <h2 className="text-sm font-medium">{t('sessions.workspace.emptyTitle')}</h2>
-                <p className="mt-2 max-w-sm text-xs text-muted-foreground">
-                  {t('sessions.workspace.emptyDescription')}
-                </p>
+              <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
+                <div>
+                  <h2 className="text-sm font-medium">{t('sessions.workspace.emptyTitle')}</h2>
+                  <p className="mt-2 max-w-sm text-xs text-muted-foreground">
+                    {t('sessions.workspace.emptyDescription')}
+                  </p>
+                </div>
               </div>
+            )}
+          </>
+        }
+        overlay={
+          sidebarSessionError ? (
+            <div
+              aria-label="Session rename error"
+              className="titlebar-control fixed bottom-4 right-4 z-50 max-w-sm rounded-md border border-destructive/40 bg-destructive px-4 py-3 text-sm text-destructive-foreground shadow-lg"
+              role="alert"
+            >
+              {sidebarSessionError}
             </div>
-          )}
-        </section>
-      </div>
-      {sidebarSessionError ? (
-        <div
-          aria-label="Session rename error"
-          className="titlebar-control fixed bottom-4 right-4 z-50 max-w-sm rounded-md border border-destructive/40 bg-destructive px-4 py-3 text-sm text-destructive-foreground shadow-lg"
-          role="alert"
-        >
-          {sidebarSessionError}
-        </div>
-      ) : null}
-    </div>
+          ) : null
+        }
+      />
+    </>
   )
 }
 
@@ -906,35 +821,4 @@ function sessionRenameErrorMessage(error: unknown): string {
     return 'Enter a Session title before saving.'
   }
   return 'Unable to rename Session. Check the title and try again.'
-}
-
-type ResizeHandleProps = {
-  label: string
-  value: number
-  onPointerDown: (event: PointerEvent<HTMLDivElement>) => void
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void
-}
-
-function ResizeHandle({
-  label,
-  value,
-  onPointerDown,
-  onKeyDown
-}: ResizeHandleProps): React.JSX.Element {
-  return (
-    <div
-      aria-label={label}
-      aria-orientation="vertical"
-      aria-valuemax={SIDEBAR_MAX_WIDTH}
-      aria-valuemin={SIDEBAR_MIN_WIDTH}
-      aria-valuenow={value}
-      className="titlebar-control flex cursor-col-resize items-center justify-center text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-      role="separator"
-      tabIndex={0}
-      onKeyDown={onKeyDown}
-      onPointerDown={onPointerDown}
-    >
-      <DotsSixVertical className="h-4 w-3" aria-hidden="true" />
-    </div>
-  )
 }
