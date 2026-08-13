@@ -215,7 +215,7 @@ vi.mock('./components/app-shell/account-menu', () => ({
   )
 }))
 vi.mock('./components/sidebar/app-sidebar', () => ({
-  AppSidebar: ({
+  AppSidebarView: ({
     header,
     footer,
     children
