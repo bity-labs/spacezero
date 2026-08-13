@@ -73,6 +73,14 @@ describe('SidePaneShell', () => {
       'Files for session:session-1'
     )
     expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute(
+      'data-side-pane-category-id',
+      'files'
+    )
+    expect(screen.getByRole('tab', { name: 'Files' })).toHaveAttribute(
+      'data-side-pane-category-mru',
+      'true'
+    )
     expect(screen.getByRole('button', { name: 'Create Side Pane Tab' })).toBeInTheDocument()
   })
 
