@@ -6,6 +6,7 @@ out
 dist
 dist-electron
 release
+storybook-static
 
 # Test output
 coverage
