@@ -1,8 +1,10 @@
 import type { FilesContext } from '../shared'
+import { synchronizeFilesSidePaneTabs } from './files-side-pane'
 import { useFilesStore, type FilesOpenTabIntent } from './files-store'
 
 export type FilesOpenLocation = {
   contextKey: string
+  sidePaneContextKey?: string
   ipcContext: FilesContext
   relativePath: string
   line?: number
@@ -19,6 +21,7 @@ let nextOpenLocationRequestId = 10_000
 
 export async function openFilesLocation({
   contextKey,
+  sidePaneContextKey,
   ipcContext,
   relativePath,
   line,
@@ -39,6 +42,7 @@ export async function openFilesLocation({
     revalidateExisting,
     character
   )
+  if (sidePaneContextKey) synchronizeFilesSidePaneTabs(contextKey, sidePaneContextKey, true)
   if (!shouldFetch) return { status: 'opened' }
 
   try {
@@ -54,12 +58,18 @@ export async function openFilesLocation({
       return accepted ? { status: 'failed', message } : { status: 'ignored' }
     }
     const accepted = useFilesStore.getState().finishOpenTab(contextKey, document, requestId)
+    if (accepted && sidePaneContextKey) {
+      synchronizeFilesSidePaneTabs(contextKey, sidePaneContextKey, true)
+    }
     return accepted ? { status: 'opened' } : { status: 'ignored' }
   } catch (error) {
     const message = filesOpenLocationErrorMessage(error)
     const accepted = useFilesStore
       .getState()
       .failOpenTab(contextKey, relativePath, message, requestId)
+    if (accepted && sidePaneContextKey) {
+      synchronizeFilesSidePaneTabs(contextKey, sidePaneContextKey, true)
+    }
     return accepted ? { status: 'failed', message } : { status: 'ignored' }
   }
 }

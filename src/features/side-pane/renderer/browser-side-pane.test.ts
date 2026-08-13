@@ -76,7 +76,7 @@ describe('Browser Side Pane capability', () => {
 
   it('uses the Side Pane Browser MRU when main persisted a different active page', async () => {
     const pages = [tab('browser-tab-main', 'Main'), tab('browser-tab-mru', 'Recent')]
-    useSidePaneStore.getState().syncCategoryTabs(
+    useSidePaneStore.getState().synchronizeCategoryTabs(
       contextKey,
       'browser',
       pages.map((page) => ({ id: page.id, categoryId: 'browser' })),
@@ -100,7 +100,7 @@ describe('Browser Side Pane capability', () => {
   it('closes exactly one native page and collapses after the final peer tab closes', async () => {
     useSidePaneStore
       .getState()
-      .syncCategoryTabs(
+      .synchronizeCategoryTabs(
         contextKey,
         'browser',
         [{ id: 'browser-tab-1', categoryId: 'browser', title: 'Docs' }],

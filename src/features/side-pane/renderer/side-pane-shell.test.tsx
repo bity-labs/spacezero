@@ -220,7 +220,7 @@ describe('SidePaneShell', () => {
   it('does not let a resource event for an inactive context mutate the visible context', () => {
     useSidePaneStore
       .getState()
-      .syncCategoryTabs(
+      .synchronizeCategoryTabs(
         'project:project-1',
         'browser',
         [{ id: 'browser-tab-project', categoryId: 'browser' }],
@@ -286,7 +286,7 @@ describe('SidePaneShell', () => {
   })
 
   it('renders Browser page metadata directly in the peer Side Pane tab strip', () => {
-    useSidePaneStore.getState().syncCategoryTabs(
+    useSidePaneStore.getState().synchronizeCategoryTabs(
       configuration.contextKey,
       'browser',
       [
@@ -334,6 +334,58 @@ describe('SidePaneShell', () => {
     ])
   })
 
+  it('presents and delegates Files resource tab activation, pinning, and protected close', async () => {
+    const onActivateTab = vi.fn()
+    const onDoubleClickTab = vi.fn()
+    const onRequestCloseTab = vi.fn(async () => false)
+    const fileCategories: readonly SidePaneCategoryDescriptor[] = categories.map((category) =>
+      category.id === 'files'
+        ? { ...category, onActivateTab, onDoubleClickTab, onRequestCloseTab }
+        : category
+    )
+    useSidePaneStore.setState({
+      contexts: {
+        [configuration.contextKey]: {
+          isOpen: true,
+          width: 600,
+          activeTabId: 'files:README.md',
+          tabs: [
+            {
+              id: 'files:README.md',
+              categoryId: 'files',
+              resourceId: 'README.md',
+              label: 'README.md',
+              preview: true,
+              dirty: true
+            }
+          ],
+          categoryMru: { files: 'files:README.md' }
+        }
+      }
+    })
+
+    render(
+      <SidePaneShell {...configuration} categories={fileCategories}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    const fileTab = screen.getByRole('tab', { name: /README\.md preview/ })
+    expect(fileTab).toHaveTextContent('●')
+    fireEvent.click(fileTab)
+    fireEvent.doubleClick(fileTab)
+    fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
+
+    expect(onActivateTab).toHaveBeenCalledWith(expect.objectContaining({ resourceId: 'README.md' }))
+    expect(onDoubleClickTab).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'README.md' })
+    )
+    expect(onRequestCloseTab).toHaveBeenCalledWith(
+      expect.objectContaining({ resourceId: 'README.md' })
+    )
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey].tabs).toHaveLength(1)
+  })
+
   it('keeps category tabs as ordered peers and focuses an existing Git Diff singleton', async () => {
     const user = userEvent.setup()
     render(
@@ -346,7 +398,7 @@ describe('SidePaneShell', () => {
     act(() => {
       useSidePaneStore
         .getState()
-        .syncCategoryTabs(
+        .synchronizeCategoryTabs(
           configuration.contextKey,
           'browser',
           [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
@@ -382,7 +434,7 @@ describe('SidePaneShell', () => {
     act(() => {
       useSidePaneStore
         .getState()
-        .syncCategoryTabs(
+        .synchronizeCategoryTabs(
           configuration.contextKey,
           'browser',
           [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],

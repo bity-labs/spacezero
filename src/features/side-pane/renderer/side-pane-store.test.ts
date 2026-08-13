@@ -111,7 +111,7 @@ describe('Side Pane store', () => {
       }
     })
 
-    useSidePaneStore.getState().syncCategoryTabs(
+    useSidePaneStore.getState().synchronizeCategoryTabs(
       'session:session-1',
       'browser',
       [
@@ -136,12 +136,107 @@ describe('Side Pane store', () => {
     })
   })
 
+  it('promotes Files resources into peer tabs while preserving their positions among other categories', () => {
+    const store = useSidePaneStore.getState()
+    store.openCategory('session:session-1', 'files')
+    store.synchronizeCategoryTabs(
+      'session:session-1',
+      'browser',
+      [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
+      'browser-tab-main-owned',
+      true
+    )
+
+    store.synchronizeCategoryTabs(
+      'session:session-1',
+      'files',
+      [
+        {
+          id: 'files:README.md',
+          categoryId: 'files',
+          resourceId: 'README.md',
+          label: 'README.md',
+          preview: true
+        }
+      ],
+      'files:README.md',
+      true
+    )
+
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toMatchObject({
+      activeTabId: 'files:README.md',
+      tabs: [
+        {
+          id: 'files:README.md',
+          categoryId: 'files',
+          resourceId: 'README.md',
+          preview: true
+        },
+        { id: 'browser-tab-main-owned', categoryId: 'browser' }
+      ]
+    })
+
+    store.synchronizeCategoryTabs(
+      'session:session-1',
+      'files',
+      [
+        {
+          id: 'files:src%2Findex.ts',
+          categoryId: 'files',
+          resourceId: 'src/index.ts',
+          label: 'index.ts',
+          preview: true
+        }
+      ],
+      'files:src%2Findex.ts',
+      true
+    )
+
+    expect(
+      useSidePaneStore
+        .getState()
+        .contexts['session:session-1'].tabs.map(
+          (tab) => `${tab.categoryId}:${tab.resourceId ?? ''}`
+        )
+    ).toEqual(['files:src/index.ts', 'browser:'])
+  })
+
+  it('persists permanent Files references without preview resources, dirty state, or unsaved content', () => {
+    useSidePaneStore.getState().synchronizeCategoryTabs(
+      'session:session-1',
+      'files',
+      [
+        {
+          id: 'files:README.md',
+          categoryId: 'files',
+          resourceId: 'README.md',
+          label: 'README.md',
+          dirty: true
+        },
+        {
+          id: 'files:preview.txt',
+          categoryId: 'files',
+          resourceId: 'preview.txt',
+          label: 'preview.txt',
+          preview: true
+        }
+      ],
+      'files:README.md',
+      true
+    )
+
+    const persisted = window.localStorage.getItem('spacezero.sidePane') ?? ''
+    expect(persisted).toContain('README.md')
+    expect(persisted).not.toContain('preview.txt')
+    expect(persisted).not.toContain('dirty')
+  })
+
   it('keeps tab, width, open state, and MRU mutations isolated to their context', () => {
     useSidePaneStore.getState().openCategory('project:project-1', 'files')
     useSidePaneStore.getState().setWidth('project:project-1', 620)
     useSidePaneStore
       .getState()
-      .syncCategoryTabs(
+      .synchronizeCategoryTabs(
         'global-chat',
         'browser',
         [{ id: 'browser-tab-global', categoryId: 'browser' }],

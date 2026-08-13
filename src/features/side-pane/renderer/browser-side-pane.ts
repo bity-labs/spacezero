@@ -13,7 +13,7 @@ export function syncBrowserSidePaneState(
 ): void {
   useSidePaneStore
     .getState()
-    .syncCategoryTabs(
+    .synchronizeCategoryTabs(
       contextKey,
       'browser',
       state.tabs.map(browserTabToSidePaneTab),

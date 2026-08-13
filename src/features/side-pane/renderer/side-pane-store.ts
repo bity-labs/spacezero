@@ -6,6 +6,10 @@ export type SidePaneCategoryId = 'files' | 'git' | 'browser' | 'terminal'
 export type SidePaneTab = {
   id: string
   categoryId: SidePaneCategoryId
+  resourceId?: string
+  label?: string
+  preview?: boolean
+  dirty?: boolean
   title?: string
   faviconUrl?: string | null
 }
@@ -36,7 +40,7 @@ type SidePaneStore = {
     position: 'before' | 'after'
   ) => void
   setWidth: (contextKey: string, width: number) => void
-  syncCategoryTabs: (
+  synchronizeCategoryTabs: (
     contextKey: string,
     categoryId: SidePaneCategoryId,
     tabs: SidePaneTab[],
@@ -114,6 +118,28 @@ function removeSyntheticBrowserTabs(persistedState: unknown): unknown {
     }
   }
   return { ...(persistedState as object), contexts }
+}
+
+function toPersistedContext(context: SidePaneLayoutState): SidePaneLayoutState {
+  const tabs = context.tabs
+    .filter((tab) => !tab.preview)
+    .map(({ dirty: _dirty, preview: _preview, ...tab }) => tab)
+  const activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? tabs[0] ?? null
+  const tabIds = new Set(tabs.map((tab) => tab.id))
+  const categoryMru = Object.fromEntries(
+    Object.entries(context.categoryMru).filter(
+      ([, tabId]) => typeof tabId === 'string' && tabIds.has(tabId)
+    )
+  ) as Partial<Record<SidePaneCategoryId, string>>
+  for (const tab of tabs) categoryMru[tab.categoryId] ??= tab.id
+  if (activeTab) categoryMru[activeTab.categoryId] = activeTab.id
+  return {
+    ...context,
+    isOpen: context.isOpen && activeTab !== null,
+    activeTabId: activeTab?.id ?? null,
+    tabs,
+    categoryMru
+  }
 }
 
 function isSidePaneCategoryId(value: unknown): value is SidePaneCategoryId {
@@ -286,7 +312,13 @@ const useSidePaneStore = create<SidePaneStore>()(
             }
           }
         }),
-      syncCategoryTabs: (contextKey, categoryId, categoryTabs, activeCategoryTabId, activate) =>
+      synchronizeCategoryTabs: (
+        contextKey,
+        categoryId,
+        categoryTabs,
+        activeCategoryTabId,
+        activate
+      ) =>
         set((state) => {
           const context = state.contexts[contextKey] ?? emptyContext()
           const incomingById = new Map(categoryTabs.map((tab) => [tab.id, tab]))
@@ -319,25 +351,31 @@ const useSidePaneStore = create<SidePaneStore>()(
           }
 
           const nextTabIds = new Set(tabs.map((tab) => tab.id))
-          const nextActiveCategoryTab =
+          const requestedActiveTab =
             activeCategoryTabId && incomingById.has(activeCategoryTabId)
-              ? activeCategoryTabId
+              ? (tabs.find((tab) => tab.id === activeCategoryTabId) ?? null)
               : null
-          let activeTabId = context.activeTabId
-          if (activate && nextActiveCategoryTab) activeTabId = nextActiveCategoryTab
-          else if (!activeTabId || !nextTabIds.has(activeTabId)) {
-            const priorActiveIndex = context.tabs.findIndex((tab) => tab.id === activeTabId)
-            activeTabId = tabs[Math.min(Math.max(priorActiveIndex, 0), tabs.length - 1)]?.id ?? null
+          const currentActiveTab = tabs.find((tab) => tab.id === context.activeTabId) ?? null
+          const shouldFollowCategoryActive =
+            context.tabs.find((tab) => tab.id === context.activeTabId)?.categoryId === categoryId
+          let nextActiveTab = currentActiveTab
+          if ((activate || shouldFollowCategoryActive) && requestedActiveTab) {
+            nextActiveTab = requestedActiveTab
+          } else if (!nextActiveTab) {
+            const priorActiveIndex = context.tabs.findIndex((tab) => tab.id === context.activeTabId)
+            nextActiveTab = tabs[Math.min(Math.max(priorActiveIndex, 0), tabs.length - 1)] ?? null
           }
 
           const categoryMru = { ...context.categoryMru }
           const priorMru = categoryMru[categoryId]
-          if (activate && nextActiveCategoryTab) categoryMru[categoryId] = nextActiveCategoryTab
-          else if (!priorMru || !nextTabIds.has(priorMru)) {
+          if ((activate || shouldFollowCategoryActive) && requestedActiveTab) {
+            categoryMru[categoryId] = requestedActiveTab.id
+          } else if (!priorMru || !nextTabIds.has(priorMru)) {
             const fallback = [...tabs].reverse().find((tab) => tab.categoryId === categoryId)
             if (fallback) categoryMru[categoryId] = fallback.id
             else delete categoryMru[categoryId]
           }
+          if (nextActiveTab) categoryMru[nextActiveTab.categoryId] = nextActiveTab.id
 
           return {
             contexts: {
@@ -345,7 +383,7 @@ const useSidePaneStore = create<SidePaneStore>()(
               [contextKey]: {
                 ...context,
                 isOpen: tabs.length > 0 && (activate || context.isOpen),
-                activeTabId,
+                activeTabId: nextActiveTab?.id ?? null,
                 tabs,
                 categoryMru
               }
@@ -356,6 +394,14 @@ const useSidePaneStore = create<SidePaneStore>()(
     {
       name: 'spacezero.sidePane',
       storage: sidePaneStorage,
+      partialize: (state) => ({
+        contexts: Object.fromEntries(
+          Object.entries(state.contexts).map(([contextKey, context]) => [
+            contextKey,
+            toPersistedContext(context)
+          ])
+        )
+      }),
       version: 2,
       migrate: migratePersistedState
     }
