@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { ColorModeProvider } from '../color-mode-provider'
+import { AppearanceProvider } from '../appearance-provider'
 import { DiffViewer } from './diff-viewer'
 
 type MockCodeViewItem = {
@@ -14,7 +14,9 @@ type MockCodeViewItem = {
     prevName?: string
     type: string
     additionLines: string[]
+    deletionLines: string[]
     hunks: unknown[]
+    cacheKey?: string
   }
   version?: number
 }
@@ -32,6 +34,7 @@ type MockCodeViewCall = {
   renderCustomHeader?: (item: MockCodeViewItem) => ReactNode
   renderHeaderPrefix?: (item: MockCodeViewItem) => ReactNode
   renderHeaderMetadata?: (item: MockCodeViewItem) => ReactNode
+  onItemEditChange?: (item: MockCodeViewItem, file: { contents: string }) => void
 }
 
 const { codeViewCalls } = vi.hoisted(() => ({
@@ -48,17 +51,41 @@ vi.mock('@pierre/diffs/react', async () => {
       props.items.map((item) =>
         React.createElement('section', { key: item.id }, [
           React.createElement('div', { key: 'header' }, [
-            React.createElement(React.Fragment, { key: 'prefix' }, props.renderHeaderPrefix?.(item)),
+            React.createElement(
+              React.Fragment,
+              { key: 'prefix' },
+              props.renderHeaderPrefix?.(item)
+            ),
             React.createElement('span', { key: 'name' }, item.fileDiff.name),
-            React.createElement(React.Fragment, { key: 'custom' }, props.renderCustomHeader?.(item)),
-            React.createElement(React.Fragment, { key: 'metadata' }, props.renderHeaderMetadata?.(item))
+            React.createElement(
+              React.Fragment,
+              { key: 'custom' },
+              props.renderCustomHeader?.(item)
+            ),
+            React.createElement(
+              React.Fragment,
+              { key: 'metadata' },
+              props.renderHeaderMetadata?.(item)
+            )
           ]),
-          React.createElement('pre', { key: 'patch' }, item.fileDiff.additionLines.join('\n'))
+          item.edit
+            ? React.createElement('textarea', {
+                key: 'editor',
+                'aria-label': `Edit ${item.fileDiff.name}`,
+                value: item.fileDiff.additionLines.join('\n'),
+                onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                  props.onItemEditChange?.(item, { contents: event.target.value })
+              })
+            : React.createElement('pre', { key: 'patch' }, item.fileDiff.additionLines.join('\n'))
         ])
       )
     )
   })
-  return { CodeView }
+  return {
+    CodeView,
+    EditProvider: ({ children }: React.PropsWithChildren) =>
+      React.createElement(React.Fragment, null, children)
+  }
 })
 
 describe('DiffViewer', () => {
@@ -108,13 +135,15 @@ describe('DiffViewer', () => {
 
   it('uses the stronger Pierre dark theme in dark high contrast mode', async () => {
     codeViewCalls.length = 0
-    window.spacezero.settings.getThemeSettings = async () => ({
-      preference: 'dark-high-contrast',
-      resolvedTheme: 'dark-high-contrast'
+    window.spacezero.settings.getAppearanceSettings = async () => ({
+      themePreference: 'dark-high-contrast',
+      resolvedTheme: 'dark-high-contrast',
+      fontFamily: 'system',
+      thinFontAntialiasing: true
     })
 
     const { unmount } = render(
-      <ColorModeProvider>
+      <AppearanceProvider>
         <DiffViewer
           items={[
             {
@@ -125,7 +154,7 @@ describe('DiffViewer', () => {
             }
           ]}
         />
-      </ColorModeProvider>
+      </AppearanceProvider>
     )
 
     await waitFor(() =>
@@ -185,6 +214,163 @@ describe('DiffViewer', () => {
       prevName: 'src/old-name.ts'
     })
     expect(codeViewCalls[0]?.items[0]?.fileDiff.hunks.length).toBeGreaterThan(0)
+  })
+
+  it('edits a controlled working document on the new-file side without turning read-only items editable', () => {
+    codeViewCalls.length = 0
+    const onChange = vi.fn()
+
+    const { rerender } = render(
+      <DiffViewer
+        items={[
+          {
+            id: 'editable',
+            path: 'src/app.ts',
+            patch:
+              'diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-const value = 1\n+const value = 2\n',
+            editable: {
+              cacheKey: 'spacezero-files:session-1:document:src/app.ts:baseline',
+              contextKey: 'session-1',
+              value: 'const value = 2',
+              onChange
+            }
+          }
+        ]}
+      />
+    )
+
+    expect(screen.getByRole('textbox', { name: 'Edit src/app.ts' })).toHaveValue('const value = 2')
+    fireEvent.change(screen.getByRole('textbox', { name: 'Edit src/app.ts' }), {
+      target: { value: 'const value = 3' }
+    })
+    expect(onChange).toHaveBeenCalledWith('const value = 3')
+    expect(codeViewCalls.at(-1)?.items[0]).toMatchObject({ edit: true })
+
+    rerender(
+      <DiffViewer
+        items={[
+          {
+            id: 'read-only',
+            path: 'src/app.ts',
+            patch:
+              'diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-const value = 1\n+const value = 2\n'
+          }
+        ]}
+      />
+    )
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      name: 'LF with a final newline',
+      current: 'keep\nnew\n',
+      previous: 'keep\nold\n',
+      patch:
+        'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n'
+    },
+    {
+      name: 'CRLF with a final newline',
+      current: 'keep\r\nnew\r\n',
+      previous: 'keep\r\nold\r\n',
+      patch:
+        'diff --git a/example.txt b/example.txt\r\n--- a/example.txt\r\n+++ b/example.txt\r\n@@ -1,2 +1,2 @@\r\n keep\r\n-old\r\n+new\r\n'
+    },
+    {
+      name: 'LF without a final newline',
+      current: 'keep\nnew',
+      previous: 'keep\nold',
+      patch:
+        'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n'
+    },
+    {
+      name: 'CRLF without a final newline',
+      current: 'keep\r\nnew',
+      previous: 'keep\r\nold',
+      patch:
+        'diff --git a/example.txt b/example.txt\r\n--- a/example.txt\r\n+++ b/example.txt\r\n@@ -1,2 +1,2 @@\r\n keep\r\n-old\r\n\\ No newline at end of file\r\n+new\r\n\\ No newline at end of file\r\n'
+    }
+  ])('reconstructs the exact real-parser baseline for $name', ({ current, patch, previous }) => {
+    codeViewCalls.length = 0
+
+    render(
+      <DiffViewer
+        items={[
+          {
+            id: 'editable-baseline',
+            path: 'example.txt',
+            patch,
+            editable: {
+              cacheKey: 'document-cache',
+              contextKey: 'session-1',
+              value: 'dirty draft that must not affect the Git baseline',
+              baselineValue: current,
+              onChange: vi.fn()
+            }
+          }
+        ]}
+      />
+    )
+
+    expect(codeViewCalls.at(-1)?.items[0]?.fileDiff.deletionLines.join('')).toBe(previous)
+  })
+
+  it('invalidates the exact baseline when the selected filter or refreshed patch changes', () => {
+    codeViewCalls.length = 0
+    const editable = {
+      cacheKey: 'document-cache',
+      contextKey: 'session-1',
+      value: 'dirty draft',
+      baselineValue: 'keep\nworking\n',
+      onChange: vi.fn()
+    }
+    const { rerender } = render(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-head\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const uncommitted = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(uncommitted?.deletionLines.join('')).toBe('keep\nhead\n')
+
+    rerender(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-index\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const unstaged = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(unstaged?.deletionLines.join('')).toBe('keep\nindex\n')
+
+    rerender(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-refreshed-index\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const refreshed = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(refreshed?.deletionLines.join('')).toBe('keep\nrefreshed-index\n')
   })
 
   it('shows bounded fallback messaging when a patch cannot be parsed', () => {
