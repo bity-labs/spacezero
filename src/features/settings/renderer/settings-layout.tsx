@@ -20,7 +20,6 @@ import { AppearanceSettingsPage } from './pages/appearance-settings-page'
 import { GeneralSettingsPage } from './pages/general-settings-page'
 import { ProvidersSettingsPage } from './pages/providers-settings-page'
 import { SkillsSettingsPage } from './pages/skills-settings-page'
-import { UiDebugSettingsPage } from './pages/ui-debug-settings-page'
 import { SettingsNavigation, type SettingsSectionId } from './settings-navigation'
 
 export function SettingsLayout({
@@ -153,8 +152,6 @@ function SelectedSettingsPage({
       return <AppearanceSettingsPage />
     case 'about':
       return <AboutSettingsPage />
-    case 'debug':
-      return <UiDebugSettingsPage />
     case 'models':
       return <ProvidersSettingsPage />
   }
