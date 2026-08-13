@@ -47,6 +47,33 @@ describe('Files exit guard', () => {
     })
   })
 
+  it('protects and saves a dirty document edited only through Git Diff on quit', async () => {
+    const files = useFilesStore.getState()
+    files.ensureWorkingDocument('session-1', textDocument('diff-only.ts', 'saved'))
+    files.updateWorkingDocumentDraft('session-1', 'diff-only.ts', 'dirty draft')
+    vi.spyOn(window, 'prompt').mockReturnValue('save')
+    const saveDocument = vi
+      .spyOn(window.spacezero.files, 'saveDocument')
+      .mockImplementation(async (request) => ({
+        status: 'saved',
+        document: textDocument(request.relativePath, request.content)
+      }))
+
+    await expect(confirmFilesExit()).resolves.toBe(true)
+
+    expect(saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'diff-only.ts',
+      content: 'dirty draft',
+      expectedRevision: 'diff-only.ts-revision'
+    })
+    expect(
+      useFilesStore.getState().contexts['session-1'].detachedDocuments['diff-only.ts']
+    ).toMatchObject({
+      dirty: false
+    })
+  })
+
   it('saves a dirty Project Home document through its typed project identity and allows quit', async () => {
     openDirty('project:project-1', 'src/project.ts', 'project')
     vi.spyOn(window, 'prompt').mockReturnValue('save')

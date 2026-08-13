@@ -461,6 +461,7 @@ function createPersistedContext(relativePath: string) {
     selectedPath: relativePath,
     expandedPaths: [],
     tabs: [],
+    detachedDocuments: {},
     activeTabPath: null,
     editorViewStates: {}
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { useFilesStore } from './files-store'
+import { getFilesWorkingDocument, useFilesStore } from './files-store'
 import type { FilesTextDocument } from '../shared'
 
 function textDocument(relativePath: string, content = `${relativePath} saved`): FilesTextDocument {
@@ -18,6 +18,73 @@ function textDocument(relativePath: string, content = `${relativePath} saved`): 
 }
 
 describe('Files renderer state', () => {
+  it('owns a diff-only working document without creating a Files tab and hands its dirty buffer to Files', () => {
+    const store = useFilesStore.getState()
+    const diskDocument = textDocument('src/app.ts', 'saved content')
+
+    store.ensureWorkingDocument('session-1', diskDocument)
+    store.updateWorkingDocumentDraft('session-1', 'src/app.ts', 'unsaved diff edit')
+
+    expect(useFilesStore.getState().contexts['session-1'].tabs).toEqual([])
+    expect(getFilesWorkingDocument('session-1', 'src/app.ts')).toMatchObject({
+      draft: 'unsaved diff edit',
+      dirty: true,
+      editorMode: 'source'
+    })
+
+    expect(store.beginOpenTab('session-1', 'src/app.ts', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-1', diskDocument, 1)
+
+    expect(useFilesStore.getState().contexts['session-1'].tabs).toMatchObject([
+      {
+        relativePath: 'src/app.ts',
+        draft: 'unsaved diff edit',
+        dirty: true,
+        preview: false
+      }
+    ])
+    expect(useFilesStore.getState().contexts['session-1'].detachedDocuments).toEqual({})
+  })
+
+  it('isolates equal diff-owned paths and Rich editor mode by workspace context', () => {
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-1', textDocument('README.md', '# One'))
+    store.ensureWorkingDocument('session-2', textDocument('README.md', '# Two'))
+    store.updateWorkingDocumentDraft('session-1', 'README.md', '# Dirty one')
+
+    expect(store.beginOpenTab('session-2', 'README.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-2', textDocument('README.md', '# Two'), 1)
+    store.setEditorMode('session-2', 'README.md', 'rich')
+
+    expect(getFilesWorkingDocument('session-1', 'README.md')).toMatchObject({
+      draft: '# Dirty one',
+      dirty: true,
+      editorMode: 'source'
+    })
+    expect(getFilesWorkingDocument('session-2', 'README.md')).toMatchObject({
+      draft: '# Two',
+      dirty: false,
+      editorMode: 'rich'
+    })
+  })
+
+  it('preserves a dirty diff-only buffer and marks it conflicted when the disk revision changes', () => {
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-1', textDocument('src/app.ts', 'saved'))
+    store.updateWorkingDocumentDraft('session-1', 'src/app.ts', 'dirty')
+    store.ensureWorkingDocument('session-1', {
+      ...textDocument('src/app.ts', 'external'),
+      revision: 'external-revision'
+    })
+
+    expect(getFilesWorkingDocument('session-1', 'src/app.ts')).toMatchObject({
+      content: 'saved',
+      draft: 'dirty',
+      dirty: true,
+      externalStatus: { kind: 'conflict', diskRevision: 'external-revision' }
+    })
+  })
+
   it('keeps explorer layout, selection, and expansion independent per Project Session', () => {
     const store = useFilesStore.getState()
     store.setExplorerWidth('session-1', 280)

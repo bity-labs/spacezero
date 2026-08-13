@@ -21,6 +21,13 @@ class TestResizeObserver implements ResizeObserver {
 
 globalThis.ResizeObserver = TestResizeObserver
 Element.prototype.scrollIntoView = vi.fn()
+HTMLCanvasElement.prototype.getContext = vi.fn(
+  () =>
+    ({
+      font: '',
+      measureText: (text: string) => ({ width: text.length * 8 })
+    }) as CanvasRenderingContext2D
+) as unknown as typeof HTMLCanvasElement.prototype.getContext
 
 const emptyDomRect = new DOMRect()
 const emptyDomRectList = [] as unknown as DOMRectList
@@ -84,6 +91,9 @@ window.setTestPrefersDark = (matches: boolean): void => {
 
 beforeEach(async () => {
   window.scrollTo = vi.fn()
+  window.postMessage = vi.fn((message: unknown) => {
+    window.dispatchEvent(new MessageEvent('message', { data: message }))
+  }) as typeof window.postMessage
   prefersDark = false
   mediaListeners.clear()
   window.localStorage.clear()

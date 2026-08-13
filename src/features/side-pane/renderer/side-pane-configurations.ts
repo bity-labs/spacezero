@@ -12,6 +12,7 @@ import {
   synchronizeFilesSidePaneTabs
 } from '../../files/renderer/files-side-pane'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../../files/shared'
+import { requestCloseGitDiffSidePaneTab } from '../../git/renderer/git-side-pane'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
 import { TERMINAL_COMMAND_IDS, type TerminalContext } from '../../terminal/shared'
 import {
@@ -109,6 +110,11 @@ export function createProjectHomeSidePaneConfiguration(project: {
       {
         ...categoryRegistry.git,
         available: true,
+        onRequestCloseTab: () =>
+          requestCloseGitDiffSidePaneTab({
+            filesContextKey: contextKey,
+            ipcContext: { kind: 'project-home', projectId: project.id }
+          }),
         render: ({ capabilities }) =>
           capabilities.kind === 'project-home'
             ? createElement(
@@ -171,6 +177,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
       {
         ...categoryRegistry.git,
         available: true,
+        onRequestCloseTab: () =>
+          requestCloseGitDiffSidePaneTab({
+            filesContextKey: session.id,
+            ipcContext: { kind: 'project-session', sessionId: session.id }
+          }),
         render: ({ capabilities }) =>
           capabilities.kind === 'project-session'
             ? createElement(
@@ -247,6 +258,14 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
       {
         ...categoryRegistry.git,
         available: true,
+        onRequestCloseTab: () =>
+          requestCloseGitDiffSidePaneTab({
+            filesContextKey: 'knowledge-base',
+            ipcContext: {
+              kind: 'knowledge-base',
+              contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY
+            }
+          }),
         render: ({ capabilities }) =>
           capabilities.kind === 'knowledge-base'
             ? createElement(
