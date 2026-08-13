@@ -95,8 +95,8 @@ describe('Terminal tab restoration persistence', () => {
       expect(restored.status).toBe('running')
       expect(restored.terminalId).not.toBe(first.terminalId)
       expect(restored.tabs).toEqual([
-        { terminalId: 'id-1', title: cwd.split('/').at(-1) },
-        { terminalId: 'id-2', title: 'session-1' }
+        { terminalId: 'id-1', restorationId: 'id-4', title: cwd.split('/').at(-1) },
+        { terminalId: 'id-2', restorationId: 'id-2', title: 'session-1' }
       ])
       expect(restored.activeTerminalId).toBe('id-2')
       expect(secondRun.adapter.spawn).toHaveBeenNthCalledWith(1, expect.objectContaining({ cwd }))
@@ -304,7 +304,7 @@ describe('Terminal tab restoration persistence', () => {
       tabs: [{ terminalId: 'id-1', title: 'session-1' }, { terminalId: 'id-3', title: 'session-1' }]
     })
     await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
-      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      tabs: [{ terminalId: 'id-3', restorationId: 'id-4', title: 'session-1' }],
       activeTerminalId: 'id-3'
     })
     expect(restoredPty.killed).toBe(true)
@@ -371,7 +371,7 @@ describe('Terminal tab restoration persistence', () => {
     expect(restoredPty.killed).toBe(true)
     expect(freshPty.killed).toBe(false)
     await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
-      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      tabs: [{ terminalId: 'id-3', restorationId: 'id-4', title: 'session-1' }],
       activeTerminalId: 'id-3'
     })
   })
@@ -439,7 +439,7 @@ describe('Terminal tab restoration persistence', () => {
     expect(restoredPty.killed).toBe(true)
     expect(freshPty.killed).toBe(false)
     await expect(service.listTabs({ ownerWindowId: 1, request: { context } })).resolves.toEqual({
-      tabs: [{ terminalId: 'id-3', title: 'session-1' }],
+      tabs: [{ terminalId: 'id-3', restorationId: 'id-4', title: 'session-1' }],
       activeTerminalId: 'id-3'
     })
     expect(tabsRepository.rows).toEqual([

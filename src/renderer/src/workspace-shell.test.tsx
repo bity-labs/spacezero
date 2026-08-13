@@ -201,6 +201,7 @@ vi.mock('../../features/side-pane/renderer', () => ({
   SIDE_PANE_COLLAPSED_HEADER_WIDTH: 48,
   SIDE_PANE_HANDLE_WIDTH: 4,
   SidePaneToggleButton: () => <button type="button">Toggle side pane</button>,
+  TerminalSidePaneLifecycle: () => null,
   useSidePaneController: () => ({ isOpen: false, openCategory: vi.fn(), toggle: vi.fn() }),
   useSidePaneStore: (
     selector: (state: { contexts: Record<string, { width: number | null }> }) => unknown

@@ -58,6 +58,7 @@ import {
   SIDE_PANE_COLLAPSED_HEADER_WIDTH,
   SIDE_PANE_HANDLE_WIDTH,
   SidePaneShell,
+  TerminalSidePaneLifecycle,
   useSidePaneController,
   useSidePaneStore,
   type SidePaneConfiguration
@@ -375,6 +376,7 @@ export function WorkspaceShell(): React.JSX.Element {
 
   return (
     <div className="flex h-screen min-h-screen flex-col bg-background text-foreground">
+      <TerminalSidePaneLifecycle />
       <header
         className="app-titlebar grid h-12 items-stretch bg-background"
         style={{ gridTemplateColumns: titlebarGridTemplateColumns }}

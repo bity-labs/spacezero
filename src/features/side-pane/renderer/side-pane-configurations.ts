@@ -1,4 +1,4 @@
-import { createElement, lazy, Suspense } from 'react'
+import { createElement, lazy, Suspense, useEffect, useState } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
 import type { BrowserContext } from '../../browser/shared'
@@ -18,6 +18,13 @@ import {
   createBrowserSidePaneTab,
   focusOrCreateBrowserSidePaneTab
 } from './browser-side-pane'
+import {
+  closeTerminalSidePaneTab,
+  confirmCloseTerminalSidePaneTab,
+  createTerminalSidePaneTab,
+  focusOrCreateTerminalSidePaneTab,
+  selectTerminalSidePaneTab
+} from './terminal-side-pane'
 import type { SidePaneCategoryDescriptor, SidePaneConfiguration } from './side-pane-shell'
 import { useSidePaneStore } from './side-pane-store'
 
@@ -96,22 +103,11 @@ export function createProjectHomeSidePaneConfiguration(project: {
         kind: 'project-home',
         projectId: project.id
       }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-home'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'project-home', projectId: capabilities.projectId },
-                  browserContextKey: contextKey,
-                  browserContext: { kind: 'project-home', projectId: capabilities.projectId }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        contextKey,
+        { kind: 'project-home', projectId: project.id },
+        { kind: 'project-home', projectId: project.id }
+      )
     ]
   }
 }
@@ -169,26 +165,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
         projectId: session.projectId,
         sessionId: session.id
       }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-session'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'project-session', sessionId: capabilities.sessionId },
-                  browserContextKey: sessionContextKey(capabilities.sessionId),
-                  browserContext: {
-                    kind: 'project-session',
-                    projectId: capabilities.projectId,
-                    sessionId: capabilities.sessionId
-                  }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        contextKey,
+        { kind: 'project-session', sessionId: session.id },
+        { kind: 'project-session', projectId: session.projectId, sessionId: session.id }
+      )
     ]
   }
 }
@@ -200,22 +181,11 @@ export function createGlobalChatSidePaneConfiguration(): SidePaneConfiguration {
     defaultCategoryId: 'browser',
     categories: [
       createBrowserSidePaneCategoryDescriptor('global-chat', { kind: 'global-chat' }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'global-chat'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'global-chat' },
-                  browserContextKey: 'global-chat',
-                  browserContext: { kind: 'global-chat' }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        'global-chat',
+        { kind: 'global-chat' },
+        { kind: 'global-chat' }
+      )
     ]
   }
 }
@@ -268,22 +238,11 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
             : null
       },
       createBrowserSidePaneCategoryDescriptor('knowledge-base', { kind: 'knowledge-base' }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'knowledge-base'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'knowledge-base' },
-                  browserContextKey: 'knowledge-base',
-                  browserContext: { kind: 'knowledge-base' }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        'knowledge-base',
+        { kind: 'knowledge-base' },
+        { kind: 'knowledge-base' }
+      )
     ]
   }
 }
@@ -353,21 +312,103 @@ function createBrowserSidePaneCategoryDescriptor(
   }
 }
 
+function createTerminalSidePaneCategoryDescriptor(
+  contextKey: string,
+  terminalContext: TerminalContext,
+  browserContext: BrowserContext
+): SidePaneCategoryDescriptor {
+  return {
+    ...categoryRegistry.terminal,
+    available: true,
+    open: () => {
+      void focusOrCreateTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
+        () => undefined
+      )
+    },
+    create: () => {
+      void createTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
+        () => undefined
+      )
+    },
+    close: (tab) => {
+      void closeTerminalSidePaneTab({ contextKey, context: terminalContext, tab }).catch(
+        () => undefined
+      )
+    },
+    onActivateTab: (tab) => {
+      void selectTerminalSidePaneTab({ contextKey, context: terminalContext, tab }).catch(
+        () => undefined
+      )
+    },
+    onRequestCloseTab: () => confirmCloseTerminalSidePaneTab(),
+    render: ({ activeTab }) =>
+      createElement(
+        Suspense,
+        { fallback: createElement(TerminalToolLoading) },
+        createElement(TerminalWithBrowserHandoff, {
+          contextKey,
+          activeTab,
+          terminalContext,
+          browserContext
+        })
+      )
+  }
+}
+
 function TerminalWithBrowserHandoff({
+  contextKey,
+  activeTab,
   terminalContext,
-  browserContextKey,
   browserContext
 }: {
+  contextKey: string
+  activeTab: { resourceId?: string }
   terminalContext: TerminalContext
-  browserContextKey: string
   browserContext: BrowserContext
 }): React.JSX.Element {
+  const terminalId = activeTab.resourceId
+  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
+  useEffect(() => {
+    if (terminalId) return
+    void focusOrCreateTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
+      (caught: unknown) => {
+        setRestoreError(caught instanceof Error ? caught.message : 'Terminal failed to restore')
+      }
+    )
+  }, [contextKey, restoreAttempt, terminalContext, terminalId])
+
+  if (restoreError) {
+    return createElement(
+      'div',
+      {
+        className: 'flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm'
+      },
+      createElement('p', null, 'Terminal failed to restore'),
+      createElement('p', { className: 'text-xs text-muted-foreground' }, restoreError),
+      createElement(
+        'button',
+        {
+          className: 'rounded-md border px-3 py-1.5 text-xs hover:bg-accent',
+          type: 'button',
+          onClick: () => {
+            setRestoreError(null)
+            setRestoreAttempt((attempt) => attempt + 1)
+          }
+        },
+        'Retry Terminal'
+      )
+    )
+  }
+  if (!terminalId) return createElement(TerminalToolLoading)
   return createElement(TerminalTool, {
+    contextKey,
     context: terminalContext,
+    terminalId,
     browserHandoff: {
       openBrowserPage: async (url: string) => {
         await createBrowserSidePaneTab({
-          contextKey: browserContextKey,
+          contextKey,
           context: browserContext,
           input: url
         })

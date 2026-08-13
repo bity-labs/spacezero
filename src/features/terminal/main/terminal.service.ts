@@ -687,7 +687,11 @@ export function createTerminalService({
       tabs: terminalIds.map((id) => {
         const terminal = terminals.get(id)
         if (!terminal) throw new Error('terminal.notFound')
-        return { terminalId: id, title: terminal.title }
+        return {
+          terminalId: id,
+          restorationId: terminal.restorationTabId,
+          title: terminal.title
+        }
       }),
       activeTerminalId: terminalIds.includes(state?.activeTerminalId ?? '')
         ? (state?.activeTerminalId ?? null)
