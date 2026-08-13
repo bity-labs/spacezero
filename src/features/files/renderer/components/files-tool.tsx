@@ -67,6 +67,7 @@ import { createFilesDocumentCacheKey } from '../lib/files-document-identity'
 import { getFilesRowDecoration } from '../lib/files-row-annotations'
 import {
   FilesDiffsEditor,
+  resetFilesDiffsEditorDocument,
   type FilesDiffsEditorHandle,
   type FilesSourceEditorState
 } from './files-diffs-editor'
@@ -745,18 +746,50 @@ function FilesToolSession({
     ]
   )
 
+  const resetSourceEditorsInPath = useCallback(
+    (relativePath: string): void => {
+      const context = useFilesStore.getState().contexts[sessionId]
+      if (!context) return
+      const documents = [
+        ...context.tabs.filter(
+          (tab): tab is Extract<FilesTabState, { status: 'ready' }> => tab.status === 'ready'
+        ),
+        ...Object.values(context.detachedDocuments)
+      ]
+      for (const document of documents) {
+        if (
+          document.editorMode === 'source' &&
+          isPathAffectedBy(document.relativePath, relativePath)
+        ) {
+          resetFilesDiffsEditorDocument(
+            sessionId,
+            createFilesDocumentCacheKey(
+              sessionId,
+              document.relativePath,
+              document.editorStateKey
+            )
+          )
+        }
+      }
+    },
+    [sessionId]
+  )
+
   const prepareDirtyOperation = useCallback(
     async (relativePath: string): Promise<boolean> => {
-      const dirtyTabs =
-        useFilesStore
-          .getState()
-          .contexts[sessionId]?.tabs.filter(
-            (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
-              tab.status === 'ready' &&
-              tab.dirty &&
-              isPathAffectedBy(tab.relativePath, relativePath)
-          ) ?? []
-      if (dirtyTabs.length === 0) return true
+      const context = useFilesStore.getState().contexts[sessionId]
+      const dirtyDocuments = [
+        ...(context?.tabs.filter(
+          (tab): tab is Extract<FilesTabState, { status: 'ready' }> =>
+            tab.status === 'ready' &&
+            tab.dirty &&
+            isPathAffectedBy(tab.relativePath, relativePath)
+        ) ?? []),
+        ...Object.values(context?.detachedDocuments ?? {}).filter(
+          (document) => document.dirty && isPathAffectedBy(document.relativePath, relativePath)
+        )
+      ]
+      if (dirtyDocuments.length === 0) return true
       const choice = window
         .prompt(
           `Save, discard, or cancel before changing ${relativePath}? Type save, discard, or cancel.`,
@@ -765,16 +798,24 @@ function FilesToolSession({
         ?.trim()
         .toLowerCase()
       if (choice === 'save') {
-        const results = await Promise.all(dirtyTabs.map((tab) => saveDocumentSnapshot(tab)))
+        const results = await Promise.all(
+          dirtyDocuments.map((document) => saveDocumentSnapshot(document))
+        )
         return results.every(Boolean)
       }
       if (choice === 'discard') {
+        resetSourceEditorsInPath(relativePath)
         discardDirtyTabsInPath(sessionId, relativePath)
         return true
       }
       return false
     },
-    [discardDirtyTabsInPath, saveDocumentSnapshot, sessionId]
+    [
+      discardDirtyTabsInPath,
+      resetSourceEditorsInPath,
+      saveDocumentSnapshot,
+      sessionId
+    ]
   )
 
   const openCreateDialog = useCallback((kind: 'file' | 'folder', parentPath = ''): void => {
@@ -829,6 +870,7 @@ function FilesToolSession({
         destinationPath: destinationPath.trim()
       })
       const destination = destinationPath.trim()
+      resetSourceEditorsInPath(sourcePath)
       rewritePaths(sessionId, sourcePath, destination)
       await revealTreePath(destination)
       refreshActiveSearch()
@@ -838,6 +880,7 @@ function FilesToolSession({
       ipcContext,
       prepareDirtyOperation,
       refreshActiveSearch,
+      resetSourceEditorsInPath,
       revealTreePath,
       rewritePaths,
       sessionId
@@ -896,6 +939,7 @@ function FilesToolSession({
       if (!(await prepareDirtyOperation(relativePath))) return
       try {
         await window.spacezero.files.trashEntry({ context: ipcContext, relativePath })
+        resetSourceEditorsInPath(relativePath)
         closeTabsInPath(sessionId, relativePath)
         setSelectedPath(sessionId, parentDirectoryPath(relativePath) || null)
         await loadRoot()
@@ -910,6 +954,7 @@ function FilesToolSession({
       loadRoot,
       prepareDirtyOperation,
       refreshActiveSearch,
+      resetSourceEditorsInPath,
       sessionId,
       setSelectedPath
     ]

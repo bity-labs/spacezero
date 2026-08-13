@@ -1,7 +1,15 @@
-import { useMemo } from 'react'
-import { parsePatchFiles } from '@pierre/diffs'
-import { CodeView, type CodeViewItem } from '@pierre/diffs/react'
+import { useCallback, useMemo, useRef } from 'react'
+import {
+  parseDiffFromFile,
+  parsePatchFiles,
+  type FileContents,
+  type FileDiffMetadata
+} from '@pierre/diffs'
+import type { EditorOptions } from '@pierre/diffs/edit'
+import { CodeView, EditProvider, type CodeViewItem } from '@pierre/diffs/react'
 
+import { getOrCreateFilesDiffsEditor } from '../../../features/files/renderer/components/files-diffs-editor'
+import type { FilesSourceEditorState } from '../../../features/files/renderer/components/files-diffs-editor'
 import { useOptionalAppearance } from '@renderer/appearance-provider'
 import { cn } from '@renderer/lib/utils'
 
@@ -22,6 +30,15 @@ export type DiffViewerItem = {
     fileNameTitle?: string
     onFileNameClick?: () => void
     onToggle: () => void
+  }
+  editable?: {
+    cacheKey: string
+    contextKey: string
+    value: string
+    baselineValue?: string
+    initialState?: FilesSourceEditorState
+    onChange: (value: string) => void
+    onStateChange?: (state: FilesSourceEditorState) => void
   }
 }
 
@@ -61,31 +78,81 @@ export function DiffViewer({
         ? 'pierre-dark'
         : 'pierre-dark-soft'
 
+  const editableItem = items.find((item) => item.editable)?.editable
+  const attachedEditorRef = useRef<ReturnType<typeof getOrCreateFilesDiffsEditor> | null>(null)
+  const editorOptions = useMemo<Omit<EditorOptions<undefined>, 'onChange'>>(
+    () => ({
+      persistState: true,
+      onAttach: (editor) => {
+        attachedEditorRef.current = editor
+        if (editableItem?.initialState) editor.setState(editableItem.initialState)
+      },
+      onBlur: () => {
+        const state = attachedEditorRef.current?.getState() as FilesSourceEditorState | undefined
+        if (state) editableItem?.onStateChange?.(state)
+      }
+    }),
+    [editableItem]
+  )
+  const createEditor = useCallback(
+    (options: EditorOptions<undefined>) =>
+      getOrCreateFilesDiffsEditor(
+        editableItem?.contextKey ?? 'diff-viewer',
+        editableItem?.cacheKey ?? 'diff-viewer',
+        options
+      ),
+    [editableItem?.cacheKey, editableItem?.contextKey]
+  )
+  const codeView =
+    codeViewItems.length > 0 ? (
+      <CodeView
+        disableWorkerPool
+        editorOptions={editableItem ? editorOptions : undefined}
+        items={codeViewItems}
+        options={{
+          theme: codeTheme,
+          themeType: codeThemeType,
+          diffStyle: 'unified',
+          diffIndicators: 'none',
+          hunkSeparators: 'line-info-basic',
+          overflow: 'scroll',
+          stickyHeaders: true
+        }}
+        renderHeaderPrefix={
+          hasHeaderActions
+            ? (item) => <DiffViewerHeaderPrefix item={sourceItems.get(item.id)} />
+            : undefined
+        }
+        renderHeaderMetadata={(item) => (
+          <DiffViewerHeaderMetadata item={item} sourceItem={sourceItems.get(item.id)} />
+        )}
+        onItemEditChange={(item, file) =>
+          sourceItems.get(item.id)?.editable?.onChange(file.contents)
+        }
+      />
+    ) : null
+
   return (
-    <div aria-label={ariaLabel} className={cn('overflow-hidden rounded-lg border', className)}>
-      {codeViewItems.length > 0 ? (
-        <CodeView
-          disableWorkerPool
-          items={codeViewItems}
-          options={{
-            theme: codeTheme,
-            themeType: codeThemeType,
-            diffStyle: 'unified',
-            diffIndicators: 'none',
-            hunkSeparators: 'line-info-basic',
-            overflow: 'scroll',
-            stickyHeaders: true
-          }}
-          renderHeaderPrefix={
-            hasHeaderActions
-              ? (item) => <DiffViewerHeaderPrefix item={sourceItems.get(item.id)} />
-              : undefined
-          }
-          renderHeaderMetadata={(item) => (
-            <DiffViewerHeaderMetadata item={item} sourceItem={sourceItems.get(item.id)} />
-          )}
-        />
-      ) : null}
+    <div
+      aria-label={ariaLabel}
+      className={cn('overflow-hidden rounded-lg border', className)}
+      onKeyDownCapture={(event) => {
+        if (
+          editableItem &&
+          (event.metaKey || event.ctrlKey) &&
+          !event.altKey &&
+          event.key.toLowerCase() === 's'
+        ) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      }}
+    >
+      {editableItem && codeView ? (
+        <EditProvider createEditor={createEditor}>{codeView}</EditProvider>
+      ) : (
+        codeView
+      )}
       {fallbackItems.map((item) => (
         <div key={item.id} className="border-t p-3 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{item.path}</span>: {item.message}
@@ -118,19 +185,28 @@ function buildCodeViewItems(
         continue
       }
 
-      parsedFiles.forEach((fileDiff, index) => {
+      parsedFiles.forEach((parsedFileDiff, index) => {
         const id = parsedFiles.length === 1 ? item.id : `${item.id}:${index}`
-        const fileName = normalizeParsedFileName(fileDiff.name, item.path)
+        const fileName = normalizeParsedFileName(parsedFileDiff.name, item.path)
+        const fileDiff = item.editable
+          ? createEditableFileDiff(item, parsedFileDiff, fileName)
+          : {
+              ...parsedFileDiff,
+              name: fileName,
+              prevName: item.oldPath ?? parsedFileDiff.prevName
+            }
         codeViewItems.push({
           id,
           type: 'diff',
-          fileDiff: {
-            ...fileDiff,
-            name: fileName,
-            prevName: item.oldPath ?? fileDiff.prevName
-          },
+          fileDiff,
           collapsed: item.collapsed,
-          version: item.version ?? hashDiffVersion(normalizedPatch, item.collapsed)
+          edit: Boolean(item.editable && !item.collapsed),
+          version:
+            item.version ??
+            hashDiffVersion(
+              item.editable ? `${normalizedPatch}:${item.editable.value}` : normalizedPatch,
+              item.collapsed
+            )
         })
         sourceItems.set(id, item)
       })
@@ -140,6 +216,54 @@ function buildCodeViewItems(
   }
 
   return { codeViewItems, fallbackItems, sourceItems }
+}
+
+function createEditableFileDiff(
+  item: DiffViewerItem,
+  parsedFileDiff: FileDiffMetadata,
+  fileName: string
+): FileDiffMetadata {
+  const editable = item.editable!
+  const baselineValue = editable.baselineValue ?? editable.value
+  const oldFile: FileContents | null =
+    parsedFileDiff.type === 'new'
+      ? null
+      : {
+          name: item.oldPath ?? fileName,
+          contents: reconstructPreviousContents(baselineValue, parsedFileDiff),
+          cacheKey: `${item.id}:git-baseline:${hashDiffVersion(`${item.patch}:${baselineValue}`)}`
+        }
+  const newFile: FileContents = {
+    name: fileName,
+    contents: editable.value,
+    cacheKey: editable.cacheKey
+  }
+  const fileDiff = parseDiffFromFile(oldFile ?? null, newFile)
+  return {
+    ...fileDiff,
+    name: fileName,
+    prevName: item.oldPath ?? fileDiff.prevName,
+    cacheKey: editable.cacheKey
+  }
+}
+
+function reconstructPreviousContents(currentContents: string, fileDiff: FileDiffMetadata): string {
+  const lines = splitLinesWithEndings(currentContents)
+
+  for (const hunk of [...fileDiff.hunks].reverse()) {
+    const startIndex = Math.max(0, hunk.additionStart - 1)
+    const previousLines = fileDiff.deletionLines.slice(
+      hunk.deletionLineIndex,
+      hunk.deletionLineIndex + hunk.deletionCount
+    )
+    lines.splice(startIndex, hunk.additionCount, ...previousLines)
+  }
+
+  return lines.join('')
+}
+
+function splitLinesWithEndings(contents: string): string[] {
+  return contents.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []
 }
 
 function DiffViewerHeaderPrefix({ item }: { item?: DiffViewerItem }): React.JSX.Element | null {

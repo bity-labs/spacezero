@@ -72,24 +72,41 @@ type FilesDiffsEditorProps = {
   onTargetLocationApplied?: () => void
 }
 
-type FilesEditor = Editor<undefined>
+export type FilesEditor = Editor<undefined>
 
-const contextEditors = new Map<string, FilesEditor>()
+const contextEditors = new Map<string, Map<string, FilesEditor>>()
 
-function getOrCreateEditor(contextKey: string, options: EditorOptions<undefined>): FilesEditor {
-  const existing = contextEditors.get(contextKey)
+export function getOrCreateFilesDiffsEditor(
+  contextKey: string,
+  documentCacheKey: string,
+  options: EditorOptions<undefined>
+): FilesEditor {
+  const editors = contextEditors.get(contextKey) ?? new Map<string, FilesEditor>()
+  const existing = editors.get(documentCacheKey)
   if (existing) {
     existing.setOptions(options)
     return existing
   }
   const editor = new Editor<undefined>(options)
-  contextEditors.set(contextKey, editor)
+  editors.set(documentCacheKey, editor)
+  contextEditors.set(contextKey, editors)
   return editor
 }
 
-export function resetFilesDiffsEditorContext(contextKey: string): void {
-  const editor = contextEditors.get(contextKey)
+export function resetFilesDiffsEditorDocument(
+  contextKey: string,
+  documentCacheKey: string
+): void {
+  const editors = contextEditors.get(contextKey)
+  const editor = editors?.get(documentCacheKey)
   editor?.cleanUp()
+  editors?.delete(documentCacheKey)
+  if (editors?.size === 0) contextEditors.delete(contextKey)
+}
+
+export function resetFilesDiffsEditorContext(contextKey: string): void {
+  const editors = contextEditors.get(contextKey)
+  for (const editor of editors?.values() ?? []) editor.cleanUp()
   contextEditors.delete(contextKey)
 }
 
@@ -123,6 +140,7 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
     const editorStateRef = useRef({ cacheKey, diagnostics, initialState, targetLocation })
     editorStateRef.current = { cacheKey, diagnostics, initialState, targetLocation }
     const initializedCacheKeyRef = useRef<string | null>(null)
+    const attachedCacheKeyRef = useRef<string | null>(null)
     const appliedTargetRef = useRef<string | null>(null)
 
     const publishState = useCallback(() => {
@@ -159,6 +177,7 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
         persistState: true,
         onAttach: (editor) => {
           editorRef.current = editor
+          attachedCacheKeyRef.current = editorStateRef.current.cacheKey
           configureAttachedEditor(editor)
         },
         onChange: (file) => callbacksRef.current.onChange(file.contents),
@@ -168,12 +187,13 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
           callbacksRef.current.onFocusChange?.(false)
         }
       }),
-      [configureAttachedEditor, contextKey, publishState]
+      [cacheKey, configureAttachedEditor, contextKey, publishState]
     )
 
     const createEditor = useCallback(
-      (options: EditorOptions<undefined>) => getOrCreateEditor(contextKey, options),
-      [contextKey]
+      (options: EditorOptions<undefined>) =>
+        getOrCreateFilesDiffsEditor(contextKey, cacheKey, options),
+      [cacheKey, contextKey]
     )
 
     const file = useMemo<FileContents>(
@@ -197,7 +217,9 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
     )
 
     useEffect(() => {
-      if (editorRef.current) configureAttachedEditor(editorRef.current)
+      if (editorRef.current && attachedCacheKeyRef.current === cacheKey) {
+        configureAttachedEditor(editorRef.current)
+      }
     }, [cacheKey, configureAttachedEditor, diagnostics, initialState, targetLocation])
 
     useImperativeHandle(
@@ -242,7 +264,7 @@ export const FilesDiffsEditor = forwardRef<FilesDiffsEditorHandle, FilesDiffsEdi
         <EditProvider createEditor={createEditor}>
           <Virtualizer style={{ height: '100%', maxHeight: '100%', overflow: 'auto' }}>
             <File
-              key={contextKey}
+              key={cacheKey}
               className="block min-h-full min-w-max"
               edit
               editorOptions={editorOptions}

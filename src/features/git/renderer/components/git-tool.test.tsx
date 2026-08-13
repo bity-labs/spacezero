@@ -4,11 +4,28 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import { openFilesLocation } from '../../../files/renderer/files-open-location'
-import { useFilesStore } from '../../../files/renderer/files-store'
+import { getFilesWorkingDocument, useFilesStore } from '../../../files/renderer/files-store'
 import type { GitObservationEvent, GitReviewState } from '../../shared'
 import { GitTool, resetGitToolViewMemoryForTests } from './git-tool'
 
 vi.mock('@pierre/diffs', () => ({
+  parseDiffFromFile: vi.fn(
+    (
+      oldFile: { name: string; contents: string; cacheKey?: string } | null,
+      newFile: { name: string; contents: string; cacheKey?: string }
+    ) => ({
+      name: newFile.name,
+      prevName: oldFile && oldFile.name !== newFile.name ? oldFile.name : undefined,
+      type: oldFile ? 'change' : 'new',
+      hunks: [],
+      splitLineCount: newFile.contents.split('\n').length,
+      unifiedLineCount: newFile.contents.split('\n').length,
+      isPartial: false,
+      deletionLines: oldFile?.contents.split('\n') ?? [],
+      additionLines: newFile.contents.split('\n'),
+      cacheKey: `${oldFile?.cacheKey ?? 'new'}:${newFile.cacheKey ?? 'working'}`
+    })
+  ),
   parsePatchFiles: vi.fn((patch: string, cacheKeyPrefix = 'git-tool-test') => {
     const fileMatch = /diff --git a\/(.+?) b\/(.+?)(?:\n|$)/.exec(patch)
     const combinedDiffMatch = /diff --cc (.+?)(?:\n|$)/.exec(patch)
@@ -40,12 +57,14 @@ vi.mock('@pierre/diffs/react', async () => {
       options,
       renderCustomHeader,
       renderHeaderPrefix,
-      renderHeaderMetadata
+      renderHeaderMetadata,
+      onItemEditChange
     }: {
       items: Array<{
         id: string
         fileDiff: { name: string; additionLines: string[] }
         collapsed?: boolean
+        edit?: boolean
       }>
       options: { hunkSeparators?: string }
       renderCustomHeader?: (item: {
@@ -63,6 +82,10 @@ vi.mock('@pierre/diffs/react', async () => {
         fileDiff: { name: string; additionLines: string[] }
         collapsed?: boolean
       }) => React.ReactNode
+      onItemEditChange?: (
+        item: { id: string; fileDiff: { name: string; additionLines: string[] } },
+        file: { contents: string }
+      ) => void
     }) =>
       React.createElement(
         'div',
@@ -89,26 +112,48 @@ vi.mock('@pierre/diffs/react', async () => {
             ),
             item.collapsed
               ? null
-              : React.createElement(
-                  'pre',
-                  { key: 'body' },
-                  item.fileDiff.additionLines.flatMap((content) =>
-                    content
-                      .split('\n')
-                      .map((line, index) =>
-                        React.createElement(
-                          'span',
-                          { className: 'block', key: `${item.id}:${index}:${line}` },
-                          line
+              : item.edit
+                ? React.createElement('textarea', {
+                    key: 'editor',
+                    'aria-label': `Edit ${item.fileDiff.name}`,
+                    value: item.fileDiff.additionLines.join('\n'),
+                    onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) =>
+                      onItemEditChange?.(item, { contents: event.target.value })
+                  })
+                : React.createElement(
+                    'pre',
+                    { key: 'body' },
+                    item.fileDiff.additionLines.flatMap((content) =>
+                      content
+                        .split('\n')
+                        .map((line, index) =>
+                          React.createElement(
+                            'span',
+                            { className: 'block', key: `${item.id}:${index}:${line}` },
+                            line
+                          )
                         )
-                      )
+                    )
                   )
-                )
           ])
         )
       )
   )
-  return { CodeView }
+  return {
+    CodeView,
+    EditProvider: ({ children }: React.PropsWithChildren) => <>{children}</>,
+    File: (props: {
+      file: { contents: string }
+      editorOptions: { onChange: (file: { contents: string }) => void }
+    }) => (
+      <textarea
+        aria-label="Pending source editor"
+        value={props.file.contents}
+        onChange={(event) => props.editorOptions.onChange({ contents: event.target.value })}
+      />
+    ),
+    Virtualizer: ({ children }: React.PropsWithChildren) => <>{children}</>
+  }
 })
 
 type Deferred<T> = {
@@ -161,14 +206,16 @@ describe('GitTool', () => {
       filter: 'uncommitted'
     })
     expect(screen.getByText(/origin\/feature\/test/)).toHaveTextContent('2 ahead')
-    expect(screen.getByText(/\+Changed/)).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Edit README.md' })).toBeInTheDocument()
 
     expect(screen.queryByRole('button', { name: 'Collapse' })).not.toBeInTheDocument()
     const headerToggle = screen.getByRole('button', { name: 'Toggle diff' })
     expect(headerToggle).toHaveAttribute('aria-expanded', 'true')
 
     await userEvent.click(headerToggle)
-    await waitFor(() => expect(screen.queryByText(/\+Changed/)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Edit README.md' })).not.toBeInTheDocument()
+    )
     expect(screen.getByRole('button', { name: 'Toggle diff' })).toHaveAttribute(
       'aria-expanded',
       'false'
@@ -191,10 +238,23 @@ describe('GitTool', () => {
       ]
     }))
     window.spacezero.git.getReview = getReview
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      content: 'Project Home change',
+      revision: 'project-home-revision',
+      size: 19,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
 
     render(<GitTool context={{ kind: 'project-home', projectId: 'project-1' }} />)
 
-    expect(await screen.findByText('+Project Home change')).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Edit README.md' })).toHaveValue(
+      'Project Home change'
+    )
     expect(getReview).toHaveBeenCalledWith({
       context: { kind: 'project-home', projectId: 'project-1' },
       filter: 'uncommitted'
@@ -202,6 +262,178 @@ describe('GitTool', () => {
     expect(screen.queryByLabelText('Commit instructions')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Commit & Push' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Resolve with agent' })).not.toBeInTheDocument()
+  })
+
+  it('edits eligible Uncommitted and Unstaged text through the shared working buffer while Staged stays read-only', async () => {
+    const getReview = vi.fn(async ({ filter }: { filter: string }) => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'src/app.ts',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: `diff --git a/src/app.ts b/src/app.ts\n@@ -1 +1 @@\n-old\n+${filter}\n`
+        }
+      ]
+    }))
+    const openDocument = vi.fn(async () => ({
+      name: 'app.ts',
+      relativePath: 'src/app.ts',
+      contentKind: 'text' as const,
+      content: 'uncommitted',
+      revision: 'revision-1',
+      size: 11,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.spyOn(window.spacezero.files, 'saveDocument')
+    window.spacezero.git.getReview = getReview
+    window.spacezero.files.openDocument = openDocument
+
+    render(<GitTool context={{ kind: 'project-home', projectId: 'project-1' }} />)
+
+    const editor = await screen.findByRole('textbox', { name: 'Edit src/app.ts' })
+    fireEvent.change(editor, { target: { value: 'unsaved diff edit' } })
+
+    expect(getFilesWorkingDocument('project:project-1', 'src/app.ts')).toMatchObject({
+      draft: 'unsaved diff edit',
+      dirty: true
+    })
+    expect(useFilesStore.getState().contexts['project:project-1'].tabs).toEqual([])
+    expect(saveDocument).not.toHaveBeenCalled()
+    expect(openDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-home', projectId: 'project-1' },
+      relativePath: 'src/app.ts'
+    })
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Unstaged' }))
+    expect(await screen.findByRole('textbox', { name: 'Edit src/app.ts' })).toHaveValue(
+      'unsaved diff edit'
+    )
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Edit src/app.ts' })).not.toBeInTheDocument()
+    )
+    expect(getFilesWorkingDocument('project:project-1', 'src/app.ts')).toMatchObject({
+      draft: 'unsaved diff edit',
+      dirty: true
+    })
+
+    await expect(
+      openFilesLocation({
+        contextKey: 'project:project-1',
+        ipcContext: { kind: 'project-home', projectId: 'project-1' },
+        relativePath: 'src/app.ts',
+        intent: 'permanent'
+      })
+    ).resolves.toEqual({ status: 'opened' })
+    expect(useFilesStore.getState().contexts['project:project-1'].tabs).toMatchObject([
+      { relativePath: 'src/app.ts', draft: 'unsaved diff edit', dirty: true, preview: false }
+    ])
+  })
+
+  it('keeps a diff-only dirty document recoverable under Pending edits when a filter removes its diff', async () => {
+    window.spacezero.git.getReview = vi.fn(async ({ filter }: { filter: string }) =>
+      filter === 'staged'
+        ? {
+            status: 'clean' as const,
+            branch: 'main',
+            upstream: { kind: 'none' as const },
+            files: [] as []
+          }
+        : {
+            status: 'ok' as const,
+            branch: 'main',
+            upstream: { kind: 'none' as const },
+            files: [
+              {
+                path: 'README.md',
+                kind: 'modified' as const,
+                binary: false,
+                large: false,
+                diff: 'diff --git a/README.md b/README.md\n@@ -1 +1 @@\n-old\n+new\n'
+              }
+            ]
+          }
+    )
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      content: 'new',
+      revision: 'revision-1',
+      size: 3,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+
+    render(<GitTool context={{ kind: 'project-home', projectId: 'project-1' }} />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Edit README.md' }), {
+      target: { value: 'pending draft' }
+    })
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
+
+    expect(await screen.findByRole('heading', { name: 'Pending edits' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Pending edit README.md')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Pending source editor' })).toHaveValue(
+      'pending draft'
+    )
+  })
+
+  it('keeps Markdown readable but excludes diff editing while its Files tab is in Rich mode', async () => {
+    const files = useFilesStore.getState()
+    files.beginOpenTab('project:project-1', 'README.md', 'permanent', 1)
+    files.finishOpenTab(
+      'project:project-1',
+      {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text',
+        content: '# Saved',
+        revision: 'revision-1',
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        hasBom: false,
+        lineEnding: 'lf'
+      },
+      1
+    )
+    files.setEditorMode('project:project-1', 'README.md', 'rich')
+    const openFilesTool = vi.fn()
+    const openLocation = vi.fn(async () => ({ status: 'opened' as const }))
+    window.spacezero.git.getReview = vi.fn(async () => ({
+      status: 'ok' as const,
+      branch: 'main',
+      upstream: { kind: 'none' as const },
+      files: [
+        {
+          path: 'README.md',
+          kind: 'modified' as const,
+          binary: false,
+          large: false,
+          diff: 'diff --git a/README.md b/README.md\n@@ -1 +1 @@\n-old\n+# Saved\n'
+        }
+      ]
+    }))
+
+    render(
+      <GitTool
+        context={{ kind: 'project-home', projectId: 'project-1' }}
+        filesHandoff={{ openFilesTool, openLocation }}
+      />
+    )
+
+    expect(await screen.findByText(/switch the Files tab to Source/i)).toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Edit README.md' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Focus README.md in Files' }))
+    expect(openLocation).toHaveBeenCalledWith({ relativePath: 'README.md', line: undefined })
+    expect(openFilesTool).toHaveBeenCalledTimes(1)
   })
 
   it('toggles diffs from the header while keeping filename navigation independent', async () => {
@@ -224,7 +456,7 @@ describe('GitTool', () => {
 
     render(<GitTool filesHandoff={{ openFilesTool, openLocation }} sessionId="session-1" />)
 
-    await screen.findByText(/\+Changed/)
+    await screen.findByRole('textbox', { name: 'Edit src/app.ts' })
     const pierreHeader = screen.getByTestId('pierre-header-src/app.ts')
     expect(pierreHeader).toContainElement(screen.getByRole('button', { name: 'src/app.ts' }))
     expect(pierreHeader).toHaveTextContent('untracked')
@@ -233,16 +465,18 @@ describe('GitTool', () => {
     await userEvent.click(screen.getByRole('button', { name: 'src/app.ts' }))
     expect(openLocation).toHaveBeenCalledWith({ relativePath: 'src/app.ts', line: undefined })
     expect(openFilesTool).toHaveBeenCalledTimes(1)
-    expect(screen.getByText(/\+Changed/)).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Edit src/app.ts' })).toBeInTheDocument()
     const headerToggle = screen.getByRole('button', { name: 'Toggle diff' })
     expect(headerToggle).toHaveAttribute('aria-expanded', 'true')
 
     await userEvent.click(headerToggle)
-    await waitFor(() => expect(screen.queryByText(/\+Changed/)).not.toBeInTheDocument())
+    await waitFor(() =>
+      expect(screen.queryByRole('textbox', { name: 'Edit src/app.ts' })).not.toBeInTheDocument()
+    )
 
     screen.getByRole('button', { name: 'Toggle diff' }).focus()
     await userEvent.keyboard('{Enter}')
-    await screen.findByText(/\+Changed/)
+    await screen.findByRole('textbox', { name: 'Edit src/app.ts' })
     expect(screen.getByRole('button', { name: 'Toggle diff' })).toHaveAttribute(
       'aria-expanded',
       'true'
@@ -854,9 +1088,8 @@ describe('GitTool', () => {
   })
 
   it('keeps the fallback action disabled until delayed settings resolve, then submits the persisted PR workflow', async () => {
-    const settings = deferred<
-      Awaited<ReturnType<typeof window.spacezero.settings.getGitActionSettings>>
-    >()
+    const settings =
+      deferred<Awaited<ReturnType<typeof window.spacezero.settings.getGitActionSettings>>>()
     const prompt = vi.fn<(request: { sessionId: string; message: string }) => Promise<void>>(
       async () => undefined
     )
@@ -956,9 +1189,7 @@ describe('GitTool', () => {
       sessionId: 'knowledge-base-session-1',
       message: expect.stringContaining('and push the branch')
     })
-    expect(prompt.mock.calls[0]?.[0].message ?? '').not.toContain(
-      'github.createOrReusePullRequest'
-    )
+    expect(prompt.mock.calls[0]?.[0].message ?? '').not.toContain('github.createOrReusePullRequest')
   })
 
   it('loads Commit and create a PR as the primary action and sends the complete workflow through the agent prompt path', async () => {
@@ -1036,9 +1267,8 @@ describe('GitTool', () => {
   )
 
   it('enables the Commit & Push fallback only after the primary action load fails', async () => {
-    const settings = deferred<
-      Awaited<ReturnType<typeof window.spacezero.settings.getGitActionSettings>>
-    >()
+    const settings =
+      deferred<Awaited<ReturnType<typeof window.spacezero.settings.getGitActionSettings>>>()
     window.spacezero.settings.getGitActionSettings = vi.fn(() => settings.promise)
     window.spacezero.git.getReview = vi.fn(async () => ({
       status: 'ok' as const,
@@ -1389,6 +1619,8 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
 
+    await screen.findByRole('button', { name: 'src/app.ts' })
+    await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     const filename = await screen.findByRole('button', { name: 'src/app.ts' })
     const hunkHeader = screen.getByText('@@ -9,2 +9,3 @@')
     const unchangedLine = screen.getByText((_, element) => element?.textContent === ' context')
@@ -1483,7 +1715,8 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-1" filesHandoff={{ openFilesTool, openLocation }} />)
 
-    await userEvent.click(await screen.findByRole('button', { name: 'stale.txt' }))
+    await screen.findByRole('textbox', { name: 'Edit stale.txt' })
+    await userEvent.click(screen.getByRole('button', { name: 'stale.txt' }))
 
     expect(
       await screen.findByText('This file no longer exists. Refresh Git and Files, then try again.')
@@ -1496,6 +1729,17 @@ describe('GitTool', () => {
     const secondRead = deferred<Awaited<ReturnType<typeof window.spacezero.files.openDocument>>>()
     window.spacezero.files.openDocument = vi
       .fn()
+      .mockResolvedValueOnce({
+        name: 'stale-then-fails.txt',
+        relativePath: 'stale-then-fails.txt',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'initial-review',
+        content: 'current',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      })
       .mockReturnValueOnce(firstRead.promise)
       .mockReturnValueOnce(secondRead.promise)
     const openFilesTool = vi.fn()
@@ -1530,11 +1774,13 @@ describe('GitTool', () => {
       />
     )
 
-    const fileButton = await screen.findByRole('button', { name: 'stale-then-fails.txt' })
-    await userEvent.click(fileButton)
+    await screen.findByRole('textbox', { name: 'Edit stale-then-fails.txt' })
+    const fileButton = screen.getByRole('button', { name: 'stale-then-fails.txt' })
     await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(1))
     await userEvent.click(fileButton)
     await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(2))
+    await userEvent.click(fileButton)
+    await waitFor(() => expect(window.spacezero.files.openDocument).toHaveBeenCalledTimes(3))
 
     await act(async () => {
       firstRead.resolve({
@@ -1608,6 +1854,17 @@ describe('GitTool', () => {
           }
         ]
       })
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'fresh.txt',
+      relativePath: 'fresh.txt',
+      contentKind: 'text' as const,
+      content: 'fresh',
+      revision: 'fresh-revision',
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
 
     render(<GitTool sessionId="session-1" />)
 
@@ -1618,7 +1875,7 @@ describe('GitTool', () => {
     expect(refreshButton).not.toHaveTextContent('Refresh')
     await userEvent.click(refreshButton)
 
-    await screen.findByText('+fresh')
+    expect(await screen.findByRole('textbox', { name: 'Edit fresh.txt' })).toHaveValue('fresh')
     expect(window.spacezero.git.getReview).toHaveBeenCalledTimes(2)
     expect(window.spacezero.git.getReview).toHaveBeenCalledWith({
       context: { kind: 'project-session', sessionId: 'session-1' },
@@ -1943,7 +2200,7 @@ describe('GitTool', () => {
               kind: 'modified' as const,
               binary: false,
               large: false,
-              diff: '+session-b\n'
+              diff: 'diff --git a/a-staged.txt b/a-staged.txt\n@@ -1 +1 @@\n-old\n+session-b\n'
             }
           ]
         })
@@ -1952,7 +2209,9 @@ describe('GitTool', () => {
     await screen.findByText('branch-b')
     expect(screen.queryByText('branch-a-staged')).not.toBeInTheDocument()
     expect(screen.queryByText('+a-staged')).not.toBeInTheDocument()
-    expect(screen.getByText('+session-b')).toBeInTheDocument()
+    expect(await screen.findByRole('textbox', { name: 'Edit a-staged.txt' })).toBeInTheDocument()
+    expect(getFilesWorkingDocument('session-b', 'a-staged.txt')).toBeDefined()
+    expect(getFilesWorkingDocument('session-a', 'a-staged.txt')).toBeUndefined()
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
 
     rendered.rerender(<GitTool sessionId="session-a" />)
@@ -2180,7 +2439,7 @@ describe('GitTool', () => {
     }))
 
     const rendered = render(<GitTool sessionId="session-restart" />)
-    await screen.findByText('+uncommitted')
+    await screen.findByRole('textbox', { name: 'Edit shared.txt' })
     await userEvent.click(screen.getByRole('tab', { name: 'Staged' }))
     await screen.findByText('+staged')
     await userEvent.click(screen.getByRole('button', { name: 'Toggle diff' }))
@@ -2192,13 +2451,13 @@ describe('GitTool', () => {
 
     render(<GitTool sessionId="session-restart" />)
 
-    await screen.findByText('+uncommitted')
+    await screen.findByRole('textbox', { name: 'Edit shared.txt' })
     expect(screen.getByRole('tab', { name: 'Uncommitted' })).toHaveAttribute(
       'aria-selected',
       'true'
     )
     expect(screen.getByText('shared.txt')).toBeInTheDocument()
-    expect(screen.getByText('+uncommitted')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Edit shared.txt' })).toBeInTheDocument()
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('')
     expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 0)
   })
