@@ -4,6 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppCommandProvider } from '../../../app-commands/renderer/app-command-context'
 import { KeyboardShortcutsProvider } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
+  createProjectSessionSidePaneConfiguration,
+  useRegisterTerminalSidePaneCommands
+} from '../../../side-pane/renderer/side-pane-configurations'
 import { TerminalTool } from './terminal-tool'
 import type { TerminalEvent } from '../../shared'
 
@@ -26,10 +30,20 @@ vi.mock('@xterm/addon-fit', () => ({
 }))
 
 const context = { kind: 'project-session' as const, sessionId: 'session-1' }
+const sidePaneConfiguration = createProjectSessionSidePaneConfiguration({
+  id: 'session-1',
+  projectId: 'project-1'
+})
+
+function TerminalCommandRegistration(): null {
+  useRegisterTerminalSidePaneCommands(sidePaneConfiguration)
+  return null
+}
 
 function render(ui: ReactNode): ReturnType<typeof rtlRender> {
   return rtlRender(
     <AppCommandProvider>
+      <TerminalCommandRegistration />
       <KeyboardShortcutsProvider>{ui}</KeyboardShortcutsProvider>
     </AppCommandProvider>
   )
@@ -127,6 +141,7 @@ describe('Terminal Side Pane presentation', () => {
 
     mounted.rerender(
       <AppCommandProvider>
+        <TerminalCommandRegistration />
         <KeyboardShortcutsProvider>
           <TerminalTool contextKey="session:session-1" context={context} terminalId="pty-b" />
         </KeyboardShortcutsProvider>

@@ -482,13 +482,6 @@ export function TerminalTool({
   const commands = useMemo(
     () => [
       {
-        id: TERMINAL_COMMAND_IDS.newTab,
-        title: 'New Terminal',
-        category: 'Terminal',
-        keywords: ['new', 'tab', 'shell'],
-        handler: startTerminal
-      },
-      {
         id: TERMINAL_COMMAND_IDS.closeActiveTab,
         title: 'Close Terminal Tab',
         category: 'Terminal',
@@ -496,7 +489,7 @@ export function TerminalTool({
         handler: closeActiveTerminal
       }
     ],
-    [startTerminal, closeActiveTerminal]
+    [closeActiveTerminal]
   )
   useRegisterAppCommands(commands)
   useRegisterKeyboardShortcuts(terminalShortcutDefinitions)
