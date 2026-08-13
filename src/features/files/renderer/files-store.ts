@@ -559,6 +559,19 @@ const useFilesStore = create<FilesStore>()(
           const context = state.contexts[sessionId] ?? createDefaultContext()
           const rewrite = (path: string): string =>
             rewriteAffectedPath(path, sourcePath, destinationPath)
+          const rewriteDocument = <T extends FilesTabState>(document: T): T => {
+            const relativePath = rewrite(document.relativePath)
+            if (relativePath === document.relativePath) return document
+            return {
+              ...document,
+              relativePath,
+              name: pathName(relativePath),
+              editorStateKey:
+                document.status === 'ready' && document.editorMode === 'source'
+                  ? `${document.editorStateKey}:rename:${relativePath}`
+                  : document.editorStateKey
+            }
+          }
           return updateContext(state, sessionId, {
             selectedPath: context.selectedPath
               ? rewrite(context.selectedPath)
@@ -573,11 +586,13 @@ const useFilesStore = create<FilesStore>()(
                 viewState
               ])
             ),
-            tabs: context.tabs.map((tab) => ({
-              ...tab,
-              relativePath: rewrite(tab.relativePath),
-              name: pathName(rewrite(tab.relativePath))
-            }))
+            tabs: context.tabs.map(rewriteDocument),
+            detachedDocuments: Object.fromEntries(
+              Object.values(context.detachedDocuments).map((document) => {
+                const rewritten = rewriteDocument(document)
+                return [rewritten.relativePath, rewritten]
+              })
+            )
           })
         }),
       closeTabsInPath: (sessionId, relativePath) =>
@@ -603,6 +618,11 @@ const useFilesStore = create<FilesStore>()(
             : activeTabPath
           return updateContext(state, sessionId, {
             tabs,
+            detachedDocuments: Object.fromEntries(
+              Object.entries(context.detachedDocuments).filter(
+                ([path]) => !isPathAffectedBy(path, relativePath)
+              )
+            ),
             activeTabPath,
             selectedPath,
             editorViewStates: Object.fromEntries(
@@ -802,6 +822,11 @@ function discardDirtyTabs(
             externalStatus: undefined
           }
         : tab
+    ),
+    detachedDocuments: Object.fromEntries(
+      Object.entries(context.detachedDocuments).filter(
+        ([path, document]) => !document.dirty || !matchesPath(path)
+      )
     )
   })
 }

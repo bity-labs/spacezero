@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import {
   parseDiffFromFile,
   parsePatchFiles,
@@ -35,6 +35,7 @@ export type DiffViewerItem = {
     cacheKey: string
     contextKey: string
     value: string
+    baselineValue?: string
     initialState?: FilesSourceEditorState
     onChange: (value: string) => void
     onStateChange?: (state: FilesSourceEditorState) => void
@@ -64,10 +65,9 @@ export function DiffViewer({
 }: DiffViewerProps): React.JSX.Element {
   const appearance = useOptionalAppearance()
   const resolvedTheme = appearance?.resolvedTheme ?? getDocumentResolvedTheme()
-  const [editableBaselines] = useState(() => new Map<string, FileContents | null>())
   const { codeViewItems, fallbackItems, sourceItems } = useMemo(
-    () => buildCodeViewItems(items, fallbackMessage, editableBaselines),
-    [editableBaselines, items, fallbackMessage]
+    () => buildCodeViewItems(items, fallbackMessage),
+    [items, fallbackMessage]
   )
   const hasHeaderActions = codeViewItems.some((item) => sourceItems.get(item.id)?.headerActions)
   const codeThemeType = resolvedTheme === 'light' ? 'light' : 'dark'
@@ -96,8 +96,12 @@ export function DiffViewer({
   )
   const createEditor = useCallback(
     (options: EditorOptions<undefined>) =>
-      getOrCreateFilesDiffsEditor(editableItem?.contextKey ?? 'diff-viewer', options),
-    [editableItem?.contextKey]
+      getOrCreateFilesDiffsEditor(
+        editableItem?.contextKey ?? 'diff-viewer',
+        editableItem?.cacheKey ?? 'diff-viewer',
+        options
+      ),
+    [editableItem?.cacheKey, editableItem?.contextKey]
   )
   const codeView =
     codeViewItems.length > 0 ? (
@@ -160,8 +164,7 @@ export function DiffViewer({
 
 function buildCodeViewItems(
   items: DiffViewerItem[],
-  fallbackMessage: string,
-  editableBaselines: Map<string, FileContents | null>
+  fallbackMessage: string
 ): {
   codeViewItems: CodeViewItem[]
   fallbackItems: DiffViewerFallback[]
@@ -186,7 +189,7 @@ function buildCodeViewItems(
         const id = parsedFiles.length === 1 ? item.id : `${item.id}:${index}`
         const fileName = normalizeParsedFileName(parsedFileDiff.name, item.path)
         const fileDiff = item.editable
-          ? createEditableFileDiff(item, parsedFileDiff, fileName, editableBaselines)
+          ? createEditableFileDiff(item, parsedFileDiff, fileName)
           : {
               ...parsedFileDiff,
               name: fileName,
@@ -218,35 +221,34 @@ function buildCodeViewItems(
 function createEditableFileDiff(
   item: DiffViewerItem,
   parsedFileDiff: FileDiffMetadata,
-  fileName: string,
-  editableBaselines: Map<string, FileContents | null>
+  fileName: string
 ): FileDiffMetadata {
   const editable = item.editable!
-  let oldFile = editableBaselines.get(item.id)
-  if (oldFile === undefined && !editableBaselines.has(item.id)) {
-    oldFile =
-      parsedFileDiff.type === 'new'
-        ? null
-        : {
-            name: item.oldPath ?? fileName,
-            contents: reconstructPreviousContents(editable.value, parsedFileDiff),
-            cacheKey: `${item.id}:git-baseline`
-          }
-    editableBaselines.set(item.id, oldFile)
-  }
+  const baselineValue = editable.baselineValue ?? editable.value
+  const oldFile: FileContents | null =
+    parsedFileDiff.type === 'new'
+      ? null
+      : {
+          name: item.oldPath ?? fileName,
+          contents: reconstructPreviousContents(baselineValue, parsedFileDiff),
+          cacheKey: `${item.id}:git-baseline:${hashDiffVersion(`${item.patch}:${baselineValue}`)}`
+        }
   const newFile: FileContents = {
     name: fileName,
     contents: editable.value,
     cacheKey: editable.cacheKey
   }
   const fileDiff = parseDiffFromFile(oldFile ?? null, newFile)
-  return { ...fileDiff, name: fileName, prevName: item.oldPath ?? fileDiff.prevName }
+  return {
+    ...fileDiff,
+    name: fileName,
+    prevName: item.oldPath ?? fileDiff.prevName,
+    cacheKey: editable.cacheKey
+  }
 }
 
 function reconstructPreviousContents(currentContents: string, fileDiff: FileDiffMetadata): string {
-  const currentEndsWithNewline = currentContents.endsWith('\n')
-  const lines = currentContents.split('\n')
-  if (currentEndsWithNewline) lines.pop()
+  const lines = splitLinesWithEndings(currentContents)
 
   for (const hunk of [...fileDiff.hunks].reverse()) {
     const startIndex = Math.max(0, hunk.additionStart - 1)
@@ -257,9 +259,11 @@ function reconstructPreviousContents(currentContents: string, fileDiff: FileDiff
     lines.splice(startIndex, hunk.additionCount, ...previousLines)
   }
 
-  const finalHunk = fileDiff.hunks.at(-1)
-  const previousEndsWithNewline = finalHunk ? !finalHunk.noEOFCRDeletions : currentEndsWithNewline
-  return `${lines.join('\n')}${previousEndsWithNewline ? '\n' : ''}`
+  return lines.join('')
+}
+
+function splitLinesWithEndings(contents: string): string[] {
+  return contents.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? []
 }
 
 function DiffViewerHeaderPrefix({ item }: { item?: DiffViewerItem }): React.JSX.Element | null {

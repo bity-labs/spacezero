@@ -1005,6 +1005,7 @@ function GitDiffCard({
                     ),
                     contextKey: filesContext.contextKey,
                     value: workingDocument.draft,
+                    baselineValue: workingDocument.content,
                     initialState,
                     onChange: (draft) =>
                       useFilesStore

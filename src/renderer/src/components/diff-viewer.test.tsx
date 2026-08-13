@@ -14,7 +14,9 @@ type MockCodeViewItem = {
     prevName?: string
     type: string
     additionLines: string[]
+    deletionLines: string[]
     hunks: unknown[]
+    cacheKey?: string
   }
   version?: number
 }
@@ -257,6 +259,118 @@ describe('DiffViewer', () => {
       />
     )
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      name: 'LF with a final newline',
+      current: 'keep\nnew\n',
+      previous: 'keep\nold\n',
+      patch:
+        'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n'
+    },
+    {
+      name: 'CRLF with a final newline',
+      current: 'keep\r\nnew\r\n',
+      previous: 'keep\r\nold\r\n',
+      patch:
+        'diff --git a/example.txt b/example.txt\r\n--- a/example.txt\r\n+++ b/example.txt\r\n@@ -1,2 +1,2 @@\r\n keep\r\n-old\r\n+new\r\n'
+    },
+    {
+      name: 'LF without a final newline',
+      current: 'keep\nnew',
+      previous: 'keep\nold',
+      patch:
+        'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n'
+    },
+    {
+      name: 'CRLF without a final newline',
+      current: 'keep\r\nnew',
+      previous: 'keep\r\nold',
+      patch:
+        'diff --git a/example.txt b/example.txt\r\n--- a/example.txt\r\n+++ b/example.txt\r\n@@ -1,2 +1,2 @@\r\n keep\r\n-old\r\n\\ No newline at end of file\r\n+new\r\n\\ No newline at end of file\r\n'
+    }
+  ])('reconstructs the exact real-parser baseline for $name', ({ current, patch, previous }) => {
+    codeViewCalls.length = 0
+
+    render(
+      <DiffViewer
+        items={[
+          {
+            id: 'editable-baseline',
+            path: 'example.txt',
+            patch,
+            editable: {
+              cacheKey: 'document-cache',
+              contextKey: 'session-1',
+              value: 'dirty draft that must not affect the Git baseline',
+              baselineValue: current,
+              onChange: vi.fn()
+            }
+          }
+        ]}
+      />
+    )
+
+    expect(codeViewCalls.at(-1)?.items[0]?.fileDiff.deletionLines.join('')).toBe(previous)
+  })
+
+  it('invalidates the exact baseline when the selected filter or refreshed patch changes', () => {
+    codeViewCalls.length = 0
+    const editable = {
+      cacheKey: 'document-cache',
+      contextKey: 'session-1',
+      value: 'dirty draft',
+      baselineValue: 'keep\nworking\n',
+      onChange: vi.fn()
+    }
+    const { rerender } = render(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-head\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const uncommitted = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(uncommitted?.deletionLines.join('')).toBe('keep\nhead\n')
+
+    rerender(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-index\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const unstaged = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(unstaged?.deletionLines.join('')).toBe('keep\nindex\n')
+
+    rerender(
+      <DiffViewer
+        items={[
+          {
+            id: 'same-path',
+            path: 'example.txt',
+            patch:
+              'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1,2 +1,2 @@\n keep\n-refreshed-index\n+working\n',
+            editable
+          }
+        ]}
+      />
+    )
+    const refreshed = codeViewCalls.at(-1)?.items[0]?.fileDiff
+    expect(refreshed?.deletionLines.join('')).toBe('keep\nrefreshed-index\n')
   })
 
   it('shows bounded fallback messaging when a patch cannot be parsed', () => {

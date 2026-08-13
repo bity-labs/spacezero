@@ -546,6 +546,45 @@ describe('Files renderer state', () => {
     })
   })
 
+  it('deliberately migrates a detached document identity and source-editor baseline after rename', () => {
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-1', textDocument('src/old/index.ts', 'saved'))
+    store.updateWorkingDocumentDraft('session-1', 'src/old/index.ts', 'dirty draft')
+    const originalEditorStateKey = getFilesWorkingDocument(
+      'session-1',
+      'src/old/index.ts'
+    )?.editorStateKey
+
+    store.rewritePaths('session-1', 'src/old', 'src/new')
+
+    expect(getFilesWorkingDocument('session-1', 'src/old/index.ts')).toBeUndefined()
+    expect(getFilesWorkingDocument('session-1', 'src/new/index.ts')).toMatchObject({
+      relativePath: 'src/new/index.ts',
+      name: 'index.ts',
+      draft: 'dirty draft',
+      dirty: true,
+      editorStateKey: `${originalEditorStateKey}:rename:src/new/index.ts`
+    })
+    expect(useFilesStore.getState().contexts['session-1'].detachedDocuments).not.toHaveProperty(
+      'src/old/index.ts'
+    )
+  })
+
+  it('discards or removes detached documents through the same path-scoped destructive domain', () => {
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-1', textDocument('notes/dirty.md', 'saved'))
+    store.updateWorkingDocumentDraft('session-1', 'notes/dirty.md', 'dirty draft')
+    store.ensureWorkingDocument('session-1', textDocument('notes/clean.md', 'clean'))
+
+    store.discardDirtyTabsInPath('session-1', 'notes')
+
+    expect(getFilesWorkingDocument('session-1', 'notes/dirty.md')).toBeUndefined()
+    expect(getFilesWorkingDocument('session-1', 'notes/clean.md')).toMatchObject({ dirty: false })
+
+    store.closeTabsInPath('session-1', 'notes')
+    expect(useFilesStore.getState().contexts['session-1'].detachedDocuments).toEqual({})
+  })
+
   it('falls back to the parent selection when Trash removes a selected item without open tabs', () => {
     const store = useFilesStore.getState()
     store.setSelectedPath('session-1', 'notes/archive/old.md')

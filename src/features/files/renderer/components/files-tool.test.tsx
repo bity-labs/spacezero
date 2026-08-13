@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useRef, type ComponentProps } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const diffsEditorMock = vi.hoisted(() => ({
   saveCommand: undefined as undefined | (() => void),
@@ -9,7 +9,8 @@ const diffsEditorMock = vi.hoisted(() => ({
   focus: vi.fn<() => void>(),
   saveViewState: vi.fn<() => unknown>(() => ({
     cursorState: [{ position: { lineNumber: 4, column: 2 } }]
-  }))
+  })),
+  resetDocument: vi.fn()
 }))
 
 const appearanceMock = vi.hoisted(() => ({
@@ -638,7 +639,8 @@ vi.mock('./files-diffs-editor', async () => {
         )
       }
     ),
-    resetFilesDiffsEditorContext: vi.fn()
+    resetFilesDiffsEditorContext: vi.fn(),
+    resetFilesDiffsEditorDocument: diffsEditorMock.resetDocument
   }
 })
 
@@ -834,6 +836,10 @@ function invokeRegisteredSaveAllCommand(): void {
 }
 
 describe('Files Tool', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
   beforeEach(() => {
     resetFilesStore()
     resetSidePaneStore()
@@ -844,6 +850,7 @@ describe('Files Tool', () => {
     diffsEditorMock.setPosition.mockClear()
     diffsEditorMock.focus.mockClear()
     diffsEditorMock.saveViewState.mockClear()
+    diffsEditorMock.resetDocument.mockClear()
     appCommandMock.registeredCommands = []
     treesMock.options = []
     treesMock.renderProps = []
@@ -3290,6 +3297,148 @@ describe('Files Tool', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument()
     }
   )
+
+  it('guards and migrates a dirty detached diff document when Files renames it', async () => {
+    let entries = [{ name: 'draft.ts', relativePath: 'draft.ts', kind: 'file' as const }]
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-detached-rename', {
+      name: 'draft.ts',
+      relativePath: 'draft.ts',
+      contentKind: 'text',
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf'
+    })
+    store.updateWorkingDocumentDraft('session-detached-rename', 'draft.ts', 'diff draft')
+    const saveDocument = vi.fn(async ({ content }) => ({
+      status: 'saved' as const,
+      document: {
+        name: 'draft.ts',
+        relativePath: 'draft.ts',
+        contentKind: 'text' as const,
+        size: content.length,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'revision-2',
+        content,
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+    const moveEntry = vi.fn(async () => {
+      entries = [{ name: 'renamed.ts', relativePath: 'renamed.ts', kind: 'file' as const }]
+    })
+    window.spacezero.files.saveDocument = saveDocument
+    window.spacezero.files.moveEntry = moveEntry
+    vi.spyOn(window, 'prompt').mockReturnValueOnce('save')
+
+    render(<FilesTool sessionId="session-detached-rename" />)
+    fireEvent.contextMenu(
+      (await screen.findByRole('treeitem', { name: 'draft.ts' })).querySelector(
+        '[data-slot="context-menu-trigger"]'
+      ) ?? screen.getByText('draft.ts'),
+      { clientX: 8, clientY: 8 }
+    )
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Rename' }))
+    const renameInput = await screen.findByRole('textbox', { name: 'Rename draft.ts' })
+    fireEvent.change(renameInput, { target: { value: 'renamed.ts' } })
+    fireEvent.keyDown(renameInput, { key: 'Enter' })
+
+    await waitFor(() => expect(moveEntry).toHaveBeenCalledTimes(1))
+    expect(window.prompt).toHaveBeenCalledWith(
+      'Save, discard, or cancel before changing draft.ts? Type save, discard, or cancel.',
+      'cancel'
+    )
+    expect(saveDocument).toHaveBeenCalledWith({
+      context: { kind: 'project-session', sessionId: 'session-detached-rename' },
+      relativePath: 'draft.ts',
+      content: 'diff draft',
+      expectedRevision: 'revision-1'
+    })
+    expect(
+      useFilesStore
+        .getState()
+        .contexts['session-detached-rename'].tabs.find(
+          (tab) => tab.relativePath === 'renamed.ts'
+        ) ??
+        useFilesStore.getState().contexts['session-detached-rename'].detachedDocuments[
+          'renamed.ts'
+        ]
+    ).toMatchObject({
+      relativePath: 'renamed.ts',
+      draft: 'diff draft',
+      content: 'diff draft',
+      dirty: false,
+      editorStateKey: expect.stringContaining(':rename:renamed.ts')
+    })
+    expect(
+      useFilesStore.getState().contexts['session-detached-rename'].detachedDocuments
+    ).not.toHaveProperty('draft.ts')
+    expect(
+      useFilesStore.getState().contexts['session-detached-rename'].tabs
+    ).not.toEqual(expect.arrayContaining([expect.objectContaining({ relativePath: 'draft.ts' })]))
+    expect(diffsEditorMock.resetDocument).toHaveBeenCalledWith(
+      'session-detached-rename',
+      expect.stringContaining('document:draft.ts:')
+    )
+  })
+
+  it('keeps a canceled detached diff draft pending and removes it only after explicit Trash discard', async () => {
+    let entries = [{ name: 'draft.ts', relativePath: 'draft.ts', kind: 'file' as const }]
+    window.spacezero.files.listDirectory = vi.fn(async () => entries)
+    const store = useFilesStore.getState()
+    store.ensureWorkingDocument('session-detached-trash', {
+      name: 'draft.ts',
+      relativePath: 'draft.ts',
+      contentKind: 'text',
+      size: 5,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: 'saved',
+      hasBom: false,
+      lineEnding: 'lf'
+    })
+    store.updateWorkingDocumentDraft('session-detached-trash', 'draft.ts', 'diff draft')
+    const trashEntry = vi.fn(async () => {
+      entries = []
+    })
+    window.spacezero.files.trashEntry = trashEntry
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const prompt = vi.spyOn(window, 'prompt').mockReturnValue('cancel')
+
+    render(<FilesTool sessionId="session-detached-trash" />)
+    const openDelete = async (): Promise<void> => {
+      fireEvent.contextMenu(
+        (await screen.findByRole('treeitem', { name: 'draft.ts' })).querySelector(
+          '[data-slot="context-menu-trigger"]'
+        ) ?? screen.getByText('draft.ts'),
+        { clientX: 8, clientY: 8 }
+      )
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }))
+    }
+
+    await openDelete()
+    await waitFor(() => expect(prompt).toHaveBeenCalled())
+    expect(trashEntry).not.toHaveBeenCalled()
+    expect(
+      useFilesStore.getState().contexts['session-detached-trash'].detachedDocuments['draft.ts']
+    ).toMatchObject({ draft: 'diff draft', dirty: true })
+
+    prompt.mockClear()
+    prompt.mockReturnValue('discard')
+    await openDelete()
+    await waitFor(() => expect(trashEntry).toHaveBeenCalled())
+    expect(useFilesStore.getState().contexts['session-detached-trash'].detachedDocuments).toEqual(
+      {}
+    )
+    expect(diffsEditorMock.resetDocument).toHaveBeenCalledWith(
+      'session-detached-trash',
+      expect.stringContaining('document:draft.ts:')
+    )
+  })
 
   it('requires a dirty choice before rename, saves first, and rewrites tab model identity', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
