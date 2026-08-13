@@ -26,7 +26,6 @@ type FilesTabBase = {
   targetCharacter?: number
   locationRequestId?: number
   editorStateKey: string
-  restoreEditorMode?: FilesEditorMode
 }
 
 export type FilesTabState =
@@ -72,7 +71,6 @@ export type FilesTabDropPosition = 'before' | 'after'
 
 type PersistedFilesTabReference = {
   relativePath: string
-  editorMode?: FilesEditorMode
 }
 
 type PersistedFilesContextState = Omit<FilesContextState, 'tabs'> & {
@@ -203,7 +201,6 @@ const useFilesStore = create<FilesStore>()(
                 nextPreview,
                 openRequestId,
                 targetLine,
-                undefined,
                 targetCharacter
               )
             })
@@ -221,7 +218,6 @@ const useFilesStore = create<FilesStore>()(
             intent === 'preview',
             openRequestId,
             targetLine,
-            undefined,
             targetCharacter
           )
           const tabs =
@@ -257,7 +253,7 @@ const useFilesStore = create<FilesStore>()(
                     tab.targetLine,
                     tab.locationRequestId,
                     tab.editorStateKey,
-                    tab.restoreEditorMode,
+                    undefined,
                     tab.targetCharacter
                   )
                 : candidate
@@ -423,6 +419,9 @@ const useFilesStore = create<FilesStore>()(
               draft,
               dirty: draft !== document.content,
               preview: false,
+              targetLine: activeDocument.targetLine,
+              targetCharacter: activeDocument.targetCharacter,
+              locationRequestId: activeDocument.locationRequestId,
               saveStatus: 'idle',
               editorMode: activeDocument.editorMode,
               error: undefined,
@@ -602,13 +601,7 @@ const useFilesStore = create<FilesStore>()(
             Object.entries(persistedContexts).map(([sessionId, context]) => {
               const restoredTabs = Array.isArray(context.tabs)
                 ? context.tabs.map((tab, index) =>
-                    loadingTab(
-                      tab.relativePath,
-                      false,
-                      restoredOpenRequestId(index),
-                      undefined,
-                      tab.editorMode
-                    )
+                    loadingTab(tab.relativePath, false, restoredOpenRequestId(index))
                   )
                 : []
               const restoredActiveTabPath = restoredTabs.some(
@@ -682,7 +675,7 @@ export function toReadyDocument(
   preferredEditorMode?: FilesEditorMode,
   targetCharacter?: number
 ): Extract<FilesTabState, { status: 'ready' }> {
-  const defaultEditorMode = getDefaultEditorMode(document.relativePath, document.content)
+  const editorMode = getEditorMode(document.relativePath, document.content, preferredEditorMode)
   return {
     ...document,
     name: document.name,
@@ -696,7 +689,7 @@ export function toReadyDocument(
     dirty: false,
     saveStatus: 'idle',
     saveRequest: undefined,
-    editorMode: preferredEditorMode === 'source' ? 'source' : defaultEditorMode
+    editorMode
   }
 }
 
@@ -808,8 +801,7 @@ function toPersistedContext(context: FilesContextState): PersistedFilesContextSt
     selectedPath: context.selectedPath,
     expandedPaths: context.expandedPaths,
     tabs: permanentTabs.map((tab) => ({
-      relativePath: tab.relativePath,
-      editorMode: tab.status === 'ready' ? tab.editorMode : tab.restoreEditorMode
+      relativePath: tab.relativePath
     })),
     activeTabPath,
     editorViewStates: Object.fromEntries(
@@ -841,7 +833,6 @@ function loadingTab(
   preview: boolean,
   openRequestId: number,
   targetLine?: number,
-  restoreEditorMode?: FilesEditorMode,
   targetCharacter?: number
 ): Extract<FilesTabState, { status: 'loading' }> {
   return {
@@ -853,7 +844,6 @@ function loadingTab(
     targetLine,
     targetCharacter,
     locationRequestId: openRequestId,
-    restoreEditorMode,
     status: 'loading'
   }
 }
@@ -956,9 +946,19 @@ function selectTabAfterClose(
   return tabs[closedIndex]?.relativePath ?? tabs[closedIndex - 1]?.relativePath ?? null
 }
 
-function getDefaultEditorMode(relativePath: string, content: string): FilesEditorMode {
-  if (!isMarkdownDocumentPath(relativePath)) return 'source'
-  return getRichMarkdownLimitation(content, { isMdx: isMdxPath(relativePath) }) ? 'source' : 'rich'
+function getEditorMode(
+  relativePath: string,
+  content: string,
+  preferredEditorMode?: FilesEditorMode
+): FilesEditorMode {
+  if (
+    preferredEditorMode === 'rich' &&
+    isMarkdownDocumentPath(relativePath) &&
+    !getRichMarkdownLimitation(content, { isMdx: isMdxPath(relativePath) })
+  ) {
+    return 'rich'
+  }
+  return 'source'
 }
 
 export function isMarkdownDocumentPath(relativePath: string): boolean {
