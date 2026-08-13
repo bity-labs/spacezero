@@ -1014,15 +1014,15 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('link', { name: 'General' }))
     expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
-    expect(screen.getByRole('link', { name: 'Models' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Providers' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Appearance' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'About' })).toBeInTheDocument()
     expect(screen.queryByText('Profile')).not.toBeInTheDocument()
-    expect(screen.queryByText('Appearance')).not.toBeInTheDocument()
     expect(screen.queryByText('Cloud Agents')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Theme' })).not.toBeInTheDocument()
     expect(screen.getByText('/tmp/SpaceZero')).toBeInTheDocument()
     expect(
       screen.queryByText(
@@ -1151,14 +1151,12 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('link', { name: 'About' }))
 
     expect(await screen.findByRole('heading', { name: 'About' })).toBeInTheDocument()
+    expect(screen.getByText('Installed version')).toBeInTheDocument()
     expect(screen.getByText('0.1.0-beta.1')).toBeInTheDocument()
-    expect(screen.getByText('Beta channel')).toBeInTheDocument()
+    expect(screen.getByText('Update state')).toBeInTheDocument()
     expect(screen.getByText('Not checked yet')).toBeInTheDocument()
+    expect(screen.getByText('Last checked')).toBeInTheDocument()
     expect(screen.getByText('Never checked')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'GitHub Release notes' })).toHaveAttribute(
-      'href',
-      'https://github.com/bity-labs/spacezero/releases'
-    )
 
     fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }))
 
@@ -1203,7 +1201,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Check for updates' }))
 
     expect(await screen.findByText('Update available')).toBeInTheDocument()
-    expect(screen.getByText('Available version')).toBeInTheDocument()
+    expect(screen.getAllByText('0.1.0-beta.2').length).toBeGreaterThan(0)
 
     act(() => {
       statusChangeListener?.({
@@ -1219,7 +1217,7 @@ describe('App', () => {
     })
 
     expect(await screen.findByText('Update downloaded')).toBeInTheDocument()
-    expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+    expect(screen.getAllByText('0.1.0-beta.2').length).toBeGreaterThan(0)
 
     act(() => {
       statusChangeListener?.({
@@ -1262,10 +1260,8 @@ describe('App', () => {
     render(<App />)
 
     expect(await screen.findByText(label)).toBeInTheDocument()
-    if (state === 'update-available')
-      expect(screen.getByText('Available version')).toBeInTheDocument()
-    if (state === 'update-downloaded')
-      expect(screen.getByText('Downloaded version')).toBeInTheDocument()
+    if (state === 'update-available' || state === 'update-downloaded')
+      expect(screen.getAllByText('0.1.0-beta.2').length).toBeGreaterThan(0)
     if (state === 'error')
       expect(screen.getByText('GitHub releases unavailable')).toBeInTheDocument()
   })
@@ -1359,22 +1355,22 @@ describe('App', () => {
     expect(await screen.findByText('/tmp/AlternateSpaceZero')).toBeInTheDocument()
   })
 
-  it('deep-links to the Models Settings section and returns to General when the section is missing', async () => {
+  it('deep-links to the Providers Settings section and returns to General when the section is missing', async () => {
     await act(async () => {
       await router.navigate({ to: '/settings' })
     })
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('link', { name: 'Models' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Providers' }))
 
-    expect(await screen.findByRole('heading', { name: 'Models' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Models' })).toHaveAttribute('data-active')
+    expect(await screen.findByRole('heading', { name: 'Providers' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Providers' })).toHaveAttribute('data-active')
     expect(screen.getByRole('heading', { name: 'Subscriptions' })).toBeInTheDocument()
     expect(screen.getByText('No subscriptions connected.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'API Keys' })).toBeInTheDocument()
     expect(screen.getByText('No API keys configured.')).toBeInTheDocument()
     expect(screen.getByText('Defaults')).toBeInTheDocument()
-    expect(screen.getByText('Available Models')).toBeInTheDocument()
+    expect(screen.getByText('Configure credentials to choose a default model.')).toBeInTheDocument()
     expect(window.location.hash).toBe('#/settings?section=models')
 
     await act(async () => {
@@ -1568,7 +1564,7 @@ describe('App', () => {
     )
   })
 
-  it('connects and disconnects a subscription through the Models Settings broker', async () => {
+  it('connects and disconnects a subscription through the Providers Settings broker', async () => {
     let connected = false
     const loginProviders: string[] = []
     const logoutProviders: string[] = []
@@ -1611,7 +1607,13 @@ describe('App', () => {
     })
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Add subscription' }))
+    const subscriptionsSection = (
+      await screen.findByRole('heading', {
+        name: 'Subscriptions'
+      })
+    ).closest('section')
+    if (!subscriptionsSection) throw new Error('Subscriptions section was not rendered')
+    fireEvent.click(await within(subscriptionsSection).findByRole('button', { name: 'Add new' }))
     const picker = await screen.findByRole('dialog', { name: 'Add subscription' })
     expect(within(picker).getByText('Provided by Pi metadata')).toBeInTheDocument()
     fireEvent.click(within(picker).getByRole('button', { name: /Pi OAuth Provider/ }))
@@ -1626,11 +1628,10 @@ describe('App', () => {
     expect(logoutProviders).toEqual(['pi-oauth-provider'])
   })
 
-  it('adds, tests, and removes an API key through the Models Settings broker', async () => {
+  it('adds and removes an API key through the Providers Settings broker', async () => {
     let configured = false
     const addedKeys: string[] = []
     const removedProviders: string[] = []
-    const testedProviders: string[] = []
     window.spacezero.agent.getModelAuthSettings = async () => ({
       subscriptions: { connected: [], availableProviders: [] },
       apiKeys: {
@@ -1653,10 +1654,6 @@ describe('App', () => {
       addedKeys.push(apiKey)
       configured = true
     }
-    window.spacezero.agent.testAuth = async ({ providerId }) => {
-      testedProviders.push(providerId)
-      return { ok: true }
-    }
     window.spacezero.agent.removeApiKey = async ({ providerId }) => {
       removedProviders.push(providerId)
       configured = false
@@ -1668,7 +1665,13 @@ describe('App', () => {
     })
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Add API key' }))
+    const apiKeysSection = (
+      await screen.findByRole('heading', {
+        name: 'API Keys'
+      })
+    ).closest('section')
+    if (!apiKeysSection) throw new Error('API Keys section was not rendered')
+    fireEvent.click(await within(apiKeysSection).findByRole('button', { name: 'Add new' }))
     const picker = await screen.findByRole('dialog', { name: 'Add API key' })
     fireEvent.click(within(picker).getByRole('button', { name: 'Anthropic' }))
 
@@ -1682,10 +1685,6 @@ describe('App', () => {
     expect(await screen.findByText('Stored API key')).toBeInTheDocument()
     expect(addedKeys).toEqual(['sk-secret'])
     expect(screen.queryByDisplayValue('sk-secret')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Test' }))
-    expect(await screen.findByText('Authentication works.')).toBeInTheDocument()
-    expect(testedProviders).toEqual(['anthropic'])
 
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     expect(await screen.findByText('No API keys configured.')).toBeInTheDocument()
@@ -1701,13 +1700,10 @@ describe('App', () => {
     expect(
       await screen.findByText('Configure credentials to choose a default model.')
     ).toBeInTheDocument()
-    expect(
-      screen.getByText('Configure credentials to browse available models.')
-    ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Browse models' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Choose model' })).not.toBeInTheDocument()
   })
 
-  it('summarizes available models, browses them, and makes a model the default', async () => {
+  it('browses available provider models and makes one the default', async () => {
     const availableModels = [
       {
         providerId: 'anthropic',
@@ -1746,13 +1742,12 @@ describe('App', () => {
     })
     render(<App />)
 
-    expect(await screen.findByText('3 models available from 2 providers')).toBeInTheDocument()
-    expect(screen.getByText('Anthropic')).toBeInTheDocument()
-    expect(screen.getByText('2 models')).toBeInTheDocument()
-    expect(screen.getByText('OpenAI')).toBeInTheDocument()
+    expect(await screen.findByText('Default model')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose model' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Default thinking' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Browse models' }))
-    const browser = await screen.findByRole('dialog', { name: 'Browse models' })
+    fireEvent.click(screen.getByRole('button', { name: 'Choose model' }))
+    const browser = await screen.findByRole('dialog', { name: 'Choose default model' })
     fireEvent.change(within(browser).getByLabelText('Search models'), {
       target: { value: 'openai' }
     })
@@ -1760,17 +1755,15 @@ describe('App', () => {
     expect(within(browser).getByText('GPT-5')).toBeInTheDocument()
     expect(within(browser).queryByText('Claude Sonnet 4')).not.toBeInTheDocument()
 
-    fireEvent.click(within(browser).getByRole('button', { name: 'Make default' }))
+    fireEvent.click(within(browser).getByRole('button', { name: /GPT-5/ }))
 
-    expect(await within(browser).findByText('Default')).toBeInTheDocument()
-    fireEvent.click(within(browser).getByRole('button', { name: 'Close' }))
     await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: 'Browse models' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('dialog', { name: 'Choose default model' })).not.toBeInTheDocument()
     )
     expect(screen.getByRole('button', { name: 'OpenAI · GPT-5' })).toBeInTheDocument()
   })
 
-  it('updates default thinking from Models Settings', async () => {
+  it('updates default thinking from Providers Settings', async () => {
     window.spacezero.agent.getAvailableModels = async () => [
       {
         providerId: 'anthropic',
@@ -1874,7 +1867,7 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Paramètres' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Général' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Langue' })).toHaveTextContent('Français')
-    expect(screen.getByRole('combobox', { name: 'Thème' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Thème' })).not.toBeInTheDocument()
     expect(screen.queryByText('Compte Space Zero')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('link', { name: 'Retour à l’espace de travail' }))
@@ -1889,7 +1882,7 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(await screen.findByRole('link', { name: 'Open app settings' }))
-    fireEvent.click(await screen.findByRole('link', { name: 'General' }))
+    fireEvent.click(await screen.findByRole('link', { name: 'Appearance' }))
     const themeSelect = await screen.findByRole('combobox', { name: 'Theme' })
 
     expect(themeSelect).toHaveTextContent('System')
