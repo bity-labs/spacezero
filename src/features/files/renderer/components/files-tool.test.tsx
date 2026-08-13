@@ -1417,10 +1417,10 @@ describe('Files Tool', () => {
     expect(await screen.findByLabelText('Search results')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /README.md/ }))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'removed' }
     })
-    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+    fireEvent.keyDown(screen.getByLabelText('Source editor'), { key: 's', metaKey: true })
 
     await waitFor(() => expect(screen.queryByLabelText('Search results')).not.toBeInTheDocument())
     expect(await screen.findByRole('tree', { name: 'Project files' })).toBeInTheDocument()
@@ -1770,6 +1770,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     const richEditor = (await screen.findByLabelText('Rich Markdown editor')).closest(
       '.rich-markdown-editor'
     ) as HTMLElement
@@ -1787,7 +1789,7 @@ describe('Files Tool', () => {
     expect(window.spacezero.files.saveDocument).not.toHaveBeenCalled()
   })
 
-  it('opens Markdown in rich mode by default and shares one dirty buffer across rich and source modes', async () => {
+  it('opens Markdown in Source and saves each dirty baseline before switching editor engines', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
     ])
@@ -1821,36 +1823,184 @@ describe('Files Tool', () => {
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
 
-    const richEditor = await screen.findByLabelText('Rich Markdown editor')
-    expect(richEditor).toHaveDisplayValue('# Saved')
-    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
-
-    fireEvent.change(richEditor, { target: { value: '## Rich draft' } })
-    expect(screen.getByRole('tab', { name: /●\s*README\.md/ })).toBeInTheDocument()
-    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
-
     const sourceEditor = await screen.findByLabelText('Source editor')
-    expect(sourceEditor).toHaveDisplayValue('## Rich draft')
+    expect(sourceEditor).toHaveDisplayValue('# Saved')
+    expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
+
     fireEvent.change(sourceEditor, { target: { value: '## Source draft' } })
     fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
 
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
       '## Source draft'
     )
-    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
-
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
     await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
-    expect(saveDocument).toHaveBeenCalledWith({
+    expect(saveDocument).toHaveBeenNthCalledWith(1, {
       context: { kind: 'project-session', sessionId: 'session-1' },
       relativePath: 'README.md',
       content: '## Source draft',
       expectedRevision: 'revision-1'
     })
-    await waitFor(() =>
-      expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+
+    fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
+      target: { value: '## Rich draft' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('## Rich draft')
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(2))
+    expect(saveDocument).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'project-session', sessionId: 'session-1' },
+      relativePath: 'README.md',
+      content: '## Rich draft',
+      expectedRevision: 'revision-2'
+    })
+    expect(screen.getByRole('tab', { name: /README\.md/ })).not.toHaveTextContent('●')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('## Rich draft')
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled()
+    expect(saveDocument).toHaveBeenCalledTimes(2)
+  })
+
+  it('switches a clean Markdown document immediately without writing it', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Clean',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn()
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-clean-switch" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Clean')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Clean')
+    expect(saveDocument).not.toHaveBeenCalled()
+  })
+
+  it('does not save dirty Markdown during ordinary Files tab navigation', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'one.md', relativePath: 'one.md', kind: 'file' as const },
+      { name: 'two.md', relativePath: 'two.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async ({ relativePath }) => ({
+      name: relativePath,
+      relativePath,
+      contentKind: 'text' as const,
+      size: relativePath.length,
+      modifiedAt: new Date(0).toISOString(),
+      revision: `${relativePath}-revision`,
+      content: `# ${relativePath}`,
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    const saveDocument = vi.fn()
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-tab-navigation" />)
+    fireEvent.click(await screen.findByRole('treeitem', { name: 'one.md' }))
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
+      target: { value: '# Dirty one' }
+    })
+    fireEvent.click(screen.getByRole('treeitem', { name: 'two.md' }))
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# two.md')
+    expect(saveDocument).not.toHaveBeenCalled()
+    expect(useFilesStore.getState().contexts['session-tab-navigation'].tabs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ relativePath: 'one.md', dirty: true, editorMode: 'source' })
+      ])
     )
-    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+  })
+
+  it('keeps Source active with actionable feedback when save-before-switch fails', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => {
+      throw new Error('disk unavailable')
+    })
+
+    render(<FilesTool sessionId="session-failed-switch" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
+      target: { value: '# Dirty' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty')
+    expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Couldn’t save this file. Your changes are still in memory.')
+    ).toBeInTheDocument()
+  })
+
+  it('keeps Source active when save-before-switch finds an external conflict', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 7,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Saved',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    window.spacezero.files.saveDocument = vi.fn(async () => ({
+      status: 'conflict' as const,
+      document: {
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 8,
+        modifiedAt: new Date(1).toISOString(),
+        revision: 'disk-revision',
+        content: '# External',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }
+    }))
+
+    render(<FilesTool sessionId="session-conflict-switch" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
+      target: { value: '# Dirty' }
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty')
+    expect(screen.queryByLabelText('Rich Markdown editor')).not.toBeInTheDocument()
+    expect(
+      await screen.findByText('Changed on disk. Choose how to resolve before saving.')
+    ).toBeInTheDocument()
   })
 
   it('uses the stable Knowledge Base context for shared Files reads, rich editing, and explicit save', async () => {
@@ -1893,6 +2043,8 @@ describe('Files Tool', () => {
     )
     expect(await screen.findByRole('tree', { name: 'Files' })).toBeInTheDocument()
     fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     const richEditor = await screen.findByLabelText('Rich Markdown editor')
     fireEvent.change(richEditor, { target: { value: '## Knowledge draft' } })
 
@@ -1925,6 +2077,8 @@ describe('Files Tool', () => {
 
     view.rerender(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Saved')
   })
 
@@ -2036,7 +2190,7 @@ describe('Files Tool', () => {
     })
   })
 
-  it('defaults lossless MDX to rich mode while preserving editor mode per Project Session context', async () => {
+  it('defaults lossless MDX to Source while retaining session-only Rich mode per Project Session', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'page.mdx', relativePath: 'docs/page.mdx', kind: 'file' as const }
     ])
@@ -2057,16 +2211,16 @@ describe('Files Tool', () => {
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('page.mdx'))
-    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-1')
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
     expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# session-1')
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-1')
 
     view.rerender(<FilesTool sessionId="session-2" />)
     fireEvent.click(await screen.findByText('page.mdx'))
-    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-2')
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# session-2')
 
     view.rerender(<FilesTool sessionId="session-1" />)
-    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# session-1')
+    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# session-1')
   })
 
   it('isolates rich editor history when switching between Markdown tabs', async () => {
@@ -2088,9 +2242,13 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('one.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# One')
     fireEvent.doubleClick(screen.getByRole('tab', { name: /one\.md\s*preview/ }))
     fireEvent.click(screen.getByText('two.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Two')
     fireEvent.doubleClick(screen.getByRole('tab', { name: /two\.md\s*preview/ }))
 
@@ -2118,6 +2276,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
 
     const richEditor = await screen.findByLabelText('Rich Markdown editor')
     const richEditorRoot = richEditor.closest('.rich-markdown-editor')
@@ -2572,7 +2732,7 @@ describe('Files Tool', () => {
 
     const view = render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'draft' }
     })
     view.unmount()
@@ -3167,6 +3327,8 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('draft.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
       target: { value: '# Draft' }
     })
@@ -3234,7 +3396,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-dirty-rename-conflict" />)
     fireEvent.click(await screen.findByText('draft.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: '# Draft' }
     })
     fireEvent.contextMenu(
@@ -3414,13 +3576,13 @@ describe('Files Tool', () => {
 
     const view = render(<FilesTool sessionId="session-one" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'session one draft' }
     })
 
     view.rerender(<FilesTool sessionId="session-two" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'session two draft' }
     })
     expect(screen.queryByRole('button', { name: 'Save All' })).not.toBeInTheDocument()
@@ -3473,7 +3635,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-close-dirty" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'draft' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
@@ -3496,7 +3658,7 @@ describe('Files Tool', () => {
     )
 
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'discard me' }
     })
     fireEvent.click(screen.getByRole('button', { name: 'Close README.md' }))
@@ -3538,7 +3700,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    const editor = await screen.findByLabelText('Rich Markdown editor')
+    const editor = await screen.findByLabelText('Source editor')
     fireEvent.change(editor, { target: { value: 'draft' } })
     fireEvent.keyDown(editor, { key: 's', metaKey: true })
 
@@ -3618,10 +3780,10 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'draft' }
     })
-    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+    fireEvent.keyDown(screen.getByLabelText('Source editor'), { key: 's', metaKey: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
 
     await waitFor(() =>
@@ -3644,7 +3806,7 @@ describe('Files Tool', () => {
         relativePath: 'README.md'
       })
     )
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'recreated' }
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
@@ -3719,10 +3881,10 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'draft' }
     })
-    fireEvent.keyDown(screen.getByLabelText('Rich Markdown editor'), { key: 's', metaKey: true })
+    fireEvent.keyDown(screen.getByLabelText('Source editor'), { key: 's', metaKey: true })
     fireEvent.click(await screen.findByRole('button', { name: 'Overwrite disk' }))
 
     await waitFor(() => expect(screen.getAllByText(/changed on disk/i).length).toBeGreaterThan(0))
@@ -3738,7 +3900,7 @@ describe('Files Tool', () => {
         relativePath: 'README.md'
       })
     )
-    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+    fireEvent.change(await screen.findByLabelText('Source editor'), {
       target: { value: 'recreate draft' }
     })
     fireEvent.click(await screen.findByRole('button', { name: 'Recreate file' }))
@@ -3796,7 +3958,7 @@ describe('Files Tool', () => {
 
     render(<FilesTool sessionId="session-1" />)
     fireEvent.click(await screen.findByText('README.md'))
-    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('saved')
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('saved')
 
     act(() => {
       observationListeners.at(-1)?.({
@@ -3915,7 +4077,7 @@ describe('Files Tool', () => {
 
       render(<FilesTool sessionId={sessionId} />)
       fireEvent.click(await screen.findByText('README.md'))
-      expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('saved')
+      expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('saved')
 
       act(() =>
         observationListener?.({
@@ -3934,7 +4096,7 @@ describe('Files Tool', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'Reload from disk' }))
         expect(await screen.findByDisplayValue('reloaded')).toBeInTheDocument()
       } else if (resolution === 'overwrite') {
-        fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
+        fireEvent.change(screen.getByLabelText('Source editor'), {
           target: { value: 'overwrite draft' }
         })
         act(() =>
@@ -3947,7 +4109,7 @@ describe('Files Tool', () => {
         )
         expect(screen.queryByText('Saved')).not.toBeInTheDocument()
       } else {
-        fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
+        fireEvent.change(screen.getByLabelText('Source editor'), {
           target: { value: 'recreate draft' }
         })
         act(() => useFilesStore.getState().markDeletedOnDisk(sessionId, 'README.md'))
@@ -4035,7 +4197,140 @@ describe('Files Tool', () => {
     await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(2))
   })
 
-  it('consumes external line targets after reveal so Markdown can return to Rich mode with its buffer', async () => {
+  it('saves dirty Rich Markdown before applying an external line handoff in Source', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 23,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Title\n\nbody line',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    let resolveSave:
+      | ((result: Awaited<ReturnType<typeof window.spacezero.files.saveDocument>>) => void)
+      | undefined
+    const pendingSave = new Promise<
+      Awaited<ReturnType<typeof window.spacezero.files.saveDocument>>
+    >((resolve) => {
+      resolveSave = resolve
+    })
+    const saveDocument = vi.fn(async () => pendingSave)
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-line-rich-save" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: '# Dirty\n\nbody line' }
+    })
+
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-line-rich-save',
+        ipcContext: { kind: 'project-session', sessionId: 'session-line-rich-save' },
+        relativePath: 'README.md',
+        line: 3
+      })
+    })
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(screen.getByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty\n\nbody line')
+    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
+    expect(diffsEditorMock.revealLineInCenter).not.toHaveBeenCalledWith(3)
+
+    await act(async () => {
+      resolveSave?.({
+        status: 'saved',
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text',
+          size: 19,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'revision-2',
+          content: '# Dirty\n\nbody line',
+          hasBom: false,
+          lineEnding: 'lf'
+        }
+      })
+      await pendingSave
+    })
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty\n\nbody line')
+    await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3))
+  })
+
+  it.each([
+    ['rejects', 'Couldn’t save this file. Your changes are still in memory.'],
+    ['conflicts', 'Changed on disk. Choose how to resolve before saving.']
+  ] as const)(
+    'keeps dirty Rich Markdown active with actionable feedback when an external line handoff save %s',
+    async (outcome, feedback) => {
+      window.spacezero.files.listDirectory = vi.fn(async () => [
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+      ])
+      window.spacezero.files.openDocument = vi.fn(async () => ({
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-1',
+        content: '# Saved',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }))
+      window.spacezero.files.saveDocument = vi.fn(async () => {
+        if (outcome === 'rejects') throw new Error('disk unavailable')
+        return {
+          status: 'conflict' as const,
+          document: {
+            name: 'README.md',
+            relativePath: 'README.md',
+            contentKind: 'text' as const,
+            size: 10,
+            modifiedAt: new Date(1).toISOString(),
+            revision: 'revision-2',
+            content: '# External',
+            hasBom: false,
+            lineEnding: 'lf' as const
+          }
+        }
+      })
+
+      const sessionId = `session-line-rich-${outcome}`
+      render(<FilesTool sessionId={sessionId} />)
+      fireEvent.click(await screen.findByText('README.md'))
+      expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+      fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+        target: { value: '# Dirty' }
+      })
+
+      await act(async () => {
+        await openFilesLocation({
+          contextKey: sessionId,
+          ipcContext: { kind: 'project-session', sessionId },
+          relativePath: 'README.md',
+          line: 2
+        })
+      })
+
+      expect(await screen.findByText(feedback)).toBeInTheDocument()
+      expect(screen.getByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty')
+      expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
+      expect(diffsEditorMock.revealLineInCenter).not.toHaveBeenCalledWith(2)
+    }
+  )
+
+  it('consumes external line targets while keeping Markdown in Source until Rich is selected', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
     ])
@@ -4063,16 +4358,11 @@ describe('Files Tool', () => {
     })
 
     await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3))
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Title\n\nbody line')
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
     expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue(
       '# Title\n\nbody line'
     )
-    fireEvent.change(screen.getByLabelText('Rich Markdown editor'), {
-      target: { value: '# Dirty' }
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Source' }))
-    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty')
-    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
-    expect(await screen.findByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty')
   })
 
   it('keeps unsupported external Files handoffs in the current tool and allows a later retry', async () => {

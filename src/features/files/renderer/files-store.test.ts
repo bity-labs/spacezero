@@ -54,7 +54,7 @@ describe('Files renderer state', () => {
     })
   })
 
-  it('defaults lossless Markdown and MDX tabs to rich mode and keeps lossy documents in source mode', () => {
+  it('opens every Markdown and MDX tab in source mode', () => {
     const store = useFilesStore.getState()
 
     expect(store.beginOpenTab('session-1', 'README.md', 'preview', 1)).toBe(true)
@@ -67,37 +67,57 @@ describe('Files renderer state', () => {
       textDocument('docs/lossy.mdx', `import X from './x'\n\n# Page`),
       3
     )
-    expect(store.beginOpenTab('session-1', 'docs/typed.md', 'permanent', 4)).toBe(true)
-    store.finishOpenTab(
-      'session-1',
-      textDocument('docs/typed.md', '---\ncount: 1\n---\n\n# Typed frontmatter'),
-      4
-    )
 
     expect(useFilesStore.getState().contexts['session-1'].tabs).toMatchObject([
-      { relativePath: 'README.md', editorMode: 'rich' },
-      { relativePath: 'docs/page.mdx', editorMode: 'rich' },
-      { relativePath: 'docs/lossy.mdx', editorMode: 'source' },
-      { relativePath: 'docs/typed.md', editorMode: 'source' }
+      { relativePath: 'README.md', editorMode: 'source' },
+      { relativePath: 'docs/page.mdx', editorMode: 'source' },
+      { relativePath: 'docs/lossy.mdx', editorMode: 'source' }
     ])
   })
 
-  it('stores editor mode with the tab without sharing it across Project Sessions', () => {
+  it('keeps rich mode session-only and isolated between Project Session tabs', () => {
     const store = useFilesStore.getState()
     expect(store.beginOpenTab('session-1', 'README.md', 'permanent', 1)).toBe(true)
     store.finishOpenTab('session-1', textDocument('README.md', '# One'), 1)
     expect(store.beginOpenTab('session-2', 'README.md', 'permanent', 2)).toBe(true)
     store.finishOpenTab('session-2', textDocument('README.md', '# Two'), 2)
 
-    store.setEditorMode('session-1', 'README.md', 'source')
+    store.setEditorMode('session-1', 'README.md', 'rich')
 
     expect(useFilesStore.getState().contexts['session-1'].tabs[0]).toMatchObject({
       relativePath: 'README.md',
-      editorMode: 'source'
+      editorMode: 'rich'
     })
     expect(useFilesStore.getState().contexts['session-2'].tabs[0]).toMatchObject({
       relativePath: 'README.md',
-      editorMode: 'rich'
+      editorMode: 'source'
+    })
+  })
+
+  it('restores a permanent Markdown tab in Source after Rich was selected during the prior run', async () => {
+    const store = useFilesStore.getState()
+    expect(store.beginOpenTab('session-restore-mode', 'README.md', 'permanent', 1)).toBe(true)
+    store.finishOpenTab('session-restore-mode', textDocument('README.md', '# Saved'), 1)
+    store.setEditorMode('session-restore-mode', 'README.md', 'rich')
+
+    const persisted = window.localStorage.getItem('spacezero.files')
+    expect(persisted).not.toContain('rich')
+    useFilesStore.setState({ contexts: {} })
+    window.localStorage.setItem('spacezero.files', persisted!)
+    await useFilesStore.persist.rehydrate()
+
+    const restored = useFilesStore.getState().contexts['session-restore-mode'].tabs[0]
+    expect(restored).toMatchObject({ relativePath: 'README.md', status: 'loading' })
+    useFilesStore
+      .getState()
+      .finishOpenTab(
+        'session-restore-mode',
+        textDocument('README.md', '# Saved'),
+        restored.openRequestId!
+      )
+    expect(useFilesStore.getState().contexts['session-restore-mode'].tabs[0]).toMatchObject({
+      relativePath: 'README.md',
+      editorMode: 'source'
     })
   })
 
@@ -348,7 +368,7 @@ describe('Files renderer state', () => {
       locationRequestId: undefined,
       draft: '# Dirty',
       dirty: true,
-      editorMode: 'rich'
+      editorMode: 'source'
     })
   })
 
@@ -635,8 +655,7 @@ describe('Files renderer state', () => {
         {
           relativePath: 'src/index.ts',
           status: 'loading',
-          preview: false,
-          restoreEditorMode: 'source'
+          preview: false
         }
       ],
       editorViewStates: {
