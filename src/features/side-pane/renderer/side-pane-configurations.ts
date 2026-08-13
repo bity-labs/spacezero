@@ -1,6 +1,7 @@
-import { createElement, lazy, Suspense } from 'react'
+import { createElement, lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
+import { useRegisterAppCommands } from '../../app-commands/renderer/app-command-context'
 import type { BrowserContext } from '../../browser/shared'
 import { FilesTabIcon } from '../../files/renderer/components/files-tab-icon'
 import { openFilesLocation } from '../../files/renderer/files-open-location'
@@ -12,13 +13,26 @@ import {
 } from '../../files/renderer/files-side-pane'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
-import type { TerminalContext } from '../../terminal/shared'
+import { TERMINAL_COMMAND_IDS, type TerminalContext } from '../../terminal/shared'
 import {
   closeBrowserSidePaneTab,
   createBrowserSidePaneTab,
   focusOrCreateBrowserSidePaneTab
 } from './browser-side-pane'
-import type { SidePaneCategoryDescriptor, SidePaneConfiguration } from './side-pane-shell'
+import {
+  clearTerminalSidePaneCreateError,
+  closeTerminalSidePaneTab,
+  confirmCloseTerminalSidePaneTab,
+  createTerminalSidePaneTab,
+  focusOrCreateTerminalSidePaneTab,
+  getTerminalSidePaneCreateError,
+  selectTerminalSidePaneTab
+} from './terminal-side-pane'
+import type {
+  SidePaneCategoryDescriptor,
+  SidePaneConfiguration,
+  SidePaneContextCapabilities
+} from './side-pane-shell'
 import { useSidePaneStore } from './side-pane-store'
 
 const FilesTool = lazy(async () => {
@@ -40,6 +54,36 @@ const GitTool = lazy(async () => {
   const module = await import('../../git/renderer/components/git-tool')
   return { default: module.GitTool }
 })
+
+export function useRegisterTerminalSidePaneCommands(
+  configuration: SidePaneConfiguration | null
+): void {
+  const commands = useMemo(() => {
+    if (
+      !configuration?.categories.some(
+        (category) => category.id === 'terminal' && category.available
+      )
+    ) {
+      return []
+    }
+    const context = terminalContextFromCapabilities(configuration.capabilities)
+    return [
+      {
+        id: TERMINAL_COMMAND_IDS.newTab,
+        title: 'New Terminal',
+        category: 'Terminal',
+        keywords: ['new', 'tab', 'shell'],
+        handler: async () => {
+          await createTerminalSidePaneTab({
+            contextKey: configuration.contextKey,
+            context
+          })
+        }
+      }
+    ]
+  }, [configuration])
+  useRegisterAppCommands(commands)
+}
 
 const categoryRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
@@ -96,22 +140,11 @@ export function createProjectHomeSidePaneConfiguration(project: {
         kind: 'project-home',
         projectId: project.id
       }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-home'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'project-home', projectId: capabilities.projectId },
-                  browserContextKey: contextKey,
-                  browserContext: { kind: 'project-home', projectId: capabilities.projectId }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        contextKey,
+        { kind: 'project-home', projectId: project.id },
+        { kind: 'project-home', projectId: project.id }
+      )
     ]
   }
 }
@@ -169,26 +202,11 @@ export function createProjectSessionSidePaneConfiguration(session: {
         projectId: session.projectId,
         sessionId: session.id
       }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'project-session'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'project-session', sessionId: capabilities.sessionId },
-                  browserContextKey: sessionContextKey(capabilities.sessionId),
-                  browserContext: {
-                    kind: 'project-session',
-                    projectId: capabilities.projectId,
-                    sessionId: capabilities.sessionId
-                  }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        contextKey,
+        { kind: 'project-session', sessionId: session.id },
+        { kind: 'project-session', projectId: session.projectId, sessionId: session.id }
+      )
     ]
   }
 }
@@ -200,22 +218,11 @@ export function createGlobalChatSidePaneConfiguration(): SidePaneConfiguration {
     defaultCategoryId: 'browser',
     categories: [
       createBrowserSidePaneCategoryDescriptor('global-chat', { kind: 'global-chat' }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'global-chat'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'global-chat' },
-                  browserContextKey: 'global-chat',
-                  browserContext: { kind: 'global-chat' }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        'global-chat',
+        { kind: 'global-chat' },
+        { kind: 'global-chat' }
+      )
     ]
   }
 }
@@ -268,22 +275,11 @@ export function createKnowledgeBaseSidePaneConfiguration(): SidePaneConfiguratio
             : null
       },
       createBrowserSidePaneCategoryDescriptor('knowledge-base', { kind: 'knowledge-base' }),
-      {
-        ...categoryRegistry.terminal,
-        available: true,
-        render: ({ capabilities }) =>
-          capabilities.kind === 'knowledge-base'
-            ? createElement(
-                Suspense,
-                { fallback: createElement(TerminalToolLoading) },
-                createElement(TerminalWithBrowserHandoff, {
-                  terminalContext: { kind: 'knowledge-base' },
-                  browserContextKey: 'knowledge-base',
-                  browserContext: { kind: 'knowledge-base' }
-                })
-              )
-            : null
-      }
+      createTerminalSidePaneCategoryDescriptor(
+        'knowledge-base',
+        { kind: 'knowledge-base' },
+        { kind: 'knowledge-base' }
+      )
     ]
   }
 }
@@ -353,27 +349,134 @@ function createBrowserSidePaneCategoryDescriptor(
   }
 }
 
+function createTerminalSidePaneCategoryDescriptor(
+  contextKey: string,
+  terminalContext: TerminalContext,
+  browserContext: BrowserContext
+): SidePaneCategoryDescriptor {
+  return {
+    ...categoryRegistry.terminal,
+    available: true,
+    open: () => {
+      void focusOrCreateTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
+        () => undefined
+      )
+    },
+    create: () => {
+      void createTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
+        () => undefined
+      )
+    },
+    close: (tab) => {
+      if (!tab.resourceId) {
+        clearTerminalSidePaneCreateError(contextKey)
+        useSidePaneStore.getState().closeTab(contextKey, tab.id)
+        return
+      }
+      void closeTerminalSidePaneTab({ contextKey, context: terminalContext, tab }).catch(
+        () => undefined
+      )
+    },
+    onActivateTab: (tab) => {
+      void selectTerminalSidePaneTab({ contextKey, context: terminalContext, tab }).catch(
+        () => undefined
+      )
+    },
+    onRequestCloseTab: (tab) => (tab.resourceId ? confirmCloseTerminalSidePaneTab() : true),
+    render: ({ activeTab }) =>
+      createElement(
+        Suspense,
+        { fallback: createElement(TerminalToolLoading) },
+        createElement(TerminalWithBrowserHandoff, {
+          contextKey,
+          activeTab,
+          terminalContext,
+          browserContext
+        })
+      )
+  }
+}
+
 function TerminalWithBrowserHandoff({
+  contextKey,
+  activeTab,
   terminalContext,
-  browserContextKey,
   browserContext
 }: {
+  contextKey: string
+  activeTab: { id: string; resourceId?: string }
   terminalContext: TerminalContext
-  browserContextKey: string
   browserContext: BrowserContext
 }): React.JSX.Element {
+  const terminalId = activeTab.resourceId
+  const createError = terminalId ? null : getTerminalSidePaneCreateError(contextKey)
+  const [retryForceNew, setRetryForceNew] = useState(false)
+  const [restoreAttempt, setRestoreAttempt] = useState(0)
+  useEffect(() => {
+    if (terminalId || createError) return
+    const retry = retryForceNew ? createTerminalSidePaneTab : focusOrCreateTerminalSidePaneTab
+    void retry({ contextKey, context: terminalContext }).catch(() => undefined)
+  }, [
+    activeTab.id,
+    contextKey,
+    createError,
+    restoreAttempt,
+    retryForceNew,
+    terminalContext,
+    terminalId
+  ])
+
+  if (createError) {
+    return createElement(
+      'div',
+      {
+        className: 'flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm'
+      },
+      createElement('p', null, createError.title),
+      createElement('p', { className: 'text-xs text-muted-foreground' }, createError.message),
+      createElement(
+        'button',
+        {
+          className: 'rounded-md border px-3 py-1.5 text-xs hover:bg-accent',
+          type: 'button',
+          onClick: () => {
+            setRetryForceNew(createError.forceNew)
+            clearTerminalSidePaneCreateError(contextKey)
+            setRestoreAttempt((attempt) => attempt + 1)
+          }
+        },
+        'Retry Terminal'
+      )
+    )
+  }
+  if (!terminalId) return createElement(TerminalToolLoading)
   return createElement(TerminalTool, {
+    contextKey,
     context: terminalContext,
+    terminalId,
     browserHandoff: {
       openBrowserPage: async (url: string) => {
         await createBrowserSidePaneTab({
-          contextKey: browserContextKey,
+          contextKey,
           context: browserContext,
           input: url
         })
       }
     }
   })
+}
+
+function terminalContextFromCapabilities(
+  capabilities: SidePaneContextCapabilities
+): TerminalContext {
+  if (capabilities.kind === 'project-home') {
+    return { kind: 'project-home', projectId: capabilities.projectId }
+  }
+  if (capabilities.kind === 'project-session') {
+    return { kind: 'project-session', sessionId: capabilities.sessionId }
+  }
+  if (capabilities.kind === 'global-chat') return { kind: 'global-chat' }
+  return { kind: 'knowledge-base' }
 }
 
 function TerminalToolLoading(): React.JSX.Element {

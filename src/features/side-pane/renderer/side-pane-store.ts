@@ -12,6 +12,7 @@ export type SidePaneTab = {
   dirty?: boolean
   title?: string
   faviconUrl?: string | null
+  transient?: boolean
 }
 
 export type SidePaneLayoutState = {
@@ -122,8 +123,12 @@ function removeSyntheticBrowserTabs(persistedState: unknown): unknown {
 
 function toPersistedContext(context: SidePaneLayoutState): SidePaneLayoutState {
   const tabs = context.tabs
-    .filter((tab) => !tab.preview)
-    .map(({ dirty: _dirty, preview: _preview, ...tab }) => tab)
+    .filter((tab) => !tab.preview && !tab.transient)
+    .map(({ dirty: _dirty, preview: _preview, transient: _transient, ...tab }) => {
+      if (tab.categoryId !== 'terminal') return tab
+      const { resourceId: _runtimeTerminalId, ...restorationTab } = tab
+      return restorationTab
+    })
   const activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? tabs[0] ?? null
   const tabIds = new Set(tabs.map((tab) => tab.id))
   const categoryMru = Object.fromEntries(
