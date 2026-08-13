@@ -4197,6 +4197,139 @@ describe('Files Tool', () => {
     await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(2))
   })
 
+  it('saves dirty Rich Markdown before applying an external line handoff in Source', async () => {
+    window.spacezero.files.listDirectory = vi.fn(async () => [
+      { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+    ])
+    window.spacezero.files.openDocument = vi.fn(async () => ({
+      name: 'README.md',
+      relativePath: 'README.md',
+      contentKind: 'text' as const,
+      size: 23,
+      modifiedAt: new Date(0).toISOString(),
+      revision: 'revision-1',
+      content: '# Title\n\nbody line',
+      hasBom: false,
+      lineEnding: 'lf' as const
+    }))
+    let resolveSave:
+      | ((result: Awaited<ReturnType<typeof window.spacezero.files.saveDocument>>) => void)
+      | undefined
+    const pendingSave = new Promise<
+      Awaited<ReturnType<typeof window.spacezero.files.saveDocument>>
+    >((resolve) => {
+      resolveSave = resolve
+    })
+    const saveDocument = vi.fn(async () => pendingSave)
+    window.spacezero.files.saveDocument = saveDocument
+
+    render(<FilesTool sessionId="session-line-rich-save" />)
+    fireEvent.click(await screen.findByText('README.md'))
+    expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+    fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+      target: { value: '# Dirty\n\nbody line' }
+    })
+
+    await act(async () => {
+      await openFilesLocation({
+        contextKey: 'session-line-rich-save',
+        ipcContext: { kind: 'project-session', sessionId: 'session-line-rich-save' },
+        relativePath: 'README.md',
+        line: 3
+      })
+    })
+
+    await waitFor(() => expect(saveDocument).toHaveBeenCalledTimes(1))
+    expect(screen.getByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty\n\nbody line')
+    expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
+    expect(diffsEditorMock.revealLineInCenter).not.toHaveBeenCalledWith(3)
+
+    await act(async () => {
+      resolveSave?.({
+        status: 'saved',
+        document: {
+          name: 'README.md',
+          relativePath: 'README.md',
+          contentKind: 'text',
+          size: 19,
+          modifiedAt: new Date(1).toISOString(),
+          revision: 'revision-2',
+          content: '# Dirty\n\nbody line',
+          hasBom: false,
+          lineEnding: 'lf'
+        }
+      })
+      await pendingSave
+    })
+
+    expect(await screen.findByLabelText('Source editor')).toHaveDisplayValue('# Dirty\n\nbody line')
+    await waitFor(() => expect(diffsEditorMock.revealLineInCenter).toHaveBeenCalledWith(3))
+  })
+
+  it.each([
+    ['rejects', 'Couldn’t save this file. Your changes are still in memory.'],
+    ['conflicts', 'Changed on disk. Choose how to resolve before saving.']
+  ] as const)(
+    'keeps dirty Rich Markdown active with actionable feedback when an external line handoff save %s',
+    async (outcome, feedback) => {
+      window.spacezero.files.listDirectory = vi.fn(async () => [
+        { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }
+      ])
+      window.spacezero.files.openDocument = vi.fn(async () => ({
+        name: 'README.md',
+        relativePath: 'README.md',
+        contentKind: 'text' as const,
+        size: 7,
+        modifiedAt: new Date(0).toISOString(),
+        revision: 'revision-1',
+        content: '# Saved',
+        hasBom: false,
+        lineEnding: 'lf' as const
+      }))
+      window.spacezero.files.saveDocument = vi.fn(async () => {
+        if (outcome === 'rejects') throw new Error('disk unavailable')
+        return {
+          status: 'conflict' as const,
+          document: {
+            name: 'README.md',
+            relativePath: 'README.md',
+            contentKind: 'text' as const,
+            size: 10,
+            modifiedAt: new Date(1).toISOString(),
+            revision: 'revision-2',
+            content: '# External',
+            hasBom: false,
+            lineEnding: 'lf' as const
+          }
+        }
+      })
+
+      const sessionId = `session-line-rich-${outcome}`
+      render(<FilesTool sessionId={sessionId} />)
+      fireEvent.click(await screen.findByText('README.md'))
+      expect(await screen.findByLabelText('Source editor')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Rich' }))
+      fireEvent.change(await screen.findByLabelText('Rich Markdown editor'), {
+        target: { value: '# Dirty' }
+      })
+
+      await act(async () => {
+        await openFilesLocation({
+          contextKey: sessionId,
+          ipcContext: { kind: 'project-session', sessionId },
+          relativePath: 'README.md',
+          line: 2
+        })
+      })
+
+      expect(await screen.findByText(feedback)).toBeInTheDocument()
+      expect(screen.getByLabelText('Rich Markdown editor')).toHaveDisplayValue('# Dirty')
+      expect(screen.queryByLabelText('Source editor')).not.toBeInTheDocument()
+      expect(diffsEditorMock.revealLineInCenter).not.toHaveBeenCalledWith(2)
+    }
+  )
+
   it('consumes external line targets while keeping Markdown in Source until Rich is selected', async () => {
     window.spacezero.files.listDirectory = vi.fn(async () => [
       { name: 'README.md', relativePath: 'README.md', kind: 'file' as const }

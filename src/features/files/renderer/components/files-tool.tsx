@@ -318,6 +318,7 @@ function FilesToolSession({
       renderFilesTreeRowDecoration(item.path, treeEntriesRef.current, tabsRef.current)
   })
   const activeDocument = getActiveFilesTab(context)
+  const handledLineHandoffRequestIdRef = useRef<number | undefined>(undefined)
   const preparedTreeInput = useMemo<FileTreePreparedInput | null>(
     () =>
       rootState.status === 'ready'
@@ -591,6 +592,22 @@ function FilesToolSession({
     },
     [saveDocumentSnapshot, sessionId, setEditorMode]
   )
+
+  useEffect(() => {
+    if (
+      !activeDocument ||
+      activeDocument.status !== 'ready' ||
+      activeDocument.editorMode !== 'rich' ||
+      activeDocument.targetLine === undefined ||
+      activeDocument.locationRequestId === undefined ||
+      handledLineHandoffRequestIdRef.current === activeDocument.locationRequestId
+    ) {
+      return
+    }
+
+    handledLineHandoffRequestIdRef.current = activeDocument.locationRequestId
+    void requestEditorMode(activeDocument.relativePath, 'source')
+  }, [activeDocument, requestEditorMode])
 
   const saveAllDirtyDocuments = useCallback(async (): Promise<void> => {
     const dirtyDocuments = context.tabs.filter(
@@ -1781,12 +1798,7 @@ function FilesReadyEditorPanel({
     ? getRichMarkdownLimitation(document.draft, { isMdx: isMdxPath(document.relativePath) })
     : null
   const activeMode: FilesEditorMode =
-    document.targetLine === undefined &&
-    supportsRichMode &&
-    !richModeLimitation &&
-    document.editorMode === 'rich'
-      ? 'rich'
-      : 'source'
+    supportsRichMode && !richModeLimitation && document.editorMode === 'rich' ? 'rich' : 'source'
   const { resolvedTheme } = useAppearance()
   const richImageAdapter = useMemo(
     () => createRichImageAdapter?.(document.relativePath),
