@@ -1,6 +1,5 @@
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -8,16 +7,11 @@ import {
   type ComponentType,
   type ReactNode
 } from 'react'
-import { DotsSixVertical, Plus, Sidebar, X } from '@phosphor-icons/react'
+import { Sidebar } from '@phosphor-icons/react'
 
 import { Button } from '@renderer/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
 
+import { SidePaneShellView, SidePaneTabStripView } from './side-pane-shell-view'
 import { useSidePaneStore, type SidePaneCategoryId, type SidePaneTab } from './side-pane-store'
 
 export type SidePaneContextCapabilities =
@@ -147,69 +141,35 @@ export function SidePaneShell({
     resizeSidePane(nextWidth)
   }
 
+  const activeContent = controller.activeTab
+    ? activeCategory?.render?.({ contextKey, capabilities, activeTab: controller.activeTab })
+    : null
+
   return (
-    <div ref={containerRef} className="relative flex min-h-0 min-w-0 flex-1 bg-background">
-      <div
-        className="flex min-h-0 min-w-0 flex-1 flex-col"
-        style={{
-          paddingRight:
-            !controller.isOpen && controller.canOpen ? SIDE_PANE_COLLAPSED_HEADER_WIDTH : undefined
-        }}
-      >
-        {children}
-      </div>
-      {controller.isOpen && activeCategory ? (
-        <>
-          <div
-            aria-label="Resize Side Pane"
-            aria-orientation="vertical"
-            aria-valuemax={maxWidth}
-            aria-valuemin={minWidth}
-            aria-valuenow={renderedWidth}
-            className="flex w-1 shrink-0 cursor-col-resize items-center justify-center text-muted-foreground/55 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            role="separator"
-            tabIndex={0}
-            onKeyDown={resizeWithKeyboard}
-            onPointerDown={startResize}
-          >
-            <DotsSixVertical aria-hidden className="h-4 w-3" />
-          </div>
-          <aside
-            aria-label="Side Pane"
-            className="flex min-h-0 shrink-0 flex-col border-l bg-background"
-            style={{ minWidth, width: renderedWidth }}
-          >
-            {showInlineHeaderTabs ? (
-              <SidePaneTabStrip
-                activeTabId={controller.activeTab?.id ?? null}
-                categories={categories}
-                contextKey={contextKey}
-                tabs={controller.tabs}
-                onActivate={controller.activateTab}
-                onClose={controller.closeTab}
-                onCreateCategory={controller.createCategory}
-                onReorder={controller.reorderTab}
-              />
-            ) : null}
-            <div
-              id={`${contextKey}-${activeCategory.id}-panel`}
-              className="min-h-0 flex-1 overflow-auto"
-              role="tabpanel"
-            >
-              {controller.activeTab
-                ? activeCategory.render?.({
-                    contextKey,
-                    capabilities,
-                    activeTab: controller.activeTab
-                  })
-                : null}
-            </div>
-          </aside>
-        </>
-      ) : (
-        <SidePaneLauncher categories={categories} onSelect={controller.openCategory} />
-      )}
-    </div>
+    <SidePaneShellView
+      activeContent={activeContent}
+      activeTabId={controller.activeTab?.id ?? null}
+      canOpen={controller.canOpen}
+      categories={categories}
+      categoryMru={savedState?.categoryMru ?? {}}
+      containerRef={containerRef}
+      contextKey={contextKey}
+      isOpen={Boolean(controller.isOpen && activeCategory)}
+      maxWidth={maxWidth}
+      minWidth={minWidth}
+      renderedWidth={renderedWidth}
+      showInlineHeaderTabs={showInlineHeaderTabs}
+      tabs={controller.tabs}
+      onActivateTab={controller.activateTab}
+      onCloseTab={controller.closeTab}
+      onCreateCategory={controller.createCategory}
+      onOpenCategory={controller.openCategory}
+      onReorderTab={controller.reorderTab}
+      onResizeKeyDown={resizeWithKeyboard}
+      onResizePointerDown={startResize}
+    >
+      {children}
+    </SidePaneShellView>
   )
 }
 
@@ -305,254 +265,16 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   }
 }
 
-function SidePaneLauncher({
-  categories,
-  onSelect
-}: {
-  categories: readonly SidePaneCategoryDescriptor[]
-  onSelect: (categoryId: SidePaneCategoryId) => void
-}): React.JSX.Element {
-  return (
-    <div
-      aria-label="Side Pane launcher"
-      aria-orientation="vertical"
-      className="absolute right-2 top-2 z-10 flex flex-col gap-1 rounded-lg border bg-background p-1 shadow-sm"
-      role="toolbar"
-    >
-      {categories.map((category) => {
-        const Icon = category.icon
-        return (
-          <button
-            key={category.id}
-            aria-label={category.available ? category.label : `${category.label} — Coming soon`}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!category.available}
-            type="button"
-            onClick={() => onSelect(category.id)}
-          >
-            <Icon aria-hidden className="size-4" />
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-function SidePaneTabStrip({
-  activeTabId,
-  categories,
-  contextKey,
-  tabs,
-  onActivate,
-  onClose,
-  onCreateCategory,
-  onReorder
-}: {
-  activeTabId: string | null
-  categories: readonly SidePaneCategoryDescriptor[]
-  contextKey: string
-  tabs: SidePaneTab[]
-  onActivate: (tabId: string) => void
-  onClose: (tabId: string) => void
-  onCreateCategory: (categoryId: SidePaneCategoryId) => void
-  onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
-}): React.JSX.Element {
-  function activateTab(tabId: string): void {
-    const tab = tabs.find((candidate) => candidate.id === tabId)
-    if (!tab) return
-    onActivate(tabId)
-    categories.find((category) => category.id === tab.categoryId)?.onActivateTab?.(tab)
-  }
-
-  function requestCloseTab(tab: SidePaneTab): void {
-    const category = categories.find((candidate) => candidate.id === tab.categoryId)
-    void Promise.resolve(category?.onRequestCloseTab?.(tab) ?? true).then((canClose) => {
-      if (canClose) onClose(tab.id)
-    })
-  }
-
-  return (
-    <div className="titlebar-control flex h-9 min-w-0 flex-1 shrink-0 border-b bg-muted/40 p-1">
-      <div
-        aria-label="Side Pane Tabs"
-        className="flex min-w-0 flex-1 overflow-x-auto"
-        role="tablist"
-      >
-        {tabs.map((tab) => {
-          const category = categories.find((candidate) => candidate.id === tab.categoryId)
-          if (!category) return null
-          return (
-            <SidePaneTabButton
-              key={tab.id}
-              active={activeTabId === tab.id}
-              category={category}
-              contextKey={contextKey}
-              tab={tab}
-              tabs={tabs}
-              onActivate={activateTab}
-              onClose={() => requestCloseTab(tab)}
-              onDoubleClick={() => category.onDoubleClickTab?.(tab)}
-              onReorder={onReorder}
-            />
-          )
-        })}
-      </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          aria-label="Create Side Pane Tab"
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        >
-          <Plus aria-hidden className="size-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {categories
-            .filter((category) => category.available)
-            .map((category) => {
-              const Icon = category.icon
-              return (
-                <DropdownMenuItem key={category.id} onClick={() => onCreateCategory(category.id)}>
-                  <Icon className="size-4" />
-                  {category.label}
-                </DropdownMenuItem>
-              )
-            })}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
-  )
-}
-
-function SidePaneTabButton({
-  active,
-  category,
-  contextKey,
-  tab,
-  tabs,
-  onActivate,
-  onClose,
-  onDoubleClick,
-  onReorder
-}: {
-  active: boolean
-  category: SidePaneCategoryDescriptor
-  contextKey: string
-  tab: SidePaneTab
-  tabs: SidePaneTab[]
-  onActivate: (tabId: string) => void
-  onClose: (tabId: string) => void
-  onDoubleClick: () => void
-  onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
-}): React.JSX.Element {
-  const tabRef = useRef<HTMLDivElement>(null)
-  const categoryMruTabId = useSidePaneStore(
-    (state) => state.contexts[contextKey]?.categoryMru[tab.categoryId]
-  )
-  const Icon = category.icon
-  const label = tab.label ?? tab.title ?? category.label
-  const renderedIcon =
-    tab.categoryId === 'browser' && tab.faviconUrl ? (
-      <img
-        alt=""
-        className="size-3.5 shrink-0"
-        src={tab.faviconUrl}
-        onError={(event) => {
-          event.currentTarget.style.display = 'none'
-        }}
-      />
-    ) : (
-      (category.renderTabIcon?.(tab) ?? <Icon aria-hidden className="size-3.5 shrink-0" />)
-    )
-
-  useEffect(() => {
-    if (!active || !tabRef.current) return
-    const container = tabRef.current.parentElement
-    if (!container) return
-    const tabRect = tabRef.current.getBoundingClientRect()
-    const containerRect = container.getBoundingClientRect()
-    if (tabRect.right > containerRect.right)
-      container.scrollLeft += tabRect.right - containerRect.right
-    else if (tabRect.left < containerRect.left)
-      container.scrollLeft -= containerRect.left - tabRect.left
-  }, [active])
-
-  function handleKeyDown(event: React.KeyboardEvent<HTMLButtonElement>): void {
-    const index = tabs.findIndex((candidate) => candidate.id === tab.id)
-    const direction = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
-    if (direction === 0) return
-    const target = tabs[index + direction]
-    if (!target) return
-    event.preventDefault()
-    if (event.altKey && event.shiftKey) {
-      onReorder(tab.id, target.id, direction < 0 ? 'before' : 'after')
-    } else {
-      onActivate(target.id)
-      const targetButton = tabRef.current?.parentElement?.querySelector<HTMLElement>(
-        `[data-side-pane-tab-id="${target.id}"]`
-      )
-      targetButton?.focus()
-    }
-  }
-
-  return (
-    <div
-      ref={tabRef}
-      className="group relative flex h-8 min-w-20 max-w-32 shrink-0 items-center rounded-t-md"
-      draggable
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = 'move'
-        event.dataTransfer.setData('text/plain', tab.id)
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        event.preventDefault()
-        const sourceId = event.dataTransfer.getData('text/plain')
-        const bounds = event.currentTarget.getBoundingClientRect()
-        onReorder(
-          sourceId,
-          tab.id,
-          event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after'
-        )
-      }}
-    >
-      <button
-        aria-controls={`${contextKey}-${tab.categoryId}-panel`}
-        aria-label={`${tab.dirty ? 'Modified ' : ''}${label}${tab.preview ? ' preview' : ''}`}
-        aria-selected={active}
-        data-side-pane-category-id={tab.categoryId}
-        data-side-pane-category-mru={categoryMruTabId === tab.id ? 'true' : undefined}
-        data-side-pane-resource-id={tab.resourceId}
-        data-side-pane-tab-id={tab.id}
-        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-t-md px-2 pr-7 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        role="tab"
-        tabIndex={active ? 0 : -1}
-        type="button"
-        onClick={() => onActivate(tab.id)}
-        onDoubleClick={onDoubleClick}
-        onKeyDown={handleKeyDown}
-      >
-        {renderedIcon}
-        {tab.dirty ? <span aria-hidden>●</span> : null}
-        <span className={`truncate ${tab.preview ? 'italic' : ''}`}>{label}</span>
-        {tab.preview ? <span className="sr-only"> preview</span> : null}
-      </button>
-      <button
-        aria-label={`Close ${label}`}
-        className="absolute right-1 flex size-5 items-center justify-center rounded-sm text-muted-foreground opacity-0 hover:bg-accent group-hover:opacity-100 group-focus-within:opacity-100"
-        type="button"
-        onClick={() => onClose(tab.id)}
-      >
-        <X aria-hidden className="size-3" />
-      </button>
-    </div>
-  )
-}
-
 export function SidePaneHeaderControls({
   configuration
 }: {
   configuration: SidePaneConfiguration | null
 }): React.JSX.Element {
   const controller = useSidePaneController(configuration)
+  const savedState = useSidePaneStore((state) =>
+    configuration ? state.contexts[configuration.contextKey] : undefined
+  )
+  const categoryMru = savedState?.categoryMru ?? {}
   return (
     <div
       aria-label="Side Pane header controls"
@@ -561,9 +283,10 @@ export function SidePaneHeaderControls({
       }`}
     >
       {configuration && controller.isOpen ? (
-        <SidePaneTabStrip
+        <SidePaneTabStripView
           activeTabId={controller.activeTab?.id ?? null}
           categories={configuration.categories}
+          categoryMru={categoryMru}
           contextKey={configuration.contextKey}
           tabs={controller.tabs}
           onActivate={controller.activateTab}
