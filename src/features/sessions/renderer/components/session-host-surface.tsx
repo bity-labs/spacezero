@@ -19,9 +19,7 @@ import {
   type ChatInputHistoryItem
 } from '@renderer/components/ai-chat'
 import { AgentChat } from '@renderer/components/agent-chat'
-import { Alert, AlertDescription } from '@renderer/components/ui/alert'
-import { Button } from '@renderer/components/ui/button'
-import { Card } from '@renderer/components/ui/card'
+import { SessionHostScreen } from './session-host-screen'
 
 type ProjectSessionHostSurfaceProps = {
   project: Project
@@ -166,42 +164,46 @@ export function ProjectSessionHostSurface({
     }
   }
 
+  if (!currentChatContext && !error) {
+    return (
+      <SessionHostScreen
+        label="Project Session"
+        state={{ kind: 'loading', message: 'Restoring Project Session chat…' }}
+      />
+    )
+  }
+
   if (!currentChatContext) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        {error ? (
-          <Alert className="m-4" variant="destructive">
-            <AlertDescription>{error} Chat remains unavailable.</AlertDescription>
-          </Alert>
-        ) : (
-          <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            Restoring Project Session chat…
-          </div>
-        )}
-      </div>
+      <SessionHostScreen
+        label="Project Session"
+        state={{ kind: 'ready', alert: `${error} Chat remains unavailable.`, content: null }}
+      />
     )
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {error ? (
-        <Alert className="m-4 mb-0" variant="destructive">
-          <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
-        </Alert>
-      ) : null}
-      <ProjectSessionChatSurface
-        key={currentChatContext.agentSessionId}
-        project={project}
-        session={session}
-        agentSessionId={currentChatContext.agentSessionId}
-        isClearingChat={isClearingChat}
-        historyItems={chatHistory}
-        onClearChat={clearChat}
-        onOpenChatHistory={openChatHistory}
-        onResumeChatContext={resumeChatContext}
-        onDismissChatHistory={() => setChatHistoryState(undefined)}
-      />
-    </div>
+    <SessionHostScreen
+      label="Project Session"
+      state={{
+        kind: 'ready',
+        alert: error ? `${error} Your previous chat is still current.` : undefined,
+        content: (
+          <ProjectSessionChatSurface
+            key={currentChatContext.agentSessionId}
+            project={project}
+            session={session}
+            agentSessionId={currentChatContext.agentSessionId}
+            isClearingChat={isClearingChat}
+            historyItems={chatHistory}
+            onClearChat={clearChat}
+            onOpenChatHistory={openChatHistory}
+            onResumeChatContext={resumeChatContext}
+            onDismissChatHistory={() => setChatHistoryState(undefined)}
+          />
+        )
+      }}
+    />
   )
 }
 
@@ -285,32 +287,29 @@ export function ManagedChatHostSurface({
 }: ManagedChatHostSurfaceProps): React.JSX.Element {
   const agentSession = useAgentSession(session.id)
 
+  const screenLabel = chatLinkContext.kind === 'global-chat' ? 'Global Chat' : 'Knowledge Base Chat'
+
   if (requireRuntimeReady && agentSession.runtimeReadiness === 'loading') {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Restoring agent Session…
-      </div>
+      <SessionHostScreen
+        label={screenLabel}
+        state={{ kind: 'loading', message: 'Restoring agent Session…' }}
+      />
     )
   }
 
   if (requireRuntimeReady && agentSession.runtimeReadiness === 'error') {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <Card className="w-full max-w-lg gap-4 p-6">
-          <Alert variant="destructive">
-            <AlertDescription>
-              Unable to restore the agent Session: {agentSession.restoreError}
-            </AlertDescription>
-          </Alert>
-          <p className="text-sm text-muted-foreground">
-            Retry when the agent runtime is available. Chat remains unavailable until the Session is
-            restored.
-          </p>
-          <Button className="self-end" onClick={agentSession.retryRestore}>
-            Retry
-          </Button>
-        </Card>
-      </div>
+      <SessionHostScreen
+        label={screenLabel}
+        state={{
+          kind: 'error',
+          message: `Unable to restore the agent Session: ${agentSession.restoreError}`,
+          guidance:
+            'Retry when the agent runtime is available. Chat remains unavailable until the Session is restored.',
+          onRetry: agentSession.retryRestore
+        }}
+      />
     )
   }
 
