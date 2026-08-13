@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from 'react'
-import { ArrowClockwise, ArrowSquareOut, GithubLogo, LinkSimple, Plus } from '@phosphor-icons/react'
 
 import type { GitHubProjectLinkOptions } from '../../../github/shared'
 import {
@@ -14,13 +13,14 @@ import {
 } from '../../../github/renderer'
 import type { ProjectSession } from '../../../sessions/shared'
 import type { Project } from '../../shared'
-import { AgentResourceTrustCheckbox } from './agent-resource-trust-checkbox'
+import {
+  ProjectHomeScreen,
+  type ProjectHomeGitHubState,
+  type ProjectHomeView
+} from './project-home-screen'
 import { projectSessionSetupErrorMessage } from '../project-session-error-message'
 import { Button } from '@renderer/components/ui/button'
 import { Card } from '@renderer/components/ui/card'
-import { cn } from '@renderer/lib/utils'
-
-type ProjectHomeView = 'overview' | 'issues' | 'pull-requests'
 
 export type ProjectHomeGitHubTarget = {
   type: 'issue' | 'pull-request'
@@ -55,6 +55,13 @@ export function ProjectHome({
     initialGitHubTarget?.type === 'pull-request' ? initialGitHubTarget.number : null
   )
   const { connection, isLoading: connectionLoading } = useGitHubConnection()
+  const connected = connection?.status === 'connected'
+  const repository = useProjectRepository(
+    displayProject.id,
+    Boolean(
+      displayProject.githubRepository && connected && !connectionLoading && view === 'overview'
+    )
+  )
   const [linkOptions, setLinkOptions] = useState<GitHubProjectLinkOptions | null>(null)
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<string | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
@@ -143,373 +150,112 @@ export function ProjectHome({
     }
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-auto">
-      <div className="border-b px-8 pb-0 pt-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Project Home
-            </p>
-            <h1 className="mt-1 text-2xl font-semibold">{displayProject.name}</h1>
-          </div>
-          <Button
-            className="gap-2"
-            disabled={isStartingSession}
-            onClick={() => void startSession()}
-          >
-            <Plus className="size-4" aria-hidden="true" />
-            {isStartingSession ? 'Starting Session…' : 'New session'}
-          </Button>
-        </div>
-        <nav aria-label="Project Home" className="mt-7 flex gap-1">
-          <ProjectHomeTab active={view === 'overview'} onClick={() => setView('overview')}>
-            Overview
-          </ProjectHomeTab>
-          <ProjectHomeTab
-            active={view === 'issues'}
-            onClick={() => {
-              setSelectedIssueNumber(null)
-              setView('issues')
-            }}
-          >
-            Issues
-          </ProjectHomeTab>
-          <ProjectHomeTab
-            active={view === 'pull-requests'}
-            onClick={() => {
-              setSelectedPullRequestNumber(null)
-              setView('pull-requests')
-            }}
-          >
-            Pull Requests
-          </ProjectHomeTab>
-        </nav>
-      </div>
+  function selectView(nextView: ProjectHomeView): void {
+    if (nextView === 'issues') setSelectedIssueNumber(null)
+    if (nextView === 'pull-requests') setSelectedPullRequestNumber(null)
+    setView(nextView)
+  }
 
-      <div className="mx-auto w-full max-w-5xl space-y-5 p-8">
-        {sessionSetupError ? (
-          <div className="rounded-lg border border-destructive/40 p-4" role="alert">
-            <p className="text-sm">{sessionSetupError}</p>
-          </div>
-        ) : null}
-        {view === 'overview' ? (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <GitHubProjectState
-              project={displayProject}
-              connection={connection}
-              connectionLoading={connectionLoading}
-              linkOptions={linkOptions}
-              selectedRepositoryId={selectedRepositoryId}
-              linkError={linkError}
-              isLoadingOptions={isLoadingOptions}
-              isSavingLink={isSavingLink}
-              onLoadLinkOptions={() => void loadLinkOptions()}
-              onSelectRepository={setSelectedRepositoryId}
-              onLinkRepository={() => void linkRepository()}
-            />
-            <ProjectAgentResourceTrustCard
-              project={displayProject}
-              isSaving={isSavingTrust}
-              error={trustError}
-              onChange={(trusted) => void updateAgentResourceTrust(trusted)}
-            />
-            {displayProject.githubRepository ? (
-              connectionLoading ? (
-                <ProjectGitHubOverviewLoading
-                  onViewIssues={() => {
-                    setSelectedIssueNumber(null)
-                    setView('issues')
-                  }}
-                  onViewPullRequests={() => {
-                    setSelectedPullRequestNumber(null)
-                    setView('pull-requests')
-                  }}
-                />
-              ) : connection?.status === 'connected' ? (
-                <ProjectGitHubOverview
-                  project={displayProject}
-                  onOpenIssue={(number) => {
-                    setSelectedIssueNumber(number)
-                    setView('issues')
-                  }}
-                  onViewIssues={() => {
-                    setSelectedIssueNumber(null)
-                    setView('issues')
-                  }}
-                  onOpenPullRequest={(number) => {
-                    setSelectedPullRequestNumber(number)
-                    setView('pull-requests')
-                  }}
-                  onViewPullRequests={() => {
-                    setSelectedPullRequestNumber(null)
-                    setView('pull-requests')
-                  }}
-                />
-              ) : null
-            ) : null}
-          </div>
-        ) : view === 'issues' ? (
-          <GitHubWorkflowGate
-            project={displayProject}
-            connectionLoading={connectionLoading}
-            connected={connection?.status === 'connected'}
-            loadingPlaceholder={<IssuesViewLoading />}
-            onShowOverview={() => setView('overview')}
-          >
-            <IssuesView
-              key={selectedIssueNumber ?? 'issue-list'}
-              project={displayProject}
-              initialIssueNumber={selectedIssueNumber}
-              onSessionCreated={onSessionCreated}
-            />
-          </GitHubWorkflowGate>
-        ) : (
-          <GitHubWorkflowGate
-            project={displayProject}
-            connectionLoading={connectionLoading}
-            connected={connection?.status === 'connected'}
-            loadingPlaceholder={<PullRequestsViewLoading />}
-            onShowOverview={() => setView('overview')}
-          >
-            <PullRequestsView
-              key={selectedPullRequestNumber ?? 'pull-request-list'}
-              project={displayProject}
-              initialPullRequestNumber={selectedPullRequestNumber}
-              onSessionCreated={onSessionCreated}
-            />
-          </GitHubWorkflowGate>
-        )}
-      </div>
-    </div>
-  )
-}
+  const githubState: ProjectHomeGitHubState = connectionLoading
+    ? { status: 'loading' }
+    : !connected
+      ? { status: 'disconnected' }
+      : !displayProject.githubRepository
+        ? {
+            status: 'link-needed',
+            linkOptions,
+            selectedRepositoryId,
+            error: linkError,
+            isLoadingOptions,
+            isSavingLink
+          }
+        : repository.isLoading
+          ? { status: 'repository-loading' }
+          : repository.isError || !repository.data
+            ? {
+                status: 'repository-error',
+                message: getRepositoryErrorMessage(repository.error)
+              }
+            : { status: 'connected', repository: repository.data }
 
-function ProjectAgentResourceTrustCard({
-  project,
-  isSaving,
-  error,
-  onChange
-}: {
-  project: Project
-  isSaving: boolean
-  error: string | null
-  onChange: (trusted: boolean) => void
-}): React.JSX.Element {
-  return (
-    <Card className="gap-3 p-6" role="region" aria-label="Trust Project">
-      <AgentResourceTrustCheckbox
-        checked={project.agentResourcesTrusted === true}
-        disabled={isSaving}
-        onCheckedChange={onChange}
+  const summaryContent = displayProject.githubRepository ? (
+    connectionLoading ? (
+      <ProjectGitHubOverviewLoading
+        onViewIssues={() => selectView('issues')}
+        onViewPullRequests={() => selectView('pull-requests')}
       />
-      <p className="text-xs text-muted-foreground">
-        Changes apply to new or explicitly reloaded Project Sessions. Live Sessions keep their
-        currently loaded resources.
-      </p>
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
-    </Card>
-  )
-}
+    ) : connected ? (
+      <ProjectGitHubOverview
+        project={displayProject}
+        onOpenIssue={(number) => {
+          setSelectedIssueNumber(number)
+          setView('issues')
+        }}
+        onViewIssues={() => selectView('issues')}
+        onOpenPullRequest={(number) => {
+          setSelectedPullRequestNumber(number)
+          setView('pull-requests')
+        }}
+        onViewPullRequests={() => selectView('pull-requests')}
+      />
+    ) : null
+  ) : null
 
-function ProjectHomeTab({
-  active,
-  onClick,
-  children
-}: {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      aria-current={active ? 'page' : undefined}
-      className={cn(
-        'border-b-2 px-3 pb-3 text-sm text-muted-foreground transition-colors hover:text-foreground',
-        active ? 'border-foreground text-foreground' : 'border-transparent'
-      )}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  )
-}
-
-function GitHubProjectState({
-  project,
-  connection,
-  connectionLoading,
-  linkOptions,
-  selectedRepositoryId,
-  linkError,
-  isLoadingOptions,
-  isSavingLink,
-  onLoadLinkOptions,
-  onSelectRepository,
-  onLinkRepository
-}: {
-  project: Project
-  connection: ReturnType<typeof useGitHubConnection>['connection']
-  connectionLoading: boolean
-  linkOptions: GitHubProjectLinkOptions | null
-  selectedRepositoryId: string | null
-  linkError: string | null
-  isLoadingOptions: boolean
-  isSavingLink: boolean
-  onLoadLinkOptions: () => void
-  onSelectRepository: (repositoryId: string) => void
-  onLinkRepository: () => void
-}): React.JSX.Element {
-  if (connectionLoading) {
-    return <GitHubRepositoryLoading />
-  }
-
-  if (connection?.status !== 'connected') {
-    return (
-      <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
-        <div>
-          <h2 className="font-medium">Connect GitHub</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Connect GitHub to link this Project and browse its Issues and Pull Requests.
-          </p>
-        </div>
-        <Button render={<a href="#/settings?section=account" />} className="w-fit gap-2">
-          <GithubLogo className="size-4" aria-hidden="true" />
-          Connect GitHub
-        </Button>
-      </Card>
-    )
-  }
-
-  if (project.githubRepository) {
-    return <LinkedRepositoryStatus project={project} />
-  }
+  const workflowContent =
+    view === 'issues' ? (
+      <GitHubWorkflowGate
+        project={displayProject}
+        connectionLoading={connectionLoading}
+        connected={connected}
+        loadingPlaceholder={<IssuesViewLoading />}
+        onShowOverview={() => setView('overview')}
+      >
+        <IssuesView
+          key={selectedIssueNumber ?? 'issue-list'}
+          project={displayProject}
+          initialIssueNumber={selectedIssueNumber}
+          onSessionCreated={onSessionCreated}
+        />
+      </GitHubWorkflowGate>
+    ) : view === 'pull-requests' ? (
+      <GitHubWorkflowGate
+        project={displayProject}
+        connectionLoading={connectionLoading}
+        connected={connected}
+        loadingPlaceholder={<PullRequestsViewLoading />}
+        onShowOverview={() => setView('overview')}
+      >
+        <PullRequestsView
+          key={selectedPullRequestNumber ?? 'pull-request-list'}
+          project={displayProject}
+          initialPullRequestNumber={selectedPullRequestNumber}
+          onSessionCreated={onSessionCreated}
+        />
+      </GitHubWorkflowGate>
+    ) : null
 
   return (
-    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
-      <div>
-        <h2 className="font-medium">Link GitHub repository</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Associate this local Project with one authorized repository. Space Zero stores metadata
-          only and never changes Git remotes or moves the Project.
-        </p>
-      </div>
-
-      {!linkOptions ? (
-        <Button className="w-fit gap-2" disabled={isLoadingOptions} onClick={onLoadLinkOptions}>
-          <LinkSimple className="size-4" aria-hidden="true" />
-          {isLoadingOptions ? 'Loading repositories…' : 'Link GitHub repository'}
-        </Button>
-      ) : linkOptions.repositories.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No authorized repositories are available.</p>
-      ) : (
-        <fieldset className="space-y-2">
-          <legend className="mb-2 text-sm font-medium">Authorized repositories</legend>
-          {linkOptions.repositories.map((repository) => {
-            const suggested = linkOptions.suggestedRepositoryIds.includes(repository.id)
-            return (
-              <label
-                key={repository.id}
-                className="flex cursor-pointer items-start gap-3 rounded-md border p-3"
-              >
-                <input
-                  type="radio"
-                  name="github-repository"
-                  value={repository.id}
-                  checked={selectedRepositoryId === repository.id}
-                  onChange={() => onSelectRepository(repository.id)}
-                />
-                <span>
-                  <span className="block text-sm font-medium">{repository.fullName}</span>
-                  {suggested ? (
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      Matches a local Git remote
-                    </span>
-                  ) : null}
-                </span>
-              </label>
-            )
-          })}
-          <Button disabled={!selectedRepositoryId || isSavingLink} onClick={onLinkRepository}>
-            {isSavingLink ? 'Linking…' : 'Link repository'}
-          </Button>
-        </fieldset>
-      )}
-
-      {linkError ? <p className="text-sm text-destructive">{linkError}</p> : null}
-    </Card>
-  )
-}
-
-function LinkedRepositoryStatus({ project }: { project: Project }): React.JSX.Element {
-  const repository = useProjectRepository(project.id)
-
-  if (repository.isLoading) {
-    return <GitHubRepositoryLoading />
-  }
-
-  if (repository.isError || !repository.data) {
-    return (
-      <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
-        <div>
-          <h2 className="font-medium">Repository status unavailable</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {getRepositoryErrorMessage(repository.error)}
-          </p>
-        </div>
-        <Button variant="outline" className="w-fit gap-2" onClick={() => void repository.refetch()}>
-          <ArrowClockwise className="size-4" aria-hidden="true" />
-          Retry
-        </Button>
-      </Card>
-    )
-  }
-
-  return (
-    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-2">
-          <GithubLogo className="size-5" aria-hidden="true" />
-          <div>
-            <h2 className="font-medium">{repository.data.fullName}</h2>
-            <p className="text-xs text-muted-foreground">
-              {repository.data.isPrivate ? 'Private' : 'Public'} · Default branch{' '}
-              {repository.data.defaultBranch}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            render={<a href={repository.data.htmlUrl} target="_blank" rel="noreferrer" />}
-            variant="outline"
-            className="gap-2"
-          >
-            <ArrowSquareOut className="size-4" aria-hidden="true" />
-            Open on GitHub
-          </Button>
-          <Button variant="ghost" className="gap-2" onClick={() => void repository.refetch()}>
-            <ArrowClockwise className="size-4" aria-hidden="true" />
-            Refresh
-          </Button>
-        </div>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        Live from GitHub. Space Zero does not store repository API responses in its local database.
-      </p>
-    </Card>
-  )
-}
-
-function GitHubRepositoryLoading(): React.JSX.Element {
-  return (
-    <Card className="gap-4 p-6" role="region" aria-label="GitHub repository">
-      <div className="space-y-3" role="status" aria-label="Loading GitHub repository">
-        <div className="h-5 w-2/5 animate-pulse rounded bg-muted" aria-hidden="true" />
-        <div className="h-3 w-3/5 animate-pulse rounded bg-muted" aria-hidden="true" />
-        <div className="h-3 w-4/5 animate-pulse rounded bg-muted" aria-hidden="true" />
-      </div>
-    </Card>
+    <ProjectHomeScreen
+      project={displayProject}
+      activeView={view}
+      isStartingSession={isStartingSession}
+      sessionSetupError={sessionSetupError}
+      githubState={githubState}
+      agentResourceTrust={{
+        trusted: displayProject.agentResourcesTrusted === true,
+        isSaving: isSavingTrust,
+        error: trustError
+      }}
+      summaryContent={summaryContent}
+      workflowContent={workflowContent}
+      onSelectView={selectView}
+      onNewSession={() => void startSession()}
+      onLoadLinkOptions={() => void loadLinkOptions()}
+      onSelectRepository={setSelectedRepositoryId}
+      onLinkRepository={() => void linkRepository()}
+      onRetryRepository={() => void repository.refetch()}
+      onAgentResourceTrustChange={(trusted) => void updateAgentResourceTrust(trusted)}
+    />
   )
 }
 
@@ -528,9 +274,7 @@ function GitHubWorkflowGate({
   onShowOverview: () => void
   children: ReactNode
 }): React.JSX.Element {
-  if (connectionLoading) {
-    return <>{loadingPlaceholder}</>
-  }
+  if (connectionLoading) return <>{loadingPlaceholder}</>
   if (!connected) {
     return (
       <Card className="gap-3 p-6">
