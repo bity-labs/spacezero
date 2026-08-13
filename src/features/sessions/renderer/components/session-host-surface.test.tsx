@@ -8,6 +8,7 @@ import type { ProjectSession, ManagedChatAgentSession } from '../../shared'
 import type { AgentSessionProjectionEvent } from '../../../../shared/agent-session-projection.model'
 import type { AgentSessionState } from '../../../../shared/agent-protocol'
 import type { AgentToolExecutionEvent } from '../../../../shared/workspace-tool-protocol'
+import * as agentWorkspaceRenderer from '../../../agent-workspace/renderer'
 import { GitTool } from '../../../git/renderer/components/git-tool'
 import { resetSidePaneStore, useSidePaneStore } from '../../../side-pane/renderer'
 import { ProjectSessionHostSurface, ManagedChatHostSurface } from './session-host-surface'
@@ -1144,6 +1145,83 @@ describe('ProjectSessionHostSurface', () => {
     expect(screen.getByText(/Ask the workspace agent about Space Zero/)).toBeInTheDocument()
     expect(screen.queryByText(/Streaming projection placeholder/)).not.toBeInTheDocument()
     expect(screen.queryByText('workspace.getStatus.preview')).not.toBeInTheDocument()
+  })
+
+  it('keeps a ready managed chat visible when a later runtime refresh fails', async () => {
+    const retryRestore = vi.fn()
+    const readySessionState = {
+      sessionId: managedChatSession.id,
+      kind: 'workspace' as const,
+      projectId: null,
+      cwd: '/tmp/spacezero',
+      status: 'idle' as const,
+      live: true,
+      transcriptPath: '/tmp/global-chat.jsonl',
+      modelProvider: 'faux',
+      modelId: 'faux-1',
+      transcriptSnapshot: [
+        { role: 'user' as const, content: 'Keep this transcript visible.', timestamp: 100 }
+      ]
+    }
+    const readyResult = {
+      state: agentWorkspaceRenderer.createAgentSessionProjectionState(managedChatSession.id),
+      messages: [
+        {
+          id: 'agent-msg:0',
+          role: 'user' as const,
+          createdAt: '1970-01-01T00:00:00.100Z',
+          parts: [{ type: 'text' as const, text: 'Keep this transcript visible.' }]
+        }
+      ],
+      sessionState: readySessionState,
+      status: 'idle' as const,
+      lastError: undefined,
+      runtimeReadiness: 'ready' as const,
+      restoreError: undefined,
+      retryRestore,
+      applyDefinitionToFreshSession: vi.fn(async () => readySessionState),
+      prompt: vi.fn(async () => undefined),
+      abort: vi.fn(async () => undefined),
+      resolveToolConfirmation: vi.fn(async () => undefined)
+    } satisfies agentWorkspaceRenderer.UseAgentSessionResult
+    const useAgentSession = vi
+      .spyOn(agentWorkspaceRenderer, 'useAgentSession')
+      .mockReturnValue(readyResult)
+
+    try {
+      const { rerender } = render(
+        <ManagedChatHostSurface
+          session={managedChatSession}
+          requireRuntimeReady
+          chatLinkContext={{ kind: 'global-chat' }}
+        />
+      )
+
+      expect(screen.getByText('Keep this transcript visible.')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeEnabled()
+
+      useAgentSession.mockReturnValue({
+        ...readyResult,
+        runtimeReadiness: 'error',
+        restoreError: 'runtime refresh unavailable',
+        lastError: 'runtime refresh unavailable'
+      })
+      rerender(
+        <ManagedChatHostSurface
+          session={managedChatSession}
+          requireRuntimeReady
+          chatLinkContext={{ kind: 'global-chat' }}
+        />
+      )
+
+      expect(screen.getByText('Keep this transcript visible.')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Agent prompt' })).toBeEnabled()
+      expect(screen.getByRole('alert')).toHaveTextContent('runtime refresh unavailable')
+      await userEvent.click(screen.getByRole('button', { name: 'Retry refresh' }))
+      expect(retryRestore).toHaveBeenCalledOnce()
+    } finally {
+      useAgentSession.mockRestore()
+    }
   })
 
   it('submits Global Chat prompts through the agent prompt API', async () => {
