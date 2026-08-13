@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@renderer/components/ui/sidebar'
 
 export type SettingsSectionId =
-  'general' | 'models' | 'account' | 'appearance' | 'about' | 'agents' | 'skills' | 'debug'
+  'general' | 'models' | 'account' | 'appearance' | 'about' | 'agents' | 'skills'
 
 type SettingsNavigationDefinition = {
   id: SettingsSectionId
@@ -28,8 +28,7 @@ const primarySettingsNavigation = [
 
 const secondarySettingsNavigation = [
   { id: 'agents', translationKey: 'agents', icon: UserCircle },
-  { id: 'skills', translationKey: 'skills', icon: Sparkle },
-  { id: 'debug', translationKey: 'debug', icon: GearSix }
+  { id: 'skills', translationKey: 'skills', icon: Sparkle }
 ] as const satisfies ReadonlyArray<SettingsNavigationDefinition>
 
 export function SettingsNavigation({
@@ -73,7 +72,6 @@ function getSettingsNavLabel(
   t: ReturnType<typeof useTranslation>['t']
 ): string {
   if (item.id === 'appearance') return 'Appearance'
-  if (item.id === 'debug') return 'UI Debug'
   return t(`settings.navigation.${item.translationKey}`)
 }
 
