@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { Alert, AlertDescription } from '@renderer/components/ui/alert'
-import { Button } from '@renderer/components/ui/button'
-import { Card } from '@renderer/components/ui/card'
 import type { GlobalChatContext, GlobalChatHistoryItem } from '../shared'
+import { SessionHostScreen } from './components/session-host-screen'
 import { ManagedChatHostSurface } from './components/session-host-surface'
 
 export function GlobalChatPage(): React.JSX.Element {
@@ -90,62 +88,59 @@ export function GlobalChatPage(): React.JSX.Element {
 
   if (error && !chatContext) {
     return (
-      <div className="flex flex-1 items-center justify-center p-8">
-        <Card className="w-full max-w-lg gap-4 p-6">
-          <Alert variant="destructive">
-            <AlertDescription>Unable to open Chat: {error}</AlertDescription>
-          </Alert>
-          <p className="text-sm text-muted-foreground">
-            Retry when the agent runtime is available. Your current Chat Context is unchanged.
-          </p>
-          <Button
-            className="self-end"
-            onClick={() => {
-              setError(undefined)
-              setRequestId((value) => value + 1)
-            }}
-          >
-            Retry
-          </Button>
-        </Card>
-      </div>
+      <SessionHostScreen
+        label="Global Chat"
+        state={{
+          kind: 'error',
+          message: `Unable to open Chat: ${error}`,
+          guidance:
+            'Retry when the agent runtime is available. Your current Chat Context is unchanged.',
+          onRetry: () => {
+            setError(undefined)
+            setRequestId((value) => value + 1)
+          }
+        }}
+      />
     )
   }
 
   if (!chatContext) {
     return (
-      <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        Opening Chat…
-      </div>
+      <SessionHostScreen
+        label="Global Chat"
+        state={{ kind: 'loading', message: 'Opening Chat…' }}
+      />
     )
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {error ? (
-        <Alert className="m-4 mb-0" variant="destructive">
-          <AlertDescription>{error} Your previous chat is still current.</AlertDescription>
-        </Alert>
-      ) : null}
-      <ManagedChatHostSurface
-        key={chatContext.id}
-        session={chatContext.agentSession}
-        requireRuntimeReady
-        chatLinkContext={{ kind: 'global-chat' }}
-        commands={[
-          { name: 'clear', description: 'Start a fresh Global Chat Context.' },
-          { name: 'resume', description: 'Continue an older Global Chat Context.' }
-        ]}
-        historyItems={chatHistory}
-        onCommand={(commandName) => {
-          if (commandName === 'clear' && !isClearingChat) return clearChat()
-          if (commandName === 'resume') return openChatHistory()
-          return undefined
-        }}
-        onHistorySelect={resumeChatContext}
-        onHistoryDismiss={() => setChatHistory(undefined)}
-      />
-    </div>
+    <SessionHostScreen
+      label="Global Chat"
+      state={{
+        kind: 'ready',
+        alert: error ? `${error} Your previous chat is still current.` : undefined,
+        content: (
+          <ManagedChatHostSurface
+            key={chatContext.id}
+            session={chatContext.agentSession}
+            requireRuntimeReady
+            chatLinkContext={{ kind: 'global-chat' }}
+            commands={[
+              { name: 'clear', description: 'Start a fresh Global Chat Context.' },
+              { name: 'resume', description: 'Continue an older Global Chat Context.' }
+            ]}
+            historyItems={chatHistory}
+            onCommand={(commandName) => {
+              if (commandName === 'clear' && !isClearingChat) return clearChat()
+              if (commandName === 'resume') return openChatHistory()
+              return undefined
+            }}
+            onHistorySelect={resumeChatContext}
+            onHistoryDismiss={() => setChatHistory(undefined)}
+          />
+        )
+      }}
+    />
   )
 }
 
