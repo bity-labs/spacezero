@@ -988,21 +988,37 @@ describe('App', () => {
       within(secondaryNavigation)
         .getAllByRole('link')
         .map((link) => link.textContent)
-    ).toEqual(['Agents', 'Skills', 'UI Debug'])
+    ).toEqual(['Agents', 'Skills'])
 
-    for (const page of [
-      'Providers',
-      'Account',
-      'Appearance',
-      'About',
-      'Agents',
-      'Skills',
-      'UI Debug'
+    for (const [page, section] of [
+      ['Providers', 'models'],
+      ['Account', 'account'],
+      ['Appearance', 'appearance'],
+      ['About', 'about'],
+      ['Agents', 'agents'],
+      ['Skills', 'skills']
     ]) {
       fireEvent.click(screen.getByRole('link', { name: page }))
       expect(await screen.findByRole('heading', { name: page })).toBeInTheDocument()
+      expect(window.location.hash).toBe(`#/settings?section=${section}`)
     }
+    expect(screen.queryByRole('link', { name: 'UI Debug' })).not.toBeInTheDocument()
   })
+
+  it.each(['debug', 'unknown'])(
+    'falls back to General for the removed or unknown %s Settings deep link',
+    async (section) => {
+      await act(async () => {
+        router.history.push(`/settings?section=${section}`)
+        await router.load()
+      })
+      render(<App />)
+
+      expect(await screen.findByRole('heading', { name: 'General' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'General' })).toHaveAttribute('data-active')
+      expect(screen.queryByRole('heading', { name: 'UI Debug' })).not.toBeInTheDocument()
+    }
+  )
 
   it('shows only implemented Settings categories and opens the account area from the sidebar', async () => {
     render(<App />)
