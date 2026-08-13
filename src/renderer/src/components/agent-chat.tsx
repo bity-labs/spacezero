@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
+import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesEntry } from '../../../features/files/shared'
 import {
-  ChatInput,
-  ChatTranscript,
   type AiChatMessage,
   type AiChatThinkingLevel,
   type ChatInputAgentDefinition,
   type ChatInputCommand,
   type ChatInputHistoryItem,
-  type ChatInputModel,
-  type ChatInputSubmitFile
+  type ChatInputModel
 } from '@renderer/components/ai-chat'
-import { cn } from '@renderer/lib/utils'
+import { AgentChatView } from '@renderer/components/agent-chat-view'
 import type { AgentDefinitionReference, AgentSessionState } from '@shared/agent-protocol'
 import type { AvailableModel, ModelDefaults } from '@shared/model-settings'
 
@@ -61,141 +59,67 @@ export function AgentChat({
   onToolConfirmationResolve,
   onOpenLink
 }: AgentChatProps) {
-  const [isSubmitPending, setIsSubmitPending] = useState(false)
-
-  useEffect(() => {
-    if (status !== 'running' || !onAbort) return undefined
-
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key !== 'Escape' || event.repeat) return
-      event.preventDefault()
-      onAbort?.()
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onAbort, status])
-
-  useEffect(() => {
-    if (status !== 'running' && !hasAssistantActivity(messages)) return undefined
-
-    const timer = window.setTimeout(() => setIsSubmitPending(false), 0)
-    return () => window.clearTimeout(timer)
-  }, [messages, status])
-
-  const displayMessages = useMemo(
-    () => withOptimisticThinkingMessage(messages, sessionId, isSubmitPending || status === 'running'),
-    [isSubmitPending, messages, sessionId, status]
-  )
-
   const modelControls = useAgentChatModelControls(sessionId, sessionState)
   const definitionControls = useAgentDefinitionControls(sessionId, messages, sessionState)
-  const defaultComposer = (
-    <ChatInput
-      models={modelControls.models}
-      skills={sessionState?.skills}
+
+  return (
+    <AgentChatView
+      sessionId={sessionId}
+      messages={messages}
+      status={status}
+      error={modelControls.error ?? definitionControls.error}
+      placeholder={placeholder}
       commands={commands}
       historyItems={historyItems}
+      skills={sessionState?.skills}
+      models={modelControls.models}
+      selectedModelId={modelControls.selectedModelId}
+      thinkingLevel={modelControls.thinkingLevel}
       agentDefinitions={definitionControls.definitions}
       selectedAgentDefinitionId={definitionControls.selectedDefinitionId}
       activeAgentDefinition={sessionState?.agentDefinition}
       agentDefinitionLocked={definitionControls.locked}
-      onAgentDefinitionChange={definitionControls.setSelectedDefinitionId}
-      onAgentDefinitionPickerOpen={definitionControls.refreshDefinitions}
-      selectedModelId={modelControls.selectedModelId}
-      thinkingLevel={modelControls.thinkingLevel}
-      onModelChange={modelControls.setModel}
-      onThinkingChange={modelControls.setThinkingLevel}
+      composer={composer}
+      emptyState={emptyState}
+      className={className}
+      contentClassName={contentClassName}
+      onSubmit={onSubmit}
       onCommand={onCommand}
       onHistorySelect={onHistorySelect}
       onHistoryDismiss={onHistoryDismiss}
-      onSubmit={async ({ text, files, agentDefinitionId }) => {
-        setIsSubmitPending(true)
-        try {
-          const prompt = await appendFilesAsContext(text, files)
-          await onSubmit?.(
-            prompt,
-            agentDefinitionId ? { agentDefinition: { id: agentDefinitionId } } : undefined
-          )
-        } catch (error) {
-          setIsSubmitPending(false)
-          throw error
-        }
-      }}
       onAbort={onAbort}
-      placeholder={placeholder}
-      status={status === 'running' ? 'streaming' : 'ready'}
-      className="rounded-2xl bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
+      onToolConfirmationResolve={onToolConfirmationResolve}
+      onOpenLink={onOpenLink}
+      onModelChange={modelControls.setModel}
+      onThinkingChange={modelControls.setThinkingLevel}
+      onAgentDefinitionChange={definitionControls.setSelectedDefinitionId}
+      onAgentDefinitionPickerOpen={definitionControls.refreshDefinitions}
+      resolveFilePath={window.spacezero.app.getSelectedFilePath}
+      loadKnowledgeBaseMentionPaths={loadKnowledgeBaseMentionPaths}
     />
   )
-  const composerContent = composer === undefined ? defaultComposer : composer
-
-  return (
-    <section
-      className={cn(
-        'relative mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col overflow-hidden',
-        className
-      )}
-    >
-      {modelControls.error || definitionControls.error ? (
-        <div
-          className="absolute inset-x-6 top-3 z-20 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-          role="alert"
-        >
-          {modelControls.error ?? definitionControls.error}
-        </div>
-      ) : null}
-      <ChatTranscript
-        messages={displayMessages}
-        emptyState={emptyState}
-        contentClassName={contentClassName}
-        onToolConfirmationResolve={onToolConfirmationResolve}
-        onOpenLink={onOpenLink}
-      />
-      {composerContent ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-background via-background/95 to-transparent px-6 pb-6 pt-16">
-          <div className="pointer-events-auto w-full">{composerContent}</div>
-        </div>
-      ) : null}
-    </section>
-  )
 }
 
-function withOptimisticThinkingMessage(
-  messages: AgentChatMessage[],
-  sessionId: string,
-  shouldShow: boolean
-): AgentChatMessage[] {
-  if (!shouldShow || hasAssistantActivity(messages)) return messages
+async function loadKnowledgeBaseMentionPaths() {
+  const status = await window.spacezero.knowledgeBase.getStatus()
+  if (status.setupState !== 'configured') return { state: 'unconfigured' as const }
 
-  return [
-    ...messages,
-    {
-      id: `${sessionId}-optimistic-thinking`,
-      role: 'assistant',
-      status: 'streaming',
-      parts: []
-    }
-  ]
+  return { state: 'ready' as const, paths: await listKnowledgeBaseMentionPaths() }
 }
 
-function hasAssistantActivity(messages: readonly AgentChatMessage[]): boolean {
-  return messages.some(
-    (message) =>
-      message.role === 'assistant' &&
-      (message.status === 'streaming' || message.parts.length > 0)
-  )
+async function listKnowledgeBaseMentionPaths(relativePath = ''): Promise<string[]> {
+  const entries = await window.spacezero.files.listDirectory({
+    context: { kind: 'knowledge-base', contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY },
+    relativePath
+  })
+  const paths = await Promise.all(entries.map(listKnowledgeBaseMentionEntry))
+  return paths.flat()
 }
 
-async function appendFilesAsContext(text: string, files: ChatInputSubmitFile[]): Promise<string> {
-  if (files.length === 0) return text
-
-  const fileReferences = files
-    .map((file) => `- ${file.path}${file.type ? ` (${file.type})` : ''}`)
-    .join('\n')
-  const intro = text.trim().length > 0 ? text.trim() : 'Use the selected files as context.'
-
-  return `${intro}\n\nSelected file context paths:\n${fileReferences}\n\nRead these files if you need their contents.`
+async function listKnowledgeBaseMentionEntry(entry: FilesEntry): Promise<string[]> {
+  if (entry.kind === 'symlink') return []
+  if (entry.kind === 'file') return [entry.relativePath]
+  return [`${entry.relativePath}/`, ...(await listKnowledgeBaseMentionPaths(entry.relativePath))]
 }
 
 function useAgentDefinitionControls(

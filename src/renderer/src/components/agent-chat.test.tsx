@@ -9,14 +9,7 @@ describe('AgentChat', () => {
   it('aborts a running response when Escape is pressed', () => {
     const handleAbort = vi.fn()
 
-    render(
-      <AgentChat
-        sessionId="session-1"
-        messages={[]}
-        status="running"
-        onAbort={handleAbort}
-      />
-    )
+    render(<AgentChat sessionId="session-1" messages={[]} status="running" onAbort={handleAbort} />)
 
     fireEvent.keyDown(window, { key: 'Escape' })
 
@@ -26,14 +19,7 @@ describe('AgentChat', () => {
   it('does not abort idle sessions on Escape', () => {
     const handleAbort = vi.fn()
 
-    render(
-      <AgentChat
-        sessionId="session-1"
-        messages={[]}
-        status="idle"
-        onAbort={handleAbort}
-      />
-    )
+    render(<AgentChat sessionId="session-1" messages={[]} status="idle" onAbort={handleAbort} />)
 
     fireEvent.keyDown(window, { key: 'Escape' })
 
@@ -65,6 +51,23 @@ describe('AgentChat', () => {
       )
     )
     expect(readText).not.toHaveBeenCalled()
+  })
+
+  it('loads Knowledge Base mention paths through the app-connected container', async () => {
+    window.spacezero.knowledgeBase.getStatus = async () => ({
+      setupState: 'configured',
+      rootPath: '/home/builder/SpaceZero/knowledge-base'
+    })
+    window.spacezero.files.listDirectory = async ({ relativePath }) =>
+      relativePath === '' ? [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }] : []
+
+    render(<AgentChat sessionId="session-1" messages={[]} />)
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'Review @kb' }
+    })
+
+    expect(await screen.findByRole('option', { name: /README\.md/ })).toBeInTheDocument()
   })
 
   it('reconciles displayed thinking to the effective runtime state after switching model capabilities', async () => {
@@ -104,13 +107,15 @@ describe('AgentChat', () => {
       modelId: 'max-reasoning',
       thinkingLevel: 'max'
     }
-    const setModel = vi.fn(async ({ sessionId, provider, modelId }): Promise<AgentSessionState> => ({
-      ...sessionState,
-      sessionId,
-      modelProvider: provider,
-      modelId,
-      thinkingLevel: modelId === 'fast' ? 'off' : 'low'
-    }))
+    const setModel = vi.fn(
+      async ({ sessionId, provider, modelId }): Promise<AgentSessionState> => ({
+        ...sessionState,
+        sessionId,
+        modelProvider: provider,
+        modelId,
+        thinkingLevel: modelId === 'fast' ? 'off' : 'low'
+      })
+    )
     window.spacezero.agent.getAvailableModels = async () => availableModels
     window.spacezero.settings.getModelDefaults = async () => defaults
     window.spacezero.agent.setModel = setModel
