@@ -1,6 +1,7 @@
-import { createElement, lazy, Suspense, useEffect, useState } from 'react'
+import { createElement, lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
 
+import { useRegisterAppCommands } from '../../app-commands/renderer/app-command-context'
 import type { BrowserContext } from '../../browser/shared'
 import { FilesTabIcon } from '../../files/renderer/components/files-tab-icon'
 import { openFilesLocation } from '../../files/renderer/files-open-location'
@@ -12,20 +13,26 @@ import {
 } from '../../files/renderer/files-side-pane'
 import { KNOWLEDGE_BASE_FILES_CONTEXT_KEY, type FilesContext } from '../../files/shared'
 import { MAX_KNOWLEDGE_BASE_IMAGE_BYTES } from '../../knowledge-base/shared'
-import type { TerminalContext } from '../../terminal/shared'
+import { TERMINAL_COMMAND_IDS, type TerminalContext } from '../../terminal/shared'
 import {
   closeBrowserSidePaneTab,
   createBrowserSidePaneTab,
   focusOrCreateBrowserSidePaneTab
 } from './browser-side-pane'
 import {
+  clearTerminalSidePaneCreateError,
   closeTerminalSidePaneTab,
   confirmCloseTerminalSidePaneTab,
   createTerminalSidePaneTab,
   focusOrCreateTerminalSidePaneTab,
+  getTerminalSidePaneCreateError,
   selectTerminalSidePaneTab
 } from './terminal-side-pane'
-import type { SidePaneCategoryDescriptor, SidePaneConfiguration } from './side-pane-shell'
+import type {
+  SidePaneCategoryDescriptor,
+  SidePaneConfiguration,
+  SidePaneContextCapabilities
+} from './side-pane-shell'
 import { useSidePaneStore } from './side-pane-store'
 
 const FilesTool = lazy(async () => {
@@ -47,6 +54,36 @@ const GitTool = lazy(async () => {
   const module = await import('../../git/renderer/components/git-tool')
   return { default: module.GitTool }
 })
+
+export function useRegisterTerminalSidePaneCommands(
+  configuration: SidePaneConfiguration | null
+): void {
+  const commands = useMemo(() => {
+    if (
+      !configuration?.categories.some(
+        (category) => category.id === 'terminal' && category.available
+      )
+    ) {
+      return []
+    }
+    const context = terminalContextFromCapabilities(configuration.capabilities)
+    return [
+      {
+        id: TERMINAL_COMMAND_IDS.newTab,
+        title: 'New Terminal',
+        category: 'Terminal',
+        keywords: ['new', 'tab', 'shell'],
+        handler: async () => {
+          await createTerminalSidePaneTab({
+            contextKey: configuration.contextKey,
+            context
+          })
+        }
+      }
+    ]
+  }, [configuration])
+  useRegisterAppCommands(commands)
+}
 
 const categoryRegistry = {
   files: { id: 'files', label: 'Files', available: false, icon: Files },
@@ -331,6 +368,11 @@ function createTerminalSidePaneCategoryDescriptor(
       )
     },
     close: (tab) => {
+      if (!tab.resourceId) {
+        clearTerminalSidePaneCreateError(contextKey)
+        useSidePaneStore.getState().closeTab(contextKey, tab.id)
+        return
+      }
       void closeTerminalSidePaneTab({ contextKey, context: terminalContext, tab }).catch(
         () => undefined
       )
@@ -340,7 +382,7 @@ function createTerminalSidePaneCategoryDescriptor(
         () => undefined
       )
     },
-    onRequestCloseTab: () => confirmCloseTerminalSidePaneTab(),
+    onRequestCloseTab: (tab) => (tab.resourceId ? confirmCloseTerminalSidePaneTab() : true),
     render: ({ activeTab }) =>
       createElement(
         Suspense,
@@ -362,37 +404,44 @@ function TerminalWithBrowserHandoff({
   browserContext
 }: {
   contextKey: string
-  activeTab: { resourceId?: string }
+  activeTab: { id: string; resourceId?: string }
   terminalContext: TerminalContext
   browserContext: BrowserContext
 }): React.JSX.Element {
   const terminalId = activeTab.resourceId
-  const [restoreError, setRestoreError] = useState<string | null>(null)
+  const createError = terminalId ? null : getTerminalSidePaneCreateError(contextKey)
+  const [retryForceNew, setRetryForceNew] = useState(false)
   const [restoreAttempt, setRestoreAttempt] = useState(0)
   useEffect(() => {
-    if (terminalId) return
-    void focusOrCreateTerminalSidePaneTab({ contextKey, context: terminalContext }).catch(
-      (caught: unknown) => {
-        setRestoreError(caught instanceof Error ? caught.message : 'Terminal failed to restore')
-      }
-    )
-  }, [contextKey, restoreAttempt, terminalContext, terminalId])
+    if (terminalId || createError) return
+    const retry = retryForceNew ? createTerminalSidePaneTab : focusOrCreateTerminalSidePaneTab
+    void retry({ contextKey, context: terminalContext }).catch(() => undefined)
+  }, [
+    activeTab.id,
+    contextKey,
+    createError,
+    restoreAttempt,
+    retryForceNew,
+    terminalContext,
+    terminalId
+  ])
 
-  if (restoreError) {
+  if (createError) {
     return createElement(
       'div',
       {
         className: 'flex h-full flex-col items-center justify-center gap-3 p-4 text-center text-sm'
       },
-      createElement('p', null, 'Terminal failed to restore'),
-      createElement('p', { className: 'text-xs text-muted-foreground' }, restoreError),
+      createElement('p', null, createError.title),
+      createElement('p', { className: 'text-xs text-muted-foreground' }, createError.message),
       createElement(
         'button',
         {
           className: 'rounded-md border px-3 py-1.5 text-xs hover:bg-accent',
           type: 'button',
           onClick: () => {
-            setRestoreError(null)
+            setRetryForceNew(createError.forceNew)
+            clearTerminalSidePaneCreateError(contextKey)
             setRestoreAttempt((attempt) => attempt + 1)
           }
         },
@@ -415,6 +464,19 @@ function TerminalWithBrowserHandoff({
       }
     }
   })
+}
+
+function terminalContextFromCapabilities(
+  capabilities: SidePaneContextCapabilities
+): TerminalContext {
+  if (capabilities.kind === 'project-home') {
+    return { kind: 'project-home', projectId: capabilities.projectId }
+  }
+  if (capabilities.kind === 'project-session') {
+    return { kind: 'project-session', sessionId: capabilities.sessionId }
+  }
+  if (capabilities.kind === 'global-chat') return { kind: 'global-chat' }
+  return { kind: 'knowledge-base' }
 }
 
 function TerminalToolLoading(): React.JSX.Element {

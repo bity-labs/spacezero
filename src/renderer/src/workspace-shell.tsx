@@ -59,6 +59,7 @@ import {
   SIDE_PANE_HANDLE_WIDTH,
   SidePaneShell,
   TerminalSidePaneLifecycle,
+  useRegisterTerminalSidePaneCommands,
   useSidePaneController,
   useSidePaneStore,
   type SidePaneConfiguration
@@ -180,6 +181,7 @@ export function WorkspaceShell(): React.JSX.Element {
     if (activeProject) return createProjectHomeSidePaneConfiguration(activeProject)
     return null
   }, [activePrimaryView, activeProject, activeProjectSession, isKnowledgeBaseConfigured])
+  useRegisterTerminalSidePaneCommands(sidePaneConfiguration)
   const sidePaneController = useSidePaneController(sidePaneConfiguration)
   const openSidePaneCategory = sidePaneController.openCategory
   const toggleSidePane = sidePaneController.toggle

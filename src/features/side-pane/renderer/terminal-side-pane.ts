@@ -15,7 +15,15 @@ type TerminalSidePaneContext = {
   context: TerminalContext
 }
 
+type TerminalCreateError = {
+  message: string
+  title: string
+  forceNew: boolean
+}
+
 const diagnosticsByTerminalId = new Map<string, TerminalDiagnostic[]>()
+const createErrorsByContextKey = new Map<string, TerminalCreateError>()
+const CREATE_ERROR_TAB_ID = 'terminal:create-error'
 
 export function syncTerminalSidePaneState(
   contextKey: string,
@@ -40,40 +48,73 @@ export async function focusOrCreateTerminalSidePaneTab({
   contextKey,
   context
 }: TerminalSidePaneContext): Promise<TerminalTabsSnapshot> {
-  let result = await window.spacezero.terminal.create({ context, forceNew: false })
-  if (result.status === 'empty' || result.tabs?.length === 0) {
-    result = await window.spacezero.terminal.create({ context, forceNew: true })
-  }
-  rememberDiagnostics(result)
-  let snapshot = snapshotFromCreateResult(result)
+  try {
+    let result = await window.spacezero.terminal.create({ context, forceNew: false })
+    if (result.status === 'empty' || result.tabs?.length === 0) {
+      result = await window.spacezero.terminal.create({ context, forceNew: true })
+    }
+    rememberDiagnostics(result)
+    let snapshot = snapshotFromCreateResult(result)
 
-  const layout = useSidePaneStore.getState().contexts[contextKey]
-  const preferredTabId =
-    layout?.tabs.find((tab) => tab.id === layout.activeTabId && tab.categoryId === 'terminal')
-      ?.id ?? layout?.categoryMru.terminal
-  const preferredTerminal = snapshot.tabs.find(
-    (tab) => terminalSidePaneTabId(tab) === preferredTabId
-  )
-  if (preferredTerminal && snapshot.activeTerminalId !== preferredTerminal.terminalId) {
-    snapshot = await window.spacezero.terminal.selectTab({
-      context,
-      terminalId: preferredTerminal.terminalId
-    })
-  }
+    const layout = useSidePaneStore.getState().contexts[contextKey]
+    const preferredTabId =
+      layout?.tabs.find((tab) => tab.id === layout.activeTabId && tab.categoryId === 'terminal')
+        ?.id ?? layout?.categoryMru.terminal
+    const preferredTerminal = snapshot.tabs.find(
+      (tab) => terminalSidePaneTabId(tab) === preferredTabId
+    )
+    if (preferredTerminal && snapshot.activeTerminalId !== preferredTerminal.terminalId) {
+      snapshot = await window.spacezero.terminal.selectTab({
+        context,
+        terminalId: preferredTerminal.terminalId
+      })
+    }
 
-  syncTerminalSidePaneState(contextKey, snapshot, true)
-  return snapshot
+    clearTerminalSidePaneCreateError(contextKey)
+    syncTerminalSidePaneState(contextKey, snapshot, true)
+    return snapshot
+  } catch (caught) {
+    const isRestore = Boolean(
+      useSidePaneStore
+        .getState()
+        .contexts[contextKey]?.tabs.some(
+          (tab) =>
+            tab.categoryId === 'terminal' && !tab.resourceId && tab.id !== CREATE_ERROR_TAB_ID
+        )
+    )
+    showTerminalSidePaneCreateError(
+      contextKey,
+      caught,
+      false,
+      isRestore ? 'Terminal failed to restore' : 'Terminal failed to start'
+    )
+    throw caught
+  }
 }
 
 export async function createTerminalSidePaneTab({
   contextKey,
   context
 }: TerminalSidePaneContext): Promise<TerminalTabsSnapshot> {
-  const result = await window.spacezero.terminal.create({ context, forceNew: true })
-  rememberDiagnostics(result)
-  const snapshot = snapshotFromCreateResult(result)
-  syncTerminalSidePaneState(contextKey, snapshot, true)
-  return snapshot
+  try {
+    const result = await window.spacezero.terminal.create({ context, forceNew: true })
+    rememberDiagnostics(result)
+    const snapshot = snapshotFromCreateResult(result)
+    clearTerminalSidePaneCreateError(contextKey)
+    syncTerminalSidePaneState(contextKey, snapshot, true)
+    return snapshot
+  } catch (caught) {
+    showTerminalSidePaneCreateError(contextKey, caught, true, 'Terminal failed to start')
+    throw caught
+  }
+}
+
+export function getTerminalSidePaneCreateError(contextKey: string): TerminalCreateError | null {
+  return createErrorsByContextKey.get(contextKey) ?? null
+}
+
+export function clearTerminalSidePaneCreateError(contextKey: string): void {
+  createErrorsByContextKey.delete(contextKey)
 }
 
 export async function selectTerminalSidePaneTab({
@@ -179,6 +220,40 @@ function snapshotFromCreateResult(result: TerminalCreateResult): TerminalTabsSna
     tabs,
     activeTerminalId: result.activeTerminalId ?? result.terminalId
   }
+}
+
+function showTerminalSidePaneCreateError(
+  contextKey: string,
+  caught: unknown,
+  forceNew: boolean,
+  title: string
+): void {
+  createErrorsByContextKey.set(contextKey, {
+    message: caught instanceof Error ? caught.message : title,
+    title,
+    forceNew
+  })
+  const existingTerminalTabs =
+    useSidePaneStore
+      .getState()
+      .contexts[contextKey]?.tabs.filter(
+        (tab) => tab.categoryId === 'terminal' && Boolean(tab.resourceId)
+      ) ?? []
+  useSidePaneStore.getState().synchronizeCategoryTabs(
+    contextKey,
+    'terminal',
+    [
+      ...existingTerminalTabs,
+      {
+        id: CREATE_ERROR_TAB_ID,
+        categoryId: 'terminal',
+        title: 'Terminal failed',
+        transient: true
+      }
+    ],
+    CREATE_ERROR_TAB_ID,
+    true
+  )
 }
 
 function rememberDiagnostics(result: TerminalCreateResult): void {
