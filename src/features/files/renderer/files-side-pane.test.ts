@@ -138,11 +138,17 @@ describe('Files Side Pane coordination', () => {
     const sidePane = useSidePaneStore.getState()
     const files = useFilesStore.getState()
     sidePane.openCategory('session:session-1', 'files')
-    sidePane.openCategory('session:session-1', 'browser')
+    sidePane.synchronizeCategoryTabs(
+      'session:session-1',
+      'browser',
+      [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
+      'browser-tab-main-owned',
+      true
+    )
 
     expect(useSidePaneStore.getState().contexts['session:session-1'].tabs).toEqual([
       { id: 'files:1', categoryId: 'files' },
-      { id: 'browser:1', categoryId: 'browser' }
+      { id: 'browser-tab-main-owned', categoryId: 'browser' }
     ])
 
     files.beginOpenTab('session-1', 'README.md', 'preview', 1)
@@ -160,7 +166,7 @@ describe('Files Side Pane coordination', () => {
           preview: true,
           dirty: false
         },
-        { id: 'browser:1', categoryId: 'browser' }
+        { id: 'browser-tab-main-owned', categoryId: 'browser' }
       ]
     })
 

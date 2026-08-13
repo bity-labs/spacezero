@@ -31,6 +31,9 @@ export type SidePaneCategoryDescriptor = {
   label: string
   available: boolean
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
+  open?: () => void
+  create?: () => void
+  close?: (tab: SidePaneTab) => void
   render?: (context: {
     contextKey: string
     capabilities: SidePaneContextCapabilities
@@ -184,7 +187,7 @@ export function SidePaneShell({
                 tabs={controller.tabs}
                 onActivate={controller.activateTab}
                 onClose={controller.closeTab}
-                onOpenCategory={controller.openCategory}
+                onCreateCategory={controller.createCategory}
                 onReorder={controller.reorderTab}
               />
             ) : null}
@@ -218,6 +221,7 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   activateTab: (tabId: string) => void
   closeTab: (tabId: string) => void
   collapse: () => void
+  createCategory: (categoryId: SidePaneCategoryId) => void
   openCategory: (categoryId: SidePaneCategoryId) => void
   reorderTab: (sourceId: string, targetId: string, position: 'before' | 'after') => void
   toggle: () => void
@@ -242,9 +246,19 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   const openCategory = useCallback(
     (categoryId: SidePaneCategoryId) => {
       const category = configuration?.categories.find((candidate) => candidate.id === categoryId)
-      if (configuration && category?.available) {
-        openCategoryInContext(configuration.contextKey, categoryId)
-      }
+      if (!configuration || !category?.available) return
+      if (category.open) category.open()
+      else openCategoryInContext(configuration.contextKey, categoryId)
+    },
+    [configuration, openCategoryInContext]
+  )
+
+  const createCategory = useCallback(
+    (categoryId: SidePaneCategoryId) => {
+      const category = configuration?.categories.find((candidate) => candidate.id === categoryId)
+      if (!configuration || !category?.available) return
+      if (category.create) category.create()
+      else openCategoryInContext(configuration.contextKey, categoryId)
     },
     [configuration, openCategoryInContext]
   )
@@ -271,9 +285,16 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
       if (configuration) activateTabInContext(configuration.contextKey, tabId)
     },
     closeTab: (tabId) => {
-      if (configuration) closeTabInContext(configuration.contextKey, tabId)
+      if (!configuration) return
+      const tab = savedState?.tabs.find((candidate) => candidate.id === tabId)
+      const category = configuration.categories.find(
+        (candidate) => candidate.id === tab?.categoryId
+      )
+      if (tab && category?.close) category.close(tab)
+      else closeTabInContext(configuration.contextKey, tabId)
     },
     collapse,
+    createCategory,
     openCategory,
     reorderTab: (sourceId, targetId, position) => {
       if (configuration) {
@@ -324,7 +345,7 @@ function SidePaneTabStrip({
   tabs,
   onActivate,
   onClose,
-  onOpenCategory,
+  onCreateCategory,
   onReorder
 }: {
   activeTabId: string | null
@@ -333,7 +354,7 @@ function SidePaneTabStrip({
   tabs: SidePaneTab[]
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
-  onOpenCategory: (categoryId: SidePaneCategoryId) => void
+  onCreateCategory: (categoryId: SidePaneCategoryId) => void
   onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
 }): React.JSX.Element {
   function activateTab(tabId: string): void {
@@ -389,7 +410,7 @@ function SidePaneTabStrip({
             .map((category) => {
               const Icon = category.icon
               return (
-                <DropdownMenuItem key={category.id} onClick={() => onOpenCategory(category.id)}>
+                <DropdownMenuItem key={category.id} onClick={() => onCreateCategory(category.id)}>
                   <Icon className="size-4" />
                   {category.label}
                 </DropdownMenuItem>
@@ -424,10 +445,20 @@ function SidePaneTabButton({
 }): React.JSX.Element {
   const tabRef = useRef<HTMLDivElement>(null)
   const Icon = category.icon
-  const label = tab.label ?? category.label
-  const renderedIcon = category.renderTabIcon?.(tab) ?? (
-    <Icon aria-hidden className="size-3.5 shrink-0" />
-  )
+  const label = tab.label ?? tab.title ?? category.label
+  const renderedIcon =
+    tab.categoryId === 'browser' && tab.faviconUrl ? (
+      <img
+        alt=""
+        className="size-3.5 shrink-0"
+        src={tab.faviconUrl}
+        onError={(event) => {
+          event.currentTarget.style.display = 'none'
+        }}
+      />
+    ) : (
+      (category.renderTabIcon?.(tab) ?? <Icon aria-hidden className="size-3.5 shrink-0" />)
+    )
 
   useEffect(() => {
     if (!active || !tabRef.current) return
@@ -531,7 +562,7 @@ export function SidePaneHeaderControls({
           tabs={controller.tabs}
           onActivate={controller.activateTab}
           onClose={controller.closeTab}
-          onOpenCategory={controller.openCategory}
+          onCreateCategory={controller.createCategory}
           onReorder={controller.reorderTab}
         />
       ) : (

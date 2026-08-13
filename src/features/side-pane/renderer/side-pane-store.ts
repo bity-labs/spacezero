@@ -10,6 +10,8 @@ export type SidePaneTab = {
   label?: string
   preview?: boolean
   dirty?: boolean
+  title?: string
+  faviconUrl?: string | null
 }
 
 export type SidePaneLayoutState = {
@@ -61,24 +63,61 @@ const sidePaneStorage = createJSONStorage(() => ({
 }))
 
 function migratePersistedState(persistedState: unknown, version: number): unknown {
-  if (version >= 1 || !persistedState || typeof persistedState !== 'object') return persistedState
-  const legacyContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
-  if (!legacyContexts) return persistedState
-  const contexts: Record<string, SidePaneLayoutState> = {}
-  for (const [contextKey, value] of Object.entries(legacyContexts)) {
-    if (!value || typeof value !== 'object') continue
-    const legacy = value as { isOpen?: boolean; width?: number | null; activeToolId?: unknown }
-    const categoryId = isSidePaneCategoryId(legacy.activeToolId) ? legacy.activeToolId : null
-    const tab = categoryId ? { id: `${categoryId}:1`, categoryId } : null
+  if (!persistedState || typeof persistedState !== 'object') return persistedState
+  let nextState = persistedState
+  if (version < 1) {
+    const legacyContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
+    if (!legacyContexts) return persistedState
+    const contexts: Record<string, SidePaneLayoutState> = {}
+    for (const [contextKey, value] of Object.entries(legacyContexts)) {
+      if (!value || typeof value !== 'object') continue
+      const legacy = value as { isOpen?: boolean; width?: number | null; activeToolId?: unknown }
+      const categoryId = isSidePaneCategoryId(legacy.activeToolId) ? legacy.activeToolId : null
+      const tab = categoryId ? { id: `${categoryId}:1`, categoryId } : null
+      contexts[contextKey] = {
+        isOpen: Boolean(legacy.isOpen && tab),
+        width: typeof legacy.width === 'number' ? legacy.width : null,
+        activeTabId: tab?.id ?? null,
+        tabs: tab ? [tab] : [],
+        categoryMru: tab ? { [tab.categoryId]: tab.id } : {}
+      }
+    }
+    nextState = { contexts }
+  }
+  return version < 2 ? removeSyntheticBrowserTabs(nextState) : nextState
+}
+
+function removeSyntheticBrowserTabs(persistedState: unknown): unknown {
+  if (!persistedState || typeof persistedState !== 'object') return persistedState
+  const persistedContexts = (persistedState as { contexts?: Record<string, unknown> }).contexts
+  if (!persistedContexts) return persistedState
+  const contexts: Record<string, unknown> = {}
+  for (const [contextKey, value] of Object.entries(persistedContexts)) {
+    if (!value || typeof value !== 'object') {
+      contexts[contextKey] = value
+      continue
+    }
+    const context = value as Partial<SidePaneLayoutState>
+    const tabs = Array.isArray(context.tabs)
+      ? context.tabs.filter((tab) => tab.categoryId !== 'browser' || tab.id !== 'browser:1')
+      : []
+    const activeTabId =
+      tabs.find((tab) => tab.id === context.activeTabId)?.id ?? tabs[0]?.id ?? null
+    const tabIds = new Set(tabs.map((tab) => tab.id))
+    const categoryMru = Object.fromEntries(
+      Object.entries(context.categoryMru ?? {}).filter(
+        ([, tabId]) => typeof tabId === 'string' && tabIds.has(tabId)
+      )
+    ) as Partial<Record<SidePaneCategoryId, string>>
     contexts[contextKey] = {
-      isOpen: Boolean(legacy.isOpen && tab),
-      width: typeof legacy.width === 'number' ? legacy.width : null,
-      activeTabId: tab?.id ?? null,
-      tabs: tab ? [tab] : [],
-      categoryMru: tab ? { [tab.categoryId]: tab.id } : {}
+      ...context,
+      isOpen: Boolean(context.isOpen && activeTabId),
+      activeTabId,
+      tabs,
+      categoryMru
     }
   }
-  return { contexts }
+  return { ...(persistedState as object), contexts }
 }
 
 function toPersistedContext(context: SidePaneLayoutState): SidePaneLayoutState {
@@ -173,8 +212,17 @@ const useSidePaneStore = create<SidePaneStore>()(
         set((state) => {
           const context = state.contexts[contextKey] ?? emptyContext()
           const existingTab =
-            context.tabs.find((tab) => tab.id === context.categoryMru[categoryId]) ??
-            context.tabs.find((tab) => tab.categoryId === categoryId)
+            context.tabs.find(
+              (tab) =>
+                tab.id === context.categoryMru[categoryId] &&
+                (categoryId !== 'browser' || tab.id !== 'browser:1')
+            ) ??
+            context.tabs.find(
+              (tab) =>
+                tab.categoryId === categoryId &&
+                (categoryId !== 'browser' || tab.id !== 'browser:1')
+            )
+          if (!existingTab && categoryId === 'browser') return state
           const tab = existingTab ?? { id: `${categoryId}:1`, categoryId }
           const tabs = existingTab ? context.tabs : [...context.tabs, tab]
           return {
@@ -195,12 +243,21 @@ const useSidePaneStore = create<SidePaneStore>()(
           const context = state.contexts[contextKey]
           if (!context) return state
           const availableCategories = new Set(availableCategoryIds)
-          const tabs = context.tabs.filter((tab) => availableCategories.has(tab.categoryId))
+          const tabs = context.tabs.filter(
+            (tab) =>
+              availableCategories.has(tab.categoryId) &&
+              (tab.categoryId !== 'browser' || tab.id !== 'browser:1')
+          )
           let activeTab = tabs.find((tab) => tab.id === context.activeTabId) ?? null
           if (!activeTab) {
             activeTab = tabs.find((tab) => tab.categoryId === fallbackCategoryId) ?? tabs[0] ?? null
           }
-          if (!activeTab && context.isOpen && availableCategories.has(fallbackCategoryId)) {
+          if (
+            !activeTab &&
+            context.isOpen &&
+            fallbackCategoryId !== 'browser' &&
+            availableCategories.has(fallbackCategoryId)
+          ) {
             activeTab = { id: `${fallbackCategoryId}:1`, categoryId: fallbackCategoryId }
             tabs.push(activeTab)
           }
@@ -255,43 +312,77 @@ const useSidePaneStore = create<SidePaneStore>()(
             }
           }
         }),
-      synchronizeCategoryTabs: (contextKey, categoryId, synchronizedTabs, activeTabId, activate) =>
+      synchronizeCategoryTabs: (
+        contextKey,
+        categoryId,
+        categoryTabs,
+        activeCategoryTabId,
+        activate
+      ) =>
         set((state) => {
           const context = state.contexts[contextKey] ?? emptyContext()
-          const remainingTabs = [...synchronizedTabs]
+          const incomingById = new Map(categoryTabs.map((tab) => [tab.id, tab]))
+          const existingCategoryTabs = context.tabs.filter((tab) => tab.categoryId === categoryId)
+          const retainedIncomingIds = new Set<string>()
           const tabs = context.tabs.flatMap((tab) => {
             if (tab.categoryId !== categoryId) return [tab]
-            const matchingIndex = remainingTabs.findIndex((candidate) => candidate.id === tab.id)
-            if (matchingIndex >= 0) {
-              const [matchingTab] = remainingTabs.splice(matchingIndex, 1)
-              return matchingTab ? [matchingTab] : []
-            }
-            const replacement = remainingTabs.shift()
-            return replacement ? [replacement] : []
+            const incoming = incomingById.get(tab.id)
+            if (!incoming) return []
+            retainedIncomingIds.add(tab.id)
+            return [incoming]
           })
-          tabs.push(...remainingTabs)
-          const synchronizedTabIds = new Set(tabs.map((tab) => tab.id))
-          const currentActiveTab = tabs.find((tab) => tab.id === context.activeTabId)
-          const requestedActiveTab = tabs.find((tab) => tab.id === activeTabId)
+          const missingTabs = categoryTabs.filter((tab) => !retainedIncomingIds.has(tab.id))
+          if (missingTabs.length > 0) {
+            const hadMatchingResource = existingCategoryTabs.some((tab) => incomingById.has(tab.id))
+            const existingCategoryIndex = context.tabs.findIndex(
+              (tab) => tab.categoryId === categoryId
+            )
+            if (!hadMatchingResource && existingCategoryIndex >= 0) {
+              const insertionIndex = Math.min(existingCategoryIndex, tabs.length)
+              tabs.splice(insertionIndex, 0, ...missingTabs)
+            } else {
+              const lastCategoryIndex = tabs.findLastIndex((tab) => tab.categoryId === categoryId)
+              tabs.splice(
+                lastCategoryIndex >= 0 ? lastCategoryIndex + 1 : tabs.length,
+                0,
+                ...missingTabs
+              )
+            }
+          }
+
+          const nextTabIds = new Set(tabs.map((tab) => tab.id))
+          const requestedActiveTab =
+            activeCategoryTabId && incomingById.has(activeCategoryTabId)
+              ? (tabs.find((tab) => tab.id === activeCategoryTabId) ?? null)
+              : null
+          const currentActiveTab = tabs.find((tab) => tab.id === context.activeTabId) ?? null
           const shouldFollowCategoryActive =
             context.tabs.find((tab) => tab.id === context.activeTabId)?.categoryId === categoryId
-          const nextActiveTab =
-            activate || shouldFollowCategoryActive
-              ? (requestedActiveTab ?? currentActiveTab ?? tabs[0] ?? null)
-              : (currentActiveTab ?? null)
-          const categoryMru = Object.fromEntries(
-            Object.entries(context.categoryMru).filter(
-              ([, tabId]) => typeof tabId === 'string' && synchronizedTabIds.has(tabId)
-            )
-          ) as Partial<Record<SidePaneCategoryId, string>>
-          if (requestedActiveTab) categoryMru[categoryId] = requestedActiveTab.id
+          let nextActiveTab = currentActiveTab
+          if ((activate || shouldFollowCategoryActive) && requestedActiveTab) {
+            nextActiveTab = requestedActiveTab
+          } else if (!nextActiveTab) {
+            const priorActiveIndex = context.tabs.findIndex((tab) => tab.id === context.activeTabId)
+            nextActiveTab = tabs[Math.min(Math.max(priorActiveIndex, 0), tabs.length - 1)] ?? null
+          }
+
+          const categoryMru = { ...context.categoryMru }
+          const priorMru = categoryMru[categoryId]
+          if ((activate || shouldFollowCategoryActive) && requestedActiveTab) {
+            categoryMru[categoryId] = requestedActiveTab.id
+          } else if (!priorMru || !nextTabIds.has(priorMru)) {
+            const fallback = [...tabs].reverse().find((tab) => tab.categoryId === categoryId)
+            if (fallback) categoryMru[categoryId] = fallback.id
+            else delete categoryMru[categoryId]
+          }
           if (nextActiveTab) categoryMru[nextActiveTab.categoryId] = nextActiveTab.id
+
           return {
             contexts: {
               ...state.contexts,
               [contextKey]: {
                 ...context,
-                isOpen: activate ? nextActiveTab !== null : context.isOpen && tabs.length > 0,
+                isOpen: tabs.length > 0 && (activate || context.isOpen),
                 activeTabId: nextActiveTab?.id ?? null,
                 tabs,
                 categoryMru
@@ -311,7 +402,7 @@ const useSidePaneStore = create<SidePaneStore>()(
           ])
         )
       }),
-      version: 1,
+      version: 2,
       migrate: migratePersistedState
     }
   )

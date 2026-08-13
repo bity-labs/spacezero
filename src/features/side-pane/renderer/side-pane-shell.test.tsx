@@ -179,7 +179,7 @@ describe('SidePaneShell', () => {
     })
   })
 
-  it('falls back to an available category when restored state targets an unavailable category', () => {
+  it('does not synthesize a Browser resource while reconciling an unavailable restored category', () => {
     useSidePaneStore.setState({
       contexts: {
         'global-chat': {
@@ -206,21 +206,27 @@ describe('SidePaneShell', () => {
       </SidePaneShell>
     )
 
-    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toHaveTextContent(
-      'Browser page'
-    )
-    expect(screen.getByRole('tab', { name: 'Browser' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByRole('complementary', { name: 'Side Pane' })).not.toBeInTheDocument()
+    expect(screen.getByRole('toolbar', { name: 'Side Pane launcher' })).toBeInTheDocument()
     expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
-      isOpen: true,
+      isOpen: false,
       width: 620,
-      activeTabId: 'browser:1',
-      tabs: [{ id: 'browser:1', categoryId: 'browser' }],
-      categoryMru: { browser: 'browser:1' }
+      activeTabId: null,
+      tabs: [],
+      categoryMru: {}
     })
   })
 
   it('does not let a resource event for an inactive context mutate the visible context', () => {
-    useSidePaneStore.getState().openCategory('project:project-1', 'browser')
+    useSidePaneStore
+      .getState()
+      .synchronizeCategoryTabs(
+        'project:project-1',
+        'browser',
+        [{ id: 'browser-tab-project', categoryId: 'browser' }],
+        'browser-tab-project',
+        true
+      )
     useSidePaneStore.getState().setWidth('project:project-1', 610)
     useSidePaneStore.getState().openCategory('session:session-2', 'terminal')
     useSidePaneStore.getState().setWidth('session:session-2', 520)
@@ -277,6 +283,55 @@ describe('SidePaneShell', () => {
 
     expect(screen.getByRole('tab', { name: 'Terminal' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('Terminal session')).toBeInTheDocument()
+  })
+
+  it('renders Browser page metadata directly in the peer Side Pane tab strip', () => {
+    useSidePaneStore.getState().synchronizeCategoryTabs(
+      configuration.contextKey,
+      'browser',
+      [
+        {
+          id: 'browser-tab-1',
+          categoryId: 'browser',
+          title: 'Space Zero Docs',
+          faviconUrl: 'data:image/png;base64,aWNvbg=='
+        }
+      ],
+      'browser-tab-1',
+      true
+    )
+
+    render(
+      <SidePaneShell {...configuration}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    const tab = screen.getByRole('tab', { name: 'Space Zero Docs' })
+    expect(tab.querySelector('img')).toHaveAttribute('src', 'data:image/png;base64,aWNvbg==')
+    expect(screen.queryByRole('tablist', { name: 'Browser tabs' })).not.toBeInTheDocument()
+  })
+
+  it('uses a category creation capability for explicit plus-menu Browser pages', async () => {
+    const createBrowserPage = vi.fn()
+    const creationCategories = categories.map((category) =>
+      category.id === 'browser' ? { ...category, create: createBrowserPage } : category
+    )
+    const user = userEvent.setup()
+    render(
+      <SidePaneShell {...configuration} categories={creationCategories}>
+        <div>Chat</div>
+      </SidePaneShell>
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Create Side Pane Tab' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Browser' }))
+
+    expect(createBrowserPage).toHaveBeenCalledTimes(1)
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey]?.tabs).toEqual([
+      { id: 'files:1', categoryId: 'files' }
+    ])
   })
 
   it('presents and delegates Files resource tab activation, pinning, and protected close', async () => {
@@ -341,7 +396,15 @@ describe('SidePaneShell', () => {
 
     await user.click(screen.getByRole('button', { name: 'Files' }))
     act(() => {
-      useSidePaneStore.getState().openCategory(configuration.contextKey, 'browser')
+      useSidePaneStore
+        .getState()
+        .synchronizeCategoryTabs(
+          configuration.contextKey,
+          'browser',
+          [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
+          'browser-tab-main-owned',
+          true
+        )
       useSidePaneStore.getState().openCategory(configuration.contextKey, 'git')
       useSidePaneStore.getState().openCategory(configuration.contextKey, 'git')
     })
@@ -369,7 +432,15 @@ describe('SidePaneShell', () => {
 
     await user.click(screen.getByRole('button', { name: 'Files' }))
     act(() => {
-      useSidePaneStore.getState().openCategory(configuration.contextKey, 'browser')
+      useSidePaneStore
+        .getState()
+        .synchronizeCategoryTabs(
+          configuration.contextKey,
+          'browser',
+          [{ id: 'browser-tab-main-owned', categoryId: 'browser' }],
+          'browser-tab-main-owned',
+          true
+        )
       useSidePaneStore.getState().openCategory(configuration.contextKey, 'git')
     })
 

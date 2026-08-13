@@ -12,7 +12,6 @@ import {
   useKeyboardShortcutsManager,
   useRegisterKeyboardShortcuts
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
-import type { BrowserContext } from '../../../browser/shared'
 import {
   TERMINAL_COMMAND_IDS,
   type TerminalContext,
@@ -39,9 +38,7 @@ const terminalShortcutDefinitions = [
 ] as const
 
 type TerminalBrowserHandoff = {
-  contextKey: string
-  context: BrowserContext
-  openBrowserTool: () => void
+  openBrowserPage: (url: string) => Promise<void>
 }
 
 type TerminalToolProps = {
@@ -206,17 +203,12 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         return
       }
       try {
-        await window.spacezero.browser.createTab({
-          contextKey: browserHandoff.contextKey,
-          context: browserHandoff.context,
-          input: url
-        })
+        await browserHandoff.openBrowserPage(url)
         const currentTerminalId = terminalIdRef.current
         const currentXterm = xtermRef.current
         if (currentTerminalId && currentXterm) {
           viewportByTerminal.set(currentTerminalId, readViewport(currentXterm))
         }
-        browserHandoff.openBrowserTool()
       } catch {
         setFallbackUrl(url)
       }
@@ -418,7 +410,10 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
       const nextActive =
         idToClose === terminalId ? chooseTerminalToActivateAfterClose(tabs, idToClose) : terminalId
       if (idToClose === terminalId && nextActive) {
-        await window.spacezero.terminal.selectTab({ terminalId: nextActive, context: terminalContext })
+        await window.spacezero.terminal.selectTab({
+          terminalId: nextActive,
+          context: terminalContext
+        })
       }
       const closeSnapshot = await window.spacezero.terminal.close({
         terminalId: idToClose,
@@ -428,7 +423,8 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         const nextTabs =
           closeSnapshot?.tabs ?? currentTabs.filter((tab) => tab.terminalId !== idToClose)
         const nextActiveId = closeSnapshot?.activeTerminalId ?? nextActive
-        if (idToClose === terminalId && nextActiveId) focusActiveTerminalAfterCloseRef.current = true
+        if (idToClose === terminalId && nextActiveId)
+          focusActiveTerminalAfterCloseRef.current = true
         updateActiveTerminal(nextActiveId)
         setStatus(nextActiveId ? 'running' : 'empty')
         return nextTabs
@@ -535,9 +531,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
                 <Tab
                   key={tab.terminalId}
                   ariaLabel={`Select terminal tab ${tab.title}`}
-                  closeAriaLabel={
-                    selected ? 'Close Terminal' : `Close terminal tab ${tab.title}`
-                  }
+                  closeAriaLabel={selected ? 'Close Terminal' : `Close terminal tab ${tab.title}`}
                   draggable
                   icon={<CaretRight aria-hidden="true" className="size-4 shrink-0" />}
                   label={tab.title}

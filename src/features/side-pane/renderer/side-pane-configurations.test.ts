@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { createElement } from 'react'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   createGlobalChatSidePaneConfiguration,
@@ -6,8 +9,14 @@ import {
   createProjectHomeSidePaneConfiguration,
   createProjectSessionSidePaneConfiguration
 } from './side-pane-configurations'
+import { SidePaneShell } from './side-pane-shell'
+import { resetSidePaneStore, useSidePaneStore } from './side-pane-store'
 
 describe('Side Pane contextual configurations', () => {
+  beforeEach(() => {
+    window.localStorage.clear()
+    resetSidePaneStore()
+  })
   it('targets the ordered stable category sets and context-owned defaults', () => {
     const projectHome = createProjectHomeSidePaneConfiguration({ id: 'project-1' })
     const project = createProjectSessionSidePaneConfiguration({
@@ -86,5 +95,59 @@ describe('Side Pane contextual configurations', () => {
     expect(knowledgeBase.categories[2]?.render).toBeTypeOf('function')
     expect(knowledgeBase.categories[3]).toMatchObject({ id: 'terminal', available: true })
     expect(knowledgeBase.categories[3]?.render).toBeTypeOf('function')
+  })
+
+  it('waits for the Browser launcher capability and keeps rejected requests resource-free', async () => {
+    let rejectStateRequest: ((reason?: unknown) => void) | undefined
+    const getState = vi.fn(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectStateRequest = reject
+        })
+    )
+    window.spacezero.browser.getState = getState
+    const configuration = createGlobalChatSidePaneConfiguration()
+    const user = userEvent.setup()
+
+    render(
+      createElement(SidePaneShell, {
+        ...configuration,
+        children: createElement('div', null, 'Global Chat')
+      })
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Browser' }))
+
+    expect(getState).toHaveBeenCalledWith({
+      contextKey: 'global-chat',
+      context: { kind: 'global-chat' }
+    })
+    expect(screen.queryByRole('complementary', { name: 'Side Pane' })).not.toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
+    expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
+
+    await act(async () => rejectStateRequest?.(new Error('Browser unavailable')))
+    await waitFor(() =>
+      expect(screen.getByRole('toolbar', { name: 'Side Pane launcher' })).toBeInTheDocument()
+    )
+
+    expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
+    expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
+  })
+
+  it('does not fall back to a synthetic Browser resource when explicit creation is rejected', async () => {
+    const createTab = vi.fn(async () => {
+      throw new Error('Browser unavailable')
+    })
+    window.spacezero.browser.createTab = createTab
+    const browserCategory = createGlobalChatSidePaneConfiguration().categories.find(
+      (category) => category.id === 'browser'
+    )
+
+    browserCategory?.create?.()
+
+    await waitFor(() => expect(createTab).toHaveBeenCalledTimes(1))
+    expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
+    expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
   })
 })
