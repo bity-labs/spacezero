@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../../projects/shared'
 import { createGitHubQueryClient } from '../github-query-client'
-import { ProjectGitHubOverview } from './project-github-overview'
+import { ProjectGitHubOverview, ProjectGitHubOverviewView } from './project-github-overview'
 
 const project: Project = {
   id: 'project-1',
@@ -38,6 +38,36 @@ function renderOverview(): ReturnType<typeof render> {
 }
 
 describe('ProjectGitHubOverview', () => {
+  it('renders independent pure summary states from props', () => {
+    render(
+      <ProjectGitHubOverviewView
+        issues={{
+          loading: false,
+          refreshing: false,
+          error: 'Issues could not be loaded.',
+          items: []
+        }}
+        pullRequests={{
+          loading: false,
+          refreshing: false,
+          error: null,
+          items: []
+        }}
+        onOpenIssue={() => undefined}
+        onViewIssues={() => undefined}
+        onRetryIssues={() => undefined}
+        onRefreshIssues={() => undefined}
+        onOpenPullRequest={() => undefined}
+        onViewPullRequests={() => undefined}
+        onRetryPullRequests={() => undefined}
+        onRefreshPullRequests={() => undefined}
+      />
+    )
+
+    expect(screen.getByText('Issues could not be loaded.')).toBeInTheDocument()
+    expect(screen.getByText('No Pull Requests to show.')).toBeInTheDocument()
+  })
+
   it('preserves a Pull Request summary when the Issue endpoint fails and refreshes manually', async () => {
     let issueReads = 0
     let pullRequestReads = 0
