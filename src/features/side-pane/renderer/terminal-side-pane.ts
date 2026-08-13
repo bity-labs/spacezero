@@ -86,7 +86,8 @@ export async function focusOrCreateTerminalSidePaneTab({
       contextKey,
       caught,
       false,
-      isRestore ? 'Terminal failed to restore' : 'Terminal failed to start'
+      isRestore ? 'Terminal failed to restore' : 'Terminal failed to start',
+      isRestore
     )
     throw caught
   }
@@ -226,13 +227,27 @@ function showTerminalSidePaneCreateError(
   contextKey: string,
   caught: unknown,
   forceNew: boolean,
-  title: string
+  title: string,
+  preserveRestorationPlaceholders = false
 ): void {
   createErrorsByContextKey.set(contextKey, {
     message: caught instanceof Error ? caught.message : title,
     title,
     forceNew
   })
+  if (preserveRestorationPlaceholders) {
+    useSidePaneStore.setState((state) => {
+      const context = state.contexts[contextKey]
+      if (!context) return state
+      return {
+        contexts: {
+          ...state.contexts,
+          [contextKey]: { ...context }
+        }
+      }
+    })
+    return
+  }
   const existingTerminalTabs =
     useSidePaneStore
       .getState()

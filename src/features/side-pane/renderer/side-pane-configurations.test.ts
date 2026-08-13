@@ -13,11 +13,14 @@ import {
 } from './side-pane-configurations'
 import { SidePaneShell } from './side-pane-shell'
 import { resetSidePaneStore, useSidePaneStore } from './side-pane-store'
+import { clearTerminalSidePaneCreateError } from './terminal-side-pane'
 
 describe('Side Pane contextual configurations', () => {
   beforeEach(() => {
     window.localStorage.clear()
     resetSidePaneStore()
+    clearTerminalSidePaneCreateError('global-chat')
+    clearTerminalSidePaneCreateError('project:project-1')
   })
   it('targets the ordered stable category sets and context-owned defaults', () => {
     const projectHome = createProjectHomeSidePaneConfiguration({ id: 'project-1' })
@@ -261,32 +264,100 @@ describe('Side Pane contextual configurations', () => {
     })
   })
 
-  it('shows an actionable error when a persisted Terminal tab cannot restore', async () => {
-    window.spacezero.terminal.create = vi.fn(async () => {
-      throw new Error('Terminal unavailable')
-    })
-    useSidePaneStore.setState({
-      contexts: {
-        'global-chat': {
-          isOpen: true,
-          width: null,
-          activeTabId: 'terminal:saved-shell',
-          tabs: [{ id: 'terminal:saved-shell', categoryId: 'terminal', title: 'Shell' }],
-          categoryMru: { terminal: 'terminal:saved-shell' }
-        }
-      }
-    })
-    const configuration = createGlobalChatSidePaneConfiguration()
-
-    render(
-      createElement(SidePaneShell, {
-        ...configuration,
-        children: createElement('div', null, 'Global Chat')
+  it('preserves persisted Terminal placeholders through restore rejection, remount, and retry', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Terminal unavailable'))
+      .mockResolvedValueOnce({
+        status: 'running' as const,
+        terminalId: 'pty-b',
+        tabs: [
+          { terminalId: 'pty-a', restorationId: 'saved-a', title: 'api' },
+          { terminalId: 'pty-b', restorationId: 'saved-b', title: 'web' }
+        ],
+        activeTerminalId: 'pty-b'
       })
-    )
+    window.spacezero.terminal.create = create
+    const persistedLayout = {
+      isOpen: true,
+      width: 540,
+      activeTabId: 'terminal:saved-b',
+      tabs: [
+        { id: 'terminal:saved-a', categoryId: 'terminal' as const, title: 'api' },
+        {
+          id: 'browser:docs',
+          categoryId: 'browser' as const,
+          resourceId: 'browser:docs',
+          title: 'Docs'
+        },
+        { id: 'terminal:saved-b', categoryId: 'terminal' as const, title: 'web' }
+      ],
+      categoryMru: { browser: 'browser:docs', terminal: 'terminal:saved-b' }
+    }
+    useSidePaneStore.setState({ contexts: { 'global-chat': persistedLayout } })
+    const configuration = createGlobalChatSidePaneConfiguration()
+    const shell = () =>
+      createElement(
+        AppCommandProvider,
+        null,
+        createElement(
+          KeyboardShortcutsProvider,
+          null,
+          createElement(SidePaneShell, {
+            ...configuration,
+            children: createElement('div', null, 'Global Chat')
+          })
+        )
+      )
+
+    const firstMount = render(shell())
 
     expect(await screen.findByText('Terminal failed to restore')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Retry Terminal' })).toBeEnabled()
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual(persistedLayout)
+    expect(
+      JSON.parse(window.localStorage.getItem('spacezero.sidePane') ?? '{}').state.contexts[
+        'global-chat'
+      ]
+    ).toEqual(persistedLayout)
+
+    firstMount.unmount()
+    render(shell())
+
+    expect(screen.getByText('Terminal failed to restore')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry Terminal' })).toBeEnabled()
+    expect(create).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry Terminal' }))
+
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
+        ...persistedLayout,
+        tabs: [
+          {
+            id: 'terminal:saved-a',
+            categoryId: 'terminal',
+            resourceId: 'pty-a',
+            title: 'api'
+          },
+          persistedLayout.tabs[1],
+          {
+            id: 'terminal:saved-b',
+            categoryId: 'terminal',
+            resourceId: 'pty-b',
+            title: 'web'
+          }
+        ]
+      })
+    )
+    expect(create).toHaveBeenNthCalledWith(1, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
+    expect(create).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
   })
 
   it('does not fall back to a synthetic Browser resource when explicit creation is rejected', async () => {
