@@ -27,6 +27,7 @@ export type TerminalId = string
 
 export type TerminalTab = {
   terminalId: TerminalId
+  restorationId?: string
   title: string
 }
 

@@ -3,6 +3,8 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { AppCommandProvider } from '../../app-commands/renderer/app-command-context'
+import { KeyboardShortcutsProvider } from '../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import {
   createGlobalChatSidePaneConfiguration,
   createKnowledgeBaseSidePaneConfiguration,
@@ -11,11 +13,14 @@ import {
 } from './side-pane-configurations'
 import { SidePaneShell } from './side-pane-shell'
 import { resetSidePaneStore, useSidePaneStore } from './side-pane-store'
+import { clearTerminalSidePaneCreateError } from './terminal-side-pane'
 
 describe('Side Pane contextual configurations', () => {
   beforeEach(() => {
     window.localStorage.clear()
     resetSidePaneStore()
+    clearTerminalSidePaneCreateError('global-chat')
+    clearTerminalSidePaneCreateError('project:project-1')
   })
   it('targets the ordered stable category sets and context-owned defaults', () => {
     const projectHome = createProjectHomeSidePaneConfiguration({ id: 'project-1' })
@@ -133,6 +138,226 @@ describe('Side Pane contextual configurations', () => {
 
     expect(useSidePaneStore.getState().contexts['global-chat']).toBeUndefined()
     expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain('browser:1')
+  })
+
+  it('shows a resource-free launcher failure and retries into exactly one PTY-backed tab', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Terminal unavailable'))
+      .mockResolvedValueOnce({
+        status: 'running' as const,
+        terminalId: 'pty-retried',
+        tabs: [{ terminalId: 'pty-retried', restorationId: 'saved-retried', title: 'Shell' }],
+        activeTerminalId: 'pty-retried'
+      })
+    window.spacezero.terminal.create = create
+    const configuration = createGlobalChatSidePaneConfiguration()
+    const user = userEvent.setup()
+
+    render(
+      createElement(SidePaneShell, {
+        ...configuration,
+        children: createElement('div', null, 'Global Chat')
+      })
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Terminal' }))
+
+    expect(await screen.findByText('Terminal failed to start')).toBeInTheDocument()
+    expect(screen.getByText('Terminal unavailable')).toBeInTheDocument()
+    const failedTab = useSidePaneStore.getState().contexts['global-chat']?.tabs[0]
+    expect(failedTab).toMatchObject({ categoryId: 'terminal' })
+    expect(failedTab?.resourceId).toBeUndefined()
+    expect(window.localStorage.getItem('spacezero.sidePane') ?? '').not.toContain(
+      'terminal:create-error'
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Retry Terminal' }))
+
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts['global-chat']).toMatchObject({
+        activeTabId: 'terminal:saved-retried',
+        tabs: [
+          {
+            id: 'terminal:saved-retried',
+            categoryId: 'terminal',
+            resourceId: 'pty-retried'
+          }
+        ]
+      })
+    )
+    expect(create).toHaveBeenNthCalledWith(1, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
+    expect(create).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
+  })
+
+  it('shows a resource-free explicit-create failure and retries with force-new', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Shell executable is unavailable'))
+      .mockResolvedValueOnce({
+        status: 'running' as const,
+        terminalId: 'pty-explicit',
+        tabs: [{ terminalId: 'pty-explicit', restorationId: 'saved-explicit', title: 'Shell' }],
+        activeTerminalId: 'pty-explicit'
+      })
+    window.spacezero.terminal.create = create
+    const configuration = createProjectHomeSidePaneConfiguration({ id: 'project-1' })
+    useSidePaneStore.getState().openCategory(configuration.contextKey, 'files')
+    const user = userEvent.setup()
+
+    render(
+      createElement(
+        AppCommandProvider,
+        null,
+        createElement(
+          KeyboardShortcutsProvider,
+          null,
+          createElement(SidePaneShell, {
+            ...configuration,
+            children: createElement('div', null, 'Project Home')
+          })
+        )
+      )
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Create Side Pane Tab' }))
+    await user.click(await screen.findByRole('menuitem', { name: 'Terminal' }))
+
+    expect(await screen.findByText('Terminal failed to start')).toBeInTheDocument()
+    expect(screen.getByText('Shell executable is unavailable')).toBeInTheDocument()
+    expect(
+      useSidePaneStore
+        .getState()
+        .contexts[configuration.contextKey]?.tabs.find((tab) => tab.categoryId === 'terminal')
+        ?.resourceId
+    ).toBeUndefined()
+
+    await user.click(screen.getByRole('button', { name: 'Retry Terminal' }))
+
+    await waitFor(() =>
+      expect(
+        useSidePaneStore
+          .getState()
+          .contexts[configuration.contextKey]?.tabs.filter(
+            (tab) => tab.categoryId === 'terminal' && tab.resourceId
+          )
+      ).toEqual([
+        expect.objectContaining({
+          id: 'terminal:saved-explicit',
+          resourceId: 'pty-explicit'
+        })
+      ])
+    )
+    expect(create).toHaveBeenNthCalledWith(1, {
+      context: { kind: 'project-home', projectId: 'project-1' },
+      forceNew: true
+    })
+    expect(create).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'project-home', projectId: 'project-1' },
+      forceNew: true
+    })
+  })
+
+  it('preserves persisted Terminal placeholders through restore rejection, remount, and retry', async () => {
+    const create = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Terminal unavailable'))
+      .mockResolvedValueOnce({
+        status: 'running' as const,
+        terminalId: 'pty-b',
+        tabs: [
+          { terminalId: 'pty-a', restorationId: 'saved-a', title: 'api' },
+          { terminalId: 'pty-b', restorationId: 'saved-b', title: 'web' }
+        ],
+        activeTerminalId: 'pty-b'
+      })
+    window.spacezero.terminal.create = create
+    const persistedLayout = {
+      isOpen: true,
+      width: 540,
+      activeTabId: 'terminal:saved-b',
+      tabs: [
+        { id: 'terminal:saved-a', categoryId: 'terminal' as const, title: 'api' },
+        {
+          id: 'browser:docs',
+          categoryId: 'browser' as const,
+          resourceId: 'browser:docs',
+          title: 'Docs'
+        },
+        { id: 'terminal:saved-b', categoryId: 'terminal' as const, title: 'web' }
+      ],
+      categoryMru: { browser: 'browser:docs', terminal: 'terminal:saved-b' }
+    }
+    useSidePaneStore.setState({ contexts: { 'global-chat': persistedLayout } })
+    const configuration = createGlobalChatSidePaneConfiguration()
+    const shell = () =>
+      createElement(
+        AppCommandProvider,
+        null,
+        createElement(
+          KeyboardShortcutsProvider,
+          null,
+          createElement(SidePaneShell, {
+            ...configuration,
+            children: createElement('div', null, 'Global Chat')
+          })
+        )
+      )
+
+    const firstMount = render(shell())
+
+    expect(await screen.findByText('Terminal failed to restore')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry Terminal' })).toBeEnabled()
+    expect(useSidePaneStore.getState().contexts['global-chat']).toEqual(persistedLayout)
+    expect(
+      JSON.parse(window.localStorage.getItem('spacezero.sidePane') ?? '{}').state.contexts[
+        'global-chat'
+      ]
+    ).toEqual(persistedLayout)
+
+    firstMount.unmount()
+    render(shell())
+
+    expect(screen.getByText('Terminal failed to restore')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry Terminal' })).toBeEnabled()
+    expect(create).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry Terminal' }))
+
+    await waitFor(() =>
+      expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
+        ...persistedLayout,
+        tabs: [
+          {
+            id: 'terminal:saved-a',
+            categoryId: 'terminal',
+            resourceId: 'pty-a',
+            title: 'api'
+          },
+          persistedLayout.tabs[1],
+          {
+            id: 'terminal:saved-b',
+            categoryId: 'terminal',
+            resourceId: 'pty-b',
+            title: 'web'
+          }
+        ]
+      })
+    )
+    expect(create).toHaveBeenNthCalledWith(1, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
+    expect(create).toHaveBeenNthCalledWith(2, {
+      context: { kind: 'global-chat' },
+      forceNew: false
+    })
   })
 
   it('does not fall back to a synthetic Browser resource when explicit creation is rejected', async () => {

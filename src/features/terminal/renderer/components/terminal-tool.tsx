@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CaretRight, Plus } from '@phosphor-icons/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
-import { Tab, TabBar } from '@renderer/components/tab-bar'
 import { Button } from '@renderer/components/ui/button'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -12,6 +10,11 @@ import {
   useKeyboardShortcutsManager,
   useRegisterKeyboardShortcuts
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
+import {
+  closeTerminalSidePaneTab,
+  createTerminalSidePaneTab,
+  getTerminalDiagnostics
+} from '../../../side-pane/renderer/terminal-side-pane'
 import {
   TERMINAL_COMMAND_IDS,
   type TerminalContext,
@@ -43,6 +46,8 @@ type TerminalBrowserHandoff = {
 
 type TerminalToolProps = {
   context: TerminalContext
+  contextKey?: string
+  terminalId?: string
   browserHandoff?: TerminalBrowserHandoff
 }
 
@@ -65,7 +70,12 @@ function chooseTerminalToActivateAfterClose(
   return tabs[closedIndex + 1]?.terminalId ?? tabs[closedIndex - 1]?.terminalId ?? null
 }
 
-export function TerminalTool({ context, browserHandoff }: TerminalToolProps): React.JSX.Element {
+export function TerminalTool({
+  context,
+  contextKey,
+  terminalId: referencedTerminalId,
+  browserHandoff
+}: TerminalToolProps): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const xtermRef = useRef<XTerm | null>(null)
   const shortcutManager = useKeyboardShortcutsManager()
@@ -73,7 +83,6 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const terminalIdRef = useRef<string | null>(null)
   const subscriptionRef = useRef<SubscriptionState | null>(null)
   const lastSequenceByTerminalRef = useRef(new Map<string, number>())
-  const draggedTerminalIdRef = useRef<string | null>(null)
   const focusActiveTerminalAfterCloseRef = useRef(false)
   const forceCreateRequestedRef = useRef(false)
   const previousTerminalContextKeyRef = useRef<string | null>(null)
@@ -106,7 +115,9 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const terminalId = activeTerminal?.terminalId ?? null
   const [status, setStatus] = useState<TerminalStatus>('starting')
   const [error, setError] = useState<string | null>(null)
-  const [diagnostics, setDiagnostics] = useState<TerminalDiagnostic[]>([])
+  const [diagnostics, setDiagnostics] = useState<TerminalDiagnostic[]>(() =>
+    referencedTerminalId ? getTerminalDiagnostics(referencedTerminalId) : []
+  )
   const [autoCreateToken, setAutoCreateToken] = useState(0)
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null)
 
@@ -123,12 +134,18 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   )
 
   const startTerminal = useCallback(() => {
+    if (contextKey && referencedTerminalId) {
+      void createTerminalSidePaneTab({ contextKey, context: terminalContext }).catch((caught) => {
+        setError(caught instanceof Error ? caught.message : 'Terminal failed to start')
+      })
+      return
+    }
     forceCreateRequestedRef.current = true
     setError(null)
     setDiagnostics([])
     setStatus('starting')
     setAutoCreateToken((value) => value + 1)
-  }, [])
+  }, [contextKey, referencedTerminalId, terminalContext])
 
   const fitTerminal = useCallback((): { cols: number; rows: number } | null => {
     const fitAddon = fitAddonRef.current
@@ -227,7 +244,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
       if (cancelled) return
       setError(null)
       setDiagnostics([])
-      if (contextChanged || !forceNew) {
+      if (!referencedTerminalId && (contextChanged || !forceNew)) {
         setStatus('starting')
         setTabs([])
         updateActiveTerminal(null)
@@ -236,6 +253,13 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
 
     async function createOrRestore(): Promise<void> {
       try {
+        if (referencedTerminalId) {
+          setTabs([{ terminalId: referencedTerminalId, title: 'Shell' }])
+          setDiagnostics(getTerminalDiagnostics(referencedTerminalId))
+          updateActiveTerminal(referencedTerminalId)
+          setStatus('running')
+          return
+        }
         const dimensions = fitTerminal()
         const created = await window.spacezero.terminal.create({
           context: terminalContext,
@@ -264,7 +288,14 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     return () => {
       cancelled = true
     }
-  }, [autoCreateToken, fitTerminal, terminalContext, terminalContextKey, updateActiveTerminal])
+  }, [
+    autoCreateToken,
+    fitTerminal,
+    referencedTerminalId,
+    terminalContext,
+    terminalContextKey,
+    updateActiveTerminal
+  ])
 
   useEffect(() => {
     if (!activeTerminal || activeTerminal.contextKey !== terminalContextKey) return
@@ -388,16 +419,6 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
     viewportByTerminal
   ])
 
-  async function selectTerminal(nextTerminalId: string): Promise<void> {
-    if (nextTerminalId === terminalId) return
-    const snapshot = await window.spacezero.terminal.selectTab({
-      terminalId: nextTerminalId,
-      context: terminalContext
-    })
-    setTabs(snapshot.tabs)
-    updateActiveTerminal(snapshot.activeTerminalId)
-  }
-
   const closeTerminal = useCallback(
     async (idToClose: string): Promise<void> => {
       const settings = await window.spacezero.settings.getTerminalSettings()
@@ -405,6 +426,14 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         settings.confirmBeforeClosingLiveTerminals &&
         !window.confirm('Close this live terminal and terminate its shell?')
       ) {
+        return
+      }
+      if (contextKey && referencedTerminalId) {
+        await closeTerminalSidePaneTab({
+          contextKey,
+          context: terminalContext,
+          tab: { id: '', categoryId: 'terminal', resourceId: idToClose }
+        })
         return
       }
       const nextActive =
@@ -430,32 +459,13 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         return nextTabs
       })
     },
-    [tabs, terminalContext, terminalId, updateActiveTerminal]
+    [contextKey, referencedTerminalId, tabs, terminalContext, terminalId, updateActiveTerminal]
   )
 
   const closeActiveTerminal = useCallback(async (): Promise<void> => {
     if (!terminalId) return
     await closeTerminal(terminalId)
   }, [closeTerminal, terminalId])
-
-  async function reorderTabs(targetTerminalId: string): Promise<void> {
-    const draggedTerminalId = draggedTerminalIdRef.current
-    draggedTerminalIdRef.current = null
-    if (!draggedTerminalId || draggedTerminalId === targetTerminalId) return
-    const from = tabs.findIndex((tab) => tab.terminalId === draggedTerminalId)
-    const to = tabs.findIndex((tab) => tab.terminalId === targetTerminalId)
-    if (from < 0 || to < 0) return
-    const nextTabs = [...tabs]
-    const [dragged] = nextTabs.splice(from, 1)
-    if (!dragged) return
-    nextTabs.splice(to, 0, dragged)
-    setTabs(nextTabs)
-    const snapshot = await window.spacezero.terminal.reorderTabs({
-      context: terminalContext,
-      terminalIds: nextTabs.map((tab) => tab.terminalId)
-    })
-    setTabs(snapshot.tabs)
-  }
 
   async function copyFallbackUrl(): Promise<void> {
     if (!fallbackUrl) return
@@ -472,13 +482,6 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
   const commands = useMemo(
     () => [
       {
-        id: TERMINAL_COMMAND_IDS.newTab,
-        title: 'New Terminal',
-        category: 'Terminal',
-        keywords: ['new', 'tab', 'shell'],
-        handler: startTerminal
-      },
-      {
         id: TERMINAL_COMMAND_IDS.closeActiveTab,
         title: 'Close Terminal Tab',
         category: 'Terminal',
@@ -486,7 +489,7 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
         handler: closeActiveTerminal
       }
     ],
-    [startTerminal, closeActiveTerminal]
+    [closeActiveTerminal]
   )
   useRegisterAppCommands(commands)
   useRegisterKeyboardShortcuts(terminalShortcutDefinitions)
@@ -509,49 +512,6 @@ export function TerminalTool({ context, browserHandoff }: TerminalToolProps): Re
           }
         }}
       >
-        {tabs.length > 0 ? (
-          <TabBar
-            ariaLabel="Terminal tabs"
-            endControl={
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                aria-label="New Terminal"
-                title="New Terminal"
-                className="shrink-0"
-                onClick={startTerminal}
-              >
-                <Plus aria-hidden="true" className="size-4" />
-              </Button>
-            }
-          >
-            {tabs.map((tab) => {
-              const selected = tab.terminalId === terminalId
-              return (
-                <Tab
-                  key={tab.terminalId}
-                  ariaLabel={`Select terminal tab ${tab.title}`}
-                  closeAriaLabel={selected ? 'Close Terminal' : `Close terminal tab ${tab.title}`}
-                  draggable
-                  icon={<CaretRight aria-hidden="true" className="size-4 shrink-0" />}
-                  label={tab.title}
-                  selected={selected}
-                  onSelect={() => void selectTerminal(tab.terminalId)}
-                  onClose={() => void closeTerminal(tab.terminalId)}
-                  onDragStart={() => {
-                    draggedTerminalIdRef.current = tab.terminalId
-                  }}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={() => void reorderTabs(tab.terminalId)}
-                />
-              )
-            })}
-          </TabBar>
-        ) : (
-          <div className="flex h-10 shrink-0 items-center border-b px-3 text-sm font-medium">
-            Terminal
-          </div>
-        )}
         {status === 'failed' ? (
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
             <div>
