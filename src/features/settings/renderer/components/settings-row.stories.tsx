@@ -27,6 +27,14 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+type LanguagePreferenceValue = 'system' | 'english' | 'french'
+
+const languagePreferenceLabels: Record<LanguagePreferenceValue, string> = {
+  system: 'System',
+  english: 'English',
+  french: 'French'
+}
+
 export const LanguagePreference: Story = {
   args: {
     title: 'Language',
@@ -34,7 +42,9 @@ export const LanguagePreference: Story = {
     children: (
       <Select defaultValue="system">
         <SelectTrigger aria-label="Language" size="sm" className="w-36">
-          <SelectValue />
+          <SelectValue>
+            {(value: LanguagePreferenceValue) => languagePreferenceLabels[value]}
+          </SelectValue>
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="system">System</SelectItem>
