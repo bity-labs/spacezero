@@ -444,6 +444,9 @@ function SidePaneTabButton({
   onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
 }): React.JSX.Element {
   const tabRef = useRef<HTMLDivElement>(null)
+  const categoryMruTabId = useSidePaneStore(
+    (state) => state.contexts[contextKey]?.categoryMru[tab.categoryId]
+  )
   const Icon = category.icon
   const label = tab.label ?? tab.title ?? category.label
   const renderedIcon =
@@ -515,6 +518,9 @@ function SidePaneTabButton({
         aria-controls={`${contextKey}-${tab.categoryId}-panel`}
         aria-label={`${tab.dirty ? 'Modified ' : ''}${label}${tab.preview ? ' preview' : ''}`}
         aria-selected={active}
+        data-side-pane-category-id={tab.categoryId}
+        data-side-pane-category-mru={categoryMruTabId === tab.id ? 'true' : undefined}
+        data-side-pane-resource-id={tab.resourceId}
         data-side-pane-tab-id={tab.id}
         className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-t-md px-2 pr-7 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         role="tab"

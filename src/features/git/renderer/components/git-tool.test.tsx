@@ -2418,7 +2418,9 @@ describe('GitTool', () => {
     await screen.findByText('staged.txt')
     expect(screen.getByRole('tab', { name: 'Staged' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByLabelText('Commit instructions')).toHaveValue('ship it')
-    expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 72)
+    await waitFor(() =>
+      expect(screen.getByLabelText('Git changed files')).toHaveProperty('scrollTop', 72)
+    )
     expect(screen.queryByText('+staged')).not.toBeInTheDocument()
   })
 

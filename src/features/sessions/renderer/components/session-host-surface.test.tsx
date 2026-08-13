@@ -1325,6 +1325,9 @@ describe('ProjectSessionHostSurface', () => {
       })
     })
 
+    const activity = screen.getByRole('button', { name: /Thinking.*a moment/ })
+    expect(activity).toBeInTheDocument()
+    await userEvent.click(activity)
     expect(screen.getByText('workspace.getStatus')).toBeInTheDocument()
     expect(screen.getByText('Running')).toBeInTheDocument()
 
@@ -1338,7 +1341,10 @@ describe('ProjectSessionHostSurface', () => {
       })
     })
 
-    expect(screen.getAllByText('Completed').length).toBeGreaterThan(0)
+    expect(
+      screen.getByRole('button', { name: /Thought for a moment.*1 step.*1 tool/ })
+    ).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'workspace.getStatus' }))
     expect(screen.getByText(/"data"/)).toBeInTheDocument()
   })
 

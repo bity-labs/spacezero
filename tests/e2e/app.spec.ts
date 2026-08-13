@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -51,20 +51,47 @@ async function openSidePaneCategory(
   window: Page,
   category: 'Files' | 'Git Diff' | 'Browser' | 'Terminal'
 ): Promise<void> {
-  const existingTab = window.getByRole('tab', { name: category, exact: true })
-  if (await existingTab.isVisible()) {
-    await existingTab.click()
+  const categoryId = {
+    Files: 'files',
+    'Git Diff': 'git',
+    Browser: 'browser',
+    Terminal: 'terminal'
+  }[category]
+  const categoryTabs = window.locator(`[role="tab"][data-side-pane-category-id="${categoryId}"]`)
+  const existingTabCount = await categoryTabs.count()
+  if (existingTabCount > 0) {
+    const categoryMruTab = window.locator(
+      `[role="tab"][data-side-pane-category-id="${categoryId}"][data-side-pane-category-mru="true"]`
+    )
+    const target = (await categoryMruTab.count()) > 0 ? categoryMruTab.first() : categoryTabs.first()
+    await target.click()
+    await expect(target).toHaveAttribute('aria-selected', 'true')
+    await expect(categoryTabs).toHaveCount(existingTabCount)
     return
   }
 
   const launcher = window.getByRole('toolbar', { name: 'Side Pane launcher' })
   if (await launcher.isVisible()) {
     await launcher.getByRole('button', { name: category, exact: true }).click()
-    return
+  } else {
+    await window.getByRole('button', { name: 'Create Side Pane Tab' }).click()
+    await window.getByRole('menuitem', { name: category, exact: true }).click()
   }
 
-  await window.getByRole('button', { name: 'Create Side Pane Tab' }).click()
-  await window.getByRole('menuitem', { name: category, exact: true }).click()
+  await expect(categoryTabs.first()).toBeVisible()
+  await expect(window.locator(
+    `[role="tab"][data-side-pane-category-id="${categoryId}"][data-side-pane-category-mru="true"]`
+  )).toHaveAttribute('aria-selected', 'true')
+}
+
+async function closeAllGlobalChatTerminalTabs(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    const context = { kind: 'global-chat' as const }
+    const { tabs } = await window.spacezero.terminal.listTabs({ context })
+    await Promise.all(
+      tabs.map(({ terminalId }) => window.spacezero.terminal.close({ terminalId, context }))
+    )
+  })
 }
 
 async function expectCollapsedSidePaneControlsAligned(window: Page): Promise<void> {
@@ -413,7 +440,7 @@ test('clears Project Session chat while retaining its stable workspace identity'
   await electronApp.close()
 })
 
-test('opens a Project Session text file in bundled Monaco without network loading', async () => {
+test('edits and explicitly saves a Project Session text file with bundled Diffs Edit', async () => {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'spacezero-files-e2e-'))
   const projectPath = join(temporaryDirectory, 'project')
   const userDataPath = join(temporaryDirectory, 'user-data')
@@ -436,7 +463,7 @@ test('opens a Project Session text file in bundled Monaco without network loadin
 
   await electronApp.evaluate(
     ({ ipcMain, BrowserWindow }, { projectPath }) => {
-      const { readFile, readdir, stat } = process.getBuiltinModule('node:fs/promises')
+      const { readFile, readdir, stat, writeFile } = process.getBuiltinModule('node:fs/promises')
       const { join } = process.getBuiltinModule('node:path')
       const project = {
         id: 'project-files-e2e',
@@ -465,7 +492,8 @@ test('opens a Project Session text file in bundled Monaco without network loadin
         'agent:getState',
         'files:listTree',
         'files:listDirectory',
-        'files:openDocument'
+        'files:openDocument',
+        'files:saveDocument'
       ]) {
         ipcMain.removeHandler(channel)
       }
@@ -522,6 +550,27 @@ test('opens a Project Session text file in bundled Monaco without network loadin
           lineEnding: 'lf'
         }
       })
+      ipcMain.handle('files:saveDocument', async (_event, input) => {
+        const relativePath = String(input.relativePath)
+        const absolutePath = join(projectPath, relativePath)
+        const content = String(input.content)
+        await writeFile(absolutePath, content, 'utf8')
+        const details = await stat(absolutePath)
+        return {
+          status: 'saved',
+          document: {
+            name: relativePath,
+            relativePath,
+            contentKind: 'text',
+            size: details.size,
+            modifiedAt: details.mtime.toISOString(),
+            revision: 'revision-2',
+            content,
+            hasBom: false,
+            lineEnding: 'lf'
+          }
+        }
+      })
 
       BrowserWindow.getAllWindows()[0]?.webContents.reload()
     },
@@ -537,47 +586,44 @@ test('opens a Project Session text file in bundled Monaco without network loadin
   await expect(window.getByRole('tab', { name: 'Files' })).toHaveAttribute('aria-selected', 'true')
   await expect(window.getByRole('tree')).toBeVisible()
   await window.getByRole('treeitem', { name: 'package.json' }).click()
-  await expect(window.locator('.monaco-editor')).toBeVisible()
-  await expect(window.getByRole('button', { name: 'Save' })).toHaveCount(0)
-  await expect(window.getByRole('button', { name: 'Save All' })).toHaveCount(0)
-  await expect(window.getByText('Saved')).toHaveCount(0)
+  const packageEditor = window.getByRole('textbox', { name: 'package.json' })
+  await expect(window.getByRole('region', { name: 'Source editor' })).toBeVisible()
+  await expect(packageEditor).toBeVisible()
+  await expect(packageEditor).toContainText('files-e2e')
+  await packageEditor.click()
+  await packageEditor.press('Control+a')
+  await window.keyboard.insertText('{"name":"files-e2e-updated"}\n')
+  await expect(window.getByRole('tab', { name: 'Modified package.json' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
+  await packageEditor.press('Control+s')
+  await expect.poll(() => readFile(sourcePath, 'utf8')).toBe('{"name":"files-e2e-updated"}\n')
+  await expect(window.getByRole('tab', { name: 'package.json' })).toHaveAttribute(
+    'aria-selected',
+    'true'
+  )
 
   await window.getByRole('treeitem', { name: 'README.md' }).click()
-  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toBeVisible()
-  await expect(window.getByRole('button', { name: 'Source' })).toBeVisible()
-  const richEditorMetrics = await window.locator('.rich-markdown-editor').evaluate((editor) => {
-    const wrapper = editor.parentElement
-    const content = editor.querySelector('.rich-markdown-editor__content')
-    return {
-      wrapperHeight: wrapper?.getBoundingClientRect().height ?? 0,
-      editorHeight: editor.getBoundingClientRect().height,
-      contentClientHeight: content?.clientHeight ?? 0,
-      contentScrollHeight: content?.scrollHeight ?? 0,
-      contentOverflowY: content ? window.getComputedStyle(content).overflowY : ''
-    }
-  })
-  expect(richEditorMetrics.editorHeight).toBeGreaterThan(richEditorMetrics.wrapperHeight - 4)
-  expect(richEditorMetrics.contentScrollHeight).toBeGreaterThan(
-    richEditorMetrics.contentClientHeight
+  await expect(window.getByRole('textbox', { name: 'README.md' })).toBeVisible()
+  await expect(window.getByRole('button', { name: 'Source' })).toHaveAttribute(
+    'aria-pressed',
+    'true'
   )
-  expect(richEditorMetrics.contentOverflowY).toBe('auto')
-
+  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toHaveCount(0)
   await expect(window.getByRole('button', { name: 'Pin preview' })).toHaveCount(0)
   await window.getByRole('tab', { name: /README\.md\s*preview/ }).dblclick()
   await window.getByRole('treeitem', { name: 'NOTES.md' }).click()
-  await expect(window.getByRole('textbox', { name: 'Rich Markdown editor' })).toContainText(
-    'Second note'
-  )
+  await expect(window.getByRole('textbox', { name: 'NOTES.md' })).toContainText('Second note')
   await window.getByRole('tab', { name: /NOTES\.md\s*preview/ }).dblclick()
-  await expect(window.getByRole('button', { name: 'Undo' })).toBeDisabled()
 
-  const externalMonacoRequests = await window.evaluate(() =>
+  const externalEditorRequests = await window.evaluate(() =>
     performance
       .getEntriesByType('resource')
       .map((entry) => entry.name)
       .filter((name) => name.includes('cdn.jsdelivr.net'))
   )
-  expect(externalMonacoRequests).toEqual([])
+  expect(externalEditorRequests).toEqual([])
 
   await electronApp.close()
 })
@@ -831,13 +877,10 @@ test('keeps a local server PTY alive through Terminal-to-Browser handoff and ret
       return waitForUrl
     }, { sessionId })
 
-    await window.evaluate(({ serverUrl }) => window.spacezero.browser.createTab({
-      contextKey: 'global-chat',
-      context: { kind: 'global-chat' },
-      input: serverUrl
-    }), { serverUrl: handoff.serverUrl })
     await openSidePaneCategory(window, 'Browser')
     await expect(window.getByRole('region', { name: 'Browser' })).toBeVisible()
+    await window.getByLabel('Browser URL').fill(handoff.serverUrl)
+    await window.getByRole('button', { name: 'Go', exact: true }).click()
     await expect.poll(async () =>
       electronApp!.evaluate(({ webContents }, { serverUrl }) =>
         webContents.getAllWebContents().some((contents) => contents.getURL() === serverUrl)
@@ -1083,7 +1126,7 @@ test('opens a configured Knowledge Base as a persistent managed chat', async () 
     await expect(window.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeVisible()
     await expect(window.getByRole('region', { name: 'Files explorer' })).toBeVisible()
     await expect(window.getByRole('tree')).toBeVisible()
-    await expect(window.getByRole('tab', { name: 'Files', exact: true })).toHaveAttribute(
+    await expect(window.getByRole('tab', { name: /AGENTS.*md.*preview/i })).toHaveAttribute(
       'aria-selected',
       'true'
     )
@@ -1240,10 +1283,9 @@ test('opens a sandboxed Browser Side Pane page through the dedicated embedded pr
 
   await openSidePaneCategory(window, 'Browser')
   await expect(window.getByRole('complementary', { name: 'Side Pane' })).toBeVisible()
-  await expect(window.getByRole('tab', { name: 'Browser' })).toHaveAttribute(
-    'aria-selected',
-    'true'
-  )
+  await expect(window.locator(
+    '[role="tab"][data-side-pane-category-id="browser"][data-side-pane-category-mru="true"]'
+  )).toHaveAttribute('aria-selected', 'true')
   await window.getByLabel('Browser URL').fill(fixtureUrl)
   await window.getByRole('button', { name: 'Go', exact: true }).click()
 
@@ -1790,6 +1832,7 @@ test('opens a sandboxed Browser Side Pane page through the dedicated embedded pr
     webContents.getAllWebContents().every((contents) => !contents.getURL().startsWith('https://www.google.com/search'))
   )).toBe(true)
 
+  await closeAllGlobalChatTerminalTabs(window)
   await electronApp.close()
   await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 })
@@ -2140,6 +2183,7 @@ test('enforces Browser permission and certificate policy through real Electron h
       { usesDedicatedProfile: true, sandbox: true, contextIsolation: true, nodeIntegration: false }
     ])
   } finally {
+    await closeAllGlobalChatTerminalTabs(window).catch(() => undefined)
     await electronApp.close().catch(() => undefined)
     await new Promise<void>((resolve, reject) => httpServer.close((error) => (error ? reject(error) : resolve())))
     await new Promise<void>((resolve, reject) => httpsServer.close((error) => (error ? reject(error) : resolve())))
