@@ -11,7 +11,7 @@ import {
 import { CommandPaletteView } from './command-palette-view'
 
 const meta = {
-  title: 'App Shell/Components/Command Palette/Complete',
+  title: 'Design System/Components/App Shell/Command Palette/Complete',
   component: CommandPaletteView,
   parameters: { layout: 'fullscreen' },
   args: defaultOpenCommandPaletteFixture
