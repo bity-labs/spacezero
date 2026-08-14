@@ -197,7 +197,7 @@ export function SidePaneTabStripView({
     <div className="titlebar-control flex h-9 min-w-0 shrink-0 border-b bg-muted/40 p-1">
       <div
         aria-label="Side Pane Tabs"
-        className="flex min-w-0 flex-1 overflow-x-auto"
+        className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="tablist"
       >
         {tabs.map((tab) => {
@@ -318,7 +318,7 @@ function SidePaneTabButton({
   return (
     <div
       ref={tabRef}
-      className="group relative flex h-8 min-w-20 max-w-32 shrink-0 items-center rounded-t-md"
+      className="group relative flex h-8 min-w-12 max-w-32 basis-28 items-center rounded-t-md"
       draggable
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
