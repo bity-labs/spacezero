@@ -97,9 +97,7 @@ const preview: Preview = {
       storySort: {
         order: [
           'Design System',
-          ['Primitives', 'Components'],
-          'App Shell',
-          ['Components', 'Layouts'],
+          ['Primitives', 'Components', ['Agent Chat', 'App Shell']],
           'Features',
           [
             'Settings',

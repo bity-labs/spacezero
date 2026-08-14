@@ -66,9 +66,8 @@ Use the story title to communicate why the UI exists, not its source folder:
 | Intent                                      | Title examples                                                                                                                   |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Generic primitives                          | `Design System/Primitives/Button`                                                                                                |
-| Reusable composed components                | `Design System/Components/Agent Chat`, `Design System/Components/Rich Markdown Editor`                                            |
-| Application shell components                | `App Shell/Components/Workspace/Sidebar`, `App Shell/Components/Side Pane/Complete`, `App Shell/Components/Side Pane/Tabs`         |
-| Application shell layouts                   | `App Shell/Layouts/Workspace/Shell`                                                                                                |
+| Reusable composed components                | `Design System/Components/Agent Chat/Complete`, `Design System/Components/Rich Markdown Editor`                                    |
+| Application shell components and shells     | `Design System/Components/App Shell/Workspace/Sidebar`, `Design System/Components/App Shell/Side Pane/Tabs`                        |
 | Feature-owned building blocks               | `Features/Settings/Components/Row`, `Features/Projects/Components/Project Sidebar List`                                           |
 | Feature-owned screens                       | `Features/Settings/Screens/General`, `Features/Projects/Screens/Project Home`                                                     |
 | Feature-owned layouts                       | `Features/Settings/Layouts/Settings Shell`                                                                                        |
@@ -80,10 +79,9 @@ Layout stories that include `.mac-traffic-light-space` show decorative macOS tra
 
 The Storybook sidebar is intentionally sorted for review flow, not alphabetically:
 
-1. `Design System` — primitives first, then reusable composed components
-2. `App Shell` — shell components, then shell layouts
-3. `Features` — each feature sorts stories as `Components`, then `Layouts`, then `Screens`
-4. `Screens` — app-level or cross-feature screens that do not belong to one feature module
+1. `Design System` — primitives first, then reusable composed components such as Agent Chat and App Shell pieces
+2. `Features` — each feature sorts stories as `Components`, then `Layouts`, then `Screens`
+3. `Screens` — app-level or cross-feature screens that do not belong to one feature module
 
 Build coverage in this order:
 
@@ -107,7 +105,7 @@ Record an accepted visual contract with the local story title, exported story na
 ```md
 Storybook reference:
 
-- `App Shell/Layouts/Workspace/Shell`
+- `Design System/Components/App Shell/Workspace/Shell`
 - Run locally with `pnpm storybook`
 ```
 
