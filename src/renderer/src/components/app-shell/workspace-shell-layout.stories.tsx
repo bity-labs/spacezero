@@ -12,7 +12,7 @@ import {
 import { WorkspaceShellLayout } from './workspace-shell-layout'
 
 const meta = {
-  title: 'App Shell/Layouts/Workspace Shell',
+  title: 'App Shell/Layouts/Workspace/Shell',
   component: WorkspaceShellLayout,
   parameters: { layout: 'fullscreen' },
   args: emptyProjectsFixture
