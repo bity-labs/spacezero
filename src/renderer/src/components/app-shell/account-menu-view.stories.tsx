@@ -8,7 +8,7 @@ import {
 import { AccountMenuView } from './account-menu-view'
 
 const meta = {
-  title: 'Design System/Components/App Shell/Account Menu',
+  title: 'Design System/Components/Account Menu',
   component: AccountMenuView,
   decorators: [
     (Story) => (
