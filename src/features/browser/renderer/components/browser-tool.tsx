@@ -1,10 +1,3 @@
-import {
-  ArrowClockwiseIcon,
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  PaperPlaneRightIcon,
-  XIcon
-} from '@phosphor-icons/react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
@@ -13,7 +6,6 @@ import {
   useKeyboardShortcutsManager,
   useRegisterKeyboardShortcuts
 } from '../../../keyboard-shortcuts/renderer/keyboard-shortcut-provider'
-import { Button } from '@renderer/components/ui/button'
 import { useGlobalOverlayOpen } from '@renderer/hooks/use-global-overlay-open'
 
 import {
@@ -30,6 +22,7 @@ import {
   syncBrowserSidePaneState
 } from '../../../side-pane/renderer/browser-side-pane'
 import { useSidePaneStore } from '../../../side-pane/renderer/side-pane-store'
+import { BrowserToolView } from './browser-tool-view'
 
 const browserShortcutDefinitions = [
   {
@@ -481,157 +474,33 @@ export function BrowserTool({
     shortcutManager
   ])
 
-  async function submitNavigation(event: React.FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault()
-    if (!currentAddress.trim()) return
-    await navigateToInput(currentAddress)
-  }
-
   const chromeError = activeTab?.error ?? error
 
   return (
-    <section
-      ref={rootRef}
-      aria-label="Browser"
-      className="flex h-full min-h-0 flex-col bg-background"
-      onFocusCapture={() => shortcutManager.setContext({ browserFocused: true })}
-      onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) {
-          shortcutManager.setContext({ browserFocused: false })
-        }
+    <BrowserToolView
+      activeTab={activeTab ?? null}
+      address={currentAddress}
+      addressInputRef={inputRef}
+      downloads={downloads}
+      error={chromeError}
+      pageSurfaceRef={surfaceRef}
+      rootRef={rootRef}
+      onAddressChange={(nextAddress) => {
+        isEditingAddressRef.current = true
+        setIsEditingAddress(true)
+        setAddress(nextAddress)
+        setAddressContextKey(contextKey)
       }}
-    >
-      <form className="flex shrink-0 items-center gap-2 border-b p-2" onSubmit={submitNavigation}>
-        <Button
-          aria-label="Back"
-          disabled={!activeTab?.canGoBack}
-          size="icon-sm"
-          title="Back"
-          type="button"
-          variant="ghost"
-          onClick={() => void goBack()}
-        >
-          <ArrowLeftIcon aria-hidden="true" className="size-4" />
-        </Button>
-        <Button
-          aria-label="Forward"
-          disabled={!activeTab?.canGoForward}
-          size="icon-sm"
-          title="Forward"
-          type="button"
-          variant="ghost"
-          onClick={() => void goForward()}
-        >
-          <ArrowRightIcon aria-hidden="true" className="size-4" />
-        </Button>
-        <Button
-          aria-label={activeTab?.isLoading ? 'Stop loading' : 'Reload'}
-          disabled={!activeTab?.url && !activeTab?.isLoading}
-          size="icon-sm"
-          title={activeTab?.isLoading ? 'Stop loading' : 'Reload'}
-          type="button"
-          variant="ghost"
-          onClick={() => void reloadOrStop()}
-        >
-          {activeTab?.isLoading ? (
-            <XIcon aria-hidden="true" className="size-4" />
-          ) : (
-            <ArrowClockwiseIcon aria-hidden="true" className="size-4" />
-          )}
-        </Button>
-        <div className="relative min-w-0 flex-1">
-          <input
-            ref={inputRef}
-            aria-label="Browser URL"
-            className="h-8 w-full min-w-0 rounded-md border bg-background px-3 pr-10 text-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            placeholder="Enter a URL or search terms"
-            value={currentAddress}
-            onChange={(event) => {
-              isEditingAddressRef.current = true
-              setIsEditingAddress(true)
-              setAddress(event.target.value)
-              setAddressContextKey(contextKey)
-            }}
-          />
-          <Button
-            aria-label="Go"
-            className="absolute right-0 top-0"
-            disabled={!currentAddress.trim()}
-            size="icon-sm"
-            title="Go"
-            type="submit"
-            variant="ghost"
-          >
-            <PaperPlaneRightIcon aria-hidden="true" className="size-4" />
-          </Button>
-        </div>
-      </form>
-      {chromeError ? (
-        <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2 text-sm text-destructive">
-          <span>{chromeError}</span>
-          {activeTab?.url ? (
-            <Button size="sm" type="button" variant="outline" onClick={() => void retry()}>
-              Retry
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      <div ref={surfaceRef} aria-label="Browser page surface" className="min-h-0 flex-1" />
-      {downloads.length > 0 ? (
-        <div
-          aria-label="Browser downloads"
-          className="absolute bottom-3 right-3 flex max-w-md flex-col gap-2"
-          role="status"
-        >
-          {downloads.map((download) => (
-            <div
-              key={download.id}
-              className="rounded-md border bg-background p-3 text-sm shadow-lg"
-            >
-              <div className="font-medium">{download.filename}</div>
-              <div className="text-muted-foreground">{downloadStatusLabel(download)}</div>
-              {download.status === 'completed' ? (
-                <div className="mt-2 flex gap-2">
-                  <Button size="sm" type="button" onClick={() => void openDownload(download.id)}>
-                    Open
-                  </Button>
-                  <Button
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                    onClick={() => void revealDownload(download.id)}
-                  >
-                    Reveal in folder
-                  </Button>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
+      onBack={() => void goBack()}
+      onBrowserFocusChange={(focused) => shortcutManager.setContext({ browserFocused: focused })}
+      onForward={() => void goForward()}
+      onNavigate={() => navigateToInput(currentAddress)}
+      onOpenDownload={(downloadId) => void openDownload(downloadId)}
+      onReloadOrStop={() => void reloadOrStop()}
+      onRetry={() => void retry()}
+      onRevealDownload={(downloadId) => void revealDownload(downloadId)}
+    />
   )
-}
-
-function downloadStatusLabel(download: BrowserDownloadSnapshot): string {
-  switch (download.status) {
-    case 'selecting-save-location':
-      return 'Choose where to save this download.'
-    case 'downloading':
-      return formatDownloadProgress(download)
-    case 'completed':
-      return 'Download complete.'
-    case 'cancelled':
-      return 'Download cancelled.'
-    case 'failed':
-      return 'Download failed.'
-  }
-}
-
-function formatDownloadProgress(download: BrowserDownloadSnapshot): string {
-  if (!download.totalBytes) return 'Downloading…'
-  const percent = Math.min(100, Math.round((download.receivedBytes / download.totalBytes) * 100))
-  return `Downloading… ${percent}%`
 }
 
 function toErrorMessage(reason: unknown): string {
