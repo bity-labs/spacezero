@@ -1,10 +1,19 @@
-import { BookOpenText, Browser, ChatCircleDots, SidebarSimple } from '@phosphor-icons/react'
+import { SidebarSimple } from '@phosphor-icons/react'
 
+import { KnowledgeBaseConfiguredScreen } from '../../../../features/knowledge-base/renderer'
+import { configuredKnowledgeBaseFixture } from '../../../../features/knowledge-base/renderer/knowledge-base-configured-screen.fixtures'
+import { ProjectHomeScreen, ProjectSidebarList } from '../../../../features/projects/renderer'
+import { repositoryConnectedProjectHomeFixture } from '../../../../features/projects/renderer/components/project-home-screen.fixtures'
 import type { Project } from '../../../../features/projects/shared'
-import { ProjectSidebarList } from '../../../../features/projects/renderer'
+import { globalChatReadyFixture } from '../../../../features/sessions/renderer/components/session-host-screen.fixtures'
+import { SidePaneShellView, SidePaneTabStripView } from '../../../../features/side-pane/renderer'
+import { manyTabsFixture } from '../../../../features/side-pane/renderer/side-pane-shell-view.fixtures'
+import { AgentChatView } from '../agent-chat-view'
 import { Button } from '@renderer/components/ui/button'
+import { AccountMenuView } from './account-menu-view'
+import { connectedAccountMenuFixture } from './account-menu-view.fixtures'
+import { WorkspaceEmptyStateView, type WorkspaceShellLayoutProps } from './workspace-shell-layout'
 import { WorkspaceSidebar, type WorkspaceSidebarView } from './workspace-sidebar'
-import type { WorkspaceShellLayoutProps } from './workspace-shell-layout'
 
 const noOp = (): void => undefined
 const fixtureTimestamp = '2026-08-13T18:46:28.000Z'
@@ -32,20 +41,6 @@ const labels: WorkspaceShellLayoutProps['labels'] = {
   openCommandPalette: 'Open command palette',
   mainContent: 'Workspace content',
   resizeLeftSidebar: 'Resize left sidebar'
-}
-
-function accountMenuFixture(): React.JSX.Element {
-  return (
-    <section className="flex items-center gap-2 rounded-lg px-1 py-1" aria-label="Account menu">
-      <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-medium">
-        TB
-      </div>
-      <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">@builder</p>
-      <Button variant="ghost" size="icon-sm" aria-label="Settings">
-        <span aria-hidden="true">⚙</span>
-      </Button>
-    </section>
-  )
 }
 
 function projectListFixture(projects: Project[], activeProject: Project | null): React.JSX.Element {
@@ -77,7 +72,7 @@ function sidebarFixture({
       activeView={activeView}
       projectsExpanded
       projectsContent={projectListFixture(projects, activeProject)}
-      accountMenu={accountMenuFixture()}
+      accountMenu={<AccountMenuView {...connectedAccountMenuFixture} />}
       labels={{
         sidebar: 'Workspace sidebar',
         navigation: 'Workspace navigation',
@@ -97,7 +92,12 @@ function sidebarFixture({
   )
 }
 
-function collapsedSidePaneHeader(): React.JSX.Element {
+/**
+ * Minimal titlebar-alignment stub for the collapsed Side Pane control. The application control is
+ * store-connected and would recursively create the same workspace controller in this pure layout
+ * fixture; open-pane fixtures use the real SidePaneTabStripView and SidePaneShellView below.
+ */
+function CollapsedSidePaneHeaderLayoutStub(): React.JSX.Element {
   return (
     <div className="flex w-full justify-center">
       <Button variant="ghost" size="icon-sm" aria-label="Open side pane">
@@ -107,83 +107,33 @@ function collapsedSidePaneHeader(): React.JSX.Element {
   )
 }
 
-function emptyWorkspaceContent(): React.JSX.Element {
+const projectHomeContent = <ProjectHomeScreen {...repositoryConnectedProjectHomeFixture} />
+const globalChatContent = <AgentChatView {...globalChatReadyFixture} />
+const knowledgeBaseContent = <KnowledgeBaseConfiguredScreen {...configuredKnowledgeBaseFixture} />
+
+function openSidePaneContent(): React.JSX.Element {
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center p-8">
-      <div className="rounded-lg border border-dashed bg-card px-12 py-10 text-center">
-        <h2 className="text-sm font-medium">Choose a project to start building</h2>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Add a project to keep code, sessions, and tools together.
-        </p>
-      </div>
-    </div>
+    <SidePaneShellView
+      {...manyTabsFixture}
+      showInlineHeaderTabs={false}
+      children={projectHomeContent}
+    />
   )
 }
 
-function projectContent(): React.JSX.Element {
+function openSidePaneHeader(): React.JSX.Element {
   return (
-    <div className="flex min-h-0 flex-1 flex-col p-6">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        Project Home
-      </p>
-      <h1 className="mt-2 text-2xl font-semibold">Space Zero</h1>
-      <div className="mt-6 grid grid-cols-2 gap-4">
-        <section className="rounded-lg border bg-card p-4">
-          <h2 className="text-sm font-medium">Start a Project Session</h2>
-          <p className="mt-2 text-xs text-muted-foreground">Continue issue #448 in its worktree.</p>
-        </section>
-        <section className="rounded-lg border bg-card p-4">
-          <h2 className="text-sm font-medium">Repository</h2>
-          <p className="mt-2 text-xs text-muted-foreground">bity-labs/spacezero</p>
-        </section>
-      </div>
-    </div>
-  )
-}
-
-function globalChatContent(): React.JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center">
-      <ChatCircleDots className="size-8 text-muted-foreground" aria-hidden="true" />
-      <h1 className="mt-3 text-lg font-semibold">What do you want to build?</h1>
-      <p className="mt-2 max-w-md text-sm text-muted-foreground">
-        Ask the workspace agent about Space Zero, your projects, or the next task.
-      </p>
-    </div>
-  )
-}
-
-function knowledgeBaseContent(): React.JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col p-6">
-      <div className="flex items-center gap-3">
-        <BookOpenText className="size-7 text-muted-foreground" aria-hidden="true" />
-        <div>
-          <h1 className="text-lg font-semibold">Knowledge Base</h1>
-          <p className="text-sm text-muted-foreground">Notes and durable project context.</p>
-        </div>
-      </div>
-      <div className="mt-6 flex-1 rounded-lg border border-dashed bg-card p-6 text-sm text-muted-foreground">
-        Select a note from Files to start reading.
-      </div>
-    </div>
-  )
-}
-
-function sidePaneOpenContent(): React.JSX.Element {
-  return (
-    <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_420px]">
-      {projectContent()}
-      <aside className="flex min-h-0 flex-col border-l bg-card" aria-label="Side pane">
-        <div className="flex h-10 items-center gap-2 border-b px-3 text-xs font-medium">
-          <Browser className="size-4" aria-hidden="true" />
-          Browser
-        </div>
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          localhost:5173
-        </div>
-      </aside>
-    </div>
+    <SidePaneTabStripView
+      activeTabId={manyTabsFixture.activeTabId}
+      categories={manyTabsFixture.categories}
+      categoryMru={manyTabsFixture.categoryMru}
+      contextKey={manyTabsFixture.contextKey}
+      tabs={manyTabsFixture.tabs}
+      onActivate={manyTabsFixture.onActivateTab}
+      onClose={manyTabsFixture.onCloseTab}
+      onCreateCategory={manyTabsFixture.onCreateCategory}
+      onReorder={manyTabsFixture.onReorderTab}
+    />
   )
 }
 
@@ -207,16 +157,10 @@ function fixture({
   return {
     isLeftSidebarOpen: true,
     leftSidebarWidth,
-    sidePaneHeaderWidth: sidePaneOpen ? 420 : 48,
+    sidePaneHeaderWidth: sidePaneOpen ? 560 : 48,
     leftSidebar: sidebarFixture({ activeView, projects, activeProject }),
     titlebarCenter: <span className="text-xs font-medium">{title}</span>,
-    sidePaneHeader: sidePaneOpen ? (
-      <div className="flex w-full items-center border-l px-3 text-xs text-muted-foreground">
-        Browser
-      </div>
-    ) : (
-      collapsedSidePaneHeader()
-    ),
+    sidePaneHeader: sidePaneOpen ? openSidePaneHeader() : <CollapsedSidePaneHeaderLayoutStub />,
     mainContent,
     labels,
     onToggleLeftSidebar: noOp,
@@ -227,26 +171,31 @@ function fixture({
 export const emptyProjectsFixture = fixture({
   activeView: 'workspace',
   projects: [],
-  mainContent: emptyWorkspaceContent(),
+  mainContent: (
+    <WorkspaceEmptyStateView
+      title="Choose a project to start building"
+      description="Add a project to keep code, sessions, and tools together."
+    />
+  ),
   title: 'Workspace'
 })
 
 export const projectSelectedFixture = fixture({
   activeView: 'workspace',
   activeProject: workspaceProjects[0],
-  mainContent: projectContent(),
+  mainContent: projectHomeContent,
   title: 'Space Zero'
 })
 
 export const globalChatSelectedFixture = fixture({
   activeView: 'global-chat',
-  mainContent: globalChatContent(),
+  mainContent: globalChatContent,
   title: 'Chat'
 })
 
 export const knowledgeBaseSelectedFixture = fixture({
   activeView: 'knowledge-base',
-  mainContent: knowledgeBaseContent(),
+  mainContent: knowledgeBaseContent,
   title: 'Knowledge Base'
 })
 
@@ -254,7 +203,7 @@ export const sidePaneOpenFixture = fixture({
   activeView: 'workspace',
   activeProject: workspaceProjects[0],
   sidePaneOpen: true,
-  mainContent: sidePaneOpenContent(),
+  mainContent: openSidePaneContent(),
   title: 'Space Zero'
 })
 
@@ -262,7 +211,7 @@ export const narrowLeftSidebarFixture = fixture({
   activeView: 'workspace',
   activeProject: workspaceProjects[0],
   leftSidebarWidth: 280,
-  mainContent: projectContent(),
+  mainContent: projectHomeContent,
   title: 'Space Zero'
 })
 
@@ -270,6 +219,6 @@ export const wideLeftSidebarFixture = fixture({
   activeView: 'workspace',
   activeProject: workspaceProjects[0],
   leftSidebarWidth: 520,
-  mainContent: projectContent(),
+  mainContent: projectHomeContent,
   title: 'Space Zero'
 })
