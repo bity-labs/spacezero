@@ -3,8 +3,6 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal as XTerm } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 
-import { Button } from '@renderer/components/ui/button'
-
 import { useRegisterAppCommands } from '../../../app-commands/renderer/app-command-context'
 import {
   useKeyboardShortcutsManager,
@@ -15,6 +13,7 @@ import {
   createTerminalSidePaneTab,
   getTerminalDiagnostics
 } from '../../../side-pane/renderer/terminal-side-pane'
+import { TerminalToolView } from './terminal-tool-view'
 import {
   TERMINAL_COMMAND_IDS,
   type TerminalContext,
@@ -501,80 +500,29 @@ export function TerminalTool({
   }, [shortcutManager])
 
   return (
-    <>
-      <section
-        aria-label="Terminal"
-        className="flex h-full min-h-0 flex-col bg-background"
-        onFocusCapture={() => shortcutManager.setContext({ terminalFocused: true })}
-        onBlurCapture={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget)) {
-            shortcutManager.setContext({ terminalFocused: false })
-          }
-        }}
-      >
-        {status === 'failed' ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-            <div>
-              <p className="text-sm font-medium">Terminal failed to start</p>
-              <p className="mt-1 max-w-md text-xs text-muted-foreground">{error}</p>
-            </div>
-            <Button size="sm" onClick={startTerminal}>
-              Retry
-            </Button>
-          </div>
-        ) : status === 'empty' ? (
-          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4 text-center">
-            <p className="text-sm text-muted-foreground">New Terminal</p>
-            <Button size="sm" onClick={startTerminal}>
-              New Terminal
-            </Button>
-          </div>
-        ) : (
-          <div className="relative min-h-0 flex-1 overflow-hidden p-2">
-            <div ref={containerRef} aria-label="Terminal output" className="h-full" />
-            {diagnostics.length > 0 ? (
-              <div
-                role="status"
-                className="absolute inset-x-4 top-4 rounded-md border bg-background/95 p-2 text-xs text-muted-foreground shadow-sm"
-              >
-                {diagnostics.map((diagnostic) => (
-                  <p key={`${diagnostic.type}:${diagnostic.terminalId}`}>{diagnostic.message}</p>
-                ))}
-              </div>
-            ) : null}
-            {status === 'starting' ? (
-              <div className="pointer-events-none absolute inset-12 text-xs text-muted-foreground">
-                Starting terminal…
-              </div>
-            ) : null}
-          </div>
-        )}
-      </section>
-      {fallbackUrl ? (
-        <div
-          aria-label="Terminal Link choices"
-          aria-modal="true"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-background/60"
-          role="dialog"
-        >
-          <div className="max-w-md rounded-lg border bg-background p-4 shadow-lg">
-            <p className="text-sm font-medium">Browser is unavailable</p>
-            <p className="mt-2 break-all text-xs text-muted-foreground">{fallbackUrl}</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setFallbackUrl(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => void copyFallbackUrl()}>
-                Copy URL
-              </Button>
-              <Button size="sm" onClick={() => void openFallbackUrlInDefaultBrowser()}>
-                Open in default browser
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </>
+    <div
+      className="h-full min-h-0"
+      onFocusCapture={() => shortcutManager.setContext({ terminalFocused: true })}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          shortcutManager.setContext({ terminalFocused: false })
+        }
+      }}
+    >
+      <TerminalToolView
+        browserFallbackUrl={fallbackUrl}
+        diagnostics={diagnostics.map((diagnostic) => diagnostic.message)}
+        error={error}
+        status={status === 'running' ? 'ready' : status}
+        terminalContainerRef={containerRef}
+        onCancelBrowserFallback={() => setFallbackUrl(null)}
+        onCopyBrowserFallback={() => void copyFallbackUrl()}
+        onNewTerminal={startTerminal}
+        onOpenBrowserFallback={() => void openFallbackUrlInDefaultBrowser()}
+        onOpenLink={(url) => void openTerminalLink(url)}
+        onRetry={startTerminal}
+      />
+    </div>
   )
 }
 
