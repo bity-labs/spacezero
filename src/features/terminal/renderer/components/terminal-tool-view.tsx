@@ -164,7 +164,11 @@ function TerminalOutputLineView({
           aria-label={`Open ${line.url} in Browser`}
           className="cursor-pointer text-sky-400 underline decoration-sky-400/60 underline-offset-2 hover:text-sky-300"
           type="button"
-          onClick={() => onOpenLink(line.url)}
+          onClick={(event) => {
+            if (event.detail === 0 || event.metaKey || event.ctrlKey) {
+              onOpenLink(line.url)
+            }
+          }}
         >
           {line.content}
         </button>

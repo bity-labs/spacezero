@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { TerminalToolView } from './terminal-tool-view'
@@ -31,7 +32,6 @@ describe('TerminalToolView', () => {
   })
 
   it('renders sample output, a running command, and a detected Browser link', () => {
-    const onOpenLink = vi.fn()
     render(
       <TerminalToolView
         {...baseProps}
@@ -41,15 +41,48 @@ describe('TerminalToolView', () => {
           { kind: 'output', content: 'VITE ready in 412 ms' },
           { kind: 'link', content: 'http://localhost:5173', url: 'http://localhost:5173' }
         ]}
-        onOpenLink={onOpenLink}
       />
     )
 
     expect(screen.getByText('Running')).toBeInTheDocument()
     expect(screen.getByText('$ pnpm dev')).toBeInTheDocument()
     expect(screen.getByText('VITE ready in 412 ms')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Open http://localhost:5173 in Browser' }))
-    expect(onOpenLink).toHaveBeenCalledWith('http://localhost:5173')
+    expect(
+      screen.getByRole('button', { name: 'Open http://localhost:5173 in Browser' })
+    ).toBeInTheDocument()
+  })
+
+  it('opens a detected Terminal Link only by modifier-click or keyboard activation', async () => {
+    const user = userEvent.setup()
+    const onOpenLink = vi.fn()
+    const completeUrl = 'http://localhost:5173/docs?tab=api#examples'
+    render(
+      <TerminalToolView
+        {...baseProps}
+        output={[{ kind: 'link', content: 'http://localhost:5173/docs', url: completeUrl }]}
+        onOpenLink={onOpenLink}
+      />
+    )
+
+    const link = screen.getByRole('button', { name: `Open ${completeUrl} in Browser` })
+
+    await user.click(link)
+    expect(onOpenLink).not.toHaveBeenCalled()
+
+    fireEvent.click(link, { ctrlKey: true, detail: 1 })
+    expect(onOpenLink).toHaveBeenCalledOnce()
+    expect(onOpenLink).toHaveBeenLastCalledWith(completeUrl)
+
+    onOpenLink.mockClear()
+    fireEvent.click(link, { metaKey: true, detail: 1 })
+    expect(onOpenLink).toHaveBeenCalledOnce()
+    expect(onOpenLink).toHaveBeenLastCalledWith(completeUrl)
+
+    onOpenLink.mockClear()
+    link.focus()
+    await user.keyboard('{Enter}')
+    expect(onOpenLink).toHaveBeenCalledOnce()
+    expect(onOpenLink).toHaveBeenLastCalledWith(completeUrl)
   })
 
   it('renders failed, unavailable, and empty states with their actions', () => {
