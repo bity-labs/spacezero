@@ -8,7 +8,7 @@ import {
 import { AddProjectDialogView } from './add-project-dialog-view'
 
 const meta = {
-  title: 'Screens/Projects/Add Project',
+  title: 'Projects/Building Blocks/Add Project Dialog',
   component: AddProjectDialogView,
   parameters: { layout: 'fullscreen' },
   args: addProjectDefaultFixture
