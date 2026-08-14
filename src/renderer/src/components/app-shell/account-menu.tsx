@@ -1,11 +1,8 @@
-import { Link, useRouterState } from '@tanstack/react-router'
-import { GearSix } from '@phosphor-icons/react'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 
 import { useGitHubConnection } from '../../../../features/github/renderer'
 import { UpdateRestartControl } from '../../../../features/updates/renderer'
-import { cn } from '../../lib/utils'
-import { Avatar, AvatarFallback, AvatarImage } from '../ui/avatar'
-import { buttonVariants } from '../ui/button'
+import { AccountMenuView } from './account-menu-view'
 
 export type AccountMenuProps = {
   username?: string
@@ -22,6 +19,7 @@ export function AccountMenu({
   settingsLabel,
   settingsTo
 }: AccountMenuProps): React.JSX.Element {
+  const navigate = useNavigate()
   const pathname = useRouterState({ select: (state) => state.location.pathname })
   const { connection } = useGitHubConnection()
   const connectedIdentity = connection?.status === 'connected' ? connection.identity : null
@@ -33,30 +31,24 @@ export function AccountMenu({
   const resolvedSettingsTo = settingsTo ?? (pathname === '/settings' ? '/' : '/settings')
   const resolvedSettingsLabel =
     settingsLabel ?? (resolvedSettingsTo === '/settings' ? 'Settings' : 'Close settings')
+
+  function handleOpenSettings(): void {
+    if (resolvedSettingsTo === '/settings') {
+      void navigate({ to: '/settings', search: { section: 'account' } })
+      return
+    }
+    void navigate({ to: '/' })
+  }
+
   return (
-    <section className="flex items-center gap-2 rounded-lg px-1 py-1" aria-label="Account menu">
-      <Avatar className="size-8 bg-muted">
-        {resolvedAvatarUrl ? <AvatarImage src={resolvedAvatarUrl} alt={resolvedUsername} /> : null}
-        <AvatarFallback className="text-sm font-medium">{resolvedAvatarFallback}</AvatarFallback>
-      </Avatar>
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm leading-5 text-muted-foreground">{resolvedUsername}</p>
-      </div>
-
-      <UpdateRestartControl placement="sidebar" />
-
-      <Link
-        to={resolvedSettingsTo}
-        search={resolvedSettingsTo === '/settings' ? { section: 'account' } : undefined}
-        className={cn(
-          buttonVariants({ variant: 'ghost', size: 'icon-sm' }),
-          'text-muted-foreground'
-        )}
-        aria-label={resolvedSettingsLabel}
-      >
-        <GearSix className="h-5 w-5" aria-hidden="true" />
-      </Link>
-    </section>
+    <AccountMenuView
+      username={resolvedUsername}
+      avatarUrl={resolvedAvatarUrl}
+      avatarFallback={resolvedAvatarFallback}
+      settingsLabel={resolvedSettingsLabel}
+      settingsHref={resolvedSettingsTo === '/settings' ? '#/settings?section=account' : '#/'}
+      updateControl={<UpdateRestartControl placement="sidebar" />}
+      onOpenSettings={handleOpenSettings}
+    />
   )
 }
