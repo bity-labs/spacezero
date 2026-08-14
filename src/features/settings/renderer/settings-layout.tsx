@@ -1,15 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link } from '@tanstack/react-router'
-import { ArrowLeft } from '@phosphor-icons/react'
+import { useNavigate } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import type { LanguagePreference, LanguageSettings } from '@shared/i18n'
 
 import { AccountMenu } from '@renderer/components/app-shell/account-menu'
-import { AppSidebar } from '@renderer/components/sidebar/app-sidebar'
-import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '@renderer/components/sidebar/sidebar-layout'
-import { SidebarResizeHandle } from '@renderer/components/sidebar/sidebar-resize-handle'
-import { buttonVariants } from '@renderer/components/ui/button'
 import { useSidebarResize } from '@renderer/hooks/use-sidebar-resize'
 import { i18n } from '@renderer/i18n'
 import { useUiLayoutStore } from '@renderer/stores/ui-layout-store'
@@ -20,7 +15,8 @@ import { AppearanceSettingsPage } from './pages/appearance-settings-page'
 import { GeneralSettingsPage } from './pages/general-settings-page'
 import { ProvidersSettingsPage } from './pages/providers-settings-page'
 import { SkillsSettingsPage } from './pages/skills-settings-page'
-import { SettingsNavigation, type SettingsSectionId } from './settings-navigation'
+import { SettingsLayoutView, type SettingsLayoutViewLabels } from './settings-layout-view'
+import type { SettingsSectionId } from './settings-navigation'
 
 export function SettingsLayout({
   selectedSection
@@ -28,6 +24,7 @@ export function SettingsLayout({
   selectedSection: SettingsSectionId
 }): React.JSX.Element {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const sidebarWidth = useUiLayoutStore((state) => state.leftSidebarWidth)
   const setSidebarWidth = useUiLayoutStore((state) => state.setLeftSidebarWidth)
   const [languageSettings, setLanguageSettings] = useState<LanguageSettings | null>(null)
@@ -65,60 +62,48 @@ export function SettingsLayout({
     }
   }
 
+  const labels: SettingsLayoutViewLabels = {
+    backToWorkspace: t('settings.backToWorkspace'),
+    navigation: t('settings.navigationLabel'),
+    experimentalNavigation: 'Experimental settings',
+    main: t('settings.mainLabel'),
+    title: t('settings.title'),
+    resizeSidebar: t('workspace.resizeLeftPanel'),
+    sections: {
+      general: t('settings.navigation.general'),
+      models: t('settings.navigation.models'),
+      account: t('settings.navigation.account'),
+      appearance: 'Appearance',
+      about: t('settings.navigation.about'),
+      agents: t('settings.navigation.agents'),
+      skills: t('settings.navigation.skills')
+    }
+  }
+
   return (
-    <div className="flex h-screen min-h-screen bg-background text-foreground">
-      <AppSidebar
-        className="app-titlebar shrink-0"
-        style={{ width: `${sidebarWidth}px` }}
-        contentClassName="titlebar-control flex flex-col px-2"
-        header={
-          <div className="flex h-12 items-center px-3">
-            <div className="mac-traffic-light-space shrink-0" />
-          </div>
-        }
-        footer={<AccountMenu settingsLabel={t('settings.closeSettings')} />}
-      >
-        <Link
-          className={buttonVariants({
-            variant: 'ghost',
-            size: 'sm',
-            className: 'mb-5 w-full justify-start gap-2 text-muted-foreground'
-          })}
-          to="/"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          {t('settings.backToWorkspace')}
-        </Link>
-
-        <SettingsNavigation selectedSection={selectedSection} />
-      </AppSidebar>
-
-      <SidebarResizeHandle
-        label={t('workspace.resizeLeftPanel')}
-        value={sidebarWidth}
-        min={SIDEBAR_MIN_WIDTH}
-        max={SIDEBAR_MAX_WIDTH}
-        className="w-1 bg-background"
-        onPointerDown={leftSidebarResize.startResize}
-        onKeyDown={leftSidebarResize.resizeWithKeyboard}
-      />
-
-      <main
-        aria-label={t('settings.mainLabel')}
-        className="relative min-h-0 flex-1 overflow-auto bg-background"
-      >
-        <div className="app-titlebar sticky top-0 z-10 h-12" aria-hidden="true" />
-        <div className="mx-auto w-full max-w-[810px] px-8 pb-24 pt-12">
-          <h1 className="sr-only">{t('settings.title')}</h1>
-          <SelectedSettingsPage
-            selectedSection={selectedSection}
-            languageSettings={languageSettings}
-            languageError={languageError}
-            onLanguagePreferenceChange={handleLanguagePreferenceChange}
-          />
-        </div>
-      </main>
-    </div>
+    <SettingsLayoutView
+      sidebarWidth={sidebarWidth}
+      selectedSection={selectedSection}
+      accountMenu={<AccountMenu settingsLabel={t('settings.closeSettings')} />}
+      mainContent={
+        <SelectedSettingsPage
+          selectedSection={selectedSection}
+          languageSettings={languageSettings}
+          languageError={languageError}
+          onLanguagePreferenceChange={handleLanguagePreferenceChange}
+        />
+      }
+      labels={labels}
+      onBackToWorkspace={() => void navigate({ to: '/' })}
+      onSelectSection={(section) =>
+        void navigate({
+          to: '/settings',
+          search: section === 'general' ? {} : { section }
+        })
+      }
+      onResizePointerDown={leftSidebarResize.startResize}
+      onResizeKeyDown={leftSidebarResize.resizeWithKeyboard}
+    />
   )
 }
 
