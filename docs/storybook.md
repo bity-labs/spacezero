@@ -67,8 +67,8 @@ Use the story title to communicate why the UI exists, not its source folder:
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Generic primitives                          | `Design System/Primitives/Button`                                                                                                |
 | Reusable composed components                | `Design System/Components/Agent Chat`, `Design System/Components/Rich Markdown Editor`                                            |
-| Application shell components                | `App Shell/Components/Workspace Sidebar`, `App Shell/Components/Side Pane`, `App Shell/Components/Side Pane Tabs`                 |
-| Application shell layouts                   | `App Shell/Layouts/Workspace Shell`                                                                                               |
+| Application shell components                | `App Shell/Components/Workspace/Sidebar`, `App Shell/Components/Side Pane/Complete`, `App Shell/Components/Side Pane/Tabs`         |
+| Application shell layouts                   | `App Shell/Layouts/Workspace/Shell`                                                                                                |
 | Feature-owned building blocks               | `Features/Settings/Components/Row`, `Features/Projects/Components/Project Sidebar List`                                           |
 | Feature-owned screens                       | `Features/Settings/Screens/General`, `Features/Projects/Screens/Project Home`                                                     |
 | Feature-owned layouts                       | `Features/Settings/Layouts/Settings Shell`                                                                                        |
@@ -107,7 +107,7 @@ Record an accepted visual contract with the local story title, exported story na
 ```md
 Storybook reference:
 
-- `App Shell/Layouts/Workspace Shell`
+- `App Shell/Layouts/Workspace/Shell`
 - Run locally with `pnpm storybook`
 ```
 

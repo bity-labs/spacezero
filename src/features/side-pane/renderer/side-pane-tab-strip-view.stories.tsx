@@ -45,7 +45,7 @@ const tabs = [
 ] satisfies SidePaneTab[]
 
 const meta = {
-  title: 'App Shell/Components/Side Pane Tabs',
+  title: 'App Shell/Components/Side Pane/Tabs',
   component: SidePaneTabStripView,
   decorators: [
     (Story) => (
