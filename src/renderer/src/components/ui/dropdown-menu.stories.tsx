@@ -4,6 +4,7 @@ import { Button } from './button'
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -14,12 +15,14 @@ const meta = {
   title: 'Design System/Primitives/Dropdown Menu',
   component: DropdownMenu,
   render: () => (
-    <DropdownMenu>
+    <DropdownMenu defaultOpen>
       <DropdownMenuTrigger render={<Button variant="outline" />}>Open menu</DropdownMenuTrigger>
       <DropdownMenuContent>
-        <DropdownMenuLabel>Project</DropdownMenuLabel>
-        <DropdownMenuItem>Open</DropdownMenuItem>
-        <DropdownMenuItem>Duplicate</DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Project</DropdownMenuLabel>
+          <DropdownMenuItem>Open</DropdownMenuItem>
+          <DropdownMenuItem>Duplicate</DropdownMenuItem>
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive">Remove</DropdownMenuItem>
       </DropdownMenuContent>
