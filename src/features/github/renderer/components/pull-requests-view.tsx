@@ -1,29 +1,29 @@
-import { ArrowClockwise, ArrowLeft } from '@phosphor-icons/react'
-import { useQueries, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
-import { Badge } from '../../../../renderer/src/components/ui/badge'
-import { Button } from '../../../../renderer/src/components/ui/button'
 import type { Project } from '../../../projects/shared'
 import type { ProjectSession } from '../../../sessions/shared'
-import type { GitHubIssueComment, GitHubPullRequest } from '../../shared'
+import type { GitHubIssueComment } from '../../shared'
 import { githubReadErrorMessage } from '../github-error-messages'
-import { GitHubMarkdown } from './github-markdown'
-import { PullRequestReviewSections } from './pull-request-review-sections'
 import { useProjectPullRequest, useProjectPullRequests } from '../hooks/use-project-pull-requests'
+import { PullRequestReviewSections } from './pull-request-review-sections'
+import {
+  PullRequestDetailScreen,
+  PullRequestListScreen,
+  type PullRequestDetailState,
+  type PullRequestListState
+} from './pull-requests-screen'
 
 export function PullRequestsViewLoading(): React.JSX.Element {
   return (
-    <section className="space-y-4" aria-label="GitHub Pull Requests">
-      <header className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Pull Requests</h2>
-          <p className="text-sm text-muted-foreground">Live from the linked GitHub repository.</p>
-        </div>
-        <RefreshButton fetching onRefresh={() => undefined} />
-      </header>
-      <ListPlaceholders label="Loading Pull Requests…" itemLabel="Pull Request placeholder" />
-    </section>
+    <PullRequestListScreen
+      state={{ status: 'loading' }}
+      fetching
+      onRefresh={() => undefined}
+      onRetry={() => undefined}
+      onPageChange={() => undefined}
+      onOpenPullRequest={() => undefined}
+    />
   )
 }
 
@@ -36,9 +36,7 @@ export function PullRequestsView({
   onSessionCreated?: (session: ProjectSession) => void
 }): React.JSX.Element {
   const [page, setPage] = useState(1)
-  const [selectedPullRequest, setSelectedPullRequest] = useState<number | null>(
-    initialPullRequestNumber
-  )
+  const [selectedPullRequest, setSelectedPullRequest] = useState<number | null>(initialPullRequestNumber)
 
   if (selectedPullRequest !== null) {
     return (
@@ -50,14 +48,7 @@ export function PullRequestsView({
     )
   }
 
-  return (
-    <PullRequestList
-      projectId={project.id}
-      page={page}
-      onPageChange={setPage}
-      onOpenPullRequest={setSelectedPullRequest}
-    />
-  )
+  return <PullRequestList projectId={project.id} page={page} onPageChange={setPage} onOpenPullRequest={setSelectedPullRequest} />
 }
 
 function PullRequestList({
@@ -72,101 +63,29 @@ function PullRequestList({
   onOpenPullRequest: (number: number) => void
 }): React.JSX.Element {
   const query = useProjectPullRequests(projectId, page)
-  const pullRequests = query.isError
-    ? undefined
-    : query.data
-      ? {
+  const state: PullRequestListState = query.isPending
+    ? { status: 'loading' }
+    : query.isError
+      ? { status: 'error', message: githubReadErrorMessage(query.error, 'Pull Requests') }
+      : {
+          status: 'ready',
           ...query.data,
           items: query.data.items.filter((pullRequest) => pullRequest.state !== 'merged')
         }
-      : undefined
 
   return (
-    <section className="space-y-4" aria-label="GitHub Pull Requests">
-      <header className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">Pull Requests</h2>
-          <p className="text-sm text-muted-foreground">
-            {query.isError
-              ? 'GitHub data is unavailable; previously loaded Pull Requests are hidden.'
-              : 'Live from the linked GitHub repository.'}
-          </p>
-        </div>
-        <RefreshButton fetching={query.isFetching} onRefresh={() => void query.refetch()} />
-      </header>
-
-      {query.isPending ? (
-        <ListPlaceholders label="Loading Pull Requests…" itemLabel="Pull Request placeholder" />
-      ) : null}
-      {query.isError ? (
-        <ErrorState
-          message={githubReadErrorMessage(query.error, 'Pull Requests')}
-          onRetry={query.refetch}
-        />
-      ) : null}
-      {pullRequests?.items.length === 0 ? (
-        <p className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-          No Pull Requests were found in this repository.
-        </p>
-      ) : null}
-      {pullRequests?.items.length ? (
-        <ul className="divide-y rounded-lg border" aria-label="Pull Request list">
-          {pullRequests.items.map((pullRequest) => (
-            <li key={pullRequest.number}>
-              <button
-                type="button"
-                className="w-full space-y-2 p-4 text-left transition-colors hover:bg-muted/50"
-                onClick={() => onOpenPullRequest(pullRequest.number)}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{pullRequest.title}</span>
-                  <PullRequestState state={pullRequest.state} />
-                  {pullRequest.isDraft ? <Badge variant="outline">draft</Badge> : null}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  #{pullRequest.number} by {pullRequest.author?.login ?? 'ghost'} ·{' '}
-                  {pullRequest.headBranch} → {pullRequest.baseBranch}
-                </p>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-
-      {pullRequests ? (
-        <nav className="flex items-center justify-between" aria-label="Pull Request pages">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={page === 1 || query.isFetching}
-            onClick={() => onPageChange(page - 1)}
-          >
-            Previous
-          </Button>
-          <span className="text-xs text-muted-foreground">Page {page}</span>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!pullRequests.hasNextPage || query.isFetching}
-            onClick={() => onPageChange(page + 1)}
-          >
-            Next
-          </Button>
-        </nav>
-      ) : null}
-    </section>
+    <PullRequestListScreen
+      state={state}
+      fetching={query.isFetching}
+      onRefresh={() => void query.refetch()}
+      onRetry={() => void query.refetch()}
+      onPageChange={onPageChange}
+      onOpenPullRequest={onOpenPullRequest}
+    />
   )
 }
 
-function PullRequestDetail({
-  projectId,
-  number,
-  onBack
-}: {
-  projectId: string
-  number: number
-  onBack: () => void
-}): React.JSX.Element {
+function PullRequestDetail({ projectId, number, onBack }: { projectId: string; number: number; onBack: () => void }): React.JSX.Element {
   const [commentsPage, setCommentsPage] = useState(1)
   const queryClient = useQueryClient()
   const pullRequestQuery = useProjectPullRequest(projectId, number)
@@ -175,156 +94,74 @@ function PullRequestDetail({
       const page = index + 1
       return {
         queryKey: ['github', 'pull-request-comments', projectId, number, page, 20],
-        queryFn: () =>
-          window.spacezero.github.listPullRequestComments({
-            projectId,
-            number,
-            page,
-            perPage: 20
-          }),
+        queryFn: () => window.spacezero.github.listPullRequestComments({ projectId, number, page, perPage: 20 }),
         refetchOnMount: 'always' as const,
         refetchOnWindowFocus: 'always' as const
       }
     })
   })
-  const pullRequest = pullRequestQuery.isError ? undefined : pullRequestQuery.data
-  const loadedComments = uniqueComments(
-    commentQueries.flatMap((query) => (query.isError || !query.data ? [] : query.data.items))
-  )
+  const checksQuery = useQuery({
+    queryKey: ['github', 'pull-request-check-runs', projectId, number, 1],
+    queryFn: () => window.spacezero.github.listPullRequestCheckRuns({ projectId, number, page: 1 }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+  const reviewsQuery = useQuery({
+    queryKey: ['github', 'pull-request-reviews', projectId, number, 1],
+    queryFn: () => window.spacezero.github.listPullRequestReviews({ projectId, number, page: 1 }),
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: 'always'
+  })
+  const loadedComments = uniqueComments(commentQueries.flatMap((query) => (query.isError || !query.data ? [] : query.data.items)))
   const lastCommentsPage = commentQueries.at(-1)?.data
-  const commentsPending = commentQueries.some((query) => query.isPending)
   const commentsFetching = commentQueries.some((query) => query.isFetching)
   const commentsError = commentQueries.find((query) => query.isError)?.error
-  const refresh = (): void => {
-    void Promise.all([
-      pullRequestQuery.refetch(),
-      ...commentQueries.map((query) => query.refetch()),
-      queryClient.refetchQueries({
-        queryKey: ['github', 'pull-request-commits', projectId, number]
-      }),
-      queryClient.refetchQueries({
-        queryKey: ['github', 'pull-request-files', projectId, number]
-      }),
-      queryClient.refetchQueries({
-        queryKey: ['github', 'pull-request-check-runs', projectId, number]
-      }),
-      queryClient.refetchQueries({
-        queryKey: ['github', 'pull-request-commit-statuses', projectId, number]
-      }),
-      queryClient.refetchQueries({
-        queryKey: ['github', 'pull-request-reviews', projectId, number]
-      })
-    ])
-  }
+  const state: PullRequestDetailState = pullRequestQuery.isPending
+    ? { status: 'loading' }
+    : pullRequestQuery.isError
+      ? { status: 'error', message: githubReadErrorMessage(pullRequestQuery.error, 'Pull Request') }
+      : { status: 'ready', pullRequest: pullRequestQuery.data }
+  const comments = commentQueries.some((query) => query.isPending) && loadedComments.length === 0
+    ? { status: 'loading' as const }
+    : commentsError
+      ? { status: 'error' as const, message: githubReadErrorMessage(commentsError, 'Pull Request conversation'), items: loadedComments }
+      : { status: 'ready' as const, items: loadedComments, hasNextPage: lastCommentsPage?.hasNextPage ?? false }
+  const checks = checksQuery.isPending
+    ? { status: 'loading' as const }
+    : checksQuery.isError
+      ? { status: 'error' as const, message: githubReadErrorMessage(checksQuery.error, 'Pull Request checks') }
+      : { status: 'ready' as const, items: checksQuery.data.items }
+  const reviews = reviewsQuery.isPending
+    ? { status: 'loading' as const }
+    : reviewsQuery.isError
+      ? { status: 'error' as const, message: githubReadErrorMessage(reviewsQuery.error, 'Pull Request reviews') }
+      : { status: 'ready' as const, items: reviewsQuery.data.items }
 
   return (
-    <section className="space-y-5" aria-label={`Pull Request #${number}`}>
-      <header className="flex items-center justify-between gap-3">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="size-4" aria-hidden="true" />
-          Back to Pull Requests
-        </Button>
-        <RefreshButton
-          fetching={pullRequestQuery.isFetching || commentsFetching}
-          onRefresh={refresh}
-        />
-      </header>
-
-      {pullRequestQuery.isPending ? <DetailPlaceholder label="Loading Pull Request…" /> : null}
-      {pullRequestQuery.isError ? (
-        <ErrorState
-          message={githubReadErrorMessage(pullRequestQuery.error, 'Pull Request')}
-          onRetry={pullRequestQuery.refetch}
-        />
-      ) : null}
-      {pullRequest ? <PullRequestContent pullRequest={pullRequest} /> : null}
-
-      {pullRequest ? <PullRequestReviewSections projectId={projectId} number={number} /> : null}
-
-      {pullRequest ? (
-        <section className="space-y-3" aria-label="Pull Request conversation">
-          <div>
-            <h3 className="font-semibold">Conversation</h3>
-            <p className="text-xs text-muted-foreground">
-              {pullRequest.conversationCommentCount} comments
-            </p>
-          </div>
-          {commentsPending && loadedComments.length === 0 ? (
-            <ListPlaceholders label="Loading conversation…" itemLabel="Conversation placeholder" />
-          ) : null}
-          {commentsError ? (
-            <ErrorState
-              message={githubReadErrorMessage(commentsError, 'Pull Request conversation')}
-              onRetry={() => Promise.all(commentQueries.map((query) => query.refetch()))}
-            />
-          ) : null}
-          {lastCommentsPage?.items.length === 0 && loadedComments.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No conversation comments yet.</p>
-          ) : null}
-          {loadedComments.map((comment) => (
-            <CommentCard key={comment.id} comment={comment} />
-          ))}
-          {lastCommentsPage?.hasNextPage ? (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={commentsFetching}
-              onClick={() => setCommentsPage((current) => current + 1)}
-            >
-              {commentsFetching ? 'Loading more…' : 'Load more'}
-            </Button>
-          ) : null}
-        </section>
-      ) : null}
-    </section>
-  )
-}
-
-function PullRequestContent({
-  pullRequest
-}: {
-  pullRequest: GitHubPullRequest
-}): React.JSX.Element {
-  return (
-    <article className="space-y-4">
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{pullRequest.title}</h2>
-          <PullRequestState state={pullRequest.state} />
-          {pullRequest.isDraft ? <Badge variant="outline">draft</Badge> : null}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          #{pullRequest.number} by {pullRequest.author?.login ?? 'ghost'} · Updated{' '}
-          {formatDate(pullRequest.updatedAt)}
-        </p>
-      </div>
-      <div className="rounded-lg border p-4">
-        <GitHubMarkdown markdown={pullRequest.body} />
-      </div>
-      <dl className="grid gap-3 text-sm sm:grid-cols-2">
-        <div className="rounded-lg border p-3">
-          <dt className="text-xs text-muted-foreground">Branches</dt>
-          <dd className="mt-1 font-mono text-xs">
-            {pullRequest.headBranch} → {pullRequest.baseBranch}
-          </dd>
-        </div>
-        <div className="rounded-lg border p-3">
-          <dt className="text-xs text-muted-foreground">Commits</dt>
-          <dd className="mt-1 font-medium">{pullRequest.commitCount}</dd>
-        </div>
-      </dl>
-    </article>
-  )
-}
-
-function CommentCard({ comment }: { comment: GitHubIssueComment }): React.JSX.Element {
-  return (
-    <article className="space-y-2 rounded-lg border p-4">
-      <p className="text-xs text-muted-foreground">
-        {comment.author?.login ?? 'ghost'} · {formatDate(comment.createdAt)}
-      </p>
-      <GitHubMarkdown markdown={comment.body || 'No comment body.'} />
-    </article>
+    <PullRequestDetailScreen
+      number={number}
+      state={state}
+      comments={comments}
+      checks={checks}
+      reviews={reviews}
+      fetching={pullRequestQuery.isFetching || commentsFetching || checksQuery.isFetching || reviewsQuery.isFetching}
+      onBack={onBack}
+      onRefresh={() => {
+        void Promise.all([
+          pullRequestQuery.refetch(),
+          checksQuery.refetch(),
+          reviewsQuery.refetch(),
+          ...commentQueries.map((query) => query.refetch()),
+          queryClient.refetchQueries({ queryKey: ['github', 'pull-request-commits', projectId, number] }),
+          queryClient.refetchQueries({ queryKey: ['github', 'pull-request-files', projectId, number] }),
+          queryClient.refetchQueries({ queryKey: ['github', 'pull-request-commit-statuses', projectId, number] })
+        ])
+      }}
+      onRetry={() => void pullRequestQuery.refetch()}
+      onRetryComments={() => void Promise.all(commentQueries.map((query) => query.refetch()))}
+      onLoadMoreComments={() => setCommentsPage((current) => current + 1)}
+      reviewSections={state.status === 'ready' ? <PullRequestReviewSections projectId={projectId} number={number} /> : undefined}
+    />
   )
 }
 
@@ -335,85 +172,4 @@ function uniqueComments(comments: GitHubIssueComment[]): GitHubIssueComment[] {
     seen.add(comment.id)
     return true
   })
-}
-
-function PullRequestState({ state }: { state: GitHubPullRequest['state'] }): React.JSX.Element {
-  return <Badge variant={state === 'open' ? 'default' : 'secondary'}>{state}</Badge>
-}
-
-function RefreshButton({
-  fetching,
-  onRefresh
-}: {
-  fetching: boolean
-  onRefresh: () => void
-}): React.JSX.Element {
-  return (
-    <Button variant="outline" size="sm" disabled={fetching} onClick={onRefresh}>
-      <ArrowClockwise className={fetching ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
-      Refresh
-    </Button>
-  )
-}
-
-function ListPlaceholders({
-  label,
-  itemLabel
-}: {
-  label: string
-  itemLabel: string
-}): React.JSX.Element {
-  return (
-    <div className="space-y-2" role="status" aria-label={label}>
-      {Array.from({ length: 3 }, (_, index) => (
-        <div key={index} className="space-y-2 rounded-lg border p-4" aria-label={itemLabel}>
-          <div className="h-4 w-2/3 animate-pulse rounded bg-muted" />
-          <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function DetailPlaceholder({ label }: { label: string }): React.JSX.Element {
-  return (
-    <div className="space-y-4" role="status" aria-label={label}>
-      <div className="space-y-2 rounded-lg border p-4">
-        <div className="h-5 w-2/3 animate-pulse rounded bg-muted" />
-        <div className="h-3 w-1/3 animate-pulse rounded bg-muted" />
-      </div>
-      <div className="space-y-2 rounded-lg border p-4">
-        <div className="h-3 w-full animate-pulse rounded bg-muted" />
-        <div className="h-3 w-5/6 animate-pulse rounded bg-muted" />
-        <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
-      </div>
-      <div className="space-y-2 rounded-lg border p-4">
-        <div className="h-4 w-36 animate-pulse rounded bg-muted" />
-        <div className="h-16 w-full animate-pulse rounded bg-muted" />
-      </div>
-    </div>
-  )
-}
-
-function ErrorState({
-  message,
-  onRetry
-}: {
-  message: string
-  onRetry: () => unknown
-}): React.JSX.Element {
-  return (
-    <div className="space-y-3 rounded-lg border border-destructive/40 p-4" role="alert">
-      <p className="text-sm">{message}</p>
-      <Button variant="outline" size="sm" onClick={() => void onRetry()}>
-        Retry
-      </Button>
-    </div>
-  )
-}
-
-function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(
-    new Date(value)
-  )
 }
