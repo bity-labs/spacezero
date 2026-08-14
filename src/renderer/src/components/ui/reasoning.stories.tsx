@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Reasoning, ReasoningContent, ReasoningTrigger } from './reasoning'
 
 const meta = {
-  title: 'Design System/Primitives/Reasoning',
+  title: 'Design System/Components/Agent Chat/Reasoning',
   component: Reasoning,
   render: () => (
     <Reasoning defaultOpen duration={4} className="w-96">

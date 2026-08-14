@@ -4,10 +4,6 @@ import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import type { AgentSkillDescriptor } from '../../../../features/agent-workspace/shared/agent-skill.model'
 import type { AgentDefinitionScope } from '../../../../features/agents/shared'
 import {
-  KNOWLEDGE_BASE_FILES_CONTEXT_KEY,
-  type FilesEntry
-} from '../../../../features/files/shared'
-import {
   encodeKnowledgeBaseMentionPath,
   getActiveKnowledgeBaseMentionQuery
 } from '../../../../features/knowledge-base/shared'
@@ -69,6 +65,9 @@ export type ChatInputSubmit = {
   agentDefinitionId?: string
 }
 
+export type ChatInputKnowledgeBaseMentionResult =
+  { state: 'ready'; paths: string[] } | { state: 'unconfigured' }
+
 export type ChatInputSkill = AgentSkillDescriptor
 
 export type ChatInputCommand = {
@@ -120,6 +119,8 @@ export type ChatInputProps = {
   onHistoryDismiss?: () => void
   onSubmit: (input: ChatInputSubmit) => void | Promise<void>
   onAbort?: () => void
+  resolveFilePath?: (file: File) => string
+  loadKnowledgeBaseMentionPaths?: () => Promise<ChatInputKnowledgeBaseMentionResult>
   className?: string
 }
 
@@ -147,6 +148,8 @@ export function ChatInput({
   onHistoryDismiss,
   onSubmit,
   onAbort,
+  resolveFilePath,
+  loadKnowledgeBaseMentionPaths,
   className
 }: ChatInputProps) {
   const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
@@ -207,25 +210,24 @@ export function ChatInput({
     knowledgeBaseMentionOptions[
       Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
     ]
-  const selectedHistoryItem = historyItems?.[
-    Math.min(activeSuggestionIndex, historyItems.length - 1)
-  ]
+  const selectedHistoryItem =
+    historyItems?.[Math.min(activeSuggestionIndex, historyItems.length - 1)]
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
 
   useEffect(() => {
     if (!isKnowledgeBaseMentionActive) return
+
     let current = true
-    void window.spacezero.knowledgeBase
-      .getStatus()
-      .then(async (knowledgeBaseStatus) => {
+    const loadPaths = loadKnowledgeBaseMentionPaths ?? loadUnavailableKnowledgeBaseMentionPaths
+    void loadPaths()
+      .then((result) => {
         if (!current) return
-        if (knowledgeBaseStatus.setupState !== 'configured') {
+        if (result.state === 'unconfigured') {
+          setKnowledgeBaseItems([])
           setKnowledgeBaseMentionState('unconfigured')
           return
         }
-        const paths = await listKnowledgeBaseMentionPaths()
-        if (!current) return
-        setKnowledgeBaseItems(paths)
+        setKnowledgeBaseItems(result.paths)
         setKnowledgeBaseMentionState('ready')
       })
       .catch(() => {
@@ -234,7 +236,7 @@ export function ChatInput({
     return () => {
       current = false
     }
-  }, [isKnowledgeBaseMentionActive])
+  }, [isKnowledgeBaseMentionActive, loadKnowledgeBaseMentionPaths])
 
   const handleModelChange = (modelId: string) => {
     setUncontrolledModelId(modelId)
@@ -294,7 +296,8 @@ export function ChatInput({
       if (event.key === 'ArrowUp') {
         event.preventDefault()
         setActiveSuggestionIndex(
-          (index) => (index - 1 + knowledgeBaseMentionOptions.length) % knowledgeBaseMentionOptions.length
+          (index) =>
+            (index - 1 + knowledgeBaseMentionOptions.length) % knowledgeBaseMentionOptions.length
         )
         return
       }
@@ -307,7 +310,8 @@ export function ChatInput({
 
       if (event.key === 'Enter' || event.key === 'Tab') {
         event.preventDefault()
-        if (selectedKnowledgeBaseMentionPath) selectKnowledgeBaseMention(selectedKnowledgeBaseMentionPath)
+        if (selectedKnowledgeBaseMentionPath)
+          selectKnowledgeBaseMention(selectedKnowledgeBaseMentionPath)
       }
       return
     }
@@ -406,7 +410,7 @@ export function ChatInput({
       <PromptInput
         className={className}
         disabled={isRunning}
-        resolveFilePath={window.spacezero.app.getSelectedFilePath}
+        resolveFilePath={resolveFilePath}
         onSubmit={(message) => handleSubmit(message)}
       >
         <PromptInputAttachments />
@@ -571,9 +575,7 @@ export function ChatInput({
           role="listbox"
         >
           {knowledgeBaseMentionState === 'loading' ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              Loading Knowledge Base paths…
-            </p>
+            <p className="px-3 py-2 text-xs text-muted-foreground">Loading Knowledge Base paths…</p>
           ) : knowledgeBaseMentionState === 'unconfigured' ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">
               Knowledge Base is not configured. Open Knowledge Base to set it up.
@@ -603,7 +605,9 @@ export function ChatInput({
                   aria-hidden="true"
                 />
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{knowledgeBaseMentionTitle(path)}</span>
+                  <span className="block text-sm font-medium">
+                    {knowledgeBaseMentionTitle(path)}
+                  </span>
                   <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                     {path}
                   </span>
@@ -713,19 +717,8 @@ export function ChatInput({
   )
 }
 
-async function listKnowledgeBaseMentionPaths(relativePath = ''): Promise<string[]> {
-  const entries = await window.spacezero.files.listDirectory({
-    context: { kind: 'knowledge-base', contextKey: KNOWLEDGE_BASE_FILES_CONTEXT_KEY },
-    relativePath
-  })
-  const paths = await Promise.all(entries.map(listKnowledgeBaseMentionEntry))
-  return paths.flat()
-}
-
-async function listKnowledgeBaseMentionEntry(entry: FilesEntry): Promise<string[]> {
-  if (entry.kind === 'symlink') return []
-  if (entry.kind === 'file') return [entry.relativePath]
-  return [`${entry.relativePath}/`, ...(await listKnowledgeBaseMentionPaths(entry.relativePath))]
+async function loadUnavailableKnowledgeBaseMentionPaths(): Promise<ChatInputKnowledgeBaseMentionResult> {
+  return { state: 'unconfigured' }
 }
 
 type SlashSuggestion =

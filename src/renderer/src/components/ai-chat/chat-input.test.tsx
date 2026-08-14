@@ -341,7 +341,9 @@ describe('ChatInput', () => {
 
   it('opens the native file selector when the attachment button is clicked', async () => {
     const user = userEvent.setup()
-    const inputClick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => undefined)
+    const inputClick = vi
+      .spyOn(HTMLInputElement.prototype, 'click')
+      .mockImplementation(() => undefined)
     render(<ChatInput onSubmit={vi.fn()} />)
 
     await user.click(screen.getByRole('button', { name: 'Add attachment' }))
@@ -356,6 +358,7 @@ describe('ChatInput', () => {
     render(
       <ChatInput
         models={[{ id: 'sonnet', label: 'Claude Sonnet', provider: 'anthropic' }]}
+        resolveFilePath={(selectedFile) => `/tmp/${selectedFile.name}`}
         onSubmit={handleSubmit}
       />
     )
@@ -545,16 +548,12 @@ describe('ChatInput', () => {
   })
 
   it('opens Knowledge Base mention suggestions as soon as @kb is typed', async () => {
-    window.spacezero.knowledgeBase.getStatus = async () => ({
-      setupState: 'configured',
-      rootPath: '/home/builder/SpaceZero/knowledge-base'
-    })
-    window.spacezero.files.listDirectory = async ({ relativePath }) =>
-      relativePath === ''
-        ? [{ name: 'README.md', relativePath: 'README.md', kind: 'file' }]
-        : []
-
-    render(<ChatInput onSubmit={vi.fn()} />)
+    render(
+      <ChatInput
+        loadKnowledgeBaseMentionPaths={async () => ({ state: 'ready', paths: ['README.md'] })}
+        onSubmit={vi.fn()}
+      />
+    )
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
       target: { value: 'Review @kb' }
@@ -569,24 +568,16 @@ describe('ChatInput', () => {
   })
 
   it('autocompletes Knowledge Base file and folder mentions with relative paths', async () => {
-    window.spacezero.knowledgeBase.getStatus = async () => ({
-      setupState: 'configured',
-      rootPath: '/home/builder/SpaceZero/knowledge-base'
-    })
-    const listDirectory = vi.fn(async ({ relativePath }: { relativePath: string }) =>
-      relativePath === ''
-        ? [{ name: 'decisions', relativePath: 'decisions', kind: 'directory' as const }]
-        : [
-            {
-              name: 'architecture.md',
-              relativePath: 'decisions/architecture.md',
-              kind: 'file' as const
-            }
-          ]
-    )
-    window.spacezero.files.listDirectory = listDirectory
     const handleSubmit = vi.fn()
-    render(<ChatInput onSubmit={handleSubmit} />)
+    render(
+      <ChatInput
+        loadKnowledgeBaseMentionPaths={async () => ({
+          state: 'ready',
+          paths: ['decisions/', 'decisions/architecture.md']
+        })}
+        onSubmit={handleSubmit}
+      />
+    )
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
 
     fireEvent.change(input, { target: { value: 'Review @kb/decisions/' } })
@@ -595,16 +586,10 @@ describe('ChatInput', () => {
       name: /architecture\.md.*decisions\/architecture\.md/i
     })
     expect(architectureOption).toBeInTheDocument()
-    expect(architectureOption.querySelector('[data-knowledge-base-icon="true"]')).toBeInTheDocument()
+    expect(
+      architectureOption.querySelector('[data-knowledge-base-icon="true"]')
+    ).toBeInTheDocument()
     expect(screen.getByRole('option', { name: /decisions.*decisions\//i })).toBeInTheDocument()
-    expect(listDirectory).toHaveBeenCalledWith({
-      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
-      relativePath: ''
-    })
-    expect(listDirectory).toHaveBeenCalledWith({
-      context: { kind: 'knowledge-base', contextKey: 'knowledge-base' },
-      relativePath: 'decisions'
-    })
     fireEvent.click(screen.getByRole('option', { name: /decisions.*decisions\//i }))
     expect(input).toHaveValue('Review @kb/decisions/ ')
 
@@ -618,20 +603,22 @@ describe('ChatInput', () => {
   })
 
   it('encodes spaces when autocompleting Knowledge Base mentions', async () => {
-    window.spacezero.knowledgeBase.getStatus = async () => ({
-      setupState: 'configured',
-      rootPath: '/home/builder/SpaceZero/knowledge-base'
-    })
-    window.spacezero.files.listDirectory = async ({ relativePath }) =>
-      relativePath === ''
-        ? [{ name: 'Design Notes', relativePath: 'Design Notes', kind: 'directory' }]
-        : [{ name: 'README.md', relativePath: 'Design Notes/README.md', kind: 'file' }]
     const handleSubmit = vi.fn()
-    render(<ChatInput onSubmit={handleSubmit} />)
+    render(
+      <ChatInput
+        loadKnowledgeBaseMentionPaths={async () => ({
+          state: 'ready',
+          paths: ['Design Notes/', 'Design Notes/README.md']
+        })}
+        onSubmit={handleSubmit}
+      />
+    )
     const input = screen.getByRole('textbox', { name: 'Agent prompt' })
 
     fireEvent.change(input, { target: { value: 'Review @kb/Design' } })
-    fireEvent.click(await screen.findByRole('option', { name: /README\.md.*Design Notes\/README\.md/i }))
+    fireEvent.click(
+      await screen.findByRole('option', { name: /README\.md.*Design Notes\/README\.md/i })
+    )
 
     expect(input).toHaveValue('Review @kb/Design%20Notes/README.md ')
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -643,8 +630,12 @@ describe('ChatInput', () => {
   })
 
   it('prompts setup when @kb autocomplete is used before configuration', async () => {
-    window.spacezero.knowledgeBase.getStatus = async () => ({ setupState: 'unconfigured' })
-    render(<ChatInput onSubmit={vi.fn()} />)
+    render(
+      <ChatInput
+        loadKnowledgeBaseMentionPaths={async () => ({ state: 'unconfigured' })}
+        onSubmit={vi.fn()}
+      />
+    )
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
       target: { value: 'Read @kb/notes' }

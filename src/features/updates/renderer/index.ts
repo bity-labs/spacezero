@@ -1,1 +1,5 @@
-export { UpdateRestartControl } from './update-restart-control'
+export {
+  UpdateRestartControl,
+  UpdateRestartControlView,
+  type UpdateRestartControlViewProps
+} from './update-restart-control'

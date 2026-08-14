@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Message, MessageAction, MessageActions, MessageContent, MessageResponse } from './message'
 
 const meta = {
-  title: 'Design System/Primitives/Message',
+  title: 'Design System/Components/Agent Chat/Message',
   component: Message,
   args: {
     from: 'assistant'
