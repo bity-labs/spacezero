@@ -70,6 +70,8 @@ describe('WorkspaceSidebar fixtures', () => {
 
     rerender(<WorkspaceSidebar {...updateReadyAccountFixture} />)
 
-    expect(screen.getByRole('button', { name: 'Restart to update Space Zero' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Update ready. Restart to update to 0.1.0-beta.8' })
+    ).toBeInTheDocument()
   })
 })

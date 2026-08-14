@@ -1057,7 +1057,7 @@ describe('App', () => {
 
     expect(await screen.findByRole('main', { name: 'Main workspace' })).toBeInTheDocument()
     expect(
-      screen.queryByRole('button', { name: 'Restart to update Space Zero' })
+      screen.queryByRole('button', { name: /Update ready\. Restart to update/ })
     ).not.toBeInTheDocument()
   })
 
@@ -1076,8 +1076,10 @@ describe('App', () => {
     render(<App />)
 
     expect(
-      await screen.findByRole('button', { name: 'Restart to update Space Zero' })
-    ).toHaveTextContent('Update ready')
+      await screen.findByRole('button', {
+        name: 'Update ready. Restart to update to 0.1.0-beta.2'
+      })
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Open app settings' }))
     fireEvent.click(await screen.findByRole('link', { name: 'About' }))
 
@@ -1114,7 +1116,11 @@ describe('App', () => {
 
     render(<App />)
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Restart to update Space Zero' }))
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Update ready. Restart to update to 0.1.0-beta.2'
+      })
+    )
 
     expect(
       await screen.findByRole('heading', { name: 'Restart and apply update?' })
@@ -1130,7 +1136,9 @@ describe('App', () => {
       ).not.toBeInTheDocument()
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Restart to update Space Zero' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Update ready. Restart to update to 0.1.0-beta.2' })
+    )
     fireEvent.click(await screen.findByRole('button', { name: 'Restart and apply update' }))
 
     expect(applyDownloadedUpdate).toHaveBeenNthCalledWith(1, { confirmActiveWork: false })

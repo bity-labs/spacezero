@@ -21,7 +21,9 @@ describe('UpdateRestartControlView', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Restart to update Space Zero' }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Update ready. Restart to update to 0.1.0-beta.8' })
+    )
     expect(onRequestApply).toHaveBeenCalledWith(false)
 
     rerender(

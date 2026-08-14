@@ -24,25 +24,38 @@ describe('AccountMenuView', () => {
 
     expect(screen.getByRole('region', { name: 'Account menu' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: '@builder' })).toHaveAttribute('src', avatarUrl)
+    expect(screen.getByRole('link', { name: '@builder' })).toHaveAttribute(
+      'href',
+      '#/settings?section=account'
+    )
     expect(screen.getByRole('button', { name: 'Update ready' })).toBeInTheDocument()
 
+    fireEvent.click(screen.getByRole('link', { name: '@builder' }))
     fireEvent.click(screen.getByRole('link', { name: 'Settings' }))
 
-    expect(onOpenSettings).toHaveBeenCalledOnce()
+    expect(onOpenSettings).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps the disconnected fallback accessible without an avatar image', () => {
+  it('keeps the disconnected fallback accessible and links GitHub connection to account settings', () => {
+    const onOpenSettings = vi.fn()
+
     render(
       <AccountMenuView
         username="Connect GitHub"
         avatarFallback="GH"
         settingsLabel="Settings"
         settingsHref="#/settings?section=account"
-        onOpenSettings={vi.fn()}
+        onOpenSettings={onOpenSettings}
       />
     )
 
-    expect(screen.getByText('Connect GitHub')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Connect GitHub' })).toHaveAttribute(
+      'href',
+      '#/settings?section=account'
+    )
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('link', { name: 'Connect GitHub' }))
+    expect(onOpenSettings).toHaveBeenCalledOnce()
   })
 })
