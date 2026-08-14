@@ -80,7 +80,7 @@ The Storybook sidebar is intentionally sorted for review flow, not alphabeticall
 
 1. `Design System` — primitives first, then reusable composed components
 2. `App Shell` — shell components, then shell layouts
-3. `Features` — each feature groups components, screens, and layouts
+3. `Features` — each feature sorts stories as `Components`, then `Layouts`, then `Screens`
 4. `Screens` — app-level or cross-feature screens that do not belong to one feature module
 
 Build coverage in this order:
