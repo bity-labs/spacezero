@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { ProjectSidebarList } from './project-sidebar-list'
 
 const meta = {
-  title: 'Smoke/Project Sidebar List',
+  title: 'Projects/Building Blocks/Project Sidebar List',
   component: ProjectSidebarList,
   decorators: [
     (Story) => (
