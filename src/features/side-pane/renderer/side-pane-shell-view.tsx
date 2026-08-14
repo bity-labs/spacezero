@@ -194,7 +194,7 @@ export function SidePaneTabStripView({
   }
 
   return (
-    <div className="titlebar-control flex h-9 min-w-0 flex-1 shrink-0 border-b bg-muted/40 p-1">
+    <div className="titlebar-control flex h-9 min-w-0 shrink-0 border-b bg-muted/40 p-1">
       <div
         aria-label="Side Pane Tabs"
         className="flex min-w-0 flex-1 overflow-x-auto"
