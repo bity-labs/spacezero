@@ -5,6 +5,7 @@ import {
   browserActiveFixture,
   collapsedLauncherFixture,
   dirtyTabFixture,
+  emptyOpenFixture,
   filesActiveFixture,
   gitDiffActiveFixture,
   manyTabsFixture,
@@ -36,6 +37,10 @@ type Story = StoryObj<typeof meta>
 
 export const CollapsedLauncher: Story = {
   args: collapsedLauncherFixture
+}
+
+export const EmptyOpen: Story = {
+  args: emptyOpenFixture
 }
 
 export const OneTab: Story = {}

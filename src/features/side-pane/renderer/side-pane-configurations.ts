@@ -1,5 +1,5 @@
 import { createElement, lazy, Suspense, useEffect, useMemo, useState } from 'react'
-import { Browser, Files, GitBranch, TerminalWindow } from '@phosphor-icons/react'
+import { FileCode, GitDiff, Globe, TerminalWindow } from '@phosphor-icons/react'
 
 import { useRegisterAppCommands } from '../../app-commands/renderer/app-command-context'
 import type { BrowserContext } from '../../browser/shared'
@@ -87,9 +87,9 @@ export function useRegisterTerminalSidePaneCommands(
 }
 
 const categoryRegistry = {
-  files: { id: 'files', label: 'Files', available: false, icon: Files },
-  git: { id: 'git', label: 'Git Diff', available: false, icon: GitBranch },
-  browser: { id: 'browser', label: 'Browser', available: false, icon: Browser },
+  files: { id: 'files', label: 'Files', available: false, icon: FileCode },
+  git: { id: 'git', label: 'Git Diff', available: false, icon: GitDiff },
+  browser: { id: 'browser', label: 'Browser', available: false, icon: Globe },
   terminal: { id: 'terminal', label: 'Terminal', available: false, icon: TerminalWindow }
 } satisfies Record<SidePaneCategoryDescriptor['id'], SidePaneCategoryDescriptor>
 
@@ -320,7 +320,7 @@ function createFilesSidePaneCategoryDescriptor({
     ...categoryRegistry.files,
     available: true,
     renderTabIcon: (tab) =>
-      tab.label ? createElement(FilesTabIcon, { fileName: tab.label }) : createElement(Files),
+      tab.label ? createElement(FilesTabIcon, { fileName: tab.label }) : createElement(FileCode),
     onActivateTab: (tab) => activateFilesSidePaneTab(filesContextKey, tab),
     onDoubleClickTab: (tab) => {
       promoteFilesSidePaneTab(filesContextKey, tab)

@@ -136,6 +136,44 @@ describe('Side Pane store', () => {
     })
   })
 
+  it('inserts a newly created active category tab after the previously active peer tab', () => {
+    useSidePaneStore.setState({
+      contexts: {
+        'session:session-1': {
+          isOpen: true,
+          width: 600,
+          activeTabId: 'terminal:1',
+          tabs: [
+            { id: 'browser-tab-1', categoryId: 'browser', title: 'First browser' },
+            { id: 'terminal:1', categoryId: 'terminal', title: 'Terminal' }
+          ],
+          categoryMru: { browser: 'browser-tab-1', terminal: 'terminal:1' }
+        }
+      }
+    })
+
+    useSidePaneStore.getState().synchronizeCategoryTabs(
+      'session:session-1',
+      'browser',
+      [
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'First browser' },
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Second browser' }
+      ],
+      'browser-tab-2',
+      true
+    )
+
+    expect(useSidePaneStore.getState().contexts['session:session-1']).toMatchObject({
+      activeTabId: 'browser-tab-2',
+      tabs: [
+        { id: 'browser-tab-1', categoryId: 'browser', title: 'First browser' },
+        { id: 'terminal:1', categoryId: 'terminal', title: 'Terminal' },
+        { id: 'browser-tab-2', categoryId: 'browser', title: 'Second browser' }
+      ],
+      categoryMru: { browser: 'browser-tab-2', terminal: 'terminal:1' }
+    })
+  })
+
   it('promotes Files resources into peer tabs while preserving their positions among other categories', () => {
     const store = useSidePaneStore.getState()
     store.openCategory('session:session-1', 'files')

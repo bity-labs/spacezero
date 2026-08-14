@@ -214,10 +214,10 @@ describe('SidePaneShell', () => {
       </SidePaneShell>
     )
 
-    expect(screen.queryByRole('complementary', { name: 'Side Pane' })).not.toBeInTheDocument()
-    expect(screen.getByRole('toolbar', { name: 'Side Pane launcher' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Side Pane tools' })).toBeInTheDocument()
     expect(useSidePaneStore.getState().contexts['global-chat']).toEqual({
-      isOpen: false,
+      isOpen: true,
       width: 620,
       activeTabId: null,
       tabs: [],
@@ -466,6 +466,42 @@ describe('SidePaneShell', () => {
       'Files',
       'Git Diff'
     ])
+  })
+
+  it('opens an empty tool picker from the toggle button when no Side Pane tabs exist', async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <SidePaneHeaderControls configuration={configuration} />
+        <SidePaneShell {...configuration} showInlineHeaderTabs={false}>
+          <div>Chat</div>
+        </SidePaneShell>
+      </>
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Toggle Side Pane' }))
+
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Side Pane tools' })).toBeInTheDocument()
+    expect(screen.queryByRole('tablist', { name: 'Side Pane Tabs' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Create Side Pane Tab' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey]).toMatchObject({
+      isOpen: true,
+      activeTabId: null,
+      tabs: []
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Git Diff' }))
+
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toHaveTextContent(
+      'Git changes'
+    )
+    expect(useSidePaneStore.getState().contexts[configuration.contextKey]).toMatchObject({
+      isOpen: true,
+      activeTabId: 'git:1',
+      tabs: [{ id: 'git:1', categoryId: 'git' }]
+    })
   })
 
   it('shows expanded tabs in the shared header while keeping only content in the pane', async () => {

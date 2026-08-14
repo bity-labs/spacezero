@@ -309,7 +309,7 @@ export function TerminalTool({
     terminalIdRef.current = terminalId
 
     if (containerRef.current) xterm.open(containerRef.current)
-    if (focusActiveTerminalAfterCloseRef.current) {
+    if (referencedTerminalId || focusActiveTerminalAfterCloseRef.current) {
       focusActiveTerminalAfterCloseRef.current = false
       xterm.focus()
       shortcutManager.setContext({ terminalFocused: true })
