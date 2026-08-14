@@ -9,7 +9,7 @@ import {
 import { Message, MessageContent } from './message'
 
 const meta = {
-  title: 'Design System/Primitives/Conversation',
+  title: 'Design System/Components/Agent Chat/Conversation',
   component: Conversation,
   render: () => (
     <Conversation className="h-80 w-[32rem] rounded-md border">

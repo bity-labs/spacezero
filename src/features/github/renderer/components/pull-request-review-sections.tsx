@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { DiffViewer } from '@renderer/components/diff-viewer'
+import { DiffViewer } from '../../../git/renderer/components/diff-viewer'
 
 import { Badge } from '../../../../renderer/src/components/ui/badge'
 import { Button } from '../../../../renderer/src/components/ui/button'

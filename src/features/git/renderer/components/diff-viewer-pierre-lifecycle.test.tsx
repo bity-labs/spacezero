@@ -6,7 +6,7 @@ import {
   FilesDiffsEditor,
   getOrCreateFilesDiffsEditor,
   resetFilesDiffsEditorContext
-} from '../../../features/files/renderer/components/files-diffs-editor'
+} from '../../../files/renderer/components/files-diffs-editor'
 import { DiffViewer } from './diff-viewer'
 
 const contextKey = 'real-pierre-multi-editor'

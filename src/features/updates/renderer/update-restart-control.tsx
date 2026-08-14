@@ -18,7 +18,20 @@ type UpdateRestartControlProps = {
   placement: 'sidebar' | 'settings'
 }
 
-export function UpdateRestartControl({ placement }: UpdateRestartControlProps): React.JSX.Element | null {
+export type UpdateRestartControlViewProps = {
+  placement: 'sidebar' | 'settings'
+  version: string
+  isApplying: boolean
+  dialogOpen: boolean
+  activeWork: UpdateActiveWorkSummary | null
+  error: string | null
+  onRequestApply: (confirmActiveWork: boolean) => void
+  onDialogOpenChange: (open: boolean) => void
+}
+
+export function UpdateRestartControl({
+  placement
+}: UpdateRestartControlProps): React.JSX.Element | null {
   const [status, setStatus] = useState<UpdateStatus | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [activeWork, setActiveWork] = useState<UpdateActiveWorkSummary | null>(null)
@@ -73,7 +86,30 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
     }
   }
 
-  const version = status.downloadedVersion ?? status.availableVersion ?? 'the latest version'
+  return (
+    <UpdateRestartControlView
+      placement={placement}
+      version={status.downloadedVersion ?? status.availableVersion ?? 'the latest version'}
+      isApplying={isApplying}
+      dialogOpen={dialogOpen}
+      activeWork={activeWork}
+      error={error}
+      onRequestApply={(confirmActiveWork) => void requestApply(confirmActiveWork)}
+      onDialogOpenChange={setDialogOpen}
+    />
+  )
+}
+
+export function UpdateRestartControlView({
+  placement,
+  version,
+  isApplying,
+  dialogOpen,
+  activeWork,
+  error,
+  onRequestApply,
+  onDialogOpenChange
+}: UpdateRestartControlViewProps): React.JSX.Element {
   const isSidebar = placement === 'sidebar'
 
   return (
@@ -86,7 +122,7 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
           isSidebar &&
             'w-full justify-start border border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900'
         )}
-        onClick={() => void requestApply(false)}
+        onClick={() => onRequestApply(false)}
         disabled={isApplying}
         aria-label={isSidebar ? 'Restart to update Space Zero' : undefined}
       >
@@ -94,7 +130,7 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
         <span>{isSidebar ? 'Update ready' : `Restart to update to ${version}`}</span>
       </Button>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={onDialogOpenChange}>
         <DialogContent aria-describedby="update-restart-description">
           <DialogHeader>
             <DialogTitle>Restart and apply update?</DialogTitle>
@@ -106,7 +142,8 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
           {activeWork && hasActiveWork(activeWork) ? (
             <Alert>
               <AlertDescription>
-                Active work warning: {formatActiveWork(activeWork)}. You can cancel and keep working, or restart anyway.
+                Active work warning: {formatActiveWork(activeWork)}. You can cancel and keep
+                working, or restart anyway.
               </AlertDescription>
             </Alert>
           ) : null}
@@ -118,12 +155,12 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
           ) : null}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+            <Button type="button" variant="outline" onClick={() => onDialogOpenChange(false)}>
               Cancel
             </Button>
             <Button
               type="button"
-              onClick={() => void requestApply(true)}
+              onClick={() => onRequestApply(true)}
               disabled={isApplying}
               aria-label="Restart and apply update"
             >
@@ -137,7 +174,9 @@ export function UpdateRestartControl({ placement }: UpdateRestartControlProps): 
 }
 
 function hasActiveWork(activeWork: UpdateActiveWorkSummary): boolean {
-  return activeWork.projectSessions > 0 || activeWork.chatContexts > 0 || activeWork.terminalTabs > 0
+  return (
+    activeWork.projectSessions > 0 || activeWork.chatContexts > 0 || activeWork.terminalTabs > 0
+  )
 }
 
 function formatActiveWork(activeWork: UpdateActiveWorkSummary): string {

@@ -1,4 +1,5 @@
 export * from './components/account-settings'
+export * from './components/github-account-settings-screen'
 export * from './components/issues-view'
 export * from './components/pull-requests-view'
 export * from './components/project-github-overview'

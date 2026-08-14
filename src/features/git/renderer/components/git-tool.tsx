@@ -1,18 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
 import { useOptionalAppearance } from '@renderer/appearance-provider'
-import { DiffViewer } from '@renderer/components/diff-viewer'
+import { DiffViewer } from './diff-viewer'
 import { Button } from '@renderer/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
 import type { KnowledgeBaseChatContext } from '../../../knowledge-base/shared'
 import type { ProjectSessionChatContext } from '../../../sessions/shared'
-import { Textarea } from '@renderer/components/ui/textarea'
 
 import { useAgentSession } from '../../../agent-workspace/renderer'
 import {
@@ -30,12 +22,7 @@ import type {
   GitReviewState,
   GitUpstreamState
 } from '../../shared'
-
-const CHANGE_FILTERS: Array<{ value: GitChangeFilter; label: string }> = [
-  { value: 'uncommitted', label: 'Uncommitted' },
-  { value: 'unstaged', label: 'Unstaged' },
-  { value: 'staged', label: 'Staged' }
-]
+import { GitToolView, type GitToolViewProps } from './git-tool-view'
 
 const OBSERVATION_REFRESH_DELAY_MS = 150
 const MAX_OBSERVATION_DIAGNOSTIC_LENGTH = 512
@@ -574,332 +561,129 @@ function GitToolSession({
   const primaryDisabled = !actionsReady || busy || !actions[primaryAction]
   const resolveDisabled = busy || !hasConflicts
 
-  if (!state) {
-    return (
-      <GitShell
-        filter={filter}
-        isRefreshing={isRefreshing}
-        onFilterChange={setFilter}
-        onRefresh={() => void refresh()}
-        watchDiagnostic={watchDiagnostic}
-      >
-        <GitStateMessage title="Loading Git…" />
-      </GitShell>
-    )
-  }
-  if (state.status === 'missing-worktree') {
-    return (
-      <GitShell
-        filter={filter}
-        isRefreshing={isRefreshing}
-        onFilterChange={setFilter}
-        onRefresh={() => void refresh()}
-        watchDiagnostic={watchDiagnostic}
-      >
-        <GitStateMessage title="Managed worktree missing" message={state.message} />
-      </GitShell>
-    )
-  }
-  if (state.status === 'inaccessible') {
-    return (
-      <GitShell
-        filter={filter}
-        isRefreshing={isRefreshing}
-        onFilterChange={setFilter}
-        onRefresh={() => void refresh()}
-        watchDiagnostic={watchDiagnostic}
-      >
-        <GitStateMessage title="Git unavailable" message={state.message} />
-      </GitShell>
-    )
-  }
-  if (state.status === 'git-error') {
-    return (
-      <GitShell
-        filter={filter}
-        isRefreshing={isRefreshing}
-        onFilterChange={setFilter}
-        onRefresh={() => void refresh()}
-        watchDiagnostic={watchDiagnostic}
-      >
-        <GitStateMessage title="Git query failed" message={state.message} />
-      </GitShell>
-    )
-  }
-
-  return (
-    <GitShell
-      filter={filter}
-      isRefreshing={isRefreshing}
-      onFilterChange={(nextFilter) => {
-        setFilter(nextFilter)
-      }}
-      onRefresh={() => void refresh()}
-      state={state}
-      watchDiagnostic={watchDiagnostic}
-    >
-      {reviewFiles.length === 0 && pendingDocuments.length === 0 ? (
-        <GitStateMessage
-          title={`No ${getFilterLabel(filter).toLowerCase()} changes`}
-          message="This managed worktree is clean for the selected filter."
-        />
-      ) : (
-        <div
-          ref={scrollContainerRef}
-          aria-label="Git changed files"
-          className="min-h-0 flex-1 space-y-3 overflow-auto p-4"
-          onScroll={(event) => {
-            getGitViewMemory(gitMemoryKey).scrollTop = event.currentTarget.scrollTop
-          }}
-        >
-          {hasConflicts ? <GitConflictBanner conflictCount={conflictFiles.length} /> : null}
-          {handoffError ? (
-            <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              {handoffError}
-            </div>
-          ) : null}
-          {pendingDocuments.length > 0 ? (
-            <section className="space-y-2" aria-label="Pending edits">
-              <h3 className="text-sm font-semibold">Pending edits</h3>
-              <p className="text-xs text-muted-foreground">
-                Unsaved diff edits remain recoverable even though the selected Git view no longer
-                shows their ordinary diff.
-              </p>
-              {pendingDocuments.map((document) => (
-                <PendingGitEdit
-                  key={document.relativePath}
-                  contextKey={filesContext.contextKey}
-                  document={document}
-                  initialState={
-                    initialMemory.diffViewStates.get(`${filter}:${document.relativePath}`) ?? {
-                      view: { scrollLeft: 0, scrollTop: 0 }
-                    }
-                  }
-                  onStateChange={(viewState) =>
-                    initialMemory.diffViewStates.set(
-                      `${filter}:${document.relativePath}`,
-                      viewState
-                    )
-                  }
-                />
-              ))}
-            </section>
-          ) : null}
-          {reviewFiles.map((file) => (
-            <GitDiffCard
-              key={`${file.oldPath ?? ''}:${file.path}`}
-              expanded={expandedPaths.has(file.path)}
-              file={file}
-              filesContext={filesContext}
-              filesHandoff={filesHandoff}
-              filter={filter}
-              initialState={
-                initialMemory.diffViewStates.get(`${filter}:${file.path}`) ?? {
-                  view: { scrollLeft: 0, scrollTop: 0 }
-                }
-              }
-              workingDocument={workingDocuments.get(file.path)}
-              onHandoffError={setHandoffError}
-              onStateChange={(viewState) =>
-                initialMemory.diffViewStates.set(`${filter}:${file.path}`, viewState)
-              }
-              onToggle={() =>
-                setExpandedPaths((current) => {
-                  const memory = getGitViewMemory(gitMemoryKey)
-                  const next = new Set(current)
-                  if (next.has(file.path)) {
-                    next.delete(file.path)
-                    memory.collapsedPaths.add(file.path)
-                  } else {
-                    next.add(file.path)
-                    memory.collapsedPaths.delete(file.path)
-                  }
-                  return next
-                })
-              }
-            />
-          ))}
-        </div>
-      )}
-      {agentSession ? (
-        hasConflicts ? (
-          <GitConflictResolver
-            disabled={resolveDisabled}
-            instructions={instructions}
-            onInstructionsChange={setInstructions}
-            onResolve={() => {
+  const footer: GitToolViewProps['footer'] =
+    agentSession && state && (state.status === 'ok' || state.status === 'clean')
+      ? hasConflicts
+        ? {
+            kind: 'conflict',
+            disabled: resolveDisabled,
+            instructions,
+            onInstructionsChange: setInstructions,
+            onResolve: () => {
               gitPromptRunPending.current = true
               void agentSession.prompt(buildResolveConflictsPrompt(context))
-            }}
-          />
-        ) : (
-          <GitCommitComposer
-            actionAvailability={actions}
-            actions={composerActions}
-            actionsReady={actionsReady}
-            busy={busy}
-            instructions={instructions}
-            menuOpen={menuOpen}
-            primaryAction={primaryAction}
-            primaryDisabled={primaryDisabled}
-            onInstructionsChange={setInstructions}
-            onMenuOpenChange={setMenuOpen}
-            onPrimaryActionChange={(action) => {
+            }
+          }
+        : {
+            kind: 'commit',
+            actionAvailability: actions,
+            actions: composerActions,
+            actionsReady,
+            busy,
+            instructions,
+            menuOpen,
+            primaryAction,
+            primaryDisabled,
+            onInstructionsChange: setInstructions,
+            onMenuOpenChange: setMenuOpen,
+            onPrimaryActionChange: (action) => {
               setMenuOpen(false)
               if (actionsReady && actions[action]) {
                 setPrimaryActionState({ status: 'ready', action })
               }
-            }}
-            onSubmit={(action) => {
+            },
+            onSubmit: (action) => {
               setMenuOpen(false)
               if (!actionsReady || !actions[action]) return
               gitPromptRunPending.current = true
               void agentSession.prompt(
                 buildGitActionPrompt(action, instructions, state.upstream, context)
               )
-            }}
-          />
-        )
-      ) : null}
-    </GitShell>
-  )
-}
+            }
+          }
+      : null
 
-function GitConflictBanner({ conflictCount }: { conflictCount: number }): React.JSX.Element {
-  return (
-    <div
-      aria-label="Unresolved Git conflicts"
-      className="rounded-lg border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
-      role="status"
-    >
-      <p className="font-semibold">Unresolved Git conflicts</p>
-      <p className="mt-1">
-        {conflictCount === 1
-          ? '1 conflicted file needs resolution before commit or push.'
-          : `${conflictCount} conflicted files need resolution before commit or push.`}
-      </p>
-    </div>
-  )
-}
-
-function GitConflictResolver({
-  disabled,
-  instructions,
-  onInstructionsChange,
-  onResolve
-}: {
-  disabled: boolean
-  instructions: string
-  onInstructionsChange: (instructions: string) => void
-  onResolve: () => void
-}): React.JSX.Element {
-  return (
-    <footer className="shrink-0 space-y-3 border-t bg-background p-4">
-      <Textarea
-        aria-label="Commit instructions"
-        className="min-h-20 resize-none"
-        placeholder="Optional notes to keep for the next commit request…"
-        value={instructions}
-        onChange={(event) => onInstructionsChange(event.target.value)}
-      />
-      <div className="flex items-center justify-between gap-3">
+  const pendingEdits =
+    pendingDocuments.length > 0 ? (
+      <section className="space-y-2" aria-label="Pending edits">
+        <h3 className="text-sm font-semibold">Pending edits</h3>
         <p className="text-xs text-muted-foreground">
-          Sends a normal prompt to this Project Session agent to inspect fresh managed-worktree
-          state and resolve the conflict workflow.
+          Unsaved diff edits remain recoverable even though the selected Git view no longer shows
+          their ordinary diff.
         </p>
-        <Button disabled={disabled} type="button" onClick={onResolve}>
-          Resolve with agent
-        </Button>
-      </div>
-    </footer>
-  )
-}
+        {pendingDocuments.map((document) => (
+          <PendingGitEdit
+            key={document.relativePath}
+            contextKey={filesContext.contextKey}
+            document={document}
+            initialState={
+              initialMemory.diffViewStates.get(`${filter}:${document.relativePath}`) ?? {
+                view: { scrollLeft: 0, scrollTop: 0 }
+              }
+            }
+            onStateChange={(viewState) =>
+              initialMemory.diffViewStates.set(`${filter}:${document.relativePath}`, viewState)
+            }
+          />
+        ))}
+      </section>
+    ) : undefined
 
-function GitShell({
-  filter,
-  isRefreshing,
-  onFilterChange,
-  onRefresh,
-  state,
-  watchDiagnostic,
-  children
-}: {
-  filter: GitChangeFilter
-  isRefreshing: boolean
-  onFilterChange: (filter: GitChangeFilter) => void
-  onRefresh: () => void
-  state?: Extract<GitReviewState, { status: 'ok' | 'clean' }>
-  watchDiagnostic?: string | null
-  children: React.ReactNode
-}): React.JSX.Element {
+  const toggleFile = (file: GitFileDiff): void => {
+    setExpandedPaths((current) => {
+      const memory = getGitViewMemory(gitMemoryKey)
+      const next = new Set(current)
+      if (next.has(file.path)) {
+        next.delete(file.path)
+        memory.collapsedPaths.add(file.path)
+      } else {
+        next.add(file.path)
+        memory.collapsedPaths.delete(file.path)
+      }
+      return next
+    })
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-      <header className="shrink-0 border-b px-4 py-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold">Git</h2>
-            {state ? (
-              <p className="text-xs text-muted-foreground">
-                Branch <span className="font-medium text-foreground">{state.branch}</span>
-                {' · '}
-                {formatUpstream(state.upstream)}
-              </p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-2">
-            {state ? (
-              <span className="rounded-full border px-2 py-1 text-xs text-muted-foreground">
-                {state.files.length === 0 ? 'Clean' : `${state.files.length} changed`}
-              </span>
-            ) : null}
-            <Button
-              aria-label="Refresh Git status"
-              disabled={isRefreshing}
-              size="icon-sm"
-              title="Refresh Git status"
-              type="button"
-              variant="outline"
-              onClick={onRefresh}
-            >
-              <ArrowClockwise
-                aria-hidden="true"
-                className={isRefreshing ? 'size-4 animate-spin' : 'size-4'}
-              />
-              {isRefreshing ? (
-                <span aria-label="Refreshing Git status" className="sr-only" role="status" />
-              ) : null}
-            </Button>
-          </div>
-        </div>
-        {watchDiagnostic ? (
-          <div
-            className="mt-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-            role="status"
-          >
-            Git auto-refresh unavailable: {watchDiagnostic} You can still refresh manually.
-          </div>
-        ) : null}
-        <div className="mt-3 flex gap-2" role="tablist" aria-label="Changes filter">
-          {CHANGE_FILTERS.map((option) => (
-            <button
-              key={option.value}
-              aria-selected={filter === option.value}
-              className={`rounded-md border px-3 py-1 text-xs ${
-                filter === option.value
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground'
-              }`}
-              role="tab"
-              type="button"
-              onClick={() => onFilterChange(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </header>
-      {children}
-    </div>
+    <GitToolView
+      changedFilesContainerRef={scrollContainerRef}
+      conflictCount={conflictFiles.length}
+      expandedPaths={expandedPaths}
+      filter={filter}
+      footer={footer}
+      handoffError={handoffError}
+      isRefreshing={isRefreshing}
+      pendingEdits={pendingEdits}
+      renderFile={(file, expanded) => (
+        <GitDiffCard
+          key={`${file.oldPath ?? ''}:${file.path}`}
+          expanded={expanded}
+          file={file}
+          filesContext={filesContext}
+          filesHandoff={filesHandoff}
+          filter={filter}
+          initialState={
+            initialMemory.diffViewStates.get(`${filter}:${file.path}`) ?? {
+              view: { scrollLeft: 0, scrollTop: 0 }
+            }
+          }
+          workingDocument={workingDocuments.get(file.path)}
+          onHandoffError={setHandoffError}
+          onStateChange={(viewState) =>
+            initialMemory.diffViewStates.set(`${filter}:${file.path}`, viewState)
+          }
+          onToggle={() => toggleFile(file)}
+        />
+      )}
+      state={state}
+      watchDiagnostic={watchDiagnostic}
+      onChangedFilesScroll={(scrollTop) => {
+        getGitViewMemory(gitMemoryKey).scrollTop = scrollTop
+      }}
+      onFilterChange={setFilter}
+      onRefresh={() => void refresh()}
+      onToggleFile={toggleFile}
+    />
   )
 }
 
@@ -1171,102 +955,6 @@ const PROJECT_COMPOSER_ACTIONS: GitComposerAction[] = [
 ]
 const KNOWLEDGE_BASE_COMPOSER_ACTIONS: GitComposerAction[] = ['commit-and-push', 'commit']
 
-function GitCommitComposer({
-  actionAvailability,
-  actions,
-  actionsReady,
-  busy,
-  instructions,
-  menuOpen,
-  primaryAction,
-  primaryDisabled,
-  onInstructionsChange,
-  onMenuOpenChange,
-  onPrimaryActionChange,
-  onSubmit
-}: {
-  actionAvailability: Record<GitComposerAction, boolean>
-  actions: GitComposerAction[]
-  actionsReady: boolean
-  busy: boolean
-  instructions: string
-  menuOpen: boolean
-  primaryAction: GitComposerAction
-  primaryDisabled: boolean
-  onInstructionsChange: (instructions: string) => void
-  onMenuOpenChange: (open: boolean) => void
-  onPrimaryActionChange: (action: GitComposerAction) => void
-  onSubmit: (action: GitComposerAction) => void
-}): React.JSX.Element {
-  return (
-    <footer className="shrink-0 space-y-3 border-t bg-background p-4">
-      <Textarea
-        aria-label="Commit instructions"
-        className="min-h-20 resize-none"
-        placeholder="Optional commit message or instructions for the Project Session agent…"
-        value={instructions}
-        onChange={(event) => onInstructionsChange(event.target.value)}
-      />
-      <div className="flex items-center justify-end gap-3">
-        <div className="flex shrink-0 items-center" role="group" aria-label="Git commit action">
-          <Button
-            className="rounded-r-none"
-            disabled={primaryDisabled}
-            type="button"
-            onClick={() => onSubmit(primaryAction)}
-          >
-            {formatActionLabel(primaryAction)}
-          </Button>
-          <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  aria-label="Choose Git commit action"
-                  className="-ml-px rounded-l-none border-l-primary-foreground/30 px-2"
-                  disabled={busy || !actionsReady}
-                  size="icon"
-                  title="Choose Git commit action"
-                  type="button"
-                  variant="default"
-                />
-              }
-            >
-              <DotsThree aria-hidden="true" className="size-5" weight="bold" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-40" side="top">
-              {actions.map((action) => (
-                <DropdownMenuItem
-                  key={action}
-                  aria-current={primaryAction === action ? 'true' : undefined}
-                  disabled={busy || !actionAvailability[action]}
-                  onClick={() => onPrimaryActionChange(action)}
-                >
-                  {formatActionLabel(action)}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-    </footer>
-  )
-}
-
-function GitStateMessage({
-  title,
-  message
-}: {
-  title: string
-  message?: string
-}): React.JSX.Element {
-  return (
-    <div className="flex h-full min-h-[220px] flex-col items-center justify-center gap-2 p-6 text-center">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {message ? <p className="max-w-sm text-sm text-muted-foreground">{message}</p> : null}
-    </div>
-  )
-}
-
 function getObservationErrorMessage(error: unknown): string {
   const message =
     error instanceof Error ? error.message : String(error || 'Git auto-refresh setup failed.')
@@ -1288,19 +976,6 @@ function filesHandoffUnavailableMessage(
   if (file.kind === 'deleted')
     return 'Deleted files stay reviewable in Git and cannot be opened in Files.'
   return undefined
-}
-
-function getFilterLabel(filter: GitChangeFilter): string {
-  return CHANGE_FILTERS.find((option) => option.value === filter)?.label ?? 'Uncommitted'
-}
-
-function formatUpstream(upstream: GitUpstreamState): string {
-  if (upstream.kind === 'none') return 'No upstream'
-  const parts: string[] = [upstream.name]
-  if (upstream.ahead > 0) parts.push(`${upstream.ahead} ahead`)
-  if (upstream.behind > 0) parts.push(`${upstream.behind} behind`)
-  if (parts.length === 1) parts.push('up to date')
-  return parts.join(' · ')
 }
 
 function getComposerActions(contextKind: GitContext['kind']): GitComposerAction[] {
@@ -1411,10 +1086,4 @@ function getRepositoryPromptLabel(context: GitContext): string {
   return context.kind === 'knowledge-base'
     ? 'the verified Knowledge Base repository'
     : 'this Project Session managed worktree'
-}
-
-function formatActionLabel(action: GitComposerAction): string {
-  if (action === 'commit') return 'Commit'
-  if (action === 'commit-and-create-pr') return 'Commit and create a PR'
-  return 'Commit & Push'
 }

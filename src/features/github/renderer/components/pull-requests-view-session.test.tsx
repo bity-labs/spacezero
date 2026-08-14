@@ -47,6 +47,58 @@ function setupPullRequest(): void {
 }
 
 describe('Pull Request detail actions', () => {
+  it('keeps checks and submitted reviews out of the connected detail', async () => {
+    setupPullRequest()
+    const listCheckRuns = vi
+      .spyOn(window.spacezero.github, 'listPullRequestCheckRuns')
+      .mockResolvedValue({
+        items: [
+          {
+            id: 'check-1',
+            name: 'test',
+            status: 'completed',
+            conclusion: 'success',
+            detailsUrl: null,
+            appName: 'GitHub Actions',
+            startedAt: null,
+            completedAt: null
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      })
+    const listReviews = vi
+      .spyOn(window.spacezero.github, 'listPullRequestReviews')
+      .mockResolvedValue({
+        items: [
+          {
+            id: 'review-1',
+            state: 'approved',
+            body: 'Looks good to ship.',
+            htmlUrl: 'https://github.com/bity-labs/spacezero/pull/79#review-1',
+            author: { id: '84', login: 'reviewer', avatarUrl: 'https://avatars.example/84' },
+            submittedAt: '2026-07-18T03:00:00.000Z'
+          }
+        ],
+        page: 1,
+        hasNextPage: false
+      })
+
+    render(
+      <QueryClientProvider client={createGitHubQueryClient()}>
+        <PullRequestsView project={project} initialPullRequestNumber={79} />
+      </QueryClientProvider>
+    )
+
+    expect(await screen.findByText('Managed storage foundation')).toBeInTheDocument()
+    expect(listCheckRuns).not.toHaveBeenCalled()
+    expect(listReviews).not.toHaveBeenCalled()
+    expect(screen.queryByRole('region', { name: 'Pull Request checks' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Pull Request reviews' })).not.toBeInTheDocument()
+    expect(screen.queryByText('No checks were reported.')).not.toBeInTheDocument()
+    expect(screen.queryByText('No submitted reviews yet.')).not.toBeInTheDocument()
+  })
+
   it('hides PR session, write, and checkout controls', async () => {
     setupPullRequest()
     const createComment = vi.spyOn(window.spacezero.github, 'createPullRequestComment')
