@@ -67,7 +67,7 @@ Use the story title to communicate why the UI exists, not its source folder:
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Generic primitives                          | `Design System/Primitives/Button`                                                                                                |
 | Reusable composed components                | `Design System/Components/Agent Chat/Complete`, `Design System/Components/Rich Markdown Editor`                                    |
-| Application shell components and shells     | `Design System/Components/App Shell/Workspace/Sidebar`, `Design System/Components/App Shell/Side Pane/Tabs`                        |
+| Application shell components and shells     | `Design System/Components/Workspace/Sidebar`, `Design System/Components/Side Pane/Tabs`                                             |
 | Feature-owned building blocks               | `Features/Settings/Components/Row`, `Features/Projects/Components/Project Sidebar List`                                           |
 | Feature-owned screens                       | `Features/Settings/Screens/General`, `Features/Projects/Screens/Project Home`                                                     |
 | Feature-owned layouts                       | `Features/Settings/Layouts/Settings Shell`                                                                                        |
@@ -79,7 +79,7 @@ Layout stories that include `.mac-traffic-light-space` show decorative macOS tra
 
 The Storybook sidebar is intentionally sorted for review flow, not alphabetically:
 
-1. `Design System` — primitives first, then reusable composed components such as Agent Chat and App Shell pieces
+1. `Design System` — primitives first, then reusable composed components such as Agent Chat, Side Pane, and Workspace pieces
 2. `Features` — each feature sorts stories as `Components`, then `Layouts`, then `Screens`
 3. `Screens` — app-level or cross-feature screens that do not belong to one feature module
 
@@ -105,7 +105,7 @@ Record an accepted visual contract with the local story title, exported story na
 ```md
 Storybook reference:
 
-- `Design System/Components/App Shell/Workspace/Shell`
+- `Design System/Components/Workspace/Shell`
 - Run locally with `pnpm storybook`
 ```
 
