@@ -73,6 +73,14 @@ Use the story title to communicate why the UI exists, not its source folder:
 
 Use the same pattern for Files, Git, Browser, Terminal, Knowledge Base, Onboarding, and other whole-app areas. Avoid catch-all titles such as `Smoke/*` for visual contracts that fit one of these intent groups. `pnpm storybook:check` rejects `Smoke/*`, unknown top-level groups, and story files without a static intent-based title.
 
+The Storybook sidebar is intentionally sorted for review flow, not alphabetically:
+
+1. `Design System`
+2. `App Shell`
+3. `Layouts`
+4. feature areas such as `Settings`, `Projects`, `GitHub`, `Files`, and `Chat`
+5. `Screens`
+
 Build coverage in this order:
 
 1. feature or design-system building blocks;

@@ -90,6 +90,28 @@ const preview: Preview = {
     layout: 'centered',
     backgrounds: {
       disable: true
+    },
+    options: {
+      storySort: {
+        order: [
+          'Design System',
+          'App Shell',
+          'Layouts',
+          ['Workspace', 'Settings', 'Side Pane'],
+          'Settings',
+          'Projects',
+          'GitHub',
+          'Git',
+          'Files',
+          'Chat',
+          'Browser',
+          'Terminal',
+          'Knowledge Base',
+          'Onboarding',
+          'Side Pane',
+          'Screens'
+        ]
+      }
     }
   }
 }
