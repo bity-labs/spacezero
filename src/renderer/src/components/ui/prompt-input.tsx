@@ -1,12 +1,6 @@
 'use client'
 
-import {
-  PaperPlaneIcon,
-  PaperclipIcon,
-  SpinnerIcon,
-  StopIcon,
-  XIcon
-} from '@phosphor-icons/react'
+import { ArrowUpIcon, PaperclipIcon, SpinnerIcon, StopIcon, XIcon } from '@phosphor-icons/react'
 import { nanoid } from 'nanoid'
 import {
   createContext,
@@ -89,22 +83,25 @@ export const PromptInput = ({
     []
   )
 
-  const handleFileChange: ChangeEventHandler<HTMLInputElement> = useCallback((event) => {
-    const selectedFiles = Array.from(event.currentTarget.files ?? [])
+  const handleFileChange: ChangeEventHandler<HTMLInputElement> = useCallback(
+    (event) => {
+      const selectedFiles = Array.from(event.currentTarget.files ?? [])
 
-    if (selectedFiles.length > 0) {
-      setFiles((currentFiles) => [
-        ...currentFiles,
-        ...selectedFiles.map((file) => ({
-          id: nanoid(),
-          file,
-          path: resolveFilePath?.(file) ?? file.name
-        }))
-      ])
-    }
+      if (selectedFiles.length > 0) {
+        setFiles((currentFiles) => [
+          ...currentFiles,
+          ...selectedFiles.map((file) => ({
+            id: nanoid(),
+            file,
+            path: resolveFilePath?.(file) ?? file.name
+          }))
+        ])
+      }
 
-    event.currentTarget.value = ''
-  }, [resolveFilePath])
+      event.currentTarget.value = ''
+    },
+    [resolveFilePath]
+  )
 
   const handleSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -145,7 +142,10 @@ export const PromptInput = ({
         type="file"
       />
       <form className="w-full" onSubmit={handleSubmit} {...props}>
-        <InputGroup data-disabled={disabled} className={cn('h-auto overflow-hidden', className)}>
+        <InputGroup
+          data-disabled={disabled}
+          className={cn('h-auto overflow-hidden rounded-3xl', className)}
+        >
           {children}
         </InputGroup>
       </form>
@@ -304,7 +304,10 @@ export const PromptInputAttachments = ({ className, ...props }: PromptInputAttac
   }
 
   return (
-    <div className={cn('flex w-full flex-wrap justify-start gap-1 px-2 pt-2', className)} {...props}>
+    <div
+      className={cn('flex w-full flex-wrap justify-start gap-1 px-2 pt-2', className)}
+      {...props}
+    >
       {files.map(({ id, file, path }) => (
         <button
           key={id}
@@ -337,7 +340,7 @@ export const PromptInputSubmit = ({
 }: PromptInputSubmitProps) => {
   const isRunning = status === 'submitted' || status === 'streaming'
 
-  let icon = <PaperPlaneIcon className="size-4" />
+  let icon = <ArrowUpIcon className="size-4" />
 
   if (status === 'submitted') {
     icon = <SpinnerIcon className="size-4 animate-spin" />
@@ -351,7 +354,7 @@ export const PromptInputSubmit = ({
     <InputGroupButton
       {...props}
       aria-label={isRunning ? 'Stop response' : 'Send message'}
-      className={cn(className)}
+      className={cn('rounded-full', className)}
       disabled={isRunning && !onStop}
       onClick={isRunning ? onStop : props.onClick}
       size={size}

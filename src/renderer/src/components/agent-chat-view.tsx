@@ -8,6 +8,7 @@ import {
   type ChatInputActiveAgentDefinition,
   type ChatInputAgentDefinition,
   type ChatInputCommand,
+  type ChatInputFileMentionResult,
   type ChatInputHistoryItem,
   type ChatInputKnowledgeBaseMentionResult,
   type ChatInputModel,
@@ -53,6 +54,7 @@ export type AgentChatViewProps = {
   onAgentDefinitionPickerOpen?: () => void
   resolveFilePath?: (file: File) => string
   loadKnowledgeBaseMentionPaths?: () => Promise<ChatInputKnowledgeBaseMentionResult>
+  loadFileMentionPaths?: () => Promise<ChatInputFileMentionResult>
 }
 
 export function AgentChatView({
@@ -87,7 +89,8 @@ export function AgentChatView({
   onAgentDefinitionChange,
   onAgentDefinitionPickerOpen,
   resolveFilePath,
-  loadKnowledgeBaseMentionPaths
+  loadKnowledgeBaseMentionPaths,
+  loadFileMentionPaths
 }: AgentChatViewProps) {
   const [isSubmitPending, setIsSubmitPending] = useState(false)
 
@@ -152,9 +155,10 @@ export function AgentChatView({
       onAbort={onAbort}
       resolveFilePath={resolveFilePath}
       loadKnowledgeBaseMentionPaths={loadKnowledgeBaseMentionPaths}
+      loadFileMentionPaths={loadFileMentionPaths}
       placeholder={placeholder}
       status={status === 'running' ? 'streaming' : 'ready'}
-      className="rounded-2xl bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
+      className="rounded-3xl bg-muted/80 shadow-lg shadow-black/10 backdrop-blur"
     />
   )
   const composerContent = composer === undefined ? defaultComposer : composer
