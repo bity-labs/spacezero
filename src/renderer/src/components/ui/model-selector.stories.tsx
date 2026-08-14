@@ -11,7 +11,7 @@ import {
 } from './model-selector'
 
 const meta = {
-  title: 'Design System/Primitives/Model Selector',
+  title: 'Design System/Components/Agent Chat/Model Selector',
   component: ModelSelector,
   render: () => (
     <ModelSelector defaultOpen>

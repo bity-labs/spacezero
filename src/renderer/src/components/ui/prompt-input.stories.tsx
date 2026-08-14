@@ -10,7 +10,7 @@ import {
 } from './prompt-input'
 
 const meta = {
-  title: 'Design System/Primitives/Prompt Input',
+  title: 'Design System/Components/Agent Chat/Prompt Input',
   component: PromptInput,
   args: {
     onSubmit: () => undefined
