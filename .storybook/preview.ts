@@ -2,61 +2,108 @@ import type { Preview } from '@storybook/react-vite'
 
 import '../src/renderer/src/i18n'
 import '../src/renderer/src/styles.css'
-import { applyStorybookAppearance, STORYBOOK_FONTS, STORYBOOK_THEMES } from './appearance'
+import {
+  applyStorybookAppearance,
+  STORYBOOK_FONTS,
+  STORYBOOK_FONT_ANTIALIASING,
+  STORYBOOK_THEMES,
+  type StorybookFontAntialiasing
+} from './appearance'
+import type { FontFamilyPreference, ThemePreference } from '../src/shared/appearance-settings'
+
+const FONT_FAMILY_LABELS: Record<FontFamilyPreference, string> = {
+  system: 'System font',
+  geist: 'Geist',
+  'sf-pro': 'SF Pro Text',
+  inter: 'Inter',
+  helvetica: 'Helvetica Neue',
+  arial: 'Arial',
+  'sf-mono': 'SF Mono',
+  menlo: 'Menlo',
+  monaco: 'Monaco',
+  'jetbrains-mono': 'JetBrains Mono',
+  monospace: 'Generic monospace'
+}
+
+const THEME_LABELS: Record<ThemePreference, string> = {
+  system: 'System',
+  light: 'Light',
+  dark: 'Dark',
+  'dark-high-contrast': 'Dark high contrast'
+}
+
+const FONT_ANTIALIASING_LABELS: Record<StorybookFontAntialiasing, string> = {
+  thin: 'Thin anti-aliased',
+  native: 'Native'
+}
 
 const preview: Preview = {
   globalTypes: {
-    spacezeroTheme: {
-      description: 'Space Zero theme',
+    themePreference: {
+      name: 'App theme',
+      description: 'Space Zero theme preference applied to the preview iframe and canvas background.',
+      defaultValue: 'system',
       toolbar: {
-        icon: 'paintbrush',
-        items: STORYBOOK_THEMES.map((value) => ({
-          value,
-          title: value === 'dark-high-contrast' ? 'Dark high contrast' : capitalize(value)
-        })),
-        dynamicTitle: true
+        icon: 'circlehollow',
+        dynamicTitle: true,
+        items: STORYBOOK_THEMES.map((value) => ({ value, title: THEME_LABELS[value] }))
       }
     },
-    spacezeroFont: {
-      description: 'Space Zero font family',
+    fontFamily: {
+      name: 'Font',
+      description: 'Space Zero interface font alias applied to the preview iframe.',
+      defaultValue: 'system',
       toolbar: {
         icon: 'paragraph',
-        items: STORYBOOK_FONTS.map((value) => ({
+        dynamicTitle: true,
+        items: STORYBOOK_FONTS.map((value) => ({ value, title: FONT_FAMILY_LABELS[value] }))
+      }
+    },
+    fontAntialiasing: {
+      name: 'Font anti-aliasing',
+      description: 'Space Zero font smoothing mode applied to the preview iframe.',
+      defaultValue: 'thin',
+      toolbar: {
+        icon: 'contrast',
+        dynamicTitle: true,
+        items: STORYBOOK_FONT_ANTIALIASING.map((value) => ({
           value,
-          title: formatFontName(value)
-        })),
-        dynamicTitle: true
+          title: FONT_ANTIALIASING_LABELS[value]
+        }))
       }
     }
   },
-  initialGlobals: {
-    spacezeroTheme: 'dark',
-    spacezeroFont: 'system'
-  },
   decorators: [
     (Story, context) => {
-      applyStorybookAppearance(
-        document.documentElement,
-        context.globals.spacezeroTheme,
-        context.globals.spacezeroFont
-      )
+      applyStorybookAppearance({
+        root: document.documentElement,
+        body: document.body,
+        themePreference: getThemePreference(context.globals.themePreference),
+        fontFamily: getFontFamily(context.globals.fontFamily),
+        fontAntialiasing: getFontAntialiasing(context.globals.fontAntialiasing),
+        prefersDark: window.matchMedia('(prefers-color-scheme: dark)').matches
+      })
       return Story()
     }
   ],
   parameters: {
-    layout: 'centered'
+    layout: 'centered',
+    backgrounds: {
+      disable: true
+    }
   }
 }
 
-function capitalize(value: string): string {
-  return `${value.charAt(0).toUpperCase()}${value.slice(1)}`
+function getThemePreference(value: unknown): ThemePreference {
+  return STORYBOOK_THEMES.find((preference) => preference === value) ?? 'system'
 }
 
-function formatFontName(value: string): string {
-  return value
-    .split('-')
-    .map((part) => capitalize(part))
-    .join(' ')
+function getFontFamily(value: unknown): FontFamilyPreference {
+  return STORYBOOK_FONTS.find((preference) => preference === value) ?? 'system'
+}
+
+function getFontAntialiasing(value: unknown): StorybookFontAntialiasing {
+  return STORYBOOK_FONT_ANTIALIASING.find((preference) => preference === value) ?? 'thin'
 }
 
 export default preview

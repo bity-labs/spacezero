@@ -2,7 +2,11 @@ import { GitHubAccountSettingsScreen } from '../../github/renderer/components/gi
 import { connectedGitHubAccountFixture } from '../../github/renderer/components/github-account-settings-screen.fixtures'
 import { AccountMenuView } from '@renderer/components/app-shell/account-menu-view'
 import { connectedAccountMenuFixture } from '@renderer/components/app-shell/account-menu-view.fixtures'
+import { AboutSettingsScreen } from './screens/about-settings-screen'
+import { aboutSettingsScreenDefaultArgs } from './screens/about-settings-screen.fixtures'
 import { AccountSettingsScreen } from './screens/account-settings-screen'
+import { AppearanceSettingsScreen } from './screens/appearance-settings-screen'
+import { appearanceSettingsScreenDefaultArgs } from './screens/appearance-settings-screen.fixtures'
 import { GeneralSettingsScreen } from './screens/general-settings-screen'
 import { defaultGeneralSettingsFixture } from './screens/general-settings-screen.fixtures'
 import { ModelsSettingsScreen } from './screens/models-settings-screen'
@@ -31,14 +35,15 @@ const labels: SettingsLayoutViewProps['labels'] = {
 
 function fixture({
   selectedSection,
-  mainContent
-}: Pick<SettingsLayoutViewProps, 'selectedSection' | 'mainContent'>): SettingsLayoutViewProps {
+  mainContent,
+  sidebarWidth = 280
+}: Pick<SettingsLayoutViewProps, 'selectedSection' | 'mainContent'> & {
+  sidebarWidth?: number
+}): SettingsLayoutViewProps {
   return {
-    sidebarWidth: 280,
+    sidebarWidth,
     selectedSection,
-    accountMenu: (
-      <AccountMenuView {...connectedAccountMenuFixture} settingsLabel="Close settings" />
-    ),
+    accountMenu: <AccountMenuView {...connectedAccountMenuFixture} settingsLabel="Close settings" />,
     mainContent,
     labels,
     onBackToWorkspace: noOp,
@@ -66,3 +71,23 @@ export const githubAccountSettingsLayoutFixture = fixture({
     />
   )
 })
+
+export const appearanceSettingsLayoutFixture = fixture({
+  selectedSection: 'appearance',
+  mainContent: <AppearanceSettingsScreen {...appearanceSettingsScreenDefaultArgs} />
+})
+
+export const aboutSettingsLayoutFixture = fixture({
+  selectedSection: 'about',
+  mainContent: <AboutSettingsScreen {...aboutSettingsScreenDefaultArgs} />
+})
+
+export const narrowSettingsLayoutFixture = {
+  ...generalSettingsLayoutFixture,
+  sidebarWidth: 220
+} satisfies SettingsLayoutViewProps
+
+export const wideSettingsLayoutFixture = {
+  ...generalSettingsLayoutFixture,
+  sidebarWidth: 320
+} satisfies SettingsLayoutViewProps
