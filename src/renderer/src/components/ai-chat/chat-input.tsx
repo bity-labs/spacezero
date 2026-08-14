@@ -21,6 +21,11 @@ import {
 } from '@renderer/components/ui/model-selector'
 import type { AiChatThinkingLevel } from './ai-chat.types'
 import { ThinkingSelector } from './thinking-selector'
+import {
+  PromptSuggestionEmpty,
+  PromptSuggestionItem,
+  PromptSuggestionMenu
+} from './prompt-suggestion-menu'
 
 import {
   PromptInput,
@@ -67,6 +72,8 @@ export type ChatInputSubmit = {
 
 export type ChatInputKnowledgeBaseMentionResult =
   { state: 'ready'; paths: string[] } | { state: 'unconfigured' }
+
+export type ChatInputFileMentionResult = { state: 'ready'; paths: string[] }
 
 export type ChatInputSkill = AgentSkillDescriptor
 
@@ -121,6 +128,7 @@ export type ChatInputProps = {
   onAbort?: () => void
   resolveFilePath?: (file: File) => string
   loadKnowledgeBaseMentionPaths?: () => Promise<ChatInputKnowledgeBaseMentionResult>
+  loadFileMentionPaths?: () => Promise<ChatInputFileMentionResult>
   className?: string
 }
 
@@ -150,6 +158,7 @@ export function ChatInput({
   onAbort,
   resolveFilePath,
   loadKnowledgeBaseMentionPaths,
+  loadFileMentionPaths,
   className
 }: ChatInputProps) {
   const [uncontrolledModelId, setUncontrolledModelId] = useState<string | undefined>(undefined)
@@ -165,6 +174,8 @@ export function ChatInput({
   const [knowledgeBaseMentionState, setKnowledgeBaseMentionState] = useState<
     'loading' | 'ready' | 'unconfigured' | 'error'
   >('loading')
+  const [fileMentionItems, setFileMentionItems] = useState<string[]>([])
+  const [fileMentionState, setFileMentionState] = useState<'loading' | 'ready' | 'error'>('loading')
   const fallbackModelId = models[0]?.id
   const activeModelId = selectedModelId ?? uncontrolledModelId ?? fallbackModelId
   const selectedModel = useMemo(
@@ -194,6 +205,10 @@ export function ChatInput({
     : undefined
   const activeKnowledgeBaseMention = getActiveKnowledgeBaseMentionQuery(inputValue)
   const isKnowledgeBaseMentionActive = activeKnowledgeBaseMention !== undefined
+  const activeFileMention = activeKnowledgeBaseMention
+    ? undefined
+    : getActiveFileMentionQuery(inputValue)
+  const isFileMentionActive = activeFileMention !== undefined
   const knowledgeBaseMentionOptions = useMemo(
     () =>
       activeKnowledgeBaseMention
@@ -206,10 +221,29 @@ export function ChatInput({
     [activeKnowledgeBaseMention, knowledgeBaseItems]
   )
 
+  const fileMentionOptions = useMemo(
+    () =>
+      activeFileMention
+        ? fileMentionItems.filter((path) =>
+            path.toLowerCase().includes(activeFileMention.query.toLowerCase())
+          )
+        : [],
+    [activeFileMention, fileMentionItems]
+  )
+  const promptMentionSuggestions = useMemo(
+    (): PromptMentionSuggestion[] => [
+      { kind: 'knowledge-base-source' },
+      ...fileMentionOptions.slice(0, 20).map((path) => ({ kind: 'file' as const, path }))
+    ],
+    [fileMentionOptions]
+  )
+
   const selectedKnowledgeBaseMentionPath =
     knowledgeBaseMentionOptions[
       Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
     ]
+  const selectedPromptMentionSuggestion =
+    promptMentionSuggestions[Math.min(activeSuggestionIndex, promptMentionSuggestions.length - 1)]
   const selectedHistoryItem =
     historyItems?.[Math.min(activeSuggestionIndex, historyItems.length - 1)]
   const isRunning = disabled || status === 'submitted' || status === 'streaming'
@@ -237,6 +271,25 @@ export function ChatInput({
       current = false
     }
   }, [isKnowledgeBaseMentionActive, loadKnowledgeBaseMentionPaths])
+
+  useEffect(() => {
+    if (!isFileMentionActive) return
+
+    let current = true
+    const loadPaths = loadFileMentionPaths ?? loadUnavailableFileMentionPaths
+    void loadPaths()
+      .then((result) => {
+        if (!current) return
+        setFileMentionItems(result.paths)
+        setFileMentionState('ready')
+      })
+      .catch(() => {
+        if (current) setFileMentionState('error')
+      })
+    return () => {
+      current = false
+    }
+  }, [isFileMentionActive, loadFileMentionPaths])
 
   const handleModelChange = (modelId: string) => {
     setUncontrolledModelId(modelId)
@@ -316,6 +369,37 @@ export function ChatInput({
       return
     }
 
+    if (activeFileMention) {
+      if (promptMentionSuggestions.length === 0) return
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault()
+        setActiveSuggestionIndex((index) => (index + 1) % promptMentionSuggestions.length)
+        return
+      }
+
+      if (event.key === 'ArrowUp') {
+        event.preventDefault()
+        setActiveSuggestionIndex(
+          (index) => (index - 1 + promptMentionSuggestions.length) % promptMentionSuggestions.length
+        )
+        return
+      }
+
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setInputValue(inputValue.slice(0, activeFileMention.start))
+        return
+      }
+
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault()
+        if (selectedPromptMentionSuggestion)
+          selectPromptMentionSuggestion(selectedPromptMentionSuggestion)
+      }
+      return
+    }
+
     if (historyItems !== undefined) {
       if (event.key === 'Escape') {
         event.preventDefault()
@@ -385,6 +469,14 @@ export function ChatInput({
   }
 
   function selectSlashSuggestion(suggestion: SlashSuggestion): void {
+    if (suggestion.kind === 'command' && suggestion.command.name === 'resume' && onCommand) {
+      setInputValue('/resume')
+      setActiveSuggestionIndex(0)
+      setSlashMenuDismissed(true)
+      void Promise.resolve(onCommand(suggestion.command.name)).catch(() => undefined)
+      return
+    }
+
     setInputValue(
       suggestion.kind === 'command'
         ? `/${suggestion.command.name}`
@@ -394,6 +486,19 @@ export function ChatInput({
     setSlashMenuDismissed(true)
   }
 
+  function selectPromptMentionSuggestion(suggestion: PromptMentionSuggestion): void {
+    if (!activeFileMention) return
+
+    if (suggestion.kind === 'knowledge-base-source') {
+      setInputValue(`${inputValue.slice(0, activeFileMention.start)}@kb`)
+      setActiveSuggestionIndex(0)
+      return
+    }
+
+    setInputValue(`${inputValue.slice(0, activeFileMention.start)}@${suggestion.path} `)
+    setActiveSuggestionIndex(0)
+  }
+
   function selectKnowledgeBaseMention(path: string): void {
     if (!activeKnowledgeBaseMention) return
     const encodedPath = encodeKnowledgeBaseMentionPath(path)
@@ -401,6 +506,7 @@ export function ChatInput({
   }
 
   function selectHistoryItem(historyItemId: string): void {
+    setInputValue('')
     setActiveSuggestionIndex(0)
     void Promise.resolve(onHistorySelect?.(historyItemId)).catch(() => undefined)
   }
@@ -424,16 +530,19 @@ export function ChatInput({
           aria-controls={
             activeKnowledgeBaseMention
               ? 'knowledge-base-path-suggestions'
-              : historyItems
-                ? 'chat-context-history'
-                : slashSuggestions.length > 0
-                  ? 'slash-suggestions'
-                  : undefined
+              : activeFileMention
+                ? 'file-mention-suggestions'
+                : historyItems
+                  ? 'chat-context-history'
+                  : slashSuggestions.length > 0
+                    ? 'slash-suggestions'
+                    : undefined
           }
           aria-expanded={
             historyItems !== undefined ||
             slashSuggestions.length > 0 ||
-            Boolean(activeKnowledgeBaseMention)
+            Boolean(activeKnowledgeBaseMention) ||
+            Boolean(activeFileMention)
           }
           autoFocus={autoFocus}
           disabled={isRunning}
@@ -568,99 +677,98 @@ export function ChatInput({
         </PromptInputFooter>
       </PromptInput>
       {activeKnowledgeBaseMention ? (
-        <div
-          id="knowledge-base-path-suggestions"
-          aria-label="Knowledge Base paths"
-          className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
-          role="listbox"
-        >
+        <PromptSuggestionMenu id="knowledge-base-path-suggestions" label="Knowledge Base paths">
           {knowledgeBaseMentionState === 'loading' ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">Loading Knowledge Base paths…</p>
+            <PromptSuggestionEmpty>Loading Knowledge Base paths…</PromptSuggestionEmpty>
           ) : knowledgeBaseMentionState === 'unconfigured' ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
+            <PromptSuggestionEmpty>
               Knowledge Base is not configured. Open Knowledge Base to set it up.
-            </p>
+            </PromptSuggestionEmpty>
           ) : knowledgeBaseMentionState === 'error' ? (
             <p className="px-3 py-2 text-xs text-destructive">
               Unable to load Knowledge Base paths.
             </p>
           ) : knowledgeBaseMentionOptions.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">No matching paths.</p>
+            <PromptSuggestionEmpty>No matching paths.</PromptSuggestionEmpty>
           ) : (
-            knowledgeBaseMentionOptions.slice(0, 20).map((path, index) => (
-              <button
-                key={path}
-                type="button"
-                role="option"
-                aria-selected={
-                  index === Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
-                }
-                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectKnowledgeBaseMention(path)}
-              >
-                <BookOpenText
-                  data-knowledge-base-icon="true"
-                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
+            knowledgeBaseMentionOptions
+              .slice(0, 20)
+              .map((path, index) => (
+                <PromptSuggestionItem
+                  key={path}
+                  icon={<BookOpenText data-knowledge-base-icon="true" className="size-4" />}
+                  title={knowledgeBaseMentionTitle(path)}
+                  description={path}
+                  selected={
+                    index ===
+                    Math.min(activeSuggestionIndex, knowledgeBaseMentionOptions.length - 1)
+                  }
+                  onSelect={() => selectKnowledgeBaseMention(path)}
                 />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">
-                    {knowledgeBaseMentionTitle(path)}
-                  </span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                    {path}
-                  </span>
-                </span>
-              </button>
-            ))
+              ))
           )}
-        </div>
+        </PromptSuggestionMenu>
+      ) : activeFileMention ? (
+        <PromptSuggestionMenu id="file-mention-suggestions" label="Mention sources and files">
+          <PromptSuggestionItem
+            icon={<BookOpenText data-knowledge-base-source-icon="true" className="size-4" />}
+            title="Knowledge Base"
+            description="Mention files from your Space Zero Knowledge Base."
+            suffix="source"
+            selected={activeSuggestionIndex === 0}
+            onSelect={() => selectPromptMentionSuggestion({ kind: 'knowledge-base-source' })}
+          />
+          {fileMentionState === 'loading' ? (
+            <PromptSuggestionEmpty>Loading file paths…</PromptSuggestionEmpty>
+          ) : fileMentionState === 'error' ? (
+            <p className="px-3 py-2 text-xs text-destructive">Unable to load file paths.</p>
+          ) : fileMentionOptions.length === 0 ? (
+            <PromptSuggestionEmpty>No matching files.</PromptSuggestionEmpty>
+          ) : (
+            fileMentionOptions
+              .slice(0, 20)
+              .map((path, index) => (
+                <PromptSuggestionItem
+                  key={path}
+                  icon={<FileText data-file-mention-icon="true" className="size-4" />}
+                  title={fileMentionTitle(path)}
+                  description={path}
+                  selected={
+                    index + 1 ===
+                    Math.min(activeSuggestionIndex, promptMentionSuggestions.length - 1)
+                  }
+                  onSelect={() => selectPromptMentionSuggestion({ kind: 'file', path })}
+                />
+              ))
+          )}
+        </PromptSuggestionMenu>
       ) : historyItems !== undefined ? (
-        <div
-          id="chat-context-history"
-          aria-label="Chat Context history"
-          className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
-          role="listbox"
-        >
+        <PromptSuggestionMenu id="chat-context-history" label="Chat Context history">
           {historyItems.length === 0 ? (
-            <p className="px-3 py-2 text-xs text-muted-foreground">
-              No older Chat Contexts with prompts.
-            </p>
+            <PromptSuggestionEmpty>No older Chat Contexts with prompts.</PromptSuggestionEmpty>
           ) : (
             historyItems.map((item, index) => (
-              <button
+              <PromptSuggestionItem
                 key={item.id}
-                type="button"
-                role="option"
-                aria-selected={index === Math.min(activeSuggestionIndex, historyItems.length - 1)}
-                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectHistoryItem(item.id)}
+                icon={<FileText data-chat-history-icon="true" className="size-4" />}
+                title={item.initialPrompt}
+                titleClassName="truncate"
+                selected={index === Math.min(activeSuggestionIndex, historyItems.length - 1)}
+                onSelect={() => selectHistoryItem(item.id)}
               >
-                <FileText
-                  data-chat-history-icon="true"
-                  className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">{item.initialPrompt}</span>
-                  {item.createdAt ? (
-                    <span className="mt-0.5 block text-xs text-muted-foreground">
-                      {formatChatContextDate(item.createdAt)}
-                    </span>
-                  ) : null}
-                </span>
-              </button>
+                {item.createdAt ? (
+                  <span className="mt-0.5 block text-xs text-muted-foreground">
+                    {formatChatContextDate(item.createdAt)}
+                  </span>
+                ) : null}
+              </PromptSuggestionItem>
             ))
           )}
-        </div>
+        </PromptSuggestionMenu>
       ) : slashSuggestions.length > 0 ? (
-        <div
+        <PromptSuggestionMenu
           id="slash-suggestions"
-          aria-label={commands.length > 0 ? 'Available commands and skills' : 'Available skills'}
-          className="absolute inset-x-0 bottom-full z-50 mb-2 max-h-72 overflow-auto rounded-xl border bg-popover p-1 text-popover-foreground shadow-lg"
-          role="listbox"
+          label={commands.length > 0 ? 'Available commands and skills' : 'Available skills'}
         >
           {slashSuggestions.map((suggestion, index) => {
             const isCommand = suggestion.kind === 'command'
@@ -675,43 +783,25 @@ export function ChatInput({
               ? `command:${suggestion.command.name}`
               : `skill:${suggestion.skill.scope}:${suggestion.skill.name}`
             return (
-              <button
+              <PromptSuggestionItem
                 key={key}
-                type="button"
-                role="option"
-                data-suggestion-kind={suggestion.kind}
-                aria-selected={
-                  index === Math.min(activeSuggestionIndex, slashSuggestions.length - 1)
+                icon={
+                  isCommand ? (
+                    <Command data-command-icon="true" className="size-4" />
+                  ) : (
+                    <Sparkle className="size-4" />
+                  )
                 }
-                className="flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted aria-selected:bg-muted"
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => selectSlashSuggestion(suggestion)}
-              >
-                {isCommand ? (
-                  <Command
-                    data-command-icon="true"
-                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <Sparkle
-                    className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-medium">{name}</span>
-                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                    {description}
-                  </span>
-                </span>
-                <span className="shrink-0 text-[10px] uppercase text-muted-foreground">
-                  {suffix}
-                </span>
-              </button>
+                title={name}
+                description={description}
+                suffix={suffix}
+                selected={index === Math.min(activeSuggestionIndex, slashSuggestions.length - 1)}
+                onSelect={() => selectSlashSuggestion(suggestion)}
+                data-suggestion-kind={suggestion.kind}
+              />
             )
           })}
-        </div>
+        </PromptSuggestionMenu>
       ) : null}
     </div>
   )
@@ -720,6 +810,12 @@ export function ChatInput({
 async function loadUnavailableKnowledgeBaseMentionPaths(): Promise<ChatInputKnowledgeBaseMentionResult> {
   return { state: 'unconfigured' }
 }
+
+async function loadUnavailableFileMentionPaths(): Promise<ChatInputFileMentionResult> {
+  return { state: 'ready', paths: [] }
+}
+
+type PromptMentionSuggestion = { kind: 'knowledge-base-source' } | { kind: 'file'; path: string }
 
 type SlashSuggestion =
   { kind: 'command'; command: ChatInputCommand } | { kind: 'skill'; skill: ChatInputSkill }
@@ -748,6 +844,12 @@ function getSlashSuggestions(
   ]
 }
 
+function getActiveFileMentionQuery(value: string): { start: number; query: string } | undefined {
+  const match = /@([^\s]*)$/.exec(value)
+  if (!match || match.index < 0) return undefined
+  return { start: match.index, query: match[1] ?? '' }
+}
+
 function getSlashCommandQuery(value: string): { value: string; skillsOnly: boolean } | undefined {
   if (!value.startsWith('/') || /\s/.test(value)) return undefined
 
@@ -769,6 +871,11 @@ function formatCommandSuggestionTitle(commandName: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ')
+}
+
+function fileMentionTitle(path: string): string {
+  const normalized = path.endsWith('/') ? path.slice(0, -1) : path
+  return normalized.split('/').at(-1) || path
 }
 
 function knowledgeBaseMentionTitle(path: string): string {

@@ -94,6 +94,24 @@ describe('ChatInput', () => {
     expect(option.querySelector('[data-command-icon="true"]')).toBeInTheDocument()
   })
 
+  it('opens Chat Context history immediately when selecting /resume and keeps the command visible', async () => {
+    const handleCommand = vi.fn(async () => undefined)
+    render(
+      <ChatInput
+        commands={[{ name: 'resume', description: 'Continue an older Chat Context.' }]}
+        onCommand={handleCommand}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: '/res' } })
+    fireEvent.keyDown(input, { key: 'Tab' })
+
+    await waitFor(() => expect(handleCommand).toHaveBeenCalledWith('resume'))
+    expect(input).toHaveValue('/resume')
+  })
+
   it('shows Chat Context history with file icons, one-line prompts, and creation metadata', () => {
     render(
       <ChatInput
@@ -143,6 +161,7 @@ describe('ChatInput', () => {
     fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(handleHistorySelect).toHaveBeenCalledWith('chat-context-second')
+    expect(input).toHaveValue('')
   })
 
   it('discovers skills from slash commands and submits the native Pi command', () => {
@@ -545,6 +564,48 @@ describe('ChatInput', () => {
     await userEvent.keyboard('{Enter}')
 
     expect(handleModelChange).toHaveBeenCalledWith('sonnet')
+  })
+
+  it('opens mention suggestions with Knowledge Base first when @ is typed', async () => {
+    render(
+      <ChatInput
+        loadFileMentionPaths={async () => ({
+          state: 'ready',
+          paths: ['src/renderer/src/components/agent-chat-view.tsx']
+        })}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent prompt' }), {
+      target: { value: 'Review @' }
+    })
+
+    expect(
+      await screen.findByRole('option', { name: /Knowledge Base.*Mention files/i })
+    ).toBeInTheDocument()
+    const fileOption = await screen.findByRole('option', {
+      name: /agent-chat-view\.tsx.*src\/renderer\/src\/components\/agent-chat-view\.tsx/i
+    })
+    expect(fileOption.querySelector('[data-file-mention-icon="true"]')).toBeInTheDocument()
+  })
+
+  it('switches from @ source suggestions to Knowledge Base paths when Knowledge Base is selected', async () => {
+    render(
+      <ChatInput
+        loadFileMentionPaths={async () => ({ state: 'ready', paths: ['src/index.ts'] })}
+        loadKnowledgeBaseMentionPaths={async () => ({ state: 'ready', paths: ['README.md'] })}
+        onSubmit={vi.fn()}
+      />
+    )
+
+    const input = screen.getByRole('textbox', { name: 'Agent prompt' })
+    fireEvent.change(input, { target: { value: 'Review @' } })
+    fireEvent.click(await screen.findByRole('option', { name: /Knowledge Base/i }))
+
+    expect(input).toHaveValue('Review @kb')
+    expect(await screen.findByRole('listbox', { name: 'Knowledge Base paths' })).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: /README\.md/ })).toBeInTheDocument()
   })
 
   it('opens Knowledge Base mention suggestions as soon as @kb is typed', async () => {

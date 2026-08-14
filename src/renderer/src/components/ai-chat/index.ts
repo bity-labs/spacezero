@@ -18,6 +18,7 @@ export {
   type ChatInputActiveAgentDefinition,
   type ChatInputAgentDefinition,
   type ChatInputCommand,
+  type ChatInputFileMentionResult,
   type ChatInputHistoryItem,
   type ChatInputKnowledgeBaseMentionResult,
   type ChatInputModel,
@@ -26,6 +27,13 @@ export {
   type ChatInputSubmitFile
 } from './chat-input'
 export { ChatMessage, type ChatMessageProps } from './chat-message'
+export {
+  PromptSuggestionEmpty,
+  PromptSuggestionItem,
+  PromptSuggestionMenu,
+  type PromptSuggestionItemProps,
+  type PromptSuggestionMenuProps
+} from './prompt-suggestion-menu'
 export { ChatThinkingBlock, type ChatThinkingBlockProps } from './chat-thinking-block'
 export { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
 export {
