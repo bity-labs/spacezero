@@ -4,7 +4,7 @@ import { richMarkdownEditorFixture } from './rich-markdown-editor.fixtures'
 import { RichMarkdownEditor } from './rich-markdown-editor'
 
 const meta = {
-  title: 'Files/Building Blocks/Rich Markdown Editor',
+  title: 'Design System/Components/Rich Markdown Editor',
   component: RichMarkdownEditor,
   decorators: [
     (Story) => (

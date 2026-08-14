@@ -16,7 +16,7 @@ import { AgentChatView } from './agent-chat-view'
 const noOp = (): void => undefined
 
 const meta = {
-  title: 'Chat/Building Blocks/Agent Chat',
+  title: 'Design System/Components/Agent Chat',
   component: AgentChatView,
   decorators: [
     (Story) => (

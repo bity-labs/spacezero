@@ -14,7 +14,7 @@ import { SettingsRow } from './settings-row'
 import { SettingsSection } from './settings-section'
 
 const meta = {
-  title: 'Settings/Building Blocks/Section',
+  title: 'Features/Settings/Components/Section',
   component: SettingsSection,
   decorators: [
     (Story) => (

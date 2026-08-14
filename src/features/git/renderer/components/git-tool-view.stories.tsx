@@ -17,7 +17,7 @@ import {
 import { GitToolView } from './git-tool-view'
 
 const meta = {
-  title: 'Screens/Git/Diff Tool',
+  title: 'Features/Git/Screens/Diff Tool',
   component: GitToolView,
   parameters: { layout: 'fullscreen' },
   decorators: [

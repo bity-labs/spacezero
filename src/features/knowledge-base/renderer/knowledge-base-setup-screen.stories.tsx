@@ -12,7 +12,7 @@ import {
 import { KnowledgeBaseSetupScreen } from './knowledge-base-setup-screen'
 
 const meta = {
-  title: 'Screens/Knowledge Base/Setup',
+  title: 'Features/Knowledge Base/Screens/Setup',
   component: KnowledgeBaseSetupScreen,
   parameters: { layout: 'fullscreen' },
   decorators: [

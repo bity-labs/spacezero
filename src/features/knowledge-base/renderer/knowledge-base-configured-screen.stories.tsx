@@ -7,7 +7,7 @@ import {
 import { KnowledgeBaseConfiguredScreen } from './knowledge-base-configured-screen'
 
 const meta = {
-  title: 'Screens/Knowledge Base/Configured',
+  title: 'Features/Knowledge Base/Screens/Configured',
   component: KnowledgeBaseConfiguredScreen,
   parameters: { layout: 'fullscreen' },
   decorators: [

@@ -7,7 +7,7 @@ import {
 import { KnowledgeBaseUnavailableScreen } from './knowledge-base-unavailable-screen'
 
 const meta = {
-  title: 'Screens/Knowledge Base/Unavailable',
+  title: 'Features/Knowledge Base/Screens/Unavailable',
   component: KnowledgeBaseUnavailableScreen,
   parameters: { layout: 'fullscreen' },
   decorators: [

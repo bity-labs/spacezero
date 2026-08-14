@@ -7,7 +7,7 @@ import {
 import { GeneralSettingsScreen } from './general-settings-screen'
 
 const meta = {
-  title: 'Screens/Settings/General',
+  title: 'Features/Settings/Screens/General',
   component: GeneralSettingsScreen,
   decorators: [
     (Story) => (

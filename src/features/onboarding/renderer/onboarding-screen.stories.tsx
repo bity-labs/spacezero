@@ -20,7 +20,7 @@ import {
 import { OnboardingScreen } from './onboarding-screen'
 
 const meta: Meta<typeof OnboardingScreen> = {
-  title: 'Screens/Onboarding/Flow',
+  title: 'Features/Onboarding/Screens/Flow',
   component: OnboardingScreen,
   parameters: { layout: 'fullscreen' },
   args: welcomeOnboardingFixture

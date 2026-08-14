@@ -6,7 +6,7 @@ import { IssueDetailScreen, IssueListScreen } from './issues-screen'
 const noOp = (): void => undefined
 
 const listMeta = {
-  title: 'Screens/GitHub/Issues',
+  title: 'Features/GitHub/Screens/Issues',
   component: IssueListScreen,
   parameters: { layout: 'padded' },
   args: {

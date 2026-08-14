@@ -14,7 +14,7 @@ import { SessionHostScreen } from './session-host-screen'
 const noOp = (): void => undefined
 
 const meta = {
-  title: 'Screens/Global Chat',
+  title: 'Features/Sessions/Screens/Global Chat',
   component: SessionHostScreen,
   decorators: [
     (Story) => (

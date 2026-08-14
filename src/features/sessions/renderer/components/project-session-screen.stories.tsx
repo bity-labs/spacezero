@@ -14,7 +14,7 @@ import { SessionHostScreen } from './session-host-screen'
 const noOp = (): void => undefined
 
 const meta = {
-  title: 'Screens/Project Session',
+  title: 'Features/Sessions/Screens/Project Session',
   component: SessionHostScreen,
   decorators: [
     (Story) => (

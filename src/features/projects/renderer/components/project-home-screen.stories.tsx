@@ -14,7 +14,7 @@ import {
 import { ProjectHomeScreen } from './project-home-screen'
 
 const meta = {
-  title: 'Screens/Projects/Project Home',
+  title: 'Features/Projects/Screens/Project Home',
   component: ProjectHomeScreen,
   parameters: { layout: 'fullscreen' },
   decorators: [

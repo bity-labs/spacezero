@@ -7,7 +7,7 @@ import {
 import { AppearanceSettingsScreen } from './appearance-settings-screen'
 
 const meta = {
-  title: 'Screens/Settings/Appearance',
+  title: 'Features/Settings/Screens/Appearance',
   component: AppearanceSettingsScreen,
   parameters: { layout: 'centered' },
   args: appearanceSettingsScreenDefaultArgs,

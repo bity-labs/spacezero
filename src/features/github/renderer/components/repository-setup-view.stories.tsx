@@ -6,7 +6,7 @@ import { RepositorySetupView } from './repository-setup-view'
 const noOp = (): void => undefined
 
 const meta = {
-  title: 'Screens/GitHub/Repository Setup',
+  title: 'Features/GitHub/Screens/Repository Setup',
   component: RepositorySetupView,
   parameters: { layout: 'centered' },
   decorators: [(Story) => <div className="w-[min(42rem,90vw)] rounded-xl border bg-background p-6"><Story /></div>],

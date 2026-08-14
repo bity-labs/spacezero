@@ -14,7 +14,7 @@ import {
 } from './browser-tool-view.fixtures'
 
 const meta = {
-  title: 'Screens/Browser/Tool',
+  title: 'Features/Browser/Screens/Tool',
   component: BrowserToolSidePaneFixture,
   parameters: { layout: 'fullscreen' },
   decorators: [

@@ -8,7 +8,7 @@ import {
 import { AboutSettingsScreen } from './about-settings-screen'
 
 const meta = {
-  title: 'Screens/Settings/About',
+  title: 'Features/Settings/Screens/About',
   component: AboutSettingsScreen,
   parameters: { layout: 'centered' },
   args: aboutSettingsScreenDefaultArgs,

@@ -12,7 +12,7 @@ import {
 import { ModelsSettingsScreen } from './models-settings-screen'
 
 const meta = {
-  title: 'Screens/Settings/Models',
+  title: 'Features/Settings/Screens/Models',
   component: ModelsSettingsScreen,
   decorators: [
     (Story) => (
