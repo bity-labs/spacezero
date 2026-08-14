@@ -26,7 +26,7 @@ const { diffViewerCalls } = vi.hoisted(() => ({
   diffViewerCalls: [] as MockDiffViewerCall[]
 }))
 
-vi.mock('@renderer/components/diff-viewer', async () => {
+vi.mock('../../../git/renderer/components/diff-viewer', async () => {
   const React = await import('react')
   const DiffViewer = vi.fn((props: MockDiffViewerCall) => {
     diffViewerCalls.push(props)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { useOptionalAppearance } from '@renderer/appearance-provider'
-import { DiffViewer } from '@renderer/components/diff-viewer'
+import { DiffViewer } from './diff-viewer'
 import { Button } from '@renderer/components/ui/button'
 import type { KnowledgeBaseChatContext } from '../../../knowledge-base/shared'
 import type { ProjectSessionChatContext } from '../../../sessions/shared'
