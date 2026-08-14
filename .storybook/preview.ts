@@ -99,7 +99,28 @@ const preview: Preview = {
           'App Shell',
           ['Components', 'Layouts'],
           'Features',
-          ['Settings', 'Projects', 'GitHub', 'Files', 'Git', 'Browser', 'Terminal', 'Knowledge Base', 'Onboarding'],
+          [
+            'Settings',
+            ['Components', 'Layouts', 'Screens'],
+            'Projects',
+            ['Components', 'Layouts', 'Screens'],
+            'GitHub',
+            ['Components', 'Layouts', 'Screens'],
+            'Files',
+            ['Components', 'Layouts', 'Screens'],
+            'Git',
+            ['Components', 'Layouts', 'Screens'],
+            'Browser',
+            ['Components', 'Layouts', 'Screens'],
+            'Terminal',
+            ['Components', 'Layouts', 'Screens'],
+            'Knowledge Base',
+            ['Components', 'Layouts', 'Screens'],
+            'Onboarding',
+            ['Components', 'Layouts', 'Screens'],
+            'Sessions',
+            ['Components', 'Layouts', 'Screens']
+          ],
           'Screens'
         ]
       }
