@@ -2,6 +2,8 @@
 
 Storybook is Space Zero's local workbench for UI prototypes and visual contracts. It renders real renderer components without launching Electron.
 
+Use the global toolbar to review any story with the real Space Zero light, dark, or dark-high-contrast theme tokens and any supported app font. Storybook defaults to the product's dark theme and system font; toolbar choices apply to the preview document without reading or persisting desktop appearance settings.
+
 ## Run Storybook locally
 
 Install dependencies, then start the local workbench:
@@ -69,7 +71,7 @@ Use the story title to communicate why the UI exists, not its source folder:
 | Full page or context content               | `Screens/Projects/Home`, `Screens/GitHub/Issue Detail`, `Screens/Knowledge Base/Setup`, `Screens/Onboarding/License Activation`                    |
 | Composed shells and realistic arrangements | `Layouts/Workspace/Project Selected`, `Layouts/Settings/General`, `Layouts/Side Pane/Many Tabs`                                                    |
 
-Use the same pattern for Files, Git, Browser, Terminal, Knowledge Base, Onboarding, and other whole-app areas. Avoid catch-all titles such as `Smoke/*` for visual contracts that fit one of these intent groups.
+Use the same pattern for Files, Git, Browser, Terminal, Knowledge Base, Onboarding, and other whole-app areas. Avoid catch-all titles such as `Smoke/*` for visual contracts that fit one of these intent groups. `pnpm storybook:check` rejects `Smoke/*`, unknown top-level groups, and story files without a static intent-based title.
 
 Build coverage in this order:
 
