@@ -11,7 +11,7 @@ import { PullRequestDetailScreen, PullRequestListScreen } from './pull-requests-
 const noOp = (): void => undefined
 
 const meta = {
-  title: 'Screens/GitHub/Pull Requests/List',
+  title: 'Screens/GitHub/Pull Requests',
   component: PullRequestListScreen,
   parameters: { layout: 'padded' },
   args: {
