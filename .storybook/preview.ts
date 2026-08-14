@@ -2,6 +2,7 @@ import type { Preview } from '@storybook/react-vite'
 
 import '../src/renderer/src/i18n'
 import '../src/renderer/src/styles.css'
+import './window-controls.css'
 import {
   applyStorybookAppearance,
   STORYBOOK_FONTS,
@@ -75,6 +76,7 @@ const preview: Preview = {
   },
   decorators: [
     (Story, context) => {
+      document.body.classList.add('storybook-preview')
       applyStorybookAppearance({
         root: document.documentElement,
         body: document.body,
