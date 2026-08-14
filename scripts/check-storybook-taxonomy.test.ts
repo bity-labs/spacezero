@@ -54,17 +54,37 @@ describe('checkStorybookTaxonomy', () => {
     )
   })
 
-  it('rejects story files without a static title', async () => {
+  it('rejects story files without a static meta title when args contain a taxonomy title', async () => {
     const sourceDirectory = await createSourceDirectory()
     await writeFile(
       join(sourceDirectory, 'untitled.stories.tsx'),
-      'export default { component: Example }',
+      [
+        "const meta = { component: Example, args: { title: 'Screens/Fake' } }",
+        'export default meta'
+      ].join('\n'),
       'utf8'
     )
 
     await expect(checkStorybookTaxonomy({ sourceDirectory })).rejects.toThrow(
       '- untitled.stories.tsx: missing a static Storybook title'
     )
+  })
+
+  it('accepts a static meta title when a user-visible fixture title appears earlier', async () => {
+    const sourceDirectory = await createSourceDirectory()
+    await writeFile(
+      join(sourceDirectory, 'fixture-first.stories.tsx'),
+      [
+        "const fixture = { title: 'Choose a project' }",
+        "const meta = { title: 'Screens/Projects/Home', args: fixture }",
+        'export default meta'
+      ].join('\n'),
+      'utf8'
+    )
+
+    await expect(checkStorybookTaxonomy({ sourceDirectory })).resolves.toEqual({
+      storyFilesChecked: 1
+    })
   })
 })
 
