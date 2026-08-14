@@ -3,8 +3,7 @@ import type { AccountMenuViewProps } from './account-menu-view'
 
 const noOp = (): void => undefined
 
-export const builderAvatar =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"%3E%3Crect width="64" height="64" rx="32" fill="%232563eb"/%3E%3Ccircle cx="32" cy="24" r="11" fill="%23dbeafe"/%3E%3Cpath d="M13 55c2-12 10-18 19-18s17 6 19 18" fill="%23dbeafe"/%3E%3C/svg%3E'
+export const builderAvatar = 'https://avatars.githubusercontent.com/u/101003754?v=4&size=64'
 
 export const connectedAccountMenuFixture = {
   username: '@builder',
@@ -17,6 +16,7 @@ export const connectedAccountMenuFixture = {
 
 export const disconnectedAccountMenuFixture = {
   username: 'Connect GitHub',
+  avatarUrl: undefined,
   avatarFallback: 'GH',
   settingsLabel: 'Settings',
   settingsHref: '#/settings?section=account',

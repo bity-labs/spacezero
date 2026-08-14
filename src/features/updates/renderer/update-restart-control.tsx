@@ -1,7 +1,7 @@
-import { WarningCircle } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 
 import type { ApplyDownloadedUpdateResult, UpdateActiveWorkSummary, UpdateStatus } from '../shared'
+import { NotificationIconButton } from '@renderer/components/notification-icon-button'
 import { Alert, AlertDescription } from '@renderer/components/ui/alert'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -12,7 +12,6 @@ import {
   DialogHeader,
   DialogTitle
 } from '@renderer/components/ui/dialog'
-import { cn } from '@renderer/lib/utils'
 
 type UpdateRestartControlProps = {
   placement: 'sidebar' | 'settings'
@@ -112,23 +111,28 @@ export function UpdateRestartControlView({
 }: UpdateRestartControlViewProps): React.JSX.Element {
   const isSidebar = placement === 'sidebar'
 
+  const restartButton = isSidebar ? (
+    <NotificationIconButton
+      label={`Update ready. Restart to update to ${version}`}
+      tooltip={<>Update ready. Restart to update to {version}.</>}
+      tone="warning"
+      disabled={isApplying}
+      onNotificationClick={() => onRequestApply(false)}
+    />
+  ) : (
+    <Button
+      type="button"
+      variant="default"
+      onClick={() => onRequestApply(false)}
+      disabled={isApplying}
+    >
+      <span>{`Restart to update to ${version}`}</span>
+    </Button>
+  )
+
   return (
     <>
-      <Button
-        type="button"
-        variant={isSidebar ? 'secondary' : 'default'}
-        size={isSidebar ? 'sm' : 'default'}
-        className={cn(
-          isSidebar &&
-            'w-full justify-start border border-amber-300 bg-amber-100 text-amber-950 hover:bg-amber-200 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100 dark:hover:bg-amber-900'
-        )}
-        onClick={() => onRequestApply(false)}
-        disabled={isApplying}
-        aria-label={isSidebar ? 'Restart to update Space Zero' : undefined}
-      >
-        <WarningCircle className="h-4 w-4" aria-hidden="true" />
-        <span>{isSidebar ? 'Update ready' : `Restart to update to ${version}`}</span>
-      </Button>
+      {restartButton}
 
       <Dialog open={dialogOpen} onOpenChange={onDialogOpenChange}>
         <DialogContent aria-describedby="update-restart-description">
