@@ -1,6 +1,12 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import {
+  globalChatSelectedFixture,
+  knowledgeBaseSelectedFixture,
+  projectSelectedFixture,
+  sidePaneOpenFixture
+} from './workspace-shell-layout.fixtures'
 import { WorkspaceShellLayout } from './workspace-shell-layout'
 
 describe('WorkspaceShellLayout', () => {
@@ -41,5 +47,26 @@ describe('WorkspaceShellLayout', () => {
 
     expect(onToggleLeftSidebar).toHaveBeenCalledOnce()
     expect(onOpenCommandPalette).toHaveBeenCalledOnce()
+  })
+
+  it('composes merged pure application views in the Workspace fixtures', () => {
+    const { rerender } = render(<WorkspaceShellLayout {...projectSelectedFixture} />)
+
+    expect(screen.getByRole('heading', { name: 'Space Zero' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New session' })).toBeInTheDocument()
+    expect(screen.getByText('bity-labs/spacezero')).toBeInTheDocument()
+
+    rerender(<WorkspaceShellLayout {...globalChatSelectedFixture} />)
+    expect(screen.getByText('What can you inspect in my workspace?')).toBeInTheDocument()
+
+    rerender(<WorkspaceShellLayout {...knowledgeBaseSelectedFixture} />)
+    expect(screen.getByRole('region', { name: 'Configured Knowledge Base' })).toBeInTheDocument()
+    expect(
+      screen.getByText('What decisions have we recorded for the desktop shell?')
+    ).toBeInTheDocument()
+
+    rerender(<WorkspaceShellLayout {...sidePaneOpenFixture} />)
+    expect(screen.getByRole('complementary', { name: 'Side Pane' })).toBeInTheDocument()
+    expect(screen.getByRole('tablist', { name: 'Side Pane Tabs' })).toBeInTheDocument()
   })
 })

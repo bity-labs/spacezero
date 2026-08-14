@@ -31,6 +31,23 @@ export type WorkspaceShellLayoutProps = {
 
 const RESIZE_HANDLE_WIDTH = 4
 
+export function WorkspaceEmptyStateView({
+  title,
+  description
+}: {
+  title: string
+  description: string
+}): React.JSX.Element {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
+      <div>
+        <h2 className="text-sm font-medium">{title}</h2>
+        <p className="mt-2 max-w-sm text-xs text-muted-foreground">{description}</p>
+      </div>
+    </div>
+  )
+}
+
 export function WorkspaceShellLayout({
   isLeftSidebarOpen,
   leftSidebarWidth,

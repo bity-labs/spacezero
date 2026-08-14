@@ -46,7 +46,10 @@ import {
   type SidePaneConfiguration
 } from '../../features/side-pane/renderer'
 import { AccountMenu } from './components/app-shell/account-menu'
-import { WorkspaceShellLayout } from './components/app-shell/workspace-shell-layout'
+import {
+  WorkspaceEmptyStateView,
+  WorkspaceShellLayout
+} from './components/app-shell/workspace-shell-layout'
 import { WorkspaceSidebar } from './components/app-shell/workspace-sidebar'
 import { Alert, AlertDescription } from './components/ui/alert'
 import {
@@ -509,14 +512,10 @@ export function WorkspaceShell(): React.JSX.Element {
                 </SidePaneShell>
               ) : null
             ) : (
-              <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-dashed bg-card p-8 text-center">
-                <div>
-                  <h2 className="text-sm font-medium">{t('sessions.workspace.emptyTitle')}</h2>
-                  <p className="mt-2 max-w-sm text-xs text-muted-foreground">
-                    {t('sessions.workspace.emptyDescription')}
-                  </p>
-                </div>
-              </div>
+              <WorkspaceEmptyStateView
+                title={t('sessions.workspace.emptyTitle')}
+                description={t('sessions.workspace.emptyDescription')}
+              />
             )}
           </>
         }
