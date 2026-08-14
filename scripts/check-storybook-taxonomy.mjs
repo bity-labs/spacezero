@@ -4,8 +4,9 @@ import { relative, resolve, sep } from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+import ts from 'typescript'
+
 const STORY_FILE_PATTERN = /\.stories\.(?:js|jsx|mjs|ts|tsx)$/
-const STATIC_TITLE_PATTERN = /\btitle\s*:\s*(['"])([^'"]+)\1/g
 const FORBIDDEN_ROOTS = new Set(['Smoke'])
 const ALLOWED_ROOTS = new Set([
   'Design System',
@@ -31,23 +32,20 @@ export async function checkStorybookTaxonomy({ sourceDirectory = resolve('src') 
 
   for (const storyFile of storyFiles) {
     const source = await readFile(storyFile, 'utf8')
-    const matches = [...source.matchAll(STATIC_TITLE_PATTERN)]
     const storyPath = toPortablePath(relative(sourceDirectory, storyFile))
+    const metaTitle = findStaticMetaTitle(source, storyFile)
 
-    if (matches.length === 0) {
+    if (metaTitle === undefined) {
       violations.push(`${storyPath}: missing a static Storybook title`)
       continue
     }
 
-    const [metaTitle] = matches
-    const title = metaTitle[2]
-    const root = title.split('/')[0]
-    const line = source.slice(0, metaTitle.index).split(/\r?\n/).length
+    const root = metaTitle.title.split('/')[0]
 
     if (FORBIDDEN_ROOTS.has(root)) {
-      violations.push(`${storyPath}:${line}: forbidden catch-all root "${root}"`)
+      violations.push(`${storyPath}:${metaTitle.line}: forbidden catch-all root "${root}"`)
     } else if (!ALLOWED_ROOTS.has(root)) {
-      violations.push(`${storyPath}:${line}: unsupported root "${root}"`)
+      violations.push(`${storyPath}:${metaTitle.line}: unsupported root "${root}"`)
     }
   }
 
@@ -61,6 +59,90 @@ export async function checkStorybookTaxonomy({ sourceDirectory = resolve('src') 
   }
 
   return { storyFilesChecked: storyFiles.length }
+}
+
+function findStaticMetaTitle(source, storyFile) {
+  const sourceFile = ts.createSourceFile(
+    storyFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX
+  )
+  const defaultExport = sourceFile.statements.find(
+    (statement) => ts.isExportAssignment(statement) && !statement.isExportEquals
+  )
+  const metaObject =
+    defaultExport === undefined
+      ? undefined
+      : resolveObjectLiteral(defaultExport.expression, sourceFile, new Set())
+  const titleProperty = metaObject?.properties.find(
+    (property) =>
+      ts.isPropertyAssignment(property) &&
+      ts.isIdentifier(property.name) &&
+      property.name.text === 'title'
+  )
+
+  if (titleProperty === undefined || !ts.isPropertyAssignment(titleProperty)) {
+    return undefined
+  }
+
+  const title = unwrapExpression(titleProperty.initializer)
+
+  if (!ts.isStringLiteral(title)) {
+    return undefined
+  }
+
+  return {
+    title: title.text,
+    line: sourceFile.getLineAndCharacterOfPosition(titleProperty.name.getStart(sourceFile)).line + 1
+  }
+}
+
+function resolveObjectLiteral(expression, sourceFile, visitedIdentifiers) {
+  const unwrappedExpression = unwrapExpression(expression)
+
+  if (ts.isObjectLiteralExpression(unwrappedExpression)) {
+    return unwrappedExpression
+  }
+
+  if (!ts.isIdentifier(unwrappedExpression) || visitedIdentifiers.has(unwrappedExpression.text)) {
+    return undefined
+  }
+
+  visitedIdentifiers.add(unwrappedExpression.text)
+
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue
+    }
+
+    const declaration = statement.declarationList.declarations.find(
+      (candidate) =>
+        ts.isIdentifier(candidate.name) && candidate.name.text === unwrappedExpression.text
+    )
+
+    if (declaration?.initializer !== undefined) {
+      return resolveObjectLiteral(declaration.initializer, sourceFile, visitedIdentifiers)
+    }
+  }
+
+  return undefined
+}
+
+function unwrapExpression(expression) {
+  let current = expression
+
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isSatisfiesExpression(current) ||
+    ts.isNonNullExpression(current)
+  ) {
+    current = current.expression
+  }
+
+  return current
 }
 
 async function findStoryFiles(directory) {
