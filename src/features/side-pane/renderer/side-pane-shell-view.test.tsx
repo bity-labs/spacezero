@@ -76,4 +76,79 @@ describe('SidePaneShellView', () => {
     expect(onActivateTab).toHaveBeenCalledWith('browser:docs')
     await waitFor(() => expect(onCloseTab).toHaveBeenCalledWith('files:preview'))
   })
+
+  it('blurs focused text input and opens the create tab menu with mod+t while tabs are visible', async () => {
+    render(
+      <>
+        <input aria-label="Search" />
+        <SidePaneShellView
+          activeContent={<div>Files content</div>}
+          activeTabId="files:preview"
+          canOpen
+          categories={categories}
+          categoryMru={{ files: 'files:preview' }}
+          contextKey="session:story"
+          isOpen
+          maxWidth={720}
+          minWidth={400}
+          renderedWidth={560}
+          tabs={[{ id: 'files:preview', categoryId: 'files', label: 'app.tsx' }]}
+          onActivateTab={vi.fn()}
+          onCloseTab={vi.fn()}
+          onCreateCategory={vi.fn()}
+          onOpenCategory={vi.fn()}
+          onReorderTab={vi.fn()}
+        >
+          <div>Chat</div>
+        </SidePaneShellView>
+      </>
+    )
+
+    screen.getByRole('textbox', { name: 'Search' }).focus()
+    const competingShortcutHandler = vi.fn()
+    window.addEventListener('keydown', competingShortcutHandler)
+
+    try {
+      fireEvent.keyDown(window, { key: 't', metaKey: true })
+
+      expect(await screen.findByRole('menuitem', { name: 'Files' })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: 'Search' })).not.toHaveFocus()
+      expect(competingShortcutHandler).not.toHaveBeenCalled()
+    } finally {
+      window.removeEventListener('keydown', competingShortcutHandler)
+    }
+  })
+
+  it('closes a tab with middle-click', async () => {
+    const onCloseTab = vi.fn()
+
+    render(
+      <SidePaneShellView
+        activeContent={<div>Files content</div>}
+        activeTabId="files:preview"
+        canOpen
+        categories={categories}
+        categoryMru={{ files: 'files:preview' }}
+        contextKey="session:story"
+        isOpen
+        maxWidth={720}
+        minWidth={400}
+        renderedWidth={560}
+        tabs={[{ id: 'files:preview', categoryId: 'files', label: 'app.tsx' }]}
+        onActivateTab={vi.fn()}
+        onCloseTab={onCloseTab}
+        onCreateCategory={vi.fn()}
+        onOpenCategory={vi.fn()}
+        onReorderTab={vi.fn()}
+      >
+        <div>Chat</div>
+      </SidePaneShellView>
+    )
+
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'app.tsx' }).parentElement!, {
+      button: 1
+    })
+
+    await waitFor(() => expect(onCloseTab).toHaveBeenCalledWith('files:preview'))
+  })
 })

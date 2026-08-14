@@ -25,6 +25,7 @@ export type SidePaneCategoryDescriptor = {
   label: string
   available: boolean
   icon: ComponentType<{ className?: string; 'aria-hidden'?: boolean }>
+  shortcut?: string
   open?: () => void
   create?: () => void
   close?: (tab: SidePaneTab) => void
@@ -154,7 +155,7 @@ export function SidePaneShell({
       categoryMru={savedState?.categoryMru ?? {}}
       containerRef={containerRef}
       contextKey={contextKey}
-      isOpen={Boolean(controller.isOpen && activeCategory)}
+      isOpen={controller.isOpen}
       maxWidth={maxWidth}
       minWidth={minWidth}
       renderedWidth={renderedWidth}
@@ -192,12 +193,13 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   const closeTabInContext = useSidePaneStore((state) => state.closeTab)
   const collapseContext = useSidePaneStore((state) => state.collapse)
   const openCategoryInContext = useSidePaneStore((state) => state.openCategory)
+  const openEmptyInContext = useSidePaneStore((state) => state.openEmpty)
   const reorderTabInContext = useSidePaneStore((state) => state.reorderTab)
   const availableCategories =
     configuration?.categories.filter((category) => category.available) ?? []
   const tabs = savedState?.tabs ?? []
   const activeTab = tabs.find((tab) => tab.id === savedState?.activeTabId) ?? null
-  const isOpen = Boolean(activeTab && savedState?.isOpen)
+  const isOpen = Boolean(savedState?.isOpen)
 
   const collapse = useCallback(() => {
     if (configuration) collapseContext(configuration.contextKey)
@@ -226,14 +228,16 @@ export function useSidePaneController(configuration: SidePaneConfiguration | nul
   const toggle = useCallback(() => {
     if (!configuration || availableCategories.length === 0) return
     if (isOpen) collapse()
-    else openCategory(activeTab?.categoryId ?? configuration.defaultCategoryId)
+    else if (activeTab) openCategory(activeTab.categoryId)
+    else openEmptyInContext(configuration.contextKey)
   }, [
-    activeTab?.categoryId,
+    activeTab,
     availableCategories.length,
     collapse,
     configuration,
     isOpen,
-    openCategory
+    openCategory,
+    openEmptyInContext
   ])
 
   return {
@@ -282,7 +286,7 @@ export function SidePaneHeaderControls({
         configuration && controller.isOpen ? 'border-b border-l' : 'pr-3'
       }`}
     >
-      {configuration && controller.isOpen ? (
+      {configuration && controller.isOpen && controller.tabs.length > 0 ? (
         <SidePaneTabStripView
           activeTabId={controller.activeTab?.id ?? null}
           categories={configuration.categories}
@@ -293,6 +297,7 @@ export function SidePaneHeaderControls({
           onClose={controller.closeTab}
           onCreateCategory={controller.createCategory}
           onReorder={controller.reorderTab}
+          fillAvailableWidth
         />
       ) : (
         <div aria-hidden="true" className="min-w-0 flex-1" />

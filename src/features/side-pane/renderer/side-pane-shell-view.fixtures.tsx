@@ -1,4 +1,4 @@
-import { Browser, FileCode, GitDiff, TerminalWindow } from '@phosphor-icons/react'
+import { FileCode, GitDiff, Globe, TerminalWindow } from '@phosphor-icons/react'
 
 import type { SidePaneCategoryDescriptor } from './side-pane-shell'
 import type { SidePaneShellViewProps } from './side-pane-shell-view'
@@ -9,7 +9,7 @@ const noOp = (): void => undefined
 export const sidePaneStoryCategories: readonly SidePaneCategoryDescriptor[] = [
   { id: 'files', label: 'Files', available: true, icon: FileCode },
   { id: 'git', label: 'Git Diff', available: true, icon: GitDiff },
-  { id: 'browser', label: 'Browser', available: true, icon: Browser },
+  { id: 'browser', label: 'Browser', available: true, icon: Globe },
   { id: 'terminal', label: 'Terminal', available: true, icon: TerminalWindow }
 ]
 
@@ -130,6 +130,8 @@ function fixture({
 }
 
 export const collapsedLauncherFixture = fixture({ activeTabId: null, isOpen: false, tabs: [] })
+
+export const emptyOpenFixture = fixture({ activeTabId: null, isOpen: true, tabs: [] })
 
 export const oneTabFixture = fixture({ activeTabId: filesTab.id, tabs: [filesTab] })
 

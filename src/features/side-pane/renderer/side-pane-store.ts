@@ -28,6 +28,7 @@ type SidePaneStore = {
   activateTab: (contextKey: string, tabId: string) => void
   closeTab: (contextKey: string, tabId: string) => void
   collapse: (contextKey: string) => void
+  openEmpty: (contextKey: string) => void
   openCategory: (contextKey: string, categoryId: SidePaneCategoryId) => void
   reconcileCategories: (
     contextKey: string,
@@ -213,6 +214,16 @@ const useSidePaneStore = create<SidePaneStore>()(
             }
           }
         }),
+      openEmpty: (contextKey) =>
+        set((state) => {
+          const context = state.contexts[contextKey] ?? emptyContext()
+          return {
+            contexts: {
+              ...state.contexts,
+              [contextKey]: { ...context, isOpen: true, activeTabId: null }
+            }
+          }
+        }),
       openCategory: (contextKey, categoryId) =>
         set((state) => {
           const context = state.contexts[contextKey] ?? emptyContext()
@@ -257,15 +268,6 @@ const useSidePaneStore = create<SidePaneStore>()(
           if (!activeTab) {
             activeTab = tabs.find((tab) => tab.categoryId === fallbackCategoryId) ?? tabs[0] ?? null
           }
-          if (
-            !activeTab &&
-            context.isOpen &&
-            fallbackCategoryId !== 'browser' &&
-            availableCategories.has(fallbackCategoryId)
-          ) {
-            activeTab = { id: `${fallbackCategoryId}:1`, categoryId: fallbackCategoryId }
-            tabs.push(activeTab)
-          }
           const tabIds = new Set(tabs.map((tab) => tab.id))
           const categoryMru = Object.fromEntries(
             Object.entries(context.categoryMru).filter(
@@ -281,7 +283,7 @@ const useSidePaneStore = create<SidePaneStore>()(
               ...state.contexts,
               [contextKey]: {
                 ...context,
-                isOpen: context.isOpen && activeTab !== null,
+                isOpen: context.isOpen,
                 activeTabId: activeTab?.id ?? null,
                 tabs,
                 categoryMru
@@ -339,10 +341,20 @@ const useSidePaneStore = create<SidePaneStore>()(
           const missingTabs = categoryTabs.filter((tab) => !retainedIncomingIds.has(tab.id))
           if (missingTabs.length > 0) {
             const hadMatchingResource = existingCategoryTabs.some((tab) => incomingById.has(tab.id))
+            const currentActiveIndex = tabs.findIndex((tab) => tab.id === context.activeTabId)
+            const shouldInsertAfterCurrentActive =
+              activate &&
+              hadMatchingResource &&
+              currentActiveIndex >= 0 &&
+              activeCategoryTabId !== null &&
+              missingTabs.some((tab) => tab.id === activeCategoryTabId)
             const existingCategoryIndex = context.tabs.findIndex(
               (tab) => tab.categoryId === categoryId
             )
-            if (!hadMatchingResource && existingCategoryIndex >= 0) {
+
+            if (shouldInsertAfterCurrentActive) {
+              tabs.splice(currentActiveIndex + 1, 0, ...missingTabs)
+            } else if (!hadMatchingResource && existingCategoryIndex >= 0) {
               const insertionIndex = Math.min(existingCategoryIndex, tabs.length)
               tabs.splice(insertionIndex, 0, ...missingTabs)
             } else {

@@ -14,6 +14,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger
+} from '@renderer/components/ui/tooltip'
+import { cn } from '@renderer/lib/utils'
 
 import type { SidePaneCategoryDescriptor } from './side-pane-shell'
 import type { SidePaneCategoryId, SidePaneTab } from './side-pane-store'
@@ -96,7 +103,7 @@ export function SidePaneShellView({
             className="flex min-h-0 shrink-0 flex-col border-l bg-background"
             style={{ minWidth, width: renderedWidth }}
           >
-            {showInlineHeaderTabs ? (
+            {showInlineHeaderTabs && tabs.length > 0 ? (
               <SidePaneTabStripView
                 activeTabId={activeTabId}
                 categories={categories}
@@ -114,13 +121,53 @@ export function SidePaneShellView({
               className="min-h-0 flex-1 overflow-auto"
               role="tabpanel"
             >
-              {activeContent}
+              {activeTabId ? (
+                activeContent
+              ) : (
+                <SidePaneEmptyToolPicker categories={categories} onSelect={onCreateCategory} />
+              )}
             </div>
           </aside>
         </>
       ) : (
         <SidePaneLauncherView categories={categories} onSelect={onOpenCategory} />
       )}
+    </div>
+  )
+}
+
+export function SidePaneEmptyToolPicker({
+  categories,
+  onSelect
+}: {
+  categories: readonly SidePaneCategoryDescriptor[]
+  onSelect: (categoryId: SidePaneCategoryId) => void
+}): React.JSX.Element {
+  return (
+    <div className="flex h-full items-center justify-center bg-background p-6">
+      <div className="w-full max-w-lg space-y-1.5" role="list" aria-label="Side Pane tools">
+        {categories.map((category) => {
+          const Icon = category.icon
+          const label = category.available ? category.label : `${category.label} — Coming soon`
+          return (
+            <button
+              key={category.id}
+              type="button"
+              disabled={!category.available}
+              className="flex w-full items-center gap-3 rounded-lg bg-muted/60 px-3 py-2.5 text-left text-sm text-foreground hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
+              onClick={() => onSelect(category.id)}
+            >
+              <Icon aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1 truncate">{label}</span>
+              {category.shortcut ? (
+                <kbd className="inline-flex h-5 min-w-5 items-center justify-center rounded-md bg-muted-foreground/15 px-1.5 font-mono text-[11px] text-muted-foreground">
+                  {category.shortcut}
+                </kbd>
+              ) : null}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -133,28 +180,51 @@ export function SidePaneLauncherView({
   onSelect: (categoryId: SidePaneCategoryId) => void
 }): React.JSX.Element {
   return (
-    <div
-      aria-label="Side Pane launcher"
-      aria-orientation="vertical"
-      className="absolute right-2 top-2 z-10 flex flex-col gap-1 rounded-lg border bg-background p-1 shadow-sm"
-      role="toolbar"
-    >
-      {categories.map((category) => {
-        const Icon = category.icon
-        return (
-          <button
-            key={category.id}
-            aria-label={category.available ? category.label : `${category.label} — Coming soon`}
-            className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={!category.available}
-            type="button"
-            onClick={() => onSelect(category.id)}
-          >
-            <Icon aria-hidden className="size-4" />
-          </button>
-        )
-      })}
-    </div>
+    <TooltipProvider delay={500}>
+      <div
+        aria-label="Side Pane launcher"
+        aria-orientation="vertical"
+        className="absolute right-2 top-2 z-10 flex flex-col gap-1 rounded-lg border bg-background p-1 shadow-sm"
+        role="toolbar"
+      >
+        {categories.map((category) => {
+          const Icon = category.icon
+          const label = category.available ? category.label : `${category.label} — Coming soon`
+          const button = (
+            <button
+              aria-label={label}
+              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={!category.available}
+              type="button"
+              onClick={() => onSelect(category.id)}
+            >
+              <Icon aria-hidden className="size-4" />
+            </button>
+          )
+
+          return (
+            <Tooltip key={category.id}>
+              <TooltipTrigger render={button} />
+              <TooltipContent
+                side="left"
+                className="border border-border bg-popover text-popover-foreground shadow-md"
+              >
+                <span>{label}</span>
+                {category.shortcut ? (
+                  <kbd
+                    className={cn(
+                      'inline-flex h-5 min-w-5 items-center justify-center rounded border border-border bg-muted px-1 font-mono text-[11px] text-muted-foreground'
+                    )}
+                  >
+                    {category.shortcut}
+                  </kbd>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
+          )
+        })}
+      </div>
+    </TooltipProvider>
   )
 }
 
@@ -167,7 +237,8 @@ export function SidePaneTabStripView({
   onActivate,
   onClose,
   onCreateCategory,
-  onReorder
+  onReorder,
+  fillAvailableWidth = false
 }: {
   activeTabId: string | null
   categories: readonly SidePaneCategoryDescriptor[]
@@ -178,7 +249,30 @@ export function SidePaneTabStripView({
   onClose: (tabId: string) => void
   onCreateCategory: (categoryId: SidePaneCategoryId) => void
   onReorder: (sourceId: string, targetId: string, position: 'before' | 'after') => void
+  fillAvailableWidth?: boolean
 }): React.JSX.Element {
+  const createTabTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => {
+    function handleOpenCreateTabMenu(): void {
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+      createTabTriggerRef.current?.focus()
+      createTabTriggerRef.current?.click()
+    }
+
+    function handleKeyDown(event: globalThis.KeyboardEvent): void {
+      if (event.key.toLowerCase() !== 't' || (!event.metaKey && !event.ctrlKey)) return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      handleOpenCreateTabMenu()
+    }
+
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [])
+
   function activateTab(tabId: string): void {
     const tab = tabs.find((candidate) => candidate.id === tabId)
     if (!tab) return
@@ -194,10 +288,15 @@ export function SidePaneTabStripView({
   }
 
   return (
-    <div className="titlebar-control flex h-9 min-w-0 shrink-0 border-b bg-muted/40 p-1">
+    <div
+      className={cn(
+        'titlebar-control flex h-10 min-w-0 overflow-hidden bg-background p-1',
+        fillAvailableWidth ? 'flex-1' : 'shrink-0'
+      )}
+    >
       <div
         aria-label="Side Pane Tabs"
-        className="flex min-w-0 flex-1 overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-w-0 max-w-full overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         role="tablist"
       >
         {tabs.map((tab) => {
@@ -222,8 +321,9 @@ export function SidePaneTabStripView({
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger
+          ref={createTabTriggerRef}
           aria-label="Create Side Pane Tab"
-          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="ml-1 flex size-7 shrink-0 self-center items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           <Plus aria-hidden className="size-4" />
         </DropdownMenuTrigger>
@@ -318,7 +418,7 @@ function SidePaneTabButton({
   return (
     <div
       ref={tabRef}
-      className="group relative flex h-8 min-w-12 max-w-32 basis-28 items-center rounded-t-md"
+      className="group relative flex h-full min-w-12 max-w-32 basis-28 items-center rounded-md"
       draggable
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = 'move'
@@ -335,6 +435,11 @@ function SidePaneTabButton({
           event.clientX < bounds.left + bounds.width / 2 ? 'before' : 'after'
         )
       }}
+      onMouseDown={(event) => {
+        if (event.button !== 1) return
+        event.preventDefault()
+        onClose()
+      }}
     >
       <button
         aria-controls={`${contextKey}-${tab.categoryId}-panel`}
@@ -344,7 +449,7 @@ function SidePaneTabButton({
         data-side-pane-category-mru={categoryMru ? 'true' : undefined}
         data-side-pane-resource-id={tab.resourceId}
         data-side-pane-tab-id={tab.id}
-        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-t-md px-2 pr-7 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 pr-7 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground aria-selected:bg-muted/70 aria-selected:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         role="tab"
         tabIndex={active ? 0 : -1}
         type="button"

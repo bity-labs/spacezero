@@ -103,6 +103,7 @@ describe('Terminal Side Pane presentation', () => {
       })
     )
     await waitFor(() => expect(xterm.onData).toHaveBeenCalled())
+    expect(xterm.focus).toHaveBeenCalled()
     act(() => xterm.emitData('pnpm test\r'))
     expect(window.spacezero.terminal.writeInput).toHaveBeenCalledWith({
       terminalId: 'pty-a',
