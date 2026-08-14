@@ -1,6 +1,6 @@
 import { ArrowClockwise, DotsThree } from '@phosphor-icons/react'
 
-import { DiffViewer } from '@renderer/components/diff-viewer'
+import { DiffViewer } from './diff-viewer'
 import { Button } from '@renderer/components/ui/button'
 import {
   DropdownMenu,

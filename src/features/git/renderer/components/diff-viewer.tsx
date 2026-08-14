@@ -8,8 +8,8 @@ import {
 import type { EditorOptions } from '@pierre/diffs/edit'
 import { CodeView, EditProvider, type CodeViewItem } from '@pierre/diffs/react'
 
-import { getOrCreateFilesDiffsEditor } from '../../../features/files/renderer/components/files-diffs-editor'
-import type { FilesSourceEditorState } from '../../../features/files/renderer/components/files-diffs-editor'
+import { getOrCreateFilesDiffsEditor } from '../../../files/renderer/components/files-diffs-editor'
+import type { FilesSourceEditorState } from '../../../files/renderer/components/files-diffs-editor'
 import { useOptionalAppearance } from '@renderer/appearance-provider'
 import { cn } from '@renderer/lib/utils'
 
