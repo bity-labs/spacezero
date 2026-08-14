@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { Tool, ToolContent, ToolHeader, ToolInput, ToolOutput } from './tool'
 
 const meta = {
-  title: 'Design System/Primitives/Tool',
+  title: 'Design System/Components/Agent Chat/Tool',
   component: Tool,
   render: () => (
     <Tool defaultOpen className="w-[32rem]">
