@@ -1,0 +1,18 @@
+.storybook-preview .mac-traffic-light-space {
+  position: relative;
+}
+
+.storybook-preview .mac-traffic-light-space::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 9999px;
+  background: #ff5f57;
+  box-shadow:
+    20px 0 0 #ffbd2e,
+    40px 0 0 #28c840;
+  transform: translateY(-50%);
+}

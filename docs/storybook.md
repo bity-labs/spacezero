@@ -76,6 +76,8 @@ Use the story title to communicate why the UI exists, not its source folder:
 
 Use the same pattern for Files, Git, Browser, Terminal, Knowledge Base, Onboarding, and other whole-app areas. Avoid catch-all titles such as `Smoke/*` for visual contracts that fit one of these intent groups. `pnpm storybook:check` rejects `Smoke/*`, unknown top-level groups, and story files without a static intent-based title.
 
+Layout stories that include `.mac-traffic-light-space` show decorative macOS traffic-light controls in Storybook only. The Electron app still uses native macOS window controls via `hiddenInset`; the Storybook controls are visual placeholders for layout review.
+
 The Storybook sidebar is intentionally sorted for review flow, not alphabetically:
 
 1. `Design System` — primitives first, then reusable composed components
