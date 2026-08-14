@@ -1,4 +1,4 @@
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import type { Project } from '../../../projects/shared'
@@ -100,18 +100,6 @@ function PullRequestDetail({ projectId, number, onBack }: { projectId: string; n
       }
     })
   })
-  const checksQuery = useQuery({
-    queryKey: ['github', 'pull-request-check-runs', projectId, number, 1],
-    queryFn: () => window.spacezero.github.listPullRequestCheckRuns({ projectId, number, page: 1 }),
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: 'always'
-  })
-  const reviewsQuery = useQuery({
-    queryKey: ['github', 'pull-request-reviews', projectId, number, 1],
-    queryFn: () => window.spacezero.github.listPullRequestReviews({ projectId, number, page: 1 }),
-    refetchOnMount: 'always',
-    refetchOnWindowFocus: 'always'
-  })
   const loadedComments = uniqueComments(commentQueries.flatMap((query) => (query.isError || !query.data ? [] : query.data.items)))
   const lastCommentsPage = commentQueries.at(-1)?.data
   const commentsFetching = commentQueries.some((query) => query.isFetching)
@@ -126,31 +114,17 @@ function PullRequestDetail({ projectId, number, onBack }: { projectId: string; n
     : commentsError
       ? { status: 'error' as const, message: githubReadErrorMessage(commentsError, 'Pull Request conversation'), items: loadedComments }
       : { status: 'ready' as const, items: loadedComments, hasNextPage: lastCommentsPage?.hasNextPage ?? false }
-  const checks = checksQuery.isPending
-    ? { status: 'loading' as const }
-    : checksQuery.isError
-      ? { status: 'error' as const, message: githubReadErrorMessage(checksQuery.error, 'Pull Request checks') }
-      : { status: 'ready' as const, items: checksQuery.data.items }
-  const reviews = reviewsQuery.isPending
-    ? { status: 'loading' as const }
-    : reviewsQuery.isError
-      ? { status: 'error' as const, message: githubReadErrorMessage(reviewsQuery.error, 'Pull Request reviews') }
-      : { status: 'ready' as const, items: reviewsQuery.data.items }
 
   return (
     <PullRequestDetailScreen
       number={number}
       state={state}
       comments={comments}
-      checks={checks}
-      reviews={reviews}
-      fetching={pullRequestQuery.isFetching || commentsFetching || checksQuery.isFetching || reviewsQuery.isFetching}
+      fetching={pullRequestQuery.isFetching || commentsFetching}
       onBack={onBack}
       onRefresh={() => {
         void Promise.all([
           pullRequestQuery.refetch(),
-          checksQuery.refetch(),
-          reviewsQuery.refetch(),
           ...commentQueries.map((query) => query.refetch()),
           queryClient.refetchQueries({ queryKey: ['github', 'pull-request-commits', projectId, number] }),
           queryClient.refetchQueries({ queryKey: ['github', 'pull-request-files', projectId, number] }),

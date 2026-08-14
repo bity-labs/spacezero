@@ -135,8 +135,8 @@ export function PullRequestDetailScreen({
   number: number
   state: PullRequestDetailState
   comments: ConversationState
-  checks: ChecksState
-  reviews: ReviewsState
+  checks?: ChecksState
+  reviews?: ReviewsState
   fetching: boolean
   onBack: () => void
   onRefresh: () => void
@@ -161,8 +161,8 @@ export function PullRequestDetailScreen({
         <>
           <PullRequestContent pullRequest={state.pullRequest} />
           {reviewSections}
-          <ChecksSection state={checks} />
-          <ReviewsSection state={reviews} />
+          {checks ? <ChecksSection state={checks} /> : null}
+          {reviews ? <ReviewsSection state={reviews} /> : null}
           <section className="space-y-3" aria-label="Pull Request conversation">
             <div>
               <h3 className="font-semibold">Conversation</h3>
