@@ -95,20 +95,11 @@ const preview: Preview = {
       storySort: {
         order: [
           'Design System',
+          ['Primitives', 'Components'],
           'App Shell',
-          'Layouts',
-          ['Workspace', 'Settings', 'Side Pane'],
-          'Settings',
-          'Projects',
-          'GitHub',
-          'Git',
-          'Files',
-          'Chat',
-          'Browser',
-          'Terminal',
-          'Knowledge Base',
-          'Onboarding',
-          'Side Pane',
+          ['Components', 'Layouts'],
+          'Features',
+          ['Settings', 'Projects', 'GitHub', 'Files', 'Git', 'Browser', 'Terminal', 'Knowledge Base', 'Onboarding'],
           'Screens'
         ]
       }

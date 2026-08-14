@@ -15,7 +15,7 @@ import {
 import { WorkspaceSidebar } from './workspace-sidebar'
 
 const meta = {
-  title: 'App Shell/Workspace Sidebar',
+  title: 'App Shell/Components/Workspace Sidebar',
   component: WorkspaceSidebar,
   parameters: { layout: 'fullscreen' },
   decorators: [

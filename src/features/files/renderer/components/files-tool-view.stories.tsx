@@ -26,7 +26,7 @@ import {
 } from './files-tool-view.fixtures'
 
 const meta = {
-  title: 'Screens/Files/Tool',
+  title: 'Features/Files/Screens/Tool',
   component: FilesToolSidePaneFixture,
   parameters: { layout: 'fullscreen' },
   decorators: [

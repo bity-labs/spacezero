@@ -63,23 +63,25 @@ A fixture should describe a meaningful visual state such as empty, loading, erro
 
 Use the story title to communicate why the UI exists, not its source folder:
 
-| Intent                                     | Title examples                                                                                                                                     |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Generic primitives                         | `Design System/Primitives/Button`                                                                                                                  |
-| Global shell pieces                        | `App Shell/Workspace Sidebar`, `App Shell/Account Menu`                                                                                            |
-| Feature building blocks                    | `Projects/Building Blocks/Project Card`, `GitHub/Building Blocks/Issue Row`, `Chat/Building Blocks/Message`, `Side Pane/Building Blocks/Tab Strip` |
-| Full page or context content               | `Screens/Projects/Home`, `Screens/GitHub/Issue Detail`, `Screens/Knowledge Base/Setup`, `Screens/Onboarding/License Activation`                    |
-| Composed shells and realistic arrangements | `Layouts/Workspace/Project Selected`, `Layouts/Settings/General`, `Layouts/Side Pane/Many Tabs`                                                    |
+| Intent                                      | Title examples                                                                                                                   |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Generic primitives                          | `Design System/Primitives/Button`                                                                                                |
+| Reusable composed components                | `Design System/Components/Agent Chat`, `Design System/Components/Rich Markdown Editor`                                            |
+| Application shell components                | `App Shell/Components/Workspace Sidebar`, `App Shell/Components/Side Pane`, `App Shell/Components/Side Pane Tabs`                 |
+| Application shell layouts                   | `App Shell/Layouts/Workspace Shell`                                                                                               |
+| Feature-owned building blocks               | `Features/Settings/Components/Row`, `Features/Projects/Components/Project Sidebar List`                                           |
+| Feature-owned screens                       | `Features/Settings/Screens/General`, `Features/Projects/Screens/Project Home`                                                     |
+| Feature-owned layouts                       | `Features/Settings/Layouts/Settings Shell`                                                                                        |
+| App-level or cross-feature screens          | `Screens/Global Chat`, `Screens/Project Session`, `Screens/Onboarding/Flow`                                                       |
 
 Use the same pattern for Files, Git, Browser, Terminal, Knowledge Base, Onboarding, and other whole-app areas. Avoid catch-all titles such as `Smoke/*` for visual contracts that fit one of these intent groups. `pnpm storybook:check` rejects `Smoke/*`, unknown top-level groups, and story files without a static intent-based title.
 
 The Storybook sidebar is intentionally sorted for review flow, not alphabetically:
 
-1. `Design System`
-2. `App Shell`
-3. `Layouts`
-4. feature areas such as `Settings`, `Projects`, `GitHub`, `Files`, and `Chat`
-5. `Screens`
+1. `Design System` — primitives first, then reusable composed components
+2. `App Shell` — shell components, then shell layouts
+3. `Features` — each feature groups components, screens, and layouts
+4. `Screens` — app-level or cross-feature screens that do not belong to one feature module
 
 Build coverage in this order:
 
@@ -103,7 +105,7 @@ Record an accepted visual contract with the local story title, exported story na
 ```md
 Storybook reference:
 
-- `Layouts/Workspace/Project Selected`
+- `App Shell/Layouts/Workspace Shell`
 - Run locally with `pnpm storybook`
 ```
 

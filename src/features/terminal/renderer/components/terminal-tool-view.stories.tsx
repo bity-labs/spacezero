@@ -12,7 +12,7 @@ import {
 import { TerminalToolView } from './terminal-tool-view'
 
 const meta = {
-  title: 'Screens/Terminal/Tool',
+  title: 'Features/Terminal/Screens/Tool',
   component: TerminalToolView,
   parameters: { layout: 'fullscreen' },
   decorators: [

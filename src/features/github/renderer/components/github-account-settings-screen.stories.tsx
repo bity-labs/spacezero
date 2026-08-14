@@ -10,7 +10,7 @@ import {
 import { GitHubAccountSettingsScreen } from './github-account-settings-screen'
 
 const meta = {
-  title: 'Screens/Settings/Account',
+  title: 'Features/Settings/Screens/Account',
   component: GitHubAccountSettingsScreen,
   decorators: [
     (Story) => (

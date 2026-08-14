@@ -8,23 +8,7 @@ import ts from 'typescript'
 
 const STORY_FILE_PATTERN = /\.stories\.(?:js|jsx|mjs|ts|tsx)$/
 const FORBIDDEN_ROOTS = new Set(['Smoke'])
-const ALLOWED_ROOTS = new Set([
-  'Design System',
-  'App Shell',
-  'Settings',
-  'Projects',
-  'GitHub',
-  'Chat',
-  'Side Pane',
-  'Files',
-  'Git',
-  'Browser',
-  'Terminal',
-  'Knowledge Base',
-  'Onboarding',
-  'Screens',
-  'Layouts'
-])
+const ALLOWED_ROOTS = new Set(['Design System', 'App Shell', 'Features', 'Screens'])
 
 export async function checkStorybookTaxonomy({ sourceDirectory = resolve('src') } = {}) {
   const storyFiles = await findStoryFiles(sourceDirectory)

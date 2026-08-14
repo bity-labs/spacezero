@@ -17,7 +17,7 @@ import {
 import { SidePaneShellView } from './side-pane-shell-view'
 
 const meta = {
-  title: 'Layouts/Side Pane',
+  title: 'App Shell/Components/Side Pane',
   component: SidePaneShellView,
   parameters: { layout: 'fullscreen' },
   decorators: [

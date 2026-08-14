@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite'
 import { SettingsPageHeader } from './settings-page-header'
 
 const meta = {
-  title: 'Settings/Building Blocks/Page Header',
+  title: 'Features/Settings/Components/Page Header',
   component: SettingsPageHeader,
   decorators: [
     (Story) => (

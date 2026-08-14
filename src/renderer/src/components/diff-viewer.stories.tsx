@@ -12,7 +12,7 @@ import {
 import { DiffViewer } from './diff-viewer'
 
 const meta = {
-  title: 'Git/Building Blocks/Diff Viewer',
+  title: 'Design System/Components/Diff Viewer',
   component: DiffViewer,
   decorators: [
     (Story) => (

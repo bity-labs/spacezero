@@ -12,7 +12,7 @@ import {
 import { SettingsLayoutView } from './settings-layout-view'
 
 const meta = {
-  title: 'Layouts/Settings',
+  title: 'Features/Settings/Layouts/Settings Shell',
   component: SettingsLayoutView,
   parameters: { layout: 'fullscreen' },
   argTypes: {

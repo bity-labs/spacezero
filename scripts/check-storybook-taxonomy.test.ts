@@ -17,7 +17,7 @@ describe('checkStorybookTaxonomy', () => {
     const sourceDirectory = await createSourceDirectory()
     await writeFile(
       join(sourceDirectory, 'workspace.stories.tsx'),
-      "export default { title: 'Layouts/Workspace' }",
+      "export default { title: 'App Shell/Layouts/Workspace Shell' }",
       'utf8'
     )
     await writeFile(
@@ -76,7 +76,7 @@ describe('checkStorybookTaxonomy', () => {
       join(sourceDirectory, 'fixture-first.stories.tsx'),
       [
         "const fixture = { title: 'Choose a project' }",
-        "const meta = { title: 'Screens/Projects/Home', args: fixture }",
+        "const meta = { title: 'Features/Projects/Screens/Home', args: fixture }",
         'export default meta'
       ].join('\n'),
       'utf8'
