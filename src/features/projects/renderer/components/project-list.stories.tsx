@@ -5,13 +5,14 @@ import { SidebarProvider } from '@renderer/components/ui/sidebar'
 import {
   projectSidebarCallbacks,
   projectSidebarProjects,
+  projectSidebarSessions,
   projectSidebarSessionsByProjectId
 } from './project-sidebar.fixtures'
-import { ProjectSidebarList } from './project-sidebar-list'
+import { ProjectList } from './project-list'
 
 const meta = {
-  title: 'Features/Projects/Components/Project Sidebar List',
-  component: ProjectSidebarList,
+  title: 'Features/Projects/Components/Project List',
+  component: ProjectList,
   decorators: [
     (Story) => (
       <SidebarProvider>
@@ -22,21 +23,22 @@ const meta = {
     )
   ],
   args: {
-    projects: [],
-    activeProject: null,
+    projects: projectSidebarProjects,
+    activeProject: projectSidebarProjects[0],
     status: 'ready',
     error: null,
-    onAddProject: projectSidebarCallbacks.onAddProject,
-    onSelectProject: projectSidebarCallbacks.onSelectProject,
-    onEditProject: projectSidebarCallbacks.onEditProject
+    expandedProjectIds: new Set([projectSidebarProjects[0].id]),
+    sessionsByProjectId: projectSidebarSessionsByProjectId,
+    activeSessionId: projectSidebarSessions[0].id,
+    ...projectSidebarCallbacks
   }
-} satisfies Meta<typeof ProjectSidebarList>
+} satisfies Meta<typeof ProjectList>
 
 export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const Empty: Story = {}
+export const WithExpandedProject: Story = {}
 
 export const Loading: Story = {
   args: { status: 'loading' }
@@ -49,10 +51,11 @@ export const Error: Story = {
   }
 }
 
-export const WithProjects: Story = {
+export const Empty: Story = {
   args: {
-    projects: projectSidebarProjects,
-    activeProject: projectSidebarProjects[0],
-    sessionsByProjectId: projectSidebarSessionsByProjectId
+    projects: [],
+    activeProject: null,
+    expandedProjectIds: new Set(),
+    sessionsByProjectId: new Map()
   }
 }
