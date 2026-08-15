@@ -1,4 +1,12 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent
+} from 'react'
 import { CaretDown, PencilSimple } from '@phosphor-icons/react'
 import { useTranslation } from 'react-i18next'
 
@@ -11,6 +19,10 @@ import type { KeyboardShortcutDefinition } from '../../features/keyboard-shortcu
 import { useRegisterKeyboardShortcuts } from '../../features/keyboard-shortcuts/renderer/keyboard-shortcut-provider'
 import type { Project } from '../../features/projects/shared'
 import type { ProjectSession } from '../../features/sessions/shared'
+import type {
+  AgentSessionProjectionEvent,
+  AgentTranscriptMessage
+} from '../../shared/agent-session-projection.model'
 import {
   AddProjectDialog,
   EditProjectDialog,
@@ -131,13 +143,116 @@ export function WorkspaceShell(): React.JSX.Element {
     archiveSession,
     deleteSession
   } = useProjectSessions()
+  const [sessionStatusOverrides, setSessionStatusOverrides] = useState<
+    ReadonlyMap<string, ProjectSession['status']>
+  >(new Map())
+  const displayedSessions = useMemo(
+    () =>
+      sessions.map((session) => {
+        const status = sessionStatusOverrides.get(session.id)
+        return status ? { ...session, status } : session
+      }),
+    [sessionStatusOverrides, sessions]
+  )
+  const displayedSessionsByProjectId = useMemo(() => {
+    const grouped = new Map<string, ProjectSession[]>()
+    for (const session of displayedSessions) {
+      grouped.set(session.projectId, [...(grouped.get(session.projectId) ?? []), session])
+    }
+    return grouped
+  }, [displayedSessions])
+  const handleSessionStatusChange = useCallback(
+    (sessionId: string, status: ProjectSession['status']): void => {
+      setSessionStatusOverrides((current) => {
+        if (current.get(sessionId) === status) return current
+        return new Map(current).set(sessionId, status)
+      })
+    },
+    []
+  )
+  const agentSessionProjectSessionIds = useRef<ReadonlyMap<string, string>>(new Map())
+  const agentSessionActivity = useRef(
+    new Map<string, { hasActivity: boolean; hasError: boolean }>()
+  )
+
+  useEffect(() => {
+    let canceled = false
+    const nextMap = new Map<string, string>()
+
+    async function loadProjectSessionChatContexts(): Promise<void> {
+      await Promise.all(
+        sessions.map(async (session) => {
+          try {
+            const context = await window.spacezero.sessions.getCurrentProjectChatContext({
+              sessionId: session.id
+            })
+            nextMap.set(context.agentSessionId, session.id)
+          } catch {
+            nextMap.set(session.id, session.id)
+          }
+        })
+      )
+      if (!canceled) agentSessionProjectSessionIds.current = nextMap
+    }
+
+    void loadProjectSessionChatContexts()
+
+    return () => {
+      canceled = true
+    }
+  }, [sessions])
+
+  useEffect(() => {
+    function handleChatContextChanged(event: Event): void {
+      const chatContext = (
+        event as CustomEvent<{
+          agentSessionId: string
+          workspaceContext?: { projectSessionId?: string }
+        }>
+      ).detail
+      const projectSessionId = chatContext?.workspaceContext?.projectSessionId
+      if (!chatContext?.agentSessionId || !projectSessionId) return
+      agentSessionProjectSessionIds.current = new Map(agentSessionProjectSessionIds.current).set(
+        chatContext.agentSessionId,
+        projectSessionId
+      )
+    }
+
+    window.addEventListener(
+      'spacezero:project-session-chat-context-changed',
+      handleChatContextChanged
+    )
+    return () =>
+      window.removeEventListener(
+        'spacezero:project-session-chat-context-changed',
+        handleChatContextChanged
+      )
+  }, [])
+
+  useEffect(() => {
+    return window.spacezero.agent.onSessionProjectionEvent((event) => {
+      const projectSessionId = resolveProjectSessionIdForAgentEvent(
+        event,
+        sessions,
+        agentSessionProjectSessionIds.current
+      )
+      if (!projectSessionId) return
+
+      const nextStatus = projectSessionStatusFromProjectionEvent(
+        event,
+        agentSessionActivity.current
+      )
+      if (nextStatus) handleSessionStatusChange(projectSessionId, nextStatus)
+    })
+  }, [handleSessionStatusChange, sessions])
+
   const syncedSessionWorkspaceLayout = useMemo(
-    () => syncProjectSessionTabs(sessionWorkspaceLayout, sessions),
-    [sessionWorkspaceLayout, sessions]
+    () => syncProjectSessionTabs(sessionWorkspaceLayout, displayedSessions),
+    [sessionWorkspaceLayout, displayedSessions]
   )
   const activeTab = getFocusedSessionTab(syncedSessionWorkspaceLayout)
   const activeProjectSession = activeTab
-    ? (sessions.find((session) => session.id === activeTab.sessionId) ?? null)
+    ? (displayedSessions.find((session) => session.id === activeTab.sessionId) ?? null)
     : null
   const activeSessionProject = activeProjectSession
     ? (projects.find((project) => project.id === activeProjectSession.projectId) ?? null)
@@ -373,7 +488,9 @@ export function WorkspaceShell(): React.JSX.Element {
             projectSession={activeProjectSession}
             projectSessions={
               activeProjectSession
-                ? sessions.filter((session) => session.projectId === activeProjectSession.projectId)
+                ? displayedSessions.filter(
+                    (session) => session.projectId === activeProjectSession.projectId
+                  )
                 : []
             }
             onOpenProjectHome={handleOpenProjectHome}
@@ -407,23 +524,15 @@ export function WorkspaceShell(): React.JSX.Element {
             projectsContent={
               <ProjectSidebarList
                 projects={projects}
-                activeProject={activeProject}
+                activeProject={activeProjectSession ? null : activeProject}
                 status={projectsStatus}
                 error={projectsError}
                 onAddProject={() => setAddProjectOpen(true)}
-                onSelectProject={(project) => {
-                  runInWorkspaceView(() => {
-                    setProjectHomeRequest(null)
-                    selectProject(project)
-                    if (activeProjectSession?.projectId !== project.id) {
-                      resetSessionWorkspaceLayout()
-                    }
-                  })
-                }}
+                onSelectProject={handleOpenProjectHome}
                 onEditProject={setEditingProject}
                 onArchiveProject={(project) => void handleArchiveProject(project)}
                 onDeleteProject={(project) => void handleDeleteProject(project)}
-                sessionsByProjectId={sessionsByProjectId}
+                sessionsByProjectId={displayedSessionsByProjectId}
                 activeSessionId={activeProjectSession?.id ?? null}
                 sessionsStatus={sessionsStatus}
                 sessionsError={sessionsError}
@@ -537,6 +646,90 @@ export function WorkspaceShell(): React.JSX.Element {
 
 function getTabSessionId(tab: SessionWorkspaceTab | null | undefined): string | null {
   return tab?.sessionId ?? null
+}
+
+function resolveProjectSessionIdForAgentEvent(
+  event: AgentSessionProjectionEvent,
+  sessions: readonly ProjectSession[],
+  agentSessionProjectSessionIds: ReadonlyMap<string, string>
+): string | null {
+  return (
+    agentSessionProjectSessionIds.get(event.sessionId) ??
+    sessions.find((session) => session.id === event.sessionId)?.id ??
+    null
+  )
+}
+
+function projectSessionStatusFromProjectionEvent(
+  event: AgentSessionProjectionEvent,
+  activityByAgentSessionId: Map<string, { hasActivity: boolean; hasError: boolean }>
+): ProjectSession['status'] | null {
+  const activity = activityByAgentSessionId.get(event.sessionId) ?? {
+    hasActivity: false,
+    hasError: false
+  }
+
+  if (event.type === 'snapshot') {
+    activityByAgentSessionId.set(event.sessionId, {
+      hasActivity: event.snapshot.messages.length > 0,
+      hasError: Boolean(event.snapshot.lastError)
+    })
+    if (event.snapshot.status === 'running') return 'running'
+    if (event.snapshot.lastError) return 'failed'
+    return event.snapshot.messages.length > 0 ? 'completed' : 'idle'
+  }
+
+  if (event.type === 'agent_start') {
+    activityByAgentSessionId.set(event.sessionId, { hasActivity: true, hasError: false })
+    return 'running'
+  }
+
+  if (event.type === 'error') {
+    activityByAgentSessionId.set(event.sessionId, { ...activity, hasError: true })
+    return 'failed'
+  }
+
+  if (
+    event.type === 'message_start' ||
+    event.type === 'message_update' ||
+    event.type === 'message_end'
+  ) {
+    activityByAgentSessionId.set(event.sessionId, {
+      hasActivity: true,
+      hasError: activity.hasError || isErroredAssistantMessage(event.message)
+    })
+    return null
+  }
+
+  if (event.type === 'tool_execution_end') {
+    activityByAgentSessionId.set(event.sessionId, {
+      hasActivity: true,
+      hasError: activity.hasError || event.isError
+    })
+    return null
+  }
+
+  if (event.type === 'tool_execution_start' || event.type === 'tool_execution_update') {
+    activityByAgentSessionId.set(event.sessionId, { ...activity, hasActivity: true })
+    return null
+  }
+
+  if (event.type === 'agent_end') {
+    return activity.hasError ? 'failed' : activity.hasActivity ? 'completed' : 'idle'
+  }
+
+  return null
+}
+
+function isErroredAssistantMessage(message: AgentTranscriptMessage): boolean {
+  return (
+    typeof message === 'object' &&
+    message !== null &&
+    'role' in message &&
+    message.role === 'assistant' &&
+    (('stopReason' in message && message.stopReason === 'error') ||
+      ('errorMessage' in message && Boolean(message.errorMessage)))
+  )
 }
 
 function SessionWorkspaceTabSurface({

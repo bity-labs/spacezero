@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { Project } from '../../shared'
@@ -25,9 +25,9 @@ const session: ProjectSession = {
   updatedAt: new Date(0).toISOString()
 }
 
-describe('ProjectSidebarList session rename interactions', () => {
-  it('renames a Project Session from the sidebar with a trimmed title', async () => {
-    const onRenameSession = vi.fn(async () => undefined)
+describe('ProjectSidebarList session actions', () => {
+  it('archives a Project Session from the sidebar', () => {
+    const onArchiveSession = vi.fn()
     render(
       <SidebarProvider>
         <ProjectSidebarList
@@ -39,21 +39,14 @@ describe('ProjectSidebarList session rename interactions', () => {
           onSelectProject={vi.fn()}
           onEditProject={vi.fn()}
           sessionsByProjectId={new Map([[project.id, [session]]])}
-          onRenameSession={onRenameSession}
+          onArchiveSession={onArchiveSession}
         />
       </SidebarProvider>
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand Space Zero sessions' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Rename session' }))
-    const input = screen.getByRole('textbox', { name: 'Rename session' })
-    expect(input).toHaveValue('Project Session 1')
+    fireEvent.click(screen.getByRole('button', { name: 'Archive session' }))
 
-    fireEvent.change(input, { target: { value: '  Sidebar Project Rename  ' } })
-    fireEvent.keyDown(input, { key: 'Enter' })
-
-    await waitFor(() =>
-      expect(onRenameSession).toHaveBeenCalledWith(session, 'Sidebar Project Rename')
-    )
+    expect(onArchiveSession).toHaveBeenCalledWith(session)
   })
 })
