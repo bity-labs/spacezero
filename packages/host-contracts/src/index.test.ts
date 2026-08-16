@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import * as hostContracts from "@spacezero/host-contracts";
 
 describe("host-contracts public surface", () => {
-  it("loads as an empty ESM entrypoint for the initialization slice", () => {
-    expect(Object.keys(hostContracts)).toEqual([]);
+  it("exports authenticated local Host tracer contracts", () => {
+    expect(hostContracts.HOST_PROTOCOL_VERSION).toBe("1");
+    expect(hostContracts.LOCAL_HOST_CLIENT_SCOPES).toEqual([
+      "host:connection:read",
+      "host:events:subscribe",
+    ]);
+    expect(hostContracts.HostApi).toBeDefined();
   });
 });

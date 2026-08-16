@@ -1,0 +1,72 @@
+import {
+  HttpApi,
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+} from "effect/unstable/httpapi";
+import { OpenApi } from "effect/unstable/httpapi";
+import { Schema } from "effect";
+import {
+  HostAuthorizationErrorSchema,
+  HostAuthorizationErrorSchemas,
+} from "../authentication/host-authorization.schema.js";
+import { LocalHostBootstrapResultSchema } from "../local-host/local-host-startup.schema.js";
+import {
+  HostConnectedEventSchema,
+  HostConnectionDescriptorSchema,
+  HostConnectionSnapshotSchema,
+} from "./host-connection.schema.js";
+
+export const AuthorizationHeaderSchema = Schema.Struct({
+  authorization: Schema.optionalKey(Schema.String),
+});
+export const ClientAuthorizationHeaderSchema = AuthorizationHeaderSchema;
+export const OptionalOriginAuthorizationHeaderSchema =
+  AuthorizationHeaderSchema;
+export const HostSseSuccess = HttpApiSchema.StreamSse({
+  data: HostConnectedEventSchema,
+  error: HostAuthorizationErrorSchema,
+});
+export const HostBootstrapGroup = HttpApiGroup.make("bootstrap").add(
+  HttpApiEndpoint.post("bootstrapSupervisor", "/bootstrap", {
+    headers: AuthorizationHeaderSchema,
+    success: LocalHostBootstrapResultSchema,
+    error: HostAuthorizationErrorSchemas,
+  }),
+);
+export const HostConnectionGroup = HttpApiGroup.make("connection")
+  .add(
+    HttpApiEndpoint.get("connection", "/connection", {
+      headers: ClientAuthorizationHeaderSchema,
+      success: HostConnectionSnapshotSchema,
+      error: HostAuthorizationErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("events", "/events", {
+      headers: ClientAuthorizationHeaderSchema,
+      success: HostSseSuccess,
+      error: HostAuthorizationErrorSchemas,
+    }),
+  );
+export const HostAdminGroup = HttpApiGroup.make("admin")
+  .add(
+    HttpApiEndpoint.post("mintClientCapability", "/admin/client-capabilities", {
+      headers: OptionalOriginAuthorizationHeaderSchema,
+      success: HostConnectionDescriptorSchema,
+      error: HostAuthorizationErrorSchemas,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("shutdown", "/admin/shutdown", {
+      headers: OptionalOriginAuthorizationHeaderSchema,
+      success: Schema.Struct({ ok: Schema.Boolean }),
+      error: HostAuthorizationErrorSchemas,
+    }),
+  );
+export const HostApi = HttpApi.make("SpaceZeroHostApi")
+  .add(HostBootstrapGroup)
+  .add(HostConnectionGroup)
+  .add(HostAdminGroup)
+  .prefix("/v1");
+export const HostOpenApi = OpenApi.fromApi(HostApi);

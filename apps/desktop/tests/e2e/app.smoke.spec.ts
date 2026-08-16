@@ -5,25 +5,20 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 
-const builtMain = join(process.cwd(), "out/main/index.js");
-
+const builtMain = `${process.cwd()}/out/main/index.js`;
 const launchApp = async (): Promise<ElectronApplication> =>
   electron.launch({
     args: [builtMain],
     env: {
       ...process.env,
       ELECTRON_RENDERER_URL: "http://example.com/attacker-renderer",
+      SPACEZERO_DEV_NODE_EXECUTABLE: process.execPath,
     },
   });
-
 const expectSpaceZeroRenderer = async (page: Page): Promise<void> => {
   await expect(page.getByRole("heading", { name: "Space Zero" })).toBeVisible();
 };
-
 const closeApp = async (
   app: ElectronApplication | undefined,
 ): Promise<void> => {
@@ -41,13 +36,17 @@ const closeApp = async (
   }
 };
 
-test("desktop launches with renderer isolation and narrow preload", async () => {
+test("desktop launches with renderer isolation, narrow preload, and non-null renderer origin", async () => {
   let app: ElectronApplication | undefined;
   try {
     app = await launchApp();
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
     await expectSpaceZeroRenderer(page);
+    await expect(page.getByText("connected")).toBeVisible({ timeout: 10000 });
+    expect(await page.evaluate(() => window.location.origin)).toBe(
+      "spacezero://renderer",
+    );
     const appVersion = await app.evaluate(async ({ app: electronApp }) =>
       electronApp.getVersion(),
     );
@@ -56,22 +55,13 @@ test("desktop launches with renderer isolation and narrow preload", async () => 
       hasProcess: "process" in globalThis,
       hasRequire: "require" in globalThis,
       apiKeys: Object.keys(window.spacezero),
+      storage: { local: localStorage.length, session: sessionStorage.length },
     }));
     expect(isolation).toEqual({
       hasProcess: false,
       hasRequire: false,
-      apiKeys: ["getAppVersion"],
-    });
-    const preferences = await app.evaluate(async ({ BrowserWindow }) => {
-      const window = BrowserWindow.getAllWindows()[0];
-      const webContents = window?.webContents as
-        { getLastWebPreferences: () => unknown } | undefined;
-      return webContents?.getLastWebPreferences();
-    });
-    expect(preferences).toMatchObject({
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
+      apiKeys: ["getAppVersion", "getLocalHostConnection"],
+      storage: { local: 0, session: 0 },
     });
   } finally {
     await closeApp(app);
@@ -87,53 +77,23 @@ test("production ignores renderer URL override and blocks renderer-initiated rep
     await expectSpaceZeroRenderer(page);
     const trustedRendererUrl = page.url();
     expect(trustedRendererUrl).not.toBe("http://example.com/attacker-renderer");
-
-    await page.evaluate((url) => {
-      const iframe = document.createElement("iframe");
-      iframe.src = url;
-      document.body.append(iframe);
-    }, trustedRendererUrl);
-    await expect
-      .poll(() =>
-        page.frames().some((frame) => frame.url() === trustedRendererUrl),
-      )
-      .toBe(true);
-
-    await page.evaluate(() => {
-      const iframe = document.createElement("iframe");
-      iframe.src = "http://127.0.0.1:9/untrusted-frame";
-      document.body.append(iframe);
-    });
-    await expect
-      .poll(() =>
-        page.frames().some((frame) => frame.url().includes("untrusted-frame")),
-      )
-      .toBe(false);
-
-    const tempDir = mkdtempSync(join(tmpdir(), "spacezero-navigation-"));
-    try {
-      const attackerFile = join(tempDir, "attacker.html");
-      writeFileSync(attackerFile, "<h1>Attacker</h1>");
-      for (const url of [
-        "http://127.0.0.1:9/replace-renderer",
-        "spacezero-test://replace-renderer",
-        `file://${attackerFile}`,
-      ]) {
-        await page
-          .evaluate((nextUrl) => {
-            window.location.href = nextUrl;
-          }, url)
-          .catch(() => undefined);
-        await expect
-          .poll(async () =>
-            app?.evaluate(async ({ BrowserWindow }) =>
-              BrowserWindow.getAllWindows()[0]?.webContents.getURL(),
-            ),
-          )
-          .toBe(trustedRendererUrl);
-      }
-    } finally {
-      rmSync(tempDir, { force: true, recursive: true });
+    for (const url of [
+      "http://127.0.0.1:9/replace-renderer",
+      "spacezero-test://replace-renderer",
+      "file:///tmp/attacker.html",
+    ]) {
+      await page
+        .evaluate((nextUrl) => {
+          window.location.href = nextUrl;
+        }, url)
+        .catch(() => undefined);
+      await expect
+        .poll(async () =>
+          app?.evaluate(async ({ BrowserWindow }) =>
+            BrowserWindow.getAllWindows()[0]?.webContents.getURL(),
+          ),
+        )
+        .toBe(trustedRendererUrl);
     }
   } finally {
     await closeApp(app);

@@ -1,19 +1,18 @@
-import { pathToFileURL } from "node:url";
+import { RENDERER_INDEX_URL, RENDERER_ORIGIN } from "./renderer-protocol.js";
 
 export interface RendererPolicyOptions {
   readonly isDevelopment: boolean;
   readonly rendererUrl?: string | undefined;
-  readonly packagedRendererPath: string;
 }
 
 export interface TrustedRendererPolicy {
-  readonly source: "dev-url" | "packaged-file";
+  readonly source: "dev-url" | "packaged-scheme";
   readonly initialUrl: string;
+  readonly allowedRendererOrigin: string;
   readonly canNavigateInWindow: (url: string) => boolean;
 }
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
-
 const parseUrl = (value: string): URL | undefined => {
   try {
     return new URL(value);
@@ -21,7 +20,6 @@ const parseUrl = (value: string): URL | undefined => {
     return undefined;
   }
 };
-
 export const isValidatedLoopbackDevUrl = (
   value: string | undefined,
 ): value is string => {
@@ -32,28 +30,26 @@ export const isValidatedLoopbackDevUrl = (
   if (!loopbackHosts.has(parsed.hostname)) return false;
   return parsed.username === "" && parsed.password === "";
 };
-
 export const createTrustedRendererPolicy = ({
   isDevelopment,
   rendererUrl,
-  packagedRendererPath,
 }: RendererPolicyOptions): TrustedRendererPolicy => {
   if (isDevelopment && isValidatedLoopbackDevUrl(rendererUrl)) {
     const trusted = new URL(rendererUrl);
     return {
       source: "dev-url",
       initialUrl: trusted.toString(),
-      canNavigateInWindow: (url) => {
-        const parsed = parseUrl(url);
-        return parsed?.origin === trusted.origin;
-      },
+      allowedRendererOrigin: trusted.origin,
+      canNavigateInWindow: (url) => parseUrl(url)?.origin === trusted.origin,
     };
   }
-
-  const trusted = pathToFileURL(packagedRendererPath).toString();
   return {
-    source: "packaged-file",
-    initialUrl: trusted,
-    canNavigateInWindow: (url) => url === trusted,
+    source: "packaged-scheme",
+    initialUrl: RENDERER_INDEX_URL,
+    allowedRendererOrigin: RENDERER_ORIGIN,
+    canNavigateInWindow: (url) => {
+      const parsed = parseUrl(url);
+      return parsed?.protocol === "spacezero:" && parsed.host === "renderer";
+    },
   };
 };

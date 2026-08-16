@@ -39,6 +39,8 @@ The Local Host accepts the bootstrap secret once, for the expected startup excha
 
 The Host binds initially to `127.0.0.1` on an operating-system-selected ephemeral port. It reports the selected endpoint, fresh Host instance ID, and protocol compatibility range to Electron main through the protected startup channel.
 
+The initial Local Host implementation completes bootstrap as a two-phase proof. After receiving configuration and the secret through the protected inherited descriptor, the Host reports non-secret readiness through a second inherited descriptor. Electron main then presents that secret exactly once to the Host's bootstrap HTTP endpoint in the `Authorization` header. The Host stores the expected proof only in memory, invalidates it on success, mismatch, replay, or expiry, and returns supervisor authority only to Electron main.
+
 ### Supervisor capability
 
 A successful bootstrap exchange creates a supervisor capability held only in Electron main memory for the lifetime of that Local Host instance.
@@ -74,7 +76,7 @@ Every Host command, query, and SSE subscription validates capability signature o
 
 An unauthenticated health endpoint may reveal only minimal liveness and protocol compatibility information needed before authorization. Detailed version, diagnostics, Session, and capability information requires authorization.
 
-The Local Host validates allowed request origins and does not use wildcard CORS. Packaged Desktop and development origins are explicit. Bearer capabilities travel only in the `Authorization` header; native `EventSource`, URL tokens, and persistent browser authentication storage are not used.
+The Local Host validates allowed request origins and does not use wildcard CORS. Built Desktop renderer assets use the standard secure `spacezero://renderer` origin; development uses only the exact validated loopback renderer origin. Opaque or `Origin: null` requests are denied. Bearer capabilities travel only in the `Authorization` header; native `EventSource`, URL tokens, and persistent browser authentication storage are not used.
 
 ### Remote alignment
 

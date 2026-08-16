@@ -67,6 +67,23 @@ export default tseslint.config(
     },
   },
   {
+    files: ["packages/client-runtime/src/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            "node:*",
+            "electron",
+            "@effect/*",
+            "@spacezero/workspace-host",
+            "@spacezero/pi-adapter",
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["apps/desktop/src/renderer/**/*.{tsx,ts}"],
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {
