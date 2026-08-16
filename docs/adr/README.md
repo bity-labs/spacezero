@@ -17,6 +17,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0031-package-the-local-host-with-a-private-node-runtime.md`](0031-package-the-local-host-with-a-private-node-runtime.md)
 - [`0032-use-bootstrap-supervisor-and-client-capabilities-for-local-host-auth.md`](0032-use-bootstrap-supervisor-and-client-capabilities-for-local-host-auth.md)
 - [`0033-let-pi-own-llm-authentication-in-each-workspace-host.md`](0033-let-pi-own-llm-authentication-in-each-workspace-host.md)
+- [`0034-let-each-workspace-host-own-its-project-catalog.md`](0034-let-each-workspace-host-own-its-project-catalog.md)
 
 ## Historical decisions
 
