@@ -44,13 +44,15 @@ Desktop does not launch the Host through `ELECTRON_RUN_AS_NODE` or Electron `uti
 
 Desktop passes one-time bootstrap material over an inherited pipe/file descriptor or equivalently protected process channel. Bootstrap credentials never appear in command-line arguments, URLs, logs, or persistent renderer storage.
 
-The Host binds to loopback initially, authenticates every privileged operation, and exchanges bootstrap material for the short-lived scoped bearer capability defined by ADR 0026.
+The Host binds to loopback initially, authenticates every privileged operation, and exchanges bootstrap material for the Host-lifetime supervisor capability defined by ADR 0032.
 
 ### Runtime and native modules
 
-The repository pins one supported Node LTS line for Workspace Host development, packaging, and future Remote Host compatibility. The packaged runtime version is part of Host diagnostics and compatibility metadata.
+The initial supported runtime is Node.js 22 LTS, pinned to `22.23.1` for the implementation baseline. Repository tooling, CI, local development guidance, the packaged private runtime, and future initial Remote Host compatibility target that same version. The packaged runtime version is part of Host diagnostics and compatibility metadata.
 
-Host-native modules, including the selected SQLite driver if native, build for the pinned normal Node ABI rather than Electron's ABI. Electron main and renderer never load Host-native modules.
+Node patch or major upgrades are dedicated dependency changes with Pi, Effect, SQLite/native-module, protocol, restart-recovery, and packaged Host validation.
+
+Host-native modules, including `better-sqlite3`, build for Node `22.23.1` and its normal Node ABI rather than Electron's ABI. Electron main and renderer never load Host-native modules.
 
 The private Node runtime, Host bundle, native modules, and required assets must be included in signing, notarization, architecture, and packaged smoke verification.
 
@@ -74,7 +76,8 @@ The additional application size and signing work are preferable to two runtime a
 
 ## Consequences
 
-- Desktop artifacts are larger because they contain Electron and a private Node runtime.
+- Desktop artifacts are larger because they contain Electron and a private Node 22 runtime.
+- Repository tooling and CI must reject unsupported Node versions rather than silently producing mismatched Host or native artifacts.
 - Release packaging must sign, notarize, architecture-check, and smoke-test the nested runtime and Host payload.
 - Host startup must use a sanitized environment and protected bootstrap channel.
 - Native modules require only the pinned Node ABI for Host execution, while any unrelated Electron-native modules remain separate.
@@ -96,5 +99,6 @@ Revisit this decision if:
 
 - packaged size materially harms distribution or updates;
 - Node SEA or another dedicated executable passes Pi, Effect, SQLite, asset, signing, and update smoke tests with lower operational risk;
+- Node 22 approaches end of support or cannot satisfy Pi SDK requirements;
 - the private runtime cannot be signed or notarized reliably on a supported platform; or
 - future Remote Host distribution benefits from one executable enough to justify a shared compilation strategy.

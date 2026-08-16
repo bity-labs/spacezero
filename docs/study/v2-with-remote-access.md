@@ -12,7 +12,7 @@ ADR 0027 selects exact-pinned Effect 4 beta packages across Host Contracts, Work
 
 ADR 0029 defines one initial Project Session as one Pi conversation, event aggregate, managed worktree/branch, and workflow. It branches from the registered checkout's committed current `HEAD`, uses centralized Local Host worktrees, fails closed on identity mismatch, and treats provisioning, quit, archive, deletion, and recovery as explicit durable lifecycle behavior.
 
-ADR 0030 accepts a pnpm monorepo with separate Desktop and Workspace Host applications plus explicit Host Contracts, Client Runtime, and Pi Adapter packages. ADR 0031 packages the Local Host with a private pinned Node runtime, rejects `ELECTRON_RUN_AS_NODE` and Electron `utilityProcess` for Host execution, and requires hardened Electron fuses in public builds.
+ADR 0030 accepts a pnpm monorepo with separate Desktop and Workspace Host applications plus explicit Host Contracts, Client Runtime, and Pi Adapter packages. ADR 0031 packages the Local Host with private Node.js `22.23.1`, aligns development, CI, native modules, and initial Remote Host compatibility to Node 22, rejects `ELECTRON_RUN_AS_NODE` and Electron `utilityProcess` for Host execution, and requires hardened Electron fuses in public builds.
 
 ADR 0032 uses a protected one-time bootstrap secret to establish a Host-lifetime supervisor capability held only by Electron main. Main mints short-lived scoped client capabilities for renderer/Client Runtime HTTP and SSE access; future Remote Hosts preserve client-capability semantics while using different account/pairing issuance.
 
