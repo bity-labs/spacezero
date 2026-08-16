@@ -200,6 +200,18 @@ Rules:
 - Open external links through a validated native policy and deny uncontrolled windows or redirects.
 - Keep secrets out of source, URLs, logs, telemetry, Session events, transcripts, worktrees, Git, ordinary process environments, and persistent renderer state.
 
+### Host deployment hardening
+
+- Compile Workspace Host as strict ESM and deploy only pnpm-pruned production dependencies; do not bundle it initially.
+- Use frozen lockfiles and an explicit reviewed dependency lifecycle-script allowlist in CI/release builds.
+- Download private Node only in trusted builds and verify its pinned official checksum.
+- Generate a dependency inventory/SBOM and a signed-resource integrity manifest.
+- Verify Host deployment integrity before launch and fail closed on protected-file mismatch.
+- Launch private Node and the Host entrypoint through canonical absolute resource paths.
+- Never install dependencies, download runtimes, or mutate signed Host resources in the installed app.
+- Construct a sanitized Host environment; remove `NODE_OPTIONS`, `NODE_PATH`, Electron Node-mode variables, package-manager injection variables, and credentials.
+- Start Host with private application data as cwd, never a Project, worktree, Space Zero Home, or the signed resource directory.
+
 ## Effect Rules
 
 Use exact-pinned Effect `4.0.0-rc.109` and matching ecosystem packages across Host Contracts, Workspace Host, Pi Adapter, Client Runtime, and Effect test utilities.

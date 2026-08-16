@@ -26,6 +26,8 @@ ADR 0036 moves domain integration testing to the headless Host boundary with rea
 
 ADR 0037 uses Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE for the Host Protocol behind Space Zero adapters. Wire values remain implementation-neutral and OpenAPI is generated as a derived artifact.
 
+ADR 0038 packages Workspace Host as a hardened normal Node deployment—compiled ESM plus pnpm-pruned production dependencies and required assets—rather than a bundle. Releases use frozen lockfiles, reviewed lifecycle scripts, official Node checksum verification, signed immutable resources, an integrity manifest, canonical launch paths, and a sanitized Host environment.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.

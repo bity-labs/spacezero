@@ -71,6 +71,7 @@ Pi Adapter is activated when the first Pi Session slice begins. UI and handbook 
 - Root scripts provide focused `typecheck`, `lint`, `test`, `build`, and end-to-end entrypoints across active workspaces.
 - Effect package versions are pinned consistently across the workspace.
 - Project/package build outputs are consumed through package exports, not deep source imports.
+- Workspace Host release output is a TypeScript-compiled strict ESM normal Node deployment with pnpm-pruned production dependencies as specified by ADR 0038; it is not bundled initially.
 - Nx and Turborepo are not introduced initially. pnpm workspace filters and ordinary scripts are sufficient until measured build-graph or caching pain justifies another tool.
 
 ### Testing boundaries
