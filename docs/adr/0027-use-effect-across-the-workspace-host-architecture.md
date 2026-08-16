@@ -73,11 +73,11 @@ The Client Runtime exposes a small framework-neutral boundary so React does not 
 
 ### Version policy
 
-Space Zero uses the Effect 4 line even while it remains beta. The root workspace pins one exact validated Effect 4 beta release and exact compatible versions of Effect platform, SQL, testing, and related packages. Version ranges and independently drifting Effect package versions are not allowed.
+Space Zero uses the Effect 4 release-candidate line. The implementation baseline pins `4.0.0-rc.109` across Effect core, platform, SQL, testing, and related packages. Version ranges and independently drifting Effect package versions are not allowed.
 
-Effect upgrades are dedicated changes that include typecheck, unit, integration, real-SQLite, Host protocol, Electron, and packaged Local Host validation. The project does not track every beta automatically.
+Effect upgrades are dedicated changes that include typecheck, unit, integration, real-SQLite, Host protocol, Electron, and packaged Local Host validation. The project does not track every release candidate automatically.
 
-When Effect 4 reaches stable, migration from the pinned beta is handled as an explicit validated upgrade rather than assumed compatible.
+When Effect 4 reaches stable, migration from the pinned release candidate is handled as an explicit validated upgrade rather than assumed compatible.
 
 ### Platform and unstable APIs
 
@@ -95,8 +95,8 @@ Using Effect Schema as the contract source reduces drift between static TypeScri
 
 ## Consequences
 
-- Effect 4 beta becomes an approved, exact-pinned runtime dependency for the Host architecture and Client Runtime.
-- Beta API changes are absorbed through deliberate workspace-wide upgrades and adapter boundaries.
+- Effect `4.0.0-rc.109` becomes an approved, exact-pinned runtime dependency for the Host architecture and Client Runtime.
+- Release-candidate and unstable API changes are absorbed through deliberate workspace-wide upgrades and adapter boundaries.
 - Engineers and agents working in these packages must follow consistent Effect service, error, Layer, scope, and testing conventions.
 - Repository tooling must prevent multiple incompatible Effect versions.
 - Contract schemas can drive runtime decoding and, where needed, generated protocol documentation.
@@ -118,6 +118,6 @@ Revisit this decision if:
 
 - Effect materially obstructs browser, mobile, Electron, or packaged Host compatibility;
 - unstable APIs leak beyond adapters despite enforcement;
-- Effect 4 beta churn creates unacceptable implementation or maintenance cost;
+- Effect 4 release-candidate or unstable-module churn creates unacceptable implementation or maintenance cost;
 - the runtime introduces unacceptable bundle, startup, debugging, or maintenance cost; or
 - concrete implementation evidence shows simpler TypeScript primitives provide stronger reliability for these boundaries.

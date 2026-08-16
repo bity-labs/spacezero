@@ -8,7 +8,7 @@ ADR 0025 supersedes this study where they differ on Workspace Host deployments a
 
 ADR 0026 accepts HTTP/JSON for commands and queries, authenticated SSE over streaming `fetch()` for ordered events, and short-lived scoped bearer capabilities for local and future remote client sessions. A universal WebSocket protocol is not selected for the initial implementation.
 
-ADR 0027 selects exact-pinned Effect 4 beta packages across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain using exact-pinned Effect 4 `@effect/sql-sqlite-node` over `better-sqlite3`, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
+ADR 0027 selects exact-pinned Effect `4.0.0-rc.109` packages across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain using exact-pinned Effect 4 `@effect/sql-sqlite-node` over `better-sqlite3`, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
 
 ADR 0029 defines one initial Project Session as one Pi conversation, event aggregate, managed worktree/branch, and workflow. It branches from the registered checkout's committed current `HEAD`, uses centralized Local Host worktrees, fails closed on identity mismatch, and treats provisioning, quit, archive, deletion, and recovery as explicit durable lifecycle behavior.
 
@@ -23,6 +23,8 @@ ADR 0034 makes each Workspace Host the sole owner of its Project catalog. Deskto
 ADR 0035 requires Desktop to restart unexpected Local Host crashes with bounded backoff and fresh authorization, while never automatically replaying turns or external side effects whose completion is ambiguous.
 
 ADR 0036 moves domain integration testing to the headless Host boundary with real HTTP/SSE, SQLite, and Git; uses a contract-compatible mock Host for broad Electron navigation and screenshot E2E; and retains narrow real-Host Electron and packaged-runtime suites.
+
+ADR 0037 uses Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE for the Host Protocol behind Space Zero adapters. Wire values remain implementation-neutral and OpenAPI is generated as a derived artifact.
 
 ## Purpose
 
@@ -173,7 +175,7 @@ The protocol should support:
 - Explicit version compatibility
 - Structured errors that do not expose secrets or provider payloads
 
-The transport is not selected by this study. WebSocket, HTTP, RPC frameworks, and serialization choices require a separate implementation decision. The stable contract is more important than copying T3 Code's Effect stack.
+The accepted Host transport is HTTP/JSON plus authenticated SSE, implemented with exact-pinned Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE behind Space Zero adapters. Stable interoperable wire contracts remain more important than Effect implementation details.
 
 ## Durable Session Model
 

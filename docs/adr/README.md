@@ -20,6 +20,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0034-let-each-workspace-host-own-its-project-catalog.md`](0034-let-each-workspace-host-own-its-project-catalog.md)
 - [`0035-restart-the-local-host-but-never-replay-ambiguous-work.md`](0035-restart-the-local-host-but-never-replay-ambiguous-work.md)
 - [`0036-test-the-host-boundary-and-run-electron-ui-e2e-against-a-contract-mock.md`](0036-test-the-host-boundary-and-run-electron-ui-e2e-against-a-contract-mock.md)
+- [`0037-use-effect-httpapi-and-http-client-for-the-host-protocol.md`](0037-use-effect-httpapi-and-http-client-for-the-host-protocol.md)
 
 ## Historical decisions
 
