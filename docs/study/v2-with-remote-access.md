@@ -14,6 +14,8 @@ ADR 0029 defines one initial Project Session as one Pi conversation, event aggre
 
 ADR 0030 accepts a pnpm monorepo with separate Desktop and Workspace Host applications plus explicit Host Contracts, Client Runtime, and Pi Adapter packages. ADR 0031 packages the Local Host with a private pinned Node runtime, rejects `ELECTRON_RUN_AS_NODE` and Electron `utilityProcess` for Host execution, and requires hardened Electron fuses in public builds.
 
+ADR 0032 uses a protected one-time bootstrap secret to establish a Host-lifetime supervisor capability held only by Electron main. Main mints short-lived scoped client capabilities for renderer/Client Runtime HTTP and SSE access; future Remote Hosts preserve client-capability semantics while using different account/pairing issuance.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.

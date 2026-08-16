@@ -15,6 +15,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0029-use-one-conversation-per-managed-worktree-project-session.md`](0029-use-one-conversation-per-managed-worktree-project-session.md)
 - [`0030-use-a-pnpm-monorepo-with-explicit-runtime-packages.md`](0030-use-a-pnpm-monorepo-with-explicit-runtime-packages.md)
 - [`0031-package-the-local-host-with-a-private-node-runtime.md`](0031-package-the-local-host-with-a-private-node-runtime.md)
+- [`0032-use-bootstrap-supervisor-and-client-capabilities-for-local-host-auth.md`](0032-use-bootstrap-supervisor-and-client-capabilities-for-local-host-auth.md)
 
 ## Historical decisions
 
