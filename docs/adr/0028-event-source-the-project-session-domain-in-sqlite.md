@@ -26,7 +26,15 @@ The Local Host owns one private SQLite database in the operating system applicat
 - command receipts provide idempotency for retryable mutations; and
 - projector progress and schema migrations are recorded explicitly.
 
-SQLite uses foreign keys, WAL where compatible with the selected driver and packaging, and numbered transactional migrations. Database files, temporary files, and credentials never live inside Project worktrees.
+SQLite uses `@effect/sql` and the exact Effect 4-compatible `@effect/sql-sqlite-node` adapter over `better-sqlite3`. It enables foreign keys and WAL, uses numbered transactional migrations, and keeps the driver behind a narrow Host persistence Layer. Database files, temporary files, and credentials never live inside Project worktrees.
+
+### Driver and packaging
+
+`@effect/sql-sqlite-node`, `better-sqlite3`, and the broader Effect package set use exact compatible workspace-wide versions. The native `better-sqlite3` binary targets the private pinned Node runtime's normal Node ABI rather than Electron's ABI.
+
+Release builds produce and verify native artifacts for every supported platform and architecture. Headless Host integration tests use the real adapter and SQLite engine; SQL correctness and migrations are not validated only through mocks or string inspection.
+
+The persistence Layer contains driver-specific types so event, Session, and protocol domains do not depend directly on `better-sqlite3`.
 
 ### Event-sourced scope
 
@@ -123,6 +131,7 @@ Separating durable boundaries from ephemeral high-frequency deltas preserves res
 - External side effects need explicit requested, succeeded, failed, or unknown/reconciliation states where ambiguity is possible.
 - Pi transcript changes do not force client protocol changes, but Pi restore needs an explicit reconciliation adapter.
 - SQLite write throughput and event growth must be measured before Remote Host concurrency expands.
+- Native `better-sqlite3` artifacts, migrations, WAL, foreign keys, and restart behavior require packaged and real-database validation.
 - Remote storage may later use a different implementation while retaining the accepted Session semantics.
 
 ## Alternatives Considered
@@ -132,6 +141,8 @@ Separating durable boundaries from ephemeral high-frequency deltas preserves res
 - **Use a transactional SSE outbox without authoritative Session events** — simpler, but it would preserve delivery history without providing full Session reconstruction and lifecycle reasoning.
 - **Event-source the whole application** — rejected because most Desktop settings, credentials, filesystem data, Git state, and infrastructure configuration do not benefit from this model.
 - **Persist every provider token as an event** — rejected because it creates excessive write volume and an unstable event vocabulary.
+- **Use a non-Effect SQLite wrapper directly throughout Host services** — rejected because `@effect/sql-sqlite-node` integrates the accepted driver with Effect transactions, Layers, and typed failures while containing driver details.
+- **Use SQLite mocks as the primary persistence test** — rejected because migration syntax, constraints, WAL, transactions, and native packaging require the real engine.
 - **Select a distributed event database immediately** — rejected because the initial Local Host is one process with one local database and does not justify distributed infrastructure.
 
 ## Review Trigger
