@@ -27,11 +27,13 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 
 ## Current Architecture Snapshot
 
-- Electron main process owns native app lifecycle, windows, IPC handlers, SQLite, and future system integrations.
-- Electron preload exposes the only renderer-facing desktop API as `window.spacezero`.
-- React renderer owns UI only and must not receive raw Node.js access.
-- Shared IPC channel names and types live in `src/shared`.
-- SQLite lives behind main-process APIs, not in renderer code.
+- Space Zero v0.1 uses a separately executable Workspace Host for Project Session execution, Pi integration, Session workspaces, Git operations, and durable Session state.
+- The initial Local Host is a separate process managed by Electron Desktop and reached over an authenticated loopback protocol.
+- Electron main owns native app lifecycle, windows, secure preload APIs, updates, and Local Host process management; it does not own Project Session execution.
+- React renderer owns UI only and must not receive raw Node.js, filesystem, process, database, or credential access.
+- Host protocol contracts use Effect Schema and must remain serializable and independent of Electron, React, Pi SDK types, and persistence implementations.
+- The Project Session domain is event-sourced in the Local Host's SQLite database; relational projections are rebuildable and Pi transcripts remain private adapter data.
+- Effect is used across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime. React and generic UI components remain Effect-free.
 
 ## Working Rules
 

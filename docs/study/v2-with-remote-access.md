@@ -4,6 +4,12 @@
 
 Architecture study and proposed direction. This document is not an accepted ADR or an implementation specification.
 
+ADR 0025 supersedes this study where they differ on Workspace Host deployments and Local Host lifecycle. In particular, v0.1 uses a separate Desktop-managed Local Host that stops on explicit Desktop quit, does not plan customer-managed self-hosting, and reserves Remote Host for future Space Zero-managed on-demand and dedicated offerings.
+
+ADR 0026 accepts HTTP/JSON for commands and queries, authenticated SSE over streaming `fetch()` for ordered events, and short-lived scoped bearer capabilities for local and future remote client sessions. A universal WebSocket protocol is not selected for the initial implementation.
+
+ADR 0027 selects Effect across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.
