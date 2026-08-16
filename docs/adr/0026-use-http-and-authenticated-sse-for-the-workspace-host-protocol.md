@@ -74,7 +74,7 @@ Breaking semantic changes require an explicit protocol compatibility change. Add
 
 ### Effect
 
-Effect is the application foundation for Host Contracts, Workspace Host, Pi Adapter, and Client Runtime as decided in ADR 0027. The Host may implement HTTP and SSE using Effect streams and platform services behind a narrow transport adapter. Clients use streaming `fetch()` semantics regardless of the internal Effect implementation. Unstable Effect HTTP APIs must remain isolated so protocol contracts and domain services do not depend on them.
+Effect is the application foundation for Host Contracts, Workspace Host, Pi Adapter, and Client Runtime as decided in ADR 0027. ADR 0037 selects Effect HttpApi, the Effect Node HTTP server, Effect HTTP Client, and typed SSE streams behind narrow Space Zero adapters. Browser clients use streaming `fetch()` semantics. Unstable Effect HTTP APIs remain isolated from domain policy and React/UI code.
 
 ## Rationale
 
