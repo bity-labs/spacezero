@@ -20,6 +20,8 @@ ADR 0033 lets Pi own Host-global LLM authentication in private Workspace Host ap
 
 ADR 0034 makes each Workspace Host the sole owner of its Project catalog. Desktop may select folders natively but never duplicates Project persistence; cross-Host logical repository identity remains deferred.
 
+ADR 0035 requires Desktop to restart unexpected Local Host crashes with bounded backoff and fresh authorization, while never automatically replaying turns or external side effects whose completion is ambiguous.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.
