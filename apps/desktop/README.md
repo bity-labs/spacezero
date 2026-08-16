@@ -1,7 +1,9 @@
 # Desktop
 
-This directory will contain the Electron desktop application and the first Space Zero client.
+Minimal active Electron + React shell for the initialization slice.
 
-The Desktop application will own Electron lifecycle, secure preload boundaries, native operating-system integration, updates, and composition of the React client. It will install, discover, start, monitor, connect to, and coherently stop the Local Host, but it will not own Pi execution or durable Project Session behavior.
+It currently creates one secure `BrowserWindow`, loads only the trusted renderer source for the current environment, and exposes one narrow typed preload method: `window.spacezero.getAppVersion()`. Production ignores `ELECTRON_RENDERER_URL`; development accepts only a validated loopback dev URL.
 
-The first release packages private Node.js `22.23.1` and a hardened normal Node Workspace Host deployment—compiled ESM, pnpm-pruned production dependencies, required assets, and an integrity manifest—with Desktop while keeping them as separate applications and processes. Electron main establishes Local Host supervisor authority through a protected one-time bootstrap channel and gives the renderer only short-lived scoped client capabilities through preload. Public builds do not use `ELECTRON_RUN_AS_NODE` or Electron `utilityProcess` for Host execution and disable unnecessary Electron Node-mode and Node-options fuses.
+The checked-in `electron-builder.yml` is foundation-only configuration; packaging commands, Host packaging, fuses/signing validation, and release validation are deferred.
+
+Deferred: Local Host supervision, bootstrap/capability delivery, native dialogs, updates, packaging hardening, fuses/signing validation, routing, product UI, Tailwind/shadcn, and mock/real Host integration scenarios.

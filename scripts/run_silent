@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Usage: ./scripts/run_silent "description" command [args...]
+
+description="$1"
+shift
+
+output=$("$@" 2>&1)
+exit_code=$?
+
+if [ "$exit_code" -eq 0 ]; then
+  echo "✓ $description"
+else
+  echo "✗ $description (exit $exit_code)"
+  echo "$output"
+fi
+
+exit "$exit_code"
