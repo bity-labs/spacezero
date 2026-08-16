@@ -37,6 +37,7 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 - The Project Session domain is event-sourced in the Local Host's SQLite database; relational projections are rebuildable and Pi transcripts remain private adapter data.
 - One initial Project Session owns one Pi conversation and one authenticated managed Git worktree/branch created from the registered checkout's committed current `HEAD`; missing or inconsistent identity must fail closed.
 - Effect is used across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime. React and generic UI components remain Effect-free.
+- Pi owns Host-global LLM authentication in private Workspace Host application data; secrets must not enter SQLite, Session events, transcripts, worktrees, logs, URLs, or persistent renderer state.
 
 ## Working Rules
 
