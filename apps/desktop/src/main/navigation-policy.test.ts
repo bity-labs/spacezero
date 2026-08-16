@@ -1,24 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { RENDERER_INDEX_URL, RENDERER_ORIGIN } from "./renderer-protocol.js";
 import {
   createTrustedRendererPolicy,
   isValidatedLoopbackDevUrl,
 } from "./navigation-policy.js";
 
-const packagedRendererPath =
-  "/Applications/Space Zero.app/Contents/Resources/app/out/renderer/index.html";
-
 describe("trusted renderer navigation policy", () => {
-  it("ignores ELECTRON_RENDERER_URL outside development", () => {
+  it("uses a secure standard application origin outside development", () => {
     const policy = createTrustedRendererPolicy({
       isDevelopment: false,
       rendererUrl: "http://127.0.0.1:5173/",
-      packagedRendererPath,
     });
-
-    expect(policy.source).toBe("packaged-file");
-    expect(policy.initialUrl).toBe(
-      "file:///Applications/Space%20Zero.app/Contents/Resources/app/out/renderer/index.html",
-    );
+    expect(policy.source).toBe("packaged-scheme");
+    expect(policy.initialUrl).toBe(RENDERER_INDEX_URL);
+    expect(policy.allowedRendererOrigin).toBe(RENDERER_ORIGIN);
+    expect(policy.allowedRendererOrigin).toBe(RENDERER_ORIGIN);
     expect(policy.canNavigateInWindow("http://127.0.0.1:5173/")).toBe(false);
   });
 
@@ -31,13 +27,12 @@ describe("trusted renderer navigation policy", () => {
     expect(isValidatedLoopbackDevUrl("spacezero-test://renderer")).toBe(false);
   });
 
-  it("blocks arbitrary http, custom-scheme, and unrelated file navigation", () => {
-    const policy = createTrustedRendererPolicy({
-      isDevelopment: false,
-      packagedRendererPath,
-    });
-
+  it("blocks arbitrary http, custom-scheme, and file navigation", () => {
+    const policy = createTrustedRendererPolicy({ isDevelopment: false });
     expect(policy.canNavigateInWindow(policy.initialUrl)).toBe(true);
+    expect(
+      policy.canNavigateInWindow("spacezero://renderer/assets/app.js"),
+    ).toBe(true);
     expect(policy.canNavigateInWindow("https://example.com/")).toBe(false);
     expect(
       policy.canNavigateInWindow("spacezero-test://replace-renderer"),

@@ -4,16 +4,17 @@ Space Zero is a local-first desktop interface for directing Pi-powered coding ag
 
 ## Status
 
-This repository now has the first executable initialization slice:
+This repository now includes the authenticated Local Host connectivity tracer:
 
 - pnpm `10.28.1` workspace pinned to Node.js `22.23.1`;
 - strict ESM TypeScript configuration;
-- minimal Electron/React Desktop shell with a narrow app-version preload boundary;
-- independently runnable ordinary-Node Workspace Host lifecycle shell;
-- empty browser-safe Host Contracts and Client Runtime package entrypoints with import smoke tests; and
-- metadata/config-only Pi Adapter package with no Pi SDK dependency.
+- secure Electron/React Desktop with a standard `spacezero://renderer` origin;
+- protected inherited-pipe bootstrap and Desktop-owned Local Host lifecycle;
+- Host-instance supervisor and short-lived scoped client capabilities;
+- Effect HttpApi query and authenticated typed SSE connectivity through Client Runtime; and
+- metadata/config-only Pi Adapter with no Pi SDK dependency.
 
-Deferred: Host protocol endpoints or metadata, authentication/capabilities, SQLite persistence, Projects, Sessions, Git/worktrees, Pi implementation, private-Node release packaging, Handbook, shared UI package, Storybook, Nx, and Turborepo.
+Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, SQLite persistence, Projects, Sessions, Git/worktrees, Pi implementation, Handbook, shared UI, and Storybook.
 
 ## Commands
 
@@ -33,12 +34,12 @@ Use focused filters for individual workspaces, for example `pnpm --filter @space
 
 ```text
 apps/
-  desktop/          Electron shell and first Space Zero client
-  workspace-host/   Headless ordinary-Node workspace host shell
+  desktop/          Electron client and Local Host supervisor
+  workspace-host/   Headless authenticated Effect Workspace Host
   handbook/         Inactive README placeholder
 packages/
-  host-contracts/   Empty browser-safe package entrypoint for future contracts
-  client-runtime/   Empty browser-safe package entrypoint for future client runtime
+  host-contracts/   Browser-safe Host Protocol schemas and HttpApi declarations
+  client-runtime/   Browser-safe authenticated query/SSE client
   pi-adapter/       Metadata/config/test setup only; no Pi SDK yet
   ui/               Inactive README placeholder
 scripts/            Repository automation and boundary checks

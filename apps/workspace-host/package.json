@@ -15,6 +15,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.109",
     "@spacezero/host-contracts": "workspace:*",
     "effect": "4.0.0-rc.109"
   }

@@ -1,9 +1,9 @@
 # Desktop
 
-Minimal active Electron + React shell for the initialization slice.
+Active Electron + React client for the authenticated Local Host connectivity tracer.
 
-It currently creates one secure `BrowserWindow`, loads only the trusted renderer source for the current environment, and exposes one narrow typed preload method: `window.spacezero.getAppVersion()`. Production ignores `ELECTRON_RENDERER_URL`; development accepts only a validated loopback dev URL.
+It creates a secure `BrowserWindow`, serves built assets from the standard secure `spacezero://renderer` origin, launches the ordinary-Node Local Host through protected inherited pipes, retains supervisor authority in Electron main, and exposes only app-version and fixed client-capability issuance through preload. The renderer reaches the Host directly through Client Runtime HTTP/SSE. Development accepts only validated loopback renderer URLs.
 
 The checked-in `electron-builder.yml` is foundation-only configuration; packaging commands, Host packaging, fuses/signing validation, and release validation are deferred.
 
-Deferred: Local Host supervision, bootstrap/capability delivery, native dialogs, updates, packaging hardening, fuses/signing validation, routing, product UI, Tailwind/shadcn, and mock/real Host integration scenarios.
+Packaged Host launch remains fail-closed until private Node and integrity verification are available. Deferred: crash restart/backoff, native dialogs, updates, packaging hardening, fuses/signing validation, routing, product UI, Tailwind/shadcn, and broad mock-Host scenarios.

@@ -17,10 +17,12 @@
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "test": "vitest run",
     "pretest:e2e": "pnpm build",
-    "test:e2e": "playwright test -c playwright.config.ts"
+    "test:e2e": "playwright test -c playwright.config.ts",
+    "test:e2e:real-host": "playwright test -c playwright.config.ts tests/e2e/local-host-connectivity.spec.ts"
   },
   "dependencies": {
     "@spacezero/client-runtime": "workspace:*",
+    "@spacezero/host-contracts": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

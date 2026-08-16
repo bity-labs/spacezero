@@ -1,7 +1,7 @@
 # Workspace Host
 
-Minimal active ordinary-Node Workspace Host shell for the initialization slice.
+Active ordinary-Node Workspace Host for the authenticated connectivity tracer.
 
-It builds to strict ESM with TypeScript and runs under normal Node.js `22.23.1` outside Electron. Startup and shutdown diagnostics identify only the process and lifecycle event. `--version` reports the package foundation version without Host Protocol semantics.
+It builds to strict ESM, binds an Effect HttpApi server to an ephemeral IPv4 loopback port, performs one-time protected bootstrap, holds in-memory supervisor/client capabilities, serves one authenticated connection query and typed SSE event, and shuts down through Effect-owned scopes. Startup and shutdown diagnostics never include credentials.
 
-Deferred: HTTP/SSE Host Protocol, authentication/capabilities, SQLite, Projects, Sessions, Git/worktrees, Pi integration, Workspace Tools, private-Node deployment, production dependency pruning, and release integrity checks.
+Deferred: crash restart/reconciliation, durable SSE cursors/reconnect, SQLite, Projects, Sessions, Git/worktrees, Pi integration, Workspace Tools, private-Node deployment, production dependency pruning, and release integrity checks.

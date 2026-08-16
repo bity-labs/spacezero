@@ -1,16 +1,26 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { installAppLifecycle } from "./app-lifecycle.js";
+import { registerLocalHostIpc } from "./local-host/local-host.ipc.js";
+import { createLocalHostSupervisor } from "./local-host/local-host-supervisor.js";
 import { createTrustedRendererPolicy } from "./navigation-policy.js";
+import {
+  builtRendererRoot,
+  registerRendererProtocol,
+  registerRendererSchemePrivilege,
+} from "./renderer-protocol.js";
+
+registerRendererSchemePrivilege();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const rendererIndexPath = join(__dirname, "../renderer/index.html");
+const rendererRoot = builtRendererRoot(__dirname);
+const supervisor = createLocalHostSupervisor();
 
 const createWindow = (): BrowserWindow => {
   const rendererPolicy = createTrustedRendererPolicy({
     isDevelopment: import.meta.env.DEV,
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
-    packagedRendererPath: rendererIndexPath,
   });
   const window = new BrowserWindow({
     width: 1024,
@@ -23,7 +33,6 @@ const createWindow = (): BrowserWindow => {
       preload: join(__dirname, "../preload/index.js"),
     },
   });
-
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (details) => {
     if (!rendererPolicy.canNavigateInWindow(details.url))
@@ -33,24 +42,22 @@ const createWindow = (): BrowserWindow => {
     if (!rendererPolicy.canNavigateInWindow(details.url))
       details.preventDefault();
   });
-
-  if (rendererPolicy.source === "dev-url") {
-    void window.loadURL(rendererPolicy.initialUrl);
-  } else {
-    void window.loadFile(rendererIndexPath);
-  }
+  void window.loadURL(rendererPolicy.initialUrl);
   return window;
 };
 
 ipcMain.handle("spacezero:get-app-version", () => app.getVersion());
+registerLocalHostIpc(supervisor);
 
-app.whenReady().then(() => {
-  createWindow();
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+app.whenReady().then(async () => {
+  const rendererPolicy = createTrustedRendererPolicy({
+    isDevelopment: import.meta.env.DEV,
+    rendererUrl: process.env.ELECTRON_RENDERER_URL,
   });
+  await supervisor
+    .start(rendererPolicy.allowedRendererOrigin)
+    .catch(() => undefined);
+  registerRendererProtocol(rendererRoot, supervisor.endpoint());
+  createWindow();
 });
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+installAppLifecycle(app, createWindow, supervisor);
