@@ -6,419 +6,430 @@ title: Space Zero Feature Architecture
 
 ## Purpose
 
-Use this file when adding, moving, or reorganizing Space Zero source code by product feature.
+Use this file before adding, moving, or reorganizing Space Zero feature source.
 
-Space Zero uses Electron, so feature architecture must be **process-aware**. Feature code may be grouped by product concept, but privileged main-process code, renderer UI code, preload bridge code, and shared contracts must stay separated.
+Space Zero is a pnpm monorepo containing independently runnable Desktop and Workspace Host applications plus explicit shared packages. Organize by deployable runtime first, then by product feature inside that runtime. Runtime and package boundaries are security and deployment boundaries, not naming preferences.
 
 ## Core Rule
 
-Organize by feature **inside explicit runtime boundaries**.
+```text
+Choose the owning runtime or package first.
+Then organize related behavior by feature inside that boundary.
+Share contracts, not application internals.
+```
+
+Do not restore the archived v0 repository-root `src/main`, `src/preload`, `src/renderer`, and `src/features/{feature}/{main,renderer,shared}` architecture. Desktop may use main/preload/renderer folders internally, but Workspace Host behavior never moves into Desktop merely because a renderer needs it.
+
+## Top-Level Architecture
 
 ```txt
-src/features/{feature-name}/
-├── main/      # Electron main-process feature implementation
-├── renderer/  # React renderer feature UI, hooks, and renderer helpers
-└── shared/    # Serializable feature contracts, schemas, constants, and types
+apps/
+  desktop/          Electron shell, React client, native integration, Local Host supervision
+  workspace-host/   Headless Effect application, Host Protocol, SQLite, Projects, Sessions, Git
+
+packages/
+  host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
+  client-runtime/   Browser-safe Host client and in-memory projections
+  pi-adapter/       Host-side Effect boundary around Pi
 ```
 
-Create only the folders a feature needs. A renderer-only UI feature may not need `main`. A main-only infrastructure capability may not need `renderer`.
+`apps/handbook` and `packages/ui` remain inactive until a concrete slice needs them. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
 
-Do not create a root feature barrel that exports every runtime surface together.
+## Dependency Graph
 
-Bad:
+```text
+apps/desktop
+  -> packages/client-runtime
+  -> packages/host-contracts
+
+apps/workspace-host
+  -> packages/host-contracts
+  -> packages/pi-adapter
+
+packages/pi-adapter
+  -> Pi SDK
+```
+
+Rules:
+
+- packages never depend on applications;
+- applications never import another application's source;
+- workspace packages are consumed through declared exports, not deep `src` imports;
+- Host Contracts do not depend on Electron, React, Pi, Node filesystem/process APIs, database drivers, or Host implementation modules;
+- Client Runtime remains browser-safe and does not depend on Electron, Pi, SQLite, Git, or Workspace Host source;
+- Pi Adapter remains Host-side and does not depend on Desktop, React, or Client Runtime;
+- Electron-native behavior remains inside Desktop;
+- Project catalog, Session domain, Pi execution, worktrees, Session Git, and Host persistence remain inside Workspace Host or Pi Adapter; and
+- React and generic UI consume plain Client Runtime values rather than Host services or Effect runtime types.
+
+## Application and Package Responsibilities
+
+### `apps/desktop`
+
+Desktop contains three internal runtime surfaces:
 
 ```txt
-src/features/projects/index.ts
+apps/desktop/src/
+  main/       Electron lifecycle, windows, native adapters, Local Host supervisor
+  preload/    Narrow typed bridge for Desktop-native behavior and client capability delivery
+  renderer/   React application, containers, views, and browser-safe interaction
 ```
 
-```ts
-export * from './main'
-export * from './renderer'
-export * from './shared'
-```
+Create this structure only when implementation begins; subfolders should follow present behavior rather than an exhaustive future tree.
 
-Good:
+#### Desktop main owns
+
+- Electron application and window lifecycle;
+- menus, native dialogs, deep links, updates, and other native UI integration;
+- Local Host child-process launch, protected bootstrap, monitoring, restart, and shutdown;
+- the supervisor capability; and
+- narrow Desktop-only IPC handlers and client-capability issuance/renewal through preload.
+
+Desktop main does not own Host Projects, Project Sessions, Pi, managed worktrees, Session Git operations, Workspace Tools, or the Host database.
+
+#### Desktop preload owns
+
+- the smallest typed `window.spacezero` surface needed for Desktop-native operations;
+- Local Host endpoint/instance information delivery; and
+- short-lived client capability delivery and renewal requests.
+
+Preload contains no product business rules, Host persistence, filesystem policy, Git policy, Pi behavior, or supervisor authority.
+
+#### Desktop renderer owns
+
+- React screens, layouts, containers, and presentational views;
+- browser-safe feature hooks and interaction state;
+- Client Runtime construction and plain projection consumption at application boundaries;
+- renderer-local navigation, selection, ephemeral input, and layout behavior; and
+- Desktop-native calls through preload when a use case actually belongs to Electron.
+
+The renderer never imports Electron, Node.js, Workspace Host source, Pi, SQLite, Git/process adapters, or secret stores. It may hold only a short-lived scoped Host client capability in memory.
+
+### `apps/workspace-host`
+
+Workspace Host is one headless Node/Effect runtime. It owns:
+
+- Effect HttpApi server handlers and authenticated typed SSE;
+- capability authorization and origin enforcement;
+- Host-local Project catalog and repository authentication;
+- event-sourced Project Session behavior and projections;
+- Pi coordination through Pi Adapter;
+- managed worktree and Session Git lifecycle;
+- Workspace Tools and Host-owned child processes;
+- recovery and reconciliation; and
+- SQLite initialization, migrations, repositories, event journal, projectors, and command receipts.
+
+Organize Host source by current feature when a feature has multiple related files. Keep the composition root and truly cross-feature infrastructure outside feature modules.
+
+Illustrative structure, not a requirement to create every folder:
 
 ```txt
-src/features/projects/main/index.ts
-src/features/projects/renderer/index.ts
-src/features/projects/shared/index.ts
+apps/workspace-host/src/
+  main.ts
+  runtime/                         # composition root and cross-feature Host adapters
+  features/
+    projects/
+      projects.service.ts
+      projects.repository.ts
+      projects.http.ts
+    project-sessions/
+      project-session.service.ts
+      project-session.repository.ts
+      project-session.projector.ts
+      project-session.http.ts
 ```
 
-Each runtime imports the subpath it is allowed to use.
+Keep application policy in services, persistence mechanics in repositories, HTTP translation in `.http.ts` adapters, and external mechanics in focused adapters. Do not let HttpApi requests, database rows, Git command results, or Pi SDK types become domain models.
 
-## Runtime Responsibilities
+### `packages/host-contracts`
 
-### `features/{feature}/main`
+Host Contracts owns browser-safe, versioned protocol definitions:
 
-Main-process feature code owns privileged behavior:
+- Effect Schemas for identifiers, commands, queries, events, projections, and public errors;
+- HttpApi groups/endpoints and authorization declarations;
+- SSE event envelopes and cursor-compatible wire types;
+- protocol/compatibility metadata; and
+- derived OpenAPI generation inputs.
 
-- Electron `ipcMain` handlers
-- SQLite reads/writes through main-owned database modules
-- filesystem access
-- child processes
-- Git CLI work
-- GitHub API access and credentials
-- agent/session orchestration
-- application/use-case services
-- repositories/adapters for main-process infrastructure
-
-Example:
+Illustrative grouping:
 
 ```txt
-src/features/projects/main/
-├── index.ts
-├── projects.ipc.ts
-├── projects.repository.ts
-└── projects.service.ts
+packages/host-contracts/src/
+  protocol/
+  projects/
+  project-sessions/
 ```
 
-### `features/{feature}/renderer`
+Contracts use plain interoperable HTTP/JSON/SSE encodings. Never expose Effect `Cause`, `Exit`, Layer, fiber, internal branded values, Pi events, Electron types, database rows, or filesystem handles.
 
-Renderer feature code owns UI and browser-safe client behavior:
+### `packages/client-runtime`
 
-- feature-specific React components
-- feature-specific React hooks
-- feature-specific renderer helpers
-- feature-specific state and presentation logic
-- calls to `window.spacezero.*` through hooks or small renderer clients
+Client Runtime owns browser-safe Host client behavior:
 
-Example:
+- Effect HttpApi Client and fetch-based HTTP implementation;
+- Authorization headers and client-capability lifecycle;
+- streaming SSE decoding, cursor catch-up, reconnect, cancellation, and cleanup;
+- command dispatch and stable public error mapping; and
+- in-memory client projections and framework-neutral subscriptions.
+
+Illustrative grouping:
 
 ```txt
-src/features/projects/renderer/
-├── index.ts
-├── components/
-│   ├── project-card.tsx
-│   └── project-list.tsx
-├── hooks/
-│   └── use-projects.ts
-└── lib/
-    └── project-display.ts
+packages/client-runtime/src/
+  connection/
+  projects/
+  project-sessions/
 ```
 
-Renderer feature code must not import main-process modules, Electron APIs, Node.js APIs, SQLite clients, filesystem helpers, credentials, or child-process helpers.
+Unstable Effect HTTP types remain internal. Public package exports intended for UI use expose plain values, explicit states, subscriptions, and callbacks.
 
-### `features/{feature}/shared`
+### `packages/pi-adapter`
 
-Shared feature code owns serializable cross-process contracts:
+Pi Adapter owns all Pi implementation detail:
 
-- IPC channel names for that feature
-- request/response types
-- Zod schemas for IPC inputs
-- serializable domain models used across runtime boundaries
-- constants that do not depend on a runtime
+- Pi SDK session and conversation construction;
+- Host-global Pi authentication storage;
+- approved resource/tool configuration;
+- Pi event translation into Host-facing values;
+- cancellation, interruption, restore, and cleanup; and
+- focused compatibility seams for tests.
 
-Example:
+Illustrative grouping:
 
 ```txt
-src/features/projects/shared/
-├── index.ts
-├── project.model.ts
-├── projects.contract.ts
-└── projects.schema.ts
+packages/pi-adapter/src/
+  authentication/
+  conversations/
+  resources/
 ```
 
-Shared feature code must not import React, renderer components, Electron main APIs, Node.js modules, SQLite clients, filesystem helpers, credentials, or process-specific utilities.
+Pi types, auth file formats, and transcript formats never become Host wire contracts. Pi Adapter does not own Space Zero Session history or client projections.
 
-## Global Runtime Folders
+## Feature Placement Rules
 
-Process entrypoints and reusable runtime-specific infrastructure remain outside feature modules.
+### Choose the authority, not the caller
+
+A renderer button does not make behavior renderer-owned. Place behavior where its authority lives:
+
+- UI presentation or local selection → Desktop renderer;
+- native folder picker or window action → Desktop main via preload;
+- Project registration or Session creation → Workspace Host via Client Runtime;
+- worktree, Git, SQLite, or agent action → Workspace Host;
+- Pi-specific mechanism → Pi Adapter;
+- shared wire shape → Host Contracts; and
+- reconnect/projection client behavior → Client Runtime.
+
+### Keep feature code local to its runtime
+
+A feature may have related code in multiple runtimes without sharing one cross-runtime feature folder. For example, Projects can have:
 
 ```txt
-src/main/       # Electron app lifecycle, windows, database base, global main utilities
-src/preload/    # Safe typed bridge exposed as window.spacezero
-src/renderer/   # React app entrypoint, global renderer UI, styles, renderer utilities
-src/shared/     # App-wide serializable contracts and cross-process types
-src/features/   # Product features split by runtime
+apps/desktop/src/renderer/features/projects/
+apps/workspace-host/src/features/projects/
+packages/host-contracts/src/projects/
+packages/client-runtime/src/projects/
 ```
 
-Use global folders for infrastructure or reusable code that is not owned by one feature.
+These are separate runtime modules connected by package contracts. Do not create a repository-root `features/projects` barrel that re-exports all of them.
 
-## UI Placement Rules
+### Add only current surfaces
+
+Add a feature folder when the current slice has multiple related files or needs a clear public boundary. A single focused adapter or component may remain near its composition root until feature grouping reduces actual complexity.
+
+A new package requires a second concrete consumer or a deployment/testing boundary that materially reduces coupling. Do not create `session-domain`, `git-core`, `shared-utils`, or similar packages solely to complete a diagram.
+
+## Desktop UI Placement
+
+All renderer paths below are relative to `apps/desktop/src/renderer`.
 
 ### Generic UI primitives
 
-Design-system-level primitives go in:
-
 ```txt
-src/renderer/src/components/ui/
+components/ui/
 ```
 
-Examples:
+Examples: `button.tsx`, `card.tsx`, `input.tsx`, `dialog.tsx`, `tabs.tsx`.
+
+Primitives are domain-free and Effect-free. They do not know about Projects, Sessions, agents, GitHub, Host connections, Client Runtime, preload, routing, or persistence.
+
+### Generic composed components
 
 ```txt
-button.tsx
-card.tsx
-label.tsx
-input.tsx
-dialog.tsx
-tabs.tsx
+components/
 ```
 
-These components should be domain-free. They should not know about projects, sessions, agents, GitHub, SQLite, IPC, or Space Zero workflows.
+Use for reusable renderer composition such as app shell, titlebar, resizable panels, and keyboard shortcut presentation. Low-level design-system `Empty` primitives remain under `components/ui`; feature-specific empty/loading presentations stay with their feature.
 
-### Generic composed renderer components
-
-Reusable renderer components built from UI primitives go in:
+### Feature-specific UI
 
 ```txt
-src/renderer/src/components/
+features/{feature-name}/components/
+features/{feature-name}/hooks/
+features/{feature-name}/lib/
 ```
 
-Examples:
+If a component or hook uses feature language, feature models, Host projections, or feature-specific actions, keep it with that renderer feature.
+
+### Views and containers
+
+Prefer a pure view/container split when runtime wiring would otherwise make presentation hard to test or render:
+
+- views accept plain props and emit callbacks;
+- containers/hooks consume Client Runtime, preload, routing, or application context; and
+- Storybook and visual fixtures render views with plain deterministic data.
+
+Do not make every trivial component use two files; apply the split when it protects reuse, testing, or runtime boundaries.
+
+## Communication Flows
+
+### Host-owned product behavior
+
+```text
+Renderer feature container
+  -> Client Runtime plain command/query API
+  -> Effect HttpApi Client / authenticated HTTP or SSE
+  -> Workspace Host HttpApi adapter
+  -> Host application service
+  -> repository / Git / worktree / Pi adapter
+  -> SQLite, filesystem, Git, process, or Pi
+```
+
+Example Project list placement:
 
 ```txt
-app-shell/app-titlebar.tsx
-app-shell/resizable-panel.tsx
-empty-state.tsx
-loading-state.tsx
-keyboard-shortcut.tsx
+apps/desktop/src/renderer/features/projects/
+packages/client-runtime/src/projects/
+packages/host-contracts/src/projects/
+apps/workspace-host/src/features/projects/
 ```
 
-Use this folder when a component can be reused across features without knowing one feature's domain.
+Electron main is not a proxy in this flow.
 
-### Feature-specific components
+### Desktop-native behavior
 
-Feature-specific components go in:
-
-```txt
-src/features/{feature}/renderer/components/
+```text
+Renderer container
+  -> window.spacezero native method
+  -> preload bridge
+  -> Electron main IPC handler
+  -> native Desktop adapter
 ```
 
-Examples:
+Examples include folder selection, window controls, update actions, opening a validated external URL, and requesting a renewed client capability.
 
-```txt
-src/features/projects/renderer/components/project-card.tsx
-src/features/sessions/renderer/components/session-output.tsx
-src/features/github/renderer/components/pull-request-card.tsx
+IPC handlers must not become alternate implementations of Host Project, Session, Git, or Pi behavior.
+
+### Agent Workspace Tool behavior
+
+```text
+Pi conversation
+  -> Pi Adapter custom tool boundary
+  -> Workspace Host Workspace Tool registry/policy
+  -> the same Host application service used by Host Protocol handlers
+  -> authorized Host adapter
 ```
 
-If a component uses feature language or feature-specific models, keep it inside that feature even if it is visually reusable.
+Agents do not receive direct SQLite access, arbitrary Host internals, renderer automation backdoors, or unverified filesystem authority.
 
-## Library and Hook Placement Rules
+## File Naming
 
-The same global-versus-feature rule applies to helpers, hooks, services, and adapters, but always choose the runtime first.
+Use kebab-case files and folders. Use dot suffixes when they communicate an architectural role.
 
-### Renderer reusable helpers
+| Suffix | Use |
+| --- | --- |
+| `.model.ts` | Internal product/domain values when a separate model file helps. |
+| `.schema.ts` | Effect Schema and validation definitions. |
+| `.contract.ts` | Stable package or module contract not already expressed directly by HttpApi. |
+| `.service.ts` | Application/use-case behavior and orchestration. |
+| `.repository.ts` | Persistence port/implementation local to Workspace Host. |
+| `.adapter.ts` | External runtime, provider, filesystem, Git, process, or native adapter. |
+| `.http.ts` | Workspace Host HttpApi handler/transport adapter. |
+| `.ipc.ts` | Desktop-native Electron IPC only. |
+| `.projector.ts` | Deterministic Session event projection behavior. |
+| `.test.ts` / `.test.tsx` | Unit, integration, or renderer component test. |
 
-```txt
-src/renderer/src/lib/
-src/renderer/src/hooks/
-```
-
-Examples:
-
-```txt
-src/renderer/src/lib/utils.ts
-src/renderer/src/lib/format-date.ts
-src/renderer/src/hooks/use-color-mode.ts
-src/renderer/src/hooks/use-keyboard-shortcut.ts
-```
-
-These may use browser-safe APIs and renderer dependencies.
-
-### Feature renderer helpers
-
-```txt
-src/features/{feature}/renderer/lib/
-src/features/{feature}/renderer/hooks/
-```
-
-Examples:
-
-```txt
-src/features/projects/renderer/lib/project-display.ts
-src/features/projects/renderer/hooks/use-projects.ts
-```
-
-### Main reusable helpers
-
-```txt
-src/main/lib/
-```
-
-Examples:
-
-```txt
-logger.ts
-app-paths.ts
-safe-path.ts
-safe-shell.ts
-```
-
-These may use Electron main APIs or Node.js APIs. They must not be imported by renderer code.
-
-### Feature main services and adapters
-
-```txt
-src/features/{feature}/main/
-```
-
-Recommended roles:
-
-```txt
-{feature}.ipc.ts          # ipcMain handlers for the feature
-{feature}.service.ts      # application/use-case logic
-{feature}.repository.ts   # SQLite persistence for the feature
-{feature}.adapter.ts      # external-system adapter when needed
-```
-
-Prefer placing application services in the main feature folder because Space Zero's privileged product behavior belongs behind IPC, not in the renderer.
-
-## File Naming Rules
-
-Use **kebab-case** file and folder names.
-
-Use dot suffixes for file roles when the suffix communicates architecture.
-
-Examples:
-
-```txt
-project.model.ts
-projects.schema.ts
-projects.contract.ts
-projects.service.ts
-projects.repository.ts
-projects.ipc.ts
-project-card.tsx
-project-list.tsx
-use-projects.ts
-```
-
-Common suffixes:
-
-| Suffix                   | Use                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| `.model.ts`              | Domain types and serializable models.                                         |
-| `.schema.ts`             | Zod validation schemas.                                                       |
-| `.contract.ts`           | IPC channels, request/response contracts, and API surface types.              |
-| `.service.ts`            | Main-process application/use-case logic.                                      |
-| `.repository.ts`         | Persistence access, usually SQLite through main-process database modules.     |
-| `.adapter.ts`            | External provider or system adapter.                                          |
-| `.ipc.ts`                | Electron `ipcMain` handler registration.                                      |
-| `.query.ts`              | Reserved for explicit query/read patterns once the project standardizes them. |
-| `.test.ts` / `.test.tsx` | Unit or component tests.                                                      |
-
-Use singular names when the file models one concept:
-
-```txt
-project.model.ts
-project-card.tsx
-```
-
-Use plural names when the file manages a feature collection or capability surface:
-
-```txt
-projects.service.ts
-projects.repository.ts
-projects.ipc.ts
-```
+Use names that describe the behavior hidden by the file. Do not use `.shared.ts` as a substitute for deciding package and runtime ownership.
 
 ## Import Rules
 
-Allowed:
+### Allowed
 
-```txt
-src/main/**                         -> src/features/*/main/**
-src/main/**                         -> src/features/*/shared/**
-src/preload/**                      -> src/features/*/shared/**
-src/renderer/**                     -> src/features/*/renderer/**
-src/renderer/**                     -> src/features/*/shared/**
-src/features/{feature}/main/**      -> src/features/{feature}/shared/**
-src/features/{feature}/renderer/**  -> src/features/{feature}/shared/**
+```text
+apps/desktop renderer       -> packages/client-runtime public exports
+apps/desktop                -> packages/host-contracts public exports when genuinely needed
+apps/workspace-host         -> packages/host-contracts public exports
+apps/workspace-host         -> packages/pi-adapter public exports
+packages/client-runtime     -> packages/host-contracts public exports
+packages/pi-adapter         -> Pi SDK
+same runtime feature        -> another feature's explicit runtime-local public API
 ```
 
-Forbidden:
+### Forbidden
 
-```txt
-src/renderer/**                     -> src/main/**
-src/renderer/**                     -> src/features/*/main/**
-src/renderer/**                     -> electron, node:fs, node:path, child_process, better-sqlite3
-src/features/*/shared/**            -> React or renderer components
-src/features/*/shared/**            -> Electron, Node.js, SQLite, filesystem, child processes
+```text
+any package                 -> apps/**
+apps/desktop                -> apps/workspace-host/src/**
+apps/workspace-host         -> apps/desktop/src/**
+renderer or browser package -> Electron, Node filesystem/process, SQLite, Pi, Host adapters
+packages/host-contracts     -> React, Electron, Node, Pi, SQLite, Git, persistence
+packages/pi-adapter         -> Desktop, React, Client Runtime
+any workspace consumer      -> another package's undeclared src/** path
+React/generic UI            -> Effect HttpApi, Layer, Stream, or Host service internals
 ```
 
-Avoid deep cross-feature imports. If one feature needs another feature's behavior, import from the other feature's runtime-specific public API or introduce a small orchestrator at the appropriate runtime boundary.
+Avoid deep cross-feature imports. If one feature needs another feature's behavior, use the owning runtime's small public service/interface or a focused orchestrator. Do not create a generic utility package to hide unclear ownership.
 
-## IPC Feature Flow
+## Runtime and Infrastructure Containment
 
-A typical feature read flow should look like this:
+- Effect HttpApi declarations live in Host Contracts; HttpApi server handlers and Node HTTP server runtime code stay in Workspace Host transport adapters.
+- Effect HttpApi Client and fetch transport stay inside Client Runtime.
+- Effect SQL and `node:sqlite` stay inside Workspace Host persistence adapters.
+- Pi SDK and Pi authentication storage stay inside Pi Adapter.
+- Electron APIs stay inside Desktop main/preload, except renderer-safe types explicitly defined by Desktop.
+- React stays inside Desktop renderer or a deliberately activated UI package.
+- Git and filesystem adapters return Space Zero values and typed failures, not raw process output.
 
-```txt
-Feature renderer component
-  -> feature renderer hook/client
-  -> window.spacezero.{feature}.{method}()
-  -> preload bridge
-  -> feature main IPC handler
-  -> feature main service
-  -> feature main repository/adapter
-  -> SQLite, filesystem, Git, GitHub, or agent process
-```
+## Testing Placement
 
-Example for projects:
+Co-locate focused tests with the module when that improves discoverability. Keep cross-runtime suites in explicit test areas owned by the relevant application/package.
 
-```txt
-src/features/projects/renderer/components/project-list.tsx
-src/features/projects/renderer/hooks/use-projects.ts
-src/preload/index.ts
-src/features/projects/main/projects.ipc.ts
-src/features/projects/main/projects.service.ts
-src/features/projects/main/projects.repository.ts
-src/main/db/
-```
+- Host Contracts: schema, wire compatibility, public error, and OpenAPI generation tests.
+- Client Runtime: authentication, decoding, reconnect, cursor, projection, and cancellation tests.
+- Workspace Host: headless real HTTP/SSE, real `node:sqlite`, event replay, migration, Git/worktree, recovery, and Pi Adapter integration tests.
+- Desktop renderer: Vitest/jsdom component and container tests.
+- Desktop mock-Host E2E: broad screen, navigation, accessibility, state, and screenshot coverage through real HTTP/SSE.
+- Desktop real-Host E2E: narrow bootstrap, capability, connection, restart, native integration, and quit coverage.
+- Packaged tests: private Node, built-in SQLite, Host payload, Electron fuses, architecture, startup, and signing layout.
 
-## Preload Rules
-
-Preload remains a thin bridge only.
-
-It may import shared contracts and expose narrow methods through `contextBridge.exposeInMainWorld('spacezero', api)`, but it should not contain business logic, persistence logic, filesystem operations, Git operations, agent orchestration, credentials, or database clients.
-
-## Query Files
-
-The `.query.ts` suffix is intentionally reserved. In Next.js projects, a query file often wraps server-side data fetching. In Space Zero, reads cross the Electron IPC boundary, so the team should define this pattern deliberately before using it widely.
-
-Until then, prefer:
-
-- renderer hooks or small renderer clients for UI reads,
-- main services for application read logic,
-- repositories for persistence reads,
-- IPC contracts for cross-process read shapes.
-
-## When to Add a New Feature Module
-
-Add a feature module when a product concept has, or is expected to have, behavior across multiple files or runtime surfaces.
-
-Likely feature modules for Space Zero include:
-
-```txt
-projects
-sessions
-workspace
-agents
-github
-preview
-settings
-knowledge
-```
-
-Do not introduce empty architecture folders ahead of need. Create the smallest runtime surfaces needed for the current change.
+Test-only Host launch injection must be explicit and fail closed or be absent from production builds. Mock Host scenarios conform to Host Contracts rather than replacing product behavior through IPC patches.
 
 ## Decision Checklist
 
-Before placing a new file, ask:
+Before placing a file, ask:
 
-1. Which runtime owns this code: main, preload, renderer, or shared?
-2. Is this owned by one feature, or reusable across many features?
-3. Does it import privileged APIs? If yes, it cannot be renderer or shared.
-4. Does it import React or browser UI code? If yes, it cannot be main or shared.
-5. Is it serializable contract/type/schema code only? If yes, it may belong in shared.
-6. Can another feature reuse it without understanding this feature? If yes, consider a global runtime folder.
+1. Which deployable runtime or package owns this behavior?
+2. Is this UI, client transport/projection, wire contract, Host application policy, Pi integration, persistence, or native Desktop behavior?
+3. Does authority live with Electron, Workspace Host, Pi, or the client?
+4. Is the proposed dependency direction allowed?
+5. Am I sharing a stable contract or leaking another application's implementation?
+6. Can React receive plain values instead of Effect/Host internals?
+7. Does this feature need multiple files now, or would a focused local module be clearer?
+8. Does a new package have a second concrete consumer or deployment boundary?
+9. Do security, persistence, packaging, or protocol implications require an ADR update?
 
-## ADR
+## Active ADR Basis
 
-The architectural decision behind this guide is recorded in:
+This guide implements the active architecture decisions, especially:
 
-```txt
-docs/adr/archive/v0/0004-adopt-process-aware-feature-modules.md
-```
+- ADR 0025 — separate Workspace Host and Desktop-managed Local Host lifecycle;
+- ADR 0026 — HTTP/JSON and authenticated SSE Host Protocol;
+- ADR 0027 — Effect 4 across Host architecture, not React/generic UI;
+- ADR 0028 — Host-owned SQLite and event-sourced Project Sessions;
+- ADR 0029 — one isolated worktree/conversation per initial Project Session;
+- ADR 0030 — pnpm monorepo and explicit runtime packages;
+- ADR 0032 — bootstrap, supervisor, and client capabilities;
+- ADR 0034 — Host-owned Project catalog;
+- ADR 0036 — Host, mock-Host Electron, real-Host Electron, and packaged tests; and
+- ADR 0037 — Effect HttpApi and HTTP Client implementation.
+
+Archived v0 ADRs are historical context only and are not normative for new source placement.
