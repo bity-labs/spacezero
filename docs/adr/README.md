@@ -12,6 +12,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0026-use-http-and-authenticated-sse-for-the-workspace-host-protocol.md`](0026-use-http-and-authenticated-sse-for-the-workspace-host-protocol.md)
 - [`0027-use-effect-across-the-workspace-host-architecture.md`](0027-use-effect-across-the-workspace-host-architecture.md)
 - [`0028-event-source-the-project-session-domain-in-sqlite.md`](0028-event-source-the-project-session-domain-in-sqlite.md)
+- [`0029-use-one-conversation-per-managed-worktree-project-session.md`](0029-use-one-conversation-per-managed-worktree-project-session.md)
 
 ## Historical decisions
 

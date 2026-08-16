@@ -33,6 +33,7 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 - React renderer owns UI only and must not receive raw Node.js, filesystem, process, database, or credential access.
 - Host protocol contracts use Effect Schema and must remain serializable and independent of Electron, React, Pi SDK types, and persistence implementations.
 - The Project Session domain is event-sourced in the Local Host's SQLite database; relational projections are rebuildable and Pi transcripts remain private adapter data.
+- One initial Project Session owns one Pi conversation and one authenticated managed Git worktree/branch created from the registered checkout's committed current `HEAD`; missing or inconsistent identity must fail closed.
 - Effect is used across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime. React and generic UI components remain Effect-free.
 
 ## Working Rules

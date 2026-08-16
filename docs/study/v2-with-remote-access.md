@@ -10,6 +10,8 @@ ADR 0026 accepts HTTP/JSON for commands and queries, authenticated SSE over stre
 
 ADR 0027 selects Effect across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
 
+ADR 0029 defines one initial Project Session as one Pi conversation, event aggregate, managed worktree/branch, and workflow. It branches from the registered checkout's committed current `HEAD`, uses centralized Local Host worktrees, fails closed on identity mismatch, and treats provisioning, quit, archive, deletion, and recovery as explicit durable lifecycle behavior.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.
