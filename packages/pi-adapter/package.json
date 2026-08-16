@@ -1,0 +1,19 @@
+{
+  "name": "@spacezero/pi-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {},
+  "engines": {
+    "node": "22.23.1"
+  },
+  "scripts": {
+    "build": "pnpm typecheck",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test test/package-policy.test.mjs"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.109"
+  }
+}

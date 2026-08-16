@@ -4,33 +4,48 @@ Space Zero is a local-first desktop interface for directing Pi-powered coding ag
 
 ## Status
 
-The repository currently contains the planned monorepo boundaries and architecture documentation only. Applications, packages, workspace tooling, and release automation will be introduced incrementally through verified vertical slices.
+This repository now has the first executable initialization slice:
 
-The previous implementation is preserved on the `v0` branch.
+- pnpm `10.28.1` workspace pinned to Node.js `22.23.1`;
+- strict ESM TypeScript configuration;
+- minimal Electron/React Desktop shell with a narrow app-version preload boundary;
+- independently runnable ordinary-Node Workspace Host lifecycle shell;
+- empty browser-safe Host Contracts and Client Runtime package entrypoints with import smoke tests; and
+- metadata/config-only Pi Adapter package with no Pi SDK dependency.
 
-## Planned repository shape
+Deferred: Host protocol endpoints or metadata, authentication/capabilities, SQLite persistence, Projects, Sessions, Git/worktrees, Pi implementation, private-Node release packaging, Handbook, shared UI package, Storybook, Nx, and Turborepo.
+
+## Commands
+
+```bash
+pnpm install
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm test:e2e
+pnpm build
+pnpm clean
+```
+
+Use focused filters for individual workspaces, for example `pnpm --filter @spacezero/workspace-host build`.
+
+## Workspace shape
 
 ```text
 apps/
   desktop/          Electron shell and first Space Zero client
-  workspace-host/   Headless Pi-powered workspace service
-  handbook/         Private Fumadocs engineering handbook
+  workspace-host/   Headless ordinary-Node workspace host shell
+  handbook/         Inactive README placeholder
 packages/
-  host-contracts/   Stable client/host protocol
-  client-runtime/   Shared connection and projection behavior
-  pi-adapter/       Boundary around the Pi SDK
-  ui/               Browser-safe React components and Storybook
-scripts/            Repository automation
-tests/              Cross-application and packaged-system verification
+  host-contracts/   Empty browser-safe package entrypoint for future contracts
+  client-runtime/   Empty browser-safe package entrypoint for future client runtime
+  pi-adapter/       Metadata/config/test setup only; no Pi SDK yet
+  ui/               Inactive README placeholder
+scripts/            Repository automation and boundary checks
 ```
-
-Each placeholder directory contains a README describing its intended responsibility. A directory becomes an implementation workspace only when the active delivery slice requires it.
 
 ## Documentation
 
 - `docs/` is the normative source of truth for agents and engineering work.
-- `apps/handbook/` will explain the system as a private, human-oriented Fumadocs site.
 - `.agents/` contains reusable agent workflows.
 - `AGENTS.md` defines repository navigation and working rules.
-
-The retained V1 documentation is being audited. ADR status, coding standards, architecture guidance, and skills must not be assumed to describe v0.1 until they have been explicitly retained, amended, or superseded.

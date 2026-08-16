@@ -1,7 +1,7 @@
 # Workspace Host
 
-This directory will contain the independently executable, headless Workspace Host.
+Minimal active ordinary-Node Workspace Host shell for the initialization slice.
 
-The host will use exact-pinned Effect `4.0.0-rc.109` for HttpApi/Node HTTP serving, application services, typed failures, resource scopes, concurrency, persistence, and typed SSE streams. It owns authenticated client connections, the Host-local Project catalog, Pi-powered agent execution, an event-sourced Project Session domain backed by Effect `4.0.0-rc.109` `@effect/sql-sqlite-node` and private Node's built-in `node:sqlite`, isolated project workspaces, Workspace Tools, Git operations, process supervision, and client-facing projections. It must run and be testable without Electron.
+It builds to strict ESM with TypeScript and runs under normal Node.js `22.23.1` outside Electron. Startup and shutdown diagnostics identify only the process and lifecycle event. `--version` reports the package foundation version without Host Protocol semantics.
 
-The first implementation is a separate Local Host process launched under private Node.js `22.23.1` packaged with Desktop and reached over loopback. It ships as compiled strict ESM with pnpm-pruned production dependencies and required assets rather than an initial bundle; release resources are immutable, signed, integrity-checked, launched by canonical path, and given a sanitized environment. Closing the last Desktop window leaves it running, while explicitly quitting Space Zero stops local Sessions coherently and then stops the Local Host. The host remains independently runnable and testable without Electron so the same application and protocol can support future Space Zero-managed Remote Hosts.
+Deferred: HTTP/SSE Host Protocol, authentication/capabilities, SQLite, Projects, Sessions, Git/worktrees, Pi integration, Workspace Tools, private-Node deployment, production dependency pruning, and release integrity checks.

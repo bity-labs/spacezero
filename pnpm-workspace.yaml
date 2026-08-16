@@ -1,0 +1,6 @@
+packages:
+  - apps/desktop
+  - apps/workspace-host
+  - packages/host-contracts
+  - packages/client-runtime
+  - packages/pi-adapter
