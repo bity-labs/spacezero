@@ -14,7 +14,7 @@ Effect provides schemas, typed errors, services and Layers, scoped resources, st
 
 ## Decision
 
-Space Zero will use Effect as the application foundation across these boundaries:
+Space Zero will use **Effect 4** as the application foundation across these boundaries:
 
 - `packages/host-contracts`;
 - `apps/workspace-host`;
@@ -71,6 +71,14 @@ The browser-safe Client Runtime uses Effect internally for:
 
 The Client Runtime exposes a small framework-neutral boundary so React does not need to execute Effects directly or store Effect runtime objects in component state.
 
+### Version policy
+
+Space Zero uses the Effect 4 line even while it remains beta. The root workspace pins one exact validated Effect 4 beta release and exact compatible versions of Effect platform, SQL, testing, and related packages. Version ranges and independently drifting Effect package versions are not allowed.
+
+Effect upgrades are dedicated changes that include typecheck, unit, integration, real-SQLite, Host protocol, Electron, and packaged Local Host validation. The project does not track every beta automatically.
+
+When Effect 4 reaches stable, migration from the pinned beta is handled as an explicit validated upgrade rather than assumed compatible.
+
 ### Platform and unstable APIs
 
 Effect HTTP, SSE, database, or platform integrations are infrastructure details. Unstable APIs must be isolated behind narrow adapters. Domain services and Host Contracts must not depend on unstable transport-specific types.
@@ -87,7 +95,8 @@ Using Effect Schema as the contract source reduces drift between static TypeScri
 
 ## Consequences
 
-- Effect becomes an approved runtime dependency for the Host architecture and Client Runtime.
+- Effect 4 beta becomes an approved, exact-pinned runtime dependency for the Host architecture and Client Runtime.
+- Beta API changes are absorbed through deliberate workspace-wide upgrades and adapter boundaries.
 - Engineers and agents working in these packages must follow consistent Effect service, error, Layer, scope, and testing conventions.
 - Repository tooling must prevent multiple incompatible Effect versions.
 - Contract schemas can drive runtime decoding and, where needed, generated protocol documentation.
@@ -109,5 +118,6 @@ Revisit this decision if:
 
 - Effect materially obstructs browser, mobile, Electron, or packaged Host compatibility;
 - unstable APIs leak beyond adapters despite enforcement;
+- Effect 4 beta churn creates unacceptable implementation or maintenance cost;
 - the runtime introduces unacceptable bundle, startup, debugging, or maintenance cost; or
 - concrete implementation evidence shows simpler TypeScript primitives provide stronger reliability for these boundaries.
