@@ -52,7 +52,7 @@ The initial supported runtime is Node.js 22 LTS, pinned to `22.23.1` for the imp
 
 Node patch or major upgrades are dedicated dependency changes with Pi, Effect, SQLite/native-module, protocol, restart-recovery, and packaged Host validation.
 
-Host-native modules, including `better-sqlite3`, build for Node `22.23.1` and its normal Node ABI rather than Electron's ABI. Electron main and renderer never load Host-native modules.
+The initial SQLite adapter uses Node `22.23.1`'s built-in `node:sqlite`, so it requires no separate native module or ABI rebuild. Any future Host-native modules build for the private runtime's normal Node ABI rather than Electron's ABI. Electron main and renderer never load Host-native modules.
 
 The private Node runtime, Host bundle, native modules, and required assets must be included in signing, notarization, architecture, and packaged smoke verification.
 
