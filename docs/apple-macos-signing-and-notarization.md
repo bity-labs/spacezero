@@ -2,7 +2,7 @@
 
 This document records how Space Zero's Apple release credentials were created, where they belong, and how GitHub Actions uses them to produce trusted public macOS beta releases.
 
-For the release procedure itself, see [`macos-beta-release.md`](./macos-beta-release.md). The architectural decision is recorded in [ADR 0018](./adr/0018-public-macos-beta-distribution-updates-and-license-activation.md).
+For the release procedure itself, see [`macos-beta-release.md`](./macos-beta-release.md). The architectural decision is recorded in [ADR 0018](./adr/archive/v0/0018-public-macos-beta-distribution-updates-and-license-activation.md).
 
 ## Why two Apple credentials are required
 
