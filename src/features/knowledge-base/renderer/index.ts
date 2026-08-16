@@ -1,5 +1,0 @@
-export * from './knowledge-base-configured-screen'
-export * from './knowledge-base-page'
-export * from './knowledge-base-rich-editor'
-export * from './knowledge-base-setup-screen'
-export * from './knowledge-base-unavailable-screen'
