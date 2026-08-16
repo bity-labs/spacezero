@@ -14,10 +14,10 @@ Space Zero is a Pi-first agentic desktop workspace. `docs/context.md` fixes Pi a
 
 Prior decisions constrain how Pi may be integrated:
 
-- `docs/adr/0001-use-electron-for-the-desktop-shell.md` — Electron is the v0 desktop shell.
-- `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md` — renderer is UI only; preload exposes the only renderer-facing desktop API as `window.spacezero`; privileged work crosses typed IPC into main.
-- `docs/adr/0003-store-local-app-state-in-sqlite-from-the-main-process.md` — SQLite and app persistence live in main behind typed IPC.
-- `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md` — agents operate the app through typed Workspace Tools that route into main-process application services; no backdoors into SQLite, IPC, or renderer internals.
+- `docs/adr/archive/v0/0001-use-electron-for-the-desktop-shell.md` — Electron is the v0 desktop shell.
+- `docs/adr/archive/v0/0002-secure-electron-process-boundaries-and-typed-ipc.md` — renderer is UI only; preload exposes the only renderer-facing desktop API as `window.spacezero`; privileged work crosses typed IPC into main.
+- `docs/adr/archive/v0/0003-store-local-app-state-in-sqlite-from-the-main-process.md` — SQLite and app persistence live in main behind typed IPC.
+- `docs/adr/archive/v0/0005-use-workspace-tools-as-the-agent-application-control-plane.md` — agents operate the app through typed Workspace Tools that route into main-process application services; no backdoors into SQLite, IPC, or renderer internals.
 
 The Pi project is a monorepo (`@earendil-works/pi-*`) with five packages. The relevant surface for Space Zero is:
 
@@ -97,7 +97,7 @@ Pi owns LLM provider credentials and the model catalog inside the utility proces
 
 Pi's `SessionManager` / `SettingsManager` / `DefaultResourceLoader` are used only inside the utility process for the agent's own conversation transcript and runtime config. They are not the source of truth for Space Zero's project/session model. Space Zero's SQLite (per ADR 0003) owns the higher-level project ↔ session ↔ branch metadata and the link to the Pi transcript path. Pi's session storage is the source of truth only for the agent transcript.
 
-Pi's broad auto-discovery of extensions, prompt templates, and themes from `~/.pi` and `.pi` is not used for v0 composition. Agent Skills are the exception: Space Zero explicitly composes approved native and standard skill directories and uses Pi's native `/skill:name` expansion. Space Zero registers Workspace Tools and any Pi extensions programmatically via the SDK so the app controls exactly what the agent can do. See `docs/adr/0010-use-agent-skills-from-space-zero-and-standard-scopes.md`.
+Pi's broad auto-discovery of extensions, prompt templates, and themes from `~/.pi` and `.pi` is not used for v0 composition. Agent Skills are the exception: Space Zero explicitly composes approved native and standard skill directories and uses Pi's native `/skill:name` expansion. Space Zero registers Workspace Tools and any Pi extensions programmatically via the SDK so the app controls exactly what the agent can do. See `docs/adr/archive/v0/0010-use-agent-skills-from-space-zero-and-standard-scopes.md`.
 
 ## Rationale
 

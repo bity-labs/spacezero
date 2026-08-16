@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-Space Zero sessions are configured per session: each starts from a workspace-global default model and thinking level and may override both (`docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`). There is no way to capture a reusable agent setup — a role, its instructions, its model, its tool surface — and apply it repeatedly.
+Space Zero sessions are configured per session: each starts from a workspace-global default model and thinking level and may override both (`docs/adr/archive/v0/0006-pi-agent-harness-in-utility-process-via-sdk.md`). There is no way to capture a reusable agent setup — a role, its instructions, its model, its tool surface — and apply it repeatedly.
 
 Builders need exactly that, in two situations:
 
@@ -18,9 +18,9 @@ Builders need exactly that, in two situations:
 Prior decisions constrain the shape:
 
 - `docs/adr/0006` — Pi runs in a utility process; Space Zero composes Pi resources programmatically and keeps Pi's broad auto-discovery disabled; the utility holds a `Map<sessionId, AgentSession>` with many sessions live concurrently.
-- `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md` — agents operate Space Zero app state through Workspace Tools routed into main-process application services.
-- `docs/adr/0009-user-configurable-space-zero-home.md` — user-owned Space Zero resources live under a configurable Space Zero Home.
-- `docs/adr/0010-use-agent-skills-from-space-zero-and-standard-scopes.md` — reusable agent resources are markdown discovered from layered scopes (project `.agents/…`, Space Zero Home, `~/.agents/…`) with most-specific-wins precedence and collision diagnostics.
+- `docs/adr/archive/v0/0005-use-workspace-tools-as-the-agent-application-control-plane.md` — agents operate Space Zero app state through Workspace Tools routed into main-process application services.
+- `docs/adr/archive/v0/0009-user-configurable-space-zero-home.md` — user-owned Space Zero resources live under a configurable Space Zero Home.
+- `docs/adr/archive/v0/0010-use-agent-skills-from-space-zero-and-standard-scopes.md` — reusable agent resources are markdown discovered from layered scopes (project `.agents/…`, Space Zero Home, `~/.agents/…`) with most-specific-wins precedence and collision diagnostics.
 
 The Pi SDK already supports per-session model, thinking level, tool allowlists, custom tools, and system-prompt composition (including `appendSystemPrompt`) — but has no subagent primitive. The oh-my-pi fork (`github.com/can1357/oh-my-pi`) demonstrates a proven subagent contract on the same foundations: markdown agent definitions with YAML frontmatter, a `task` delegation tool with per-item agent selection, `spawns` nesting policy, structured output schemas, async spawns, and worktree isolation.
 

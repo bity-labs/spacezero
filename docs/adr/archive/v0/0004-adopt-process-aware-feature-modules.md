@@ -80,8 +80,8 @@ This combines the useful parts of feature-based architecture with Electron's sec
 
 The structure also matches Space Zero's accepted process-boundary decisions:
 
-- `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md`
-- `docs/adr/0003-store-local-app-state-in-sqlite-from-the-main-process.md`
+- `docs/adr/archive/v0/0002-secure-electron-process-boundaries-and-typed-ipc.md`
+- `docs/adr/archive/v0/0003-store-local-app-state-in-sqlite-from-the-main-process.md`
 
 ## Consequences
 

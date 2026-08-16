@@ -12,9 +12,9 @@ Space Zero is an agentic desktop workspace. It will let builders manage projects
 
 These capabilities are powerful because they can mutate local app state, touch local repositories, orchestrate sessions, and control desktop UI. Existing decisions require strict Electron process boundaries and typed IPC:
 
-- `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md`
-- `docs/adr/0003-store-local-app-state-in-sqlite-from-the-main-process.md`
-- `docs/adr/0004-adopt-process-aware-feature-modules.md`
+- `docs/adr/archive/v0/0002-secure-electron-process-boundaries-and-typed-ipc.md`
+- `docs/adr/archive/v0/0003-store-local-app-state-in-sqlite-from-the-main-process.md`
+- `docs/adr/archive/v0/0004-adopt-process-aware-feature-modules.md`
 
 The agent must not receive backdoors into SQLite, renderer internals, raw IPC, filesystem access, or privileged app internals. At the same time, features should be built so meaningful app capabilities can be reached by both human UI flows and agent-driven flows without duplicating business logic.
 

@@ -420,5 +420,5 @@ Before placing a new file, ask:
 The architectural decision behind this guide is recorded in:
 
 ```txt
-docs/adr/0004-adopt-process-aware-feature-modules.md
+docs/adr/archive/v0/0004-adopt-process-aware-feature-modules.md
 ```

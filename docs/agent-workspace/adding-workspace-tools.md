@@ -7,7 +7,7 @@ that route into the same main-process application services used by the renderer
 UI.
 
 This guide explains how a feature exposes Workspace Tools. It implements the
-decision in `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md`.
+decision in `docs/adr/archive/v0/0005-use-workspace-tools-as-the-agent-application-control-plane.md`.
 
 ## Concepts
 
