@@ -29,7 +29,7 @@ Tests prefer public behavior and injected boundary adapters over private helper 
 Headless Host integration tests run without Electron through real HTTP and authenticated SSE. They use:
 
 - temporary Host application-data directories;
-- real `@effect/sql-sqlite-node` and `better-sqlite3` databases;
+- real `@effect/sql-sqlite-node` databases using private Node's built-in `node:sqlite`;
 - real migrations, foreign keys, WAL, transactions, event append, and projection rebuilds;
 - temporary Git repositories and managed worktrees; and
 - deterministic Pi Adapter fakes for domain and protocol behavior.
@@ -72,7 +72,7 @@ Packaged tests verify the signed layout and runtime rather than only development
 
 - private Node `22.23.1` presence and architecture;
 - Workspace Host bundle and assets;
-- `better-sqlite3` Node ABI and database startup;
+- built-in `node:sqlite` availability/version, backup support, and database startup;
 - Electron fuse and ASAR hardening;
 - Host bootstrap and liveness from the packaged Desktop; and
 - signing/notarization structure where the environment permits verification.

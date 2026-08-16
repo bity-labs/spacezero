@@ -26,15 +26,15 @@ The Local Host owns one private SQLite database in the operating system applicat
 - command receipts provide idempotency for retryable mutations; and
 - projector progress and schema migrations are recorded explicitly.
 
-SQLite uses `@effect/sql` and the exact Effect 4-compatible `@effect/sql-sqlite-node` adapter over `better-sqlite3`. It enables foreign keys and WAL, uses numbered transactional migrations, and keeps the driver behind a narrow Host persistence Layer. Database files, temporary files, and credentials never live inside Project worktrees.
+SQLite uses `@effect/sql` and exact-pinned Effect `4.0.0-rc.109` `@effect/sql-sqlite-node` over Node's built-in `node:sqlite`. It enables foreign keys and WAL, uses numbered transactional migrations, and keeps the driver behind a narrow Host persistence Layer. Database files, temporary files, and credentials never live inside Project worktrees.
 
 ### Driver and packaging
 
-`@effect/sql-sqlite-node`, `better-sqlite3`, and the broader Effect package set use exact compatible workspace-wide versions. The native `better-sqlite3` binary targets the private pinned Node runtime's normal Node ABI rather than Electron's ABI.
+The current Effect 4 release-candidate adapter uses built-in `node:sqlite` and requires Node `22.16` or newer. The accepted private Node `22.23.1` runtime supplies the SQLite implementation, so the initial Host does not package a separate `better-sqlite3` native module or Electron/Node ABI rebuild.
 
-Release builds produce and verify native artifacts for every supported platform and architecture. Headless Host integration tests use the real adapter and SQLite engine; SQL correctness and migrations are not validated only through mocks or string inspection.
+Release builds verify the private Node version, built-in SQLite availability and version, database startup, backup support, WAL, foreign keys, migrations, and restart behavior on every supported platform and architecture. Headless Host integration tests use the real adapter and SQLite engine; SQL correctness and migrations are not validated only through mocks or string inspection.
 
-The persistence Layer contains driver-specific types so event, Session, and protocol domains do not depend directly on `better-sqlite3`.
+`node:sqlite` is synchronous, and busy waits block the Host event loop. The initial single-Host workload accepts this tradeoff while keeping transactions short and measuring contention. The persistence Layer contains adapter-specific types so event, Session, and protocol domains do not depend directly on `node:sqlite`.
 
 ### Event-sourced scope
 
@@ -131,7 +131,8 @@ Separating durable boundaries from ephemeral high-frequency deltas preserves res
 - External side effects need explicit requested, succeeded, failed, or unknown/reconciliation states where ambiguity is possible.
 - Pi transcript changes do not force client protocol changes, but Pi restore needs an explicit reconciliation adapter.
 - SQLite write throughput and event growth must be measured before Remote Host concurrency expands.
-- Native `better-sqlite3` artifacts, migrations, WAL, foreign keys, and restart behavior require packaged and real-database validation.
+- Built-in `node:sqlite` availability/version, migrations, WAL, foreign keys, backup, contention, and restart behavior require packaged and real-database validation.
+- Database work and busy waits are synchronous, so transactions must remain short and Host event-loop delay must be measured.
 - Remote storage may later use a different implementation while retaining the accepted Session semantics.
 
 ## Alternatives Considered
@@ -141,8 +142,9 @@ Separating durable boundaries from ephemeral high-frequency deltas preserves res
 - **Use a transactional SSE outbox without authoritative Session events** — simpler, but it would preserve delivery history without providing full Session reconstruction and lifecycle reasoning.
 - **Event-source the whole application** — rejected because most Desktop settings, credentials, filesystem data, Git state, and infrastructure configuration do not benefit from this model.
 - **Persist every provider token as an event** — rejected because it creates excessive write volume and an unstable event vocabulary.
+- **Keep `better-sqlite3` under the current Effect RC** — rejected because the official Node adapter moved to built-in `node:sqlite`; retaining it would require an obsolete Effect beta or a custom adapter and native packaging without a demonstrated need.
 - **Use a non-Effect SQLite wrapper directly throughout Host services** — rejected because `@effect/sql-sqlite-node` integrates the accepted driver with Effect transactions, Layers, and typed failures while containing driver details.
-- **Use SQLite mocks as the primary persistence test** — rejected because migration syntax, constraints, WAL, transactions, and native packaging require the real engine.
+- **Use SQLite mocks as the primary persistence test** — rejected because migration syntax, constraints, WAL, transactions, backup, and runtime packaging require the real engine.
 - **Select a distributed event database immediately** — rejected because the initial Local Host is one process with one local database and does not justify distributed infrastructure.
 
 ## Review Trigger
