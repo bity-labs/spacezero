@@ -149,6 +149,7 @@ The primary user is a software builder who uses AI agents while building applica
 - Local worktrees live under `<Space Zero Home>/worktrees/<project-id>/<session-id>` and never inside registered repositories.
 - Session provisioning is a durable lifecycle. Pi starts only after worktree creation and identity validation; restart recovery reconciles incomplete provisioning explicitly.
 - Desktop automatically restarts an unexpectedly crashed Local Host with bounded backoff while the app is running, using a fresh bootstrap and fresh capabilities. It never automatically replays work that may already have produced external side effects.
+- Testing follows runtime ownership: real headless Host integration covers HTTP/SSE, SQLite, Git, and recovery; broad Electron UI/navigation/screenshot E2E uses a deterministic contract-compatible mock Host; a narrow real-Host Electron suite and packaged smoke tests verify process, security, native-runtime, and shutdown boundaries.
 - Desktop quit retains managed worktrees for restoration. Archive removes the verified worktree/branch but retains history; deletion cleans resources before removing history. Failures never claim successful cleanup.
 - Remote Projects run both the agent and workspace on the Remote Host; local agent execution over SSH/SFTP-mounted remote files is not supported.
 - Future Session Handoff is local-to-remote only, starts from an idle Session, and uses an explicit checkpoint whose format remains undecided.

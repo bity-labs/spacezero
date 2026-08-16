@@ -32,6 +32,7 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 - Workspace tooling, CI, Local Host packaging, and Host-native modules standardize on Node.js `22.23.1`; public builds do not use `ELECTRON_RUN_AS_NODE` or Electron `utilityProcess` for the Host and disable unnecessary Electron Node-mode and Node-options fuses.
 - Local Host startup uses a protected one-time bootstrap secret; Electron main alone holds Host-lifetime supervisor authority, while renderer/Client Runtime receives only short-lived scoped client capabilities.
 - Desktop restarts unexpected Local Host crashes with bounded backoff, fresh bootstrap, and worktree reconciliation, but never automatically replays ambiguous turns or external side effects.
+- Test Host behavior headlessly through real HTTP/SSE, SQLite, and Git. Use a contract-compatible mock Host for broad Electron UI/navigation/screenshot E2E, with narrow real-Host Electron and packaged-runtime suites for boundary validation.
 - Electron main owns native app lifecycle, windows, secure preload APIs, updates, and Local Host process management; it does not own Project Session execution.
 - React renderer owns UI only and must not receive raw Node.js, filesystem, process, database, or credential access.
 - Host protocol contracts use Effect Schema and must remain serializable and independent of Electron, React, Pi SDK types, and persistence implementations.

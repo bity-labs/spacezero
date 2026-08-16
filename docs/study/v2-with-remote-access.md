@@ -22,6 +22,8 @@ ADR 0034 makes each Workspace Host the sole owner of its Project catalog. Deskto
 
 ADR 0035 requires Desktop to restart unexpected Local Host crashes with bounded backoff and fresh authorization, while never automatically replaying turns or external side effects whose completion is ambiguous.
 
+ADR 0036 moves domain integration testing to the headless Host boundary with real HTTP/SSE, SQLite, and Git; uses a contract-compatible mock Host for broad Electron navigation and screenshot E2E; and retains narrow real-Host Electron and packaged-runtime suites.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.
