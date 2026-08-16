@@ -148,6 +148,7 @@ The primary user is a software builder who uses AI agents while building applica
 - Session creation branches from the registered checkout's committed current `HEAD`. Dirty changes are excluded and disclosed above Chat input until the first message is submitted.
 - Local worktrees live under `<Space Zero Home>/worktrees/<project-id>/<session-id>` and never inside registered repositories.
 - Session provisioning is a durable lifecycle. Pi starts only after worktree creation and identity validation; restart recovery reconciles incomplete provisioning explicitly.
+- Desktop automatically restarts an unexpectedly crashed Local Host with bounded backoff while the app is running, using a fresh bootstrap and fresh capabilities. It never automatically replays work that may already have produced external side effects.
 - Desktop quit retains managed worktrees for restoration. Archive removes the verified worktree/branch but retains history; deletion cleans resources before removing history. Failures never claim successful cleanup.
 - Remote Projects run both the agent and workspace on the Remote Host; local agent execution over SSH/SFTP-mounted remote files is not supported.
 - Future Session Handoff is local-to-remote only, starts from an idle Session, and uses an explicit checkpoint whose format remains undecided.
