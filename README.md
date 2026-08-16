@@ -1,45 +1,36 @@
 # Space Zero
 
-The zero-friction workspace for agentic development.
+Space Zero is a local-first desktop interface for directing Pi-powered coding agents. The active `v0.1` line is a clean rebuild around a standalone, remote-ready Workspace Host and a polished desktop client.
 
-## Stack
+## Status
 
-- Electron
-- React
-- TypeScript
-- Vite via `electron-vite`
-- SQLite via `better-sqlite3`
-- Drizzle schema foundation
-- Tailwind CSS + shadcn/ui-compatible structure
-- Typed IPC through preload bridge
-- Vitest + React Testing Library
-- Playwright Electron smoke test
+The repository currently contains the planned monorepo boundaries and architecture documentation only. Applications, packages, workspace tooling, and release automation will be introduced incrementally through verified vertical slices.
 
-## Development
+The previous implementation is preserved on the `v0` branch.
 
-```bash
-pnpm install
-pnpm dev
+## Planned repository shape
+
+```text
+apps/
+  desktop/          Electron shell and first Space Zero client
+  workspace-host/   Headless Pi-powered workspace service
+  handbook/         Private Fumadocs engineering handbook
+packages/
+  host-contracts/   Stable client/host protocol
+  client-runtime/   Shared connection and projection behavior
+  pi-adapter/       Boundary around the Pi SDK
+  ui/               Browser-safe React components and Storybook
+scripts/            Repository automation
+tests/              Cross-application and packaged-system verification
 ```
 
-## Quality checks
+Each placeholder directory contains a README describing its intended responsibility. A directory becomes an implementation workspace only when the active delivery slice requires it.
 
-```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm test:e2e
-```
+## Documentation
 
-`pnpm test:e2e` builds the app, launches Electron through Playwright, and verifies the app shell, IPC bridge, and SQLite health check.
+- `docs/` is the normative source of truth for agents and engineering work.
+- `apps/handbook/` will explain the system as a private, human-oriented Fumadocs site.
+- `.agents/` contains reusable agent workflows.
+- `AGENTS.md` defines repository navigation and working rules.
 
-## Architecture
-
-```txt
-src/main      Electron main process: windows, IPC handlers, SQLite, future git/agents
-src/preload   Safe typed bridge exposed to the renderer as window.spacezero
-src/shared    Shared IPC channel names and TypeScript types
-src/renderer  React app UI
-```
-
-The renderer does not get raw Node.js access. Desktop capabilities are exposed through explicit typed IPC methods only.
+The retained V1 documentation is being audited. ADR status, coding standards, architecture guidance, and skills must not be assumed to describe v0.1 until they have been explicitly retained, amended, or superseded.
