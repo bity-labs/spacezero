@@ -28,8 +28,8 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 ## Current Architecture Snapshot
 
 - Space Zero v0.1 uses a separately executable Workspace Host for the Project catalog, Project Session execution, Pi integration, Session workspaces, Git operations, and durable Session state.
-- The initial Local Host is a separate process managed by Electron Desktop, run under a packaged private pinned Node runtime, and reached over an authenticated loopback protocol.
-- Public builds do not use `ELECTRON_RUN_AS_NODE` or Electron `utilityProcess` for the Host and disable unnecessary Electron Node-mode and Node-options fuses.
+- The initial Local Host is a separate process managed by Electron Desktop, run under packaged private Node.js `22.23.1`, and reached over an authenticated loopback protocol.
+- Workspace tooling, CI, Local Host packaging, and Host-native modules standardize on Node.js `22.23.1`; public builds do not use `ELECTRON_RUN_AS_NODE` or Electron `utilityProcess` for the Host and disable unnecessary Electron Node-mode and Node-options fuses.
 - Local Host startup uses a protected one-time bootstrap secret; Electron main alone holds Host-lifetime supervisor authority, while renderer/Client Runtime receives only short-lived scoped client capabilities.
 - Desktop restarts unexpected Local Host crashes with bounded backoff, fresh bootstrap, and worktree reconciliation, but never automatically replays ambiguous turns or external side effects.
 - Electron main owns native app lifecycle, windows, secure preload APIs, updates, and Local Host process management; it does not own Project Session execution.
