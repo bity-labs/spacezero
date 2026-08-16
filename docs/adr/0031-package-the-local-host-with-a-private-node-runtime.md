@@ -28,7 +28,7 @@ Space Zero.app
 
 Exact resource paths may vary by platform, but the runtime and Host bundle remain outside renderer authority and are treated as a versioned signed payload.
 
-The same Workspace Host application bundle must run and be testable with ordinary Node outside Electron. Future Remote Hosts use the supported Node runtime line without depending on Electron.
+The same Workspace Host application deployment must run and be testable with ordinary Node outside Electron. ADR 0038 packages it as compiled ESM plus a pruned production dependency tree rather than a bundled executable. Future Remote Hosts use the supported Node runtime line without depending on Electron.
 
 ### Security boundary
 

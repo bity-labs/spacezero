@@ -70,11 +70,12 @@ A smaller Electron integration suite launches the real Local Host and verifies o
 
 Packaged tests verify the signed layout and runtime rather than only development builds. They cover:
 
-- private Node `22.23.1` presence and architecture;
-- Workspace Host bundle and assets;
+- private Node `22.23.1` provenance, checksum baseline, presence, signing, and architecture;
+- Workspace Host compiled ESM, production dependency tree, required assets, and integrity manifest;
 - built-in `node:sqlite` availability/version, backup support, and database startup;
 - Electron fuse and ASAR hardening;
 - Host bootstrap and liveness from the packaged Desktop; and
+- sanitized launch environment and canonical deployment paths; and
 - signing/notarization structure where the environment permits verification.
 
 ## Rationale
