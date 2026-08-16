@@ -8,7 +8,7 @@ ADR 0025 supersedes this study where they differ on Workspace Host deployments a
 
 ADR 0026 accepts HTTP/JSON for commands and queries, authenticated SSE over streaming `fetch()` for ordered events, and short-lived scoped bearer capabilities for local and future remote client sessions. A universal WebSocket protocol is not selected for the initial implementation.
 
-ADR 0027 selects exact-pinned Effect 4 beta packages across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
+ADR 0027 selects exact-pinned Effect 4 beta packages across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain using exact-pinned Effect 4 `@effect/sql-sqlite-node` over `better-sqlite3`, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
 
 ADR 0029 defines one initial Project Session as one Pi conversation, event aggregate, managed worktree/branch, and workflow. It branches from the registered checkout's committed current `HEAD`, uses centralized Local Host worktrees, fails closed on identity mismatch, and treats provisioning, quit, archive, deletion, and recovery as explicit durable lifecycle behavior.
 
