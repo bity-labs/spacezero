@@ -7,7 +7,12 @@ const descriptor = {
   protocolVersion: "1" as const,
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
-  scopes: ["host:connection:read", "host:events:subscribe"] as const,
+  scopes: [
+    "host:connection:read",
+    "host:events:subscribe",
+    "projects:read",
+    "projects:register",
+  ] as const,
 };
 const sse = (): ReadableStream<Uint8Array> =>
   new ReadableStream({

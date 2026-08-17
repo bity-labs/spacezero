@@ -38,7 +38,11 @@ test("real Desktop reaches real Local Host query and SSE, then reconnects after 
     await page.reload();
     await expect(page.getByText("connected")).toBeVisible({ timeout: 10000 });
     const keys = await page.evaluate(() => Object.keys(window.spacezero));
-    expect(keys).toEqual(["getAppVersion", "getLocalHostConnection"]);
+    expect(keys).toEqual([
+      "getAppVersion",
+      "getLocalHostConnection",
+      "selectProjectFolder",
+    ]);
   } finally {
     await closeApp(app);
   }

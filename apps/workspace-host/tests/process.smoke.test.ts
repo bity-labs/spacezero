@@ -1,6 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   HOST_PROTOCOL_VERSION,
   type LocalHostBootstrapFrame,
@@ -12,8 +14,19 @@ import {
   waitForProcessExit,
 } from "./process-helpers.js";
 
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
+  );
+});
+
 const startHost = async () => {
+  const hostDataDir = await mkdtemp(join(tmpdir(), "spacezero-process-smoke-"));
+  tempDirs.push(hostDataDir);
   const child = spawn(process.execPath, [join(process.cwd(), "dist/main.js")], {
+    cwd: hostDataDir,
     stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", "pipe"],
   }) as ChildProcess & { readonly stdio: readonly unknown[] };
   const bootstrapSecret = "test-secret-abcdefghijklmnopqrstuvwxyz0123456789";

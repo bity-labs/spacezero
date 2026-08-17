@@ -1,9 +1,14 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { HostConnectionDescriptor } from "@spacezero/host-contracts";
 
+type ProjectFolderPickerResult =
+  | { readonly status: "selected"; readonly path: string }
+  | { readonly status: "cancelled" };
+
 export interface SpaceZeroPreloadApi {
   readonly getAppVersion: () => Promise<string>;
   readonly getLocalHostConnection: () => Promise<HostConnectionDescriptor>;
+  readonly selectProjectFolder: () => Promise<ProjectFolderPickerResult>;
 }
 
 const api: SpaceZeroPreloadApi = Object.freeze({
@@ -13,6 +18,10 @@ const api: SpaceZeroPreloadApi = Object.freeze({
     ipcRenderer.invoke(
       "spacezero:get-local-host-connection",
     ) as Promise<HostConnectionDescriptor>,
+  selectProjectFolder: () =>
+    ipcRenderer.invoke(
+      "spacezero:select-project-folder",
+    ) as Promise<ProjectFolderPickerResult>,
 });
 
 contextBridge.exposeInMainWorld("spacezero", api);

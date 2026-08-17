@@ -7,6 +7,8 @@ describe("host-contracts public surface", () => {
     expect(hostContracts.LOCAL_HOST_CLIENT_SCOPES).toEqual([
       "host:connection:read",
       "host:events:subscribe",
+      "projects:read",
+      "projects:register",
     ]);
     expect(hostContracts.HostApi).toBeDefined();
   });
