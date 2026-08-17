@@ -10,7 +10,12 @@ const descriptor = {
   protocolVersion: "1",
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: "2026-01-01T00:00:00.000Z",
-  scopes: ["host:connection:read", "host:events:subscribe"],
+  scopes: [
+    "host:connection:read",
+    "host:events:subscribe",
+    "projects:read",
+    "projects:register",
+  ],
 };
 
 describe("host connection schemas", () => {

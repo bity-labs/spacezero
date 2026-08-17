@@ -60,7 +60,11 @@ test("desktop launches with renderer isolation, narrow preload, and non-null ren
     expect(isolation).toEqual({
       hasProcess: false,
       hasRequire: false,
-      apiKeys: ["getAppVersion", "getLocalHostConnection"],
+      apiKeys: [
+        "getAppVersion",
+        "getLocalHostConnection",
+        "selectProjectFolder",
+      ],
       storage: { local: 0, session: 0 },
     });
   } finally {

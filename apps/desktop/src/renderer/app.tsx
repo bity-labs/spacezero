@@ -1,5 +1,6 @@
 import { createLocalHostConnectionClient } from "@spacezero/client-runtime";
 import { useEffect, useState, type ReactElement } from "react";
+import { ProjectsContainer } from "./features/projects/projects-container.js";
 
 export const App = (): ReactElement => {
   const [version, setVersion] = useState("loading");
@@ -41,6 +42,7 @@ export const App = (): ReactElement => {
           <dd>{hostStatus}</dd>
         </div>
       </dl>
+      {hostStatus === "connected" ? <ProjectsContainer /> : null}
     </main>
   );
 };

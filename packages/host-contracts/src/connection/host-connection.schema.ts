@@ -4,6 +4,8 @@ export const HOST_PROTOCOL_VERSION = "1" as const;
 export const LOCAL_HOST_CLIENT_SCOPES = [
   "host:connection:read",
   "host:events:subscribe",
+  "projects:read",
+  "projects:register",
 ] as const;
 export type LocalHostClientScope = (typeof LOCAL_HOST_CLIENT_SCOPES)[number];
 export type HostConnectionStatus = "ready";
@@ -56,6 +58,8 @@ export const HostConnectionDescriptorSchema = Schema.Struct({
   scopes: Schema.Tuple([
     Schema.Literals(["host:connection:read"]),
     Schema.Literals(["host:events:subscribe"]),
+    Schema.Literals(["projects:read"]),
+    Schema.Literals(["projects:register"]),
   ]),
 });
 
@@ -78,9 +82,8 @@ export const isLoopbackHttpEndpoint = (value: string): boolean => {
 export const isExactClientScopes = (
   value: readonly unknown[],
 ): value is typeof LOCAL_HOST_CLIENT_SCOPES =>
-  value.length === 2 &&
-  value[0] === LOCAL_HOST_CLIENT_SCOPES[0] &&
-  value[1] === LOCAL_HOST_CLIENT_SCOPES[1];
+  value.length === LOCAL_HOST_CLIENT_SCOPES.length &&
+  value.every((scope, index) => scope === LOCAL_HOST_CLIENT_SCOPES[index]);
 
 export function parseHostConnectionDescriptor(
   value: unknown,

@@ -4,17 +4,18 @@ Space Zero is a local-first desktop interface for directing Pi-powered coding ag
 
 ## Status
 
-This repository now includes the authenticated Local Host connectivity tracer:
+This repository now includes the authenticated Local Host connectivity tracer and initial Host-owned Project catalog:
 
 - pnpm `10.28.1` workspace pinned to Node.js `22.23.1`;
 - strict ESM TypeScript configuration;
 - secure Electron/React Desktop with a standard `spacezero://renderer` origin;
 - protected inherited-pipe bootstrap and Desktop-owned Local Host lifecycle;
 - Host-instance supervisor and short-lived scoped client capabilities;
-- Effect HttpApi query and authenticated typed SSE connectivity through Client Runtime; and
+- Effect HttpApi query and authenticated typed SSE connectivity through Client Runtime;
+- Host-owned SQLite Project catalog with canonical Git repository registration/listing; and
 - metadata/config-only Pi Adapter with no Pi SDK dependency.
 
-Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, SQLite persistence, Projects, Sessions, Git/worktrees, Pi implementation, Handbook, shared UI, and Storybook.
+Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, Project Sessions, managed worktrees, Pi implementation, Handbook, shared UI, and Storybook.
 
 ## Commands
 

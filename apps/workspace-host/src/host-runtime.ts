@@ -21,10 +21,18 @@ export const formatHostDiagnostic = (event: HostDiagnostic["event"]): string =>
   JSON.stringify({ process: "workspace-host", event } satisfies HostDiagnostic);
 
 export const runProtectedHost = async (
-  options = { bootstrapFd: 3, readyFd: 4, lifetimeFd: 5 },
+  options: {
+    readonly bootstrapFd?: number;
+    readonly readyFd?: number;
+    readonly lifetimeFd?: number;
+    readonly databasePath?: string;
+  } = {},
 ): Promise<void> => {
+  const bootstrapFd = options.bootstrapFd ?? 3;
+  const readyFd = options.readyFd ?? 4;
+  const lifetimeFd = options.lifetimeFd ?? 5;
   const deadlineMs = Date.now() + 10_000;
-  const rawFrame = await readBoundedJsonFrame(options.bootstrapFd);
+  const rawFrame = await readBoundedJsonFrame(bootstrapFd);
   const frame = parseBootstrapFrameForAuthority(rawFrame);
   const bootstrap = createBootstrapAuthority({ frame, deadlineMs });
   let resolveHttpShutdown!: () => void;
@@ -38,16 +46,17 @@ export const runProtectedHost = async (
   const onSignal = (): void => {
     resolveSignal();
   };
-  const lifetime = waitForLifetimeEnd(options.lifetimeFd);
+  const lifetime = waitForLifetimeEnd(lifetimeFd);
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
   const host = await startHostServer({
     allowedRendererOrigin: frame.allowedRendererOrigin,
     bootstrap,
     onShutdown: resolveHttpShutdown,
+    ...(options.databasePath ? { databasePath: options.databasePath } : {}),
   });
   await writeJsonFrame(
-    options.readyFd,
+    readyFd,
     parseLocalHostReadyFrame({
       endpoint: host.endpoint,
       instanceId: host.instanceId,

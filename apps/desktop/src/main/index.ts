@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { installAppLifecycle } from "./app-lifecycle.js";
 import { registerLocalHostIpc } from "./local-host/local-host.ipc.js";
+import { registerProjectFolderPickerIpc } from "./project-folder-picker.ipc.js";
 import { createLocalHostSupervisor } from "./local-host/local-host-supervisor.js";
 import { createTrustedRendererPolicy } from "./navigation-policy.js";
 import {
@@ -58,6 +59,9 @@ app.whenReady().then(async () => {
     .start(rendererPolicy.allowedRendererOrigin)
     .catch(() => undefined);
   registerRendererProtocol(rendererRoot, supervisor.endpoint());
+  registerProjectFolderPickerIpc({
+    isTrustedSender: (url) => rendererPolicy.canNavigateInWindow(url),
+  });
   createWindow();
 });
 installAppLifecycle(app, createWindow, supervisor);

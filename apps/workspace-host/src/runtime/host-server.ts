@@ -1,6 +1,7 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
+import { join } from "node:path";
 import { Effect, Exit, Layer, Scope, Stream } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -10,9 +11,16 @@ import {
   HostApi,
   parseHostConnectedEvent,
   parseHostConnectionSnapshot,
+  projectErrorBody,
   type HostAuthorizationError,
   type HostConnectedEvent,
+  type ProjectCatalogError,
 } from "@spacezero/host-contracts";
+import {
+  createProjectCatalog,
+  ProjectServiceError,
+} from "../features/projects/projects.service.js";
+import { runHostDatabaseMigrations } from "./host-database.js";
 import {
   createCapabilityService,
   type CapabilityService,
@@ -29,7 +37,12 @@ export interface StartedHostServer {
   readonly stop: () => Promise<void>;
 }
 
-type Scope = "supervisor" | "host:connection:read" | "host:events:subscribe";
+type AuthScope =
+  | "supervisor"
+  | "host:connection:read"
+  | "host:events:subscribe"
+  | "projects:read"
+  | "projects:register";
 
 const instanceId = (): string => randomBytes(16).toString("hex");
 const bearerValue = (authorization: string | undefined): string | undefined => {
@@ -44,7 +57,7 @@ const exactAllowedOrigin = (
 const auth = (
   authorization: string | undefined,
   cap: CapabilityService,
-  scope: Scope,
+  scope: AuthScope,
   allowedRendererOrigin: string,
   origin?: string,
 ): void => {
@@ -60,22 +73,40 @@ const auth = (
   if (origin && !exactAllowedOrigin(origin, allowedRendererOrigin))
     throw authorizationError("forbidden");
 };
-const effectTry = <A>(run: () => A): Effect.Effect<A, HostAuthorizationError> =>
+const effectTry = <A, E = HostAuthorizationError>(
+  run: () => A,
+): Effect.Effect<A, E> =>
   Effect.suspend(() => {
     try {
       return Effect.succeed(run());
     } catch (error) {
-      return Effect.fail(error as HostAuthorizationError);
+      return Effect.fail(error as E);
     }
   });
+const effectPromise = <A, E>(
+  run: (signal: AbortSignal) => Promise<A>,
+): Effect.Effect<A, E> =>
+  Effect.tryPromise({
+    try: run,
+    catch: (error) => error as E,
+  });
+const projectHttpError = (error: unknown): ProjectCatalogError => {
+  if (error instanceof ProjectServiceError) return projectErrorBody(error.code);
+  return projectErrorBody("project_catalog_unavailable");
+};
 export const startHostServer = async (options: {
   readonly allowedRendererOrigin: string;
   readonly bootstrap: BootstrapAuthority;
   readonly onShutdown?: () => void;
+  readonly databasePath?: string;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
   const id = instanceId();
   const state: { cap?: CapabilityService } = {};
+  const databasePath =
+    options.databasePath ?? join(process.cwd(), "workspace-host.sqlite");
+  await Effect.runPromise(runHostDatabaseMigrations(databasePath));
+  const projectCatalog = createProjectCatalog(databasePath);
 
   const bootstrapHandlers = HttpApiBuilder.group(
     HostApi,
@@ -159,17 +190,61 @@ export const startHostServer = async (options: {
         }),
     }),
   );
+  const projectHandlers = HttpApiBuilder.group(
+    HostApi,
+    "projects",
+    (handlers) =>
+      handlers.handleAll({
+        registerProject: ({ headers, request, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "projects:register",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise((signal) =>
+            projectCatalog.register(payload, signal),
+          ).pipe(Effect.mapError(projectHttpError));
+        },
+        listProjects: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "projects:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => projectCatalog.list()).pipe(
+            Effect.mapError(projectHttpError),
+          );
+        },
+      }),
+  );
   const cors = HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => origin === options.allowedRendererOrigin,
       allowedMethods: ["GET", "POST"],
-      allowedHeaders: ["authorization"],
+      allowedHeaders: ["authorization", "content-type"],
     }),
     { global: true },
   );
   const routes = Layer.mergeAll(
     HttpApiBuilder.layer(HostApi, { openapiPath: "/openapi.json" }).pipe(
-      Layer.provide([bootstrapHandlers, connectionHandlers, adminHandlers]),
+      Layer.provide([
+        bootstrapHandlers,
+        connectionHandlers,
+        adminHandlers,
+        projectHandlers,
+      ]),
     ),
     cors,
   );

@@ -21,6 +21,8 @@ describe("capability service", () => {
     expect(client.scopes).toEqual([
       "host:connection:read",
       "host:events:subscribe",
+      "projects:read",
+      "projects:register",
     ]);
   });
 
