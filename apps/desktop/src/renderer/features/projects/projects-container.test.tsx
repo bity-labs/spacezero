@@ -12,9 +12,14 @@ const projectClient = vi.hoisted(() => ({
   listProjects: vi.fn(),
   registerProject: vi.fn(),
 }));
+const sessionClient = vi.hoisted(() => ({
+  listProjectSessions: vi.fn(),
+  createProjectSession: vi.fn(),
+}));
 
 vi.mock("@spacezero/client-runtime", () => ({
   createProjectCatalogClient: () => projectClient,
+  createProjectSessionClient: () => sessionClient,
 }));
 
 const spacezero = (selection: unknown) => {
@@ -37,6 +42,7 @@ describe("ProjectsContainer", () => {
 
   it("lists Projects from Client Runtime", async () => {
     spacezero({ status: "cancelled" });
+    sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([
       {
         id: "11111111-1111-4111-8111-111111111111",
@@ -55,6 +61,7 @@ describe("ProjectsContainer", () => {
 
   it("adds a selected Project and reloads the list", async () => {
     const api = spacezero({ status: "selected", path: "/repo" });
+    sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValueOnce([]).mockResolvedValueOnce([
       {
         id: "11111111-1111-4111-8111-111111111111",
@@ -79,6 +86,8 @@ describe("ProjectsContainer", () => {
 
   it("leaves state unchanged when folder selection is cancelled", async () => {
     spacezero({ status: "cancelled" });
+    sessionClient.listProjectSessions.mockResolvedValue([]);
+    sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([]);
 
     render(<ProjectsContainer />);
@@ -95,6 +104,8 @@ describe("ProjectsContainer", () => {
 
   it("shows typed Project errors and safe fallback errors", async () => {
     spacezero({ status: "selected", path: "/repo" });
+    sessionClient.listProjectSessions.mockResolvedValue([]);
+    sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([]);
     projectClient.registerProject.mockRejectedValueOnce({
       code: "repository_identity_mismatch",
@@ -113,6 +124,8 @@ describe("ProjectsContainer", () => {
     unmount();
 
     spacezero({ status: "selected", path: "/repo" });
+    sessionClient.listProjectSessions.mockResolvedValue([]);
+    sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([]);
     projectClient.registerProject.mockRejectedValueOnce(new Error("boom"));
     render(<ProjectsContainer />);

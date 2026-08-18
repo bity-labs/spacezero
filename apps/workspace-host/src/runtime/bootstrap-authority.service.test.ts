@@ -9,6 +9,7 @@ const frame = {
   bootstrapSecret: "bootstrap-secret-abcdefghijklmnopqrstuvwxyz0123456789",
   issuedAt: new Date(now).toISOString(),
   allowedRendererOrigin: "spacezero://renderer",
+  spaceZeroHome: "/tmp/SpaceZero",
   protocolMin: "1" as const,
   protocolMax: "1" as const,
 };

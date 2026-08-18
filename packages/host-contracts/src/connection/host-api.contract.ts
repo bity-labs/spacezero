@@ -17,6 +17,7 @@ import {
   HostConnectionSnapshotSchema,
 } from "./host-connection.schema.js";
 import { ProjectApiGroup } from "../projects/project-api.contract.js";
+import { ProjectSessionApiGroup } from "../project-sessions/project-session-api.contract.js";
 
 export const AuthorizationHeaderSchema = Schema.Struct({
   authorization: Schema.optionalKey(Schema.String),
@@ -70,5 +71,6 @@ export const HostApi = HttpApi.make("SpaceZeroHostApi")
   .add(HostConnectionGroup)
   .add(HostAdminGroup)
   .add(ProjectApiGroup)
+  .add(ProjectSessionApiGroup)
   .prefix("/v1");
 export const HostOpenApi = OpenApi.fromApi(HostApi);

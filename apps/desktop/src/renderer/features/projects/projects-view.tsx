@@ -1,22 +1,34 @@
-import type { ProjectSummary } from "@spacezero/host-contracts";
+import type {
+  ProjectSessionSummary,
+  ProjectSummary,
+} from "@spacezero/host-contracts";
 import type { ReactElement } from "react";
+import { ProjectSessionsList } from "../project-sessions/project-sessions-list.js";
 
 export type ProjectsViewState =
   | { readonly status: "loading" }
   | { readonly status: "empty" }
-  | { readonly status: "ready"; readonly projects: readonly ProjectSummary[] }
+  | {
+      readonly status: "ready";
+      readonly projects: readonly ProjectSummary[];
+      readonly sessions: readonly ProjectSessionSummary[];
+    }
   | { readonly status: "error"; readonly message: string };
 
 export interface ProjectsViewProps {
   readonly state: ProjectsViewState;
   readonly busy: boolean;
+  readonly creatingProjectId: string | null;
   readonly onAddProject: () => void;
+  readonly onStartSession: (projectId: string) => void;
 }
 
 export const ProjectsView = ({
   state,
   busy,
+  creatingProjectId,
   onAddProject,
+  onStartSession,
 }: ProjectsViewProps): ReactElement => (
   <section className="projects" aria-labelledby="projects-title">
     <div className="projects__header">
@@ -43,6 +55,14 @@ export const ProjectsView = ({
           <li key={project.id}>
             <strong>{project.displayName}</strong>
             <span>{project.canonicalPath}</span>
+            <ProjectSessionsList
+              projectId={project.id}
+              sessions={state.sessions.filter(
+                (session) => session.projectId === project.id,
+              )}
+              creating={creatingProjectId === project.id}
+              onStartSession={onStartSession}
+            />
           </li>
         ))}
       </ul>

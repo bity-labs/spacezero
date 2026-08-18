@@ -29,6 +29,7 @@ afterEach(async () => {
 const start = async (origin = "spacezero://renderer") => {
   const hostDataDir = await mkdtemp(join(tmpdir(), "spacezero-host-protocol-"));
   tempDirs.push(hostDataDir);
+  const spaceZeroHome = join(hostDataDir, "SpaceZero");
   const child = spawn(process.execPath, [join(process.cwd(), "dist/main.js")], {
     cwd: hostDataDir,
     stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", "pipe"],
@@ -38,6 +39,7 @@ const start = async (origin = "spacezero://renderer") => {
     bootstrapSecret,
     issuedAt: new Date().toISOString(),
     allowedRendererOrigin: origin,
+    spaceZeroHome,
     protocolMin: HOST_PROTOCOL_VERSION,
     protocolMax: HOST_PROTOCOL_VERSION,
   };
@@ -192,6 +194,8 @@ describe("workspace host protocol", () => {
         "host:events:subscribe",
         "projects:read",
         "projects:register",
+        "project-sessions:read",
+        "project-sessions:create",
       ]);
       const query = await fetch(
         new URL("/v1/connection", descriptor.endpoint),

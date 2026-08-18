@@ -12,10 +12,11 @@ This repository now includes the authenticated Local Host connectivity tracer an
 - protected inherited-pipe bootstrap and Desktop-owned Local Host lifecycle;
 - Host-instance supervisor and short-lived scoped client capabilities;
 - Effect HttpApi query and authenticated typed SSE connectivity through Client Runtime;
-- Host-owned SQLite Project catalog with canonical Git repository registration/listing; and
+- Host-owned SQLite Project catalog with canonical Git repository registration/listing;
+- Host-owned Project Session create/list tracer with event-sourced Session state, permanent normalized wine-appellation names, and managed Git worktrees under Space Zero Home; and
 - metadata/config-only Pi Adapter with no Pi SDK dependency.
 
-Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, Project Sessions, managed worktrees, Pi implementation, Handbook, shared UI, and Storybook.
+Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, Pi/chat execution, archive/delete, source selection, GitHub/remotes, Handbook, shared UI, and Storybook.
 
 ## Commands
 

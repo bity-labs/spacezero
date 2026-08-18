@@ -24,6 +24,10 @@ For the initial implementation, one **Project Session** owns exactly:
 
 Multiple Chat Contexts, `/clear` within an existing Project Session, and conversation rotation inside one worktree are deferred. A future decision may introduce a separate conversation identity if concrete workflows require it.
 
+### Session naming
+
+Each Project Session receives one permanent Host-unique name selected randomly from a bundled list of French wine appellations normalized to lowercase, unaccented kebab-case. A base appellation name is never reused by that Host, including after provisioning failure or archive. After every base name has been allocated, the Host appends a collision-checked five-character lowercase alphanumeric suffix that excludes visually ambiguous characters and retries on collision. The Host persists the allocated name as part of Session creation; clients neither choose nor reserve names. Automatic title generation from the first user prompt is deferred until the Pi/chat workflow is implemented.
+
 ### Git requirement and source revision
 
 Initial Project Sessions require a registered Git repository with at least one commit. Non-Git folders and repositories without a valid `HEAD` are deferred and fail with actionable guidance rather than receiving weaker isolation.

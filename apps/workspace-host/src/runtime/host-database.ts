@@ -1,7 +1,7 @@
 import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-node";
 import { Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
-import { projectCatalogMigrationLoader } from "./host-migrations.js";
+import { hostMigrationLoader } from "./host-migrations.js";
 
 export const createHostDatabaseLayer = (filename: string) =>
   SqliteClient.layer({ filename, busyTimeout: "5 seconds" });
@@ -14,7 +14,7 @@ export const enableHostDatabasePragmas = Effect.gen(function* () {
 export const runHostDatabaseMigrations = (filename: string) =>
   Effect.gen(function* () {
     yield* enableHostDatabasePragmas;
-    yield* SqliteMigrator.run({ loader: projectCatalogMigrationLoader });
+    yield* SqliteMigrator.run({ loader: hostMigrationLoader });
     yield* verifyHostDatabasePragmas;
   }).pipe(Effect.provide(createHostDatabaseLayer(filename)));
 

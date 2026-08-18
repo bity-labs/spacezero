@@ -1,6 +1,6 @@
 # Workspace Host
 
-Active ordinary-Node Workspace Host for authenticated Desktop ↔ Host connectivity and the Host-owned Project catalog tracer.
+Active ordinary-Node Workspace Host for authenticated Desktop ↔ Host connectivity, the Host-owned Project catalog, and Project Session create/list tracers.
 
 The Host binds an Effect HttpApi server to loopback, performs protected one-time bootstrap, holds supervisor/client capabilities in Host memory, and serves authenticated `/v1/connection`, `/v1/events`, `/v1/projects`, and `/v1/admin/*` endpoints.
 
@@ -14,4 +14,10 @@ Startup applies numbered Effect SQL migrations over `@effect/sql-sqlite-node@4.0
 
 `POST /v1/projects` requires `projects:register`; `GET /v1/projects` requires `projects:read`. Public failures are static and do not include paths, Git output, SQL text, tokens, stack traces, or Effect causes.
 
-Deferred: crash restart/reconciliation, durable SSE cursors/reconnect, Project Sessions, managed worktrees, Pi integration, Workspace Tools, private-Node deployment, production dependency pruning, and release integrity checks.
+## Project Sessions
+
+ADR 0028 and ADR 0029 are authoritative for the Session create/list slice. The Host allocates a permanent unique Session name from bundled normalized French wine appellations, persists Session creation events and a rebuildable projection in SQLite, creates a managed Git worktree under `<Space Zero Home>/worktrees/<project-id>/<session-id>/`, and exposes only path-free summaries through `POST /v1/project-sessions` and `GET /v1/project-sessions`.
+
+Desktop passes Space Zero Home through the protected bootstrap frame; it is not exposed in renderer descriptors, URLs, argv, or environment variables. Dirty base-checkout changes are excluded from the managed worktree and represented as a warning boolean.
+
+Deferred: durable SSE cursors/reconnect, Pi/chat execution, archive/delete, source selection, GitHub/remotes, Workspace Tools, private-Node deployment, production dependency pruning, and release integrity checks.

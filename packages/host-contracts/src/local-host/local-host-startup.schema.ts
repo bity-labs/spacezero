@@ -10,6 +10,7 @@ export interface LocalHostBootstrapFrame {
   readonly bootstrapSecret: string;
   readonly issuedAt: string;
   readonly allowedRendererOrigin: string;
+  readonly spaceZeroHome: string;
   readonly protocolMin: typeof HOST_PROTOCOL_VERSION;
   readonly protocolMax: typeof HOST_PROTOCOL_VERSION;
 }
@@ -26,6 +27,7 @@ export const LocalHostBootstrapFrameSchema = Schema.Struct({
   bootstrapSecret: Schema.String,
   issuedAt: Schema.String,
   allowedRendererOrigin: Schema.String,
+  spaceZeroHome: Schema.String,
   protocolMin: Schema.Literals([HOST_PROTOCOL_VERSION]),
   protocolMax: Schema.Literals([HOST_PROTOCOL_VERSION]),
 });
@@ -45,6 +47,18 @@ const exactKeys = (
   Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+const utf8ByteLength = (value: string): number => {
+  let bytes = 0;
+  for (const char of value) {
+    const codePoint = char.codePointAt(0)!;
+    if (codePoint <= 0x7f) bytes += 1;
+    else if (codePoint <= 0x7ff) bytes += 2;
+    else if (codePoint <= 0xffff) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+};
+
 export const isAllowedRendererOrigin = (value: string): boolean => {
   if (value === "null") return false;
   if (value === "spacezero://renderer") return true;
@@ -59,6 +73,7 @@ export function parseLocalHostBootstrapFrame(
       "bootstrapSecret",
       "issuedAt",
       "allowedRendererOrigin",
+      "spaceZeroHome",
       "protocolMin",
       "protocolMax",
     ])
@@ -71,6 +86,10 @@ export function parseLocalHostBootstrapFrame(
     !isValidIsoInstant(value.issuedAt) ||
     typeof value.allowedRendererOrigin !== "string" ||
     !isAllowedRendererOrigin(value.allowedRendererOrigin) ||
+    typeof value.spaceZeroHome !== "string" ||
+    value.spaceZeroHome.length === 0 ||
+    value.spaceZeroHome.includes("\0") ||
+    utf8ByteLength(value.spaceZeroHome) > 4096 ||
     value.protocolMin !== HOST_PROTOCOL_VERSION ||
     value.protocolMax !== HOST_PROTOCOL_VERSION
   )
