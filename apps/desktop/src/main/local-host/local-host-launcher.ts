@@ -61,6 +61,7 @@ const safeEnd = (stream: WriteStream, chunk?: string): void => {
 };
 export const launchLocalHost = async (
   allowedRendererOrigin: string,
+  spaceZeroHome: string,
 ): Promise<LaunchedLocalHost> => {
   const executable = resolveLocalHostExecutable();
   const child = spawn(executable.nodeExecutable, [executable.hostEntry], {
@@ -79,6 +80,7 @@ export const launchLocalHost = async (
       bootstrapSecret,
       issuedAt: new Date().toISOString(),
       allowedRendererOrigin,
+      spaceZeroHome,
       protocolMin: HOST_PROTOCOL_VERSION,
       protocolMax: HOST_PROTOCOL_VERSION,
     };

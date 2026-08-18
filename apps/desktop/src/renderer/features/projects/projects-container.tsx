@@ -1,5 +1,11 @@
-import { createProjectCatalogClient } from "@spacezero/client-runtime";
-import type { ProjectCatalogError } from "@spacezero/host-contracts";
+import {
+  createProjectCatalogClient,
+  createProjectSessionClient,
+} from "@spacezero/client-runtime";
+import type {
+  ProjectCatalogError,
+  ProjectSessionError,
+} from "@spacezero/host-contracts";
 import {
   useCallback,
   useEffect,
@@ -9,7 +15,9 @@ import {
 } from "react";
 import { ProjectsView, type ProjectsViewState } from "./projects-view.js";
 
-const isProjectCatalogError = (error: unknown): error is ProjectCatalogError =>
+const isPublicHostError = (
+  error: unknown,
+): error is ProjectCatalogError | ProjectSessionError =>
   typeof error === "object" &&
   error !== null &&
   "code" in error &&
@@ -20,20 +28,30 @@ const isProjectCatalogError = (error: unknown): error is ProjectCatalogError =>
 export const ProjectsContainer = (): ReactElement => {
   const [state, setState] = useState<ProjectsViewState>({ status: "loading" });
   const [busy, setBusy] = useState(false);
-  const client = useMemo(
-    () =>
-      createProjectCatalogClient({
+  const [creatingProjectId, setCreatingProjectId] = useState<string | null>(
+    null,
+  );
+  const clients = useMemo(
+    () => ({
+      projects: createProjectCatalogClient({
         getConnectionDescriptor: window.spacezero.getLocalHostConnection,
       }),
+      sessions: createProjectSessionClient({
+        getConnectionDescriptor: window.spacezero.getLocalHostConnection,
+      }),
+    }),
     [],
   );
   const load = useCallback(async () => {
     try {
-      const projects = await client.listProjects();
+      const [projects, sessions] = await Promise.all([
+        clients.projects.listProjects(),
+        clients.sessions.listProjectSessions(),
+      ]);
       setState(
         projects.length === 0
           ? { status: "empty" }
-          : { status: "ready", projects },
+          : { status: "ready", projects, sessions },
       );
     } catch {
       setState({
@@ -41,7 +59,7 @@ export const ProjectsContainer = (): ReactElement => {
         message: "Project catalog is unavailable. Try again.",
       });
     }
-  }, [client]);
+  }, [clients]);
   useEffect(() => {
     const task = window.setTimeout(() => {
       void load();
@@ -53,19 +71,46 @@ export const ProjectsContainer = (): ReactElement => {
     try {
       const selection = await window.spacezero.selectProjectFolder();
       if (selection.status === "selected") {
-        await client.registerProject(selection.path);
+        await clients.projects.registerProject(selection.path);
         await load();
       }
     } catch (error) {
       setState({
         status: "error",
-        message: isProjectCatalogError(error)
+        message: isPublicHostError(error)
           ? error.message
           : "Project could not be registered. Try again.",
       });
     } finally {
       setBusy(false);
     }
-  }, [client, load]);
-  return <ProjectsView state={state} busy={busy} onAddProject={addProject} />;
+  }, [clients, load]);
+  const startSession = useCallback(
+    async (projectId: string) => {
+      setCreatingProjectId(projectId);
+      try {
+        await clients.sessions.createProjectSession(projectId);
+        await load();
+      } catch (error) {
+        setState({
+          status: "error",
+          message: isPublicHostError(error)
+            ? error.message
+            : "Project Session could not be started. Try again.",
+        });
+      } finally {
+        setCreatingProjectId(null);
+      }
+    },
+    [clients, load],
+  );
+  return (
+    <ProjectsView
+      state={state}
+      busy={busy}
+      creatingProjectId={creatingProjectId}
+      onAddProject={addProject}
+      onStartSession={startSession}
+    />
+  );
 };

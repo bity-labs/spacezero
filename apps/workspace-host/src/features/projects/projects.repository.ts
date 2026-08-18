@@ -13,7 +13,7 @@ import type {
   ListProjectsResult,
 } from "./project.model.js";
 
-interface ProjectRow {
+export interface ProjectRow {
   readonly project_id: string;
   readonly display_name: string;
   readonly canonical_root_path: string;
@@ -184,6 +184,17 @@ export const createProjectsRepository = (databasePath: string) => ({
       }),
     );
   },
+  getProjectRegistration: async (
+    projectId: string,
+  ): Promise<ProjectRow | undefined> =>
+    runSql(
+      databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows = yield* findProjectById(sql, projectId);
+        return rows[0];
+      }),
+    ),
   list: async (): Promise<ListProjectsResult> =>
     runSql(
       databasePath,

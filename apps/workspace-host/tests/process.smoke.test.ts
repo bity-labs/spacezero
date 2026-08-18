@@ -25,6 +25,7 @@ afterEach(async () => {
 const startHost = async () => {
   const hostDataDir = await mkdtemp(join(tmpdir(), "spacezero-process-smoke-"));
   tempDirs.push(hostDataDir);
+  const spaceZeroHome = join(hostDataDir, "SpaceZero");
   const child = spawn(process.execPath, [join(process.cwd(), "dist/main.js")], {
     cwd: hostDataDir,
     stdio: ["ignore", "pipe", "pipe", "pipe", "pipe", "pipe"],
@@ -34,6 +35,7 @@ const startHost = async () => {
     bootstrapSecret,
     issuedAt: new Date().toISOString(),
     allowedRendererOrigin: "spacezero://renderer",
+    spaceZeroHome,
     protocolMin: HOST_PROTOCOL_VERSION,
     protocolMax: HOST_PROTOCOL_VERSION,
   };

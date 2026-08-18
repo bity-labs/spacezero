@@ -13,6 +13,8 @@ const descriptor = {
     "host:events:subscribe",
     "projects:read",
     "projects:register",
+    "project-sessions:read",
+    "project-sessions:create",
   ] as const,
 };
 

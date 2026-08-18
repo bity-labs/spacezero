@@ -26,6 +26,7 @@ export const runProtectedHost = async (
     readonly readyFd?: number;
     readonly lifetimeFd?: number;
     readonly databasePath?: string;
+    readonly spaceZeroHome?: string;
   } = {},
 ): Promise<void> => {
   const bootstrapFd = options.bootstrapFd ?? 3;
@@ -53,6 +54,7 @@ export const runProtectedHost = async (
     allowedRendererOrigin: frame.allowedRendererOrigin,
     bootstrap,
     onShutdown: resolveHttpShutdown,
+    spaceZeroHome: options.spaceZeroHome ?? frame.spaceZeroHome,
     ...(options.databasePath ? { databasePath: options.databasePath } : {}),
   });
   await writeJsonFrame(

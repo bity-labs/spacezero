@@ -9,6 +9,8 @@ describe("host-contracts public surface", () => {
       "host:events:subscribe",
       "projects:read",
       "projects:register",
+      "project-sessions:read",
+      "project-sessions:create",
     ]);
     expect(hostContracts.HostApi).toBeDefined();
   });

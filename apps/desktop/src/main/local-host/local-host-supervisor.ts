@@ -9,7 +9,10 @@ import {
 import { LocalHostUnavailableError } from "./local-host-executable.js";
 
 export interface LocalHostSupervisor {
-  readonly start: (allowedRendererOrigin: string) => Promise<void>;
+  readonly start: (
+    allowedRendererOrigin: string,
+    spaceZeroHome: string,
+  ) => Promise<void>;
   readonly getClientConnection: () => Promise<HostConnectionDescriptor>;
   readonly stop: () => Promise<void>;
   readonly endpoint: () => string | undefined;
@@ -24,9 +27,9 @@ export const createLocalHostSupervisor = (): LocalHostSupervisor => {
     });
   };
   const supervisor: LocalHostSupervisor = {
-    start: async (origin) => {
+    start: async (origin, spaceZeroHome) => {
       if (launched) return;
-      starting ??= launchLocalHost(origin)
+      starting ??= launchLocalHost(origin, spaceZeroHome)
         .then((value) => {
           launched = value;
           clearIfClosed(value);

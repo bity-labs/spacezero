@@ -56,7 +56,10 @@ app.whenReady().then(async () => {
     rendererUrl: process.env.ELECTRON_RENDERER_URL,
   });
   await supervisor
-    .start(rendererPolicy.allowedRendererOrigin)
+    .start(
+      rendererPolicy.allowedRendererOrigin,
+      join(app.getPath("home"), "SpaceZero"),
+    )
     .catch(() => undefined);
   registerRendererProtocol(rendererRoot, supervisor.endpoint());
   registerProjectFolderPickerIpc({

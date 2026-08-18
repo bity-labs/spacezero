@@ -1,7 +1,8 @@
 import { NodeHttpServer } from "@effect/platform-node";
+import { mkdir, realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { Effect, Exit, Layer, Scope, Stream } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -12,14 +13,18 @@ import {
   parseHostConnectedEvent,
   parseHostConnectionSnapshot,
   projectErrorBody,
+  projectSessionErrorBody,
   type HostAuthorizationError,
   type HostConnectedEvent,
   type ProjectCatalogError,
+  type ProjectSessionError,
 } from "@spacezero/host-contracts";
 import {
   createProjectCatalog,
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
+import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
+import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import { runHostDatabaseMigrations } from "./host-database.js";
 import {
   createCapabilityService,
@@ -42,7 +47,9 @@ type AuthScope =
   | "host:connection:read"
   | "host:events:subscribe"
   | "projects:read"
-  | "projects:register";
+  | "projects:register"
+  | "project-sessions:read"
+  | "project-sessions:create";
 
 const instanceId = (): string => randomBytes(16).toString("hex");
 const bearerValue = (authorization: string | undefined): string | undefined => {
@@ -91,22 +98,49 @@ const effectPromise = <A, E>(
     catch: (error) => error as E,
   });
 const projectHttpError = (error: unknown): ProjectCatalogError => {
-  if (error instanceof ProjectServiceError) return projectErrorBody(error.code);
+  if (error instanceof ProjectServiceError) {
+    if (error.code === "project_not_found")
+      return projectErrorBody("project_catalog_unavailable");
+    return projectErrorBody(error.code);
+  }
   return projectErrorBody("project_catalog_unavailable");
+};
+const projectSessionHttpError = (error: unknown): ProjectSessionError => {
+  if (error instanceof ProjectSessionServiceError)
+    return projectSessionErrorBody(error.code);
+  return projectSessionErrorBody("project_session_catalog_unavailable");
 };
 export const startHostServer = async (options: {
   readonly allowedRendererOrigin: string;
   readonly bootstrap: BootstrapAuthority;
   readonly onShutdown?: () => void;
   readonly databasePath?: string;
+  readonly spaceZeroHome?: string;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
   const id = instanceId();
   const state: { cap?: CapabilityService } = {};
   const databasePath =
     options.databasePath ?? join(process.cwd(), "workspace-host.sqlite");
+  const configuredHome =
+    options.spaceZeroHome ?? join(process.cwd(), "SpaceZero");
+  if (
+    configuredHome.length === 0 ||
+    configuredHome.includes("\0") ||
+    !isAbsolute(configuredHome) ||
+    Buffer.byteLength(configuredHome, "utf8") > 4096
+  )
+    throw new Error("invalid Space Zero Home");
+  await mkdir(configuredHome, { recursive: true });
+  const spaceZeroHome = await realpath(configuredHome);
+  await mkdir(join(spaceZeroHome, "worktrees"), { recursive: true });
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
+  const projectSessions = createProjectSessionService({
+    databasePath,
+    spaceZeroHome,
+  });
+  await projectSessions.reconcile();
 
   const bootstrapHandlers = HttpApiBuilder.group(
     HostApi,
@@ -229,6 +263,45 @@ export const startHostServer = async (options: {
         },
       }),
   );
+  const projectSessionHandlers = HttpApiBuilder.group(
+    HostApi,
+    "projectSessions",
+    (handlers) =>
+      handlers.handleAll({
+        createProjectSession: ({ headers, request, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:create",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => projectSessions.create(payload)).pipe(
+            Effect.mapError(projectSessionHttpError),
+          );
+        },
+        listProjectSessions: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => projectSessions.list()).pipe(
+            Effect.mapError(projectSessionHttpError),
+          );
+        },
+      }),
+  );
   const cors = HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => origin === options.allowedRendererOrigin,
@@ -244,6 +317,7 @@ export const startHostServer = async (options: {
         connectionHandlers,
         adminHandlers,
         projectHandlers,
+        projectSessionHandlers,
       ]),
     ),
     cors,
@@ -267,6 +341,7 @@ export const startHostServer = async (options: {
   }
   const address = server.address();
   if (!address || typeof address === "string") {
+    await projectSessions.waitForIdle();
     await Effect.runPromiseExit(
       Scope.close(scope, Exit.fail(new Error("listen failed"))),
     );
@@ -275,9 +350,12 @@ export const startHostServer = async (options: {
   const endpoint = `http://127.0.0.1:${address.port}/`;
   state.cap = createCapabilityService({ endpoint, instanceId: id });
   const stop = async (): Promise<void> => {
-    stopPromise ??= Effect.runPromiseExit(
-      Scope.close(scope, Exit.succeed(undefined)),
-    ).then(() => undefined);
+    stopPromise ??= projectSessions
+      .waitForIdle()
+      .then(() =>
+        Effect.runPromiseExit(Scope.close(scope, Exit.succeed(undefined))),
+      )
+      .then(() => undefined);
     await stopPromise;
   };
   return { server, endpoint, instanceId: id, capabilities: state.cap, stop };

@@ -19,6 +19,14 @@ export interface InspectedRepository {
   readonly displayName: string;
 }
 
+export interface AuthenticatedProjectRepository extends InspectedRepository {
+  readonly projectId: string;
+  readonly registeredHeadCommit: string;
+  readonly sourceBranch: string | null;
+  readonly sourceDetached: boolean;
+  readonly dirty: boolean;
+}
+
 export interface ProjectCatalog {
   readonly register: (
     input: RegisterProjectRequest,

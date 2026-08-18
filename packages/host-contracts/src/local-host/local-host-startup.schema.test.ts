@@ -12,10 +12,14 @@ describe("local Host startup schemas", () => {
         bootstrapSecret: "abcdefghijklmnopqrstuvwxyzabcdef012345",
         issuedAt: "2026-01-01T00:00:00.000Z",
         allowedRendererOrigin: "spacezero://renderer",
+        spaceZeroHome: "/tmp/SpaceZero",
         protocolMin: "1",
         protocolMax: "1",
       }),
-    ).toMatchObject({ allowedRendererOrigin: "spacezero://renderer" });
+    ).toMatchObject({
+      allowedRendererOrigin: "spacezero://renderer",
+      spaceZeroHome: "/tmp/SpaceZero",
+    });
     expect(
       parseLocalHostReadyFrame({
         endpoint: "http://127.0.0.1:1234/",
@@ -36,6 +40,7 @@ describe("local Host startup schemas", () => {
         bootstrapSecret: "abcdefghijklmnopqrstuvwxyzabcdef012345",
         issuedAt: "2026-01-01T00:00:00.000Z",
         allowedRendererOrigin: "null",
+        spaceZeroHome: "/tmp/SpaceZero",
         protocolMin: "1",
         protocolMax: "1",
       }),
