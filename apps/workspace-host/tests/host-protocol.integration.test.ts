@@ -196,6 +196,7 @@ describe("workspace host protocol", () => {
         "projects:register",
         "project-sessions:read",
         "project-sessions:create",
+      "project-sessions:prompt",
       ]);
       const query = await fetch(
         new URL("/v1/connection", descriptor.endpoint),

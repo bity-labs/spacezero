@@ -1,5 +1,6 @@
 import type {
   ProjectSessionErrorCode,
+  ProjectSessionCommandId,
   ProjectSessionSummary,
 } from "@spacezero/host-contracts";
 import type { AuthenticatedProjectRepository } from "../projects/project.model.js";
@@ -8,6 +9,12 @@ export class ProjectSessionServiceError extends Error {
   constructor(readonly code: ProjectSessionErrorCode) {
     super(code);
   }
+}
+
+export interface SubmitSessionPromptInput {
+  readonly sessionId: string;
+  readonly commandId: ProjectSessionCommandId;
+  readonly prompt: string;
 }
 
 export interface ProjectSessionPaths {

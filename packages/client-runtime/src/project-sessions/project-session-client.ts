@@ -10,9 +10,11 @@ import {
   parseHostConnectionDescriptor,
   type CreateProjectSessionResult,
   type HostConnectionDescriptor,
+  type ListSessionMessagesResult,
   type ProjectId,
   type ProjectSessionCommandId,
   type ProjectSessionSummary,
+  type SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
 
 export interface ProjectSessionClient {
@@ -20,6 +22,13 @@ export interface ProjectSessionClient {
   readonly createProjectSession: (
     projectId: ProjectId,
   ) => Promise<CreateProjectSessionResult>;
+  readonly submitPrompt: (
+    sessionId: string,
+    prompt: string,
+  ) => Promise<SubmitSessionPromptResult>;
+  readonly listSessionMessages: (
+    sessionId: string,
+  ) => Promise<ListSessionMessagesResult>;
 }
 
 export interface ProjectSessionClientOptions {
@@ -39,6 +48,18 @@ interface GeneratedProjectSessionApiClient {
         readonly commandId: string;
         readonly projectId: string;
       };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly submitSessionPrompt: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: {
+        readonly commandId: string;
+        readonly prompt: string;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly listSessionMessages: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
     }) => Effect.Effect<unknown, unknown, never>;
   };
 }
@@ -107,6 +128,31 @@ export const createProjectSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as CreateProjectSessionResult;
+    },
+    submitPrompt: async (sessionId, prompt) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.submitSessionPrompt({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: createCommandId(), prompt },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as SubmitSessionPromptResult;
+    },
+    listSessionMessages: async (sessionId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.listSessionMessages({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as ListSessionMessagesResult;
     },
   };
 };

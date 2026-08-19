@@ -5,6 +5,7 @@ import {
 import type {
   ProjectCatalogError,
   ProjectSessionError,
+  ProjectSessionSummary,
 } from "@spacezero/host-contracts";
 import {
   useCallback,
@@ -25,7 +26,13 @@ const isPublicHostError = (
   typeof (error as { readonly code?: unknown }).code === "string" &&
   typeof (error as { readonly message?: unknown }).message === "string";
 
-export const ProjectsContainer = (): ReactElement => {
+export interface ProjectsContainerProps {
+  readonly onOpenSession: (session: ProjectSessionSummary) => void;
+}
+
+export const ProjectsContainer = ({
+  onOpenSession,
+}: ProjectsContainerProps): ReactElement => {
   const [state, setState] = useState<ProjectsViewState>({ status: "loading" });
   const [busy, setBusy] = useState(false);
   const [creatingProjectId, setCreatingProjectId] = useState<string | null>(
@@ -111,6 +118,7 @@ export const ProjectsContainer = (): ReactElement => {
       creatingProjectId={creatingProjectId}
       onAddProject={addProject}
       onStartSession={startSession}
+      onOpenSession={onOpenSession}
     />
   );
 };

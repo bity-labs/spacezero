@@ -37,6 +37,34 @@ export interface ListProjectSessionsResult {
   readonly sessions: readonly ProjectSessionSummary[];
 }
 
+export type SessionMessageId = string;
+export type AgentTurnId = string;
+export type SessionMessageRole = "user" | "assistant";
+
+export interface SessionMessage {
+  readonly id: SessionMessageId;
+  readonly role: SessionMessageRole;
+  readonly text: string;
+  readonly sequence: number;
+  readonly createdAt: string;
+}
+
+export interface SubmitSessionPromptRequest {
+  readonly commandId: ProjectSessionCommandId;
+  readonly prompt: string;
+}
+
+export interface SubmitSessionPromptResult {
+  readonly session: ProjectSessionSummary;
+  readonly userMessage: SessionMessage;
+  readonly agentMessage: SessionMessage;
+}
+
+export interface ListSessionMessagesResult {
+  readonly session: ProjectSessionSummary;
+  readonly messages: readonly SessionMessage[];
+}
+
 const DateTimeUtcStringSchema = Schema.String.check(
   Schema.makeFilter((value: string) => {
     const millis = Date.parse(value);
@@ -67,6 +95,34 @@ export const DurableProjectSessionStateSchema = Schema.Literals([
 export const ProjectSessionGitCommitObjectIdSchema = Schema.String.check(
   Schema.isPattern(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
 );
+export const SessionMessageIdSchema = Schema.String.check(Schema.isUUID());
+export const AgentTurnIdSchema = Schema.String.check(Schema.isUUID());
+export const SessionPromptSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(16_000),
+  Schema.makeFilter(
+    (value: string) => value.trim().length > 0 || "prompt must not be blank",
+  ),
+);
+export const SessionMessageTextSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(1_000_000),
+);
+export const SessionMessageRoleSchema = Schema.Literals(["user", "assistant"]);
+export const SessionMessageSchema = Schema.Struct({
+  id: SessionMessageIdSchema,
+  role: SessionMessageRoleSchema,
+  text: SessionMessageTextSchema,
+  sequence: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+  createdAt: DateTimeUtcStringSchema,
+});
+export const SubmitSessionPromptRequestSchema = Schema.Struct({
+  commandId: ProjectSessionCommandIdSchema,
+  prompt: SessionPromptSchema,
+});
 export const ProjectSessionSummarySchema = Schema.Struct({
   id: ProjectSessionIdSchema,
   projectId: ProjectIdSchema,
@@ -95,6 +151,15 @@ export const CreateProjectSessionResultSchema = Schema.Struct({
 });
 export const ListProjectSessionsResultSchema = Schema.Struct({
   sessions: Schema.Array(ProjectSessionSummarySchema),
+});
+export const SubmitSessionPromptResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  userMessage: SessionMessageSchema,
+  agentMessage: SessionMessageSchema,
+});
+export const ListSessionMessagesResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  messages: Schema.Array(SessionMessageSchema),
 });
 
 export const ProjectSessionEventSchema = Schema.Union([
@@ -177,6 +242,40 @@ export const ProjectSessionEventSchema = Schema.Union([
     type: Schema.Literals(["ProjectSessionRecoveryRequiredV1"]),
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["UserMessageSubmittedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    messageId: SessionMessageIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    prompt: SessionMessageTextSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentTurnStartedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentMessageCompletedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    text: SessionMessageTextSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentTurnFailedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    reason: Schema.Literals(["agent_unavailable", "agent_turn_failed"]),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);

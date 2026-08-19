@@ -109,6 +109,115 @@ dd {
   padding: 0.75rem;
 }
 
+.project-sessions__item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.project-sessions__item-header button {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: #08111f;
+  background: #95b8ff;
+  font-weight: 700;
+}
+
+.session-chat {
+  margin-top: 32px;
+  border-top: 1px solid #263044;
+  padding-top: 24px;
+  display: grid;
+  gap: 16px;
+}
+
+.session-chat__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.session-chat__header h2 {
+  margin: 0;
+}
+
+.session-chat__messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.session-chat__message {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #263044;
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.session-chat__message--assistant {
+  background: #0d1420;
+}
+
+.session-chat__role {
+  color: #8ea3c6;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+}
+
+.session-chat__message p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.session-chat__warning {
+  color: #fbbf24;
+  margin: 0;
+}
+
+.session-chat__error {
+  color: #f87171;
+  margin: 0;
+}
+
+.session-chat__form {
+  display: grid;
+  gap: 8px;
+}
+
+.session-chat__form textarea {
+  resize: vertical;
+  min-height: 64px;
+  border-radius: 12px;
+  border: 1px solid #263044;
+  background: #0d1420;
+  color: inherit;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.session-chat__form button {
+  justify-self: start;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: #08111f;
+  background: #95b8ff;
+  font-weight: 700;
+}
+
+.session-chat__form button:disabled {
+  opacity: 0.6;
+}
+
 .project-sessions__warning {
   color: #fbbf24;
   margin: 0.25rem 0 0;

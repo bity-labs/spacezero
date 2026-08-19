@@ -105,12 +105,35 @@ CREATE TABLE project_session_command_receipts (
   yield* sql`CREATE INDEX project_session_receipts_session ON project_session_command_receipts(session_id)`;
 });
 
+export const createSessionMessagesMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_messages (
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  text TEXT NOT NULL CHECK (length(text) > 0),
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
+  turn_id TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, sequence),
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX project_session_messages_list_order ON project_session_messages(session_id, sequence)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [
     2,
     "create_project_sessions",
     Effect.succeed(createProjectSessionsMigration),
+  ],
+  [
+    3,
+    "create_session_messages",
+    Effect.succeed(createSessionMessagesMigration),
   ],
 ] as const);
 

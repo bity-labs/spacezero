@@ -8,6 +8,7 @@ export const LOCAL_HOST_CLIENT_SCOPES = [
   "projects:register",
   "project-sessions:read",
   "project-sessions:create",
+  "project-sessions:prompt",
 ] as const;
 export type LocalHostClientScope = (typeof LOCAL_HOST_CLIENT_SCOPES)[number];
 export type HostConnectionStatus = "ready";
@@ -64,6 +65,7 @@ export const HostConnectionDescriptorSchema = Schema.Struct({
     Schema.Literals(["projects:register"]),
     Schema.Literals(["project-sessions:read"]),
     Schema.Literals(["project-sessions:create"]),
+    Schema.Literals(["project-sessions:prompt"]),
   ]),
 });
 

@@ -15,6 +15,7 @@ const descriptor = {
     "projects:register",
     "project-sessions:read",
     "project-sessions:create",
+  "project-sessions:prompt",
   ] as const,
 };
 

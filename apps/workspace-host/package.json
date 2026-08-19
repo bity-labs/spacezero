@@ -18,6 +18,7 @@
     "@effect/platform-node": "4.0.0-rc.109",
     "@effect/sql-sqlite-node": "4.0.0-rc.109",
     "@spacezero/host-contracts": "workspace:*",
+    "@spacezero/pi-adapter": "workspace:*",
     "effect": "4.0.0-rc.109"
   }
 }

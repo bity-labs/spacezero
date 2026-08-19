@@ -27,7 +27,7 @@ export const workspaces = {
     path: "packages/pi-adapter",
     kind: "package",
     browserSafe: false,
-    metadataOnly: true,
+    metadataOnly: false,
     allowed: [],
   },
 };

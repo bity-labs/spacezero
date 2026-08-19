@@ -6,6 +6,7 @@ export interface ProjectSessionsListProps {
   readonly sessions: readonly ProjectSessionSummary[];
   readonly creating: boolean;
   readonly onStartSession: (projectId: string) => void;
+  readonly onOpenSession: (session: ProjectSessionSummary) => void;
 }
 
 const shortCommit = (commit: string): string => commit.slice(0, 8);
@@ -15,6 +16,7 @@ export const ProjectSessionsList = ({
   sessions,
   creating,
   onStartSession,
+  onOpenSession,
 }: ProjectSessionsListProps): ReactElement => (
   <div className="project-sessions">
     <button
@@ -28,7 +30,14 @@ export const ProjectSessionsList = ({
     <ul className="project-sessions__list" aria-label="Project Sessions">
       {sessions.map((session) => (
         <li key={session.id} className="project-sessions__item">
-          <strong>{session.name}</strong>
+          <div className="project-sessions__item-header">
+            <strong>{session.name}</strong>
+            {session.state === "ready" ? (
+              <button type="button" onClick={() => onOpenSession(session)}>
+                Open Chat
+              </button>
+            ) : null}
+          </div>
           <span>{session.state.replaceAll("_", " ")}</span>
           <span>
             {session.sourceDetached

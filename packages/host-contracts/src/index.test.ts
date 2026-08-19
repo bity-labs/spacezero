@@ -11,6 +11,7 @@ describe("host-contracts public surface", () => {
       "projects:register",
       "project-sessions:read",
       "project-sessions:create",
+      "project-sessions:prompt",
     ]);
     expect(hostContracts.HostApi).toBeDefined();
   });

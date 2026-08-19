@@ -21,6 +21,7 @@ export interface ProjectsViewProps {
   readonly creatingProjectId: string | null;
   readonly onAddProject: () => void;
   readonly onStartSession: (projectId: string) => void;
+  readonly onOpenSession: (session: ProjectSessionSummary) => void;
 }
 
 export const ProjectsView = ({
@@ -29,6 +30,7 @@ export const ProjectsView = ({
   creatingProjectId,
   onAddProject,
   onStartSession,
+  onOpenSession,
 }: ProjectsViewProps): ReactElement => (
   <section className="projects" aria-labelledby="projects-title">
     <div className="projects__header">
@@ -62,6 +64,7 @@ export const ProjectsView = ({
               )}
               creating={creatingProjectId === project.id}
               onStartSession={onStartSession}
+              onOpenSession={onOpenSession}
             />
           </li>
         ))}

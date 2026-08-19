@@ -108,6 +108,9 @@ importers:
       '@spacezero/host-contracts':
         specifier: workspace:*
         version: link:../../packages/host-contracts
+      '@spacezero/pi-adapter':
+        specifier: workspace:*
+        version: link:../../packages/pi-adapter
       effect:
         specifier: 4.0.0-rc.109
         version: 4.0.0-rc.109

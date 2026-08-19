@@ -40,6 +40,40 @@ describe("ProjectsContainer", () => {
     vi.clearAllMocks();
   });
 
+  it("opens the Session chat for a ready Session", async () => {
+    spacezero({ status: "cancelled" });
+    const onOpenSession = vi.fn();
+    const session = {
+      id: "22222222-2222-4222-8222-222222222222",
+      projectId: "11111111-1111-4111-8111-111111111111",
+      name: "margaux",
+      state: "ready" as const,
+      sourceBranch: "main",
+      sourceDetached: false,
+      sourceCommit: "a".repeat(40),
+      uncommittedChangesExcluded: false,
+      managedBranch: "spacezero/margaux-22222222-2222-4222-8222-222222222222",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      lastSequence: 4,
+    };
+    sessionClient.listProjectSessions.mockResolvedValue([session]);
+    projectClient.listProjects.mockResolvedValue([
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        displayName: "repo",
+        canonicalPath: "/repo",
+        registeredHeadCommit: "a".repeat(40),
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+
+    render(<ProjectsContainer onOpenSession={onOpenSession} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Chat" }));
+
+    expect(onOpenSession).toHaveBeenCalledWith(session);
+  });
+
   it("lists Projects from Client Runtime", async () => {
     spacezero({ status: "cancelled" });
     sessionClient.listProjectSessions.mockResolvedValue([]);
@@ -53,7 +87,7 @@ describe("ProjectsContainer", () => {
       },
     ]);
 
-    render(<ProjectsContainer />);
+    render(<ProjectsContainer onOpenSession={vi.fn()} />);
 
     expect(await screen.findByText("repo")).toBeInTheDocument();
     expect(screen.getByText("/repo")).toBeInTheDocument();
@@ -73,7 +107,7 @@ describe("ProjectsContainer", () => {
     ]);
     projectClient.registerProject.mockResolvedValue({ outcome: "registered" });
 
-    render(<ProjectsContainer />);
+    render(<ProjectsContainer onOpenSession={vi.fn()} />);
     await screen.findByText("No Projects registered on this Host yet.");
     fireEvent.click(screen.getByRole("button", { name: "Add Project" }));
 
@@ -90,7 +124,7 @@ describe("ProjectsContainer", () => {
     sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([]);
 
-    render(<ProjectsContainer />);
+    render(<ProjectsContainer onOpenSession={vi.fn()} />);
     await screen.findByText("No Projects registered on this Host yet.");
     fireEvent.click(screen.getByRole("button", { name: "Add Project" }));
 
@@ -113,7 +147,7 @@ describe("ProjectsContainer", () => {
         "The repository at this location no longer matches the registered Project.",
     });
 
-    const { unmount } = render(<ProjectsContainer />);
+    const { unmount } = render(<ProjectsContainer onOpenSession={vi.fn()} />);
     await screen.findByText("No Projects registered on this Host yet.");
     fireEvent.click(screen.getByRole("button", { name: "Add Project" }));
     expect(
@@ -128,7 +162,7 @@ describe("ProjectsContainer", () => {
     sessionClient.listProjectSessions.mockResolvedValue([]);
     projectClient.listProjects.mockResolvedValue([]);
     projectClient.registerProject.mockRejectedValueOnce(new Error("boom"));
-    render(<ProjectsContainer />);
+    render(<ProjectsContainer onOpenSession={vi.fn()} />);
     await screen.findByText("No Projects registered on this Host yet.");
     fireEvent.click(screen.getByRole("button", { name: "Add Project" }));
     expect(
