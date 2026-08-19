@@ -15,7 +15,7 @@ const descriptor: HostConnectionDescriptor = {
     "projects:register",
     "project-sessions:read",
     "project-sessions:create",
-  "project-sessions:prompt",
+    "project-sessions:prompt",
   ],
 };
 
