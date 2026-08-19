@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
+import { SqliteClient } from "@effect/sql-sqlite-node";
+import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql/SqlClient";
 import type {
   CreateProjectSessionRequest,
   CreateProjectSessionResult,
@@ -35,6 +37,7 @@ interface SessionRow {
   readonly updated_at: string;
   readonly last_sequence: number;
 }
+
 interface ReceiptRow {
   readonly command_id: string;
   readonly request_fingerprint: string;
@@ -63,50 +66,42 @@ const toSummary = (row: SessionRow): ProjectSessionSummary => ({
   lastSequence: row.last_sequence,
 });
 
-const open = (databasePath: string) => {
-  const db = new DatabaseSync(databasePath);
-  db.exec("PRAGMA foreign_keys = ON");
-  return db;
-};
+const runSql = async <A>(
+  databasePath: string,
+  effect: Effect.Effect<A, unknown, SqlClient>,
+) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      const sql = yield* SqlClient;
+      yield* sql`PRAGMA foreign_keys = ON`;
+      return yield* effect;
+    }).pipe(Effect.provide(SqliteClient.layer({ filename: databasePath }))),
+  );
 
-const getHostId = (db: DatabaseSync): string => {
-  const row = db
-    .prepare("SELECT host_id FROM host_metadata WHERE singleton = 1")
-    .get() as { host_id: string } | undefined;
-  if (!row)
-    throw new ProjectSessionServiceError("project_session_catalog_unavailable");
-  return row.host_id;
-};
+const getSession = (sql: SqlClient, sessionId: string) =>
+  sql<SessionRow>`SELECT * FROM project_sessions WHERE session_id = ${sessionId}`;
 
-const getSession = (
-  db: DatabaseSync,
-  sessionId: string,
-): SessionRow | undefined =>
-  db
-    .prepare("SELECT * FROM project_sessions WHERE session_id = ?")
-    .get(sessionId) as SessionRow | undefined;
+const getHostId = (sql: SqlClient) =>
+  Effect.gen(function* () {
+    const rows = yield* sql<{
+      host_id: string;
+    }>`SELECT host_id FROM host_metadata WHERE singleton = 1`;
+    if (!rows[0])
+      throw new ProjectSessionServiceError(
+        "project_session_catalog_unavailable",
+      );
+    return rows[0].host_id;
+  });
 
 const appendEvent = (input: {
-  readonly db: DatabaseSync;
+  readonly sql: SqlClient;
   readonly sessionId: string;
   readonly sequence: number;
   readonly eventType: string;
   readonly payload: unknown;
   readonly createdAt: string;
-}) => {
-  input.db
-    .prepare(
-      "INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
-    )
-    .run(
-      input.sessionId,
-      input.sequence,
-      randomUUID(),
-      input.eventType,
-      JSON.stringify(input.payload),
-      input.createdAt,
-    );
-};
+}) =>
+  input.sql`INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.eventType}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
 
 export const createProjectSessionRepository = (options: {
   readonly databasePath: string;
@@ -117,307 +112,271 @@ export const createProjectSessionRepository = (options: {
     input: CreateProjectSessionRequest,
     project: AuthenticatedProjectRepository,
   ): Promise<ProjectSessionAdmission> => {
-    const db = open(options.databasePath);
-    try {
-      const fp = fingerprint(input);
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const receipt = db
-          .prepare(
-            "SELECT * FROM project_session_command_receipts WHERE command_id = ?",
-          )
-          .get(input.commandId) as ReceiptRow | undefined;
-        if (receipt) {
-          if (receipt.request_fingerprint !== fp)
-            throw new ProjectSessionServiceError("command_id_conflict");
-          const row = getSession(db, receipt.session_id);
-          if (!row)
-            throw new ProjectSessionServiceError(
-              "project_session_catalog_unavailable",
+    const fp = fingerprint(input);
+    return runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const receipt =
+              yield* sql<ReceiptRow>`SELECT * FROM project_session_command_receipts WHERE command_id = ${input.commandId}`;
+            if (receipt[0]) {
+              if (receipt[0].request_fingerprint !== fp)
+                throw new ProjectSessionServiceError("command_id_conflict");
+              const rows = yield* getSession(sql, receipt[0].session_id);
+              if (!rows[0])
+                throw new ProjectSessionServiceError(
+                  "project_session_catalog_unavailable",
+                );
+              return {
+                kind: "replayed" as const,
+                session: toSummary(rows[0]),
+                worktreePath: rows[0].intended_worktree_path,
+                worktreeRoot: rows[0].intended_worktree_root,
+                project,
+              };
+            }
+
+            const reservedRows = yield* sql<{
+              name: string;
+            }>`SELECT name FROM project_session_name_reservations`;
+            const candidate = chooseSessionNameCandidate(
+              new Set(reservedRows.map((row) => row.name)),
+              options.entropy,
             );
-          db.exec("COMMIT");
-          return {
-            kind: "replayed",
-            session: toSummary(row),
-            worktreePath: row.intended_worktree_path,
-            worktreeRoot: row.intended_worktree_root,
-            project,
-          };
-        }
-        const reservedRows = db
-          .prepare("SELECT name FROM project_session_name_reservations")
-          .all() as { name: string }[];
-        const candidate = chooseSessionNameCandidate(
-          new Set(reservedRows.map((row) => row.name)),
-          options.entropy,
+            if (!candidate)
+              throw new ProjectSessionServiceError("session_name_unavailable");
+
+            const sessionId = randomUUID();
+            const hostId = yield* getHostId(sql);
+            const now = new Date().toISOString();
+            const worktreeRoot = join(
+              options.spaceZeroHome,
+              "worktrees",
+              project.projectId,
+            );
+            const worktreePath = join(worktreeRoot, sessionId);
+            const managedBranch = `spacezero/${candidate.name}-${sessionId}`;
+
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: 1,
+              eventType: "ProjectSessionCreationRequestedV1",
+              payload: {
+                type: "ProjectSessionCreationRequestedV1",
+                version: 1,
+                sessionId,
+                projectId: input.projectId,
+                name: candidate.name,
+                hostId,
+                sourceBranch: project.sourceBranch,
+                sourceDetached: project.sourceDetached,
+                sourceCommit: project.headCommit,
+                uncommittedChangesExcluded: project.dirty,
+                managedBranch,
+                worktreePath,
+                worktreeRoot,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: 2,
+              eventType: "SessionWorkspacePreparationStartedV1",
+              payload: {
+                type: "SessionWorkspacePreparationStartedV1",
+                version: 1,
+                sessionId,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+
+            yield* sql`INSERT INTO project_sessions (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, created_at, updated_at, last_sequence) VALUES (${sessionId}, ${input.projectId}, ${candidate.name}, ${hostId}, 'provisioning', ${project.sourceBranch}, ${project.sourceDetached ? 1 : 0}, ${project.headCommit}, ${project.dirty ? 1 : 0}, ${managedBranch}, ${worktreePath}, ${worktreeRoot}, ${now}, ${now}, 2)`;
+            yield* sql`INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES (${candidate.name}, ${candidate.baseName}, ${sessionId}, ${now})`;
+            yield* sql`INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${sessionId}, 'pending', 2, ${now}, ${now})`;
+
+            const rows = yield* getSession(sql, sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            return {
+              kind: "admitted" as const,
+              session: toSummary(rows[0]),
+              worktreePath,
+              worktreeRoot,
+              project,
+            };
+          }),
         );
-        if (!candidate)
-          throw new ProjectSessionServiceError("session_name_unavailable");
-        const sessionId = randomUUID();
-        const hostId = getHostId(db);
-        const now = new Date().toISOString();
-        const worktreeRoot = join(
-          options.spaceZeroHome,
-          "worktrees",
-          project.projectId,
-        );
-        const worktreePath = join(worktreeRoot, sessionId);
-        const managedBranch = `spacezero/${candidate.name}-${sessionId}`;
-        appendEvent({
-          db,
-          sessionId,
-          sequence: 1,
-          eventType: "ProjectSessionCreationRequestedV1",
-          payload: {
-            type: "ProjectSessionCreationRequestedV1",
-            version: 1,
-            sessionId,
-            projectId: input.projectId,
-            name: candidate.name,
-            hostId,
-            sourceBranch: project.sourceBranch,
-            sourceDetached: project.sourceDetached,
-            sourceCommit: project.headCommit,
-            uncommittedChangesExcluded: project.dirty,
-            managedBranch,
-            worktreePath,
-            worktreeRoot,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        appendEvent({
-          db,
-          sessionId,
-          sequence: 2,
-          eventType: "SessionWorkspacePreparationStartedV1",
-          payload: {
-            type: "SessionWorkspacePreparationStartedV1",
-            version: 1,
-            sessionId,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        db.prepare(
-          "INSERT INTO project_sessions (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, created_at, updated_at, last_sequence) VALUES (?, ?, ?, ?, 'provisioning', ?, ?, ?, ?, ?, ?, ?, ?, ?, 2)",
-        ).run(
-          sessionId,
-          input.projectId,
-          candidate.name,
-          hostId,
-          project.sourceBranch,
-          project.sourceDetached ? 1 : 0,
-          project.headCommit,
-          project.dirty ? 1 : 0,
-          managedBranch,
-          worktreePath,
-          worktreeRoot,
-          now,
-          now,
-        );
-        db.prepare(
-          "INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES (?, ?, ?, ?)",
-        ).run(candidate.name, candidate.baseName, sessionId, now);
-        db.prepare(
-          "INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (?, ?, ?, 'pending', 2, ?, ?)",
-        ).run(input.commandId, fp, sessionId, now, now);
-        const row = getSession(db, sessionId)!;
-        db.exec("COMMIT");
-        return {
-          kind: "admitted",
-          session: toSummary(row),
-          worktreePath,
-          worktreeRoot,
-          project,
-        };
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-    } finally {
-      db.close();
-    }
+      }),
+    );
   },
+
   markReady: async (
     commandId: string,
     sessionId: string,
     prepared: PreparedWorktreeIdentity,
-  ): Promise<CreateProjectSessionResult> => {
-    const db = open(options.databasePath);
-    try {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const row = getSession(db, sessionId);
-        if (!row)
-          throw new ProjectSessionServiceError(
-            "project_session_catalog_unavailable",
-          );
-        const now = new Date().toISOString();
-        appendEvent({
-          db,
-          sessionId,
-          sequence: row.last_sequence + 1,
-          eventType: "SessionWorkspacePreparedV1",
-          payload: {
-            type: "SessionWorkspacePreparedV1",
-            version: 1,
-            sessionId,
-            ...prepared,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        appendEvent({
-          db,
-          sessionId,
-          sequence: row.last_sequence + 2,
-          eventType: "ProjectSessionReadyV1",
-          payload: {
-            type: "ProjectSessionReadyV1",
-            version: 1,
-            sessionId,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        db.prepare(
-          "UPDATE project_sessions SET state = 'ready', canonical_worktree_path = ?, canonical_git_dir_path = ?, canonical_git_common_dir_path = ?, worktree_device_id = ?, worktree_file_id = ?, git_dir_device_id = ?, git_dir_file_id = ?, common_dir_device_id = ?, common_dir_file_id = ?, updated_at = ?, last_sequence = ? WHERE session_id = ?",
-        ).run(
-          prepared.canonicalWorktreePath,
-          prepared.canonicalGitDirPath,
-          prepared.canonicalGitCommonDirPath,
-          prepared.worktreeDeviceId,
-          prepared.worktreeFileId,
-          prepared.gitDirDeviceId,
-          prepared.gitDirFileId,
-          prepared.commonDirDeviceId,
-          prepared.commonDirFileId,
-          now,
-          row.last_sequence + 2,
-          sessionId,
+  ): Promise<CreateProjectSessionResult> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            const row = rows[0];
+            const now = new Date().toISOString();
+
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: row.last_sequence + 1,
+              eventType: "SessionWorkspacePreparedV1",
+              payload: {
+                type: "SessionWorkspacePreparedV1",
+                version: 1,
+                sessionId,
+                ...prepared,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: row.last_sequence + 2,
+              eventType: "ProjectSessionReadyV1",
+              payload: {
+                type: "ProjectSessionReadyV1",
+                version: 1,
+                sessionId,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+
+            yield* sql`UPDATE project_sessions SET state = 'ready', canonical_worktree_path = ${prepared.canonicalWorktreePath}, canonical_git_dir_path = ${prepared.canonicalGitDirPath}, canonical_git_common_dir_path = ${prepared.canonicalGitCommonDirPath}, worktree_device_id = ${prepared.worktreeDeviceId}, worktree_file_id = ${prepared.worktreeFileId}, git_dir_device_id = ${prepared.gitDirDeviceId}, git_dir_file_id = ${prepared.gitDirFileId}, common_dir_device_id = ${prepared.commonDirDeviceId}, common_dir_file_id = ${prepared.commonDirFileId}, updated_at = ${now}, last_sequence = ${row.last_sequence + 2} WHERE session_id = ${sessionId}`;
+            yield* sql`UPDATE project_session_command_receipts SET status = 'succeeded', committed_sequence = ${row.last_sequence + 2}, updated_at = ${now} WHERE command_id = ${commandId}`;
+
+            const updated = yield* getSession(sql, sessionId);
+            if (!updated[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            return { session: toSummary(updated[0]) };
+          }),
         );
-        db.prepare(
-          "UPDATE project_session_command_receipts SET status = 'succeeded', committed_sequence = ?, updated_at = ? WHERE command_id = ?",
-        ).run(row.last_sequence + 2, now, commandId);
-        const updated = getSession(db, sessionId)!;
-        db.exec("COMMIT");
-        return { session: toSummary(updated) };
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-    } finally {
-      db.close();
-    }
-  },
+      }),
+    ),
+
   markRecoveryRequired: async (
     commandId: string,
     sessionId: string,
-  ): Promise<CreateProjectSessionResult> => {
-    const db = open(options.databasePath);
-    try {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const row = getSession(db, sessionId);
-        if (!row)
-          throw new ProjectSessionServiceError(
-            "project_session_catalog_unavailable",
-          );
-        const now = new Date().toISOString();
-        appendEvent({
-          db,
-          sessionId,
-          sequence: row.last_sequence + 1,
-          eventType: "ProjectSessionRecoveryRequiredV1",
-          payload: {
-            type: "ProjectSessionRecoveryRequiredV1",
-            version: 1,
-            sessionId,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        db.prepare(
-          "UPDATE project_sessions SET state = 'recovery_required', updated_at = ?, last_sequence = ? WHERE session_id = ?",
-        ).run(now, row.last_sequence + 1, sessionId);
-        db.prepare(
-          "UPDATE project_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ?, updated_at = ? WHERE command_id = ?",
-        ).run(row.last_sequence + 1, now, commandId);
-        const updated = getSession(db, sessionId)!;
-        db.exec("COMMIT");
-        return { session: toSummary(updated) };
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-    } finally {
-      db.close();
-    }
-  },
-  list: async (): Promise<readonly ProjectSessionSummary[]> => {
-    const db = open(options.databasePath);
-    try {
-      const rows = db
-        .prepare(
-          "SELECT * FROM project_sessions WHERE state IN ('provisioning', 'ready', 'recovery_required') ORDER BY created_at ASC, session_id ASC",
-        )
-        .all() as unknown as SessionRow[];
-      return rows.map(toSummary);
-    } finally {
-      db.close();
-    }
-  },
-  markExistingRecoveryRequired: async (sessionId: string): Promise<void> => {
-    const db = open(options.databasePath);
-    try {
-      db.exec("BEGIN IMMEDIATE");
-      try {
-        const row = getSession(db, sessionId);
-        if (!row || row.state !== "provisioning") {
-          db.exec("COMMIT");
-          return;
-        }
-        const now = new Date().toISOString();
-        appendEvent({
-          db,
-          sessionId,
-          sequence: row.last_sequence + 1,
-          eventType: "ProjectSessionRecoveryRequiredV1",
-          payload: {
-            type: "ProjectSessionRecoveryRequiredV1",
-            version: 1,
-            sessionId,
-            timestamp: now,
-          },
-          createdAt: now,
-        });
-        db.prepare(
-          "UPDATE project_sessions SET state = 'recovery_required', updated_at = ?, last_sequence = ? WHERE session_id = ?",
-        ).run(now, row.last_sequence + 1, sessionId);
-        db.prepare(
-          "UPDATE project_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ?, updated_at = ? WHERE session_id = ? AND status = 'pending'",
-        ).run(row.last_sequence + 1, now, sessionId);
-        db.exec("COMMIT");
-      } catch (error) {
-        db.exec("ROLLBACK");
-        throw error;
-      }
-    } finally {
-      db.close();
-    }
-  },
-  recoveryCandidates: async (): Promise<readonly ProjectSessionSummary[]> => {
-    const db = open(options.databasePath);
-    try {
-      const rows = db
-        .prepare(
-          "SELECT * FROM project_sessions WHERE state = 'provisioning' ORDER BY created_at ASC, session_id ASC",
-        )
-        .all() as unknown as SessionRow[];
-      return rows.map(toSummary);
-    } finally {
-      db.close();
-    }
-  },
+  ): Promise<CreateProjectSessionResult> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            const row = rows[0];
+            const now = new Date().toISOString();
+
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: row.last_sequence + 1,
+              eventType: "ProjectSessionRecoveryRequiredV1",
+              payload: {
+                type: "ProjectSessionRecoveryRequiredV1",
+                version: 1,
+                sessionId,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+
+            yield* sql`UPDATE project_sessions SET state = 'recovery_required', updated_at = ${now}, last_sequence = ${row.last_sequence + 1} WHERE session_id = ${sessionId}`;
+            yield* sql`UPDATE project_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ${row.last_sequence + 1}, updated_at = ${now} WHERE command_id = ${commandId}`;
+
+            const updated = yield* getSession(sql, sessionId);
+            if (!updated[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            return { session: toSummary(updated[0]) };
+          }),
+        );
+      }),
+    ),
+
+  list: async (): Promise<readonly ProjectSessionSummary[]> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows =
+          yield* sql<SessionRow>`SELECT * FROM project_sessions WHERE state IN ('provisioning', 'ready', 'recovery_required') ORDER BY created_at ASC, session_id ASC`;
+        return rows.map(toSummary);
+      }),
+    ),
+
+  markExistingRecoveryRequired: async (sessionId: string): Promise<void> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, sessionId);
+            if (!rows[0] || rows[0].state !== "provisioning") return;
+            const row = rows[0];
+            const now = new Date().toISOString();
+
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence: row.last_sequence + 1,
+              eventType: "ProjectSessionRecoveryRequiredV1",
+              payload: {
+                type: "ProjectSessionRecoveryRequiredV1",
+                version: 1,
+                sessionId,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+
+            yield* sql`UPDATE project_sessions SET state = 'recovery_required', updated_at = ${now}, last_sequence = ${row.last_sequence + 1} WHERE session_id = ${sessionId}`;
+            yield* sql`UPDATE project_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ${row.last_sequence + 1}, updated_at = ${now} WHERE session_id = ${sessionId} AND status = 'pending'`;
+          }),
+        );
+      }),
+    ),
+
+  recoveryCandidates: async (): Promise<readonly ProjectSessionSummary[]> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows =
+          yield* sql<SessionRow>`SELECT * FROM project_sessions WHERE state = 'provisioning' ORDER BY created_at ASC, session_id ASC`;
+        return rows.map(toSummary);
+      }),
+    ),
 });
