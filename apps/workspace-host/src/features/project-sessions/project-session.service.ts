@@ -4,14 +4,32 @@ import type {
   CreateProjectSessionResult,
   ListProjectSessionsResult,
   ProjectSessionErrorCode,
+  SessionMessage,
+  SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
+import {
+  AgentTurnError,
+  createScriptedConversationRunner,
+  type ConversationRunner,
+} from "@spacezero/pi-adapter";
 import {
   ProjectServiceError,
   createProjectAuthority,
 } from "../projects/projects.service.js";
-import { createManagedWorktree } from "./project-session-worktree.adapter.js";
-import { ProjectSessionServiceError } from "./project-session.model.js";
-import { createProjectSessionRepository } from "./project-session.repository.js";
+import {
+  authenticateManagedWorktree,
+  createManagedWorktree,
+} from "./project-session-worktree.adapter.js";
+import {
+  ProjectSessionServiceError,
+  type PreparedWorktreeIdentity,
+  type SubmitSessionPromptInput,
+} from "./project-session.model.js";
+import {
+  createProjectSessionRepository,
+  type AgentTurnFailureReason,
+  type SessionWorktreeIdentity,
+} from "./project-session.repository.js";
 import type { SessionNameEntropy } from "./project-session-name.service.js";
 
 export interface ProjectSessionService {
@@ -19,6 +37,13 @@ export interface ProjectSessionService {
     input: CreateProjectSessionRequest,
   ) => Promise<CreateProjectSessionResult>;
   readonly list: () => Promise<ListProjectSessionsResult>;
+  readonly submitPrompt: (
+    input: SubmitSessionPromptInput,
+  ) => Promise<SubmitSessionPromptResult>;
+  readonly listMessages: (sessionId: string) => Promise<{
+    readonly session: SubmitSessionPromptResult["session"];
+    readonly messages: readonly SessionMessage[];
+  }>;
   readonly reconcile: () => Promise<void>;
   readonly waitForIdle: () => Promise<void>;
 }
@@ -54,25 +79,34 @@ export const createProjectSessionService = (options: {
   readonly databasePath: string;
   readonly spaceZeroHome: string;
   readonly entropy?: SessionNameEntropy;
+  readonly conversationRunner?: ConversationRunner;
 }): ProjectSessionService => {
   const projectAuthority = createProjectAuthority(options.databasePath);
   const repository = createProjectSessionRepository(options);
+  const conversationRunner =
+    options.conversationRunner ?? createScriptedConversationRunner();
   const locks = new Map<string, Promise<unknown>>();
+  const sessionLocks = new Map<string, Promise<unknown>>();
   const inFlight = new Set<Promise<unknown>>();
 
-  const withProjectLock = async <A>(
-    projectId: string,
+  const withLock = async <A>(
+    registry: Map<string, Promise<unknown>>,
+    key: string,
     run: () => Promise<A>,
   ) => {
-    const previous = locks.get(projectId) ?? Promise.resolve();
+    const previous = registry.get(key) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(run);
-    locks.set(projectId, current);
+    registry.set(key, current);
     try {
       return await current;
     } finally {
-      if (locks.get(projectId) === current) locks.delete(projectId);
+      if (registry.get(key) === current) registry.delete(key);
     }
   };
+  const withProjectLock = async <A>(projectId: string, run: () => Promise<A>) =>
+    withLock(locks, projectId, run);
+  const withSessionLock = async <A>(sessionId: string, run: () => Promise<A>) =>
+    withLock(sessionLocks, sessionId, run);
 
   const create = async (
     input: CreateProjectSessionRequest,
@@ -113,9 +147,97 @@ export const createProjectSessionService = (options: {
       }
     });
 
+  const assertPersistedIdentity = (
+    persisted: SessionWorktreeIdentity,
+    prepared: PreparedWorktreeIdentity,
+  ): void => {
+    if (
+      persisted.canonicalWorktreePath !== prepared.canonicalWorktreePath ||
+      persisted.canonicalGitDirPath !== prepared.canonicalGitDirPath ||
+      persisted.canonicalGitCommonDirPath !==
+        prepared.canonicalGitCommonDirPath ||
+      persisted.worktreeDeviceId !== prepared.worktreeDeviceId ||
+      persisted.worktreeFileId !== prepared.worktreeFileId ||
+      persisted.gitDirDeviceId !== prepared.gitDirDeviceId ||
+      persisted.gitDirFileId !== prepared.gitDirFileId ||
+      persisted.commonDirDeviceId !== prepared.commonDirDeviceId ||
+      persisted.commonDirFileId !== prepared.commonDirFileId
+    )
+      throw new ProjectSessionServiceError("session_recovery_required");
+  };
+
+  const submitPrompt = async (
+    input: SubmitSessionPromptInput,
+  ): Promise<SubmitSessionPromptResult> =>
+    withSessionLock(input.sessionId, async () => {
+      try {
+        const identity = await repository.getSessionForPrompt(input.sessionId);
+        const project = await projectAuthority.authenticateProject(
+          identity.projectId,
+        );
+        const prepared = await authenticateManagedWorktree({
+          project,
+          worktreePath: identity.intendedWorktreePath,
+          managedBranch: identity.managedBranch,
+          sourceCommit: identity.sourceCommit,
+        });
+        assertPersistedIdentity(identity, prepared);
+
+        const prompt = input.prompt.trim();
+        const admission = await repository.admitPrompt({
+          commandId: input.commandId,
+          sessionId: input.sessionId,
+          prompt,
+        });
+        if (admission.kind === "replayed") return admission.result;
+
+        try {
+          const turn = await conversationRunner.submitTurn({
+            worktreePath: prepared.canonicalWorktreePath,
+            prompt,
+          });
+          if (typeof turn.text !== "string" || turn.text.length === 0)
+            throw new AgentTurnError("agent_turn_failed");
+          return await repository.completeTurn({
+            commandId: input.commandId,
+            sessionId: input.sessionId,
+            turnId: admission.turnId,
+            text: turn.text,
+          });
+        } catch (error) {
+          const reason: AgentTurnFailureReason =
+            error instanceof AgentTurnError &&
+            error.code === "agent_unavailable"
+              ? "agent_unavailable"
+              : "agent_turn_failed";
+          await repository
+            .failTurn({
+              commandId: input.commandId,
+              sessionId: input.sessionId,
+              turnId: admission.turnId,
+              reason,
+            })
+            .catch(() => undefined);
+          if (error instanceof AgentTurnError)
+            throw new ProjectSessionServiceError(error.code);
+          throw new ProjectSessionServiceError("agent_turn_failed");
+        }
+      } catch (error) {
+        throw mapError(error);
+      }
+    });
+
   return {
     create,
     list: async () => ({ sessions: await repository.list() }),
+    submitPrompt,
+    listMessages: async (sessionId) => {
+      try {
+        return await repository.listMessages(sessionId);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
     reconcile: async () => {
       const candidates = await repository.recoveryCandidates();
       await Promise.all(

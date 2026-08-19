@@ -10,7 +10,12 @@ export type ProjectSessionErrorCode =
   | "session_provisioning_failed"
   | "session_recovery_required"
   | "session_name_unavailable"
-  | "project_session_catalog_unavailable";
+  | "project_session_catalog_unavailable"
+  | "session_not_found"
+  | "session_not_ready"
+  | "session_turn_in_progress"
+  | "agent_turn_failed"
+  | "agent_unavailable";
 
 export interface ProjectSessionError {
   readonly code: ProjectSessionErrorCode;
@@ -19,7 +24,7 @@ export interface ProjectSessionError {
 
 const projectSessionError = <Code extends ProjectSessionErrorCode>(
   code: Code,
-  status: 404 | 409 | 503,
+  status: 404 | 409 | 502 | 503,
 ) =>
   Schema.Struct({
     code: Schema.Literals([code]),
@@ -62,6 +67,26 @@ export const ProjectSessionCatalogUnavailableErrorSchema = projectSessionError(
   "project_session_catalog_unavailable",
   503,
 );
+export const SessionNotFoundErrorSchema = projectSessionError(
+  "session_not_found",
+  404,
+);
+export const SessionNotReadyErrorSchema = projectSessionError(
+  "session_not_ready",
+  409,
+);
+export const SessionTurnInProgressErrorSchema = projectSessionError(
+  "session_turn_in_progress",
+  409,
+);
+export const AgentTurnFailedErrorSchema = projectSessionError(
+  "agent_turn_failed",
+  502,
+);
+export const AgentUnavailableErrorSchema = projectSessionError(
+  "agent_unavailable",
+  503,
+);
 
 export const ProjectSessionErrorSchemas = [
   ProjectNotFoundErrorSchema,
@@ -73,6 +98,11 @@ export const ProjectSessionErrorSchemas = [
   SessionRecoveryRequiredErrorSchema,
   SessionNameUnavailableErrorSchema,
   ProjectSessionCatalogUnavailableErrorSchema,
+  SessionNotFoundErrorSchema,
+  SessionNotReadyErrorSchema,
+  SessionTurnInProgressErrorSchema,
+  AgentTurnFailedErrorSchema,
+  AgentUnavailableErrorSchema,
 ] as const;
 
 export const projectSessionErrorBody = (
@@ -123,6 +153,29 @@ export const projectSessionErrorBody = (
       return {
         code,
         message: "The Project Session catalog is temporarily unavailable.",
+      };
+    case "session_not_found":
+      return { code, message: "The selected Project Session does not exist." };
+    case "session_not_ready":
+      return {
+        code,
+        message: "This Session is not ready to receive prompts yet.",
+      };
+    case "session_turn_in_progress":
+      return {
+        code,
+        message:
+          "An agent turn is already in progress for this Session. Wait for it to finish.",
+      };
+    case "agent_turn_failed":
+      return {
+        code,
+        message: "The agent turn failed. Try the prompt again.",
+      };
+    case "agent_unavailable":
+      return {
+        code,
+        message: "The agent is unavailable right now. Try again shortly.",
       };
   }
 };

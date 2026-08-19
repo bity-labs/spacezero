@@ -25,6 +25,7 @@ import {
 } from "../features/projects/projects.service.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
+import type { ConversationRunner } from "@spacezero/pi-adapter";
 import { runHostDatabaseMigrations } from "./host-database.js";
 import {
   createCapabilityService,
@@ -49,7 +50,8 @@ type AuthScope =
   | "projects:read"
   | "projects:register"
   | "project-sessions:read"
-  | "project-sessions:create";
+  | "project-sessions:create"
+  | "project-sessions:prompt";
 
 const instanceId = (): string => randomBytes(16).toString("hex");
 const bearerValue = (authorization: string | undefined): string | undefined => {
@@ -116,6 +118,7 @@ export const startHostServer = async (options: {
   readonly onShutdown?: () => void;
   readonly databasePath?: string;
   readonly spaceZeroHome?: string;
+  readonly conversationRunner?: ConversationRunner;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
   const id = instanceId();
@@ -139,6 +142,9 @@ export const startHostServer = async (options: {
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
+    ...(options.conversationRunner
+      ? { conversationRunner: options.conversationRunner }
+      : {}),
   });
   await projectSessions.reconcile();
 
@@ -299,6 +305,42 @@ export const startHostServer = async (options: {
           return effectPromise(() => projectSessions.list()).pipe(
             Effect.mapError(projectSessionHttpError),
           );
+        },
+        submitSessionPrompt: ({ headers, request, params, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.submitPrompt({
+              sessionId: params.sessionId,
+              commandId: payload.commandId,
+              prompt: payload.prompt,
+            }),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        listSessionMessages: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listMessages(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
         },
       }),
   );

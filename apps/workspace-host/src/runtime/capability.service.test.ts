@@ -25,6 +25,7 @@ describe("capability service", () => {
       "projects:register",
       "project-sessions:read",
       "project-sessions:create",
+    "project-sessions:prompt",
     ]);
   });
 

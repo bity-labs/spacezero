@@ -15,6 +15,7 @@ const descriptor: HostConnectionDescriptor = {
     "projects:register",
     "project-sessions:read",
     "project-sessions:create",
+    "project-sessions:prompt",
   ],
 };
 const uuid = "11111111-1111-4111-8111-111111111111";
@@ -86,6 +87,73 @@ describe("Project Session client", () => {
 
     await expect(client.createProjectSession(uuid)).resolves.toEqual({
       session,
+    });
+  });
+
+  it("submits a prompt to the Session prompt endpoint", async () => {
+    const userMessage = {
+      id: uuid,
+      role: "user",
+      text: "Build the wine list view",
+      sequence: 5,
+      createdAt: "2026-01-01T00:01:00.000Z",
+    };
+    const agentMessage = {
+      id: "22222222-2222-4222-8222-222222222222",
+      role: "assistant",
+      text: "Echo: Build the wine list view",
+      sequence: 7,
+      createdAt: "2026-01-01T00:01:01.000Z",
+    };
+    const result = { session, userMessage, agentMessage };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = await requestDetails(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/project-sessions/${uuid}/prompts`,
+        );
+        expect(request.method).toBe("POST");
+        expect(request.authorization).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        expect(request.body).toEqual({
+          commandId: uuid,
+          prompt: "Build the wine list view",
+        });
+        return json(result);
+      },
+    );
+    const client = createProjectSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => uuid,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.submitPrompt(uuid, "Build the wine list view"),
+    ).resolves.toEqual(result);
+  });
+
+  it("lists Session messages with the Session projection cursor", async () => {
+    const messages: [] = [];
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = await requestDetails(input, init);
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/project-sessions/${uuid}/messages`,
+        );
+        expect(request.method).toBe("GET");
+        return json({ session, messages });
+      },
+    );
+    const client = createProjectSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(client.listSessionMessages(uuid)).resolves.toEqual({
+      session,
+      messages,
     });
   });
 });

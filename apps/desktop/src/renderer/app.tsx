@@ -1,12 +1,17 @@
 import { createLocalHostConnectionClient } from "@spacezero/client-runtime";
-import { useEffect, useState, type ReactElement } from "react";
+import type { ProjectSessionSummary } from "@spacezero/host-contracts";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { ProjectsContainer } from "./features/projects/projects-container.js";
+import { SessionChatContainer } from "./features/session-chat/session-chat-container.js";
 
 export const App = (): ReactElement => {
   const [version, setVersion] = useState("loading");
   const [hostStatus, setHostStatus] = useState<
     "connecting" | "connected" | "unavailable"
   >("connecting");
+  const [openSession, setOpenSession] = useState<ProjectSessionSummary | null>(
+    null,
+  );
   useEffect(() => {
     let mounted = true;
     window.spacezero.getAppVersion().then((value) => {
@@ -28,6 +33,7 @@ export const App = (): ReactElement => {
       client.dispose();
     };
   }, []);
+  const closeSession = useCallback(() => setOpenSession(null), []);
   return (
     <main className="shell" aria-labelledby="app-title">
       <p className="eyebrow">Authenticated connectivity tracer</p>
@@ -42,7 +48,13 @@ export const App = (): ReactElement => {
           <dd>{hostStatus}</dd>
         </div>
       </dl>
-      {hostStatus === "connected" ? <ProjectsContainer /> : null}
+      {hostStatus === "connected" ? (
+        openSession ? (
+          <SessionChatContainer session={openSession} onBack={closeSession} />
+        ) : (
+          <ProjectsContainer onOpenSession={setOpenSession} />
+        )
+      ) : null}
     </main>
   );
 };
