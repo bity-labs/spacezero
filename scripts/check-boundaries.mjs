@@ -123,7 +123,13 @@ function checkManifest(name, meta) {
         errors.push(
           `${manifestPath}: browser-safe dependency ${dep} is forbidden`,
         );
-      if (name === "@spacezero/pi-adapter" && /pi/i.test(dep))
+      if (
+        name === "@spacezero/pi-adapter" &&
+        dep !== "@earendil-works/pi-agent-core" &&
+        dep !== "@earendil-works/pi-ai" &&
+        dep !== "@earendil-works/pi-telemetry" &&
+        /pi/i.test(dep)
+      )
         errors.push(`${manifestPath}: Pi dependency ${dep} is deferred`);
     }
   }

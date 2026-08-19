@@ -25,8 +25,12 @@ describe("pi adapter package policy", () => {
     ).toBe(true);
   });
 
-  it("keeps the Pi SDK dependency deferred until an explicit decision", () => {
-    expect(Object.keys(manifest.dependencies ?? {})).toEqual(["effect"]);
+  it("includes the Pi SDK dependencies after explicit integration decision", () => {
+    expect(Object.keys(manifest.dependencies ?? {})).toEqual([
+      "@earendil-works/pi-agent-core",
+      "@earendil-works/pi-ai",
+      "effect",
+    ]);
     expect(manifest.engines?.node).toBe("22.23.1");
   });
 });

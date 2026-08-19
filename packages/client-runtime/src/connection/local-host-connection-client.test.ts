@@ -14,7 +14,7 @@ const descriptor = {
     "projects:register",
     "project-sessions:read",
     "project-sessions:create",
-  "project-sessions:prompt",
+    "project-sessions:prompt",
   ] as const,
 };
 const sse = (): ReadableStream<Uint8Array> =>
