@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { registerAppInfoIpc } from "./app-info.ipc.js";
 import { installAppLifecycle } from "./app-lifecycle.js";
 import { registerLocalHostIpc } from "./local-host/local-host.ipc.js";
 import { registerProjectFolderPickerIpc } from "./project-folder-picker.ipc.js";
@@ -17,12 +18,14 @@ registerRendererSchemePrivilege();
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const rendererRoot = builtRendererRoot(__dirname);
 const supervisor = createLocalHostSupervisor();
+const rendererPolicy = createTrustedRendererPolicy({
+  isDevelopment: import.meta.env.DEV,
+  rendererUrl: process.env.ELECTRON_RENDERER_URL,
+});
+const isTrustedSender = (url: string): boolean =>
+  rendererPolicy.canNavigateInWindow(url);
 
 const createWindow = (): BrowserWindow => {
-  const rendererPolicy = createTrustedRendererPolicy({
-    isDevelopment: import.meta.env.DEV,
-    rendererUrl: process.env.ELECTRON_RENDERER_URL,
-  });
   const window = new BrowserWindow({
     width: 1024,
     height: 720,
@@ -47,14 +50,10 @@ const createWindow = (): BrowserWindow => {
   return window;
 };
 
-ipcMain.handle("spacezero:get-app-version", () => app.getVersion());
-registerLocalHostIpc(supervisor);
+registerAppInfoIpc({ isTrustedSender });
+registerLocalHostIpc({ supervisor, isTrustedSender });
 
 app.whenReady().then(async () => {
-  const rendererPolicy = createTrustedRendererPolicy({
-    isDevelopment: import.meta.env.DEV,
-    rendererUrl: process.env.ELECTRON_RENDERER_URL,
-  });
   await supervisor
     .start(
       rendererPolicy.allowedRendererOrigin,
@@ -62,9 +61,7 @@ app.whenReady().then(async () => {
     )
     .catch(() => undefined);
   registerRendererProtocol(rendererRoot, supervisor.endpoint());
-  registerProjectFolderPickerIpc({
-    isTrustedSender: (url) => rendererPolicy.canNavigateInWindow(url),
-  });
+  registerProjectFolderPickerIpc({ isTrustedSender });
   createWindow();
 });
 installAppLifecycle(app, createWindow, supervisor);

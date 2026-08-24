@@ -171,6 +171,12 @@ export const createProjectSessionService = (options: {
   ): Promise<SubmitSessionPromptResult> =>
     withSessionLock(input.sessionId, async () => {
       try {
+        const existing = await repository.replayOrRejectPromptReceipt({
+          commandId: input.commandId,
+          sessionId: input.sessionId,
+          prompt: input.prompt.trim(),
+        });
+        if (existing) return existing;
         const identity = await repository.getSessionForPrompt(input.sessionId);
         const project = await projectAuthority.authenticateProject(
           identity.projectId,
@@ -241,13 +247,9 @@ export const createProjectSessionService = (options: {
     reconcile: async () => {
       const candidates = await repository.recoveryCandidates();
       await Promise.all(
-        candidates.map(async (session) => {
-          try {
-            await repository.markExistingRecoveryRequired(session.id);
-          } catch {
-            // Individual Session reconciliation failures must not block Host startup.
-          }
-        }),
+        candidates.map((session) =>
+          repository.markExistingRecoveryRequired(session.id),
+        ),
       );
     },
     waitForIdle: async () => {

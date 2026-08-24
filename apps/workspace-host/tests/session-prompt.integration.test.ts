@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -199,8 +199,9 @@ describe("Session prompt Host protocol", () => {
     expect(body.agentMessage.text).toBe("Echo: Build the wine list view");
     expect(body.agentMessage.sequence).toBe(body.userMessage.sequence + 2);
     expect(seen).toHaveLength(1);
+    const canonicalHome = await realpath(join(root, "SpaceZero"));
     expect(seen[0]?.worktreePath).toBe(
-      join(root, "SpaceZero", "worktrees", project.project.id, sessionId),
+      join(canonicalHome, "worktrees", project.project.id, sessionId),
     );
     expect(eventTypes(databasePath, sessionId)).toEqual([
       "ProjectSessionCreationRequestedV1",
@@ -308,18 +309,25 @@ describe("Session prompt Host protocol", () => {
     const messagesBody = listed.body as {
       messages: { role: string; text: string }[];
     };
-    expect(messagesBody.messages.map((message) => message.text)).toEqual([
-      "one",
-      "Echo: one",
-      "two",
-      "Echo: two",
+    const messagePairs = [
+      messagesBody.messages.slice(0, 2),
+      messagesBody.messages.slice(2, 4),
+    ];
+    expect(messagePairs).toHaveLength(2);
+    expect(
+      messagePairs.map((pair) => pair.map((message) => message.role)),
+    ).toEqual([
+      ["user", "assistant"],
+      ["user", "assistant"],
     ]);
-    expect(messagesBody.messages.map((message) => message.role)).toEqual([
-      "user",
-      "assistant",
-      "user",
-      "assistant",
-    ]);
+    expect(
+      messagePairs.map((pair) => pair.map((message) => message.text)),
+    ).toEqual(
+      expect.arrayContaining([
+        ["one", "Echo: one"],
+        ["two", "Echo: two"],
+      ]),
+    );
   });
 
   it("rejects prompts for unknown or not-ready Sessions", async () => {

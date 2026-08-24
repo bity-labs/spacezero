@@ -470,7 +470,14 @@ export const createProjectSessionRepository = (options: {
         return yield* sql.withTransaction(
           Effect.gen(function* () {
             const rows = yield* getSession(sql, sessionId);
-            if (!rows[0] || rows[0].state !== "provisioning") return;
+            if (!rows[0] || rows[0].state === "recovery_required") return;
+            const pendingReceipts =
+              yield* sql<ReceiptRow>`SELECT * FROM project_session_command_receipts WHERE session_id = ${sessionId} AND status = 'pending'`;
+            if (
+              rows[0].state !== "provisioning" &&
+              pendingReceipts.length === 0
+            )
+              return;
             const row = rows[0];
             const now = new Date().toISOString();
 
@@ -501,8 +508,35 @@ export const createProjectSessionRepository = (options: {
       Effect.gen(function* () {
         const sql = yield* SqlClient;
         const rows =
-          yield* sql<SessionRow>`SELECT * FROM project_sessions WHERE state = 'provisioning' ORDER BY created_at ASC, session_id ASC`;
+          yield* sql<SessionRow>`SELECT * FROM project_sessions WHERE state = 'provisioning' OR (state = 'ready' AND EXISTS (SELECT 1 FROM project_session_command_receipts WHERE project_session_command_receipts.session_id = project_sessions.session_id AND project_session_command_receipts.status = 'pending')) ORDER BY created_at ASC, session_id ASC`;
         return rows.map(toSummary);
+      }),
+    ),
+
+  replayOrRejectPromptReceipt: async (
+    input: PromptAdmissionInput,
+  ): Promise<SubmitSessionPromptResult | undefined> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const fp = promptFingerprint(input);
+        const receipt =
+          yield* sql<ReceiptRow>`SELECT * FROM project_session_command_receipts WHERE command_id = ${input.commandId}`;
+        if (!receipt[0]) return undefined;
+        if (receipt[0].request_fingerprint !== fp)
+          throw new ProjectSessionServiceError("command_id_conflict");
+        if (receipt[0].status === "pending")
+          throw new ProjectSessionServiceError("session_turn_in_progress");
+        if (receipt[0].status === "failed")
+          throw new ProjectSessionServiceError(
+            receipt[0].terminal_error_code ?? "agent_turn_failed",
+          );
+        if (receipt[0].status === "recovery_required")
+          throw new ProjectSessionServiceError(
+            receipt[0].terminal_error_code ?? "session_recovery_required",
+          );
+        return yield* replayPromptResult(sql, input.sessionId, receipt[0]);
       }),
     ),
 
@@ -539,6 +573,10 @@ export const createProjectSessionRepository = (options: {
               if (receipt[0].status === "failed")
                 throw new ProjectSessionServiceError(
                   receipt[0].terminal_error_code ?? "agent_turn_failed",
+                );
+              if (receipt[0].status === "recovery_required")
+                throw new ProjectSessionServiceError(
+                  receipt[0].terminal_error_code ?? "session_recovery_required",
                 );
               const result = yield* replayPromptResult(
                 sql,
