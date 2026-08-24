@@ -5,7 +5,7 @@ import { App } from "./app.js";
 const descriptor = {
   endpoint: "http://127.0.0.1:1234/",
   instanceId: "0123456789abcdef0123456789abcdef",
-  protocolVersion: "1" as const,
+  protocolVersion: "2" as const,
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
   scopes: [
@@ -13,6 +13,8 @@ const descriptor = {
     "host:events:subscribe",
     "projects:read",
     "projects:register",
+    "harness-auth:read",
+    "harness-auth:write",
     "project-sessions:read",
     "project-sessions:create",
     "project-sessions:prompt",
@@ -25,7 +27,7 @@ describe("App", () => {
       start(controller) {
         controller.enqueue(
           new TextEncoder().encode(
-            `id: 1\nevent: host.connected\ndata: {"type":"host.connected","instanceId":"${descriptor.instanceId}","protocolVersion":"1"}\n\n`,
+            `id: 1\nevent: host.connected\ndata: {"type":"host.connected","instanceId":"${descriptor.instanceId}","protocolVersion":"2"}\n\n`,
           ),
         );
       },
@@ -38,7 +40,7 @@ describe("App", () => {
           return new Response(
             JSON.stringify({
               instanceId: descriptor.instanceId,
-              protocolVersion: "1",
+              protocolVersion: "2",
               status: "ready",
             }),
           );

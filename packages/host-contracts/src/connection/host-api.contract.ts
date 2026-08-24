@@ -16,6 +16,7 @@ import {
   HostConnectionDescriptorSchema,
   HostConnectionSnapshotSchema,
 } from "./host-connection.schema.js";
+import { HarnessAuthApiGroup } from "../harness-auth/harness-auth-api.contract.js";
 import { ProjectApiGroup } from "../projects/project-api.contract.js";
 import { ProjectSessionApiGroup } from "../project-sessions/project-session-api.contract.js";
 
@@ -70,6 +71,7 @@ export const HostApi = HttpApi.make("SpaceZeroHostApi")
   .add(HostBootstrapGroup)
   .add(HostConnectionGroup)
   .add(HostAdminGroup)
+  .add(HarnessAuthApiGroup)
   .add(ProjectApiGroup)
   .add(ProjectSessionApiGroup)
   .prefix("/v1");

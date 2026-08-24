@@ -12,8 +12,10 @@ import {
   HostApi,
   parseHostConnectedEvent,
   parseHostConnectionSnapshot,
+  harnessAuthErrorBody,
   projectErrorBody,
   projectSessionErrorBody,
+  type HarnessAuthError,
   type HostAuthorizationError,
   type HostConnectedEvent,
   type ProjectCatalogError,
@@ -25,7 +27,13 @@ import {
 } from "../features/projects/projects.service.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
-import type { ConversationRunner } from "@spacezero/pi-adapter";
+import {
+  createFileCredentialStore,
+  createPiConversationRunner,
+  createProviderAuthService,
+  ProviderAuthError,
+  type ConversationRunner,
+} from "@spacezero/pi-adapter";
 import { runHostDatabaseMigrations } from "./host-database.js";
 import {
   createCapabilityService,
@@ -49,6 +57,8 @@ type AuthScope =
   | "host:events:subscribe"
   | "projects:read"
   | "projects:register"
+  | "harness-auth:read"
+  | "harness-auth:write"
   | "project-sessions:read"
   | "project-sessions:create"
   | "project-sessions:prompt";
@@ -112,12 +122,18 @@ const projectSessionHttpError = (error: unknown): ProjectSessionError => {
     return projectSessionErrorBody(error.code);
   return projectSessionErrorBody("project_session_catalog_unavailable");
 };
+const harnessAuthHttpError = (error: unknown): HarnessAuthError => {
+  if (error instanceof ProviderAuthError)
+    return harnessAuthErrorBody(error.code);
+  return harnessAuthErrorBody("harness_auth_unavailable");
+};
 export const startHostServer = async (options: {
   readonly allowedRendererOrigin: string;
   readonly bootstrap: BootstrapAuthority;
   readonly onShutdown?: () => void;
   readonly databasePath?: string;
   readonly spaceZeroHome?: string;
+  readonly harnessAuthDirectory?: string;
   readonly conversationRunner?: ConversationRunner;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
@@ -137,14 +153,25 @@ export const startHostServer = async (options: {
   await mkdir(configuredHome, { recursive: true });
   const spaceZeroHome = await realpath(configuredHome);
   await mkdir(join(spaceZeroHome, "worktrees"), { recursive: true });
+  const harnessAuthDirectory =
+    options.harnessAuthDirectory ?? join(process.cwd(), "harness-auth");
+  const credentialStore = createFileCredentialStore({
+    directory: harnessAuthDirectory,
+  });
+  const providerAuth = createProviderAuthService(credentialStore);
+  const conversationRunner =
+    options.conversationRunner ??
+    createPiConversationRunner({
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      credentials: credentialStore,
+    });
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
-    ...(options.conversationRunner
-      ? { conversationRunner: options.conversationRunner }
-      : {}),
+    conversationRunner,
   });
   await projectSessions.reconcile();
 
@@ -229,6 +256,70 @@ export const startHostServer = async (options: {
           return { ok: true };
         }),
     }),
+  );
+  const harnessAuthHandlers = HttpApiBuilder.group(
+    HostApi,
+    "harnessAuth",
+    (handlers) =>
+      handlers.handleAll({
+        getProviderAuthStatus: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "harness-auth:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            providerAuth.status(params.providerId),
+          ).pipe(
+            Effect.map((status) => ({ status })),
+            Effect.mapError(harnessAuthHttpError),
+          );
+        },
+        setProviderApiKey: ({ headers, request, params, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "harness-auth:write",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            providerAuth.setApiKey(params.providerId, payload.apiKey),
+          ).pipe(
+            Effect.map((status) => ({ status })),
+            Effect.mapError(harnessAuthHttpError),
+          );
+        },
+        removeProviderApiKey: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "harness-auth:write",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            providerAuth.removeApiKey(params.providerId),
+          ).pipe(
+            Effect.map((status) => ({ status })),
+            Effect.mapError(harnessAuthHttpError),
+          );
+        },
+      }),
   );
   const projectHandlers = HttpApiBuilder.group(
     HostApi,
@@ -347,7 +438,7 @@ export const startHostServer = async (options: {
   const cors = HttpRouter.middleware(
     HttpMiddleware.cors({
       allowedOrigins: (origin) => origin === options.allowedRendererOrigin,
-      allowedMethods: ["GET", "POST"],
+      allowedMethods: ["GET", "POST", "PUT", "DELETE"],
       allowedHeaders: ["authorization", "content-type"],
     }),
     { global: true },
@@ -358,6 +449,7 @@ export const startHostServer = async (options: {
         bootstrapHandlers,
         connectionHandlers,
         adminHandlers,
+        harnessAuthHandlers,
         projectHandlers,
         projectSessionHandlers,
       ]),

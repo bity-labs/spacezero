@@ -66,7 +66,7 @@ export const createCapabilityService = (options: {
       return {
         endpoint: options.endpoint,
         instanceId: options.instanceId,
-        protocolVersion: "1",
+        protocolVersion: "2",
         clientCapability,
         expiresAt: new Date(expiresAtMillis).toISOString(),
         scopes: LOCAL_HOST_CLIENT_SCOPES,

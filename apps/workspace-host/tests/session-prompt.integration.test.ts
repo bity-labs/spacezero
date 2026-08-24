@@ -53,7 +53,8 @@ const start = async (
     bootstrap: { consume: () => undefined },
     databasePath,
     spaceZeroHome,
-    ...(conversationRunner ? { conversationRunner } : {}),
+    conversationRunner:
+      conversationRunner ?? createScriptedConversationRunner(),
   });
   hosts.push(host);
   return host;

@@ -5,7 +5,7 @@ import type { HostConnectionDescriptor } from "@spacezero/host-contracts";
 const descriptor: HostConnectionDescriptor = {
   endpoint: "http://127.0.0.1:1234/",
   instanceId: "0123456789abcdef0123456789abcdef",
-  protocolVersion: "1",
+  protocolVersion: "2",
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
   scopes: [
@@ -13,6 +13,8 @@ const descriptor: HostConnectionDescriptor = {
     "host:events:subscribe",
     "projects:read",
     "projects:register",
+    "harness-auth:read",
+    "harness-auth:write",
     "project-sessions:read",
     "project-sessions:create",
     "project-sessions:prompt",
