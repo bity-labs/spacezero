@@ -65,6 +65,16 @@ export interface ListSessionMessagesResult {
   readonly messages: readonly SessionMessage[];
 }
 
+export interface ProjectSessionEventStreamQuery {
+  readonly after: number;
+}
+
+export interface ProjectSessionEventEnvelope {
+  readonly sequence: number;
+  readonly eventType: string;
+  readonly event: ProjectSessionEvent;
+}
+
 const DateTimeUtcStringSchema = Schema.String.check(
   Schema.makeFilter((value: string) => {
     const millis = Date.parse(value);
@@ -160,6 +170,12 @@ export const SubmitSessionPromptResultSchema = Schema.Struct({
 export const ListSessionMessagesResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   messages: Schema.Array(SessionMessageSchema),
+});
+
+export const ProjectSessionEventStreamQuerySchema = Schema.Struct({
+  after: Schema.NumberFromString.pipe(
+    Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
+  ),
 });
 
 export const ProjectSessionEventSchema = Schema.Union([
@@ -281,3 +297,43 @@ export const ProjectSessionEventSchema = Schema.Union([
 ]);
 
 export type ProjectSessionEvent = typeof ProjectSessionEventSchema.Type;
+
+export const ProjectSessionEventEnvelopeSchema = Schema.Struct({
+  sequence: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+  eventType: Schema.String.check(Schema.isMinLength(1)),
+  event: ProjectSessionEventSchema,
+});
+
+const exactKeys = (
+  value: Record<string, unknown>,
+  keys: readonly string[],
+): boolean =>
+  Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export function parseProjectSessionEventEnvelope(
+  value: unknown,
+): ProjectSessionEventEnvelope {
+  if (!isRecord(value) || !exactKeys(value, ["sequence", "eventType", "event"]))
+    throw new Error("invalid project session event envelope");
+  const decoded = Schema.decodeUnknownSync(ProjectSessionEventEnvelopeSchema)(
+    value,
+  );
+  if (decoded.event.type !== decoded.eventType)
+    throw new Error("invalid project session event envelope");
+  if (decoded.event.sessionId === undefined)
+    throw new Error("invalid project session event envelope");
+  return decoded;
+}
+
+export function parseProjectSessionEventStreamQuery(
+  value: unknown,
+): ProjectSessionEventStreamQuery {
+  if (!isRecord(value) || !exactKeys(value, ["after"]))
+    throw new Error("invalid project session event stream query");
+  return Schema.decodeUnknownSync(ProjectSessionEventStreamQuerySchema)(value);
+}

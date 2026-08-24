@@ -1,11 +1,16 @@
 import { Schema } from "effect";
-import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
+import {
+  HttpApiEndpoint,
+  HttpApiGroup,
+  HttpApiSchema,
+} from "effect/unstable/httpapi";
 import { HostAuthorizationErrorSchemas } from "../authentication/host-authorization.schema.js";
 import {
   CreateProjectSessionRequestSchema,
   CreateProjectSessionResultSchema,
   ListProjectSessionsResultSchema,
   ListSessionMessagesResultSchema,
+  ProjectSessionEventStreamQuerySchema,
   ProjectSessionIdSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
@@ -17,6 +22,9 @@ export const ProjectSessionAuthorizationHeaderSchema = Schema.Struct({
 });
 export const ProjectSessionPathParamsSchema = Schema.Struct({
   sessionId: ProjectSessionIdSchema,
+});
+export const ProjectSessionEventStream = HttpApiSchema.StreamUint8Array({
+  contentType: "text/event-stream",
 });
 
 export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
@@ -59,6 +67,22 @@ export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
         params: ProjectSessionPathParamsSchema,
         headers: ProjectSessionAuthorizationHeaderSchema,
         success: ListSessionMessagesResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "subscribeProjectSessionEvents",
+      "/project-sessions/:sessionId/events",
+      {
+        params: ProjectSessionPathParamsSchema,
+        query: ProjectSessionEventStreamQuerySchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        success: ProjectSessionEventStream,
         error: [
           ...HostAuthorizationErrorSchemas,
           ...ProjectSessionErrorSchemas,

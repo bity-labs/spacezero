@@ -4,6 +4,7 @@ import type {
   CreateProjectSessionResult,
   ListProjectSessionsResult,
   ProjectSessionErrorCode,
+  ProjectSessionEventEnvelope,
   SessionMessage,
   SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
@@ -44,6 +45,15 @@ export interface ProjectSessionService {
     readonly session: SubmitSessionPromptResult["session"];
     readonly messages: readonly SessionMessage[];
   }>;
+  readonly listEventsAfter: (
+    sessionId: string,
+    after: number,
+  ) => Promise<readonly ProjectSessionEventEnvelope[]>;
+  readonly waitForEventsAfter: (
+    sessionId: string,
+    after: number,
+    signal?: AbortSignal,
+  ) => Promise<readonly ProjectSessionEventEnvelope[]>;
   readonly reconcile: () => Promise<void>;
   readonly waitForIdle: () => Promise<void>;
 }
@@ -88,6 +98,7 @@ export const createProjectSessionService = (options: {
   const locks = new Map<string, Promise<unknown>>();
   const sessionLocks = new Map<string, Promise<unknown>>();
   const inFlight = new Set<Promise<unknown>>();
+  const eventWaiters = new Map<string, Set<() => void>>();
 
   const withLock = async <A>(
     registry: Map<string, Promise<unknown>>,
@@ -107,6 +118,51 @@ export const createProjectSessionService = (options: {
     withLock(locks, projectId, run);
   const withSessionLock = async <A>(sessionId: string, run: () => Promise<A>) =>
     withLock(sessionLocks, sessionId, run);
+  const wakeEvents = (sessionId: string): void => {
+    const waiters = eventWaiters.get(sessionId);
+    if (!waiters) return;
+    eventWaiters.delete(sessionId);
+    for (const resolve of waiters) resolve();
+  };
+  const toEnvelopes = (
+    events: Awaited<ReturnType<typeof repository.listEventsAfter>>,
+  ): readonly ProjectSessionEventEnvelope[] =>
+    events.map((event) => ({
+      sequence: event.sequence,
+      eventType: event.eventType,
+      event: event.event,
+    }));
+  const waitForEvent = (
+    sessionId: string,
+    signal?: AbortSignal,
+  ): Promise<void> =>
+    new Promise((resolve) => {
+      if (signal?.aborted) {
+        resolve();
+        return;
+      }
+      const waiters = eventWaiters.get(sessionId) ?? new Set<() => void>();
+      const complete = (): void => {
+        waiters.delete(complete);
+        if (waiters.size === 0) eventWaiters.delete(sessionId);
+        signal?.removeEventListener("abort", complete);
+        resolve();
+      };
+      waiters.add(complete);
+      eventWaiters.set(sessionId, waiters);
+      signal?.addEventListener("abort", complete, { once: true });
+    });
+  const waitForEventsAfter = async (
+    sessionId: string,
+    after: number,
+    signal?: AbortSignal,
+  ): Promise<readonly ProjectSessionEventEnvelope[]> => {
+    const waiting = waitForEvent(sessionId, signal);
+    const events = await repository.listEventsAfter(sessionId, after);
+    if (events.length > 0 || signal?.aborted) return toEnvelopes(events);
+    await waiting;
+    return toEnvelopes(await repository.listEventsAfter(sessionId, after));
+  };
 
   const create = async (
     input: CreateProjectSessionRequest,
@@ -141,7 +197,9 @@ export const createProjectSessionService = (options: {
           );
         inFlight.add(operation);
         operation.finally(() => inFlight.delete(operation));
-        return await operation;
+        const result = await operation;
+        wakeEvents(admission.session.id);
+        return result;
       } catch (error) {
         throw mapError(error);
       }
@@ -196,6 +254,7 @@ export const createProjectSessionService = (options: {
           prompt,
         });
         if (admission.kind === "replayed") return admission.result;
+        wakeEvents(input.sessionId);
 
         try {
           const turn = await conversationRunner.submitTurn({
@@ -204,12 +263,14 @@ export const createProjectSessionService = (options: {
           });
           if (typeof turn.text !== "string" || turn.text.length === 0)
             throw new AgentTurnError("agent_turn_failed");
-          return await repository.completeTurn({
+          const result = await repository.completeTurn({
             commandId: input.commandId,
             sessionId: input.sessionId,
             turnId: admission.turnId,
             text: turn.text,
           });
+          wakeEvents(input.sessionId);
+          return result;
         } catch (error) {
           const reason: AgentTurnFailureReason =
             error instanceof AgentTurnError &&
@@ -223,6 +284,7 @@ export const createProjectSessionService = (options: {
               turnId: admission.turnId,
               reason,
             })
+            .then(() => wakeEvents(input.sessionId))
             .catch(() => undefined);
           if (error instanceof AgentTurnError)
             throw new ProjectSessionServiceError(error.code);
@@ -244,12 +306,27 @@ export const createProjectSessionService = (options: {
         throw mapError(error);
       }
     },
+    listEventsAfter: async (sessionId, after) => {
+      try {
+        return toEnvelopes(await repository.listEventsAfter(sessionId, after));
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    waitForEventsAfter: async (sessionId, after, signal) => {
+      try {
+        return await waitForEventsAfter(sessionId, after, signal);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
     reconcile: async () => {
       const candidates = await repository.recoveryCandidates();
       await Promise.all(
-        candidates.map((session) =>
-          repository.markExistingRecoveryRequired(session.id),
-        ),
+        candidates.map(async (session) => {
+          await repository.markExistingRecoveryRequired(session.id);
+          wakeEvents(session.id);
+        }),
       );
     },
     waitForIdle: async () => {
