@@ -1,15 +1,18 @@
 /**
  * Pi SDK-backed ConversationRunner implementation.
  *
- * Creates a Pi Agent per turn, wired to a Models runtime with
- * provider-scoped API key auth. Streaming text deltas are forwarded
- * to the onDelta callback; the final assistant text is returned.
+ * Creates a Pi Agent per turn, wired to a Models runtime with an injected
+ * Host-private credential store. Streaming text deltas are forwarded to the
+ * onDelta callback; the final assistant text is returned.
  */
 import { Agent } from "@earendil-works/pi-agent-core";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
+import type {
+  AuthContext,
+  CredentialStore,
+  UserMessage,
+} from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import type { UserMessage } from "@earendil-works/pi-ai";
 import {
   AgentTurnError,
   type AgentTurnInput,
@@ -22,30 +25,37 @@ export interface PiConversationConfig {
   provider: string;
   /** Model id within the provider, e.g. "claude-sonnet-4-20250514" */
   model: string;
-  /** API key for the provider */
-  apiKey: string;
+  /** Host-private credential storage owned by the Pi Adapter boundary. */
+  credentials: CredentialStore;
   /** Optional system prompt */
   systemPrompt?: string;
+  /** Explicit auth context; defaults to denying ambient env/file credentials. */
+  authContext?: AuthContext;
 }
+
+const noAmbientAuthContext: AuthContext = {
+  env: async () => undefined,
+  fileExists: async () => false,
+};
 
 export function createPiConversationRunner(
   config: PiConversationConfig,
 ): ConversationRunner {
-  const credentials = new InMemoryCredentialStore();
-  const models = builtinModels({ credentials });
-
-  // Pre-populate the credential store with the API key so auth resolution succeeds.
-  const credentialPromise = credentials.modify(config.provider, async () => ({
-    type: "api_key" as const,
-    key: config.apiKey,
-  }));
+  const models = builtinModels({
+    credentials: config.credentials,
+    authContext: config.authContext ?? noAmbientAuthContext,
+  });
 
   return {
     async submitTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
-      await credentialPromise;
-
       const model = models.getModel(config.provider, config.model);
       if (!model) {
+        throw new AgentTurnError("agent_unavailable");
+      }
+      const auth = await models
+        .checkAuth(config.provider)
+        .catch(() => undefined);
+      if (!auth) {
         throw new AgentTurnError("agent_unavailable");
       }
 

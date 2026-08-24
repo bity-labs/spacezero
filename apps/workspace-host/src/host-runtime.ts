@@ -12,11 +12,6 @@ import {
   writeJsonFrame,
 } from "./runtime/bootstrap-channel.adapter.js";
 import { startHostServer } from "./runtime/host-server.js";
-import {
-  createPiConversationRunner,
-  createScriptedConversationRunner,
-} from "@spacezero/pi-adapter";
-import type { ConversationRunner } from "@spacezero/pi-adapter";
 
 export interface HostDiagnostic {
   readonly process: "workspace-host";
@@ -56,21 +51,11 @@ export const runProtectedHost = async (
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
-  const conversationRunner: ConversationRunner = process.env
-    .SPACEZERO_PI_API_KEY
-    ? createPiConversationRunner({
-        provider: process.env.SPACEZERO_PI_PROVIDER ?? "anthropic",
-        model: process.env.SPACEZERO_PI_MODEL ?? "claude-sonnet-4-20250514",
-        apiKey: process.env.SPACEZERO_PI_API_KEY,
-      })
-    : createScriptedConversationRunner();
-
   const host = await startHostServer({
     allowedRendererOrigin: frame.allowedRendererOrigin,
     bootstrap,
     onShutdown: resolveHttpShutdown,
     spaceZeroHome: options.spaceZeroHome ?? frame.spaceZeroHome,
-    conversationRunner,
     ...(options.databasePath ? { databasePath: options.databasePath } : {}),
   });
   await writeJsonFrame(

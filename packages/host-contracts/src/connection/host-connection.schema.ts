@@ -1,11 +1,13 @@
 import { Schema } from "effect";
 
-export const HOST_PROTOCOL_VERSION = "1" as const;
+export const HOST_PROTOCOL_VERSION = "2" as const;
 export const LOCAL_HOST_CLIENT_SCOPES = [
   "host:connection:read",
   "host:events:subscribe",
   "projects:read",
   "projects:register",
+  "harness-auth:read",
+  "harness-auth:write",
   "project-sessions:read",
   "project-sessions:create",
   "project-sessions:prompt",
@@ -19,7 +21,7 @@ export interface HostConnectionDescriptor {
   readonly protocolVersion: typeof HOST_PROTOCOL_VERSION;
   readonly clientCapability: string;
   readonly expiresAt: string;
-  readonly scopes: typeof LOCAL_HOST_CLIENT_SCOPES;
+  readonly scopes: readonly LocalHostClientScope[];
 }
 export interface HostConnectionSnapshot {
   readonly instanceId: string;
@@ -58,15 +60,7 @@ export const HostConnectionDescriptorSchema = Schema.Struct({
   protocolVersion: Schema.Literals([HOST_PROTOCOL_VERSION]),
   clientCapability: Schema.String,
   expiresAt: Schema.String,
-  scopes: Schema.Tuple([
-    Schema.Literals(["host:connection:read"]),
-    Schema.Literals(["host:events:subscribe"]),
-    Schema.Literals(["projects:read"]),
-    Schema.Literals(["projects:register"]),
-    Schema.Literals(["project-sessions:read"]),
-    Schema.Literals(["project-sessions:create"]),
-    Schema.Literals(["project-sessions:prompt"]),
-  ]),
+  scopes: Schema.Array(Schema.Literals([...LOCAL_HOST_CLIENT_SCOPES])),
 });
 
 const exactKeys = (
@@ -85,11 +79,22 @@ export const isValidInstanceId = (value: string): boolean =>
 export const isLoopbackHttpEndpoint = (value: string): boolean => {
   return /^http:\/\/127\.0\.0\.1:\d+\/$/.test(value);
 };
-export const isExactClientScopes = (
+export const isValidClientScopes = (
   value: readonly unknown[],
-): value is typeof LOCAL_HOST_CLIENT_SCOPES =>
-  value.length === LOCAL_HOST_CLIENT_SCOPES.length &&
-  value.every((scope, index) => scope === LOCAL_HOST_CLIENT_SCOPES[index]);
+): value is readonly LocalHostClientScope[] => {
+  const known = new Set<string>(LOCAL_HOST_CLIENT_SCOPES);
+  const seen = new Set<unknown>();
+  return (
+    value.includes("host:connection:read") &&
+    value.includes("host:events:subscribe") &&
+    value.every((scope) => {
+      if (seen.has(scope) || typeof scope !== "string" || !known.has(scope))
+        return false;
+      seen.add(scope);
+      return true;
+    })
+  );
+};
 
 export function parseHostConnectionDescriptor(
   value: unknown,
@@ -118,7 +123,7 @@ export function parseHostConnectionDescriptor(
     typeof value.expiresAt !== "string" ||
     !isValidIsoInstant(value.expiresAt) ||
     !Array.isArray(value.scopes) ||
-    !isExactClientScopes(value.scopes)
+    !isValidClientScopes(value.scopes)
   ) {
     throw new Error("invalid host connection descriptor");
   }

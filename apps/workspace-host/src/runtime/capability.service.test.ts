@@ -23,6 +23,8 @@ describe("capability service", () => {
       "host:events:subscribe",
       "projects:read",
       "projects:register",
+      "harness-auth:read",
+      "harness-auth:write",
       "project-sessions:read",
       "project-sessions:create",
       "project-sessions:prompt",

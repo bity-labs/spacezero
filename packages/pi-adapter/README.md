@@ -2,32 +2,30 @@
 
 Host-side Effect boundary around Pi.
 
-This package owns the Host-facing conversation seam (`ConversationRunner`) and
-Space Zero's own agent-turn value types. Pi SDK types, auth file formats, and
-transcript formats never escape into Host Contracts or UI.
+This package owns the Host-facing conversation seam (`ConversationRunner`),
+provider credential storage, and Space Zero's own agent-turn value types. Pi SDK
+objects, credential file formats, auth secrets, and transcript formats never
+escape into Host Contracts or UI.
 
 Current state:
 
 - `conversation.model.ts` — Host-facing agent turn values and the
   `ConversationRunner` port.
-- `scripted-conversation.adapter.ts` — deterministic runner used by Host tests
-  and the Local Host when no Pi API key is configured.
-- `pi-conversation.adapter.ts` — Pi SDK-backed runner that creates a Pi Agent
-  per turn, wired to a Models runtime with provider-scoped API key auth.
-  Streaming text deltas are forwarded to the `onDelta` callback; the final
-  assistant text is returned.
+- `scripted-conversation.adapter.ts` — deterministic runner for explicit test
+  injection only.
+- `provider-auth.storage.ts` — focused file-backed implementation of Pi's
+  app-owned `CredentialStore` interface for Host-private application data.
+- `provider-auth.service.ts` — non-secret provider status plus write-only API-key
+  set/remove operations used by the Workspace Host `harness-auth` protocol.
+- `pi-conversation.adapter.ts` — Pi SDK-backed runner that creates a Pi Agent per
+  turn, wired to a Models runtime with the injected Host-private credential
+  store and an auth context that denies ambient environment/file credentials.
 
-Configuration (workspace-host env vars):
+Production Workspace Host composition uses the Pi SDK runner and Host-private
+credential storage. Missing provider credentials fail closed as
+`agent_unavailable`; the Local Host no longer uses provider API keys from process
+environment variables and no longer falls back to scripted successful output.
 
-- `SPACEZERO_PI_API_KEY` — API key for the configured provider. When set, the
-  workspace-host uses the Pi SDK runner; otherwise it falls back to the
-  scripted runner.
-- `SPACEZERO_PI_PROVIDER` — Provider id, e.g. `"anthropic"`. Defaults to
-  `"anthropic"`.
-- `SPACEZERO_PI_MODEL` — Model id within the provider, e.g.
-  `"claude-sonnet-4-20250514"`. Defaults to `"claude-sonnet-4-20250514"`.
-
-Deferred: Host-global Pi authentication storage access (currently uses an
-in-memory credential store pre-populated from env vars), resource/tool
-configuration, cancellation/interruption, restore/cleanup, conversation history
-persistence across turns, and a narrow no-paid-call real-Pi compatibility suite.
+Deferred: OAuth login flows, resource/tool configuration,
+cancellation/interruption, restore/cleanup, conversation history persistence
+across turns, and a narrow no-paid-call real-Pi compatibility suite.
