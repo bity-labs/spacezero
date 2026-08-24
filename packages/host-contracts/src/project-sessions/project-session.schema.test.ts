@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   CreateProjectSessionRequestSchema,
   ListSessionMessagesResultSchema,
+  ProjectSessionEventEnvelopeSchema,
   ProjectSessionEventSchema,
+  ProjectSessionEventStreamQuerySchema,
   ProjectSessionNameSchema,
   ProjectSessionSummarySchema,
+  parseProjectSessionEventEnvelope,
+  parseProjectSessionEventStreamQuery,
   SessionMessageSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
@@ -194,6 +198,38 @@ describe("Project Session schemas", () => {
         reason: "unknown_reason",
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
+    ).toThrow();
+  });
+
+  it("models replayable event stream cursors and envelopes", () => {
+    expect(
+      parseSync(ProjectSessionEventStreamQuerySchema)({ after: "0" }),
+    ).toEqual({ after: 0 });
+    expect(parseProjectSessionEventStreamQuery({ after: "12" })).toEqual({
+      after: 12,
+    });
+    expect(() =>
+      parseProjectSessionEventStreamQuery({ after: "-1" }),
+    ).toThrow();
+    const envelope = {
+      sequence: 5,
+      eventType: "UserMessageSubmittedV1",
+      event: {
+        type: "UserMessageSubmittedV1" as const,
+        version: 1 as const,
+        sessionId: uuid,
+        messageId,
+        commandId: uuid,
+        prompt: "Build the wine list view",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      },
+    };
+    expect(parseSync(ProjectSessionEventEnvelopeSchema)(envelope)).toEqual(
+      envelope,
+    );
+    expect(parseProjectSessionEventEnvelope(envelope)).toEqual(envelope);
+    expect(() =>
+      parseProjectSessionEventEnvelope({ ...envelope, eventType: "wrong" }),
     ).toThrow();
   });
 

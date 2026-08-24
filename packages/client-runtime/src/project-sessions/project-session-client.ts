@@ -8,11 +8,13 @@ import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   HostApi,
   parseHostConnectionDescriptor,
+  parseProjectSessionEventEnvelope,
   type CreateProjectSessionResult,
   type HostConnectionDescriptor,
   type ListSessionMessagesResult,
   type ProjectId,
   type ProjectSessionCommandId,
+  type ProjectSessionEventEnvelope,
   type ProjectSessionSummary,
   type SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
@@ -29,6 +31,21 @@ export interface ProjectSessionClient {
   readonly listSessionMessages: (
     sessionId: string,
   ) => Promise<ListSessionMessagesResult>;
+  readonly subscribeProjectSessionEvents: (
+    input: SubscribeProjectSessionEventsInput,
+  ) => ProjectSessionEventSubscription;
+}
+
+export interface SubscribeProjectSessionEventsInput {
+  readonly sessionId: string;
+  readonly after: number;
+  readonly onEvent: (event: ProjectSessionEventEnvelope) => void;
+  readonly onError?: (error: Error) => void;
+}
+
+export interface ProjectSessionEventSubscription {
+  readonly cancel: () => void;
+  readonly closed: Promise<void>;
 }
 
 export interface ProjectSessionClientOptions {
@@ -63,6 +80,99 @@ interface GeneratedProjectSessionApiClient {
     }) => Effect.Effect<unknown, unknown, never>;
   };
 }
+
+const parseSseFrames = (
+  text: string,
+): { readonly frames: readonly string[]; readonly rest: string } => {
+  const normalized = text.replaceAll("\r\n", "\n");
+  const parts = normalized.split("\n\n");
+  return { frames: parts.slice(0, -1), rest: parts.at(-1) ?? "" };
+};
+
+const parseSseEnvelope = (
+  frame: string,
+): ProjectSessionEventEnvelope | undefined => {
+  const dataLines: string[] = [];
+  let id: string | undefined;
+  for (const line of frame.split("\n")) {
+    if (line.startsWith("id:")) id = line.slice(3).trim();
+    if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+  }
+  const data = dataLines.join("\n");
+  if (!data) return undefined;
+  const envelope = parseProjectSessionEventEnvelope(
+    JSON.parse(data) as unknown,
+  );
+  if (id !== undefined && id !== String(envelope.sequence))
+    throw new Error("invalid project session event id");
+  return envelope;
+};
+
+const delay = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+
+const runProjectSessionEventSubscription = async (
+  input: SubscribeProjectSessionEventsInput,
+  descriptorFactory: () => Promise<HostConnectionDescriptor>,
+  fetchImpl: typeof globalThis.fetch,
+  signal: AbortSignal,
+): Promise<void> => {
+  let cursor = input.after;
+  const decoder = new TextDecoder();
+  while (!signal.aborted) {
+    try {
+      const descriptor = await descriptorFactory();
+      const url = new URL(
+        `/v1/project-sessions/${input.sessionId}/events`,
+        descriptor.endpoint,
+      );
+      url.searchParams.set("after", String(cursor));
+      const response = await fetchImpl(url, {
+        headers: { Authorization: `Bearer ${descriptor.clientCapability}` },
+        signal,
+      });
+      if (!response.ok || !response.body)
+        throw new Error("project session event subscription unavailable");
+      const reader = response.body.getReader();
+      let buffered = "";
+      for (;;) {
+        const read = await reader.read();
+        if (read.done) break;
+        buffered += decoder.decode(read.value, { stream: true });
+        const parsed = parseSseFrames(buffered);
+        buffered = parsed.rest;
+        for (const frame of parsed.frames) {
+          const event = parseSseEnvelope(frame);
+          if (!event) continue;
+          cursor = event.sequence;
+          input.onEvent(event);
+        }
+      }
+    } catch (error) {
+      if (signal.aborted) return;
+      input.onError?.(
+        error instanceof Error
+          ? error
+          : new Error("project session event subscription failed"),
+      );
+      await delay(100, signal);
+    }
+  }
+};
 
 const runClient = async <A>(
   descriptor: HostConnectionDescriptor,
@@ -153,6 +263,19 @@ export const createProjectSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as ListSessionMessagesResult;
+    },
+    subscribeProjectSessionEvents: (input) => {
+      const controller = new AbortController();
+      const closed = runProjectSessionEventSubscription(
+        input,
+        descriptor,
+        fetchImpl,
+        controller.signal,
+      );
+      return {
+        cancel: () => controller.abort(),
+        closed,
+      };
     },
   };
 };

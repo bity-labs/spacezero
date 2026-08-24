@@ -113,6 +113,61 @@ const submitPrompt = async (
     body: text.length > 0 ? (JSON.parse(text) as unknown) : undefined,
   };
 };
+const readSseFrames = async (
+  response: Response,
+  frameCount: number,
+): Promise<readonly { id?: string; event?: string; data: unknown }[]> => {
+  if (!response.body) throw new Error("missing SSE body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  const frames: { id?: string; event?: string; data: unknown }[] = [];
+  while (frames.length < frameCount) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffered += decoder.decode(chunk.value, { stream: true });
+    const parts = buffered.split("\n\n");
+    buffered = parts.pop() ?? "";
+    for (const part of parts) {
+      let id: string | undefined;
+      let event: string | undefined;
+      let data = "";
+      for (const line of part.split("\n")) {
+        if (line.startsWith("id:")) id = line.slice(3).trim();
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) data += line.slice(5).trimStart();
+      }
+      if (data) {
+        frames.push({
+          ...(id === undefined ? {} : { id }),
+          ...(event === undefined ? {} : { event }),
+          data: JSON.parse(data) as unknown,
+        });
+      }
+    }
+  }
+  void reader.cancel().catch(() => undefined);
+  return frames;
+};
+
+const subscribeEvents = (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  after: number,
+  init?: RequestInit,
+) =>
+  fetch(
+    new URL(
+      `/v1/project-sessions/${sessionId}/events?after=${after}`,
+      host.endpoint,
+    ),
+    {
+      headers: authHeaders(clientCapability),
+      ...init,
+    },
+  );
+
 const listMessages = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -233,6 +288,174 @@ describe("Session prompt Host protocol", () => {
         text: "Echo: Build the wine list view",
       },
     ]);
+  });
+
+  it("streams durable Session events with catch-up cursors", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const prompt = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "stream events please",
+    );
+    expect(prompt.response.status).toBe(200);
+
+    const catchup = await subscribeEvents(
+      host,
+      client.clientCapability,
+      created.session.id,
+      0,
+    );
+    expect(catchup.status).toBe(200);
+    const frames = await readSseFrames(catchup, 7);
+    expect(frames.map((frame) => frame.id)).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+    ]);
+    expect(
+      frames.every((frame) => frame.event === "project-session.event"),
+    ).toBe(true);
+    expect(
+      frames.map((frame) => (frame.data as { eventType: string }).eventType),
+    ).toEqual([
+      "ProjectSessionCreationRequestedV1",
+      "SessionWorkspacePreparationStartedV1",
+      "SessionWorkspacePreparedV1",
+      "ProjectSessionReadyV1",
+      "UserMessageSubmittedV1",
+      "AgentTurnStartedV1",
+      "AgentMessageCompletedV1",
+    ]);
+    expect(JSON.stringify(frames)).not.toContain("sk-");
+
+    const controller = new AbortController();
+    const afterLast = await subscribeEvents(
+      host,
+      client.clientCapability,
+      created.session.id,
+      7,
+      { signal: controller.signal },
+    );
+    expect(afterLast.status).toBe(200);
+    const reader = afterLast.body!.getReader();
+    await expect(reader.read()).resolves.toMatchObject({ done: false });
+    await expect(
+      Promise.race([
+        reader.read().then(() => "event"),
+        new Promise((resolve) => setTimeout(() => resolve("timeout"), 50)),
+      ]),
+    ).resolves.toBe("timeout");
+    controller.abort();
+    void reader.cancel().catch(() => undefined);
+  });
+
+  it("delivers live Session events committed after subscription", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const current = created.session as { id: string; lastSequence: number };
+    const live = await subscribeEvents(
+      host,
+      client.clientCapability,
+      current.id,
+      current.lastSequence,
+    );
+    expect(live.status).toBe(200);
+
+    const submitted = submitPrompt(
+      host,
+      client.clientCapability,
+      current.id,
+      "live event",
+    );
+    const frames = await readSseFrames(live, 3);
+    await submitted;
+
+    expect(frames.map((frame) => frame.id)).toEqual(["5", "6", "7"]);
+    expect(
+      frames.map((frame) => (frame.data as { eventType: string }).eventType),
+    ).toEqual([
+      "UserMessageSubmittedV1",
+      "AgentTurnStartedV1",
+      "AgentMessageCompletedV1",
+    ]);
+  });
+
+  it("denies unauthorized or wrong-origin Session event streams", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const unauthorized = await fetch(
+      new URL(
+        `/v1/project-sessions/${created.session.id}/events?after=0`,
+        host.endpoint,
+      ),
+      { headers: { Origin: origin } },
+    );
+    expect(unauthorized.status).toBe(401);
+    const wrongOrigin = await fetch(
+      new URL(
+        `/v1/project-sessions/${created.session.id}/events?after=0`,
+        host.endpoint,
+      ),
+      {
+        headers: {
+          Authorization: `Bearer ${client.clientCapability}`,
+          Origin: "https://evil.invalid",
+        },
+      },
+    );
+    expect(wrongOrigin.status).toBe(403);
+
+    const unknown = await fetch(
+      new URL(
+        `/v1/project-sessions/${randomUUID()}/events?after=0`,
+        host.endpoint,
+      ),
+      { headers: authHeaders(client.clientCapability) },
+    );
+    expect(unknown.status).toBe(404);
+    await expect(unknown.json()).resolves.toMatchObject({
+      code: "session_not_found",
+    });
   });
 
   it("replays duplicate prompt commands and rejects reused command IDs with different input", async () => {

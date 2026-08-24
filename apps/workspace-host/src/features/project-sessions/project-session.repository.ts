@@ -7,6 +7,7 @@ import type {
   CreateProjectSessionRequest,
   CreateProjectSessionResult,
   ProjectSessionErrorCode,
+  ProjectSessionEvent,
   ProjectSessionSummary,
   SessionMessage,
   SubmitSessionPromptResult,
@@ -67,6 +68,22 @@ interface MessageRow {
   readonly sequence: number;
   readonly turn_id: string | null;
   readonly created_at: string;
+}
+
+interface EventRow {
+  readonly session_id: string;
+  readonly sequence: number;
+  readonly event_type: string;
+  readonly event_payload_json: string;
+  readonly created_at: string;
+}
+
+export interface DurableSessionEventRow {
+  readonly sessionId: string;
+  readonly sequence: number;
+  readonly eventType: string;
+  readonly event: ProjectSessionEvent;
+  readonly createdAt: string;
 }
 
 export interface SessionWorktreeIdentity {
@@ -137,6 +154,14 @@ const toMessage = (row: MessageRow): SessionMessage => ({
   role: row.role,
   text: row.text,
   sequence: row.sequence,
+  createdAt: row.created_at,
+});
+
+const toEvent = (row: EventRow): DurableSessionEventRow => ({
+  sessionId: row.session_id,
+  sequence: row.sequence,
+  eventType: row.event_type,
+  event: JSON.parse(row.event_payload_json) as ProjectSessionEvent,
   createdAt: row.created_at,
 });
 
@@ -775,6 +800,22 @@ export const createProjectSessionRepository = (options: {
           session: toSummary(rows[0]),
           messages: messageRows.map(toMessage),
         };
+      }),
+    ),
+
+  listEventsAfter: async (
+    sessionId: string,
+    after: number,
+  ): Promise<readonly DurableSessionEventRow[]> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows = yield* getSession(sql, sessionId);
+        if (!rows[0]) throw new ProjectSessionServiceError("session_not_found");
+        const eventRows =
+          yield* sql<EventRow>`SELECT session_id, sequence, event_type, event_payload_json, created_at FROM project_session_events WHERE session_id = ${sessionId} AND sequence > ${after} ORDER BY sequence ASC`;
+        return eventRows.map(toEvent);
       }),
     ),
 });

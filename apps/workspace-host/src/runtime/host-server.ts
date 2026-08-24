@@ -20,6 +20,7 @@ import {
   type HostConnectedEvent,
   type ProjectCatalogError,
   type ProjectSessionError,
+  type ProjectSessionEventEnvelope,
 } from "@spacezero/host-contracts";
 import {
   createProjectCatalog,
@@ -122,6 +123,13 @@ const projectSessionHttpError = (error: unknown): ProjectSessionError => {
     return projectSessionErrorBody(error.code);
   return projectSessionErrorBody("project_session_catalog_unavailable");
 };
+const textEncoder = new TextEncoder();
+const encodeSessionEvent = (
+  envelope: ProjectSessionEventEnvelope,
+): Uint8Array =>
+  textEncoder.encode(
+    `id: ${envelope.sequence}\nevent: project-session.event\ndata: ${JSON.stringify(envelope)}\n\n`,
+  );
 const harnessAuthHttpError = (error: unknown): HarnessAuthError => {
   if (error instanceof ProviderAuthError)
     return harnessAuthErrorBody(error.code);
@@ -174,6 +182,34 @@ export const startHostServer = async (options: {
     conversationRunner,
   });
   await projectSessions.reconcile();
+  const sessionEventStream = (
+    sessionId: string,
+    after: number,
+    initialEvents: readonly ProjectSessionEventEnvelope[],
+  ): Stream.Stream<Uint8Array, ProjectSessionError> => {
+    let cursor = after;
+    const initialComment = textEncoder.encode(": spacezero\n\n");
+    const encodeEvents = (events: readonly ProjectSessionEventEnvelope[]) =>
+      events.map((event) => {
+        cursor = event.sequence;
+        return encodeSessionEvent(event);
+      });
+    const liveEvents = Stream.fromIterableEffectRepeat(
+      Effect.tryPromise({
+        try: async (signal) => {
+          if (signal.aborted) return [];
+          return encodeEvents(
+            await projectSessions.waitForEventsAfter(sessionId, cursor, signal),
+          );
+        },
+        catch: projectSessionHttpError,
+      }),
+    );
+    return Stream.concat(
+      Stream.fromIterable([initialComment, ...encodeEvents(initialEvents)]),
+      liveEvents,
+    );
+  };
 
   const bootstrapHandlers = HttpApiBuilder.group(
     HostApi,
@@ -432,6 +468,32 @@ export const startHostServer = async (options: {
           return effectPromise(() =>
             projectSessions.listMessages(params.sessionId),
           ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        subscribeProjectSessionEvents: ({
+          headers,
+          request,
+          params,
+          query,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listEventsAfter(params.sessionId, query.after),
+          ).pipe(
+            Effect.map((initialEvents) =>
+              sessionEventStream(params.sessionId, query.after, initialEvents),
+            ),
+            Effect.mapError(projectSessionHttpError),
+          );
         },
       }),
   );
