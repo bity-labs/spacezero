@@ -1,36 +1,17 @@
+import { dialog, ipcMain } from "electron";
 import {
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  type IpcMainInvokeEvent,
-} from "electron";
+  assertTrustedMainFrame,
+  type TrustedSenderPredicate,
+} from "./trusted-ipc.js";
 
 export type ProjectFolderPickerResult =
   | { readonly status: "selected"; readonly path: string }
   | { readonly status: "cancelled" };
 
 export interface ProjectFolderPickerOptions {
-  readonly isTrustedSender: (url: string) => boolean;
+  readonly isTrustedSender: TrustedSenderPredicate;
   readonly showOpenDialog?: typeof dialog.showOpenDialog;
 }
-
-const assertTrusted = (
-  event: IpcMainInvokeEvent,
-  isTrustedSender: (url: string) => boolean,
-): BrowserWindow => {
-  const window = BrowserWindow.fromWebContents(event.sender);
-  const frame = event.senderFrame;
-  const frameUrl = frame?.url;
-  if (
-    !window ||
-    !frame ||
-    !frameUrl ||
-    frame !== event.sender.mainFrame ||
-    !isTrustedSender(frameUrl)
-  )
-    throw new Error("untrusted project folder picker sender");
-  return window;
-};
 
 export const registerProjectFolderPickerIpc = (
   options: ProjectFolderPickerOptions,
@@ -44,7 +25,11 @@ export const registerProjectFolderPickerIpc = (
     ): Promise<ProjectFolderPickerResult> => {
       if (args.length !== 0)
         throw new Error("invalid project folder picker request");
-      const window = assertTrusted(event, options.isTrustedSender);
+      const window = assertTrustedMainFrame(
+        event,
+        options.isTrustedSender,
+        "untrusted project folder picker sender",
+      );
       const result = await showOpenDialog(window, {
         properties: ["openDirectory"],
       });

@@ -1,13 +1,30 @@
 import { ipcMain } from "electron";
+import {
+  assertTrustedMainFrame,
+  type TrustedSenderPredicate,
+} from "../trusted-ipc.js";
 import type { LocalHostSupervisor } from "./local-host-supervisor.js";
 
-export const registerLocalHostIpc = (supervisor: LocalHostSupervisor): void => {
+export interface LocalHostIpcOptions {
+  readonly supervisor: LocalHostSupervisor;
+  readonly isTrustedSender: TrustedSenderPredicate;
+}
+
+export const registerLocalHostIpc = (
+  options: LocalHostIpcOptions,
+): (() => void) => {
   ipcMain.handle(
     "spacezero:get-local-host-connection",
-    (_event, ...args: readonly unknown[]) => {
+    (event, ...args: readonly unknown[]) => {
       if (args.length !== 0)
         throw new Error("invalid local host connection request");
-      return supervisor.getClientConnection();
+      assertTrustedMainFrame(
+        event,
+        options.isTrustedSender,
+        "untrusted local host connection sender",
+      );
+      return options.supervisor.getClientConnection();
     },
   );
+  return () => ipcMain.removeHandler("spacezero:get-local-host-connection");
 };
