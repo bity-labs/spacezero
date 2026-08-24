@@ -23,9 +23,31 @@ export interface AgentTurnDelta {
   readonly text: string;
 }
 
+export interface AgentTurnMessage {
+  /** Stable Space Zero message role from the Session projection. */
+  readonly role: "user" | "assistant";
+  /** Completed message text. */
+  readonly text: string;
+}
+
+export interface AgentToolConfiguration {
+  /** Authenticated managed worktree path; tools must operate here. */
+  readonly workingDirectory: string;
+  /** Explicit initial Workspace Tool names enabled for this turn. */
+  readonly enabledToolNames: readonly string[];
+}
+
 export interface AgentTurnInput {
+  /** Project Session identity that owns this one Pi conversation. */
+  readonly sessionId: string;
+  /** Durable Pi conversation/context identity for the Project Session. */
+  readonly conversationId: string;
   /** Authenticated managed worktree path; the agent must operate here. */
   readonly worktreePath: string;
+  /** Prior completed Session messages, ordered oldest first. */
+  readonly history: readonly AgentTurnMessage[];
+  /** Explicit tool configuration for the authenticated worktree. */
+  readonly tools: AgentToolConfiguration;
   /** Accepted user prompt text. */
   readonly prompt: string;
   /** Optional live fragment sink; fragments remain ephemeral. */

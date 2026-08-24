@@ -257,8 +257,19 @@ export const createProjectSessionService = (options: {
         wakeEvents(input.sessionId);
 
         try {
+          const history = await repository.listTurnHistoryBefore(
+            input.sessionId,
+            admission.userSequence,
+          );
           const turn = await conversationRunner.submitTurn({
+            sessionId: input.sessionId,
+            conversationId: identity.conversationId,
             worktreePath: prepared.canonicalWorktreePath,
+            history,
+            tools: {
+              workingDirectory: prepared.canonicalWorktreePath,
+              enabledToolNames: ["read", "write", "edit"],
+            },
             prompt,
           });
           if (typeof turn.text !== "string" || turn.text.length === 0)

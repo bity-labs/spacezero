@@ -70,6 +70,10 @@ interface MessageRow {
   readonly created_at: string;
 }
 
+interface PiContextRow {
+  readonly conversation_id: string;
+}
+
 interface EventRow {
   readonly session_id: string;
   readonly sequence: number;
@@ -89,6 +93,7 @@ export interface DurableSessionEventRow {
 export interface SessionWorktreeIdentity {
   readonly sessionId: string;
   readonly projectId: string;
+  readonly conversationId: string;
   readonly intendedWorktreePath: string;
   readonly managedBranch: string;
   readonly sourceCommit: string;
@@ -109,11 +114,17 @@ export interface PromptAdmissionInput {
   readonly prompt: string;
 }
 
+export interface AgentTurnHistoryMessage {
+  readonly role: "user" | "assistant";
+  readonly text: string;
+}
+
 export type PromptAdmission =
   | {
       readonly kind: "admitted";
       readonly turnId: string;
       readonly userMessageId: string;
+      readonly userSequence: number;
     }
   | {
       readonly kind: "replayed";
@@ -165,9 +176,13 @@ const toEvent = (row: EventRow): DurableSessionEventRow => ({
   createdAt: row.created_at,
 });
 
-const toWorktreeIdentity = (row: SessionRow): SessionWorktreeIdentity => ({
+const toWorktreeIdentity = (
+  row: SessionRow,
+  conversationId: string,
+): SessionWorktreeIdentity => ({
   sessionId: row.session_id,
   projectId: row.project_id,
+  conversationId,
   intendedWorktreePath: row.intended_worktree_path,
   managedBranch: row.managed_branch,
   sourceCommit: row.source_commit,
@@ -196,6 +211,17 @@ const runSql = async <A>(
 
 const getSession = (sql: SqlClient, sessionId: string) =>
   sql<SessionRow>`SELECT * FROM project_sessions WHERE session_id = ${sessionId}`;
+
+const getPiConversationId = (sql: SqlClient, sessionId: string) =>
+  Effect.gen(function* () {
+    const rows =
+      yield* sql<PiContextRow>`SELECT conversation_id FROM project_session_pi_contexts WHERE session_id = ${sessionId}`;
+    if (!rows[0])
+      throw new ProjectSessionServiceError(
+        "project_session_catalog_unavailable",
+      );
+    return rows[0].conversation_id;
+  });
 
 const getHostId = (sql: SqlClient) =>
   Effect.gen(function* () {
@@ -348,6 +374,7 @@ export const createProjectSessionRepository = (options: {
             });
 
             yield* sql`INSERT INTO project_sessions (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, created_at, updated_at, last_sequence) VALUES (${sessionId}, ${input.projectId}, ${candidate.name}, ${hostId}, 'provisioning', ${project.sourceBranch}, ${project.sourceDetached ? 1 : 0}, ${project.headCommit}, ${project.dirty ? 1 : 0}, ${managedBranch}, ${worktreePath}, ${worktreeRoot}, ${now}, ${now}, 2)`;
+            yield* sql`INSERT INTO project_session_pi_contexts (session_id, conversation_id, created_at, updated_at) VALUES (${sessionId}, ${sessionId}, ${now}, ${now})`;
             yield* sql`INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES (${candidate.name}, ${candidate.baseName}, ${sessionId}, ${now})`;
             yield* sql`INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${sessionId}, 'pending', 2, ${now}, ${now})`;
 
@@ -574,7 +601,8 @@ export const createProjectSessionRepository = (options: {
         if (!rows[0]) throw new ProjectSessionServiceError("session_not_found");
         if (rows[0].state !== "ready")
           throw new ProjectSessionServiceError("session_not_ready");
-        return toWorktreeIdentity(rows[0]);
+        const conversationId = yield* getPiConversationId(sql, sessionId);
+        return toWorktreeIdentity(rows[0], conversationId);
       }),
     ),
 
@@ -662,6 +690,7 @@ export const createProjectSessionRepository = (options: {
               kind: "admitted" as const,
               turnId,
               userMessageId,
+              userSequence: baseSequence + 1,
             };
           }),
         );
@@ -781,6 +810,25 @@ export const createProjectSessionRepository = (options: {
       }),
     );
   },
+
+  listTurnHistoryBefore: async (
+    sessionId: string,
+    sequence: number,
+  ): Promise<readonly AgentTurnHistoryMessage[]> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows = yield* getSession(sql, sessionId);
+        if (!rows[0]) throw new ProjectSessionServiceError("session_not_found");
+        const messageRows =
+          yield* sql<MessageRow>`SELECT * FROM project_session_messages WHERE session_id = ${sessionId} AND sequence < ${sequence} ORDER BY sequence ASC`;
+        return messageRows.map((message) => ({
+          role: message.role,
+          text: message.text,
+        }));
+      }),
+    ),
 
   listMessages: async (
     sessionId: string,

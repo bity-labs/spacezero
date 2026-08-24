@@ -123,6 +123,27 @@ CREATE TABLE project_session_messages (
   yield* sql`CREATE INDEX project_session_messages_list_order ON project_session_messages(session_id, sequence)`;
 });
 
+export const createProjectSessionPiContextsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_pi_contexts (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  conversation_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`
+INSERT INTO project_session_pi_contexts (session_id, conversation_id, created_at, updated_at)
+SELECT
+  session_id,
+  session_id,
+  created_at,
+  updated_at
+FROM project_sessions`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [
@@ -134,6 +155,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     3,
     "create_session_messages",
     Effect.succeed(createSessionMessagesMigration),
+  ],
+  [
+    4,
+    "create_project_session_pi_contexts",
+    Effect.succeed(createProjectSessionPiContextsMigration),
   ],
 ] as const);
 

@@ -179,6 +179,20 @@ const listMessages = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const piConversationId = (databasePath: string, sessionId: string): string => {
+  const db = new DatabaseSync(databasePath);
+  try {
+    const row = db
+      .prepare(
+        "SELECT conversation_id FROM project_session_pi_contexts WHERE session_id = ?",
+      )
+      .get(sessionId) as { conversation_id: string } | undefined;
+    expect(row).toBeDefined();
+    return row?.conversation_id ?? "";
+  } finally {
+    db.close();
+  }
+};
 const eventTypes = (databasePath: string, sessionId: string): string[] => {
   const db = new DatabaseSync(databasePath);
   try {
@@ -288,6 +302,78 @@ describe("Session prompt Host protocol", () => {
         text: "Echo: Build the wine list view",
       },
     ]);
+  });
+
+  it("uses one durable Pi conversation context per Session and carries prior messages into later turns", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const seen: AgentTurnInput[] = [];
+    const runner = createScriptedConversationRunner({
+      respond: (input) => {
+        seen.push(input);
+        return `history=${input.history.length}; prompt=${input.prompt}`;
+      },
+    });
+    const databasePath = join(root, "host.sqlite");
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const first = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const second = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    await submitPrompt(
+      host,
+      client.clientCapability,
+      first.session.id,
+      "first prompt",
+    );
+    await submitPrompt(
+      host,
+      client.clientCapability,
+      first.session.id,
+      "second prompt",
+    );
+    await submitPrompt(
+      host,
+      client.clientCapability,
+      second.session.id,
+      "other session prompt",
+    );
+
+    const firstConversationId = piConversationId(
+      databasePath,
+      first.session.id,
+    );
+    expect(firstConversationId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
+    expect(piConversationId(databasePath, second.session.id)).not.toBe(
+      firstConversationId,
+    );
+    expect(seen.map((input) => input.conversationId)).toEqual([
+      firstConversationId,
+      firstConversationId,
+      piConversationId(databasePath, second.session.id),
+    ]);
+    expect(seen[0]?.sessionId).toBe(first.session.id);
+    expect(seen[0]?.history).toEqual([]);
+    expect(seen[1]?.history).toEqual([
+      { role: "user", text: "first prompt" },
+      { role: "assistant", text: "history=0; prompt=first prompt" },
+    ]);
+    expect(seen[1]?.tools).toEqual({
+      workingDirectory: seen[1]?.worktreePath,
+      enabledToolNames: ["read", "write", "edit"],
+    });
+    expect(seen[2]?.history).toEqual([]);
   });
 
   it("streams durable Session events with catch-up cursors", async () => {
