@@ -71,7 +71,10 @@ describe("renderer protocol policy", () => {
 
   it("restricts renderer content and connections to trusted resources", () => {
     expect(rendererCsp("http://127.0.0.1:1234/")).toContain(
-      "connect-src 'self' http://127.0.0.1:1234;",
+      "connect-src 'self' http://127.0.0.1:*;",
+    );
+    expect(rendererCsp()).toContain(
+      "connect-src 'self' http://127.0.0.1:*;",
     );
     expect(rendererCsp()).toContain("object-src 'none'");
     expect(rendererCsp()).toContain("base-uri 'none'");

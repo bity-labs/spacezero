@@ -19,9 +19,8 @@ export const registerRendererSchemePrivilege = (): void => {
   ]);
 };
 export const rendererCsp = (hostEndpoint?: string): string => {
-  const connect = hostEndpoint
-    ? `connect-src 'self' ${new URL(hostEndpoint).origin};`
-    : "connect-src 'self';";
+  const protocol = hostEndpoint ? new URL(hostEndpoint).protocol : "http:";
+  const connect = `connect-src 'self' ${protocol}//127.0.0.1:*;`;
   return `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; ${connect}`;
 };
 export const resolveRendererAssetPath = (
