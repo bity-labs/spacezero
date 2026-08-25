@@ -42,7 +42,8 @@ function walk(dir, files = []) {
   if (!existsSync(dir)) return files;
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (["node_modules", "dist", "out", "coverage"].includes(entry)) continue;
+    if (["node_modules", "dist", "out", "coverage", ".next"].includes(entry))
+      continue;
     const st = statSync(path);
     if (st.isDirectory()) walk(path, files);
     else if (sourceExtensions.test(entry)) files.push(path);
@@ -63,6 +64,7 @@ function isNodeBuiltinSpecifier(spec) {
   return nodeBuiltinNames.has(withoutScheme.split("/")[0]);
 }
 function packageNameForSpecifier(spec) {
+  if (spec === "mdx/types") return "@types/mdx";
   if (spec.startsWith("node:") || spec.startsWith(".")) return undefined;
   if (isNodeBuiltinSpecifier(spec)) return undefined;
   const parts = spec.split("/");

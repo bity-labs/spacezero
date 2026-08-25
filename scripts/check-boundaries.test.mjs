@@ -13,6 +13,7 @@ function makeRepo(mutator) {
     "scripts",
     "apps/desktop",
     "apps/workspace-host",
+    "apps/handbook",
     "packages/host-contracts",
     "packages/client-runtime",
     "packages/pi-adapter",
@@ -47,6 +48,11 @@ function makeRepo(mutator) {
       name: "@spacezero/workspace-host",
       type: "module",
       dependencies: { "@spacezero/host-contracts": "workspace:*" },
+    },
+    "apps/handbook/package.json": {
+      name: "@spacezero/handbook",
+      type: "module",
+      dependencies: {},
     },
     "packages/host-contracts/package.json": {
       name: "@spacezero/host-contracts",
@@ -121,11 +127,11 @@ test("rejects deep src imports", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /deep source/);
 });
-test("rejects inactive handbook activation", () => {
+test("rejects inactive ui package activation", () => {
   const result = run(
     makeRepo((dir) => {
-      mkdirSync(join(dir, "apps/handbook"), { recursive: true });
-      writeFileSync(join(dir, "apps/handbook/package.json"), "{}");
+      mkdirSync(join(dir, "packages/ui"), { recursive: true });
+      writeFileSync(join(dir, "packages/ui/package.json"), "{}");
     }),
   );
   assert.notEqual(result.status, 0);

@@ -8,6 +8,8 @@ dist-electron
 dist-builder
 release
 storybook-static
+.next
+*.tsbuildinfo
 
 # Test output
 coverage

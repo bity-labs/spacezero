@@ -1,0 +1,32 @@
+---
+title: Current Foundation
+description: What the merged v0.1 foundation currently gives us.
+---
+
+# Current Foundation
+
+The v0.1 branch moved Space Zero from a broad Electron-first prototype toward a host-owned architecture.
+
+## Implemented
+
+- Electron Desktop starts and supervises a separate Local Workspace Host in development.
+- Workspace Host exposes authenticated loopback HTTP/JSON and SSE through typed Effect HttpApi contracts.
+- Host state is stored in SQLite.
+- Projects can be registered from a Git repository.
+- Project Sessions can be created in managed Git worktrees.
+- A Project Session owns one Pi conversation context.
+- Basic prompts run through the Host-side Pi Adapter.
+- Desktop renderer can register projects, start sessions, and submit basic chat prompts.
+
+## Not complete yet
+
+- Packaged Local Host launch is still fail-closed.
+- Private Node packaging and Electron fuse hardening are not implemented.
+- The Desktop UI is still a minimal tracer, not the intended builder workspace.
+- Files, diffs, terminal, browser, GitHub, commits, pushes, and pull requests are deferred.
+- Workspace Tools, approvals, interruption, and richer agent event history are deferred.
+- Remote access, mobile supervision, and cloud hosts are future work.
+
+## Known validation issue
+
+The full test suite currently fails in Workspace Host process shutdown tests. Typecheck, lint, and Desktop tests pass when run with Node `22.23.1`.
