@@ -17,6 +17,7 @@ export interface CapabilityService {
   readonly issueSupervisor: () => string;
   readonly mintClient: (supervisorToken: string) => HostConnectionDescriptor;
   readonly authenticate: (token: string) => boolean;
+  readonly expiresAt: (token: string) => number | undefined;
   readonly authorize: (
     token: string,
     scope: LocalHostClientScope | "supervisor",
@@ -80,6 +81,7 @@ export const createCapabilityService = (options: {
         now() < record.expiresAt,
       );
     },
+    expiresAt: (candidate) => records.get(candidate)?.expiresAt,
     authorize: (candidate, scope) => {
       const record = records.get(candidate);
       if (!record || !service.authenticate(candidate)) return false;

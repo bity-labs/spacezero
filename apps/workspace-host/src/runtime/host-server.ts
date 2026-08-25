@@ -3,7 +3,7 @@ import { mkdir, realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
 import { isAbsolute, join } from "node:path";
-import { Effect, Exit, Layer, Scope, Stream } from "effect";
+import { Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
 import {
@@ -143,6 +143,7 @@ export const startHostServer = async (options: {
   readonly spaceZeroHome?: string;
   readonly harnessAuthDirectory?: string;
   readonly conversationRunner?: ConversationRunner;
+  readonly clientCapabilityTtlMs?: number;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
   const id = instanceId();
@@ -186,28 +187,54 @@ export const startHostServer = async (options: {
     sessionId: string,
     after: number,
     initialEvents: readonly ProjectSessionEventEnvelope[],
+    expiresAt: number,
   ): Stream.Stream<Uint8Array, ProjectSessionError> => {
-    let cursor = after;
     const initialComment = textEncoder.encode(": spacezero\n\n");
-    const encodeEvents = (events: readonly ProjectSessionEventEnvelope[]) =>
-      events.map((event) => {
-        cursor = event.sequence;
+    const encodeEvents = (events: readonly ProjectSessionEventEnvelope[]) => {
+      let nextCursor = after;
+      const chunks = events.map((event) => {
+        nextCursor = event.sequence;
         return encodeSessionEvent(event);
       });
-    const liveEvents = Stream.fromIterableEffectRepeat(
-      Effect.tryPromise({
-        try: async (signal) => {
-          if (signal.aborted) return [];
-          return encodeEvents(
-            await projectSessions.waitForEventsAfter(sessionId, cursor, signal),
-          );
-        },
-        catch: projectSessionHttpError,
-      }),
-    );
-    return Stream.concat(
-      Stream.fromIterable([initialComment, ...encodeEvents(initialEvents)]),
-      liveEvents,
+      return { chunks, nextCursor };
+    };
+    const initial = encodeEvents(initialEvents);
+    return Stream.paginate(
+      { cursor: initial.nextCursor, first: true },
+      (state: { readonly cursor: number; readonly first: boolean }) =>
+        Effect.tryPromise({
+          try: async (signal) => {
+            if (Date.now() >= expiresAt) return [[], Option.none()] as const;
+            if (state.first) {
+              return [
+                [initialComment, ...initial.chunks],
+                Option.some({ cursor: initial.nextCursor, first: false }),
+              ] as const;
+            }
+            const timeoutMs = Math.max(0, expiresAt - Date.now());
+            const waitSignal = AbortSignal.any([
+              signal,
+              AbortSignal.timeout(timeoutMs),
+            ]);
+            const eventRows = await projectSessions.waitForEventsAfter(
+              sessionId,
+              state.cursor,
+              waitSignal,
+            );
+            if (Date.now() >= expiresAt || eventRows.length === 0)
+              return [[], Option.none()] as const;
+            let nextCursor = state.cursor;
+            const chunks = eventRows.map((event) => {
+              nextCursor = event.sequence;
+              return encodeSessionEvent(event);
+            });
+            return [
+              chunks,
+              Option.some({ cursor: nextCursor, first: false }),
+            ] as const;
+          },
+          catch: projectSessionHttpError,
+        }),
     );
   };
 
@@ -475,7 +502,9 @@ export const startHostServer = async (options: {
           params,
           query,
         }) => {
+          let expiresAt: number | undefined;
           try {
+            const token = bearerValue(headers.authorization);
             auth(
               headers.authorization,
               state.cap!,
@@ -483,6 +512,9 @@ export const startHostServer = async (options: {
               options.allowedRendererOrigin,
               request.headers.origin,
             );
+            expiresAt = token ? state.cap!.expiresAt(token) : undefined;
+            if (expiresAt === undefined)
+              throw authorizationError("unauthorized");
           } catch (error) {
             return Effect.fail(error as HostAuthorizationError);
           }
@@ -490,7 +522,12 @@ export const startHostServer = async (options: {
             projectSessions.listEventsAfter(params.sessionId, query.after),
           ).pipe(
             Effect.map((initialEvents) =>
-              sessionEventStream(params.sessionId, query.after, initialEvents),
+              sessionEventStream(
+                params.sessionId,
+                query.after,
+                initialEvents,
+                expiresAt,
+              ),
             ),
             Effect.mapError(projectSessionHttpError),
           );
@@ -544,7 +581,13 @@ export const startHostServer = async (options: {
     throw new Error("listen failed");
   }
   const endpoint = `http://127.0.0.1:${address.port}/`;
-  state.cap = createCapabilityService({ endpoint, instanceId: id });
+  state.cap = createCapabilityService({
+    endpoint,
+    instanceId: id,
+    ...(options.clientCapabilityTtlMs === undefined
+      ? {}
+      : { clientTtlMs: options.clientCapabilityTtlMs }),
+  });
   const stop = async (): Promise<void> => {
     stopPromise ??= projectSessions
       .waitForIdle()

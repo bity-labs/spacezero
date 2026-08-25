@@ -47,6 +47,7 @@ const start = async (
   databasePath: string,
   spaceZeroHome: string,
   conversationRunner?: ConversationRunner,
+  clientCapabilityTtlMs?: number,
 ) => {
   const host = await startHostServer({
     allowedRendererOrigin: origin,
@@ -55,6 +56,7 @@ const start = async (
     spaceZeroHome,
     conversationRunner:
       conversationRunner ?? createScriptedConversationRunner(),
+    ...(clientCapabilityTtlMs === undefined ? {} : { clientCapabilityTtlMs }),
   });
   hosts.push(host);
   return host;
@@ -449,6 +451,54 @@ describe("Session prompt Host protocol", () => {
       ]),
     ).resolves.toBe("timeout");
     controller.abort();
+    void reader.cancel().catch(() => undefined);
+  });
+
+  it("stops delivering Session events when the client capability expires", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      undefined,
+      1_000,
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const current = created.session as { id: string; lastSequence: number };
+
+    const stream = await subscribeEvents(
+      host,
+      client.clientCapability,
+      current.id,
+      current.lastSequence,
+    );
+    expect(stream.status).toBe(200);
+    if (!stream.body) throw new Error("missing SSE body");
+    const reader = stream.body.getReader();
+    await expect(reader.read()).resolves.toMatchObject({ done: false });
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+
+    const freshClient = descriptor(host);
+    const submitted = await submitPrompt(
+      host,
+      freshClient.clientCapability,
+      current.id,
+      "after expiry",
+    );
+    expect(submitted.response.status).toBe(200);
+
+    await expect(
+      Promise.race([
+        reader.read().then((read) => (read.done ? "closed" : "event")),
+        new Promise((resolve) => setTimeout(() => resolve("timeout"), 200)),
+      ]),
+    ).resolves.not.toBe("event");
     void reader.cancel().catch(() => undefined);
   });
 
