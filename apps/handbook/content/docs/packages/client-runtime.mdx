@@ -1,0 +1,22 @@
+---
+title: Client Runtime
+description: Browser-safe Host client runtime.
+---
+
+# Client Runtime
+
+`packages/client-runtime`
+
+## What it is
+
+Browser-safe client runtime used by the Desktop renderer.
+
+## What it does today
+
+Wraps authenticated HTTP calls, streaming SSE connection behavior, Host connection setup, harness auth commands, Project catalog client operations, and Project Session client operations.
+
+UI consumes this package instead of talking to Host internals.
+
+## Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, browser `fetch`, SSE parsing/reconnect logic, Vitest, and `@spacezero/host-contracts`.

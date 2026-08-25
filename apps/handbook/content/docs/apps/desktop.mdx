@@ -1,0 +1,24 @@
+---
+title: Desktop
+description: The Electron desktop application area.
+---
+
+# Desktop
+
+`apps/desktop`
+
+This section will contain the durable handbook pages for the Space Zero Desktop app.
+
+## What it is
+
+The Space Zero desktop client: an Electron shell with a React renderer.
+
+## What it does today
+
+Desktop runs the native app shell, secure preload bridge, React renderer, native navigation policy, project folder picker, Local Host supervision, and Desktop-owned bootstrap/capability delivery.
+
+It does **not** own Project Sessions, Pi execution, Git worktrees, or Host persistence.
+
+## Tech stack usage
+
+Electron `43`, electron-vite, React `19`, TypeScript, Vitest, Playwright E2E, `@spacezero/client-runtime`, and `@spacezero/host-contracts`.

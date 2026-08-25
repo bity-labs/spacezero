@@ -1,0 +1,22 @@
+---
+title: Pi Adapter
+description: Host-side boundary around Pi.
+---
+
+# Pi Adapter
+
+`packages/pi-adapter`
+
+## What it is
+
+Host-side boundary around Pi.
+
+## What it does today
+
+Owns Pi provider authentication storage, conversation setup, scripted test adapter, Pi SDK adapter, event translation, cancellation/cleanup seams, and Host-facing conversation models.
+
+Pi SDK types and transcript details do not cross into Host Contracts or UI.
+
+## Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, Vitest.

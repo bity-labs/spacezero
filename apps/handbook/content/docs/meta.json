@@ -1,4 +1,4 @@
 {
   "title": "Space Zero Handbook",
-  "pages": ["index", "monorepo-map", "architecture-overview"]
+  "pages": ["index", "project", "apps", "packages"]
 }
