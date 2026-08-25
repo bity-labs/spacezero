@@ -11,6 +11,12 @@ export const workspaces = {
     browserSafe: false,
     allowed: ["@spacezero/host-contracts", "@spacezero/pi-adapter"],
   },
+  "@spacezero/handbook": {
+    path: "apps/handbook",
+    kind: "app",
+    browserSafe: false,
+    allowed: [],
+  },
   "@spacezero/host-contracts": {
     path: "packages/host-contracts",
     kind: "package",
@@ -31,5 +37,5 @@ export const workspaces = {
     allowed: [],
   },
 };
-export const inactivePaths = ["apps/handbook", "packages/ui"];
+export const inactivePaths = ["packages/ui"];
 export const exactEffectVersion = "4.0.0-rc.109";

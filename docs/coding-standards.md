@@ -56,6 +56,7 @@ The repository is organized by independently runnable applications and explicit 
 apps/
   desktop/          Electron shell, React client, native integration, Local Host supervision
   workspace-host/   Headless Effect application, Host Protocol, SQLite, Projects, Sessions, Git
+  handbook/         Private Fumadocs engineering handbook for human build memory
 
 packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
@@ -67,7 +68,7 @@ docs/               TStack docs, ADRs, and engineering doctrine
 scripts/             Repository and release helpers
 ```
 
-`apps/handbook` and `packages/ui` remain inactive placeholders until a concrete delivery slice needs them. Do not add speculative packages or empty architecture folders.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains an inactive placeholder until a concrete delivery slice needs it. Do not add speculative packages or empty architecture folders.
 
 Follow `docs/feature-architecture.md` for internal feature placement, naming, and import direction.
 

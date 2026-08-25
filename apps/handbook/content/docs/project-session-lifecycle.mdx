@@ -1,0 +1,75 @@
+---
+title: Project Session Lifecycle
+description: How Project Sessions are created, persisted, used, and recovered today.
+---
+
+# Project Session Lifecycle
+
+A Project Session is the current core workflow unit. In v0.1 it means one Pi conversation running against one managed Git worktree.
+
+## Creation
+
+```txt
+registered Project
+  -> create Project Session command
+  -> reserve unique wine-appellation name
+  -> create managed branch/worktree
+  -> persist worktree identity
+  -> mark Session ready or recovery required
+```
+
+## Current Session identity
+
+A Project Session currently owns:
+
+- Host-unique Session id;
+- Project id;
+- permanent random French wine-appellation name;
+- source commit and source branch/detached state;
+- managed branch name;
+- intended worktree path under Space Zero Home;
+- canonical worktree, git dir, and common git dir identity;
+- one Pi conversation id;
+- append-only event sequence.
+
+## Managed worktree rule
+
+A prompt never silently falls back to the registered base checkout.
+
+Before a prompt runs, Workspace Host authenticates that the managed worktree still matches the persisted identity:
+
+- canonical worktree path;
+- canonical git dir path;
+- canonical common git dir path;
+- device/file ids for worktree, git dir, and common dir;
+- managed branch;
+- source commit;
+- shared project git common dir.
+
+If identity is missing or inconsistent, the Session becomes recovery-required instead of running in the wrong checkout.
+
+## Prompt lifecycle
+
+1. Prompt command is admitted or replayed by command id.
+2. User message/event is appended.
+3. Pi turn runs in the managed worktree.
+4. Assistant message/event is appended on success.
+5. Failure event is appended on agent failure.
+6. Current messages can be queried and events can be replayed by cursor.
+
+## Recovery lifecycle
+
+On Host startup, recovery candidates are marked `recovery_required`. This favors safe explicit recovery over automatic replay of ambiguous work.
+
+## Deferred lifecycle work
+
+Still missing from the lifecycle:
+
+- explicit archive/delete flows;
+- worktree cleanup UI and policy;
+- interruption/cancellation;
+- approval state;
+- tool call history;
+- changed-file projection;
+- commit/push/PR states;
+- user-facing recovery actions.

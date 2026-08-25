@@ -1,0 +1,39 @@
+---
+title: Introduction
+description: What Space Zero is and what this handbook is for.
+---
+
+# Introduction
+
+Space Zero is a local-first desktop workspace for software builders who use AI agents to plan, code, review, and ship software.
+
+The current product foundation separates the polished Electron desktop client from a headless Workspace Host. The Desktop owns native app behavior and user interface. The Workspace Host owns Projects, Project Sessions, durable state, Git worktrees, and Pi-powered agent execution.
+
+## What this handbook should explain
+
+This handbook is the human-oriented map of the Space Zero codebase:
+
+- what each app and package is responsible for;
+- what has been built so far;
+- which technologies are used in each workspace; and
+- how the major runtime pieces communicate.
+
+The normative rules still live in repository `docs/`, ADRs, and GitHub issues. The handbook should summarize those decisions clearly, not redefine them.
+
+## Current product foundation
+
+Space Zero v0.1 currently focuses on the secure local foundation:
+
+- an Electron Desktop shell with a React renderer;
+- a separate Workspace Host process managed by Desktop;
+- authenticated HTTP/JSON commands and SSE events between client and Host;
+- a Host-owned Project catalog and Project Session state in SQLite;
+- managed Git worktrees for Project Sessions; and
+- Pi integration behind a Host-side adapter boundary.
+
+## Start here
+
+- [Monorepo Structure](/docs/project/monorepo) — every app and package, with responsibility, current state, and tech stack.
+- [Project Architecture](/docs/project/architecture) — how Desktop, Client Runtime, Host, SQLite, Git, and Pi communicate.
+- [Desktop](/docs/apps/desktop) — the Desktop app area that will grow over time.
+- [Packages](/docs/packages/host-contracts) — package-level reference pages.

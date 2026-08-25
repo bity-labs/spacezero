@@ -1,7 +1,15 @@
 # Private Handbook
 
-This directory will contain a private Fumadocs application for the product owner’s human-oriented engineering handbook.
+This is a private Fumadocs application for the product owner’s human-oriented engineering handbook.
 
-The handbook will explain how Space Zero works through architecture diagrams, system walkthroughs, implementation status, release-process explanations, and operational guides. It may reference normative repository documentation, but it must not redefine architectural rules differently from `docs/`.
+The handbook explains how Space Zero works through architecture notes, system walkthroughs, implementation status, release-process explanations, and operational guides. It may reference normative repository documentation, but it must not redefine architectural rules differently from `docs/`.
 
-Public product documentation will be a separate future application after release readiness.
+## Commands
+
+```bash
+pnpm --filter @spacezero/handbook dev
+pnpm --filter @spacezero/handbook build
+pnpm --filter @spacezero/handbook typecheck
+```
+
+The local dev server runs on port `3010`.

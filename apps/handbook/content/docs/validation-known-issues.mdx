@@ -1,0 +1,67 @@
+---
+title: Validation and Known Issues
+description: Current checks, expected failures, and operational notes.
+---
+
+# Validation and Known Issues
+
+Use Node `22.23.1` when running repository commands. The repo uses strict engine checks.
+
+## Useful commands
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm --filter @spacezero/handbook build
+pnpm --filter @spacezero/handbook test
+pnpm dev:handbook
+```
+
+## Current passing checks
+
+The following checks passed when the handbook was created:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm --filter @spacezero/handbook build
+pnpm --filter @spacezero/handbook test
+pnpm format:check
+node --test scripts/check-boundaries.test.mjs
+```
+
+## Current expected failure
+
+The full `pnpm test` currently fails in Workspace Host clean shutdown tests:
+
+- `apps/workspace-host/tests/host-protocol.integration.test.ts`
+- `apps/workspace-host/tests/process.smoke.test.ts`
+
+The observed failure is:
+
+```txt
+expected [0, null]
+received [null, "SIGKILL"]
+```
+
+This means the test helper force-kills the Host process after a timeout instead of observing a clean exit.
+
+## Handbook-specific note
+
+The Handbook build uses:
+
+```bash
+next build --webpack
+```
+
+This avoids current Next 16/Turbopack resolution issues with Fumadocs and pnpm workspace symlinks.
+
+## What to update after each build slice
+
+When a meaningful slice lands, update:
+
+1. normative docs or ADRs if a durable rule changed;
+2. relevant Handbook walkthroughs if the human mental model changed;
+3. `Current Foundation` if status changed;
+4. `Validation and Known Issues` if checks or expected failures changed.
