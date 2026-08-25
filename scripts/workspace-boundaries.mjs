@@ -3,7 +3,11 @@ export const workspaces = {
     path: "apps/desktop",
     kind: "app",
     browserSafe: false,
-    allowed: ["@spacezero/client-runtime", "@spacezero/host-contracts"],
+    allowed: [
+      "@spacezero/client-runtime",
+      "@spacezero/host-contracts",
+      "@spacezero/ui",
+    ],
   },
   "@spacezero/workspace-host": {
     path: "apps/workspace-host",
@@ -36,6 +40,13 @@ export const workspaces = {
     metadataOnly: false,
     allowed: [],
   },
+  "@spacezero/ui": {
+    path: "packages/ui",
+    kind: "package",
+    browserSafe: true,
+    reactPeerOnly: true,
+    allowed: [],
+  },
 };
-export const inactivePaths = ["packages/ui"];
+export const inactivePaths = [];
 export const exactEffectVersion = "4.0.0-rc.109";

@@ -1,7 +1,14 @@
-# UI
+# @spacezero/ui
 
-This package will contain browser-safe React presentation components and their Storybook stories.
+Browser-safe, domain-free React UI primitives for Space Zero.
 
-Its initial focus will be the polished agent experience: messages, streaming content, thinking, tool activity, approvals, questions, prompt input, and connection status. It must not own host communication, durable application state, Electron APIs, or Pi SDK types.
+Uses shadcn + Tailwind CSS v4 with official Space Zero preset `b7BYR9Xec` (Vega/Mist). Treat generated preset variables in `src/styles/globals.css` as authoritative.
 
-Product-specific screens and orchestration stay in the consuming application until genuine cross-client reuse is demonstrated.
+Consumer imports:
+
+```ts
+import "@spacezero/ui/globals.css";
+import { Button } from "@spacezero/ui/components/button";
+```
+
+`globals.css` is a Tailwind v4 source entrypoint, not precompiled CSS.
