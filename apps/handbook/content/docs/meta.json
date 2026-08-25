@@ -1,14 +1,4 @@
 {
   "title": "Space Zero Handbook",
-  "pages": [
-    "index",
-    "current-foundation",
-    "architecture-overview",
-    "monorepo-map",
-    "local-host-startup",
-    "project-session-lifecycle",
-    "prompt-flow",
-    "validation-known-issues",
-    "working-agreement"
-  ]
+  "pages": ["index", "monorepo-map", "architecture-overview"]
 }

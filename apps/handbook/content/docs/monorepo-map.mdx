@@ -1,55 +1,164 @@
 ---
-title: Monorepo Map
-description: What each active workspace owns today.
+title: Monorepo Structure
+description: Every Space Zero app and package, what it does, what exists today, and the tech stack it uses.
 ---
 
-# Monorepo Map
+# Monorepo Structure
 
-Active workspaces:
+Space Zero is a pnpm workspace organized around independently runnable applications and explicit shared packages.
+
+```txt
+apps/
+  desktop/          Electron desktop application
+  workspace-host/   Headless Workspace Host runtime
+  handbook/         Private Fumadocs handbook
+
+packages/
+  host-contracts/   Browser-safe Host Protocol contracts
+  client-runtime/   Browser-safe Host client runtime
+  pi-adapter/       Host-side Pi integration boundary
+  ui/               Inactive shared UI placeholder
+```
+
+## Applications
+
+### Desktop
+
+`apps/desktop`
+
+#### What it is
+
+The Space Zero desktop client.
+
+#### What it does today
+
+Runs the Electron shell, secure preload bridge, React renderer, native navigation policy, project folder picker, Local Host supervision, and Desktop-owned bootstrap/capability delivery.
+
+It does **not** own Project Sessions, Pi execution, Git worktrees, or Host persistence.
+
+#### Tech stack usage
+
+Electron `43`, electron-vite, React `19`, TypeScript, Vitest, Playwright E2E, workspace packages `@spacezero/client-runtime` and `@spacezero/host-contracts`.
+
+### Workspace Host
+
+`apps/workspace-host`
+
+#### What it is
+
+The headless local backend that will also underpin future remote execution.
+
+#### What it does today
+
+Runs the authenticated Host Protocol server, Project catalog, Project Session create/list/prompt/message/event APIs, capability checks, SQLite database/migrations, managed Git worktree lifecycle, Session persistence/projections, and Pi coordination through `@spacezero/pi-adapter`.
+
+#### Tech stack usage
+
+Node.js `22.23.1`, strict ESM TypeScript, Effect `4.0.0-rc.109`, `@effect/platform-node`, `@effect/sql-sqlite-node` over built-in `node:sqlite`, Vitest, Git process adapters.
+
+### Handbook
+
+`apps/handbook`
+
+#### What it is
+
+Private documentation app for human build memory.
+
+#### What it does today
+
+Publishes this handbook: practical explanations, codebase map, architecture overview, implementation notes, and operational summaries.
+
+It may summarize `docs/`, but `docs/` remains the normative source of truth.
+
+#### Tech stack usage
+
+Next.js `16`, Fumadocs, Fumadocs MDX, React `19`, Tailwind CSS `4`, TypeScript.
+
+## Packages
+
+### Host Contracts
+
+`packages/host-contracts`
+
+#### What it is
+
+Browser-safe wire contract package for the Host Protocol.
+
+#### What it does today
+
+Defines serializable Effect Schemas, HttpApi declarations, event envelopes, command/query shapes, and public errors for connection, Projects, Project Sessions, local Host startup, and harness auth.
+
+It must not depend on Electron, React, Pi, SQLite, Git, or Host implementation code.
+
+#### Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, Effect Schema/HttpApi declarations, Vitest.
+
+### Client Runtime
+
+`packages/client-runtime`
+
+#### What it is
+
+Browser-safe client runtime used by Desktop renderer.
+
+#### What it does today
+
+Wraps authenticated HTTP calls, streaming SSE connection behavior, Host connection setup, harness auth commands, Project catalog client operations, and Project Session client operations.
+
+UI consumes this package instead of talking to Host internals.
+
+#### Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, browser `fetch`, SSE parsing/reconnect logic, Vitest, depends on `@spacezero/host-contracts`.
+
+### Pi Adapter
+
+`packages/pi-adapter`
+
+#### What it is
+
+Host-side boundary around Pi.
+
+#### What it does today
+
+Owns Pi provider authentication storage, conversation setup, scripted test adapter, Pi SDK adapter, event translation, cancellation/cleanup seams, and Host-facing conversation models.
+
+Pi SDK types and transcript details do not cross into Host Contracts or UI.
+
+#### Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, `@earendil-works/pi-agent-core`, `@earendil-works/pi-ai`, Vitest.
+
+### UI
+
+`packages/ui`
+
+#### What it is
+
+Reserved shared UI package.
+
+#### What it does today
+
+Currently an inactive placeholder. It should become active only when a concrete delivery slice needs shared, domain-free UI across applications.
+
+#### Tech stack usage
+
+No active package build yet. Future usage should remain React/TypeScript, domain-free, and Effect-free.
+
+## Dependency direction
 
 ```txt
 apps/desktop
+  -> packages/client-runtime
+  -> packages/host-contracts
+
 apps/workspace-host
-packages/host-contracts
-packages/client-runtime
+  -> packages/host-contracts
+  -> packages/pi-adapter
+
 packages/pi-adapter
-apps/handbook
+  -> Pi SDK
 ```
 
-## `apps/desktop`
-
-Electron shell and React renderer.
-
-Owns native desktop behavior, secure preload APIs, trusted renderer navigation, Local Host supervision, and the current minimal UI.
-
-It should not own Project Sessions, Pi execution, Git worktrees, or Host persistence.
-
-## `apps/workspace-host`
-
-Headless Node/Effect backend.
-
-Owns the Host Protocol implementation, authentication, project catalog, Project Sessions, SQLite state, managed worktrees, and Pi coordination through the Pi Adapter.
-
-## `packages/host-contracts`
-
-Browser-safe Host Protocol contracts.
-
-Owns serializable schemas, HttpApi endpoint declarations, event envelopes, and public error shapes.
-
-## `packages/client-runtime`
-
-Browser-safe Host client.
-
-Owns authenticated HTTP calls, SSE parsing/reconnect behavior, and future in-memory client projections for UI consumers.
-
-## `packages/pi-adapter`
-
-Host-side Pi boundary.
-
-Owns Pi SDK integration, provider credential storage, conversation setup, and translation from Pi behavior into Space Zero Host-facing values.
-
-## `apps/handbook`
-
-Private Fumadocs handbook.
-
-Owns human-oriented build memory and walkthroughs. It may summarize and link to `docs/`, but `docs/` remains the normative source for architecture and coding rules.
+Packages never depend on applications, applications do not import another application's source, and browser-safe packages must not import Host-only or Electron-only implementation details.

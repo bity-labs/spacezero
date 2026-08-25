@@ -1,67 +1,107 @@
 ---
-title: Architecture Overview
-description: The current v0.1 architecture in one place.
+title: Project Architecture
+description: How the major Space Zero runtimes communicate.
 ---
 
-# Architecture Overview
+# Project Architecture
 
-Space Zero v0.1 is centered on a separately executable Workspace Host. Desktop is the native shell and client, not the owner of Project Session execution.
+Space Zero v0.1 is split into a trusted Desktop application and a separately executable Workspace Host.
 
-## Main shape
+The important rule is: **Desktop is the native shell and client; Workspace Host owns Project and Session execution.**
 
-```txt
-Electron Desktop
-  main: native shell, Local Host supervision, secure preload
-  preload: narrow bridge for Host descriptors and native dialogs
-  renderer: React UI using Client Runtime
+## Runtime communication diagram
 
-Client Runtime
-  browser-safe Host client, HTTP commands, SSE subscriptions
+```mermaid
+flowchart LR
+  subgraph Desktop["apps/desktop — Electron Desktop"]
+    Main["Main process\nNative lifecycle + Local Host supervisor"]
+    Preload["Preload bridge\nNarrow window.spacezero API"]
+    Renderer["React renderer\nUser interface"]
+  end
 
-Host Contracts
-  Effect Schema + HttpApi wire contracts
+  subgraph Client["packages/client-runtime"]
+    Runtime["Host client\nHTTP commands + SSE subscriptions"]
+  end
 
-Workspace Host
-  authenticated HTTP/SSE server, Projects, Sessions, SQLite, Git worktrees
+  subgraph Contracts["packages/host-contracts"]
+    Schemas["Effect Schemas + HttpApi\nWire contracts"]
+  end
 
-Pi Adapter
-  Host-side Pi SDK and provider credential boundary
+  subgraph Host["apps/workspace-host — Workspace Host"]
+    Server["Authenticated HTTP/SSE server"]
+    Services["Projects + Project Sessions\nGit/worktree/session policy"]
+    Database[("Host SQLite database")]
+  end
+
+  subgraph Pi["packages/pi-adapter"]
+    Adapter["Pi conversation + auth boundary"]
+    PiSdk["Pi SDK"]
+  end
+
+  Worktree[("Managed Git worktrees")]
+
+  Main -->|launches, monitors, restarts| Server
+  Main -->|bootstrap + client capability delivery| Preload
+  Preload -->|safe native/connection API| Renderer
+  Renderer -->|calls browser-safe client API| Runtime
+  Runtime -->|authenticated HTTP/JSON commands| Server
+  Server -->|SSE events| Runtime
+  Runtime -->|plain state/events| Renderer
+
+  Runtime -. typed against .-> Schemas
+  Server -. implements .-> Schemas
+
+  Server --> Services
+  Services --> Database
+  Services --> Worktree
+  Services --> Adapter
+  Adapter --> PiSdk
 ```
 
-## Dependency direction
+## Main communication paths
 
-```txt
-apps/desktop
-  -> packages/client-runtime
-  -> packages/host-contracts
+### 1. Desktop starts the Local Host
 
-apps/workspace-host
-  -> packages/host-contracts
-  -> packages/pi-adapter
+Electron main launches the Workspace Host as a separate process. Bootstrap material is passed through a protected inherited channel, not through command-line arguments, environment variables, URLs, logs, or renderer state.
 
-packages/pi-adapter
-  -> Pi SDK
-```
+Desktop main keeps supervisor authority. Renderer only receives short-lived scoped client capabilities through preload.
 
-## Security boundary
+### 2. Renderer talks to Host through Client Runtime
 
-Renderer does not receive raw Node, Electron, filesystem, shell, database, Git, Pi, or credential access.
+React renderer does not receive raw Node.js, Electron, filesystem, SQLite, Git, Pi, or credential access.
 
-Useful Host operations go through authenticated HTTP/SSE. Desktop preload only exposes narrow native operations and Local Host client capability delivery.
+For product operations, renderer calls `@spacezero/client-runtime`. Client Runtime sends authenticated HTTP/JSON commands and consumes authenticated SSE event streams from Workspace Host.
 
-## Persistence boundary
+### 3. Host Protocol is shared as contracts, not implementation
 
-Workspace Host owns SQLite. Renderer state is a projection/client view, not the source of truth.
+`@spacezero/host-contracts` defines the stable wire shapes with Effect Schema and HttpApi declarations.
 
-Provider credentials are owned by Pi Adapter storage outside SQLite and must not enter Session events, transcripts, URLs, logs, or renderer persistent state.
+Both sides depend on the contracts:
 
-## Product boundary
+- Client Runtime uses them to send and decode browser-safe protocol values.
+- Workspace Host implements them in its HTTP/SSE handlers.
 
-The current implemented product is a foundation slice:
+The contracts do not expose Electron types, React types, Pi SDK types, database rows, filesystem handles, or Host implementation internals.
 
-- register a Git Project;
-- create a managed-worktree Project Session;
-- submit a basic Pi prompt;
-- persist messages and events.
+### 4. Workspace Host owns Project and Session state
 
-The intended builder workspace is broader, but files, terminal, browser, diffs, GitHub, and task-to-ship flows return incrementally after this foundation is reliable.
+Workspace Host owns the Project catalog, Project Session domain behavior, event journal, relational projections, SQLite migrations, managed Git worktrees, and recovery policy.
+
+Desktop can display and request this behavior, but does not duplicate or persist it.
+
+### 5. Pi stays behind the Pi Adapter
+
+Workspace Host delegates Pi-specific mechanics to `@spacezero/pi-adapter`.
+
+The adapter owns Pi provider auth storage, conversation setup, SDK integration, event translation, and test seams. Pi credentials and transcripts must not leak into Host Protocol contracts, SQLite Session events, logs, URLs, worktrees, or renderer persistent state.
+
+## Boundary summary
+
+| Boundary | Rule |
+| --- | --- |
+| Desktop main ↔ Workspace Host | Main launches/supervises Host and holds supervisor authority. Host owns product runtime behavior. |
+| Preload ↔ Renderer | Preload exposes only a narrow safe API. No raw Electron, Node, filesystem, or supervisor capability reaches renderer. |
+| Renderer ↔ Client Runtime | Renderer consumes plain browser-safe client APIs and projections. React stays Effect-free where practical. |
+| Client Runtime ↔ Workspace Host | Authenticated HTTP/JSON commands and authenticated SSE events. |
+| Contracts ↔ Implementations | Contracts define serializable wire shapes only; implementation types stay behind their owning runtime. |
+| Workspace Host ↔ Pi Adapter | Host owns Space Zero Sessions; Pi Adapter owns Pi-specific mechanics. |
