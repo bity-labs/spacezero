@@ -1,167 +1,133 @@
 # Adding Workspace Tools
 
-Workspace Tools are the approved, typed capabilities that agents call to inspect
-or operate Space Zero through the Workspace Control Plane. Agents never touch
-SQLite, raw IPC, the filesystem, or renderer internals directly; they call tools
-that route into the same main-process application services used by the renderer
-UI.
+Workspace Tools are typed, agent-facing capabilities that may let a Project Session inspect or operate approved Space Zero behavior through Workspace Host application services.
 
-This guide explains how a feature exposes Workspace Tools. It implements the
-decision in `docs/adr/0005-use-workspace-tools-as-the-agent-application-control-plane.md`.
+The archived v0 implementation routed tools through Electron main. That layout is historical and must not be reused. The initial v0.1 slice does not need to implement the full Workspace Tool catalog, delegation, activity history, or UI-control tools. Use this guide when a concrete Project Session capability requires a Workspace Tool.
 
-## Concepts
+## Boundary
 
-- **Workspace Tool** — a typed capability: a stable dotted name, a zod input
-  schema, a safety level (`read`, `write`, or `dangerous`), a kind
-  (`app-state` or `ui-control`), a domain, a description, and a handler.
-- **Workspace Tool Registry** — the approved catalog of tools composed from
-  feature-owned definitions and handed to the agent harness.
-- **Workspace Tool Safety Policy** — the global policy that decides whether
-  write or dangerous tools require confirmation before they run.
-- **Agent Activity History** — lightweight records of tool calls for visibility
-  and debugging. It stores metadata only, never full input or output payloads.
-- **Tool result** — structured data only. Tools never return polished
-  conversational summaries; the agent summarizes results in conversation.
+```text
+Pi conversation
+  -> Pi Adapter custom-tool boundary
+  -> Workspace Host Workspace Tool registry and safety policy
+  -> Workspace Host application service
+  -> authorized repository / Git / filesystem / process adapter
+```
 
-## Where tools live
+A human Host Protocol command and an agent Workspace Tool may have different entrypoints and metadata, but they should call the same Workspace Host application service when they perform the same use case.
 
-Each feature owns its tool definitions **near its main-process application
-services**:
+Electron main is not the Workspace Tool control plane. It remains responsible for Desktop-native behavior and Local Host supervision.
+
+## Required properties
+
+Each implemented tool needs:
+
+- a stable dotted name such as `projects.list` or `sessions.get-status`;
+- an Effect Schema input contract;
+- a narrow structured result contract;
+- explicit scope and safety metadata;
+- a handler that calls an application service rather than persistence or external adapters directly;
+- cancellation and cleanup behavior compatible with the owning Project Session; and
+- tests for authorization, validation, success, failure, interruption, and secret redaction.
+
+Tool results contain structured data rather than polished conversational prose. Pi interprets and summarizes results for the builder.
+
+## Placement
+
+Tool definitions belong near their owning Workspace Host feature services, for example:
 
 ```txt
-src/features/projects/main/
-├── projects.service.ts      # application/use-case logic shared with IPC
-├── projects.ipc.ts          # renderer-facing ipcMain handlers
-└── projects.tools.ts        # agent-facing Workspace Tools
+apps/workspace-host/src/features/projects/
+  projects.service.ts
+  projects.tools.ts
 ```
 
-Tool handlers must call the same `*.service.ts` application services used by
-`*.ipc.ts`. Do not duplicate business logic inside tools, and do not call
-ad-hoc internal helpers, repositories, or the database directly from a tool
-handler. The application service is the single place that owns the use case.
+Pi-specific registration and event translation remain in:
 
-A tool file exports an array of owned tools:
-
-```ts
-// src/features/projects/main/projects.tools.ts
-import { z } from 'zod'
-
-import { defineWorkspaceTool } from '../../agent-workspace/main'
-import type { AnyWorkspaceTool } from '../../agent-workspace/main'
-import { listProjects, createProject } from './projects.service'
-
-export const projectsTools: AnyWorkspaceTool[] = [
-  defineWorkspaceTool({
-    name: 'projects.list',
-    description: 'List Space Zero projects.',
-    safetyLevel: 'read',
-    kind: 'app-state',
-    domain: 'projects',
-    inputSchema: z.object({}).strict(),
-    handler: async () => ({ ok: true, data: { projects: await listProjects() } })
-  }),
-  defineWorkspaceTool({
-    name: 'projects.create',
-    description: 'Create a Space Zero project.',
-    safetyLevel: 'write',
-    kind: 'app-state',
-    domain: 'projects',
-    inputSchema: z.object({ path: z.string(), name: z.string().optional() }).strict(),
-    handler: async (input) => {
-      const project = await createProject(input)
-      return { ok: true, data: { id: project.id, name: project.name, path: project.path } }
-    }
-  })
-]
+```txt
+packages/pi-adapter/
 ```
 
-Use `defineWorkspaceTool` so the handler input is inferred and validated
-against the zod schema at compile time, without manual casts. Export heterogeneous
-tool sets as `AnyWorkspaceTool[]`, the erased type used by the registry.
+Serializable client-visible tool lifecycle events or approval contracts belong in:
 
-### UI-control tools
-
-Tools may control renderer UI (for example `ui.toggle-panel`). UI-control tools
-still enter through the main-process tool layer: main validates input, applies
-the safety policy, records activity, and then sends typed UI commands/events to
-the renderer. Agents must never manipulate renderer internals directly.
-
-### Choosing metadata
-
-- **Name**: stable dotted `<domain>.<action>` form, e.g. `projects.create`,
-  `settings.get`, `ui.toggle-panel`. Composed aggregate tools such as
-  `workspace.getStatus` are allowed when there is a clear product need; do not
-  create aggregate tools speculatively.
-- **Safety level**: `read` for inspection, `write` for state changes,
-  `dangerous` for destructive or hard-to-reverse operations.
-- **Kind**: `app-state` for data/application behavior, `ui-control` for tools
-  that drive renderer surfaces.
-- **Domain**: product domain such as `projects`, `sessions`, `settings`,
-  `preview`, `workspace`, or `ui`.
-- **Result**: structured data only. Return `{ ok: true, data }` or
-  `{ ok: false, error: { code, message } }`. Never include a human-readable
-  summary or `message` meant for conversation.
-
-## Composing tools into the registry
-
-The Agent Workspace / Workspace Control Plane composes feature-owned tool sets
-into a single registry:
-
-```ts
-import { projectsTools } from '../../projects/main/projects.tools'
-import { settingsTools } from '../../settings/main/settings.tools'
-import {
-  composeWorkspaceToolRegistry,
-  WorkspaceToolExecutor,
-  InMemoryAgentActivityHistory,
-  DEFAULT_WORKSPACE_TOOL_SAFETY_POLICY
-} from '../../agent-workspace/main'
-
-const registry = composeWorkspaceToolRegistry(projectsTools, settingsTools)
-const history = new InMemoryAgentActivityHistory()
-const executor = new WorkspaceToolExecutor({
-  registry,
-  policy: DEFAULT_WORKSPACE_TOOL_SAFETY_POLICY, // or the user's configured policy
-  history
-})
-
-const result = await executor.execute('projects.create', { path: '~/ws/dev/app' })
+```txt
+packages/host-contracts/
 ```
 
-The executor runs the full pipeline:
+Do not place tool implementations in Desktop renderer, preload, Electron main, Host Contracts, or Client Runtime.
 
-1. **resolve** the tool by name (returns `unknown-tool` if absent)
-2. **validate** input against the tool's zod schema (returns `invalid-input` if it fails)
-3. **evaluate** the global safety policy; if a `write` or `dangerous` tool
-   requires confirmation and the policy has not opted in, the handler is not run
-   and the result is `confirmation-required`
-4. **execute** the handler
-5. **return** structured data only
-6. **record** a lightweight Agent Activity History entry (metadata only; no
-   payloads)
+## Handler rules
 
-Every outcome — `success`, `error`, `rejected` (unknown tool or invalid input),
-and `confirmation-required` — is recorded in Agent Activity History.
+A Workspace Tool handler may:
 
-## Safety policy
+- validate already-authorized product input;
+- translate tool input into a Workspace Host application command;
+- call the owning application service;
+- map typed product failures into a narrow tool result; and
+- attach safe operation metadata needed for Session history.
 
-The default policy requires confirmation for all `write` and `dangerous` tools
-and never requires it for `read` tools. Builders can opt in to allowing writes
-or dangerous tools without confirmation through the global Workspace Tool Safety
-Policy. Per-project overrides are out of scope for v0.
+A handler must not:
 
-## Activity history
+- access SQLite repositories directly;
+- accept or trust arbitrary filesystem paths from Pi;
+- bypass Project/Session/worktree identity checks;
+- invoke renderer internals or raw Electron IPC;
+- return credentials, private paths, raw provider payloads, or Pi internals;
+- duplicate application policy already owned by a Host service; or
+- automatically retry an ambiguous external side effect after interruption.
 
-Agent Activity History is intentionally lightweight: it records the tool name,
-safety level, kind, domain, outcome, timestamp, and (for failures) an error code
-and message. It does **not** record input or output payloads by default, so it
-is a debugging/visibility aid, not a compliance-grade audit log.
+## Workspace and Session authority
 
-## Out of scope for v0
+Project Session tools operate only within the authenticated managed worktree and capabilities of their owning Session. They never fall back to the registered base checkout.
 
-- Exposing tools through external surfaces (CLI, MCP, local socket, HTTP, public
-  API). Tools are reusable internal capabilities, but v0 exposes them only to
-  the in-app Agent Workspace.
-- Per-project safety policy overrides.
-- Building the full Agent Workspace chat UI.
-- Direct database, filesystem, raw IPC, or renderer backdoors for agents.
+Tool execution participates in the Project Session lifecycle:
+
+- accepted calls and meaningful outcomes use versioned Session event contracts where product history requires them;
+- provider token fragments and noisy internal progress are not persisted as individual domain events;
+- interruption or Host crash records an explicit interrupted, unknown, or recovery-required outcome when completion is ambiguous; and
+- destructive behavior fails closed when resource identity cannot be proven.
+
+## UI-control tools
+
+Do not add a UI-control Workspace Tool merely to automate renderer internals. If a future approved use case requires client presentation, Workspace Host may publish a typed client-facing intent through the Host Protocol after authorization and safety checks. Each client decides how to present supported intents.
+
+Browser automation, arbitrary UI scripting, and direct renderer manipulation require separate product and security decisions.
+
+## Registry
+
+Create the smallest explicit registry needed by the current Pi Session slice. The registry should:
+
+- expose only tools approved for the Session kind and capability scope;
+- reject duplicate names and invalid definitions;
+- make tool availability deterministic for Session restore;
+- keep safety and confirmation policy outside individual handlers where practical; and
+- register tools with Pi only through Pi Adapter.
+
+Do not create aggregate tools or a generic plugin system speculatively.
+
+## Testing
+
+Test Workspace Tools through the public registry/application-service boundary with deterministic Pi Adapter fakes. Use real SQLite, Git, and temporary worktrees when those implementations are part of the behavior being verified.
+
+Required high-risk coverage includes:
+
+- invalid input and unknown tool denial;
+- wrong Session, Project, worktree, or capability scope;
+- path traversal and symlink boundaries;
+- safety/confirmation denial;
+- interruption before and after an external side effect;
+- redaction from results, events, and logs; and
+- no fallback to renderer, Electron main, base checkout, or direct database access.
+
+## References
+
+- `docs/feature-architecture.md`
+- `docs/coding-standards.md`
+- ADR 0027 — Effect boundaries
+- ADR 0028 — Project Session events and persistence
+- ADR 0029 — Project Session/worktree identity
+- ADR 0032 — capability authorization
+- ADR 0035 — crash recovery and ambiguous work
+- ADR 0037 — Host Protocol implementation
+
+Archived ADR 0005 documents the v0 approach only and is not normative for v0.1.

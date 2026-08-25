@@ -27,9 +27,9 @@ pnpm storybook:build
 
 Stories must import real components from application source. Do not copy UI into a story or a separate Storybook-only component tree.
 
-Follow ADR 0024 when a renderer surface needs application behavior:
+Follow `docs/feature-architecture.md` when a renderer surface needs application behavior:
 
-- a container, page, hook, or renderer client owns `window.spacezero`, routing, stores, subscriptions, persistence, commands, and other side effects;
+- a container, page, or hook owns Client Runtime/preload access, routing, stores, subscriptions, commands, and other side effects;
 - a pure `*-screen.tsx` or `*-view.tsx` receives visual state through props and emits user intent through callbacks;
 - the story renders the pure screen or view with fixture props.
 
@@ -40,7 +40,7 @@ A component that is already small and pure does not need a new wrapper or contai
 Keep stories, fixtures, and their application component together:
 
 ```txt
-src/features/projects/renderer/screens/
+apps/desktop/src/renderer/features/projects/screens/
 ├── project-home-container.tsx
 ├── project-home-screen.tsx
 ├── project-home-screen.fixtures.ts

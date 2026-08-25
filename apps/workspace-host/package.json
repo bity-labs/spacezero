@@ -1,0 +1,24 @@
+{
+  "name": "@spacezero/workspace-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "22.23.1"
+  },
+  "scripts": {
+    "dev": "pnpm build && node dist/main.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "start": "node dist/main.js",
+    "pretest": "pnpm build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.109",
+    "@effect/sql-sqlite-node": "4.0.0-rc.109",
+    "@spacezero/host-contracts": "workspace:*",
+    "@spacezero/pi-adapter": "workspace:*",
+    "effect": "4.0.0-rc.109"
+  }
+}

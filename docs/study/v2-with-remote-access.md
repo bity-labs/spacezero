@@ -4,6 +4,30 @@
 
 Architecture study and proposed direction. This document is not an accepted ADR or an implementation specification.
 
+ADR 0025 supersedes this study where they differ on Workspace Host deployments and Local Host lifecycle. In particular, v0.1 uses a separate Desktop-managed Local Host that stops on explicit Desktop quit, does not plan customer-managed self-hosting, and reserves Remote Host for future Space Zero-managed on-demand and dedicated offerings.
+
+ADR 0026 accepts HTTP/JSON for commands and queries, authenticated SSE over streaming `fetch()` for ordered events, and short-lived scoped bearer capabilities for local and future remote client sessions. A universal WebSocket protocol is not selected for the initial implementation.
+
+ADR 0027 selects exact-pinned Effect `4.0.0-rc.109` packages across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime while keeping React and generic UI Effect-free. ADR 0028 selects SQLite-backed event sourcing for the Project Session domain using Effect `4.0.0-rc.109` `@effect/sql-sqlite-node` over private Node `22.23.1`'s built-in `node:sqlite`, rebuildable relational projections, durable command receipts, and a strict boundary between Space Zero Session history and private Pi transcripts.
+
+ADR 0029 defines one initial Project Session as one Pi conversation, event aggregate, managed worktree/branch, and workflow. It branches from the registered checkout's committed current `HEAD`, uses centralized Local Host worktrees, fails closed on identity mismatch, and treats provisioning, quit, archive, deletion, and recovery as explicit durable lifecycle behavior.
+
+ADR 0030 accepts a pnpm monorepo with separate Desktop and Workspace Host applications plus explicit Host Contracts, Client Runtime, and Pi Adapter packages. ADR 0031 packages the Local Host with private Node.js `22.23.1`, aligns development, CI, native modules, and initial Remote Host compatibility to Node 22, rejects `ELECTRON_RUN_AS_NODE` and Electron `utilityProcess` for Host execution, and requires hardened Electron fuses in public builds.
+
+ADR 0032 uses a protected one-time bootstrap secret to establish a Host-lifetime supervisor capability held only by Electron main. Main mints short-lived scoped client capabilities for renderer/Client Runtime HTTP and SSE access; future Remote Hosts preserve client-capability semantics while using different account/pairing issuance.
+
+ADR 0033 lets Pi own Host-global LLM authentication in private Workspace Host application data rather than SQLite or Desktop `safeStorage`. Future explicit transfer of selected credentials from Local Host to Remote Host requires a separate security decision.
+
+ADR 0034 makes each Workspace Host the sole owner of its Project catalog. Desktop may select folders natively but never duplicates Project persistence; cross-Host logical repository identity remains deferred.
+
+ADR 0035 requires Desktop to restart unexpected Local Host crashes with bounded backoff and fresh authorization, while never automatically replaying turns or external side effects whose completion is ambiguous.
+
+ADR 0036 moves domain integration testing to the headless Host boundary with real HTTP/SSE, SQLite, and Git; uses a contract-compatible mock Host for broad Electron navigation and screenshot E2E; and retains narrow real-Host Electron and packaged-runtime suites.
+
+ADR 0037 uses Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE for the Host Protocol behind Space Zero adapters. Wire values remain implementation-neutral and OpenAPI is generated as a derived artifact.
+
+ADR 0038 packages Workspace Host as a hardened normal Node deployment—compiled ESM plus pnpm-pruned production dependencies and required assets—rather than a bundle. Releases use frozen lockfiles, reviewed lifecycle scripts, official Node checksum verification, signed immutable resources, an integrity manifest, canonical launch paths, and a sanitized Host environment.
+
 ## Purpose
 
 Space Zero's current implementation proved many product ideas, but feature breadth grew faster than confidence in the core experience. The application now does many things without making one workflow feel exceptionally reliable.
@@ -153,7 +177,7 @@ The protocol should support:
 - Explicit version compatibility
 - Structured errors that do not expose secrets or provider payloads
 
-The transport is not selected by this study. WebSocket, HTTP, RPC frameworks, and serialization choices require a separate implementation decision. The stable contract is more important than copying T3 Code's Effect stack.
+The accepted Host transport is HTTP/JSON plus authenticated SSE, implemented with exact-pinned Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE behind Space Zero adapters. Stable interoperable wire contracts remain more important than Effect implementation details.
 
 ## Durable Session Model
 

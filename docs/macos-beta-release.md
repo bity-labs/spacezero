@@ -2,7 +2,7 @@
 
 Space Zero public macOS beta artifacts may be produced by the resumable local release pipeline or by GitHub Actions. Artifact production never implies publication: uploading assets and creating a public prerelease remain separate, explicit release-owner actions. Do not use ad hoc Electron Builder commands as a release process.
 
-For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local artifact-production decision is recorded in [ADR 0021](./adr/0021-local-multi-architecture-macos-release-artifacts.md).
+For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local artifact-production decision is recorded in [ADR 0021](./adr/archive/v0/0021-local-multi-architecture-macos-release-artifacts.md).
 
 ## Local multi-architecture artifacts
 
