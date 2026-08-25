@@ -14,6 +14,7 @@ drift.
 Use this document with:
 
 - `docs/product/workspace-surfaces.md`
+- `packages/ui/src/components/`
 - `apps/desktop/src/renderer/components/ui/`
 - `apps/desktop/src/renderer/features/settings/components/`
 - the co-located Storybook stories available through `pnpm storybook`
@@ -32,7 +33,10 @@ Use this document with:
 - Dark high contrast is an explicit preference only.
 
 Storybook is the local workbench for previewing primitives, typography, and
-component patterns before broader rollout.
+component patterns before broader rollout. `packages/ui` uses shadcn + Tailwind
+CSS v4 with official Space Zero preset `b7BYR9Xec` (Vega/Mist, Phosphor icons,
+Inter, medium radius). The generated preset CSS variables are authoritative;
+do not approximate or replace them manually.
 
 ## Visual Direction
 
@@ -160,6 +164,17 @@ Rule:
 
 > Hover states must be visible in every theme.
 
+### Focus state
+
+Focus states should feel desktop-native, not like a web form halo.
+
+Rules:
+
+- Keep accessible `focus-visible` states.
+- Do not use thick outer glow/ring focus treatments on primitives.
+- Prefer a subtle semantic focus border such as `focus-visible:border-ring`.
+- Do not replace focus treatment with arbitrary colors.
+
 ### Native scrollbars
 
 Space Zero uses global native scrollbar styling rather than wrapping every scroll
@@ -168,7 +183,20 @@ app a consistent dense workbench feel.
 
 ## Primitive Usage Rules
 
-Generic primitives live in:
+Shared generic primitives live in:
+
+```txt
+packages/ui/src/components/
+```
+
+Import them through source-package subpath exports:
+
+```ts
+import "@spacezero/ui/globals.css";
+import { Button } from "@spacezero/ui/components/button";
+```
+
+Legacy or renderer-local primitives may still exist in:
 
 ```txt
 apps/desktop/src/renderer/components/ui/
@@ -467,7 +495,8 @@ terminal, diff, and orchestration surfaces.
 
 When building UI:
 
-- Use existing primitives from `apps/desktop/src/renderer/components/ui`.
+- Use shared primitives from `@spacezero/ui` when they exist, imported through component subpath exports.
+- Use existing primitives from `apps/desktop/src/renderer/components/ui` only when no shared package primitive exists or the component is renderer-local.
 - Use composed settings components for Settings pages.
 - Use typography primitives instead of ad hoc text classes.
 - Keep generic primitives domain-free.
@@ -475,7 +504,7 @@ When building UI:
 - Prefer rows and panels over card stacks for dense workspace UI.
 - Keep controls visible on card/panel surfaces.
 - Avoid transparent inputs/selects unless there is a specific reason.
-- Do not use arbitrary colors when a theme token exists.
+- Do not use arbitrary colors when a theme token exists, and do not invent replacements for the generated `b7BYR9Xec` shadcn preset variables.
 - Use `EmptyState` for empty product states.
 - Check the relevant Storybook stories when changing primitives or theme tokens.
 
