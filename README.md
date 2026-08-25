@@ -4,19 +4,20 @@ Space Zero is a local-first desktop interface for directing Pi-powered coding ag
 
 ## Status
 
-This repository now includes the authenticated Local Host connectivity tracer and initial Host-owned Project catalog:
+This repository now includes the v0.1 Workspace Host foundation:
 
 - pnpm `10.28.1` workspace pinned to Node.js `22.23.1`;
 - strict ESM TypeScript configuration;
 - secure Electron/React Desktop with a standard `spacezero://renderer` origin;
-- protected inherited-pipe bootstrap and Desktop-owned Local Host lifecycle;
+- protected inherited-pipe bootstrap and Desktop-owned Local Host lifecycle with bounded crash restart/backoff;
 - Host-instance supervisor and short-lived scoped client capabilities;
 - Effect HttpApi query and authenticated typed SSE connectivity through Client Runtime;
 - Host-owned SQLite Project catalog with canonical Git repository registration/listing;
-- Host-owned Project Session create/list tracer with event-sourced Session state, permanent normalized wine-appellation names, and managed Git worktrees under Space Zero Home; and
-- metadata/config-only Pi Adapter with no Pi SDK dependency.
+- Host-owned Project Session create/list/prompt/message/event APIs with event-sourced Session state, permanent normalized wine-appellation names, managed Git worktrees under Space Zero Home, replayable Session SSE cursors, and one durable Pi conversation identity per Session;
+- `harness-auth` provider status/API-key commands backed by Host-private Pi credential storage; and
+- Pi Adapter execution through the Pi SDK with restored Session history and bounded read/write/edit file tools rooted at the authenticated managed worktree.
 
-Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: crash restart/backoff, durable SSE replay/reconnect, Pi/chat execution, archive/delete, source selection, GitHub/remotes, Handbook, shared UI, and Storybook.
+Packaged Host launch remains fail-closed until private Node and integrity packaging are implemented. Also deferred: archive/delete, source selection, GitHub/remotes, full Workspace Tool registry and approval policy, OAuth login flows, packaged private-Node release hardening, Handbook, shared UI, and Storybook.
 
 ## Commands
 
@@ -42,7 +43,7 @@ apps/
 packages/
   host-contracts/   Browser-safe Host Protocol schemas and HttpApi declarations
   client-runtime/   Browser-safe authenticated query/SSE client
-  pi-adapter/       Metadata/config/test setup only; no Pi SDK yet
+  pi-adapter/       Host-side Pi SDK runner, provider auth storage, and bounded file tools
   ui/               Inactive README placeholder
 scripts/            Repository automation and boundary checks
 ```

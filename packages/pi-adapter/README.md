@@ -19,13 +19,16 @@ Current state:
   set/remove operations used by the Workspace Host `harness-auth` protocol.
 - `pi-conversation.adapter.ts` — Pi SDK-backed runner that creates a Pi Agent per
   turn, wired to a Models runtime with the injected Host-private credential
-  store and an auth context that denies ambient environment/file credentials.
+  store, an auth context that denies ambient environment/file credentials, the
+  Project Session's stable conversation id, restored durable Session history,
+  and bounded read/write/edit file tools rooted at the authenticated managed
+  worktree.
 
 Production Workspace Host composition uses the Pi SDK runner and Host-private
 credential storage. Missing provider credentials fail closed as
 `agent_unavailable`; the Local Host no longer uses provider API keys from process
 environment variables and no longer falls back to scripted successful output.
 
-Deferred: OAuth login flows, resource/tool configuration,
-cancellation/interruption, restore/cleanup, conversation history persistence
-across turns, and a narrow no-paid-call real-Pi compatibility suite.
+Deferred: OAuth login flows, full Workspace Tool registry/approval integration,
+cancellation/interruption, transcript cleanup/retention policy, and paid-provider
+smoke validation.
