@@ -1,0 +1,50 @@
+---
+title: Local Host Startup
+description: How Desktop starts and authenticates with the Local Workspace Host.
+---
+
+# Local Host Startup
+
+The current Local Host is a separate Node process managed by Electron Desktop. It runs only as a development Local Host today; packaged launch is still deferred.
+
+## Current startup path
+
+```txt
+Electron main
+  -> Local Host supervisor
+  -> normal Node child process
+  -> protected bootstrap/lifetime file descriptors
+  -> Workspace Host HTTP server on 127.0.0.1:random
+  -> supervisor capability
+  -> renderer client capabilities via preload
+```
+
+## Step by step
+
+1. Electron main creates a Local Host supervisor before opening the app window.
+2. The supervisor resolves the Workspace Host executable.
+3. In development, the executable is `apps/workspace-host/dist/main.js` run with Node `22.23.1`.
+4. Electron starts the Host as a normal child process, not Electron Node mode and not `utilityProcess`.
+5. Bootstrap material is sent over protected inherited file descriptors, not command-line arguments, URLs, logs, or renderer IPC.
+6. Workspace Host consumes the one-time bootstrap secret.
+7. Workspace Host starts an authenticated loopback HTTP server on `127.0.0.1` with a random port.
+8. Workspace Host sends a ready frame back to Desktop.
+9. Desktop exchanges the bootstrap secret for a Host-lifetime supervisor capability.
+10. Renderer calls preload when it needs a Host connection descriptor.
+11. Desktop uses its supervisor capability to mint a short-lived scoped client capability.
+12. Client Runtime uses that descriptor for authenticated HTTP/SSE calls.
+
+## Capability ownership
+
+- Electron main owns the supervisor capability.
+- Renderer receives only short-lived scoped client capabilities.
+- Client capabilities are held in memory and refreshed through preload.
+- Host endpoints validate bearer token scope and allowed renderer origin.
+
+## Restart behavior
+
+Desktop restarts unexpected Local Host exits with bounded backoff. The Host reconciles unfinished Project Sessions on startup, but ambiguous turns or external side effects are not automatically replayed.
+
+## Known gap
+
+Packaged Local Host resolution still fails closed. Public builds still need private Node packaging, integrity checks, production dependency pruning, and Electron fuse hardening.

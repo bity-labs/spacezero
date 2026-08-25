@@ -1,0 +1,67 @@
+---
+title: Architecture Overview
+description: The current v0.1 architecture in one place.
+---
+
+# Architecture Overview
+
+Space Zero v0.1 is centered on a separately executable Workspace Host. Desktop is the native shell and client, not the owner of Project Session execution.
+
+## Main shape
+
+```txt
+Electron Desktop
+  main: native shell, Local Host supervision, secure preload
+  preload: narrow bridge for Host descriptors and native dialogs
+  renderer: React UI using Client Runtime
+
+Client Runtime
+  browser-safe Host client, HTTP commands, SSE subscriptions
+
+Host Contracts
+  Effect Schema + HttpApi wire contracts
+
+Workspace Host
+  authenticated HTTP/SSE server, Projects, Sessions, SQLite, Git worktrees
+
+Pi Adapter
+  Host-side Pi SDK and provider credential boundary
+```
+
+## Dependency direction
+
+```txt
+apps/desktop
+  -> packages/client-runtime
+  -> packages/host-contracts
+
+apps/workspace-host
+  -> packages/host-contracts
+  -> packages/pi-adapter
+
+packages/pi-adapter
+  -> Pi SDK
+```
+
+## Security boundary
+
+Renderer does not receive raw Node, Electron, filesystem, shell, database, Git, Pi, or credential access.
+
+Useful Host operations go through authenticated HTTP/SSE. Desktop preload only exposes narrow native operations and Local Host client capability delivery.
+
+## Persistence boundary
+
+Workspace Host owns SQLite. Renderer state is a projection/client view, not the source of truth.
+
+Provider credentials are owned by Pi Adapter storage outside SQLite and must not enter Session events, transcripts, URLs, logs, or renderer persistent state.
+
+## Product boundary
+
+The current implemented product is a foundation slice:
+
+- register a Git Project;
+- create a managed-worktree Project Session;
+- submit a basic Pi prompt;
+- persist messages and events.
+
+The intended builder workspace is broader, but files, terminal, browser, diffs, GitHub, and task-to-ship flows return incrementally after this foundation is reliable.
