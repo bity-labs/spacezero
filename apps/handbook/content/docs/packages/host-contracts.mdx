@@ -1,0 +1,22 @@
+---
+title: Host Contracts
+description: Browser-safe Host Protocol contracts.
+---
+
+# Host Contracts
+
+`packages/host-contracts`
+
+## What it is
+
+Browser-safe wire contract package for the Host Protocol.
+
+## What it does today
+
+Defines serializable Effect Schemas, HttpApi declarations, event envelopes, command/query shapes, and public errors for connection, Projects, Project Sessions, local Host startup, and harness auth.
+
+It must not depend on Electron, React, Pi, SQLite, Git, or Host implementation code.
+
+## Tech stack usage
+
+TypeScript, Effect `4.0.0-rc.109`, Effect Schema/HttpApi declarations, Vitest.

@@ -26,6 +26,7 @@ Do not restore the archived v0 repository-root `src/main`, `src/preload`, `src/r
 apps/
   desktop/          Electron shell, React client, native integration, Local Host supervision
   workspace-host/   Headless Effect application, Host Protocol, SQLite, Projects, Sessions, Git
+  handbook/         Private Fumadocs engineering handbook for human build memory
 
 packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
@@ -33,7 +34,7 @@ packages/
   pi-adapter/       Host-side Effect boundary around Pi
 ```
 
-`apps/handbook` and `packages/ui` remain inactive until a concrete slice needs them. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains inactive until a concrete slice needs it. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
 
 ## Dependency Graph
 
@@ -104,6 +105,14 @@ Preload contains no product business rules, Host persistence, filesystem policy,
 - Desktop-native calls through preload when a use case actually belongs to Electron.
 
 The renderer never imports Electron, Node.js, Workspace Host source, Pi, SQLite, Git/process adapters, or secret stores. It may hold only a short-lived scoped Host client capability in memory.
+
+### `apps/handbook`
+
+Handbook is a private Fumadocs/Next.js application for human-oriented build memory. It owns explanatory documentation, implementation walkthroughs, operating notes, and status summaries for the product owner.
+
+Handbook may summarize and link to repository docs, ADRs, PRDs, and issue plans, but it must not redefine normative architecture, coding standards, security rules, or accepted decisions differently from `docs/`. When a durable rule changes, update the normative source first and then update Handbook with the practical explanation.
+
+Handbook does not own product runtime behavior, Host Protocol contracts, Electron behavior, Project Session state, Git policy, Pi behavior, credentials, or shared UI packages.
 
 ### `apps/workspace-host`
 
@@ -335,18 +344,18 @@ Agents do not receive direct SQLite access, arbitrary Host internals, renderer a
 
 Use kebab-case files and folders. Use dot suffixes when they communicate an architectural role.
 
-| Suffix | Use |
-| --- | --- |
-| `.model.ts` | Internal product/domain values when a separate model file helps. |
-| `.schema.ts` | Effect Schema and validation definitions. |
-| `.contract.ts` | Stable package or module contract not already expressed directly by HttpApi. |
-| `.service.ts` | Application/use-case behavior and orchestration. |
-| `.repository.ts` | Persistence port/implementation local to Workspace Host. |
-| `.adapter.ts` | External runtime, provider, filesystem, Git, process, or native adapter. |
-| `.http.ts` | Workspace Host HttpApi handler/transport adapter. |
-| `.ipc.ts` | Desktop-native Electron IPC only. |
-| `.projector.ts` | Deterministic Session event projection behavior. |
-| `.test.ts` / `.test.tsx` | Unit, integration, or renderer component test. |
+| Suffix                   | Use                                                                          |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| `.model.ts`              | Internal product/domain values when a separate model file helps.             |
+| `.schema.ts`             | Effect Schema and validation definitions.                                    |
+| `.contract.ts`           | Stable package or module contract not already expressed directly by HttpApi. |
+| `.service.ts`            | Application/use-case behavior and orchestration.                             |
+| `.repository.ts`         | Persistence port/implementation local to Workspace Host.                     |
+| `.adapter.ts`            | External runtime, provider, filesystem, Git, process, or native adapter.     |
+| `.http.ts`               | Workspace Host HttpApi handler/transport adapter.                            |
+| `.ipc.ts`                | Desktop-native Electron IPC only.                                            |
+| `.projector.ts`          | Deterministic Session event projection behavior.                             |
+| `.test.ts` / `.test.tsx` | Unit, integration, or renderer component test.                               |
 
 Use names that describe the behavior hidden by the file. Do not use `.shared.ts` as a substitute for deciding package and runtime ownership.
 

@@ -1,0 +1,4 @@
+{
+  "title": "Packages",
+  "pages": ["host-contracts", "client-runtime", "pi-adapter", "ui"]
+}
