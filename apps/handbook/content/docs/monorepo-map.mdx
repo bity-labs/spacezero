@@ -1,0 +1,55 @@
+---
+title: Monorepo Map
+description: What each active workspace owns today.
+---
+
+# Monorepo Map
+
+Active workspaces:
+
+```txt
+apps/desktop
+apps/workspace-host
+packages/host-contracts
+packages/client-runtime
+packages/pi-adapter
+apps/handbook
+```
+
+## `apps/desktop`
+
+Electron shell and React renderer.
+
+Owns native desktop behavior, secure preload APIs, trusted renderer navigation, Local Host supervision, and the current minimal UI.
+
+It should not own Project Sessions, Pi execution, Git worktrees, or Host persistence.
+
+## `apps/workspace-host`
+
+Headless Node/Effect backend.
+
+Owns the Host Protocol implementation, authentication, project catalog, Project Sessions, SQLite state, managed worktrees, and Pi coordination through the Pi Adapter.
+
+## `packages/host-contracts`
+
+Browser-safe Host Protocol contracts.
+
+Owns serializable schemas, HttpApi endpoint declarations, event envelopes, and public error shapes.
+
+## `packages/client-runtime`
+
+Browser-safe Host client.
+
+Owns authenticated HTTP calls, SSE parsing/reconnect behavior, and future in-memory client projections for UI consumers.
+
+## `packages/pi-adapter`
+
+Host-side Pi boundary.
+
+Owns Pi SDK integration, provider credential storage, conversation setup, and translation from Pi behavior into Space Zero Host-facing values.
+
+## `apps/handbook`
+
+Private Fumadocs handbook.
+
+Owns human-oriented build memory and walkthroughs. It may summarize and link to `docs/`, but `docs/` remains the normative source for architecture and coding rules.

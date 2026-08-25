@@ -1,0 +1,35 @@
+---
+title: Working Agreement
+description: How to keep the handbook useful while the product evolves.
+---
+
+# Working Agreement
+
+Update the handbook when a build slice changes what a human needs to remember.
+
+## Update it when
+
+- a new app/package becomes active;
+- a protocol capability is added;
+- a major implementation slice lands;
+- a deferred area becomes active work;
+- a known limitation is fixed;
+- product language becomes clearer;
+- a new operating or release procedure appears.
+
+## Do not use it for
+
+- replacing ADRs;
+- redefining coding standards;
+- storing secrets;
+- duplicating every low-level implementation detail;
+- hiding TODOs that should be GitHub issues.
+
+## Recommended rhythm
+
+At the end of each meaningful build slice:
+
+1. Update normative docs or ADRs when a durable rule changed.
+2. Update the handbook with the practical explanation.
+3. Link from handbook pages back to the source docs when useful.
+4. Keep pages short enough to re-read quickly.

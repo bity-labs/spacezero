@@ -22,6 +22,7 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/out/**",
+      "**/.next/**",
       "node_modules/**",
       ".pi-subagents/**",
       ".agent-runs/**",
@@ -47,6 +48,7 @@ export default tseslint.config(
   {
     files: [
       "apps/desktop/src/renderer/**/*.{ts,tsx}",
+      "apps/handbook/**/*.{ts,tsx}",
       "packages/host-contracts/src/**/*.ts",
       "packages/client-runtime/src/**/*.ts",
     ],
@@ -84,7 +86,10 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/desktop/src/renderer/**/*.{tsx,ts}"],
+    files: [
+      "apps/desktop/src/renderer/**/*.{tsx,ts}",
+      "apps/handbook/**/*.{tsx,ts}",
+    ],
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {
       ...reactHooks.configs.recommended.rules,
