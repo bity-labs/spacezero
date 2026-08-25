@@ -298,8 +298,8 @@ Electron main
 
 Relevant decisions:
 
-- `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md`
-- `docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`
+- `docs/adr/archive/v0/0002-secure-electron-process-boundaries-and-typed-ipc.md`
+- `docs/adr/archive/v0/0006-pi-agent-harness-in-utility-process-via-sdk.md`
 
 ### Main difference
 
@@ -598,8 +598,8 @@ The most appropriate next architecture decision would be:
 - [OpenCode source snapshot](https://github.com/anomalyco/opencode/tree/976c1851727999983558f44952ef1b1efe57353a)
 - `docs/study/v2-with-remote-access.md`
 - `docs/study/t3remote-accesss.md`
-- `docs/adr/0002-secure-electron-process-boundaries-and-typed-ipc.md`
-- `docs/adr/0006-pi-agent-harness-in-utility-process-via-sdk.md`
+- `docs/adr/archive/v0/0002-secure-electron-process-boundaries-and-typed-ipc.md`
+- `docs/adr/archive/v0/0006-pi-agent-harness-in-utility-process-via-sdk.md`
 
 ## Study Session
 

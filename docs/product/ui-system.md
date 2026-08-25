@@ -14,8 +14,8 @@ drift.
 Use this document with:
 
 - `docs/product/workspace-surfaces.md`
-- `src/renderer/src/components/ui/`
-- `src/features/settings/renderer/components/`
+- `apps/desktop/src/renderer/components/ui/`
+- `apps/desktop/src/renderer/features/settings/components/`
 - the co-located Storybook stories available through `pnpm storybook`
 
 ## Locked Defaults
@@ -171,7 +171,7 @@ app a consistent dense workbench feel.
 Generic primitives live in:
 
 ```txt
-src/renderer/src/components/ui/
+apps/desktop/src/renderer/components/ui/
 ```
 
 They should remain domain-free. They must not know about projects, agents,
@@ -196,7 +196,7 @@ Examples:
 Typography primitives live in:
 
 ```txt
-src/renderer/src/components/ui/typography.tsx
+apps/desktop/src/renderer/components/ui/typography.tsx
 ```
 
 Use these instead of ad hoc text classes when creating product UI.
@@ -270,9 +270,9 @@ Settings now provide the first real product application of this UI system.
 Prefer the composed settings components for settings surfaces:
 
 ```txt
-src/features/settings/renderer/components/settings-page-header.tsx
-src/features/settings/renderer/components/settings-section.tsx
-src/features/settings/renderer/components/settings-row.tsx
+apps/desktop/src/renderer/features/settings/components/settings-page-header.tsx
+apps/desktop/src/renderer/features/settings/components/settings-section.tsx
+apps/desktop/src/renderer/features/settings/components/settings-row.tsx
 ```
 
 Rules:
@@ -419,7 +419,7 @@ Rule:
 Use `EmptyState` from:
 
 ```txt
-src/renderer/src/components/ui/empty.tsx
+apps/desktop/src/renderer/components/ui/empty.tsx
 ```
 
 Should include:
@@ -467,7 +467,7 @@ terminal, diff, and orchestration surfaces.
 
 When building UI:
 
-- Use existing primitives from `src/renderer/src/components/ui`.
+- Use existing primitives from `apps/desktop/src/renderer/components/ui`.
 - Use composed settings components for Settings pages.
 - Use typography primitives instead of ad hoc text classes.
 - Keep generic primitives domain-free.
@@ -489,4 +489,4 @@ Still missing:
 - shared status component
 - broader application of typography primitives across existing screens
 - broader rollout of Settings patterns to non-settings workspace surfaces
-- future visual regression/screenshot testing if needed
+- broader targeted screenshot-regression coverage beyond the mock-Host Electron screens required by ADR 0036

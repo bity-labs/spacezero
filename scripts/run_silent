@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Usage: run_silent "description" command [args...]
-# Success = ✓ description (3 tokens). Failure = full output for debugging.
+# Usage: ./scripts/run_silent "description" command [args...]
 
-desc="$1"; shift
+description="$1"
+shift
+
 output=$("$@" 2>&1)
 exit_code=$?
 
-if [ $exit_code -eq 0 ]; then
-  echo "✓ $desc"
+if [ "$exit_code" -eq 0 ]; then
+  echo "✓ $description"
 else
-  echo "✗ $desc (exit $exit_code)"
+  echo "✗ $description (exit $exit_code)"
   echo "$output"
 fi
 
-exit $exit_code
+exit "$exit_code"

@@ -1,0 +1,6 @@
+appId: app.spacezero.desktop
+productName: Space Zero
+directories:
+  output: dist-builder
+files:
+  - out/**

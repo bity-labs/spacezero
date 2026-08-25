@@ -27,11 +27,20 @@ Space Zero is an Electron desktop app for software builders. It aims to become a
 
 ## Current Architecture Snapshot
 
-- Electron main process owns native app lifecycle, windows, IPC handlers, SQLite, and future system integrations.
-- Electron preload exposes the only renderer-facing desktop API as `window.spacezero`.
-- React renderer owns UI only and must not receive raw Node.js access.
-- Shared IPC channel names and types live in `src/shared`.
-- SQLite lives behind main-process APIs, not in renderer code.
+- Space Zero v0.1 uses a separately executable Workspace Host for the Project catalog, Project Session execution, Pi integration, Session workspaces, Git operations, and durable Session state.
+- The initial Local Host is a separate process managed by Electron Desktop, run under packaged private Node.js `22.23.1`, and reached over an authenticated loopback protocol.
+- Workspace tooling, CI, Local Host packaging, and Host-native modules standardize on Node.js `22.23.1`; public builds do not use `ELECTRON_RUN_AS_NODE` or Electron `utilityProcess` for the Host and disable unnecessary Electron Node-mode and Node-options fuses.
+- Package Workspace Host as compiled strict ESM plus pnpm-pruned production dependencies beside private Node, not as a bundle. Release builds use frozen lockfiles, reviewed lifecycle scripts, official Node checksum verification, signed immutable resources, an integrity manifest, canonical launch paths, and a sanitized Host environment.
+- Local Host startup uses a protected one-time bootstrap secret; Electron main alone holds Host-lifetime supervisor authority, while renderer/Client Runtime receives only short-lived scoped client capabilities.
+- Desktop restarts unexpected Local Host crashes with bounded backoff, fresh bootstrap, and worktree reconciliation, but never automatically replays ambiguous turns or external side effects.
+- Test Host behavior headlessly through real HTTP/SSE, SQLite, and Git. Use a contract-compatible mock Host for broad Electron UI/navigation/screenshot E2E, with narrow real-Host Electron and packaged-runtime suites for boundary validation.
+- Electron main owns native app lifecycle, windows, secure preload APIs, updates, and Local Host process management; it does not own Project Session execution.
+- React renderer owns UI only and must not receive raw Node.js, filesystem, process, database, or credential access.
+- Host protocol contracts use Effect Schema and must remain serializable and independent of Electron, React, Pi SDK types, and persistence implementations.
+- The Project Session domain is event-sourced in the Local Host's SQLite database using Effect `4.0.0-rc.109` `@effect/sql-sqlite-node` over private Node `22.23.1`'s built-in `node:sqlite`; relational projections are rebuildable and Pi transcripts remain private adapter data.
+- One initial Project Session owns one Pi conversation and one authenticated managed Git worktree/branch created from the registered checkout's committed current `HEAD`; missing or inconsistent identity must fail closed.
+- Effect `4.0.0-rc.109` is used across Host Contracts, Workspace Host, Pi Adapter, and Client Runtime. Effect HttpApi, Node HTTP Server, HTTP Client, and typed SSE implement the Host Protocol behind adapters; generated OpenAPI is derived. React and generic UI components remain Effect-free.
+- Pi owns Host-global LLM authentication in private Workspace Host application data; secrets must not enter SQLite, Session events, transcripts, worktrees, logs, URLs, or persistent renderer state.
 
 ## Working Rules
 
