@@ -1,0 +1,66 @@
+---
+title: Prompt Flow
+description: How a user prompt moves from Desktop to Pi and back.
+---
+
+# Prompt Flow
+
+This page explains the current narrow prompt path. It is intentionally simpler than the future agent workspace.
+
+## Current path
+
+```txt
+Desktop renderer
+  -> Client Runtime Project Session client
+  -> Host Protocol HTTP command
+  -> Workspace Host Project Session service
+  -> managed worktree authentication
+  -> Pi Adapter conversation runner
+  -> Pi SDK turn
+  -> Workspace Host SQLite events/messages
+  -> HTTP response to renderer
+```
+
+## Step by step
+
+1. The user opens a Project Session in the Desktop renderer.
+2. The renderer creates a browser-safe Project Session client from `packages/client-runtime`.
+3. The client asks preload for a fresh Local Host connection descriptor when needed.
+4. The prompt is sent to `POST /v1/project-sessions/:sessionId/prompts` with a client capability.
+5. Workspace Host validates capability scope and renderer origin.
+6. Workspace Host replays or rejects the command receipt by command id.
+7. Workspace Host authenticates the Project and managed worktree identity.
+8. Workspace Host appends the user prompt event/message to SQLite.
+9. Workspace Host calls the Pi Adapter with:
+   - stable Session identity;
+   - Pi conversation id;
+   - previous turn history;
+   - canonical managed worktree path;
+   - currently enabled tools: `read`, `write`, `edit`.
+10. Pi Adapter runs the Pi turn with tools bounded to the managed worktree.
+11. Workspace Host records either assistant output or a turn failure.
+12. The renderer receives the submitted prompt result and updates the visible chat.
+
+## What is durable today
+
+- command receipts;
+- Project Session events;
+- user and assistant messages;
+- one Pi conversation context id per Project Session;
+- managed worktree identity fields.
+
+## Important limitation
+
+The renderer currently updates chat from the prompt response and initial message load. The Client Runtime already has a Project Session SSE subscription, but the visible chat is not yet driven by live event projection.
+
+## Deferred future behavior
+
+Later prompt flow needs to include:
+
+- streaming assistant output;
+- Workspace Tool calls;
+- approval requests and decisions;
+- interruption/cancellation;
+- changed-file and diff events;
+- commit/push/PR workflow events;
+- richer client-side projections from durable event cursors.
