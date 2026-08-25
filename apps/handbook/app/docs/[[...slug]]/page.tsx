@@ -7,6 +7,7 @@ import {
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { source } from "../../../lib/source";
+import { getMDXComponents } from "../../../mdx-components";
 
 interface PageProps {
   readonly params: Promise<{ readonly slug?: string[] }>;
@@ -40,7 +41,7 @@ export default async function Page({ params }: PageProps) {
         <DocsDescription>{page.data.description}</DocsDescription>
       ) : null}
       <DocsBody>
-        <MDXContent />
+        <MDXContent components={getMDXComponents()} />
       </DocsBody>
     </DocsPage>
   );

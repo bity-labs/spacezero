@@ -1,36 +1,37 @@
 ---
-title: Handbook Home
-description: A private, human-readable memory for the Space Zero build.
+title: Introduction
+description: What Space Zero is and what this handbook is for.
 ---
 
-# Space Zero Handbook
+# Introduction
 
-This handbook is the private product-owner memory for the Space Zero build.
+Space Zero is a local-first desktop workspace for software builders who use AI agents to plan, code, review, and ship software.
 
-Use it to answer questions like:
+The current product foundation separates the polished Electron desktop client from a headless Workspace Host. The Desktop owns native app behavior and user interface. The Workspace Host owns Projects, Project Sessions, durable state, Git worktrees, and Pi-powered agent execution.
 
-- What did we decide?
-- What exists today?
-- What is still deferred?
-- Which part of the monorepo owns a behavior?
-- What should we update when a build slice lands?
+## What this handbook should explain
 
-## Source of truth
+This handbook is the human-oriented map of the Space Zero codebase:
 
-Normative architecture, coding, and decision rules still live in the repository `docs/` folder.
+- what each app and package is responsible for;
+- what has been built so far;
+- which technologies are used in each workspace; and
+- how the major runtime pieces communicate.
 
-The handbook should explain those decisions in practical language, link back to durable docs, and stay updated as we build. It must not redefine rules differently from `docs/`.
+The normative rules still live in repository `docs/`, ADRs, and GitHub issues. The handbook should summarize those decisions clearly, not redefine them.
 
-## Current build phase
+## Current product foundation
 
-Space Zero is in the v0.1 foundation phase: a separate Workspace Host, typed Host Protocol, managed Project Sessions, Pi Adapter, and a minimal Desktop shell are in place. The product UI and task-to-ship workflow are still thin.
+Space Zero v0.1 currently focuses on the secure local foundation:
+
+- an Electron Desktop shell with a React renderer;
+- a separate Workspace Host process managed by Desktop;
+- authenticated HTTP/JSON commands and SSE events between client and Host;
+- a Host-owned Project catalog and Project Session state in SQLite;
+- managed Git worktrees for Project Sessions; and
+- Pi integration behind a Host-side adapter boundary.
 
 ## Start here
 
-- [Current Foundation](/docs/current-foundation) — what exists and what is missing.
-- [Architecture Overview](/docs/architecture-overview) — the system shape in one page.
-- [Monorepo Map](/docs/monorepo-map) — what each workspace owns.
-- [Local Host Startup](/docs/local-host-startup) — how Desktop starts and authenticates with the Host.
-- [Project Session Lifecycle](/docs/project-session-lifecycle) — how Sessions are created and protected.
-- [Prompt Flow](/docs/prompt-flow) — how a prompt moves through the current stack.
-- [Validation and Known Issues](/docs/validation-known-issues) — checks, expected failures, and operational notes.
+- [Monorepo Structure](/docs/monorepo-map) — every app and package, with responsibility, current state, and tech stack.
+- [Project Architecture](/docs/architecture-overview) — how Desktop, Client Runtime, Host, SQLite, Git, and Pi communicate.
