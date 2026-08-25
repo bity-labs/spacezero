@@ -90,6 +90,10 @@ Deferring extra packages and build orchestrators keeps the first vertical slice 
 
 ## Consequences
 
+### 2026-08 UI package activation
+
+`packages/ui` is now active for a concrete UI-system slice. It owns browser-safe React shadcn-compatible primitives, official Space Zero theme tokens from preset `b7BYR9Xec`, and package-local Storybook visual contracts. It remains runtime-free: no Electron, preload, Client Runtime, Host Contracts, Effect, Pi, SQLite, Node filesystem/process APIs, application source, or product runtime state.
+
 - The archived v0 `src/main`, `src/preload`, `src/renderer`, and `src/features` layout is not used as the v0.1 repository root architecture.
 - Desktop may organize its own Electron main/preload/renderer code internally, but it cannot become the owner of Host behavior.
 - Workspace Host owns its own composition root and infrastructure adapters.

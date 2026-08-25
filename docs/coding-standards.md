@@ -62,13 +62,14 @@ packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
   client-runtime/   Browser-safe Host client and in-memory projections
   pi-adapter/       Host-side Effect boundary around Pi
+  ui/               Browser-safe React UI primitives, theme tokens, and Storybook
 
 docs/               TStack docs, ADRs, and engineering doctrine
 .agents/             TStack skills and prompts
 scripts/             Repository and release helpers
 ```
 
-`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains an inactive placeholder until a concrete delivery slice needs it. Do not add speculative packages or empty architecture folders.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` is active as the browser-safe React UI package for domain-free shadcn-compatible primitives, theme tokens, and Storybook visual contracts. Do not add speculative packages or empty architecture folders.
 
 Follow `docs/feature-architecture.md` for internal feature placement, naming, and import direction.
 
@@ -257,7 +258,7 @@ The Local Host owns one private SQLite database under operating-system applicati
 ## React and UI Conventions
 
 - Use React and TypeScript for renderer UI.
-- Use Tailwind CSS utilities and shadcn/ui-compatible primitives.
+- Use Tailwind CSS utilities and shadcn/ui-compatible primitives from `@spacezero/ui` when a generic primitive or shared visual contract exists there.
 - Keep design-system primitives domain-free.
 - Keep presentational views independent from Client Runtime, preload, routing, and app-global side effects where practical; connect them through containers/hooks.
 - Prefer accessible controls and labels for icon-only actions.

@@ -42,7 +42,16 @@ function walk(dir, files = []) {
   if (!existsSync(dir)) return files;
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (["node_modules", "dist", "out", "coverage", ".next"].includes(entry))
+    if (
+      [
+        "node_modules",
+        "dist",
+        "out",
+        "coverage",
+        ".next",
+        "storybook-static",
+      ].includes(entry)
+    )
       continue;
     const st = statSync(path);
     if (st.isDirectory()) walk(path, files);
@@ -121,7 +130,17 @@ function checkManifest(name, meta) {
         errors.push(
           `${manifestPath}: undeclared/forbidden workspace dependency ${dep}`,
         );
-      if (meta.browserSafe && isForbiddenBrowserSafeDependency(dep))
+      const uiReactPeerOrDevDependency =
+        name === "@spacezero/ui" &&
+        ["react", "react-dom", "@types/react", "@types/react-dom"].includes(
+          dep,
+        ) &&
+        (field === "peerDependencies" || field === "devDependencies");
+      if (
+        meta.browserSafe &&
+        isForbiddenBrowserSafeDependency(dep) &&
+        !uiReactPeerOrDevDependency
+      )
         errors.push(
           `${manifestPath}: browser-safe dependency ${dep} is forbidden`,
         );
@@ -270,6 +289,14 @@ function checkImports() {
         const packageName = packageNameForSpecifier(spec) ?? spec;
         if (!meta.allowed.includes(packageName) && packageName !== name)
           errors.push(`${rel}: ${name} may not import ${packageName}`);
+        if (
+          name === "@spacezero/desktop" &&
+          packageName === "@spacezero/ui" &&
+          desktopSurfaceForPath(file) !== "renderer"
+        )
+          errors.push(
+            `${rel}: @spacezero/ui may only be imported by Desktop renderer`,
+          );
       }
       const packageName = packageNameForSpecifier(spec);
       if (

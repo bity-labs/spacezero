@@ -23,6 +23,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/out/**",
       "**/.next/**",
+      "apps/handbook/.source/**",
       "node_modules/**",
       ".pi-subagents/**",
       ".agent-runs/**",
@@ -51,6 +52,7 @@ export default tseslint.config(
       "apps/handbook/**/*.{ts,tsx}",
       "packages/host-contracts/src/**/*.ts",
       "packages/client-runtime/src/**/*.ts",
+      "packages/ui/src/**/*.{ts,tsx}",
     ],
     languageOptions: { globals: { ...globals.browser } },
     rules: {
@@ -89,6 +91,7 @@ export default tseslint.config(
     files: [
       "apps/desktop/src/renderer/**/*.{tsx,ts}",
       "apps/handbook/**/*.{tsx,ts}",
+      "packages/ui/src/**/*.{tsx,ts}",
     ],
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {

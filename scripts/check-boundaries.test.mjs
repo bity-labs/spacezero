@@ -17,6 +17,7 @@ function makeRepo(mutator) {
     "packages/host-contracts",
     "packages/client-runtime",
     "packages/pi-adapter",
+    "packages/ui",
   ])
     mkdirSync(join(dir, path), { recursive: true });
   cpSync(
@@ -69,6 +70,18 @@ function makeRepo(mutator) {
       name: "@spacezero/pi-adapter",
       type: "module",
       exports: {},
+    },
+    "packages/ui/package.json": {
+      name: "@spacezero/ui",
+      type: "module",
+      exports: {},
+      peerDependencies: { react: "19.2.8", "react-dom": "19.2.8" },
+      devDependencies: {
+        react: "19.2.8",
+        "react-dom": "19.2.8",
+        "@types/react": "19.2.18",
+        "@types/react-dom": "19.2.4",
+      },
     },
   };
   for (const [path, data] of Object.entries(manifests))
@@ -127,15 +140,9 @@ test("rejects deep src imports", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /deep source/);
 });
-test("rejects inactive ui package activation", () => {
-  const result = run(
-    makeRepo((dir) => {
-      mkdirSync(join(dir, "packages/ui"), { recursive: true });
-      writeFileSync(join(dir, "packages/ui/package.json"), "{}");
-    }),
-  );
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /inactive/);
+test("allows react peer and dev dependencies for the active ui package", () => {
+  const result = run(makeRepo());
+  assert.equal(result.status, 0, result.stderr);
 });
 test("rejects version ranges", () => {
   const result = run(
@@ -252,6 +259,49 @@ test("rejects Desktop renderer to preload relative imports", () => {
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /process surface/);
+});
+
+test("rejects Desktop main imports of ui package", () => {
+  const result = run(
+    makeRepo((dir) => {
+      writeJson(dir, "apps/desktop/package.json", {
+        name: "@spacezero/desktop",
+        type: "module",
+        dependencies: {
+          "@spacezero/client-runtime": "workspace:*",
+          "@spacezero/ui": "workspace:*",
+        },
+      });
+      mkdirSync(join(dir, "apps/desktop/src/main"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/desktop/src/main/x.ts"),
+        'import "@spacezero/ui";',
+      );
+    }),
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /Desktop renderer/);
+});
+
+test("allows Desktop renderer imports of ui package", () => {
+  const result = run(
+    makeRepo((dir) => {
+      writeJson(dir, "apps/desktop/package.json", {
+        name: "@spacezero/desktop",
+        type: "module",
+        dependencies: {
+          "@spacezero/client-runtime": "workspace:*",
+          "@spacezero/ui": "workspace:*",
+        },
+      });
+      mkdirSync(join(dir, "apps/desktop/src/renderer"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/desktop/src/renderer/x.ts"),
+        'import "@spacezero/ui";',
+      );
+    }),
+  );
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test("rejects Desktop renderer to main relative imports", () => {

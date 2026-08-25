@@ -32,9 +32,10 @@ packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
   client-runtime/   Browser-safe Host client and in-memory projections
   pi-adapter/       Host-side Effect boundary around Pi
+  ui/               Browser-safe React UI primitives, theme tokens, and Storybook
 ```
 
-`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains inactive until a concrete slice needs it. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` is active as the browser-safe React UI package for domain-free shadcn-compatible primitives, theme tokens, and Storybook visual contracts. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
 
 ## Dependency Graph
 
@@ -42,6 +43,7 @@ packages/
 apps/desktop
   -> packages/client-runtime
   -> packages/host-contracts
+  -> packages/ui
 
 apps/workspace-host
   -> packages/host-contracts
@@ -192,6 +194,17 @@ packages/client-runtime/src/
 
 Unstable Effect HTTP types remain internal. Public package exports intended for UI use expose plain values, explicit states, subscriptions, and callbacks.
 
+### `packages/ui`
+
+UI owns domain-free browser-safe React presentation code:
+
+- shadcn-compatible primitives such as `Button`, `Input`, and `Dialog`;
+- the canonical Space Zero Tailwind CSS v4 theme tokens from the approved shadcn preset;
+- shared composed visual components when reuse is demonstrated; and
+- high-fidelity mock screens used as visual contracts for agents and product iteration.
+
+UI may depend on React as peer/dev tooling and ordinary browser-safe UI libraries. It must not depend on Electron, preload APIs, Client Runtime, Host Contracts, Effect, Pi, SQLite, Node filesystem/process APIs, application source, or product runtime state.
+
 ### `packages/pi-adapter`
 
 Pi Adapter owns all Pi implementation detail:
@@ -258,6 +271,8 @@ components/ui/
 ```
 
 Examples: `button.tsx`, `card.tsx`, `input.tsx`, `dialog.tsx`, `tabs.tsx`.
+
+New shared primitives live in `packages/ui/src/components/ui/` and are consumed through `@spacezero/ui` once the Desktop renderer needs them. Desktop-local primitives may remain under the renderer until they are migrated or generalized.
 
 Primitives are domain-free and Effect-free. They do not know about Projects, Sessions, agents, GitHub, Host connections, Client Runtime, preload, routing, or persistence.
 
@@ -365,6 +380,7 @@ Use names that describe the behavior hidden by the file. Do not use `.shared.ts`
 
 ```text
 apps/desktop renderer       -> packages/client-runtime public exports
+apps/desktop renderer       -> packages/ui public exports for shared primitives and visual components
 apps/desktop                -> packages/host-contracts public exports when genuinely needed
 apps/workspace-host         -> packages/host-contracts public exports
 apps/workspace-host         -> packages/pi-adapter public exports

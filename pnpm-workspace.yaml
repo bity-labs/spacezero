@@ -5,3 +5,4 @@ packages:
   - packages/host-contracts
   - packages/client-runtime
   - packages/pi-adapter
+  - packages/ui

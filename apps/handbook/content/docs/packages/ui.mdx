@@ -1,20 +1,54 @@
 ---
 title: UI
-description: Reserved shared UI package.
+description: Browser-safe React UI package, theme tokens, and Storybook workbench.
 ---
 
 # UI
 
-`packages/ui`
+`packages/ui` publishes the private workspace package `@spacezero/ui`.
 
 ## What it is
 
-Reserved shared UI package.
+The browser-safe React UI package for Space Zero's shared visual system.
+
+It owns domain-free shadcn-compatible primitives, official theme tokens, package-local Storybook, and future high-fidelity mock screens that help humans and agents agree on visual contracts before app wiring begins.
 
 ## What it does today
 
-Currently an inactive placeholder. It should become active only when a concrete delivery slice needs shared, domain-free UI across applications.
+- Activates `@spacezero/ui` as a source-exported pnpm workspace package.
+- Exports `Button`, `Input`, and `Dialog` primitives.
+- Exports `@spacezero/ui/styles.css` with the official Space Zero theme baseline.
+- Uses approved shadcn preset `b7BYR9Xec`: `vega` style, `mist` theme/base/chart colors, Inter font, Phosphor icons, and medium radius.
+- Provides package-local Storybook stories for the initial primitives.
+- Provides a Storybook guardrail check that rejects runtime bridge references and non-standard story title groups.
 
 ## Tech stack usage
 
-No active package build yet. Future usage should remain React/TypeScript, domain-free, and Effect-free.
+React `19`, TypeScript `6`, Tailwind CSS `4`, shadcn-compatible components, Radix primitives through `radix-ui`, Phosphor icons, Inter variable font, Vite, Vitest, and Storybook `10`.
+
+## Import contract
+
+Use public exports only:
+
+```ts
+import { Button, Dialog, Input } from "@spacezero/ui";
+import "@spacezero/ui/styles.css";
+```
+
+The package is private and source-exported. Vite/Tailwind consumers compile its `src` files and `styles.css` Tailwind v4 entrypoint directly. There is no library bundle, precompiled CSS, or `dist` output yet.
+
+## Boundaries
+
+`@spacezero/ui` is runtime-free. It must not import Electron, preload APIs, Client Runtime, Host Contracts, Effect, Pi, SQLite, Node filesystem/process APIs, application source, or product runtime state.
+
+Screens in this package are visual contracts and high-fidelity mockups. App-connected Desktop screens still belong in `apps/desktop` when they require routing, Client Runtime, preload, stores, or side effects.
+
+## Commands
+
+```bash
+pnpm storybook
+pnpm storybook:check
+pnpm storybook:build
+pnpm --filter @spacezero/ui typecheck
+pnpm --filter @spacezero/ui test
+```

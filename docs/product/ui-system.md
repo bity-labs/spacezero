@@ -14,25 +14,26 @@ drift.
 Use this document with:
 
 - `docs/product/workspace-surfaces.md`
-- `apps/desktop/src/renderer/components/ui/`
-- `apps/desktop/src/renderer/features/settings/components/`
-- the co-located Storybook stories available through `pnpm storybook`
+- `packages/ui/src/components/ui/`
+- future Desktop renderer feature components that consume `@spacezero/ui`
+- the package-local Storybook stories available through `pnpm storybook`
 
 ## Locked Defaults
 
 - Default app theme: **Dark**.
-- Default font: **System font**.
+- Default font: **Inter variable** from the official shadcn preset.
 - Thin font anti-aliasing is **on by default**.
 - Appearance settings are real product settings, not only workbench previews:
   - Theme: System, Light, Dark, Dark high contrast
-  - Font: System font plus the available app font options
+  - Font: Inter plus any available app font options introduced later
   - Font anti-aliasing: thin/browser-style rendering toggle
 - `System` theme follows the OS color scheme. If the OS resolves dark, Space
   Zero uses regular `Dark`, not `Dark high contrast`.
 - Dark high contrast is an explicit preference only.
 
-Storybook is the local workbench for previewing primitives, typography, and
-component patterns before broader rollout.
+`packages/ui/src/styles.css` is the canonical theme source. It uses the approved shadcn preset `b7BYR9Xec` (`vega` style, `mist` theme/base/chart colors, Inter font, Phosphor icons, medium radius) as Space Zero's official theme baseline.
+
+Storybook is the local workbench for previewing primitives, typography, mock screens, and component patterns before broader rollout.
 
 ## Visual Direction
 
@@ -168,11 +169,13 @@ app a consistent dense workbench feel.
 
 ## Primitive Usage Rules
 
-Generic primitives live in:
+Generic shared primitives live in:
 
 ```txt
-apps/desktop/src/renderer/components/ui/
+packages/ui/src/components/ui/
 ```
+
+Consumers import them from `@spacezero/ui`.
 
 They should remain domain-free. They must not know about projects, agents,
 GitHub, sessions, SQLite, IPC, or Space Zero workflows.
@@ -193,13 +196,9 @@ Examples:
 
 ## Typography Components
 
-Typography primitives live in:
+Typography primitives will live in `packages/ui` once introduced.
 
-```txt
-apps/desktop/src/renderer/components/ui/typography.tsx
-```
-
-Use these instead of ad hoc text classes when creating product UI.
+Use shared typography primitives instead of ad hoc text classes when creating product UI.
 
 ### `Heading`
 
@@ -416,11 +415,7 @@ Rule:
 
 ### Empty State
 
-Use `EmptyState` from:
-
-```txt
-apps/desktop/src/renderer/components/ui/empty.tsx
-```
+Use a shared `EmptyState` from `@spacezero/ui` once introduced.
 
 Should include:
 
@@ -467,7 +462,7 @@ terminal, diff, and orchestration surfaces.
 
 When building UI:
 
-- Use existing primitives from `apps/desktop/src/renderer/components/ui`.
+- Use existing primitives from `@spacezero/ui`.
 - Use composed settings components for Settings pages.
 - Use typography primitives instead of ad hoc text classes.
 - Keep generic primitives domain-free.

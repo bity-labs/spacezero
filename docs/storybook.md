@@ -1,8 +1,8 @@
 # Local Storybook Workflow
 
-Storybook is Space Zero's local workbench for UI prototypes and visual contracts. It renders real renderer components without launching Electron.
+Storybook is Space Zero's local workbench for UI prototypes and visual contracts. It is owned by `packages/ui` and renders browser-safe UI primitives, reusable visual components, and high-fidelity mock screens without launching Electron.
 
-Use the global toolbar to review any story with the real Space Zero light, dark, or dark-high-contrast theme tokens and any supported app font. Storybook defaults to the product's dark theme and system font; toolbar choices apply to the preview document without reading or persisting desktop appearance settings.
+Use the global toolbar to review any story with the real Space Zero light, dark, or dark-high-contrast theme tokens. Storybook defaults to the product's dark theme and Inter font from the official shadcn preset; toolbar choices apply to the preview document without reading or persisting desktop appearance settings.
 
 ## Run Storybook locally
 
@@ -12,7 +12,7 @@ Install dependencies, then start the local workbench:
 pnpm storybook
 ```
 
-Use the local story browser to find a story by its title and exported story name. Storybook is local-only; tickets should reference story names and the command above rather than a hosted URL.
+Use the local story browser to find a story by its title and exported story name. The root command delegates to `pnpm --filter @spacezero/ui storybook`. Storybook is local-only; tickets should reference story names and the command above rather than a hosted URL.
 
 Before submitting Storybook work, run:
 
@@ -21,17 +21,17 @@ pnpm storybook:check
 pnpm storybook:build
 ```
 
-`storybook:build` runs the guardrail check before producing the static build.
+`storybook:build` runs the package-local guardrail check before producing the static build under `packages/ui/storybook-static`.
 
 ## Use real pure views
 
-Stories must import real components from application source. Do not copy UI into a story or a separate Storybook-only component tree.
+Stories must import real components from `@spacezero/ui` source exports. Do not copy UI into a story or a separate Storybook-only component tree.
 
 Follow `docs/feature-architecture.md` when a renderer surface needs application behavior:
 
-- a container, page, or hook owns Client Runtime/preload access, routing, stores, subscriptions, commands, and other side effects;
+- app-connected containers, pages, or hooks that own Client Runtime/preload access, routing, stores, subscriptions, commands, and other side effects stay outside Storybook;
 - a pure `*-screen.tsx` or `*-view.tsx` receives visual state through props and emits user intent through callbacks;
-- the story renders the pure screen or view with fixture props.
+- `packages/ui` may hold high-fidelity mock screens for agent/product iteration when they are runtime-free visual contracts.
 
 A component that is already small and pure does not need a new wrapper or container solely for Storybook.
 
@@ -40,8 +40,7 @@ A component that is already small and pure does not need a new wrapper or contai
 Keep stories, fixtures, and their application component together:
 
 ```txt
-apps/desktop/src/renderer/features/projects/screens/
-├── project-home-container.tsx
+packages/ui/src/screens/project-home/
 ├── project-home-screen.tsx
 ├── project-home-screen.fixtures.ts
 └── project-home-screen.stories.tsx

@@ -17,7 +17,7 @@ packages/
   host-contracts/   Browser-safe Host Protocol contracts
   client-runtime/   Browser-safe Host client runtime
   pi-adapter/       Host-side Pi integration boundary
-  ui/               Inactive shared UI placeholder
+  ui/               Browser-safe React UI primitives, theme tokens, and Storybook
 ```
 
 ## Applications
@@ -136,15 +136,15 @@ TypeScript, Effect `4.0.0-rc.109`, `@earendil-works/pi-agent-core`, `@earendil-w
 
 #### What it is
 
-Reserved shared UI package.
+The browser-safe React UI package for Space Zero's shared visual system.
 
 #### What it does today
 
-Currently an inactive placeholder. It should become active only when a concrete delivery slice needs shared, domain-free UI across applications.
+Exports shadcn-compatible `Button`, `Input`, and `Dialog` primitives, official Space Zero theme tokens from preset `b7BYR9Xec`, and package-local Storybook stories for visual contracts and future high-fidelity mock screens.
 
 #### Tech stack usage
 
-No active package build yet. Future usage should remain React/TypeScript, domain-free, and Effect-free.
+React `19`, TypeScript `6`, Tailwind CSS `4`, shadcn-compatible components, Radix primitives through `radix-ui`, Phosphor icons, Inter variable font, Vite, Vitest, and Storybook `10`.
 
 ## Dependency direction
 
@@ -152,6 +152,7 @@ No active package build yet. Future usage should remain React/TypeScript, domain
 apps/desktop
   -> packages/client-runtime
   -> packages/host-contracts
+  -> packages/ui
 
 apps/workspace-host
   -> packages/host-contracts
