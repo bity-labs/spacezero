@@ -23,6 +23,8 @@ export interface ProjectRow {
   readonly root_file_id: string;
   readonly common_dir_device_id: string;
   readonly common_dir_file_id: string;
+  readonly objects_dir_device_id: string | null;
+  readonly objects_dir_file_id: string | null;
   readonly registered_head_commit: string;
   readonly created_at: string;
 }
@@ -96,6 +98,7 @@ WHERE canonical_root_path = ${repo.canonicalRootPath}
    OR (root_device_id = ${repo.rootDeviceId} AND root_file_id = ${repo.rootFileId})
    OR canonical_git_common_dir_path = ${repo.canonicalGitCommonDirPath}
    OR (common_dir_device_id = ${repo.commonDirDeviceId} AND common_dir_file_id = ${repo.commonDirFileId})
+   OR (objects_dir_device_id = ${repo.objectsDirDeviceId} AND objects_dir_file_id = ${repo.objectsDirFileId})
 ORDER BY created_at ASC, project_id ASC
 LIMIT 1`;
 
@@ -110,7 +113,9 @@ const ensureRepositoryIdentityMatches = (
     row.root_device_id !== repo.rootDeviceId ||
     row.root_file_id !== repo.rootFileId ||
     row.common_dir_device_id !== repo.commonDirDeviceId ||
-    row.common_dir_file_id !== repo.commonDirFileId
+    row.common_dir_file_id !== repo.commonDirFileId ||
+    row.objects_dir_device_id !== repo.objectsDirDeviceId ||
+    row.objects_dir_file_id !== repo.objectsDirFileId
   )
     throw new ProjectRepositoryError("repository_identity_mismatch");
 };
@@ -121,6 +126,7 @@ export const createProjectsRepository = (databasePath: string) => ({
   register: async (
     input: RegisterProjectRequest,
     repo: InspectedRepository,
+    validateExisting?: (row: ProjectRow) => Promise<void>,
   ): Promise<RegisterProjectResult> => {
     const fp = fingerprint(input);
     return runSql(
@@ -146,6 +152,8 @@ export const createProjectsRepository = (databasePath: string) => ({
             const existing = yield* findExisting(sql, repo);
             if (existing[0]) {
               ensureRepositoryIdentityMatches(existing[0], repo);
+              if (validateExisting)
+                yield* Effect.promise(() => validateExisting(existing[0]!));
               yield* sql`INSERT INTO project_registration_receipts (command_id, request_fingerprint, project_id, outcome, created_at) VALUES (${input.commandId}, ${fp}, ${existing[0].project_id}, 'existing', ${new Date().toISOString()})`;
               return {
                 outcome: "existing" as const,
@@ -156,12 +164,14 @@ export const createProjectsRepository = (databasePath: string) => ({
             const id = randomUUID();
             const createdAt = new Date().toISOString();
             try {
-              yield* sql`INSERT INTO projects (project_id, display_name, canonical_root_path, canonical_git_dir_path, canonical_git_common_dir_path, root_device_id, root_file_id, common_dir_device_id, common_dir_file_id, registered_head_commit, created_at) VALUES (${id}, ${repo.displayName}, ${repo.canonicalRootPath}, ${repo.canonicalGitDirPath}, ${repo.canonicalGitCommonDirPath}, ${repo.rootDeviceId}, ${repo.rootFileId}, ${repo.commonDirDeviceId}, ${repo.commonDirFileId}, ${repo.headCommit}, ${createdAt})`;
+              yield* sql`INSERT INTO projects (project_id, display_name, canonical_root_path, canonical_git_dir_path, canonical_git_common_dir_path, root_device_id, root_file_id, common_dir_device_id, common_dir_file_id, objects_dir_device_id, objects_dir_file_id, registered_head_commit, created_at) VALUES (${id}, ${repo.displayName}, ${repo.canonicalRootPath}, ${repo.canonicalGitDirPath}, ${repo.canonicalGitCommonDirPath}, ${repo.rootDeviceId}, ${repo.rootFileId}, ${repo.commonDirDeviceId}, ${repo.commonDirFileId}, ${repo.objectsDirDeviceId}, ${repo.objectsDirFileId}, ${repo.headCommit}, ${createdAt})`;
             } catch {
               const winner = yield* findExisting(sql, repo);
               if (!winner[0])
                 throw new ProjectRepositoryError("project_catalog_unavailable");
               ensureRepositoryIdentityMatches(winner[0], repo);
+              if (validateExisting)
+                yield* Effect.promise(() => validateExisting(winner[0]!));
               yield* sql`INSERT INTO project_registration_receipts (command_id, request_fingerprint, project_id, outcome, created_at) VALUES (${input.commandId}, ${fp}, ${winner[0].project_id}, 'existing', ${createdAt})`;
               return {
                 outcome: "existing" as const,

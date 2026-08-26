@@ -23,6 +23,20 @@ const noCommit = (): never => {
 const git = (cwd: string, args: readonly string[], signal?: AbortSignal) =>
   runGit({ cwd, args, signal });
 
+export const isCommitReachableFromHead = async (
+  cwd: string,
+  commit: string,
+  signal?: AbortSignal,
+): Promise<boolean> => {
+  try {
+    await git(cwd, ["merge-base", "--is-ancestor", commit, "HEAD"], signal);
+    return true;
+  } catch (error) {
+    if ((error as { name?: string }).name === "AbortError") throw error;
+    return false;
+  }
+};
+
 const fileIdentity = async (path: string) => {
   const value = await stat(path, { bigint: true });
   return {
@@ -59,6 +73,7 @@ export const inspectGitRepository = async (
   let canonicalRootPath = "";
   let canonicalGitDirPath = "";
   let canonicalGitCommonDirPath = "";
+  let canonicalGitObjectsDirPath = "";
   try {
     canonicalRootPath = await realpath(
       await git(selectedRealPath, ["rev-parse", "--show-toplevel"], signal),
@@ -70,6 +85,13 @@ export const inspectGitRepository = async (
       await git(
         selectedRealPath,
         ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        signal,
+      ),
+    );
+    canonicalGitObjectsDirPath = await realpath(
+      await git(
+        selectedRealPath,
+        ["rev-parse", "--path-format=absolute", "--git-path", "objects"],
         signal,
       ),
     );
@@ -95,7 +117,9 @@ export const inspectGitRepository = async (
 
   const root = await fileIdentity(canonicalRootPath);
   const common = await fileIdentity(canonicalGitCommonDirPath);
-  if (!root.isDirectory || !common.isDirectory) invalidPath();
+  const objects = await fileIdentity(canonicalGitObjectsDirPath);
+  if (!root.isDirectory || !common.isDirectory || !objects.isDirectory)
+    invalidPath();
 
   return {
     canonicalRootPath,
@@ -105,6 +129,8 @@ export const inspectGitRepository = async (
     rootFileId: root.fileId,
     commonDirDeviceId: common.deviceId,
     commonDirFileId: common.fileId,
+    objectsDirDeviceId: objects.deviceId,
+    objectsDirFileId: objects.fileId,
     headCommit,
     displayName: basename(canonicalRootPath) || canonicalRootPath,
   };

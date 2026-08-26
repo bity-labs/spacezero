@@ -2,6 +2,7 @@ import type { RegisterProjectRequest } from "@spacezero/host-contracts";
 import { runGit } from "../../runtime/git-process.adapter.js";
 import {
   inspectGitRepository,
+  isCommitReachableFromHead,
   ProjectInspectionError,
 } from "./projects.git.adapter.js";
 import {
@@ -45,6 +46,14 @@ const sourceBranch = async (cwd: string): Promise<string | null> => {
     return null;
   }
 };
+const assertRegisteredCommitReachable = async (
+  cwd: string,
+  registeredHeadCommit: string,
+): Promise<void> => {
+  if (!(await isCommitReachableFromHead(cwd, registeredHeadCommit)))
+    throw new ProjectRepositoryError("repository_identity_mismatch");
+};
+
 const isDirty = async (cwd: string): Promise<boolean> => {
   try {
     return (
@@ -66,7 +75,12 @@ export const createProjectCatalog = (databasePath: string): ProjectCatalog => {
         const replay = await repository.replayRegistration(input);
         if (replay) return replay;
         const inspected = await inspectGitRepository(input.path, signal);
-        return await repository.register(input, inspected);
+        return await repository.register(input, inspected, (existing) =>
+          assertRegisteredCommitReachable(
+            inspected.canonicalRootPath,
+            existing.registered_head_commit,
+          ),
+        );
       } catch (error) {
         throw mapError(error);
       }
@@ -99,9 +113,15 @@ export const createProjectAuthority = (databasePath: string) => {
           row.root_device_id !== inspected.rootDeviceId ||
           row.root_file_id !== inspected.rootFileId ||
           row.common_dir_device_id !== inspected.commonDirDeviceId ||
-          row.common_dir_file_id !== inspected.commonDirFileId
+          row.common_dir_file_id !== inspected.commonDirFileId ||
+          row.objects_dir_device_id !== inspected.objectsDirDeviceId ||
+          row.objects_dir_file_id !== inspected.objectsDirFileId
         )
           throw new ProjectServiceError("repository_identity_mismatch");
+        await assertRegisteredCommitReachable(
+          inspected.canonicalRootPath,
+          row.registered_head_commit,
+        );
         const branch = await sourceBranch(inspected.canonicalRootPath);
         return {
           ...inspected,

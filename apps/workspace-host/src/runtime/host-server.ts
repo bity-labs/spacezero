@@ -581,6 +581,19 @@ export const startHostServer = async (options: {
     throw new Error("listen failed");
   }
   const endpoint = `http://127.0.0.1:${address.port}/`;
+  const closeHttpServer = async (): Promise<void> => {
+    server.closeIdleConnections();
+    server.closeAllConnections();
+    if (server.listening) {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+    server.unref();
+  };
   state.cap = createCapabilityService({
     endpoint,
     instanceId: id,
@@ -594,7 +607,7 @@ export const startHostServer = async (options: {
       .then(() =>
         Effect.runPromiseExit(Scope.close(scope, Exit.succeed(undefined))),
       )
-      .then(() => undefined);
+      .then(() => closeHttpServer());
     await stopPromise;
   };
   return { server, endpoint, instanceId: id, capabilities: state.cap, stop };
