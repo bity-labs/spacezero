@@ -17,6 +17,7 @@ function makeRepo(mutator) {
     "packages/host-contracts",
     "packages/client-runtime",
     "packages/pi-adapter",
+    "packages/ui",
   ])
     mkdirSync(join(dir, path), { recursive: true });
   cpSync(
@@ -35,6 +36,7 @@ function makeRepo(mutator) {
         "@playwright/test": "1.62.1",
         typescript: "6.0.3",
         vitest: "4.1.10",
+        react: "19.2.8",
       },
     }),
   );
@@ -69,6 +71,16 @@ function makeRepo(mutator) {
       name: "@spacezero/pi-adapter",
       type: "module",
       exports: {},
+    },
+    "packages/ui/package.json": {
+      name: "@spacezero/ui",
+      type: "module",
+      exports: {
+        "./components/*": "./src/components/*.tsx",
+        "./lib/*": "./src/lib/*.ts",
+      },
+      peerDependencies: { react: "19.2.8", "react-dom": "19.2.8" },
+      devDependencies: { react: "19.2.8", "@types/react": "19.2.18" },
     },
   };
   for (const [path, data] of Object.entries(manifests))
@@ -127,15 +139,37 @@ test("rejects deep src imports", () => {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /deep source/);
 });
-test("rejects inactive ui package activation", () => {
+test("allows ui to declare React only as peer and dev dependencies", () => {
+  const result = run(makeRepo());
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("allows ui package-local imports aliases", () => {
   const result = run(
     makeRepo((dir) => {
-      mkdirSync(join(dir, "packages/ui"), { recursive: true });
-      writeFileSync(join(dir, "packages/ui/package.json"), "{}");
+      mkdirSync(join(dir, "packages/ui/src/components"), { recursive: true });
+      writeFileSync(
+        join(dir, "packages/ui/src/components/button.tsx"),
+        'import { cn } from "#lib/utils";',
+      );
+    }),
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects ui declaring React as a runtime dependency", () => {
+  const result = run(
+    makeRepo((dir) => {
+      writeJson(dir, "packages/ui/package.json", {
+        name: "@spacezero/ui",
+        type: "module",
+        exports: {},
+        dependencies: { react: "19.2.8" },
+      });
     }),
   );
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /inactive/);
+  assert.match(result.stderr, /browser-safe dependency react is forbidden/);
 });
 test("rejects version ranges", () => {
   const result = run(
@@ -435,6 +469,49 @@ test("rejects non-literal dynamic imports", () => {
   );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /non-literal dynamic import/);
+});
+
+test("allows Desktop renderer to import ui package exports", () => {
+  const result = run(
+    makeRepo((dir) => {
+      writeJson(dir, "apps/desktop/package.json", {
+        name: "@spacezero/desktop",
+        type: "module",
+        dependencies: {
+          "@spacezero/client-runtime": "workspace:*",
+          "@spacezero/ui": "workspace:*",
+        },
+      });
+      mkdirSync(join(dir, "apps/desktop/src/renderer"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/desktop/src/renderer/x.tsx"),
+        'import "@spacezero/ui/components/button";',
+      );
+    }),
+  );
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test("rejects Desktop main imports from ui package", () => {
+  const result = run(
+    makeRepo((dir) => {
+      writeJson(dir, "apps/desktop/package.json", {
+        name: "@spacezero/desktop",
+        type: "module",
+        dependencies: {
+          "@spacezero/client-runtime": "workspace:*",
+          "@spacezero/ui": "workspace:*",
+        },
+      });
+      mkdirSync(join(dir, "apps/desktop/src/main"), { recursive: true });
+      writeFileSync(
+        join(dir, "apps/desktop/src/main/x.ts"),
+        'import "@spacezero/ui/components/button";',
+      );
+    }),
+  );
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /only from renderer source/);
 });
 
 test("allows root dev tooling imports from explicit test and config files", () => {

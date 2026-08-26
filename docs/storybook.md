@@ -1,8 +1,8 @@
 # Local Storybook Workflow
 
-Storybook is Space Zero's local workbench for UI prototypes and visual contracts. It renders real renderer components without launching Electron.
+Storybook is Space Zero's local workbench for UI prototypes and visual contracts. It renders real browser-safe React components without launching Electron. The active shared UI workbench lives in `packages/ui` and uses the official Space Zero shadcn preset `b7BYR9Xec`.
 
-Use the global toolbar to review any story with the real Space Zero light, dark, or dark-high-contrast theme tokens and any supported app font. Storybook defaults to the product's dark theme and system font; toolbar choices apply to the preview document without reading or persisting desktop appearance settings.
+Use the global toolbar to review any story with the real Space Zero light or dark theme tokens and any supported app font. Storybook defaults to the product's dark theme and system font; toolbar choices apply to the preview document without reading or persisting desktop appearance settings.
 
 ## Run Storybook locally
 
@@ -21,11 +21,11 @@ pnpm storybook:check
 pnpm storybook:build
 ```
 
-`storybook:build` runs the guardrail check before producing the static build.
+`storybook:build` runs the guardrail check before producing the static build. Root scripts delegate to `@spacezero/ui`; package-local equivalents are `pnpm --filter @spacezero/ui storybook`, `storybook:check`, and `storybook:build`.
 
 ## Use real pure views
 
-Stories must import real components from application source. Do not copy UI into a story or a separate Storybook-only component tree.
+Stories must import real components from application or package source. Do not copy UI into a story or a separate Storybook-only component tree. Shared primitives in `packages/ui` import `@spacezero/ui/globals.css` in `.storybook/preview` and stories import components through package subpath exports, for example `import { Button } from "@spacezero/ui/components/button"`.
 
 Follow `docs/feature-architecture.md` when a renderer surface needs application behavior:
 
@@ -33,11 +33,23 @@ Follow `docs/feature-architecture.md` when a renderer surface needs application 
 - a pure `*-screen.tsx` or `*-view.tsx` receives visual state through props and emits user intent through callbacks;
 - the story renders the pure screen or view with fixture props.
 
-A component that is already small and pure does not need a new wrapper or container solely for Storybook.
+A component that is already small and pure does not need a new wrapper or container solely for Storybook. Future `Screens/*` stories are high-fidelity mockups and visual contracts; they are not app-connected Desktop screens and must not require Host, preload, or Electron behavior.
 
 ## Co-locate stories and fixtures
 
-Keep stories, fixtures, and their application component together:
+Keep stories, fixtures, and their application component together. For shared primitives, stories are co-located in `packages/ui/src/components` next to the primitive:
+
+```txt
+packages/ui/src/components/
+├── button.tsx
+├── button.stories.tsx
+├── input.tsx
+├── input.stories.tsx
+├── dialog.tsx
+└── dialog.stories.tsx
+```
+
+For Desktop renderer features, use the feature-local pattern:
 
 ```txt
 apps/desktop/src/renderer/features/projects/screens/
@@ -94,7 +106,7 @@ Build coverage in this order:
 
 Ordinary visual stories must not call or require `window.spacezero`. They also must not depend on Electron, preload APIs, IPC, SQLite, the filesystem, Git, GitHub, browser webcontents, terminal processes, or agent runtime behavior. Do not mock the preload bridge to avoid a container/view split.
 
-`pnpm storybook:check` scans `src/**/*.stories.{js,jsx,mjs,ts,tsx}` and fails when a story directly references `window.spacezero`, including bracket notation. The check is intentionally lightweight; reviewers must still reject indirect runtime dependencies imported through app-connected components.
+`pnpm storybook:check` scans Storybook-accepted story extensions (`*.stories.{js,jsx,mjs,ts,tsx}`) and fails when no stories are found, when a story title is `Smoke/*`, when the top-level title group is not `Design System`, `Features`, or `Screens`, or when a story directly references `window.spacezero`, including bracket access and destructuring access. The check is intentionally lightweight; reviewers must still reject indirect runtime dependencies imported through app-connected components.
 
 Test runtime behavior through the appropriate unit, renderer, IPC, or end-to-end tests. Stories demonstrate visual states; they do not prove that data loads, persists, or crosses a process boundary correctly.
 

@@ -17,7 +17,7 @@ packages/
   host-contracts/   Browser-safe Host Protocol contracts
   client-runtime/   Browser-safe Host client runtime
   pi-adapter/       Host-side Pi integration boundary
-  ui/               Inactive shared UI placeholder
+  ui/               Browser-safe shared React UI primitives
 ```
 
 ## Applications
@@ -136,15 +136,17 @@ TypeScript, Effect `4.0.0-rc.109`, `@earendil-works/pi-agent-core`, `@earendil-w
 
 #### What it is
 
-Reserved shared UI package.
+Browser-safe shared React UI source package for domain-free primitives and the Tailwind CSS v4 theme entrypoint.
 
 #### What it does today
 
-Currently an inactive placeholder. It should become active only when a concrete delivery slice needs shared, domain-free UI across applications.
+Provides shadcn-compatible `Button`, `Input`, and `Dialog` primitives, local Storybook stories, `components.json`, package-local `#...` aliases, and subpath exports such as `@spacezero/ui/components/button`.
+
+Consumers import `@spacezero/ui/globals.css` once in their browser bundle. That file is a Tailwind CSS v4 source entrypoint, not precompiled CSS.
 
 #### Tech stack usage
 
-No active package build yet. Future usage should remain React/TypeScript, domain-free, and Effect-free.
+React `19`, TypeScript, shadcn, Tailwind CSS `4`, Base UI, Phosphor icons, Storybook. React and React DOM are peer/dev dependencies only. The official Space Zero shadcn preset is `b7BYR9Xec` (Vega/Mist) and its generated variables are authoritative.
 
 ## Dependency direction
 
@@ -161,4 +163,4 @@ packages/pi-adapter
   -> Pi SDK
 ```
 
-Packages never depend on applications, applications do not import another application's source, and browser-safe packages must not import Host-only or Electron-only implementation details.
+Packages never depend on applications, applications do not import another application's source, and browser-safe packages must not import Host-only or Electron-only implementation details. Desktop can consume `@spacezero/ui` only from renderer source, through package subpath exports rather than a root barrel.

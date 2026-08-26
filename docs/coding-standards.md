@@ -62,13 +62,14 @@ packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
   client-runtime/   Browser-safe Host client and in-memory projections
   pi-adapter/       Host-side Effect boundary around Pi
+  ui/               Browser-safe React UI primitives and Tailwind v4 theme entrypoint
 
 docs/               TStack docs, ADRs, and engineering doctrine
 .agents/             TStack skills and prompts
 scripts/             Repository and release helpers
 ```
 
-`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains an inactive placeholder until a concrete delivery slice needs it. Do not add speculative packages or empty architecture folders.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` is active as a private browser-safe React source package for domain-free shadcn-compatible UI primitives. Do not add speculative packages or empty architecture folders.
 
 Follow `docs/feature-architecture.md` for internal feature placement, naming, and import direction.
 
@@ -258,6 +259,8 @@ The Local Host owns one private SQLite database under operating-system applicati
 
 - Use React and TypeScript for renderer UI.
 - Use Tailwind CSS utilities and shadcn/ui-compatible primitives.
+- `packages/ui` uses shadcn + Tailwind CSS v4 with official Space Zero preset `b7BYR9Xec` (Vega/Mist, Phosphor, Inter). Treat the generated preset CSS variables as authoritative; do not invent replacement theme colors.
+- `@spacezero/ui/globals.css` is a Tailwind v4 source entrypoint, not precompiled CSS. Consumers import it once in their browser bundle before rendering `@spacezero/ui` components.
 - Keep design-system primitives domain-free.
 - Keep presentational views independent from Client Runtime, preload, routing, and app-global side effects where practical; connect them through containers/hooks.
 - Prefer accessible controls and labels for icon-only actions.
@@ -271,7 +274,7 @@ The Local Host owns one private SQLite database under operating-system applicati
 - Use kebab-case files and folders.
 - Use role suffixes where they clarify architecture: `.service.ts`, `.model.ts`, `.schema.ts`, `.contract.ts`, `.repository.ts`, `.adapter.ts`, `.http.ts`, `.ipc.ts`, `.projector.ts`.
 - Keep imports organized by Node/Electron, third-party, workspace package, then local modules.
-- Do not create barrels that combine incompatible runtime surfaces.
+- Do not create barrels that combine incompatible runtime surfaces. `@spacezero/ui` uses source-package subpath exports such as `@spacezero/ui/components/button` and `@spacezero/ui/lib/utils`; consumers should not rely on a root UI barrel.
 - Do not import application source across `apps/*`.
 - Do not deep-import another workspace package's `src` tree.
 - Do not import Node/Electron/Host-only modules into browser-safe packages or renderer code.

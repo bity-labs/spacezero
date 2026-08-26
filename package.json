@@ -13,16 +13,19 @@
     "dev": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop dev",
     "dev:handbook": "pnpm --filter @spacezero/handbook dev",
     "build:packages": "pnpm --filter @spacezero/host-contracts build && pnpm --filter @spacezero/client-runtime build && pnpm --filter @spacezero/pi-adapter build",
+    "storybook": "pnpm --filter @spacezero/ui storybook",
+    "storybook:check": "pnpm --filter @spacezero/ui storybook:check",
+    "storybook:build": "pnpm --filter @spacezero/ui storybook:build",
     "build": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build && pnpm --filter @spacezero/handbook build",
-    "typecheck": "pnpm build:packages && pnpm --filter @spacezero/host-contracts typecheck && pnpm --filter @spacezero/client-runtime typecheck && pnpm --filter @spacezero/pi-adapter typecheck && pnpm --filter @spacezero/workspace-host typecheck && pnpm --filter @spacezero/desktop typecheck && pnpm --filter @spacezero/handbook typecheck",
+    "typecheck": "pnpm build:packages && pnpm --filter @spacezero/host-contracts typecheck && pnpm --filter @spacezero/client-runtime typecheck && pnpm --filter @spacezero/pi-adapter typecheck && pnpm --filter @spacezero/ui typecheck && pnpm --filter @spacezero/workspace-host typecheck && pnpm --filter @spacezero/desktop typecheck && pnpm --filter @spacezero/handbook typecheck",
     "lint": "eslint \"{apps,packages,scripts}/**/*.{ts,tsx,mjs}\" && pnpm check:boundaries",
     "check:boundaries": "node scripts/check-boundaries.mjs",
-    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
+    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs scripts/check-storybook.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
     "test:e2e": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop test:e2e",
     "test:host-connectivity": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/desktop test:e2e:real-host",
     "clean": "node scripts/clean.mjs",
-    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter}/**/*.{ts,tsx,mjs,json,md}\" \"scripts/**/*.mjs\"",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter}/**/*.{ts,tsx,mjs,json,md}\" \"scripts/**/*.mjs\""
+    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\"",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

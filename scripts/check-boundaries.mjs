@@ -42,7 +42,11 @@ function walk(dir, files = []) {
   if (!existsSync(dir)) return files;
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
-    if (["node_modules", "dist", "out", "coverage", ".next"].includes(entry))
+    if (
+      ["node_modules", "dist", "out", "coverage", ".next", "storybook-static"].includes(
+        entry,
+      )
+    )
       continue;
     const st = statSync(path);
     if (st.isDirectory()) walk(path, files);
@@ -50,7 +54,21 @@ function walk(dir, files = []) {
   }
   return files;
 }
-function isForbiddenBrowserSafeDependency(dep) {
+function isForbiddenBrowserSafeDependency(dep, meta, field) {
+  if (
+    meta.reactPeerOnly &&
+    ["react", "react-dom"].includes(dep) &&
+    ["peerDependencies", "devDependencies"].includes(field)
+  ) {
+    return false;
+  }
+  if (
+    meta.reactPeerOnly &&
+    dep.startsWith("@types/react") &&
+    field === "devDependencies"
+  ) {
+    return false;
+  }
   return (
     browserSafeForbiddenDependencyNames.has(dep) ||
     dep.startsWith("@types/react") ||
@@ -65,7 +83,7 @@ function isNodeBuiltinSpecifier(spec) {
 }
 function packageNameForSpecifier(spec) {
   if (spec === "mdx/types") return "@types/mdx";
-  if (spec.startsWith("node:") || spec.startsWith(".")) return undefined;
+  if (spec.startsWith("node:") || spec.startsWith(".") || spec.startsWith("#")) return undefined;
   if (isNodeBuiltinSpecifier(spec)) return undefined;
   const parts = spec.split("/");
   return spec.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
@@ -121,7 +139,7 @@ function checkManifest(name, meta) {
         errors.push(
           `${manifestPath}: undeclared/forbidden workspace dependency ${dep}`,
         );
-      if (meta.browserSafe && isForbiddenBrowserSafeDependency(dep))
+      if (meta.browserSafe && isForbiddenBrowserSafeDependency(dep, meta, field))
         errors.push(
           `${manifestPath}: browser-safe dependency ${dep} is forbidden`,
         );
@@ -270,6 +288,14 @@ function checkImports() {
         const packageName = packageNameForSpecifier(spec) ?? spec;
         if (!meta.allowed.includes(packageName) && packageName !== name)
           errors.push(`${rel}: ${name} may not import ${packageName}`);
+        if (
+          packageName === "@spacezero/ui" &&
+          name === "@spacezero/desktop" &&
+          desktopSurfaceForPath(file) !== "renderer"
+        )
+          errors.push(
+            `${rel}: Desktop may import @spacezero/ui only from renderer source`,
+          );
       }
       const packageName = packageNameForSpecifier(spec);
       if (
