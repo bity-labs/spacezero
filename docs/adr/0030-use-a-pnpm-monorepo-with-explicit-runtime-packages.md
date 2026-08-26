@@ -25,9 +25,10 @@ packages/
   host-contracts/   Browser-safe Effect Schemas for protocol/domain contracts
   client-runtime/   Browser-safe Effect Host client and in-memory projections
   pi-adapter/       Host-side Effect boundary around the Pi SDK
+  ui/               Browser-safe React UI primitives and Tailwind v4 source entrypoint
 ```
 
-Existing `apps/handbook` and `packages/ui` placeholders remain non-implementation directories until a concrete delivery slice needs them.
+Existing `apps/handbook` is active as a private documentation app. `packages/ui` is activated by the shared UI delivery slice as a private monorepo source package for browser-safe, domain-free React primitives and the Tailwind CSS v4 source entrypoint.
 
 ### Dependency direction
 
@@ -44,6 +45,9 @@ apps/workspace-host
 
 packages/pi-adapter
   -> Pi SDK
+
+apps/desktop/src/renderer
+  -> packages/ui
 ```
 
 Rules:
@@ -55,13 +59,15 @@ Rules:
 - Pi Adapter remains Host-side and does not depend on Desktop or Client Runtime;
 - Electron-native behavior remains inside Desktop;
 - Session persistence, Git/worktrees, processes, and Pi execution remain inside Workspace Host or its Host-side adapters; and
-- React and generic UI code consume plain Client Runtime snapshots and commands rather than Host or Effect runtime internals.
+- React and generic UI code consume plain Client Runtime snapshots and commands rather than Host or Effect runtime internals;
+- `@spacezero/ui` may be consumed only from browser/renderer code through package subpath exports such as `@spacezero/ui/components/button`; and
+- React and React DOM are peer/dev dependencies for `@spacezero/ui`, not runtime dependencies of browser-safe protocol/runtime packages.
 
 ### Package creation
 
 The repository will not create a separate `session-domain` package initially. Serializable Session commands, events, projections, and errors belong in Host Contracts; Host-only services and projectors belong in Workspace Host. A new package requires a second concrete consumer or a boundary that materially improves independent testing or deployment.
 
-Pi Adapter is activated when the first Pi Session slice begins. UI and handbook packages are activated only when their own vertical slices require them.
+Pi Adapter is activated when the first Pi Session slice begins. The UI package is active for the shared design-system slice and follows the official shadcn monorepo source-package model with `components.json`, package-local `#...` imports, and subpath exports. It uses shadcn + Tailwind CSS v4 with official Space Zero preset `b7BYR9Xec`; generated preset variables are authoritative and must not be approximated manually.
 
 ### Tooling
 

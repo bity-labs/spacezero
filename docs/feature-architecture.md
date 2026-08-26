@@ -32,9 +32,10 @@ packages/
   host-contracts/   Browser-safe Effect Schemas and HttpApi declarations
   client-runtime/   Browser-safe Host client and in-memory projections
   pi-adapter/       Host-side Effect boundary around Pi
+  ui/               Browser-safe React UI primitives and Tailwind v4 theme entrypoint
 ```
 
-`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` remains inactive until a concrete slice needs it. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
+`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` is active as a private browser-safe React source package for domain-free shadcn-compatible UI primitives and the Tailwind v4 theme entrypoint. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
 
 ## Dependency Graph
 
@@ -49,6 +50,9 @@ apps/workspace-host
 
 packages/pi-adapter
   -> Pi SDK
+
+apps/desktop/src/renderer
+  -> packages/ui
 ```
 
 Rules:
@@ -60,6 +64,7 @@ Rules:
 - Client Runtime remains browser-safe and does not depend on Electron, Pi, SQLite, Git, or Workspace Host source;
 - Pi Adapter remains Host-side and does not depend on Desktop, React, or Client Runtime;
 - Electron-native behavior remains inside Desktop;
+- `@spacezero/ui` may be imported by Desktop renderer source only, never Desktop main/preload;
 - Project catalog, Session domain, Pi execution, worktrees, Session Git, and Host persistence remain inside Workspace Host or Pi Adapter; and
 - React and generic UI consume plain Client Runtime values rather than Host services or Effect runtime types.
 
@@ -191,6 +196,18 @@ packages/client-runtime/src/
 ```
 
 Unstable Effect HTTP types remain internal. Public package exports intended for UI use expose plain values, explicit states, subscriptions, and callbacks.
+
+### `packages/ui`
+
+UI owns browser-safe, domain-free React primitives and theme assets:
+
+- shadcn-compatible components generated from the official Space Zero preset `b7BYR9Xec`;
+- Tailwind CSS v4 source entrypoint at `@spacezero/ui/globals.css`;
+- primitive components exposed through subpath exports such as `@spacezero/ui/components/button`;
+- package-local `#components`, `#lib`, and `#hooks` aliases for shadcn CLI generation; and
+- local Storybook stories for primitives and visual contracts.
+
+UI must not depend on Desktop, Workspace Host, Client Runtime, Host Contracts, Pi, Electron, Node filesystem/process APIs, SQLite, Git, or Effect. React and React DOM are peer/dev dependencies only because the package is a monorepo source package, not a published runtime bundle. `globals.css` is not precompiled CSS; consumers compile it in their browser build.
 
 ### `packages/pi-adapter`
 
@@ -365,6 +382,7 @@ Use names that describe the behavior hidden by the file. Do not use `.shared.ts`
 
 ```text
 apps/desktop renderer       -> packages/client-runtime public exports
+apps/desktop renderer       -> packages/ui public subpath exports
 apps/desktop                -> packages/host-contracts public exports when genuinely needed
 apps/workspace-host         -> packages/host-contracts public exports
 apps/workspace-host         -> packages/pi-adapter public exports
@@ -384,6 +402,7 @@ packages/host-contracts     -> React, Electron, Node, Pi, SQLite, Git, persisten
 packages/pi-adapter         -> Desktop, React, Client Runtime
 any workspace consumer      -> another package's undeclared src/** path
 React/generic UI            -> Effect HttpApi, Layer, Stream, or Host service internals
+Desktop main/preload        -> @spacezero/ui
 ```
 
 Avoid deep cross-feature imports. If one feature needs another feature's behavior, use the owning runtime's small public service/interface or a focused orchestrator. Do not create a generic utility package to hide unclear ownership.
@@ -395,7 +414,7 @@ Avoid deep cross-feature imports. If one feature needs another feature's behavio
 - Effect SQL and `node:sqlite` stay inside Workspace Host persistence adapters.
 - Pi SDK and Pi authentication storage stay inside Pi Adapter.
 - Electron APIs stay inside Desktop main/preload, except renderer-safe types explicitly defined by Desktop.
-- React stays inside Desktop renderer or a deliberately activated UI package.
+- React stays inside Desktop renderer or the activated browser-safe `packages/ui` package.
 - Git and filesystem adapters return Space Zero values and typed failures, not raw process output.
 
 ## Testing Placement

@@ -1,6 +1,6 @@
 ---
 title: UI
-description: Reserved shared UI package.
+description: Browser-safe shared React UI package.
 ---
 
 # UI
@@ -9,12 +9,58 @@ description: Reserved shared UI package.
 
 ## What it is
 
-Reserved shared UI package.
+Private monorepo source package for browser-safe, domain-free React UI primitives.
+
+It follows the official shadcn monorepo source-package model: package-local `#...` imports for shadcn generation and public subpath exports for consumers.
 
 ## What it does today
 
-Currently an inactive placeholder. It should become active only when a concrete delivery slice needs shared, domain-free UI across applications.
+Provides the initial shadcn-compatible primitives:
 
-## Tech stack usage
+- `Button`
+- `Input`
+- `Dialog`
 
-No active package build yet. Future usage should remain React/TypeScript, domain-free, and Effect-free.
+Consumer imports use subpaths, not a root barrel:
+
+```ts
+import "@spacezero/ui/globals.css";
+import { Button } from "@spacezero/ui/components/button";
+```
+
+`@spacezero/ui/globals.css` is a Tailwind CSS v4 source entrypoint, not precompiled CSS. Browser consumers compile it as part of their app or local Storybook build.
+
+## Theme
+
+The official Space Zero shadcn preset is `b7BYR9Xec`:
+
+- style: Vega
+- base/theme/chart color: Mist
+- icon library: Phosphor
+- font: Inter
+- radius: medium
+- menu accent: subtle
+- menu color: default translucent
+
+Treat the generated CSS variables from this preset as authoritative. Do not manually approximate `--primary`, `--background`, or other theme variables.
+
+## Storybook
+
+The package owns local Storybook stories for primitives and visual contracts:
+
+```bash
+pnpm --filter @spacezero/ui storybook
+pnpm --filter @spacezero/ui storybook:check
+pnpm --filter @spacezero/ui storybook:build
+```
+
+Root scripts delegate to those package scripts.
+
+Storybook defaults to dark mode and offers light and dark preview options by applying theme classes to `document.documentElement`, so Radix/Base UI-style portals inherit the selected theme.
+
+## Boundaries
+
+- Browser-safe and Effect-free.
+- React and React DOM are peer/dev dependencies only.
+- No Electron, Node filesystem/process APIs, SQLite, Git, Pi, Workspace Host, Client Runtime, or Host Contracts dependency.
+- Desktop may consume `@spacezero/ui` from `apps/desktop/src/renderer/**` only.
