@@ -21,6 +21,7 @@ import {
   type ProjectCatalogError,
   type ProjectSessionError,
   type ProjectSessionEventEnvelope,
+  type ProjectSessionSseEnvelope,
 } from "@spacezero/host-contracts";
 import {
   createProjectCatalog,
@@ -125,11 +126,16 @@ const projectSessionHttpError = (error: unknown): ProjectSessionError => {
 };
 const textEncoder = new TextEncoder();
 const encodeSessionEvent = (
-  envelope: ProjectSessionEventEnvelope,
-): Uint8Array =>
-  textEncoder.encode(
-    `id: ${envelope.sequence}\nevent: project-session.event\ndata: ${JSON.stringify(envelope)}\n\n`,
+  envelope: ProjectSessionSseEnvelope,
+): Uint8Array => {
+  if ("sequence" in envelope)
+    return textEncoder.encode(
+      `id: ${envelope.sequence}\nevent: project-session.event\ndata: ${JSON.stringify(envelope)}\n\n`,
+    );
+  return textEncoder.encode(
+    `event: project-session.live\ndata: ${JSON.stringify(envelope)}\n\n`,
   );
+};
 const harnessAuthHttpError = (error: unknown): HarnessAuthError => {
   if (error instanceof ProviderAuthError)
     return harnessAuthErrorBody(error.code);
@@ -187,6 +193,7 @@ export const startHostServer = async (options: {
     sessionId: string,
     after: number,
     initialEvents: readonly ProjectSessionEventEnvelope[],
+    initialLiveCursor: number,
     expiresAt: number,
   ): Stream.Stream<Uint8Array, ProjectSessionError> => {
     const initialComment = textEncoder.encode(": spacezero\n\n");
@@ -200,15 +207,27 @@ export const startHostServer = async (options: {
     };
     const initial = encodeEvents(initialEvents);
     return Stream.paginate(
-      { cursor: initial.nextCursor, first: true },
-      (state: { readonly cursor: number; readonly first: boolean }) =>
+      {
+        cursor: initial.nextCursor,
+        liveCursor: initialLiveCursor,
+        first: true,
+      },
+      (state: {
+        readonly cursor: number;
+        readonly liveCursor: number;
+        readonly first: boolean;
+      }) =>
         Effect.tryPromise({
           try: async (signal) => {
             if (Date.now() >= expiresAt) return [[], Option.none()] as const;
             if (state.first) {
               return [
                 [initialComment, ...initial.chunks],
-                Option.some({ cursor: initial.nextCursor, first: false }),
+                Option.some({
+                  cursor: initial.nextCursor,
+                  liveCursor: state.liveCursor,
+                  first: false,
+                }),
               ] as const;
             }
             const timeoutMs = Math.max(0, expiresAt - Date.now());
@@ -216,21 +235,26 @@ export const startHostServer = async (options: {
               signal,
               AbortSignal.timeout(timeoutMs),
             ]);
-            const eventRows = await projectSessions.waitForEventsAfter(
+            const sse = await projectSessions.waitForSseAfter(
               sessionId,
               state.cursor,
+              state.liveCursor,
               waitSignal,
             );
-            if (Date.now() >= expiresAt || eventRows.length === 0)
+            if (Date.now() >= expiresAt || sse.envelopes.length === 0)
               return [[], Option.none()] as const;
             let nextCursor = state.cursor;
-            const chunks = eventRows.map((event) => {
-              nextCursor = event.sequence;
+            const chunks = sse.envelopes.map((event) => {
+              if ("sequence" in event) nextCursor = event.sequence;
               return encodeSessionEvent(event);
             });
             return [
               chunks,
-              Option.some({ cursor: nextCursor, first: false }),
+              Option.some({
+                cursor: nextCursor,
+                liveCursor: sse.liveCursor,
+                first: false,
+              }),
             ] as const;
           },
           catch: projectSessionHttpError,
@@ -325,6 +349,23 @@ export const startHostServer = async (options: {
     "harnessAuth",
     (handlers) =>
       handlers.handleAll({
+        listProviderAuthOptions: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "harness-auth:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => providerAuth.listOptions()).pipe(
+            Effect.map((providers) => ({ providers })),
+            Effect.mapError(harnessAuthHttpError),
+          );
+        },
         getProviderAuthStatus: ({ headers, request, params }) => {
           try {
             auth(
@@ -480,6 +521,22 @@ export const startHostServer = async (options: {
             }),
           ).pipe(Effect.mapError(projectSessionHttpError));
         },
+        interruptSessionTurn: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.interruptTurn(params.sessionId, params.turnId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
         listSessionMessages: ({ headers, request, params }) => {
           try {
             auth(
@@ -518,6 +575,9 @@ export const startHostServer = async (options: {
           } catch (error) {
             return Effect.fail(error as HostAuthorizationError);
           }
+          const initialLiveCursor = projectSessions.liveCursor(
+            params.sessionId,
+          );
           return effectPromise(() =>
             projectSessions.listEventsAfter(params.sessionId, query.after),
           ).pipe(
@@ -526,6 +586,7 @@ export const startHostServer = async (options: {
                 params.sessionId,
                 query.after,
                 initialEvents,
+                initialLiveCursor,
                 expiresAt,
               ),
             ),

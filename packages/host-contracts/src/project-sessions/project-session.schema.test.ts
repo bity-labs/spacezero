@@ -5,11 +5,13 @@ import {
   ListSessionMessagesResultSchema,
   ProjectSessionEventEnvelopeSchema,
   ProjectSessionEventSchema,
+  ProjectSessionLiveEventEnvelopeSchema,
   ProjectSessionEventStreamQuerySchema,
   ProjectSessionNameSchema,
   ProjectSessionSummarySchema,
   parseProjectSessionEventEnvelope,
   parseProjectSessionEventStreamQuery,
+  parseProjectSessionLiveEventEnvelope,
   SessionMessageSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
@@ -116,7 +118,7 @@ describe("Project Session schemas", () => {
     ).toThrow();
   });
 
-  it("returns the submitted prompt result with both message boundaries", () => {
+  it("returns admitted prompt results with turn state and the user message", () => {
     const userMessage = {
       id: messageId,
       role: "user" as const,
@@ -131,13 +133,23 @@ describe("Project Session schemas", () => {
       sequence: 7,
       createdAt: "2026-01-01T00:01:01.000Z",
     };
+    const turn = {
+      id: turnId,
+      commandId: uuid,
+      state: "running" as const,
+      userMessageId: messageId,
+      assistantMessageId: turnId,
+      draftText: "",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    };
     expect(
       parseSync(SubmitSessionPromptResultSchema)({
         session: readySession,
+        turn,
         userMessage,
-        agentMessage,
       }),
-    ).toMatchObject({ userMessage, agentMessage });
+    ).toMatchObject({ userMessage, turn });
     expect(
       parseSync(ListSessionMessagesResultSchema)({
         session: readySession,
@@ -189,6 +201,27 @@ describe("Project Session schemas", () => {
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
     ).toMatchObject({ type: "AgentTurnFailedV1" });
+    expect(
+      parseSync(ProjectSessionEventSchema)({
+        type: "AgentTurnInterruptedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId,
+        reason: "user_interrupted",
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({ type: "AgentTurnInterruptedV1" });
+    expect(
+      parseSync(ProjectSessionEventSchema)({
+        type: "AgentToolCallStartedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId,
+        toolCallId: "tool-1",
+        toolName: "read",
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({ type: "AgentToolCallStartedV1" });
     expect(() =>
       parseSync(ProjectSessionEventSchema)({
         type: "AgentTurnFailedV1",
@@ -231,6 +264,25 @@ describe("Project Session schemas", () => {
     expect(() =>
       parseProjectSessionEventEnvelope({ ...envelope, eventType: "wrong" }),
     ).toThrow();
+    const liveEnvelope = {
+      live: true as const,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1" as const,
+        version: 1 as const,
+        sessionId: uuid,
+        turnId,
+        messageId,
+        text: "partial",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      },
+    };
+    expect(
+      parseSync(ProjectSessionLiveEventEnvelopeSchema)(liveEnvelope),
+    ).toEqual(liveEnvelope);
+    expect(parseProjectSessionLiveEventEnvelope(liveEnvelope)).toEqual(
+      liveEnvelope,
+    );
   });
 
   it("rejects accents, spaces, path-like values, and invalid commits", () => {

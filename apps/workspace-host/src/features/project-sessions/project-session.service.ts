@@ -5,8 +5,11 @@ import type {
   ListProjectSessionsResult,
   ProjectSessionErrorCode,
   ProjectSessionEventEnvelope,
+  ProjectSessionLiveEventEnvelope,
+  ProjectSessionSseEnvelope,
   SessionMessage,
   SubmitSessionPromptResult,
+  InterruptProjectSessionTurnResult,
 } from "@spacezero/host-contracts";
 import {
   AgentTurnError,
@@ -49,11 +52,20 @@ export interface ProjectSessionService {
     sessionId: string,
     after: number,
   ) => Promise<readonly ProjectSessionEventEnvelope[]>;
-  readonly waitForEventsAfter: (
+  readonly waitForSseAfter: (
     sessionId: string,
     after: number,
+    afterLive: number,
     signal?: AbortSignal,
-  ) => Promise<readonly ProjectSessionEventEnvelope[]>;
+  ) => Promise<{
+    readonly envelopes: readonly ProjectSessionSseEnvelope[];
+    readonly liveCursor: number;
+  }>;
+  readonly liveCursor: (sessionId: string) => number;
+  readonly interruptTurn: (
+    sessionId: string,
+    turnId: string,
+  ) => Promise<InterruptProjectSessionTurnResult>;
   readonly reconcile: () => Promise<void>;
   readonly waitForIdle: () => Promise<void>;
 }
@@ -99,6 +111,18 @@ export const createProjectSessionService = (options: {
   const sessionLocks = new Map<string, Promise<unknown>>();
   const inFlight = new Set<Promise<unknown>>();
   const eventWaiters = new Map<string, Set<() => void>>();
+  const activeTurns = new Map<
+    string,
+    { readonly sessionId: string; readonly controller: AbortController }
+  >();
+  let nextLiveSequence = 0;
+  const liveEvents = new Map<
+    string,
+    {
+      readonly liveSequence: number;
+      readonly envelope: ProjectSessionLiveEventEnvelope;
+    }[]
+  >();
 
   const withLock = async <A>(
     registry: Map<string, Promise<unknown>>,
@@ -152,16 +176,52 @@ export const createProjectSessionService = (options: {
       eventWaiters.set(sessionId, waiters);
       signal?.addEventListener("abort", complete, { once: true });
     });
-  const waitForEventsAfter = async (
+  const publishLive = (
+    sessionId: string,
+    envelope: ProjectSessionLiveEventEnvelope,
+  ): number => {
+    const liveSequence = ++nextLiveSequence;
+    const current = liveEvents.get(sessionId) ?? [];
+    current.push({ liveSequence, envelope });
+    if (current.length > 200) current.splice(0, current.length - 200);
+    liveEvents.set(sessionId, current);
+    wakeEvents(sessionId);
+    return liveSequence;
+  };
+  const liveCursor = (sessionId: string): number =>
+    liveEvents.get(sessionId)?.at(-1)?.liveSequence ?? nextLiveSequence;
+  const waitForSseAfter = async (
     sessionId: string,
     after: number,
+    afterLive: number,
     signal?: AbortSignal,
-  ): Promise<readonly ProjectSessionEventEnvelope[]> => {
+  ): Promise<{
+    readonly envelopes: readonly ProjectSessionSseEnvelope[];
+    readonly liveCursor: number;
+  }> => {
     const waiting = waitForEvent(sessionId, signal);
-    const events = await repository.listEventsAfter(sessionId, after);
-    if (events.length > 0 || signal?.aborted) return toEnvelopes(events);
+    const events = toEnvelopes(
+      await repository.listEventsAfter(sessionId, after),
+    );
+    const live = (liveEvents.get(sessionId) ?? []).filter(
+      (event) => event.liveSequence > afterLive,
+    );
+    if (events.length > 0 || live.length > 0 || signal?.aborted)
+      return {
+        envelopes: [...events, ...live.map((event) => event.envelope)],
+        liveCursor: live.at(-1)?.liveSequence ?? afterLive,
+      };
     await waiting;
-    return toEnvelopes(await repository.listEventsAfter(sessionId, after));
+    const nextEvents = toEnvelopes(
+      await repository.listEventsAfter(sessionId, after),
+    );
+    const nextLive = (liveEvents.get(sessionId) ?? []).filter(
+      (event) => event.liveSequence > afterLive,
+    );
+    return {
+      envelopes: [...nextEvents, ...nextLive.map((event) => event.envelope)],
+      liveCursor: nextLive.at(-1)?.liveSequence ?? afterLive,
+    };
   };
 
   const create = async (
@@ -256,51 +316,145 @@ export const createProjectSessionService = (options: {
         if (admission.kind === "replayed") return admission.result;
         wakeEvents(input.sessionId);
 
-        try {
-          const history = await repository.listTurnHistoryBefore(
-            input.sessionId,
-            admission.userSequence,
-          );
-          const turn = await conversationRunner.submitTurn({
-            sessionId: input.sessionId,
-            conversationId: identity.conversationId,
-            worktreePath: prepared.canonicalWorktreePath,
-            history,
-            tools: {
-              workingDirectory: prepared.canonicalWorktreePath,
-              enabledToolNames: ["read", "write", "edit"],
-            },
-            prompt,
-          });
-          if (typeof turn.text !== "string" || turn.text.length === 0)
-            throw new AgentTurnError("agent_turn_failed");
-          const result = await repository.completeTurn({
-            commandId: input.commandId,
-            sessionId: input.sessionId,
-            turnId: admission.turnId,
-            text: turn.text,
-          });
-          wakeEvents(input.sessionId);
-          return result;
-        } catch (error) {
-          const reason: AgentTurnFailureReason =
-            error instanceof AgentTurnError &&
-            error.code === "agent_unavailable"
-              ? "agent_unavailable"
-              : "agent_turn_failed";
-          await repository
-            .failTurn({
+        const controller = new AbortController();
+        activeTurns.set(admission.turnId, {
+          sessionId: input.sessionId,
+          controller,
+        });
+        let draftText = "";
+        const operation = (async () => {
+          try {
+            const history = await repository.listTurnHistoryBefore(
+              input.sessionId,
+              admission.userSequence,
+            );
+            const turn = await conversationRunner.submitTurn({
+              sessionId: input.sessionId,
+              conversationId: identity.conversationId,
+              worktreePath: prepared.canonicalWorktreePath,
+              history,
+              tools: {
+                workingDirectory: prepared.canonicalWorktreePath,
+                enabledToolNames: ["read", "write", "edit"],
+              },
+              prompt,
+              signal: controller.signal,
+              onEvent: async (event) => {
+                if (controller.signal.aborted) return;
+                const timestamp = new Date().toISOString();
+                if (event.type === "assistant_delta") {
+                  draftText += event.text;
+                  await repository.updateTurnDraft({
+                    sessionId: input.sessionId,
+                    turnId: admission.turnId,
+                    text: draftText,
+                  });
+                  publishLive(input.sessionId, {
+                    live: true,
+                    eventType: "AssistantTextDeltaV1",
+                    event: {
+                      type: "AssistantTextDeltaV1",
+                      version: 1,
+                      sessionId: input.sessionId,
+                      turnId: admission.turnId,
+                      messageId: admission.result.turn.assistantMessageId,
+                      text: event.text,
+                      timestamp,
+                    },
+                  });
+                  return;
+                }
+                if (event.type === "tool_started") {
+                  await repository.recordToolStarted({
+                    sessionId: input.sessionId,
+                    turnId: admission.turnId,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                  });
+                  wakeEvents(input.sessionId);
+                  return;
+                }
+                if (event.type === "tool_updated") {
+                  publishLive(input.sessionId, {
+                    live: true,
+                    eventType: "AgentToolCallUpdatedV1",
+                    event: {
+                      type: "AgentToolCallUpdatedV1",
+                      version: 1,
+                      sessionId: input.sessionId,
+                      turnId: admission.turnId,
+                      toolCallId: event.toolCallId,
+                      toolName: event.toolName,
+                      summary: event.summary,
+                      timestamp,
+                    },
+                  });
+                  return;
+                }
+                await repository.recordToolCompleted({
+                  sessionId: input.sessionId,
+                  turnId: admission.turnId,
+                  toolCallId: event.toolCallId,
+                  toolName: event.toolName,
+                  isError: event.isError,
+                });
+                wakeEvents(input.sessionId);
+              },
+            });
+            if (controller.signal.aborted)
+              throw new AgentTurnError("agent_turn_interrupted");
+            if (typeof turn.text !== "string" || turn.text.length === 0)
+              throw new AgentTurnError("agent_turn_failed");
+            await repository.completeTurn({
               commandId: input.commandId,
               sessionId: input.sessionId,
               turnId: admission.turnId,
-              reason,
-            })
-            .then(() => wakeEvents(input.sessionId))
-            .catch(() => undefined);
-          if (error instanceof AgentTurnError)
-            throw new ProjectSessionServiceError(error.code);
-          throw new ProjectSessionServiceError("agent_turn_failed");
-        }
+              text: turn.text,
+            });
+            wakeEvents(input.sessionId);
+          } catch (error) {
+            if (
+              controller.signal.aborted &&
+              error instanceof ProjectSessionServiceError &&
+              error.code === "turn_not_active"
+            ) {
+              return;
+            }
+            if (
+              error instanceof AgentTurnError &&
+              error.code === "agent_turn_interrupted"
+            ) {
+              await repository
+                .interruptTurn({
+                  sessionId: input.sessionId,
+                  turnId: admission.turnId,
+                  reason: "user_interrupted",
+                })
+                .then(() => wakeEvents(input.sessionId))
+                .catch(() => undefined);
+              return;
+            }
+            const reason: AgentTurnFailureReason =
+              error instanceof AgentTurnError &&
+              error.code === "agent_unavailable"
+                ? "agent_unavailable"
+                : "agent_turn_failed";
+            await repository
+              .failTurn({
+                commandId: input.commandId,
+                sessionId: input.sessionId,
+                turnId: admission.turnId,
+                reason,
+              })
+              .then(() => wakeEvents(input.sessionId))
+              .catch(() => undefined);
+          } finally {
+            activeTurns.delete(admission.turnId);
+          }
+        })();
+        inFlight.add(operation);
+        operation.finally(() => inFlight.delete(operation));
+        return admission.result;
       } catch (error) {
         throw mapError(error);
       }
@@ -324,9 +478,25 @@ export const createProjectSessionService = (options: {
         throw mapError(error);
       }
     },
-    waitForEventsAfter: async (sessionId, after, signal) => {
+    waitForSseAfter: async (sessionId, after, afterLive, signal) => {
       try {
-        return await waitForEventsAfter(sessionId, after, signal);
+        return await waitForSseAfter(sessionId, after, afterLive, signal);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    liveCursor,
+    interruptTurn: async (sessionId, turnId) => {
+      try {
+        const active = activeTurns.get(turnId);
+        if (active?.sessionId === sessionId) active.controller.abort();
+        const result = await repository.interruptTurn({
+          sessionId,
+          turnId,
+          reason: "user_interrupted",
+        });
+        wakeEvents(sessionId);
+        return result;
       } catch (error) {
         throw mapError(error);
       }
