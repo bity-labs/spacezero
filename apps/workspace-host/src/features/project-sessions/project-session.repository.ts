@@ -9,6 +9,7 @@ import type {
   ProjectSessionErrorCode,
   ProjectSessionEvent,
   ProjectSessionSummary,
+  ProjectSessionTurn,
   SessionMessage,
   SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
@@ -70,6 +71,25 @@ interface MessageRow {
   readonly created_at: string;
 }
 
+interface TurnRow {
+  readonly session_id: string;
+  readonly turn_id: string;
+  readonly command_id: string;
+  readonly user_message_id: string;
+  readonly assistant_message_id: string;
+  readonly state:
+    | "queued"
+    | "running"
+    | "completed"
+    | "failed"
+    | "interrupted"
+    | "recovery_required";
+  readonly draft_text: string;
+  readonly failure_reason: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
+}
+
 interface PiContextRow {
   readonly conversation_id: string;
 }
@@ -125,6 +145,7 @@ export type PromptAdmission =
       readonly turnId: string;
       readonly userMessageId: string;
       readonly userSequence: number;
+      readonly result: SubmitSessionPromptResult;
     }
   | {
       readonly kind: "replayed";
@@ -132,6 +153,7 @@ export type PromptAdmission =
     };
 
 export type AgentTurnFailureReason = "agent_unavailable" | "agent_turn_failed";
+export type AgentTurnInterruptReason = "user_interrupted" | "host_shutdown";
 
 const fingerprint = (input: CreateProjectSessionRequest) =>
   createHash("sha256")
@@ -166,6 +188,17 @@ const toMessage = (row: MessageRow): SessionMessage => ({
   text: row.text,
   sequence: row.sequence,
   createdAt: row.created_at,
+});
+
+const toTurn = (row: TurnRow): ProjectSessionTurn => ({
+  id: row.turn_id,
+  commandId: row.command_id,
+  state: row.state,
+  userMessageId: row.user_message_id,
+  assistantMessageId: row.assistant_message_id,
+  draftText: row.draft_text,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
 });
 
 const toEvent = (row: EventRow): DurableSessionEventRow => ({
@@ -235,12 +268,8 @@ const getHostId = (sql: SqlClient) =>
     return rows[0].host_id;
   });
 
-const getMessagesAtSequence = (
-  sql: SqlClient,
-  sessionId: string,
-  sequence: number,
-) =>
-  sql<MessageRow>`SELECT * FROM project_session_messages WHERE session_id = ${sessionId} AND sequence = ${sequence}`;
+const getMessageById = (sql: SqlClient, sessionId: string, messageId: string) =>
+  sql<MessageRow>`SELECT * FROM project_session_messages WHERE session_id = ${sessionId} AND message_id = ${messageId}`;
 
 const replayPromptResult = (
   sql: SqlClient,
@@ -249,24 +278,25 @@ const replayPromptResult = (
 ) =>
   Effect.gen(function* () {
     const sessionRows = yield* getSession(sql, sessionId);
-    const agentRows = yield* getMessagesAtSequence(
+    const turnRows =
+      yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${sessionId} AND command_id = ${receipt.command_id}`;
+    if (!sessionRows[0] || !turnRows[0])
+      throw new ProjectSessionServiceError(
+        "project_session_catalog_unavailable",
+      );
+    const userRows = yield* getMessageById(
       sql,
       sessionId,
-      receipt.committed_sequence,
+      turnRows[0].user_message_id,
     );
-    const userRows = yield* getMessagesAtSequence(
-      sql,
-      sessionId,
-      receipt.committed_sequence - 2,
-    );
-    if (!sessionRows[0] || !agentRows[0] || !userRows[0])
+    if (!userRows[0])
       throw new ProjectSessionServiceError(
         "project_session_catalog_unavailable",
       );
     return {
       session: toSummary(sessionRows[0]),
+      turn: toTurn(turnRows[0]),
       userMessage: toMessage(userRows[0]),
-      agentMessage: toMessage(agentRows[0]),
     };
   });
 
@@ -548,6 +578,7 @@ export const createProjectSessionRepository = (options: {
             });
 
             yield* sql`UPDATE project_sessions SET state = 'recovery_required', updated_at = ${now}, last_sequence = ${row.last_sequence + 1} WHERE session_id = ${sessionId}`;
+            yield* sql`UPDATE project_session_turns SET state = 'recovery_required', failure_reason = 'session_recovery_required', updated_at = ${now} WHERE session_id = ${sessionId} AND state IN ('queued', 'running')`;
             yield* sql`UPDATE project_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ${row.last_sequence + 1}, updated_at = ${now} WHERE session_id = ${sessionId} AND status = 'pending'`;
           }),
         );
@@ -578,8 +609,6 @@ export const createProjectSessionRepository = (options: {
         if (!receipt[0]) return undefined;
         if (receipt[0].request_fingerprint !== fp)
           throw new ProjectSessionServiceError("command_id_conflict");
-        if (receipt[0].status === "pending")
-          throw new ProjectSessionServiceError("session_turn_in_progress");
         if (receipt[0].status === "failed")
           throw new ProjectSessionServiceError(
             receipt[0].terminal_error_code ?? "agent_turn_failed",
@@ -619,10 +648,6 @@ export const createProjectSessionRepository = (options: {
             if (receipt[0]) {
               if (receipt[0].request_fingerprint !== fp)
                 throw new ProjectSessionServiceError("command_id_conflict");
-              if (receipt[0].status === "pending")
-                throw new ProjectSessionServiceError(
-                  "session_turn_in_progress",
-                );
               if (receipt[0].status === "failed")
                 throw new ProjectSessionServiceError(
                   receipt[0].terminal_error_code ?? "agent_turn_failed",
@@ -644,10 +669,15 @@ export const createProjectSessionRepository = (options: {
               throw new ProjectSessionServiceError("session_not_found");
             if (rows[0].state !== "ready")
               throw new ProjectSessionServiceError("session_not_ready");
+            const activeTurns =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+            if (activeTurns[0])
+              throw new ProjectSessionServiceError("session_turn_in_progress");
             const row = rows[0];
             const now = new Date().toISOString();
             const turnId = randomUUID();
             const userMessageId = randomUUID();
+            const assistantMessageId = randomUUID();
             const baseSequence = row.last_sequence;
 
             yield* appendEvent({
@@ -676,21 +706,39 @@ export const createProjectSessionRepository = (options: {
                 version: 1,
                 sessionId: input.sessionId,
                 turnId,
-                messageId: userMessageId,
+                messageId: assistantMessageId,
                 timestamp: now,
               },
               createdAt: now,
             });
 
             yield* sql`INSERT INTO project_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${userMessageId}, 'user', ${input.prompt}, ${baseSequence + 1}, ${turnId}, ${now})`;
+            yield* sql`INSERT INTO project_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, state, draft_text, created_at, updated_at) VALUES (${input.sessionId}, ${turnId}, ${input.commandId}, ${userMessageId}, ${assistantMessageId}, 'running', '', ${now}, ${now})`;
             yield* sql`INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'pending', ${baseSequence + 2}, ${now}, ${now})`;
             yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${baseSequence + 2} WHERE session_id = ${input.sessionId}`;
 
+            const updated = yield* getSession(sql, input.sessionId);
+            const userRows = yield* getMessageById(
+              sql,
+              input.sessionId,
+              userMessageId,
+            );
+            const turnRows =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${turnId}`;
+            if (!updated[0] || !userRows[0] || !turnRows[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
             return {
               kind: "admitted" as const,
               turnId,
               userMessageId,
               userSequence: baseSequence + 1,
+              result: {
+                session: toSummary(updated[0]),
+                turn: toTurn(turnRows[0]),
+                userMessage: toMessage(userRows[0]),
+              },
             };
           }),
         );
@@ -715,8 +763,14 @@ export const createProjectSessionRepository = (options: {
                 "project_session_catalog_unavailable",
               );
             const row = rows[0];
+            const turnRows =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!turnRows[0])
+              throw new ProjectSessionServiceError("turn_not_found");
+            if (!["queued", "running"].includes(turnRows[0].state))
+              throw new ProjectSessionServiceError("turn_not_active");
             const now = new Date().toISOString();
-            const agentMessageId = randomUUID();
+            const agentMessageId = turnRows[0].assistant_message_id;
             const agentSequence = row.last_sequence + 1;
 
             yield* appendEvent({
@@ -737,29 +791,26 @@ export const createProjectSessionRepository = (options: {
             });
 
             yield* sql`INSERT INTO project_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${agentMessageId}, 'assistant', ${input.text}, ${agentSequence}, ${input.turnId}, ${now})`;
+            yield* sql`UPDATE project_session_turns SET state = 'completed', draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${agentSequence} WHERE session_id = ${input.sessionId}`;
             yield* sql`UPDATE project_session_command_receipts SET status = 'succeeded', committed_sequence = ${agentSequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
 
-            const userRows = yield* getMessagesAtSequence(
+            const userRows = yield* getMessageById(
               sql,
               input.sessionId,
-              agentSequence - 2,
+              turnRows[0].user_message_id,
             );
             const updated = yield* getSession(sql, input.sessionId);
-            if (!userRows[0] || !updated[0])
+            const updatedTurn =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!userRows[0] || !updated[0] || !updatedTurn[0])
               throw new ProjectSessionServiceError(
                 "project_session_catalog_unavailable",
               );
             return {
               session: toSummary(updated[0]),
+              turn: toTurn(updatedTurn[0]),
               userMessage: toMessage(userRows[0]),
-              agentMessage: {
-                id: agentMessageId,
-                role: "assistant" as const,
-                text: input.text,
-                sequence: agentSequence,
-                createdAt: now,
-              },
             };
           }),
         );
@@ -783,6 +834,11 @@ export const createProjectSessionRepository = (options: {
               throw new ProjectSessionServiceError(
                 "project_session_catalog_unavailable",
               );
+            const turnRows =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!turnRows[0])
+              throw new ProjectSessionServiceError("turn_not_found");
+            if (!["queued", "running"].includes(turnRows[0].state)) return;
             const row = rows[0];
             const now = new Date().toISOString();
             const sequence = row.last_sequence + 1;
@@ -803,8 +859,177 @@ export const createProjectSessionRepository = (options: {
               createdAt: now,
             });
 
+            yield* sql`UPDATE project_session_turns SET state = 'failed', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
             yield* sql`UPDATE project_session_command_receipts SET status = 'failed', terminal_error_code = ${input.reason}, committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
+          }),
+        );
+      }),
+    );
+  },
+
+  interruptTurn: async (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly reason: AgentTurnInterruptReason;
+  }): Promise<{
+    readonly session: ProjectSessionSummary;
+    readonly turn: ProjectSessionTurn;
+  }> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, input.sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError("session_not_found");
+            const turnRows =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!turnRows[0])
+              throw new ProjectSessionServiceError("turn_not_found");
+            if (turnRows[0].state === "interrupted")
+              return { session: toSummary(rows[0]), turn: toTurn(turnRows[0]) };
+            if (!["queued", "running"].includes(turnRows[0].state))
+              throw new ProjectSessionServiceError("turn_not_active");
+            const now = new Date().toISOString();
+            const sequence = rows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId: input.sessionId,
+              sequence,
+              eventType: "AgentTurnInterruptedV1",
+              payload: {
+                type: "AgentTurnInterruptedV1",
+                version: 1,
+                sessionId: input.sessionId,
+                turnId: input.turnId,
+                reason: input.reason,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE project_session_turns SET state = 'interrupted', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE project_session_command_receipts SET status = 'failed', terminal_error_code = 'agent_turn_failed', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
+            const updated = yield* getSession(sql, input.sessionId);
+            const updatedTurn =
+              yield* sql<TurnRow>`SELECT * FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!updated[0] || !updatedTurn[0])
+              throw new ProjectSessionServiceError(
+                "project_session_catalog_unavailable",
+              );
+            return {
+              session: toSummary(updated[0]),
+              turn: toTurn(updatedTurn[0]),
+            };
+          }),
+        );
+      }),
+    ),
+
+  updateTurnDraft: async (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly text: string;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const now = new Date().toISOString();
+        yield* sql`UPDATE project_session_turns SET draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId} AND state IN ('queued', 'running')`;
+      }),
+    );
+  },
+
+  recordToolStarted: async (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, input.sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError("session_not_found");
+            const turnRows =
+              yield* sql<TurnRow>`SELECT state FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!turnRows[0])
+              throw new ProjectSessionServiceError("turn_not_found");
+            if (!["queued", "running"].includes(turnRows[0].state)) return;
+            const now = new Date().toISOString();
+            const sequence = rows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId: input.sessionId,
+              sequence,
+              eventType: "AgentToolCallStartedV1",
+              payload: {
+                type: "AgentToolCallStartedV1",
+                version: 1,
+                sessionId: input.sessionId,
+                turnId: input.turnId,
+                toolCallId: input.toolCallId,
+                toolName: input.toolName,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+          }),
+        );
+      }),
+    );
+  },
+
+  recordToolCompleted: async (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly isError: boolean;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* getSession(sql, input.sessionId);
+            if (!rows[0])
+              throw new ProjectSessionServiceError("session_not_found");
+            const turnRows =
+              yield* sql<TurnRow>`SELECT state FROM project_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            if (!turnRows[0])
+              throw new ProjectSessionServiceError("turn_not_found");
+            if (!["queued", "running"].includes(turnRows[0].state)) return;
+            const now = new Date().toISOString();
+            const sequence = rows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId: input.sessionId,
+              sequence,
+              eventType: "AgentToolCallCompletedV1",
+              payload: {
+                type: "AgentToolCallCompletedV1",
+                version: 1,
+                sessionId: input.sessionId,
+                turnId: input.turnId,
+                toolCallId: input.toolCallId,
+                toolName: input.toolName,
+                status: input.isError ? "failed" : "succeeded",
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE project_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
           }),
         );
       }),

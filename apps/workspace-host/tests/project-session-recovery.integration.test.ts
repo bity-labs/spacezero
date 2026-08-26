@@ -142,6 +142,7 @@ describe("Project Session startup recovery", () => {
     const sessionId = randomUUID();
     const commandId = randomUUID();
     const userMessageId = randomUUID();
+    const pendingAgentMessageId = randomUUID();
     const turnId = randomUUID();
     const prompt = "continue the interrupted turn";
     const completedCommandId = randomUUID();
@@ -203,7 +204,7 @@ describe("Project Session startup recovery", () => {
         version: 1,
         sessionId,
         turnId: completedTurnId,
-        messageId: completedUserMessageId,
+        messageId: completedAgentMessageId,
         timestamp: now,
       }),
       now,
@@ -238,7 +239,7 @@ describe("Project Session startup recovery", () => {
         version: 1,
         sessionId,
         turnId,
-        messageId: userMessageId,
+        messageId: pendingAgentMessageId,
         timestamp: now,
       }),
       now,
@@ -260,6 +261,25 @@ describe("Project Session startup recovery", () => {
       userMessageId,
       prompt,
       turnId,
+      now,
+    );
+    db.prepare(
+      "INSERT INTO project_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, state, draft_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?), (?, ?, ?, ?, ?, 'running', '', ?, ?)",
+    ).run(
+      sessionId,
+      completedTurnId,
+      completedCommandId,
+      completedUserMessageId,
+      completedAgentMessageId,
+      completedAnswer,
+      now,
+      now,
+      sessionId,
+      turnId,
+      commandId,
+      userMessageId,
+      pendingAgentMessageId,
+      now,
       now,
     );
     db.prepare(
@@ -323,7 +343,7 @@ describe("Project Session startup recovery", () => {
     expect(replayCompleted.status).toBe(200);
     await expect(replayCompleted.json()).resolves.toMatchObject({
       userMessage: { text: completedPrompt },
-      agentMessage: { text: completedAnswer },
+      turn: { state: "completed", draftText: completedAnswer },
     });
 
     const duplicate = await fetch(
@@ -339,6 +359,18 @@ describe("Project Session startup recovery", () => {
       code: "session_recovery_required",
     });
 
+    const staleInterrupt = await fetch(
+      new URL(
+        `/v1/project-sessions/${sessionId}/turns/${turnId}/interrupt`,
+        restarted.endpoint,
+      ),
+      { method: "POST", headers },
+    );
+    expect(staleInterrupt.status).toBe(409);
+    await expect(staleInterrupt.json()).resolves.toMatchObject({
+      code: "turn_not_active",
+    });
+
     const check = new DatabaseSync(dbPath);
     try {
       const receipts = check
@@ -350,6 +382,17 @@ describe("Project Session startup recovery", () => {
         {
           status: "recovery_required",
           terminal_error_code: "session_recovery_required",
+        },
+      ]);
+      const turns = check
+        .prepare(
+          "SELECT state, failure_reason FROM project_session_turns WHERE session_id = ? AND turn_id = ?",
+        )
+        .all(sessionId, turnId);
+      expect(turns).toEqual([
+        {
+          state: "recovery_required",
+          failure_reason: "session_recovery_required",
         },
       ]);
       const events = check

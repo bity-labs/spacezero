@@ -39,7 +39,15 @@ export interface ListProjectSessionsResult {
 
 export type SessionMessageId = string;
 export type AgentTurnId = string;
+export type AgentToolCallId = string;
 export type SessionMessageRole = "user" | "assistant";
+export type ProjectSessionTurnState =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "recovery_required";
 
 export interface SessionMessage {
   readonly id: SessionMessageId;
@@ -54,10 +62,26 @@ export interface SubmitSessionPromptRequest {
   readonly prompt: string;
 }
 
+export interface ProjectSessionTurn {
+  readonly id: AgentTurnId;
+  readonly commandId: ProjectSessionCommandId;
+  readonly state: ProjectSessionTurnState;
+  readonly userMessageId: SessionMessageId;
+  readonly assistantMessageId: SessionMessageId;
+  readonly draftText: string;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
 export interface SubmitSessionPromptResult {
   readonly session: ProjectSessionSummary;
+  readonly turn: ProjectSessionTurn;
   readonly userMessage: SessionMessage;
-  readonly agentMessage: SessionMessage;
+}
+
+export interface InterruptProjectSessionTurnResult {
+  readonly session: ProjectSessionSummary;
+  readonly turn: ProjectSessionTurn;
 }
 
 export interface ListSessionMessagesResult {
@@ -74,6 +98,15 @@ export interface ProjectSessionEventEnvelope {
   readonly eventType: string;
   readonly event: ProjectSessionEvent;
 }
+
+export interface ProjectSessionLiveEventEnvelope {
+  readonly live: true;
+  readonly eventType: string;
+  readonly event: ProjectSessionLiveEvent;
+}
+
+export type ProjectSessionSseEnvelope =
+  ProjectSessionEventEnvelope | ProjectSessionLiveEventEnvelope;
 
 const DateTimeUtcStringSchema = Schema.String.check(
   Schema.makeFilter((value: string) => {
@@ -107,6 +140,18 @@ export const ProjectSessionGitCommitObjectIdSchema = Schema.String.check(
 );
 export const SessionMessageIdSchema = Schema.String.check(Schema.isUUID());
 export const AgentTurnIdSchema = Schema.String.check(Schema.isUUID());
+export const AgentToolCallIdSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isMaxLength(256),
+);
+export const ProjectSessionTurnStateSchema = Schema.Literals([
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "interrupted",
+  "recovery_required",
+]);
 export const SessionPromptSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(16_000),
@@ -162,10 +207,24 @@ export const CreateProjectSessionResultSchema = Schema.Struct({
 export const ListProjectSessionsResultSchema = Schema.Struct({
   sessions: Schema.Array(ProjectSessionSummarySchema),
 });
+export const ProjectSessionTurnSchema = Schema.Struct({
+  id: AgentTurnIdSchema,
+  commandId: ProjectSessionCommandIdSchema,
+  state: ProjectSessionTurnStateSchema,
+  userMessageId: SessionMessageIdSchema,
+  assistantMessageId: SessionMessageIdSchema,
+  draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  createdAt: DateTimeUtcStringSchema,
+  updatedAt: DateTimeUtcStringSchema,
+});
 export const SubmitSessionPromptResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
+  turn: ProjectSessionTurnSchema,
   userMessage: SessionMessageSchema,
-  agentMessage: SessionMessageSchema,
+});
+export const InterruptProjectSessionTurnResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  turn: ProjectSessionTurnSchema,
 });
 export const ListSessionMessagesResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
@@ -294,9 +353,72 @@ export const ProjectSessionEventSchema = Schema.Union([
     reason: Schema.Literals(["agent_unavailable", "agent_turn_failed"]),
     timestamp: DateTimeUtcStringSchema,
   }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentTurnInterruptedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    reason: Schema.Literals(["user_interrupted", "host_shutdown"]),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentToolCallStartedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    toolCallId: AgentToolCallIdSchema,
+    toolName: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentToolCallCompletedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    toolCallId: AgentToolCallIdSchema,
+    toolName: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    status: Schema.Literals(["succeeded", "failed"]),
+    timestamp: DateTimeUtcStringSchema,
+  }),
 ]);
 
 export type ProjectSessionEvent = typeof ProjectSessionEventSchema.Type;
+
+export const ProjectSessionLiveEventSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals(["AssistantTextDeltaV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    text: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(64_000),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentToolCallUpdatedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    toolCallId: AgentToolCallIdSchema,
+    toolName: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    summary: Schema.String.check(Schema.isMaxLength(4_000)),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+]);
+
+export type ProjectSessionLiveEvent = typeof ProjectSessionLiveEventSchema.Type;
 
 export const ProjectSessionEventEnvelopeSchema = Schema.Struct({
   sequence: Schema.Number.check(
@@ -306,6 +428,15 @@ export const ProjectSessionEventEnvelopeSchema = Schema.Struct({
   eventType: Schema.String.check(Schema.isMinLength(1)),
   event: ProjectSessionEventSchema,
 });
+export const ProjectSessionLiveEventEnvelopeSchema = Schema.Struct({
+  live: Schema.Literals([true]),
+  eventType: Schema.String.check(Schema.isMinLength(1)),
+  event: ProjectSessionLiveEventSchema,
+});
+export const ProjectSessionSseEnvelopeSchema = Schema.Union([
+  ProjectSessionEventEnvelopeSchema,
+  ProjectSessionLiveEventEnvelopeSchema,
+]);
 
 const exactKeys = (
   value: Record<string, unknown>,
@@ -327,6 +458,19 @@ export function parseProjectSessionEventEnvelope(
     throw new Error("invalid project session event envelope");
   if (decoded.event.sessionId === undefined)
     throw new Error("invalid project session event envelope");
+  return decoded;
+}
+
+export function parseProjectSessionLiveEventEnvelope(
+  value: unknown,
+): ProjectSessionLiveEventEnvelope {
+  if (!isRecord(value) || !exactKeys(value, ["live", "eventType", "event"]))
+    throw new Error("invalid project session live event envelope");
+  const decoded = Schema.decodeUnknownSync(
+    ProjectSessionLiveEventEnvelopeSchema,
+  )(value);
+  if (decoded.event.type !== decoded.eventType)
+    throw new Error("invalid project session live event envelope");
   return decoded;
 }
 

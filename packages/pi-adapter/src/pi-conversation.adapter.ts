@@ -336,6 +336,8 @@ export function createPiConversationRunner(
         throw new AgentTurnError("agent_unavailable");
       }
 
+      if (input.signal?.aborted)
+        throw new AgentTurnError("agent_turn_interrupted");
       const env = new BoundedExecutionEnv(input.tools.workingDirectory);
       const agent = new Agent({
         streamFn: models.streamSimple.bind(models),
@@ -363,42 +365,66 @@ export function createPiConversationRunner(
 
       const textParts: string[] = [];
 
-      try {
-        await new Promise<void>((resolvePromise, reject) => {
-          const unsubscribe = agent.subscribe((event: AgentEvent) => {
-            switch (event.type) {
-              case "message_update": {
-                const fullText = textFromAgentState(agent.state.messages);
-                const delta = fullText.slice(textParts.join("").length);
-                if (delta.length > 0) {
-                  textParts.push(delta);
-                  input.onDelta?.({ kind: "assistant_text", text: delta });
-                }
-                break;
-              }
-              case "agent_end": {
-                unsubscribe();
-                resolvePromise();
-                break;
-              }
+      const abort = (): void => agent.abort();
+      input.signal?.addEventListener("abort", abort, { once: true });
+      const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
+        switch (event.type) {
+          case "message_update": {
+            const fullText = textFromAgentState(agent.state.messages);
+            const delta = fullText.slice(textParts.join("").length);
+            if (delta.length > 0) {
+              textParts.push(delta);
+              input.onDelta?.({ kind: "assistant_text", text: delta });
+              await input.onEvent?.({
+                type: "assistant_delta",
+                text: delta,
+              });
             }
-          });
-
-          agent
-            .prompt(input.prompt)
-            .then(() => agent.waitForIdle())
-            .catch((error: unknown) => {
-              unsubscribe();
-              reject(error);
+            break;
+          }
+          case "tool_execution_start": {
+            await input.onEvent?.({
+              type: "tool_started",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
             });
-        });
+            break;
+          }
+          case "tool_execution_update": {
+            await input.onEvent?.({
+              type: "tool_updated",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              summary: "Tool progress updated.",
+            });
+            break;
+          }
+          case "tool_execution_end": {
+            await input.onEvent?.({
+              type: "tool_completed",
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              isError: event.isError,
+            });
+            break;
+          }
+        }
+      });
+
+      try {
+        await agent.prompt(input.prompt);
+        await agent.waitForIdle();
         const assistantText = textFromAgentState(agent.state.messages);
         return {
           text: assistantText.length > 0 ? assistantText : textParts.join(""),
         };
       } catch {
+        if (input.signal?.aborted)
+          throw new AgentTurnError("agent_turn_interrupted");
         throw new AgentTurnError("agent_turn_failed");
       } finally {
+        unsubscribe();
+        input.signal?.removeEventListener("abort", abort);
         await env.cleanup();
       }
     },

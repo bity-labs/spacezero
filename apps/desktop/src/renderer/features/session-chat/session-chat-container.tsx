@@ -1,6 +1,7 @@
 import { createProjectSessionClient } from "@spacezero/client-runtime";
 import type {
   ProjectSessionError,
+  ProjectSessionEventEnvelope,
   ProjectSessionSummary,
   SessionMessage,
 } from "@spacezero/host-contracts";
@@ -47,11 +48,50 @@ export const SessionChatContainer = ({
   );
   useEffect(() => {
     let mounted = true;
+    let cancelSubscription: (() => void) | undefined;
+    const appendEventMessage = (event: ProjectSessionEventEnvelope): void => {
+      if (!mounted) return;
+      if (event.event.type === "UserMessageSubmittedV1") {
+        const message: SessionMessage = {
+          id: event.event.messageId,
+          role: "user",
+          text: event.event.prompt,
+          sequence: event.sequence,
+          createdAt: event.event.timestamp,
+        };
+        setMessages((current) =>
+          current.some((entry) => entry.id === message.id)
+            ? current
+            : [...current, message],
+        );
+        return;
+      }
+      if (event.event.type === "AgentMessageCompletedV1") {
+        const message: SessionMessage = {
+          id: event.event.messageId,
+          role: "assistant",
+          text: event.event.text,
+          sequence: event.sequence,
+          createdAt: event.event.timestamp,
+        };
+        setMessages((current) =>
+          current.some((entry) => entry.id === message.id)
+            ? current
+            : [...current, message],
+        );
+      }
+    };
     client.listSessionMessages(session.id).then(
       (result) => {
         if (!mounted) return;
         setMessages(result.messages);
         setStatus("ready");
+        const subscription = client.subscribeProjectSessionEvents({
+          sessionId: session.id,
+          after: result.session.lastSequence,
+          onEvent: appendEventMessage,
+        });
+        cancelSubscription = subscription.cancel;
       },
       () => {
         if (mounted) setStatus("error");
@@ -59,6 +99,7 @@ export const SessionChatContainer = ({
     );
     return () => {
       mounted = false;
+      cancelSubscription?.();
     };
   }, [client, session.id]);
   const submitPrompt = useCallback(
@@ -67,11 +108,11 @@ export const SessionChatContainer = ({
       setPromptError(null);
       try {
         const result = await client.submitPrompt(session.id, prompt);
-        setMessages((current) => [
-          ...current,
-          result.userMessage,
-          result.agentMessage,
-        ]);
+        setMessages((current) =>
+          current.some((entry) => entry.id === result.userMessage.id)
+            ? current
+            : [...current, result.userMessage],
+        );
       } catch (error) {
         setPromptError(
           isPublicHostError(error)

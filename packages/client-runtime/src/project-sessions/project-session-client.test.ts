@@ -116,14 +116,17 @@ describe("Project Session client", () => {
       sequence: 5,
       createdAt: "2026-01-01T00:01:00.000Z",
     };
-    const agentMessage = {
+    const turn = {
       id: "22222222-2222-4222-8222-222222222222",
-      role: "assistant",
-      text: "Echo: Build the wine list view",
-      sequence: 7,
-      createdAt: "2026-01-01T00:01:01.000Z",
+      commandId: uuid,
+      state: "running",
+      userMessageId: uuid,
+      assistantMessageId: "33333333-3333-4333-8333-333333333333",
+      draftText: "",
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
     };
-    const result = { session, userMessage, agentMessage };
+    const result = { session, turn, userMessage };
     const fetch = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const request = await requestDetails(input, init);
@@ -152,7 +155,7 @@ describe("Project Session client", () => {
     ).resolves.toEqual(result);
   });
 
-  it("subscribes to Session events with Authorization headers, SSE IDs, and reconnect cursors", async () => {
+  it("subscribes to Session events with Authorization headers, SSE IDs, live frames, and reconnect cursors", async () => {
     const firstEvent = {
       sequence: 5,
       eventType: "UserMessageSubmittedV1",
@@ -174,7 +177,20 @@ describe("Project Session client", () => {
         version: 1 as const,
         sessionId: uuid,
         turnId: "22222222-2222-4222-8222-222222222222",
-        messageId: uuid,
+        messageId: "33333333-3333-4333-8333-333333333333",
+        timestamp: "2026-01-01T00:01:00.000Z",
+      },
+    };
+    const liveEvent = {
+      live: true as const,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1" as const,
+        version: 1 as const,
+        sessionId: uuid,
+        turnId: "22222222-2222-4222-8222-222222222222",
+        messageId: "33333333-3333-4333-8333-333333333333",
+        text: "hello",
         timestamp: "2026-01-01T00:01:00.000Z",
       },
     };
@@ -184,7 +200,26 @@ describe("Project Session client", () => {
         const request =
           input instanceof Request ? input : new Request(input, init);
         requests.push(request);
-        return requests.length === 1 ? sse([firstEvent]) : sse([secondEvent]);
+        if (requests.length === 1)
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `id: ${firstEvent.sequence}\nevent: project-session.event\ndata: ${JSON.stringify(firstEvent)}\n\n`,
+                  ),
+                );
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `event: project-session.live\ndata: ${JSON.stringify(liveEvent)}\n\n`,
+                  ),
+                );
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return sse([secondEvent]);
       },
     );
     const client = createProjectSessionClient({
@@ -192,6 +227,7 @@ describe("Project Session client", () => {
       fetch: fetch as typeof globalThis.fetch,
     });
     const received: unknown[] = [];
+    const live: unknown[] = [];
     const subscription = client.subscribeProjectSessionEvents({
       sessionId: uuid,
       after: 4,
@@ -199,10 +235,12 @@ describe("Project Session client", () => {
         received.push(event);
         if (event.sequence === 6) subscription.cancel();
       },
+      onLiveEvent: (event) => live.push(event),
     });
     await subscription.closed;
 
     expect(received).toEqual([firstEvent, secondEvent]);
+    expect(live).toEqual([liveEvent]);
     expect(requests.map((request) => request.url)).toEqual([
       `http://127.0.0.1:1234/v1/project-sessions/${uuid}/events?after=4`,
       `http://127.0.0.1:1234/v1/project-sessions/${uuid}/events?after=5`,

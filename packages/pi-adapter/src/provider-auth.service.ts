@@ -10,6 +10,14 @@ import {
 } from "./provider-auth.storage.js";
 
 export type ProviderAuthSource = "stored" | "missing";
+export type ProviderAuthMethod = "api_key" | "oauth";
+export interface ProviderAuthOption {
+  readonly providerId: string;
+  readonly displayName: string;
+  readonly authMethods: readonly ProviderAuthMethod[];
+  readonly configured: boolean;
+  readonly configuredMethod?: ProviderAuthMethod;
+}
 export interface ProviderAuthStatus {
   readonly providerId: string;
   readonly configured: boolean;
@@ -29,6 +37,7 @@ export class ProviderAuthError extends Error {
 }
 
 export interface ProviderAuthService {
+  readonly listOptions: () => Promise<readonly ProviderAuthOption[]>;
   readonly status: (providerId: string) => Promise<ProviderAuthStatus>;
   readonly setApiKey: (
     providerId: string,
@@ -49,13 +58,24 @@ const providerFor = (providerId: string): Provider => {
   return provider;
 };
 
+const authMethodsFor = (provider: Provider): readonly ProviderAuthMethod[] => [
+  ...(provider.auth.apiKey ? (["api_key"] as const) : []),
+  ...(provider.auth.oauth ? (["oauth"] as const) : []),
+];
+
+const methodForCredential = (
+  provider: Provider,
+  credential: Credential,
+): ProviderAuthMethod | undefined => {
+  if (credential.type === "api_key" && provider.auth.apiKey) return "api_key";
+  if (credential.type === "oauth" && provider.auth.oauth) return "oauth";
+  return undefined;
+};
+
 const supportsCredential = (
   provider: Provider,
   credential: Credential,
-): boolean =>
-  credential.type === "api_key"
-    ? provider.auth.apiKey !== undefined
-    : provider.auth.oauth !== undefined;
+): boolean => methodForCredential(provider, credential) !== undefined;
 
 const assertApiKeyProvider = (providerId: string): Provider => {
   const provider = providerFor(providerId);
@@ -94,6 +114,30 @@ export const createProviderAuthService = (
     }
   };
   return {
+    listOptions: async () => {
+      try {
+        const options = await Promise.all(
+          [...supportedProviders.values()].map(async (provider) => {
+            const credential = await credentials.read(provider.id);
+            const configuredMethod = credential
+              ? methodForCredential(provider, credential)
+              : undefined;
+            return {
+              providerId: provider.id,
+              displayName: provider.name,
+              authMethods: authMethodsFor(provider),
+              configured: configuredMethod !== undefined,
+              ...(configuredMethod ? { configuredMethod } : {}),
+            };
+          }),
+        );
+        return options.sort((a, b) =>
+          a.displayName.localeCompare(b.displayName),
+        );
+      } catch (error) {
+        throw mapStorageError(error);
+      }
+    },
     status,
     setApiKey: async (providerId, apiKey) => {
       try {

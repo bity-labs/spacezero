@@ -8,10 +8,12 @@ import { HostAuthorizationErrorSchemas } from "../authentication/host-authorizat
 import {
   CreateProjectSessionRequestSchema,
   CreateProjectSessionResultSchema,
+  InterruptProjectSessionTurnResultSchema,
   ListProjectSessionsResultSchema,
   ListSessionMessagesResultSchema,
   ProjectSessionEventStreamQuerySchema,
   ProjectSessionIdSchema,
+  AgentTurnIdSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
 } from "./project-session.schema.js";
@@ -22,6 +24,10 @@ export const ProjectSessionAuthorizationHeaderSchema = Schema.Struct({
 });
 export const ProjectSessionPathParamsSchema = Schema.Struct({
   sessionId: ProjectSessionIdSchema,
+});
+export const ProjectSessionTurnPathParamsSchema = Schema.Struct({
+  sessionId: ProjectSessionIdSchema,
+  turnId: AgentTurnIdSchema,
 });
 export const ProjectSessionEventStream = HttpApiSchema.StreamUint8Array({
   contentType: "text/event-stream",
@@ -52,6 +58,21 @@ export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
         headers: ProjectSessionAuthorizationHeaderSchema,
         payload: SubmitSessionPromptRequestSchema,
         success: SubmitSessionPromptResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "interruptSessionTurn",
+      "/project-sessions/:sessionId/turns/:turnId/interrupt",
+      {
+        params: ProjectSessionTurnPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        success: InterruptProjectSessionTurnResultSchema,
         error: [
           ...HostAuthorizationErrorSchemas,
           ...ProjectSessionErrorSchemas,
