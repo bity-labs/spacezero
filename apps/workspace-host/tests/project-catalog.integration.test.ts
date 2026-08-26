@@ -347,8 +347,8 @@ describe("Project catalog Host protocol", () => {
     const db = new DatabaseSync(databasePath);
     try {
       const stmt = db.prepare(`
-INSERT INTO projects (project_id, display_name, canonical_root_path, canonical_git_dir_path, canonical_git_common_dir_path, root_device_id, root_file_id, common_dir_device_id, common_dir_file_id, registered_head_commit, created_at)
-VALUES ('11111111-1111-4111-8111-111111111111', 'bad', '/tmp/root', '/tmp/root/.git', '/tmp/root/.git', '1', '1', '2', '2', ?, '2026-01-01T00:00:00.000Z')`);
+INSERT INTO projects (project_id, display_name, canonical_root_path, canonical_git_dir_path, canonical_git_common_dir_path, root_device_id, root_file_id, common_dir_device_id, common_dir_file_id, objects_dir_device_id, objects_dir_file_id, registered_head_commit, created_at)
+VALUES ('11111111-1111-4111-8111-111111111111', 'bad', '/tmp/root', '/tmp/root/.git', '/tmp/root/.git', '1', '1', '2', '2', '3', '3', ?, '2026-01-01T00:00:00.000Z')`);
       expect(() => stmt.run(`a${"Z".repeat(39)}`)).toThrow();
       expect(() => stmt.run("a".repeat(40))).not.toThrow();
     } finally {
