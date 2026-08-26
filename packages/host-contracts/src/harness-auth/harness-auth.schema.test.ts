@@ -3,6 +3,7 @@ import {
   parseListProviderAuthOptionsResult,
   parseProviderAuthStatusResult,
   parseSetProviderApiKeyRequest,
+  parseStartProviderOAuthLoginResult,
 } from "./harness-auth.schema.js";
 
 describe("harness auth schemas", () => {
@@ -132,6 +133,18 @@ describe("harness auth schemas", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("accepts non-secret OAuth login start results", () => {
+    expect(parseStartProviderOAuthLoginResult({ flowId: "flow_123" })).toEqual({
+      flowId: "flow_123",
+    });
+    expect(() =>
+      parseStartProviderOAuthLoginResult({
+        flowId: "flow_123",
+        refresh: "secret",
+      }),
+    ).toThrow("invalid provider OAuth login result");
   });
 
   it("accepts bounded write-only API key requests", () => {

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerAppInfoIpc } from "./app-info.ipc.js";
 import { installAppLifecycle } from "./app-lifecycle.js";
+import { registerExternalUrlIpc } from "./external-url.ipc.js";
 import { registerLocalHostIpc } from "./local-host/local-host.ipc.js";
 import { registerProjectFolderPickerIpc } from "./project-folder-picker.ipc.js";
 import { createLocalHostSupervisor } from "./local-host/local-host-supervisor.js";
@@ -51,6 +52,7 @@ const createWindow = (): BrowserWindow => {
 };
 
 registerAppInfoIpc({ isTrustedSender });
+registerExternalUrlIpc({ isTrustedSender });
 registerLocalHostIpc({ supervisor, isTrustedSender });
 
 app.whenReady().then(async () => {

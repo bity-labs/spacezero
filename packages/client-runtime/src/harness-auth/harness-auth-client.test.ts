@@ -8,7 +8,7 @@ import {
 const descriptor: HostConnectionDescriptor = {
   endpoint: "http://127.0.0.1:1234/",
   instanceId: "0123456789abcdef0123456789abcdef",
-  protocolVersion: "2",
+  protocolVersion: "3",
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
   scopes: [
@@ -18,6 +18,8 @@ const descriptor: HostConnectionDescriptor = {
     "projects:register",
     "harness-auth:read",
     "harness-auth:write",
+    "flows:read",
+    "flows:write",
     "project-sessions:read",
     "project-sessions:create",
     "project-sessions:prompt",
@@ -35,7 +37,12 @@ const requestDetails = async (input: RequestInfo | URL, init?: RequestInit) => {
     url: request.url,
     method: request.method,
     authorization: request.headers.get("authorization"),
-    body: request.method === "PUT" ? await request.json() : undefined,
+    body: ["POST", "PUT"].includes(request.method)
+      ? await request
+          .clone()
+          .json()
+          .catch(() => undefined)
+      : undefined,
   };
 };
 
@@ -121,6 +128,30 @@ describe("Harness auth client", () => {
       providerId: "anthropic",
       configured: false,
       source: "missing",
+    });
+  });
+
+  it("starts provider OAuth login flows with the bearer header", async () => {
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = await requestDetails(input, init);
+        expect(request.url).toBe(
+          "http://127.0.0.1:1234/v1/harness-auth/providers/anthropic/oauth-flows",
+        );
+        expect(request.method).toBe("POST");
+        expect(request.authorization).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({ flowId: "flow_123" });
+      },
+    );
+    const client = createHarnessAuthClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(client.startProviderOAuthLogin("anthropic")).resolves.toEqual({
+      flowId: "flow_123",
     });
   });
 

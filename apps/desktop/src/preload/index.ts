@@ -8,6 +8,9 @@ type ProjectFolderPickerResult =
 export interface SpaceZeroPreloadApi {
   readonly getAppVersion: () => Promise<string>;
   readonly getLocalHostConnection: () => Promise<HostConnectionDescriptor>;
+  readonly openExternalUrl: (
+    url: string,
+  ) => Promise<{ readonly status: "opened" }>;
   readonly selectProjectFolder: () => Promise<ProjectFolderPickerResult>;
 }
 
@@ -18,6 +21,10 @@ const api: SpaceZeroPreloadApi = Object.freeze({
     ipcRenderer.invoke(
       "spacezero:get-local-host-connection",
     ) as Promise<HostConnectionDescriptor>,
+  openExternalUrl: (url: string) =>
+    ipcRenderer.invoke("spacezero:open-external-url", url) as Promise<{
+      readonly status: "opened";
+    }>,
   selectProjectFolder: () =>
     ipcRenderer.invoke(
       "spacezero:select-project-folder",
