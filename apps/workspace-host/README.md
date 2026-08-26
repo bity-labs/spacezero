@@ -18,8 +18,8 @@ Startup applies numbered Effect SQL migrations over `@effect/sql-sqlite-node@4.0
 
 ADR 0028 and ADR 0029 are authoritative for Project Sessions. The Host allocates a permanent unique Session name from bundled normalized French wine appellations, persists Session creation events and a rebuildable projection in SQLite, creates a managed Git worktree under `<Space Zero Home>/worktrees/<project-id>/<session-id>/`, and exposes path-free summaries through `POST /v1/project-sessions` and `GET /v1/project-sessions`.
 
-Prompt submission persists user/agent message-boundary events, invokes the Pi Adapter with one durable conversation identity per Project Session, and records completion or failure before waking replayable Session SSE subscribers. `GET /v1/project-sessions/:sessionId/events?after=<sequence>` uses authenticated fetch/SSE with durable cursor catch-up and live delivery.
+Prompt submission persists user/agent message-boundary events, invokes the Pi Adapter with one durable conversation identity per Project Session, and admits prompts before background completion. `GET /v1/project-sessions/:sessionId/events?after=<sequence>` uses authenticated fetch/SSE with durable cursor catch-up and live assistant/tool delivery. `/v1/harness-auth/providers` exposes non-secret Pi provider auth-method discovery; API-key set/remove endpoints persist credentials in Host-private Pi auth storage.
 
 Desktop passes Space Zero Home through the protected bootstrap frame; it is not exposed in renderer descriptors, URLs, argv, or environment variables. Dirty base-checkout changes are excluded from the managed worktree and represented as a warning boolean.
 
-Deferred: archive/delete, source selection, GitHub/remotes, full Workspace Tool registry and approval policy, private-Node deployment, production dependency pruning, and release integrity checks.
+Deferred: archive/delete, source selection, GitHub/remotes, full Workspace Tool registry, OAuth login flows, private-Node deployment, production dependency pruning, and release integrity checks.

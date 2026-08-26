@@ -1,7 +1,7 @@
-import type {
+import {
   AgentTurnError,
-  AgentTurnInput,
-  ConversationRunner,
+  type AgentTurnInput,
+  type ConversationRunner,
 } from "./conversation.model.js";
 
 export interface ScriptedConversationOptions {
@@ -23,10 +23,15 @@ export const createScriptedConversationRunner = (
   options: ScriptedConversationOptions = {},
 ): ConversationRunner => ({
   submitTurn: async (input) => {
+    if (input.signal?.aborted)
+      throw new AgentTurnError("agent_turn_interrupted");
     if (options.error) throw options.error;
     const respond = options.respond ?? ((current) => `Echo: ${current.prompt}`);
     const text = await respond(input);
+    if (input.signal?.aborted)
+      throw new AgentTurnError("agent_turn_interrupted");
     input.onDelta?.({ kind: "assistant_text", text });
+    await input.onEvent?.({ type: "assistant_delta", text });
     return { text };
   },
 });

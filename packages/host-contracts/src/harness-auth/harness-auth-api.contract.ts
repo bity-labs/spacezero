@@ -3,6 +3,7 @@ import { HttpApiEndpoint, HttpApiGroup } from "effect/unstable/httpapi";
 import { HostAuthorizationErrorSchemas } from "../authentication/host-authorization.schema.js";
 import { HarnessAuthErrorSchemas } from "./harness-auth-errors.schema.js";
 import {
+  ListProviderAuthOptionsResultSchema,
   ProviderAuthStatusResultSchema,
   ProviderPathParamsSchema,
   SetProviderApiKeyRequestSchema,
@@ -13,6 +14,13 @@ export const HarnessAuthAuthorizationHeaderSchema = Schema.Struct({
 });
 
 export const HarnessAuthApiGroup = HttpApiGroup.make("harnessAuth")
+  .add(
+    HttpApiEndpoint.get("listProviderAuthOptions", "/harness-auth/providers", {
+      headers: HarnessAuthAuthorizationHeaderSchema,
+      success: ListProviderAuthOptionsResultSchema,
+      error: [...HostAuthorizationErrorSchemas, ...HarnessAuthErrorSchemas],
+    }),
+  )
   .add(
     HttpApiEndpoint.get(
       "getProviderAuthStatus",

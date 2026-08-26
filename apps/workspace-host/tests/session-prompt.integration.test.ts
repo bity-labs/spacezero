@@ -170,6 +170,25 @@ const subscribeEvents = (
     },
   );
 
+const interruptTurn = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  turnId: string,
+) => {
+  const response = await fetch(
+    new URL(
+      `/v1/project-sessions/${sessionId}/turns/${turnId}/interrupt`,
+      host.endpoint,
+    ),
+    { method: "POST", headers: authHeaders(clientCapability) },
+  );
+  const text = await response.text();
+  return {
+    response,
+    body: text.length > 0 ? (JSON.parse(text) as unknown) : undefined,
+  };
+};
 const listMessages = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -180,6 +199,20 @@ const listMessages = async (
     { headers: authHeaders(clientCapability) },
   );
   return { response, body: (await response.json()) as unknown };
+};
+const waitForMessageCount = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  count: number,
+) => {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const listed = await listMessages(host, clientCapability, sessionId);
+    const body = listed.body as { messages?: unknown[] };
+    if ((body.messages?.length ?? 0) >= count) return listed;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return listMessages(host, clientCapability, sessionId);
 };
 const piConversationId = (databasePath: string, sessionId: string): string => {
   const db = new DatabaseSync(databasePath);
@@ -256,20 +289,31 @@ describe("Session prompt Host protocol", () => {
         text: string;
         sequence: number;
       };
-      agentMessage: {
+      turn: {
         id: string;
-        role: string;
-        text: string;
-        sequence: number;
+        state: string;
+        assistantMessageId: string;
       };
     };
     expect(body.session.id).toBe(sessionId);
     expect(body.session.state).toBe("ready");
     expect(body.userMessage.role).toBe("user");
     expect(body.userMessage.text).toBe("Build the wine list view");
-    expect(body.agentMessage.role).toBe("assistant");
-    expect(body.agentMessage.text).toBe("Echo: Build the wine list view");
-    expect(body.agentMessage.sequence).toBe(body.userMessage.sequence + 2);
+    expect(body.turn.state).toBe("running");
+    const listed = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      sessionId,
+      2,
+    );
+    const messagesBody = listed.body as {
+      session: { id: string; lastSequence: number };
+      messages: { id: string; role: string; text: string; sequence: number }[];
+    };
+    const agentMessage = messagesBody.messages[1]!;
+    expect(agentMessage.role).toBe("assistant");
+    expect(agentMessage.text).toBe("Echo: Build the wine list view");
+    expect(agentMessage.sequence).toBe(body.userMessage.sequence + 2);
     expect(seen).toHaveLength(1);
     const canonicalHome = await realpath(join(root, "SpaceZero"));
     expect(seen[0]?.worktreePath).toBe(
@@ -285,12 +329,7 @@ describe("Session prompt Host protocol", () => {
       "AgentMessageCompletedV1",
     ]);
 
-    const listed = await listMessages(host, client.clientCapability, sessionId);
     expect(listed.response.status).toBe(200);
-    const messagesBody = listed.body as {
-      session: { id: string; lastSequence: number };
-      messages: { id: string; role: string; text: string }[];
-    };
     expect(messagesBody.session.id).toBe(sessionId);
     expect(messagesBody.messages).toMatchObject([
       {
@@ -299,10 +338,72 @@ describe("Session prompt Host protocol", () => {
         text: "Build the wine list view",
       },
       {
-        id: body.agentMessage.id,
+        id: body.turn.assistantMessageId,
         role: "assistant",
         text: "Echo: Build the wine list view",
       },
+    ]);
+  });
+
+  it("completes turns after durable tool activity events", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "tool-1",
+          toolName: "read",
+        });
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "tool-1",
+          toolName: "read",
+          isError: false,
+        });
+        return { text: "tool-assisted answer" };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "use a tool",
+    );
+    expect(submitted.response.status).toBe(200);
+    const listed = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
+
+    expect(listed.body).toMatchObject({
+      messages: [
+        { role: "user", text: "use a tool" },
+        { role: "assistant", text: "tool-assisted answer" },
+      ],
+    });
+    expect(eventTypes(databasePath, created.session.id)).toEqual([
+      "ProjectSessionCreationRequestedV1",
+      "SessionWorkspacePreparationStartedV1",
+      "SessionWorkspacePreparedV1",
+      "ProjectSessionReadyV1",
+      "UserMessageSubmittedV1",
+      "AgentTurnStartedV1",
+      "AgentToolCallStartedV1",
+      "AgentToolCallCompletedV1",
+      "AgentMessageCompletedV1",
     ]);
   });
 
@@ -534,14 +635,80 @@ describe("Session prompt Host protocol", () => {
     const frames = await readSseFrames(live, 3);
     await submitted;
 
-    expect(frames.map((frame) => frame.id)).toEqual(["5", "6", "7"]);
+    const durableFrames = frames.filter((frame) => frame.id !== undefined);
+    const liveFrames = frames.filter((frame) => frame.id === undefined);
+    expect(durableFrames.map((frame) => frame.id)).toEqual(["5", "6", "7"]);
     expect(
-      frames.map((frame) => (frame.data as { eventType: string }).eventType),
+      liveFrames.map(
+        (frame) => (frame.data as { eventType: string }).eventType,
+      ),
+    ).toContain("AssistantTextDeltaV1");
+    expect(
+      durableFrames.map(
+        (frame) => (frame.data as { eventType: string }).eventType,
+      ),
     ).toEqual([
       "UserMessageSubmittedV1",
       "AgentTurnStartedV1",
       "AgentMessageCompletedV1",
     ]);
+  });
+
+  it("interrupts an active background turn and journals the interruption", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: (input) =>
+        new Promise((_, reject) => {
+          input.signal?.addEventListener(
+            "abort",
+            () => reject(new AgentTurnError("agent_turn_interrupted")),
+            { once: true },
+          );
+        }),
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "please wait",
+    );
+    expect(submitted.response.status).toBe(200);
+    const turnId = (submitted.body as { turn: { id: string } }).turn.id;
+
+    const interrupted = await interruptTurn(
+      host,
+      client.clientCapability,
+      created.session.id,
+      turnId,
+    );
+
+    expect(interrupted.response.status).toBe(200);
+    expect(interrupted.body).toMatchObject({
+      turn: { id: turnId, state: "interrupted" },
+    });
+    const secondInterrupt = await interruptTurn(
+      host,
+      client.clientCapability,
+      created.session.id,
+      turnId,
+    );
+    expect(secondInterrupt.response.status).toBe(200);
+    expect(secondInterrupt.body).toMatchObject({
+      turn: { id: turnId, state: "interrupted" },
+    });
+    const events = eventTypes(databasePath, created.session.id);
+    expect(events).toContain("AgentTurnInterruptedV1");
+    expect(events).not.toContain("AgentTurnFailedV1");
   });
 
   it("denies unauthorized or wrong-origin Session event streams", async () => {
@@ -634,7 +801,12 @@ describe("Session prompt Host protocol", () => {
 
     expect(first.response.status).toBe(200);
     expect(replayed.response.status).toBe(200);
-    expect(replayed.body).toMatchObject(first.body as object);
+    expect(replayed.body).toMatchObject({
+      turn: { id: (first.body as { turn: { id: string } }).turn.id },
+      userMessage: {
+        id: (first.body as { userMessage: { id: string } }).userMessage.id,
+      },
+    });
     expect(conflict.response.status).toBe(409);
     expect(conflict.body).toMatchObject({ code: "command_id_conflict" });
   });
@@ -757,11 +929,16 @@ describe("Session prompt Host protocol", () => {
       created.session.id,
       "hello",
     );
-    expect(failed.response.status).toBe(502);
-    expect(failed.body).toMatchObject({
-      code: "agent_turn_failed",
-      message: "The agent turn failed. Try the prompt again.",
-    });
+    expect(failed.response.status).toBe(200);
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if (
+        eventTypes(databasePath, created.session.id).includes(
+          "AgentTurnFailedV1",
+        )
+      )
+        break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     expect(eventTypes(databasePath, created.session.id)).toContain(
       "AgentTurnFailedV1",
     );

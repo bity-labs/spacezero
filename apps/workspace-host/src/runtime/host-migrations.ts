@@ -123,6 +123,90 @@ CREATE TABLE project_session_messages (
   yield* sql`CREATE INDEX project_session_messages_list_order ON project_session_messages(session_id, sequence)`;
 });
 
+export const createProjectSessionTurnsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_turns (
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  command_id TEXT NOT NULL UNIQUE,
+  user_message_id TEXT NOT NULL,
+  assistant_message_id TEXT NOT NULL UNIQUE,
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'interrupted', 'recovery_required')),
+  draft_text TEXT NOT NULL DEFAULT '',
+  failure_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, turn_id),
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX project_session_turns_state ON project_session_turns(session_id, state)`;
+  yield* sql`
+INSERT INTO project_session_turns (
+  session_id,
+  turn_id,
+  command_id,
+  user_message_id,
+  assistant_message_id,
+  state,
+  draft_text,
+  failure_reason,
+  created_at,
+  updated_at
+)
+SELECT
+  receipt.session_id,
+  json_extract(turn_event.event_payload_json, '$.turnId'),
+  receipt.command_id,
+  json_extract(user_event.event_payload_json, '$.messageId'),
+  COALESCE(
+    assistant_message.message_id,
+    CASE
+      WHEN json_extract(turn_event.event_payload_json, '$.messageId') != json_extract(user_event.event_payload_json, '$.messageId')
+      THEN json_extract(turn_event.event_payload_json, '$.messageId')
+      ELSE lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))
+    END
+  ),
+  CASE receipt.status
+    WHEN 'succeeded' THEN 'completed'
+    WHEN 'failed' THEN 'failed'
+    ELSE 'recovery_required'
+  END,
+  COALESCE(assistant_message.text, ''),
+  CASE
+    WHEN receipt.status IN ('failed', 'recovery_required') THEN receipt.terminal_error_code
+    WHEN receipt.status = 'pending' THEN 'session_recovery_required'
+    ELSE NULL
+  END,
+  receipt.created_at,
+  receipt.updated_at
+FROM project_session_command_receipts receipt
+JOIN project_session_events user_event
+  ON user_event.session_id = receipt.session_id
+  AND user_event.event_type = 'UserMessageSubmittedV1'
+  AND json_extract(user_event.event_payload_json, '$.commandId') = receipt.command_id
+JOIN project_session_events turn_event
+  ON turn_event.session_id = receipt.session_id
+  AND turn_event.event_type = 'AgentTurnStartedV1'
+  AND turn_event.sequence = (
+    SELECT min(candidate.sequence)
+    FROM project_session_events candidate
+    WHERE candidate.session_id = receipt.session_id
+      AND candidate.event_type = 'AgentTurnStartedV1'
+      AND candidate.sequence > user_event.sequence
+  )
+LEFT JOIN project_session_messages assistant_message
+  ON assistant_message.session_id = receipt.session_id
+  AND assistant_message.turn_id = json_extract(turn_event.event_payload_json, '$.turnId')
+  AND assistant_message.role = 'assistant'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM project_session_turns existing
+  WHERE existing.command_id = receipt.command_id
+)`;
+});
+
 export const addProjectGitObjectsIdentityMigration = Effect.gen(function* () {
   const sql = yield* SqlClient;
   yield* sql`ALTER TABLE projects ADD COLUMN objects_dir_device_id TEXT`;
@@ -172,6 +256,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     5,
     "add_project_git_objects_identity",
     Effect.succeed(addProjectGitObjectsIdentityMigration),
+  ],
+  [
+    6,
+    "create_project_session_turns",
+    Effect.succeed(createProjectSessionTurnsMigration),
   ],
 ] as const);
 

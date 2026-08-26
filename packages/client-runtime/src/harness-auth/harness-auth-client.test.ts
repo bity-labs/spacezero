@@ -40,6 +40,58 @@ const requestDetails = async (input: RequestInfo | URL, init?: RequestInit) => {
 };
 
 describe("Harness auth client", () => {
+  it("lists provider auth options with the bearer header", async () => {
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = await requestDetails(input, init);
+        expect(request.url).toBe(
+          "http://127.0.0.1:1234/v1/harness-auth/providers",
+        );
+        expect(request.method).toBe("GET");
+        expect(request.authorization).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        return json({
+          providers: [
+            {
+              providerId: "anthropic",
+              displayName: "Anthropic",
+              authMethods: ["api_key", "oauth"],
+              configured: true,
+              configuredMethod: "api_key",
+            },
+            {
+              providerId: "openai",
+              displayName: "OpenAI",
+              authMethods: ["api_key"],
+              configured: false,
+            },
+          ],
+        });
+      },
+    );
+    const client = createHarnessAuthClient({
+      getConnectionDescriptor: async () => descriptor,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(client.listProviderAuthOptions()).resolves.toEqual([
+      {
+        providerId: "anthropic",
+        displayName: "Anthropic",
+        authMethods: ["api_key", "oauth"],
+        configured: true,
+        configuredMethod: "api_key",
+      },
+      {
+        providerId: "openai",
+        displayName: "OpenAI",
+        authMethods: ["api_key"],
+        configured: false,
+      },
+    ]);
+  });
+
   it("reads provider status with the bearer header", async () => {
     const fetch = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
