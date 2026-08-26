@@ -123,6 +123,13 @@ CREATE TABLE project_session_messages (
   yield* sql`CREATE INDEX project_session_messages_list_order ON project_session_messages(session_id, sequence)`;
 });
 
+export const addProjectGitObjectsIdentityMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE projects ADD COLUMN objects_dir_device_id TEXT`;
+  yield* sql`ALTER TABLE projects ADD COLUMN objects_dir_file_id TEXT`;
+  yield* sql`CREATE UNIQUE INDEX projects_objects_dir_identity ON projects(objects_dir_device_id, objects_dir_file_id)`;
+});
+
 export const createProjectSessionPiContextsMigration = Effect.gen(function* () {
   const sql = yield* SqlClient;
   yield* sql`
@@ -160,6 +167,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     4,
     "create_project_session_pi_contexts",
     Effect.succeed(createProjectSessionPiContextsMigration),
+  ],
+  [
+    5,
+    "add_project_git_objects_identity",
+    Effect.succeed(addProjectGitObjectsIdentityMigration),
   ],
 ] as const);
 

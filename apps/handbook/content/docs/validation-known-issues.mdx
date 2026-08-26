@@ -20,32 +20,20 @@ pnpm dev:handbook
 
 ## Current passing checks
 
-The following checks passed when the handbook was created:
+The following checks pass:
 
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test
+pnpm --filter @spacezero/workspace-host test
 pnpm --filter @spacezero/handbook build
 pnpm --filter @spacezero/handbook test
-pnpm format:check
-node --test scripts/check-boundaries.test.mjs
 ```
 
 ## Current expected failure
 
-The full `pnpm test` currently fails in Workspace Host clean shutdown tests:
-
-- `apps/workspace-host/tests/host-protocol.integration.test.ts`
-- `apps/workspace-host/tests/process.smoke.test.ts`
-
-The observed failure is:
-
-```txt
-expected [0, null]
-received [null, "SIGKILL"]
-```
-
-This means the test helper force-kills the Host process after a timeout instead of observing a clean exit.
+There is no expected test failure at this point. Treat a red `pnpm test` as a new regression to diagnose.
 
 ## Handbook-specific note
 

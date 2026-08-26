@@ -15,6 +15,8 @@ export interface InspectedRepository {
   readonly rootFileId: string;
   readonly commonDirDeviceId: string;
   readonly commonDirFileId: string;
+  readonly objectsDirDeviceId: string;
+  readonly objectsDirFileId: string;
   readonly headCommit: string;
   readonly displayName: string;
 }

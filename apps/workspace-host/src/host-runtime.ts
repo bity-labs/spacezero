@@ -20,6 +20,14 @@ export interface HostDiagnostic {
 export const formatHostDiagnostic = (event: HostDiagnostic["event"]): string =>
   JSON.stringify({ process: "workspace-host", event } satisfies HostDiagnostic);
 
+const writeHostDiagnostic = (event: HostDiagnostic["event"]): Promise<void> =>
+  new Promise((resolve, reject) => {
+    process.stdout.write(`${formatHostDiagnostic(event)}\n`, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+
 export const runProtectedHost = async (
   options: {
     readonly bootstrapFd?: number;
@@ -67,7 +75,7 @@ export const runProtectedHost = async (
       protocolMax: HOST_PROTOCOL_VERSION,
     }),
   );
-  console.log(formatHostDiagnostic("startup"));
+  await writeHostDiagnostic("startup");
   try {
     await Promise.race([lifetime.done, signal, httpShutdown]);
   } finally {
@@ -76,6 +84,6 @@ export const runProtectedHost = async (
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
     await host.stop();
-    console.log(formatHostDiagnostic("shutdown"));
+    await writeHostDiagnostic("shutdown");
   }
 };
