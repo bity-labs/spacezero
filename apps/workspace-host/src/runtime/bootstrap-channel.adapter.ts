@@ -1,10 +1,6 @@
-import {
-  closeSync,
-  createReadStream,
-  createWriteStream,
-  type ReadStream,
-} from "node:fs";
+import { createReadStream, createWriteStream } from "node:fs";
 import { once } from "node:events";
+import { Socket } from "node:net";
 
 const MAX_FRAME_BYTES = 8192;
 export const readBoundedJsonFrame = async (
@@ -52,27 +48,24 @@ export interface LifetimeWait {
   readonly close: () => void;
 }
 export const waitForLifetimeEnd = (fd: number): LifetimeWait => {
-  const stream: ReadStream = createReadStream(null as never, {
-    fd,
-    autoClose: false,
-  });
+  const stream = new Socket({ fd, readable: true, writable: false });
   let settle!: () => void;
   let closed = false;
   const done = new Promise<void>((resolve) => {
     settle = resolve;
   });
-  const close = (): void => {
+  const finish = (): void => {
     if (closed) return;
     closed = true;
-    stream.destroy();
-    try {
-      closeSync(fd);
-    } catch {
-      // The peer may have closed the inherited descriptor concurrently.
-    }
     settle();
   };
-  for (const event of ["data", "end", "close", "error"] as const)
-    stream.once(event, close);
+  stream.once("data", () => stream.destroy());
+  stream.once("end", finish);
+  stream.once("close", finish);
+  stream.once("error", finish);
+  const close = (): void => {
+    if (!stream.destroyed) stream.destroy();
+    finish();
+  };
   return { done, close };
 };
