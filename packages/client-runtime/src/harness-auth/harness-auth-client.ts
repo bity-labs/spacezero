@@ -8,12 +8,17 @@ import { HttpApiClient } from "effect/unstable/httpapi";
 import {
   HostApi,
   parseHostConnectionDescriptor,
+  parseListProviderAuthOptionsResult,
   parseProviderAuthStatusResult,
   type HostConnectionDescriptor,
+  type ProviderAuthOption,
   type ProviderAuthStatus,
 } from "@spacezero/host-contracts";
 
 export interface HarnessAuthClient {
+  readonly listProviderAuthOptions: () => Promise<
+    readonly ProviderAuthOption[]
+  >;
   readonly getProviderAuthStatus: (
     providerId: string,
   ) => Promise<ProviderAuthStatus>;
@@ -33,6 +38,9 @@ export interface HarnessAuthClientOptions {
 
 interface GeneratedHarnessAuthApiClient {
   readonly harnessAuth: {
+    readonly listProviderAuthOptions: (input: {
+      readonly headers: { readonly authorization: string };
+    }) => Effect.Effect<unknown, unknown, never>;
     readonly getProviderAuthStatus: (input: {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly providerId: string };
@@ -94,6 +102,12 @@ const statusFromResult = (result: unknown): ProviderAuthStatus =>
   parseProviderAuthStatusResult(Array.isArray(result) ? result[0] : result)
     .status;
 
+const providerOptionsFromResult = (
+  result: unknown,
+): readonly ProviderAuthOption[] =>
+  parseListProviderAuthOptionsResult(Array.isArray(result) ? result[0] : result)
+    .providers;
+
 export const createHarnessAuthClient = (
   options: HarnessAuthClientOptions,
 ): HarnessAuthClient => {
@@ -101,6 +115,15 @@ export const createHarnessAuthClient = (
   const descriptor = async () =>
     parseHostConnectionDescriptor(await options.getConnectionDescriptor());
   return {
+    listProviderAuthOptions: async () => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.harnessAuth.listProviderAuthOptions({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+        }),
+      );
+      return providerOptionsFromResult(result);
+    },
     getProviderAuthStatus: async (providerId) => {
       const current = await descriptor();
       const result = await runClient(current, fetchImpl, (client) =>

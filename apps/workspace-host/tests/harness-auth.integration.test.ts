@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  parseListProviderAuthOptionsResult,
   parseProviderAuthStatusResult,
   type HostConnectionDescriptor,
 } from "@spacezero/host-contracts";
@@ -68,6 +69,32 @@ const status = async (
   );
 
 describe("harness auth Host protocol", () => {
+  it("lists available provider auth methods without returning secrets", async () => {
+    const root = await temp();
+    const { descriptor } = await start(root);
+
+    const listed = await fetch(
+      new URL("/v1/harness-auth/providers", descriptor.endpoint),
+      { headers: headers(descriptor) },
+    );
+
+    expect(listed.status).toBe(200);
+    const text = await listed.text();
+    const body = parseListProviderAuthOptionsResult(
+      JSON.parse(text) as unknown,
+    );
+    expect(text).not.toContain("sk-");
+    expect(body.providers.length).toBeGreaterThan(0);
+    expect(body.providers).toContainEqual(
+      expect.objectContaining({
+        providerId: "anthropic",
+        displayName: expect.any(String) as string,
+        authMethods: expect.arrayContaining(["api_key"]),
+        configured: false,
+      }),
+    );
+  });
+
   it("reports, sets, persists, and removes provider API-key status without returning secrets", async () => {
     const root = await temp();
     const { host, descriptor } = await start(root);
@@ -98,6 +125,20 @@ describe("harness auth Host protocol", () => {
     ).toEqual({
       status: { providerId: "anthropic", configured: true, source: "stored" },
     });
+    const listedAfterSet = await fetch(
+      new URL("/v1/harness-auth/providers", descriptor.endpoint),
+      { headers: headers(descriptor) },
+    );
+    expect(listedAfterSet.status).toBe(200);
+    expect(
+      parseListProviderAuthOptionsResult(await listedAfterSet.json()).providers,
+    ).toContainEqual(
+      expect.objectContaining({
+        providerId: "anthropic",
+        configured: true,
+        configuredMethod: "api_key",
+      }),
+    );
     await expect(
       readFile(join(root, "host.sqlite"), "utf8"),
     ).resolves.not.toContain(marker);

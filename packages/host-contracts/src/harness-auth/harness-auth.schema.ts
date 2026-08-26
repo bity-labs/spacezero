@@ -1,6 +1,17 @@
 import { Schema } from "effect";
 
 export type HarnessAuthSource = "stored" | "missing";
+export type ProviderAuthMethod = "api_key" | "oauth";
+export interface ProviderAuthOption {
+  readonly providerId: string;
+  readonly displayName: string;
+  readonly authMethods: readonly ProviderAuthMethod[];
+  readonly configured: boolean;
+  readonly configuredMethod?: ProviderAuthMethod;
+}
+export interface ListProviderAuthOptionsResult {
+  readonly providers: readonly ProviderAuthOption[];
+}
 export interface ProviderAuthStatus {
   readonly providerId: string;
   readonly configured: boolean;
@@ -13,6 +24,7 @@ export interface ProviderAuthStatusResult {
   readonly status: ProviderAuthStatus;
 }
 
+export const ProviderAuthMethodSchema = Schema.Literals(["api_key", "oauth"]);
 export const ProviderIdSchema = Schema.String;
 export const ProviderPathParamsSchema = Schema.Struct({
   providerId: ProviderIdSchema,
@@ -21,6 +33,16 @@ export const ProviderAuthStatusSchema = Schema.Struct({
   providerId: ProviderIdSchema,
   configured: Schema.Boolean,
   source: Schema.Literals(["stored", "missing"]),
+});
+export const ProviderAuthOptionSchema = Schema.Struct({
+  providerId: ProviderIdSchema,
+  displayName: Schema.String,
+  authMethods: Schema.Array(ProviderAuthMethodSchema),
+  configured: Schema.Boolean,
+  configuredMethod: Schema.optionalKey(ProviderAuthMethodSchema),
+});
+export const ListProviderAuthOptionsResultSchema = Schema.Struct({
+  providers: Schema.Array(ProviderAuthOptionSchema),
 });
 export const ProviderAuthStatusResultSchema = Schema.Struct({
   status: ProviderAuthStatusSchema,
@@ -57,6 +79,55 @@ export const isValidHarnessProviderId = (providerId: string): boolean =>
   providerId.length > 0 &&
   textByteLength(providerId) <= 128 &&
   /^[a-z0-9][a-z0-9._-]*$/.test(providerId);
+
+const isAuthMethod = (value: unknown): value is ProviderAuthMethod =>
+  value === "api_key" || value === "oauth";
+
+export function parseListProviderAuthOptionsResult(
+  value: unknown,
+): ListProviderAuthOptionsResult {
+  if (!isRecord(value) || !exactKeys(value, ["providers"]))
+    throw new Error("invalid provider auth options result");
+  if (!Array.isArray(value.providers))
+    throw new Error("invalid provider auth options result");
+  for (const provider of value.providers) {
+    if (!isRecord(provider))
+      throw new Error("invalid provider auth options result");
+    const keys = provider.configured
+      ? [
+          "providerId",
+          "displayName",
+          "authMethods",
+          "configured",
+          "configuredMethod",
+        ]
+      : ["providerId", "displayName", "authMethods", "configured"];
+    if (!exactKeys(provider, keys))
+      throw new Error("invalid provider auth options result");
+    if (
+      typeof provider.providerId !== "string" ||
+      !isValidHarnessProviderId(provider.providerId) ||
+      typeof provider.displayName !== "string" ||
+      provider.displayName.length === 0 ||
+      !Array.isArray(provider.authMethods) ||
+      provider.authMethods.length === 0 ||
+      !provider.authMethods.every(isAuthMethod) ||
+      new Set(provider.authMethods).size !== provider.authMethods.length ||
+      typeof provider.configured !== "boolean"
+    ) {
+      throw new Error("invalid provider auth options result");
+    }
+    if (provider.configured) {
+      if (
+        !isAuthMethod(provider.configuredMethod) ||
+        !provider.authMethods.includes(provider.configuredMethod)
+      ) {
+        throw new Error("invalid provider auth options result");
+      }
+    }
+  }
+  return value as unknown as ListProviderAuthOptionsResult;
+}
 
 export function parseProviderAuthStatusResult(
   value: unknown,

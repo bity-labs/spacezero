@@ -9,12 +9,15 @@ import {
   HostApi,
   parseHostConnectionDescriptor,
   parseProjectSessionEventEnvelope,
+  parseProjectSessionLiveEventEnvelope,
   type CreateProjectSessionResult,
+  type InterruptProjectSessionTurnResult,
   type HostConnectionDescriptor,
   type ListSessionMessagesResult,
   type ProjectId,
   type ProjectSessionCommandId,
   type ProjectSessionEventEnvelope,
+  type ProjectSessionLiveEventEnvelope,
   type ProjectSessionSummary,
   type SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
@@ -31,6 +34,10 @@ export interface ProjectSessionClient {
   readonly listSessionMessages: (
     sessionId: string,
   ) => Promise<ListSessionMessagesResult>;
+  readonly interruptTurn: (
+    sessionId: string,
+    turnId: string,
+  ) => Promise<InterruptProjectSessionTurnResult>;
   readonly subscribeProjectSessionEvents: (
     input: SubscribeProjectSessionEventsInput,
   ) => ProjectSessionEventSubscription;
@@ -40,6 +47,7 @@ export interface SubscribeProjectSessionEventsInput {
   readonly sessionId: string;
   readonly after: number;
   readonly onEvent: (event: ProjectSessionEventEnvelope) => void;
+  readonly onLiveEvent?: (event: ProjectSessionLiveEventEnvelope) => void;
   readonly onError?: (error: Error) => void;
 }
 
@@ -78,6 +86,10 @@ interface GeneratedProjectSessionApiClient {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly sessionId: string };
     }) => Effect.Effect<unknown, unknown, never>;
+    readonly interruptSessionTurn: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string; readonly turnId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
   };
 }
 
@@ -91,18 +103,22 @@ const parseSseFrames = (
 
 const parseSseEnvelope = (
   frame: string,
-): ProjectSessionEventEnvelope | undefined => {
+):
+  ProjectSessionEventEnvelope | ProjectSessionLiveEventEnvelope | undefined => {
   const dataLines: string[] = [];
   let id: string | undefined;
+  let eventName: string | undefined;
   for (const line of frame.split("\n")) {
     if (line.startsWith("id:")) id = line.slice(3).trim();
+    if (line.startsWith("event:")) eventName = line.slice(6).trim();
     if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
   }
   const data = dataLines.join("\n");
   if (!data) return undefined;
-  const envelope = parseProjectSessionEventEnvelope(
-    JSON.parse(data) as unknown,
-  );
+  const value = JSON.parse(data) as unknown;
+  if (eventName === "project-session.live")
+    return parseProjectSessionLiveEventEnvelope(value);
+  const envelope = parseProjectSessionEventEnvelope(value);
   if (id !== undefined && id !== String(envelope.sequence))
     throw new Error("invalid project session event id");
   return envelope;
@@ -158,8 +174,12 @@ const runProjectSessionEventSubscription = async (
         for (const frame of parsed.frames) {
           const event = parseSseEnvelope(frame);
           if (!event) continue;
-          cursor = event.sequence;
-          input.onEvent(event);
+          if ("sequence" in event) {
+            cursor = event.sequence;
+            input.onEvent(event);
+          } else {
+            input.onLiveEvent?.(event);
+          }
         }
       }
     } catch (error) {
@@ -263,6 +283,18 @@ export const createProjectSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as ListSessionMessagesResult;
+    },
+    interruptTurn: async (sessionId, turnId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.interruptSessionTurn({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId, turnId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as InterruptProjectSessionTurnResult;
     },
     subscribeProjectSessionEvents: (input) => {
       const controller = new AbortController();

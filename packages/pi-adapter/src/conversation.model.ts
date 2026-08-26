@@ -6,7 +6,8 @@
  * `ConversationRunner` without leaking implementation details upward.
  */
 
-export type AgentTurnErrorCode = "agent_unavailable" | "agent_turn_failed";
+export type AgentTurnErrorCode =
+  "agent_unavailable" | "agent_turn_failed" | "agent_turn_interrupted";
 
 export class AgentTurnError extends Error {
   constructor(readonly code: AgentTurnErrorCode) {
@@ -22,6 +23,26 @@ export interface AgentTurnDelta {
   readonly kind: "assistant_text";
   readonly text: string;
 }
+
+export type AgentRuntimeEvent =
+  | { readonly type: "assistant_delta"; readonly text: string }
+  | {
+      readonly type: "tool_started";
+      readonly toolCallId: string;
+      readonly toolName: string;
+    }
+  | {
+      readonly type: "tool_updated";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly summary: string;
+    }
+  | {
+      readonly type: "tool_completed";
+      readonly toolCallId: string;
+      readonly toolName: string;
+      readonly isError: boolean;
+    };
 
 export interface AgentTurnMessage {
   /** Stable Space Zero message role from the Session projection. */
@@ -50,8 +71,12 @@ export interface AgentTurnInput {
   readonly tools: AgentToolConfiguration;
   /** Accepted user prompt text. */
   readonly prompt: string;
+  /** Optional cancellation signal for the active turn. */
+  readonly signal?: AbortSignal;
   /** Optional live fragment sink; fragments remain ephemeral. */
   readonly onDelta?: (delta: AgentTurnDelta) => void;
+  /** Optional sanitized runtime event sink. Raw Pi events never cross this seam. */
+  readonly onEvent?: (event: AgentRuntimeEvent) => void | Promise<void>;
 }
 
 export interface AgentTurnResult {

@@ -43,15 +43,26 @@ describe("scripted conversation runner", () => {
 
   it("emits one ephemeral assistant text delta before completion", async () => {
     const deltas: AgentTurnDelta[] = [];
+    const events: unknown[] = [];
     const runner = createScriptedConversationRunner({
       respond: () => "streamed answer",
     });
     const result = await runner.submitTurn(
-      input({ onDelta: (delta) => deltas.push(delta) }),
+      input({
+        onDelta: (delta) => {
+          deltas.push(delta);
+        },
+        onEvent: (event) => {
+          events.push(event);
+        },
+      }),
     );
     expect(result).toEqual({ text: "streamed answer" });
     expect(deltas).toEqual([
       { kind: "assistant_text", text: "streamed answer" },
+    ]);
+    expect(events).toEqual([
+      { type: "assistant_delta", text: "streamed answer" },
     ]);
   });
 

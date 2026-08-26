@@ -14,6 +14,8 @@ export type ProjectSessionErrorCode =
   | "session_not_found"
   | "session_not_ready"
   | "session_turn_in_progress"
+  | "turn_not_found"
+  | "turn_not_active"
   | "agent_turn_failed"
   | "agent_unavailable";
 
@@ -79,6 +81,14 @@ export const SessionTurnInProgressErrorSchema = projectSessionError(
   "session_turn_in_progress",
   409,
 );
+export const TurnNotFoundErrorSchema = projectSessionError(
+  "turn_not_found",
+  404,
+);
+export const TurnNotActiveErrorSchema = projectSessionError(
+  "turn_not_active",
+  409,
+);
 export const AgentTurnFailedErrorSchema = projectSessionError(
   "agent_turn_failed",
   502,
@@ -101,6 +111,8 @@ export const ProjectSessionErrorSchemas = [
   SessionNotFoundErrorSchema,
   SessionNotReadyErrorSchema,
   SessionTurnInProgressErrorSchema,
+  TurnNotFoundErrorSchema,
+  TurnNotActiveErrorSchema,
   AgentTurnFailedErrorSchema,
   AgentUnavailableErrorSchema,
 ] as const;
@@ -166,6 +178,13 @@ export const projectSessionErrorBody = (
         code,
         message:
           "An agent turn is already in progress for this Session. Wait for it to finish.",
+      };
+    case "turn_not_found":
+      return { code, message: "The selected agent turn does not exist." };
+    case "turn_not_active":
+      return {
+        code,
+        message: "The selected agent turn is not currently running.",
       };
     case "agent_turn_failed":
       return {

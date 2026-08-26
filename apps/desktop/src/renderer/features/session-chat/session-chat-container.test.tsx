@@ -14,6 +14,11 @@ const sessionClient = vi.hoisted(() => ({
   createProjectSession: vi.fn(),
   submitPrompt: vi.fn(),
   listSessionMessages: vi.fn(),
+  interruptTurn: vi.fn(),
+  subscribeProjectSessionEvents: vi.fn(() => ({
+    cancel: vi.fn(),
+    closed: Promise.resolve(),
+  })),
 }));
 
 vi.mock("@spacezero/client-runtime", () => ({
@@ -82,9 +87,18 @@ describe("SessionChatContainer", () => {
       messages: [],
     });
     sessionClient.submitPrompt.mockResolvedValue({
-      session: { ...session, lastSequence: 7 },
+      session: { ...session, lastSequence: 6 },
+      turn: {
+        id: "44444444-4444-4444-8444-444444444444",
+        commandId: "55555555-5555-4555-8555-555555555555",
+        state: "running",
+        userMessageId: userMessage.id,
+        assistantMessageId: agentMessage.id,
+        draftText: "",
+        createdAt: userMessage.createdAt,
+        updatedAt: userMessage.createdAt,
+      },
       userMessage,
-      agentMessage,
     });
 
     render(<SessionChatContainer session={session} onBack={vi.fn()} />);
@@ -102,6 +116,32 @@ describe("SessionChatContainer", () => {
         "Build the wine list view",
       ),
     );
+    expect(
+      await screen.findByText("Build the wine list view"),
+    ).toBeInTheDocument();
+    const subscriptionCalls = (
+      sessionClient.subscribeProjectSessionEvents as unknown as {
+        readonly mock: {
+          readonly calls: readonly [
+            { readonly onEvent: (event: unknown) => void },
+          ][];
+        };
+      }
+    ).mock.calls;
+    const subscriptionInput = subscriptionCalls[0]![0];
+    subscriptionInput.onEvent({
+      sequence: agentMessage.sequence,
+      eventType: "AgentMessageCompletedV1",
+      event: {
+        type: "AgentMessageCompletedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId: "44444444-4444-4444-8444-444444444444",
+        messageId: agentMessage.id,
+        text: agentMessage.text,
+        timestamp: agentMessage.createdAt,
+      },
+    });
     expect(
       await screen.findByText("Echo: Build the wine list view"),
     ).toBeInTheDocument();
