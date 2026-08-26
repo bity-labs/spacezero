@@ -196,6 +196,8 @@ describe("workspace host protocol", () => {
         "projects:register",
         "harness-auth:read",
         "harness-auth:write",
+        "flows:read",
+        "flows:write",
         "project-sessions:read",
         "project-sessions:create",
         "project-sessions:prompt",
@@ -212,7 +214,7 @@ describe("workspace host protocol", () => {
       expect(query.status).toBe(200);
       expect(await query.json()).toEqual({
         instanceId: descriptor.instanceId,
-        protocolVersion: "2",
+        protocolVersion: "3",
         status: "ready",
       });
       const events = await fetch(new URL("/v1/events", descriptor.endpoint), {

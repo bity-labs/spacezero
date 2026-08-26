@@ -12,9 +12,12 @@ import {
   HostApi,
   parseHostConnectedEvent,
   parseHostConnectionSnapshot,
+  flowErrorBody,
   harnessAuthErrorBody,
   projectErrorBody,
   projectSessionErrorBody,
+  type FlowError,
+  type FlowEventEnvelope,
   type HarnessAuthError,
   type HostAuthorizationError,
   type HostConnectedEvent,
@@ -35,12 +38,17 @@ import {
   createProviderAuthService,
   ProviderAuthError,
   type ConversationRunner,
+  type ProviderAuthService,
 } from "@spacezero/pi-adapter";
 import { runHostDatabaseMigrations } from "./host-database.js";
 import {
   createCapabilityService,
   type CapabilityService,
 } from "./capability.service.js";
+import {
+  createFlowRegistry,
+  FlowRegistryError,
+} from "./flow-registry.service.js";
 
 export interface BootstrapAuthority {
   readonly consume: (candidateSecret: string) => void;
@@ -61,6 +69,8 @@ type AuthScope =
   | "projects:register"
   | "harness-auth:read"
   | "harness-auth:write"
+  | "flows:read"
+  | "flows:write"
   | "project-sessions:read"
   | "project-sessions:create"
   | "project-sessions:prompt";
@@ -136,10 +146,18 @@ const encodeSessionEvent = (
     `event: project-session.live\ndata: ${JSON.stringify(envelope)}\n\n`,
   );
 };
+const encodeFlowEvent = (envelope: FlowEventEnvelope): Uint8Array =>
+  textEncoder.encode(
+    `id: ${envelope.sequence}\nevent: flow.event\ndata: ${JSON.stringify(envelope)}\n\n`,
+  );
 const harnessAuthHttpError = (error: unknown): HarnessAuthError => {
   if (error instanceof ProviderAuthError)
     return harnessAuthErrorBody(error.code);
   return harnessAuthErrorBody("harness_auth_unavailable");
+};
+const flowHttpError = (error: unknown): FlowError => {
+  if (error instanceof FlowRegistryError) return flowErrorBody(error.code);
+  return flowErrorBody("flow_unavailable");
 };
 export const startHostServer = async (options: {
   readonly allowedRendererOrigin: string;
@@ -149,6 +167,7 @@ export const startHostServer = async (options: {
   readonly spaceZeroHome?: string;
   readonly harnessAuthDirectory?: string;
   readonly conversationRunner?: ConversationRunner;
+  readonly providerAuth?: ProviderAuthService;
   readonly clientCapabilityTtlMs?: number;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
@@ -173,7 +192,9 @@ export const startHostServer = async (options: {
   const credentialStore = createFileCredentialStore({
     directory: harnessAuthDirectory,
   });
-  const providerAuth = createProviderAuthService(credentialStore);
+  const providerAuth =
+    options.providerAuth ?? createProviderAuthService(credentialStore);
+  const flowRegistry = createFlowRegistry();
   const conversationRunner =
     options.conversationRunner ??
     createPiConversationRunner({
@@ -258,6 +279,49 @@ export const startHostServer = async (options: {
             ] as const;
           },
           catch: projectSessionHttpError,
+        }),
+    );
+  };
+
+  const flowEventStream = (
+    flowId: string,
+    after: number,
+    expiresAt: number,
+  ): Stream.Stream<Uint8Array, FlowError> => {
+    const initialComment = textEncoder.encode(": spacezero\n\n");
+    const initialEvents = flowRegistry.listEventsAfter(flowId, after);
+    const initialCursor = initialEvents.at(-1)?.sequence ?? after;
+    return Stream.paginate(
+      { cursor: initialCursor, first: true },
+      (state: { readonly cursor: number; readonly first: boolean }) =>
+        Effect.tryPromise({
+          try: async (signal) => {
+            if (Date.now() >= expiresAt) return [[], Option.none()] as const;
+            if (state.first) {
+              return [
+                [initialComment, ...initialEvents.map(encodeFlowEvent)],
+                Option.some({ cursor: initialCursor, first: false }),
+              ] as const;
+            }
+            const timeoutMs = Math.max(0, expiresAt - Date.now());
+            const waitSignal = AbortSignal.any([
+              signal,
+              AbortSignal.timeout(timeoutMs),
+            ]);
+            const events = await flowRegistry.waitForEventsAfter(
+              flowId,
+              state.cursor,
+              waitSignal,
+            );
+            if (Date.now() >= expiresAt || events.length === 0)
+              return [[], Option.none()] as const;
+            const nextCursor = events.at(-1)?.sequence ?? state.cursor;
+            return [
+              events.map(encodeFlowEvent),
+              Option.some({ cursor: nextCursor, first: false }),
+            ] as const;
+          },
+          catch: flowHttpError,
         }),
     );
   };
@@ -385,6 +449,37 @@ export const startHostServer = async (options: {
             Effect.mapError(harnessAuthHttpError),
           );
         },
+        startProviderOAuthLogin: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "harness-auth:write",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(async () => {
+            await providerAuth.status(params.providerId);
+            const option = (await providerAuth.listOptions()).find(
+              (provider) => provider.providerId === params.providerId,
+            );
+            if (!option?.authMethods.includes("oauth"))
+              throw new ProviderAuthError("provider_not_supported");
+            const flowId = flowRegistry.start((interaction) =>
+              providerAuth.loginOAuth(params.providerId, interaction),
+            );
+            return { flowId };
+          }).pipe(
+            Effect.mapError((error) => {
+              if (error instanceof FlowRegistryError)
+                return harnessAuthErrorBody("harness_auth_unavailable");
+              return harnessAuthHttpError(error);
+            }),
+          );
+        },
         setProviderApiKey: ({ headers, request, params, payload }) => {
           try {
             auth(
@@ -424,6 +519,71 @@ export const startHostServer = async (options: {
           );
         },
       }),
+  );
+  const flowHandlers = HttpApiBuilder.group(HostApi, "flows", (handlers) =>
+    handlers.handleAll({
+      subscribeFlowEvents: ({ headers, request, params, query }) => {
+        let expiresAt: number | undefined;
+        try {
+          const token = bearerValue(headers.authorization);
+          auth(
+            headers.authorization,
+            state.cap!,
+            "flows:read",
+            options.allowedRendererOrigin,
+            request.headers.origin,
+          );
+          expiresAt = token ? state.cap!.expiresAt(token) : undefined;
+          if (expiresAt === undefined) throw authorizationError("unauthorized");
+          flowRegistry.listEventsAfter(params.flowId, query.after ?? 0);
+        } catch (error) {
+          if (error instanceof FlowRegistryError)
+            return Effect.fail(flowHttpError(error));
+          return Effect.fail(error as HostAuthorizationError);
+        }
+        return Effect.succeed(
+          flowEventStream(params.flowId, query.after ?? 0, expiresAt),
+        );
+      },
+      respondToFlowPrompt: ({ headers, request, params, payload }) => {
+        try {
+          auth(
+            headers.authorization,
+            state.cap!,
+            "flows:write",
+            options.allowedRendererOrigin,
+            request.headers.origin,
+          );
+          flowRegistry.respondToPrompt(
+            params.flowId,
+            params.promptId,
+            payload.response,
+          );
+          return Effect.succeed({ ok: true });
+        } catch (error) {
+          if (error instanceof FlowRegistryError)
+            return Effect.fail(flowHttpError(error));
+          return Effect.fail(error as HostAuthorizationError);
+        }
+      },
+      cancelFlow: ({ headers, request, params }) => {
+        try {
+          auth(
+            headers.authorization,
+            state.cap!,
+            "flows:write",
+            options.allowedRendererOrigin,
+            request.headers.origin,
+          );
+          flowRegistry.cancel(params.flowId);
+          return Effect.succeed({ status: "cancelled" as const });
+        } catch (error) {
+          if (error instanceof FlowRegistryError)
+            return Effect.fail(flowHttpError(error));
+          return Effect.fail(error as HostAuthorizationError);
+        }
+      },
+    }),
   );
   const projectHandlers = HttpApiBuilder.group(
     HostApi,
@@ -610,6 +770,7 @@ export const startHostServer = async (options: {
         connectionHandlers,
         adminHandlers,
         harnessAuthHandlers,
+        flowHandlers,
         projectHandlers,
         projectSessionHandlers,
       ]),

@@ -10,8 +10,8 @@ const frame = {
   issuedAt: new Date(now).toISOString(),
   allowedRendererOrigin: "spacezero://renderer",
   spaceZeroHome: "/tmp/SpaceZero",
-  protocolMin: "2" as const,
-  protocolMax: "2" as const,
+  protocolMin: "3" as const,
+  protocolMax: "3" as const,
 };
 
 const authority = (overrides: { issuedAt?: number; deadline?: number } = {}) =>

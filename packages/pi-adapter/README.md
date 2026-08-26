@@ -15,9 +15,9 @@ Current state:
   injection only.
 - `provider-auth.storage.ts` — focused file-backed implementation of Pi's
   app-owned `CredentialStore` interface for Host-private application data.
-- `provider-auth.service.ts` — non-secret provider/method discovery and status
-  plus write-only API-key set/remove operations used by the Workspace Host
-  `harness-auth` protocol.
+- `provider-auth.service.ts` — non-secret provider/method discovery and status,
+  write-only API-key set/remove operations, and Pi-owned OAuth login delegation
+  used by the Workspace Host `harness-auth` protocol.
 - `pi-conversation.adapter.ts` — Pi SDK-backed runner that creates a Pi Agent per
   turn, wired to a Models runtime with the injected Host-private credential
   store, an auth context that denies ambient environment/file credentials, the
@@ -32,5 +32,5 @@ credential storage. Missing provider credentials fail closed as
 `agent_unavailable`; the Local Host no longer uses provider API keys from process
 environment variables and no longer falls back to scripted successful output.
 
-Deferred: OAuth login flows, full Workspace Tool registry integration,
-transcript cleanup/retention policy, and paid-provider smoke validation.
+Deferred: full Workspace Tool registry integration, transcript cleanup/retention
+policy, and paid-provider smoke validation.

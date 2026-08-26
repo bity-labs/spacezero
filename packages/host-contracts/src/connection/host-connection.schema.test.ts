@@ -7,7 +7,7 @@ import {
 const descriptor = {
   endpoint: "http://127.0.0.1:1234/",
   instanceId: "0123456789abcdef0123456789abcdef",
-  protocolVersion: "2",
+  protocolVersion: "3",
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: "2026-01-01T00:00:00.000Z",
   scopes: [
@@ -17,6 +17,8 @@ const descriptor = {
     "projects:register",
     "harness-auth:read",
     "harness-auth:write",
+    "flows:read",
+    "flows:write",
     "project-sessions:read",
     "project-sessions:create",
     "project-sessions:prompt",
@@ -30,12 +32,12 @@ describe("host connection schemas", () => {
       parseHostConnectedEvent({
         type: "host.connected",
         instanceId: descriptor.instanceId,
-        protocolVersion: "2",
+        protocolVersion: "3",
       }),
     ).toEqual({
       type: "host.connected",
       instanceId: descriptor.instanceId,
-      protocolVersion: "2",
+      protocolVersion: "3",
     });
   });
   it("accepts descriptors with a validated subset of known scopes", () => {

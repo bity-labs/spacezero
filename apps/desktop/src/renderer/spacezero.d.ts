@@ -9,6 +9,9 @@ declare global {
     readonly spacezero: {
       readonly getAppVersion: () => Promise<string>;
       readonly getLocalHostConnection: () => Promise<HostConnectionDescriptor>;
+      readonly openExternalUrl: (
+        url: string,
+      ) => Promise<{ readonly status: "opened" }>;
       readonly selectProjectFolder: () => Promise<ProjectFolderPickerResult>;
     };
   }
