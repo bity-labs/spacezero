@@ -29,6 +29,7 @@ import {
   type PreparedWorktreeIdentity,
   type SubmitSessionPromptInput,
 } from "./project-session.model.js";
+import { toPublicProjectSessionEvent } from "./project-session-event.internal.js";
 import {
   createProjectSessionRepository,
   type AgentTurnFailureReason,
@@ -151,11 +152,14 @@ export const createProjectSessionService = (options: {
   const toEnvelopes = (
     events: Awaited<ReturnType<typeof repository.listEventsAfter>>,
   ): readonly ProjectSessionEventEnvelope[] =>
-    events.map((event) => ({
-      sequence: event.sequence,
-      eventType: event.eventType,
-      event: event.event,
-    }));
+    events.map((event) => {
+      const publicEvent = toPublicProjectSessionEvent(event.event);
+      return {
+        sequence: event.sequence,
+        eventType: publicEvent.type,
+        event: publicEvent,
+      };
+    });
   const waitForEvent = (
     sessionId: string,
     signal?: AbortSignal,

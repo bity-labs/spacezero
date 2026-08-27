@@ -22,6 +22,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0036-test-the-host-boundary-and-run-electron-ui-e2e-against-a-contract-mock.md`](0036-test-the-host-boundary-and-run-electron-ui-e2e-against-a-contract-mock.md)
 - [`0037-use-effect-httpapi-and-http-client-for-the-host-protocol.md`](0037-use-effect-httpapi-and-http-client-for-the-host-protocol.md)
 - [`0038-package-the-workspace-host-as-a-hardened-normal-node-deployment.md`](0038-package-the-workspace-host-as-a-hardened-normal-node-deployment.md)
+- [`0039-use-host-owned-project-session-agent-runtime-configuration.md`](0039-use-host-owned-project-session-agent-runtime-configuration.md)
 
 ## Historical decisions
 

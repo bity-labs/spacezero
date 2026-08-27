@@ -1,7 +1,5 @@
-import type {
-  ProjectSessionEvent,
-  ProjectSessionSummary,
-} from "@spacezero/host-contracts";
+import type { ProjectSessionSummary } from "@spacezero/host-contracts";
+import type { InternalProjectSessionEvent } from "./project-session-event.internal.js";
 
 export interface ProjectSessionProjection extends Omit<
   ProjectSessionSummary,
@@ -16,7 +14,7 @@ export interface ProjectSessionProjection extends Omit<
 
 export const projectSessionEvent = (
   previous: ProjectSessionProjection | undefined,
-  event: ProjectSessionEvent,
+  event: InternalProjectSessionEvent,
   sequence: number,
 ): ProjectSessionProjection => {
   if (sequence < 1) throw new Error("invalid event sequence");
