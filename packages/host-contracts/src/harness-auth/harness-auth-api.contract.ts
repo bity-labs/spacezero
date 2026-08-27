@@ -7,6 +7,7 @@ import {
   ProviderAuthStatusResultSchema,
   ProviderPathParamsSchema,
   SetProviderApiKeyRequestSchema,
+  StartProviderOAuthLoginResultSchema,
 } from "./harness-auth.schema.js";
 
 export const HarnessAuthAuthorizationHeaderSchema = Schema.Struct({
@@ -29,6 +30,18 @@ export const HarnessAuthApiGroup = HttpApiGroup.make("harnessAuth")
         params: ProviderPathParamsSchema,
         headers: HarnessAuthAuthorizationHeaderSchema,
         success: ProviderAuthStatusResultSchema,
+        error: [...HostAuthorizationErrorSchemas, ...HarnessAuthErrorSchemas],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "startProviderOAuthLogin",
+      "/harness-auth/providers/:providerId/oauth-flows",
+      {
+        params: ProviderPathParamsSchema,
+        headers: HarnessAuthAuthorizationHeaderSchema,
+        success: StartProviderOAuthLoginResultSchema,
         error: [...HostAuthorizationErrorSchemas, ...HarnessAuthErrorSchemas],
       },
     ),
