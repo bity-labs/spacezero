@@ -29,6 +29,31 @@ describe("internal Project Session events", () => {
     ).toThrow();
   });
 
+  it("preserves public failure classification metadata", () => {
+    const failed = parseInternalProjectSessionEvent({
+      type: "AgentTurnFailedV1",
+      version: 1,
+      sessionId,
+      turnId: projectId,
+      reason: "agent_turn_failed",
+      failureCategory: "provider",
+      retryable: false,
+      retryAfterMs: 1_000,
+      timestamp,
+    });
+    expect(toPublicProjectSessionEvent(failed)).toEqual({
+      type: "AgentTurnFailedV1",
+      version: 1,
+      sessionId,
+      turnId: projectId,
+      reason: "agent_turn_failed",
+      failureCategory: "provider",
+      retryable: false,
+      retryAfterMs: 1_000,
+      timestamp,
+    });
+  });
+
   it("maps private creation and preparation facts to exact public shapes", () => {
     const creation = parseInternalProjectSessionEvent({
       type: "ProjectSessionCreationRequestedV1",

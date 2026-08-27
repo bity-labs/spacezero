@@ -14,6 +14,9 @@ export type ProjectSessionErrorCode =
   | "session_not_found"
   | "session_not_ready"
   | "session_turn_in_progress"
+  | "session_runtime_revision_conflict"
+  | "agent_configuration_invalid"
+  | "agent_authentication_required"
   | "turn_not_found"
   | "turn_not_active"
   | "agent_turn_failed"
@@ -81,6 +84,18 @@ export const SessionTurnInProgressErrorSchema = projectSessionError(
   "session_turn_in_progress",
   409,
 );
+export const SessionRuntimeRevisionConflictErrorSchema = projectSessionError(
+  "session_runtime_revision_conflict",
+  409,
+);
+export const AgentConfigurationInvalidErrorSchema = projectSessionError(
+  "agent_configuration_invalid",
+  409,
+);
+export const AgentAuthenticationRequiredErrorSchema = projectSessionError(
+  "agent_authentication_required",
+  409,
+);
 export const TurnNotFoundErrorSchema = projectSessionError(
   "turn_not_found",
   404,
@@ -111,6 +126,9 @@ export const ProjectSessionErrorSchemas = [
   SessionNotFoundErrorSchema,
   SessionNotReadyErrorSchema,
   SessionTurnInProgressErrorSchema,
+  SessionRuntimeRevisionConflictErrorSchema,
+  AgentConfigurationInvalidErrorSchema,
+  AgentAuthenticationRequiredErrorSchema,
   TurnNotFoundErrorSchema,
   TurnNotActiveErrorSchema,
   AgentTurnFailedErrorSchema,
@@ -178,6 +196,23 @@ export const projectSessionErrorBody = (
         code,
         message:
           "An agent turn is already in progress for this Session. Wait for it to finish.",
+      };
+    case "session_runtime_revision_conflict":
+      return {
+        code,
+        message:
+          "This Session runtime configuration changed. Reload and try again.",
+      };
+    case "agent_configuration_invalid":
+      return {
+        code,
+        message:
+          "The selected agent runtime configuration is unavailable or unsupported.",
+      };
+    case "agent_authentication_required":
+      return {
+        code,
+        message: "The selected agent provider needs authentication.",
       };
     case "turn_not_found":
       return { code, message: "The selected agent turn does not exist." };

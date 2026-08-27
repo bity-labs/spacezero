@@ -179,6 +179,18 @@ export const toPublicProjectSessionEvent = (
         sessionId: event.sessionId,
         timestamp: event.timestamp,
       };
+    case "ProjectSessionRuntimeConfiguredV1":
+      return {
+        type: "ProjectSessionRuntimeConfiguredV1",
+        version: 1,
+        sessionId: event.sessionId,
+        commandId: event.commandId,
+        providerId: event.providerId,
+        modelId: event.modelId,
+        defaultThinkingLevel: event.defaultThinkingLevel,
+        revision: event.revision,
+        timestamp: event.timestamp,
+      };
     case "UserMessageSubmittedV1":
       return {
         type: "UserMessageSubmittedV1",
@@ -196,6 +208,19 @@ export const toPublicProjectSessionEvent = (
         sessionId: event.sessionId,
         turnId: event.turnId,
         messageId: event.messageId,
+        providerId: event.providerId,
+        modelId: event.modelId,
+        thinkingLevel: event.thinkingLevel,
+        timestamp: event.timestamp,
+      };
+    case "AgentMessageCheckpointedV1":
+      return {
+        type: "AgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: event.sessionId,
+        turnId: event.turnId,
+        messageId: event.messageId,
+        text: event.text,
         timestamp: event.timestamp,
       };
     case "AgentMessageCompletedV1":
@@ -215,6 +240,11 @@ export const toPublicProjectSessionEvent = (
         sessionId: event.sessionId,
         turnId: event.turnId,
         reason: event.reason,
+        failureCategory: event.failureCategory,
+        retryable: event.retryable,
+        ...(event.retryAfterMs === undefined
+          ? {}
+          : { retryAfterMs: event.retryAfterMs }),
         timestamp: event.timestamp,
       };
     case "AgentTurnInterruptedV1":

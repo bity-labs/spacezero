@@ -7,7 +7,11 @@
  */
 
 export type AgentTurnErrorCode =
-  "agent_unavailable" | "agent_turn_failed" | "agent_turn_interrupted";
+  | "agent_unavailable"
+  | "agent_authentication_required"
+  | "agent_configuration_invalid"
+  | "agent_turn_failed"
+  | "agent_turn_interrupted";
 
 export class AgentTurnError extends Error {
   constructor(readonly code: AgentTurnErrorCode) {
@@ -58,6 +62,13 @@ export interface AgentToolConfiguration {
   readonly enabledToolNames: readonly string[];
 }
 
+export interface AgentTurnRuntimeConfiguration {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly thinkingLevel:
+    "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+}
+
 export interface AgentTurnInput {
   /** Project Session identity that owns this one Pi conversation. */
   readonly sessionId: string;
@@ -69,6 +80,8 @@ export interface AgentTurnInput {
   readonly history: readonly AgentTurnMessage[];
   /** Explicit tool configuration for the authenticated worktree. */
   readonly tools: AgentToolConfiguration;
+  /** Effective model and thinking configuration snapshotted for this turn. */
+  readonly runtime: AgentTurnRuntimeConfiguration;
   /** Accepted user prompt text. */
   readonly prompt: string;
   /** Optional cancellation signal for the active turn. */

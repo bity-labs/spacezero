@@ -1,3 +1,5 @@
+export * from "./agent-runtime/agent-runtime-api.contract.js";
+export * from "./agent-runtime/agent-runtime.schema.js";
 export * from "./authentication/host-authorization.schema.js";
 export * from "./connection/host-api.contract.js";
 export * from "./connection/host-connection.schema.js";

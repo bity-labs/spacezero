@@ -26,11 +26,12 @@ import {
   type FileInfo,
   type Result,
 } from "@earendil-works/pi-agent-core/node";
-import type {
-  AssistantMessage,
-  AuthContext,
-  CredentialStore,
-  Models,
+import {
+  getSupportedThinkingLevels,
+  type AssistantMessage,
+  type AuthContext,
+  type CredentialStore,
+  type Models,
 } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
@@ -39,6 +40,7 @@ import {
   type AgentTurnResult,
   type ConversationRunner,
 } from "./conversation.model.js";
+import { createPiModelCatalogService } from "./model-catalog.service.js";
 
 export interface PiConversationConfig {
   /** Provider id, e.g. "anthropic" */
@@ -330,16 +332,27 @@ export function createPiConversationRunner(
 
   return {
     async submitTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
-      const model = models.getModel(config.provider, config.model);
-      if (!model) {
-        throw new AgentTurnError("agent_unavailable");
-      }
-      const auth = await models
-        .checkAuth(config.provider)
+      const runtime = input.runtime;
+      await models
+        .refresh({ providers: [runtime.providerId] })
         .catch(() => undefined);
-      if (!auth) {
-        throw new AgentTurnError("agent_unavailable");
-      }
+      const model = models.getModel(runtime.providerId, runtime.modelId);
+      if (!model) throw new AgentTurnError("agent_configuration_invalid");
+      const auth = await models
+        .checkAuth(runtime.providerId)
+        .catch(() => undefined);
+      if (!auth) throw new AgentTurnError("agent_authentication_required");
+      const available = await models.getAvailable().catch(() => []);
+      if (
+        !available.some(
+          (candidate) =>
+            candidate.provider === runtime.providerId &&
+            candidate.id === runtime.modelId,
+        )
+      )
+        throw new AgentTurnError("agent_configuration_invalid");
+      if (!getSupportedThinkingLevels(model).includes(runtime.thinkingLevel))
+        throw new AgentTurnError("agent_configuration_invalid");
 
       if (input.signal?.aborted)
         throw new AgentTurnError("agent_turn_interrupted");
@@ -349,7 +362,7 @@ export function createPiConversationRunner(
         initialState: {
           model,
           systemPrompt: config.systemPrompt ?? "",
-          thinkingLevel: "off",
+          thinkingLevel: runtime.thinkingLevel,
           tools: workspaceTools(env).filter((tool) =>
             input.tools.enabledToolNames.includes(tool.name),
           ),
@@ -445,3 +458,27 @@ export function createPiConversationRunner(
     },
   };
 }
+
+export const createPiRuntimeServices = (
+  config: PiConversationConfig,
+): {
+  readonly conversationRunner: ConversationRunner;
+  readonly modelCatalog: ReturnType<typeof createPiModelCatalogService>;
+} => {
+  const models =
+    config.models ??
+    builtinModels({
+      credentials: config.credentials,
+      authContext: config.authContext ?? noAmbientAuthContext,
+    });
+  return {
+    conversationRunner: createPiConversationRunner({ ...config, models }),
+    modelCatalog: createPiModelCatalogService({
+      credentials: config.credentials,
+      ...(config.authContext === undefined
+        ? {}
+        : { authContext: config.authContext }),
+      models,
+    }),
+  };
+};

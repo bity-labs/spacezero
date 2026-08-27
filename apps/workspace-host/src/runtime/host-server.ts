@@ -34,10 +34,11 @@ import { createProjectSessionService } from "../features/project-sessions/projec
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import {
   createFileCredentialStore,
-  createPiConversationRunner,
+  createPiRuntimeServices,
   createProviderAuthService,
   ProviderAuthError,
   type ConversationRunner,
+  type PiModelCatalogService,
   type ProviderAuthService,
 } from "@spacezero/pi-adapter";
 import { runHostDatabaseMigrations } from "./host-database.js";
@@ -69,6 +70,7 @@ type AuthScope =
   | "projects:register"
   | "harness-auth:read"
   | "harness-auth:write"
+  | "agent-runtime:read"
   | "flows:read"
   | "flows:write"
   | "project-sessions:read"
@@ -168,6 +170,7 @@ export const startHostServer = async (options: {
   readonly harnessAuthDirectory?: string;
   readonly conversationRunner?: ConversationRunner;
   readonly providerAuth?: ProviderAuthService;
+  readonly modelCatalog?: PiModelCatalogService;
   readonly clientCapabilityTtlMs?: number;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
@@ -194,20 +197,24 @@ export const startHostServer = async (options: {
   });
   const providerAuth =
     options.providerAuth ?? createProviderAuthService(credentialStore);
+  const piRuntimeServices = createPiRuntimeServices({
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    credentials: credentialStore,
+  });
+  const modelCatalog = options.modelCatalog ?? piRuntimeServices.modelCatalog;
   const flowRegistry = createFlowRegistry();
   const conversationRunner =
-    options.conversationRunner ??
-    createPiConversationRunner({
-      provider: "anthropic",
-      model: "claude-sonnet-4-5",
-      credentials: credentialStore,
-    });
+    options.conversationRunner ?? piRuntimeServices.conversationRunner;
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
     conversationRunner,
+    ...(options.modelCatalog || !options.conversationRunner
+      ? { modelCatalog }
+      : {}),
   });
   await projectSessions.reconcile();
   const sessionEventStream = (
@@ -520,6 +527,34 @@ export const startHostServer = async (options: {
         },
       }),
   );
+  const agentRuntimeHandlers = HttpApiBuilder.group(
+    HostApi,
+    "agentRuntime",
+    (handlers) =>
+      handlers.handleAll({
+        listAgentRuntimeModels: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-runtime:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => modelCatalog.listModels()).pipe(
+            Effect.map((models) => ({ models })),
+            Effect.mapError((error) => {
+              if (error instanceof Error)
+                return authorizationError("forbidden");
+              return authorizationError("forbidden");
+            }),
+          );
+        },
+      }),
+  );
   const flowHandlers = HttpApiBuilder.group(HostApi, "flows", (handlers) =>
     handlers.handleAll({
       subscribeFlowEvents: ({ headers, request, params, query }) => {
@@ -661,6 +696,43 @@ export const startHostServer = async (options: {
             Effect.mapError(projectSessionHttpError),
           );
         },
+        getProjectSessionRuntime: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.getRuntime(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        updateProjectSessionRuntime: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.updateRuntime(params.sessionId, payload),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
         submitSessionPrompt: ({ headers, request, params, payload }) => {
           try {
             auth(
@@ -770,6 +842,7 @@ export const startHostServer = async (options: {
         connectionHandlers,
         adminHandlers,
         harnessAuthHandlers,
+        agentRuntimeHandlers,
         flowHandlers,
         projectHandlers,
         projectSessionHandlers,

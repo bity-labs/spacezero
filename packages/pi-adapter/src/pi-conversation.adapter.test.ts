@@ -34,6 +34,11 @@ const input = async (
       workingDirectory: worktreePath,
       enabledToolNames: ["read", "write", "edit"],
     },
+    runtime: {
+      providerId: "faux",
+      modelId: "faux-1",
+      thinkingLevel: "off",
+    },
     prompt: "Build the wine list view",
     ...overrides,
   };
@@ -193,6 +198,97 @@ describe("createPiConversationRunner", () => {
 
     await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
+  });
+
+  it("resolves provider, model, and thinking level from the per-turn runtime snapshot", async () => {
+    const faux = fauxProvider({
+      models: [
+        { id: "default-model", name: "Default Model", reasoning: true },
+        { id: "session-model", name: "Session Model", reasoning: true },
+      ],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const seenModels: string[] = [];
+    faux.setResponses([
+      (_context, _options, _state, model) => {
+        seenModels.push(model.id);
+        return fauxAssistantMessage("done");
+      },
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "default-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(
+      runner.submitTurn(
+        await input({
+          runtime: {
+            providerId: faux.provider.id,
+            modelId: "session-model",
+            thinkingLevel: "high",
+          },
+        }),
+      ),
+    ).resolves.toEqual({ text: "done" });
+
+    expect(seenModels).toEqual(["session-model"]);
+  });
+
+  it("rejects runtime models that are not available to Pi", async () => {
+    const faux = fauxProvider({
+      models: [{ id: "filtered-model", name: "Filtered Model" }],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    models.getAvailable = async () => [];
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "filtered-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(
+      runner.submitTurn(
+        await input({
+          runtime: {
+            providerId: faux.provider.id,
+            modelId: "filtered-model",
+            thinkingLevel: "off",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "agent_configuration_invalid" });
+  });
+
+  it("rejects unsupported runtime thinking levels", async () => {
+    const faux = fauxProvider({
+      models: [{ id: "plain-model", name: "Plain Model", reasoning: false }],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "plain-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(
+      runner.submitTurn(
+        await input({
+          runtime: {
+            providerId: faux.provider.id,
+            modelId: "plain-model",
+            thinkingLevel: "high",
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "agent_configuration_invalid" });
   });
 
   it("fails the turn when Pi finishes with a terminal stream error", async () => {

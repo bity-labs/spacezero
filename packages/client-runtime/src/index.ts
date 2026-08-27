@@ -1,3 +1,4 @@
+export * from "./agent-runtime/agent-runtime-client.js";
 export * from "./connection/local-host-connection-client.js";
 export * from "./flows/flow-client.js";
 export * from "./harness-auth/harness-auth-client.js";
