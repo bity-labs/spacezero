@@ -25,6 +25,7 @@ describe("capability service", () => {
       "projects:register",
       "harness-auth:read",
       "harness-auth:write",
+      "agent-runtime:read",
       "flows:read",
       "flows:write",
       "project-sessions:read",

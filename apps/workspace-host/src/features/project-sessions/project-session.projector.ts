@@ -47,8 +47,10 @@ export const projectSessionEvent = (
       return { ...previous, updatedAt, lastSequence: sequence };
     case "SessionWorkspacePreparedV1":
       return { ...previous, updatedAt, lastSequence: sequence };
+    case "ProjectSessionRuntimeConfiguredV1":
     case "UserMessageSubmittedV1":
     case "AgentTurnStartedV1":
+    case "AgentMessageCheckpointedV1":
     case "AgentMessageCompletedV1":
     case "AgentTurnFailedV1":
     case "AgentTurnInterruptedV1":

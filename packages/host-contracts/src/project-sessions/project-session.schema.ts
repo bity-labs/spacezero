@@ -1,4 +1,8 @@
 import { Schema } from "effect";
+import {
+  AgentThinkingLevelSchema,
+  type AgentThinkingLevel,
+} from "../agent-runtime/agent-runtime.schema.js";
 import { ProjectIdSchema } from "../projects/project.schema.js";
 
 export type ProjectSessionId = string;
@@ -62,13 +66,28 @@ export interface SubmitSessionPromptRequest {
   readonly prompt: string;
 }
 
+export type AgentTurnFailureCategory =
+  | "configuration"
+  | "authentication"
+  | "provider"
+  | "tool"
+  | "interrupted"
+  | "system";
+
 export interface ProjectSessionTurn {
   readonly id: AgentTurnId;
   readonly commandId: ProjectSessionCommandId;
   readonly state: ProjectSessionTurnState;
   readonly userMessageId: SessionMessageId;
   readonly assistantMessageId: SessionMessageId;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly thinkingLevel: AgentThinkingLevel;
   readonly draftText: string;
+  readonly failureReason?: string;
+  readonly failureCategory?: AgentTurnFailureCategory;
+  readonly retryable?: boolean;
+  readonly retryAfterMs?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -87,6 +106,33 @@ export interface InterruptProjectSessionTurnResult {
 export interface ListSessionMessagesResult {
   readonly session: ProjectSessionSummary;
   readonly messages: readonly SessionMessage[];
+  readonly activeTurn?: ProjectSessionTurn;
+  readonly latestTurn?: ProjectSessionTurn;
+}
+
+export interface ProjectSessionRuntimeConfiguration {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly defaultThinkingLevel: AgentThinkingLevel;
+  readonly revision: number;
+}
+
+export interface GetProjectSessionRuntimeResult {
+  readonly session: ProjectSessionSummary;
+  readonly runtime: ProjectSessionRuntimeConfiguration;
+}
+
+export interface UpdateProjectSessionRuntimeRequest {
+  readonly commandId: ProjectSessionCommandId;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly defaultThinkingLevel: AgentThinkingLevel;
+  readonly expectedRevision: number;
+}
+
+export interface UpdateProjectSessionRuntimeResult {
+  readonly session: ProjectSessionSummary;
+  readonly runtime: ProjectSessionRuntimeConfiguration;
 }
 
 export interface ProjectSessionEventStreamQuery {
@@ -144,6 +190,15 @@ export const AgentToolCallIdSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(256),
 );
+export const AgentTurnFailureCategorySchema = Schema.Literals([
+  "configuration",
+  "authentication",
+  "provider",
+  "tool",
+  "interrupted",
+  "system",
+]);
+
 export const ProjectSessionTurnStateSchema = Schema.Literals([
   "queued",
   "running",
@@ -213,7 +268,17 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   state: ProjectSessionTurnStateSchema,
   userMessageId: SessionMessageIdSchema,
   assistantMessageId: SessionMessageIdSchema,
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  failureReason: Schema.optionalKey(Schema.String),
+  failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
+  retryable: Schema.optionalKey(Schema.Boolean),
+  retryAfterMs: Schema.optionalKey(Schema.Number),
   createdAt: DateTimeUtcStringSchema,
   updatedAt: DateTimeUtcStringSchema,
 });
@@ -229,6 +294,41 @@ export const InterruptProjectSessionTurnResultSchema = Schema.Struct({
 export const ListSessionMessagesResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   messages: Schema.Array(SessionMessageSchema),
+  activeTurn: Schema.optionalKey(ProjectSessionTurnSchema),
+  latestTurn: Schema.optionalKey(ProjectSessionTurnSchema),
+});
+export const ProjectSessionRuntimeConfigurationSchema = Schema.Struct({
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  defaultThinkingLevel: AgentThinkingLevelSchema,
+  revision: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+});
+export const GetProjectSessionRuntimeResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  runtime: ProjectSessionRuntimeConfigurationSchema,
+});
+export const UpdateProjectSessionRuntimeRequestSchema = Schema.Struct({
+  commandId: ProjectSessionCommandIdSchema,
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  defaultThinkingLevel: AgentThinkingLevelSchema,
+  expectedRevision: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+});
+export const UpdateProjectSessionRuntimeResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  runtime: ProjectSessionRuntimeConfigurationSchema,
 });
 
 export const ProjectSessionEventStreamQuerySchema = Schema.Struct({
@@ -308,6 +408,26 @@ export const ProjectSessionEventSchema = Schema.Union([
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
+    type: Schema.Literals(["ProjectSessionRuntimeConfiguredV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    providerId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    modelId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(256),
+    ),
+    defaultThinkingLevel: AgentThinkingLevelSchema,
+    revision: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
     type: Schema.Literals(["UserMessageSubmittedV1"]),
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
@@ -322,6 +442,24 @@ export const ProjectSessionEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
+    providerId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    modelId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(256),
+    ),
+    thinkingLevel: AgentThinkingLevelSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentMessageCheckpointedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    text: SessionMessageTextSchema,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -338,7 +476,10 @@ export const ProjectSessionEventSchema = Schema.Union([
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
-    reason: Schema.Literals(["agent_unavailable", "agent_turn_failed"]),
+    reason: Schema.String,
+    failureCategory: AgentTurnFailureCategorySchema,
+    retryable: Schema.Boolean,
+    retryAfterMs: Schema.optionalKey(Schema.Number),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({

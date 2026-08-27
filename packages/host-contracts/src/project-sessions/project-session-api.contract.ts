@@ -8,6 +8,7 @@ import { HostAuthorizationErrorSchemas } from "../authentication/host-authorizat
 import {
   CreateProjectSessionRequestSchema,
   CreateProjectSessionResultSchema,
+  GetProjectSessionRuntimeResultSchema,
   InterruptProjectSessionTurnResultSchema,
   ListProjectSessionsResultSchema,
   ListSessionMessagesResultSchema,
@@ -16,6 +17,8 @@ import {
   AgentTurnIdSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
+  UpdateProjectSessionRuntimeRequestSchema,
+  UpdateProjectSessionRuntimeResultSchema,
 } from "./project-session.schema.js";
 import { ProjectSessionErrorSchemas } from "./project-session-errors.schema.js";
 
@@ -48,6 +51,37 @@ export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
       success: ListProjectSessionsResultSchema,
       error: [...HostAuthorizationErrorSchemas, ...ProjectSessionErrorSchemas],
     }),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "getProjectSessionRuntime",
+      "/project-sessions/:sessionId/runtime",
+      {
+        params: ProjectSessionPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        success: GetProjectSessionRuntimeResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.put(
+      "updateProjectSessionRuntime",
+      "/project-sessions/:sessionId/runtime",
+      {
+        params: ProjectSessionPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        payload: UpdateProjectSessionRuntimeRequestSchema,
+        success: UpdateProjectSessionRuntimeResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post(

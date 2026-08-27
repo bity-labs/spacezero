@@ -7,14 +7,20 @@ import type {
   ProjectSessionEventEnvelope,
   ProjectSessionLiveEventEnvelope,
   ProjectSessionSseEnvelope,
+  ProjectSessionTurn,
   SessionMessage,
   SubmitSessionPromptResult,
   InterruptProjectSessionTurnResult,
+  GetProjectSessionRuntimeResult,
+  UpdateProjectSessionRuntimeRequest,
+  UpdateProjectSessionRuntimeResult,
 } from "@spacezero/host-contracts";
 import {
   AgentTurnError,
+  PiModelCatalogError,
   createScriptedConversationRunner,
   type ConversationRunner,
+  type PiModelCatalogService,
 } from "@spacezero/pi-adapter";
 import {
   ProjectServiceError,
@@ -36,6 +42,7 @@ import {
   type SessionWorktreeIdentity,
 } from "./project-session.repository.js";
 import type { SessionNameEntropy } from "./project-session-name.service.js";
+import { createWorkspaceToolRegistry } from "./workspace-tool-registry.js";
 
 export interface ProjectSessionService {
   readonly create: (
@@ -45,9 +52,18 @@ export interface ProjectSessionService {
   readonly submitPrompt: (
     input: SubmitSessionPromptInput,
   ) => Promise<SubmitSessionPromptResult>;
+  readonly getRuntime: (
+    sessionId: string,
+  ) => Promise<GetProjectSessionRuntimeResult>;
+  readonly updateRuntime: (
+    sessionId: string,
+    input: UpdateProjectSessionRuntimeRequest,
+  ) => Promise<UpdateProjectSessionRuntimeResult>;
   readonly listMessages: (sessionId: string) => Promise<{
     readonly session: SubmitSessionPromptResult["session"];
     readonly messages: readonly SessionMessage[];
+    readonly activeTurn?: ProjectSessionTurn;
+    readonly latestTurn?: ProjectSessionTurn;
   }>;
   readonly listEventsAfter: (
     sessionId: string,
@@ -71,6 +87,9 @@ export interface ProjectSessionService {
   readonly waitForIdle: () => Promise<void>;
 }
 
+const durableAssistantText = (text: string): string =>
+  text.length <= 1_000_000 ? text : text.slice(0, 1_000_000);
+
 const mapProjectError = (
   error: ProjectServiceError,
 ): ProjectSessionErrorCode => {
@@ -91,10 +110,25 @@ const mapProjectError = (
   }
 };
 
+const mapModelCatalogError = (
+  error: PiModelCatalogError,
+): ProjectSessionErrorCode => {
+  switch (error.code) {
+    case "provider_not_authenticated":
+      return "agent_authentication_required";
+    case "model_not_found":
+    case "model_unavailable":
+    case "thinking_level_unsupported":
+      return "agent_configuration_invalid";
+  }
+};
+
 const mapError = (error: unknown): ProjectSessionServiceError => {
   if (error instanceof ProjectSessionServiceError) return error;
   if (error instanceof ProjectServiceError)
     return new ProjectSessionServiceError(mapProjectError(error));
+  if (error instanceof PiModelCatalogError)
+    return new ProjectSessionServiceError(mapModelCatalogError(error));
   return new ProjectSessionServiceError("project_session_catalog_unavailable");
 };
 
@@ -103,18 +137,25 @@ export const createProjectSessionService = (options: {
   readonly spaceZeroHome: string;
   readonly entropy?: SessionNameEntropy;
   readonly conversationRunner?: ConversationRunner;
+  readonly modelCatalog?: PiModelCatalogService;
 }): ProjectSessionService => {
   const projectAuthority = createProjectAuthority(options.databasePath);
   const repository = createProjectSessionRepository(options);
+  const workspaceTools = createWorkspaceToolRegistry();
   const conversationRunner =
     options.conversationRunner ?? createScriptedConversationRunner();
+  const modelCatalog = options.modelCatalog;
   const locks = new Map<string, Promise<unknown>>();
   const sessionLocks = new Map<string, Promise<unknown>>();
   const inFlight = new Set<Promise<unknown>>();
   const eventWaiters = new Map<string, Set<() => void>>();
   const activeTurns = new Map<
     string,
-    { readonly sessionId: string; readonly controller: AbortController }
+    {
+      readonly sessionId: string;
+      readonly controller: AbortController;
+      readonly flushDraft: () => Promise<void>;
+    }
   >();
   let nextLiveSequence = 0;
   const liveEvents = new Map<
@@ -310,6 +351,13 @@ export const createProjectSessionService = (options: {
           sourceCommit: identity.sourceCommit,
         });
         assertPersistedIdentity(identity, prepared);
+        const currentRuntime = await repository.getRuntime(input.sessionId);
+        if (modelCatalog)
+          await modelCatalog.validateSelection({
+            providerId: currentRuntime.runtime.providerId,
+            modelId: currentRuntime.runtime.modelId,
+            thinkingLevel: currentRuntime.runtime.defaultThinkingLevel,
+          });
 
         const prompt = input.prompt.trim();
         const admission = await repository.admitPrompt({
@@ -321,11 +369,48 @@ export const createProjectSessionService = (options: {
         wakeEvents(input.sessionId);
 
         const controller = new AbortController();
+        let draftText = "";
+        let checkpointedTextLength = 0;
+        let checkpointedDurableText = "";
+        let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
+        let checkpointChain = Promise.resolve();
+        const checkpointDraft = async (): Promise<void> => {
+          const capturedLength = draftText.length;
+          if (capturedLength === checkpointedTextLength) return;
+          const text = durableAssistantText(draftText);
+          if (text === checkpointedDurableText) {
+            checkpointedTextLength = capturedLength;
+            return;
+          }
+          const operation = checkpointChain
+            .catch(() => undefined)
+            .then(async () => {
+              if (capturedLength <= checkpointedTextLength) return;
+              await repository.checkpointTurnDraft({
+                sessionId: input.sessionId,
+                turnId: admission.turnId,
+                text,
+              });
+              checkpointedTextLength = capturedLength;
+              checkpointedDurableText = text;
+              wakeEvents(input.sessionId);
+            });
+          checkpointChain = operation;
+          await operation;
+        };
+        const scheduleCheckpoint = (): void => {
+          if (checkpointTimer) return;
+          checkpointTimer = setTimeout(() => {
+            checkpointTimer = undefined;
+            void checkpointDraft().catch(() => undefined);
+          }, 250);
+          checkpointTimer.unref?.();
+        };
         activeTurns.set(admission.turnId, {
           sessionId: input.sessionId,
           controller,
+          flushDraft: checkpointDraft,
         });
-        let draftText = "";
         const operation = (async () => {
           try {
             const history = await repository.listTurnHistoryBefore(
@@ -337,9 +422,14 @@ export const createProjectSessionService = (options: {
               conversationId: identity.conversationId,
               worktreePath: prepared.canonicalWorktreePath,
               history,
+              runtime: {
+                providerId: admission.result.turn.providerId,
+                modelId: admission.result.turn.modelId,
+                thinkingLevel: admission.result.turn.thinkingLevel,
+              },
               tools: {
                 workingDirectory: prepared.canonicalWorktreePath,
-                enabledToolNames: ["read", "write", "edit"],
+                enabledToolNames: workspaceTools.enabledToolNamesForTurn(),
               },
               prompt,
               signal: controller.signal,
@@ -347,12 +437,10 @@ export const createProjectSessionService = (options: {
                 if (controller.signal.aborted) return;
                 const timestamp = new Date().toISOString();
                 if (event.type === "assistant_delta") {
-                  draftText += event.text;
-                  await repository.updateTurnDraft({
-                    sessionId: input.sessionId,
-                    turnId: admission.turnId,
-                    text: draftText,
-                  });
+                  draftText = durableAssistantText(draftText + event.text);
+                  if (draftText.length - checkpointedTextLength >= 2_048)
+                    await checkpointDraft();
+                  else scheduleCheckpoint();
                   publishLive(input.sessionId, {
                     live: true,
                     eventType: "AssistantTextDeltaV1",
@@ -369,6 +457,7 @@ export const createProjectSessionService = (options: {
                   return;
                 }
                 if (event.type === "tool_started") {
+                  await checkpointDraft();
                   await repository.recordToolStarted({
                     sessionId: input.sessionId,
                     turnId: admission.turnId,
@@ -395,6 +484,7 @@ export const createProjectSessionService = (options: {
                   });
                   return;
                 }
+                await checkpointDraft();
                 await repository.recordToolCompleted({
                   sessionId: input.sessionId,
                   turnId: admission.turnId,
@@ -413,7 +503,7 @@ export const createProjectSessionService = (options: {
               commandId: input.commandId,
               sessionId: input.sessionId,
               turnId: admission.turnId,
-              text: turn.text,
+              text: durableAssistantText(turn.text),
             });
             wakeEvents(input.sessionId);
           } catch (error) {
@@ -428,6 +518,7 @@ export const createProjectSessionService = (options: {
               error instanceof AgentTurnError &&
               error.code === "agent_turn_interrupted"
             ) {
+              await checkpointDraft().catch(() => undefined);
               await repository
                 .interruptTurn({
                   sessionId: input.sessionId,
@@ -440,9 +531,10 @@ export const createProjectSessionService = (options: {
             }
             const reason: AgentTurnFailureReason =
               error instanceof AgentTurnError &&
-              error.code === "agent_unavailable"
-                ? "agent_unavailable"
+              error.code !== "agent_turn_interrupted"
+                ? error.code
                 : "agent_turn_failed";
+            await checkpointDraft().catch(() => undefined);
             await repository
               .failTurn({
                 commandId: input.commandId,
@@ -453,6 +545,8 @@ export const createProjectSessionService = (options: {
               .then(() => wakeEvents(input.sessionId))
               .catch(() => undefined);
           } finally {
+            if (checkpointTimer) clearTimeout(checkpointTimer);
+            await checkpointChain.catch(() => undefined);
             activeTurns.delete(admission.turnId);
           }
         })();
@@ -468,6 +562,31 @@ export const createProjectSessionService = (options: {
     create,
     list: async () => ({ sessions: await repository.list() }),
     submitPrompt,
+    getRuntime: async (sessionId) => {
+      try {
+        return await repository.getRuntime(sessionId);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    updateRuntime: async (sessionId, input) => {
+      try {
+        return await repository.updateRuntime(
+          sessionId,
+          input,
+          modelCatalog
+            ? () =>
+                modelCatalog.validateSelection({
+                  providerId: input.providerId,
+                  modelId: input.modelId,
+                  thinkingLevel: input.defaultThinkingLevel,
+                })
+            : undefined,
+        );
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
     listMessages: async (sessionId) => {
       try {
         return await repository.listMessages(sessionId);
@@ -493,7 +612,10 @@ export const createProjectSessionService = (options: {
     interruptTurn: async (sessionId, turnId) => {
       try {
         const active = activeTurns.get(turnId);
-        if (active?.sessionId === sessionId) active.controller.abort();
+        if (active?.sessionId === sessionId) {
+          await active.flushDraft();
+          active.controller.abort();
+        }
         const result = await repository.interruptTurn({
           sessionId,
           turnId,
