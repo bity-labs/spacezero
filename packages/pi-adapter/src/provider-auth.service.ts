@@ -1,9 +1,11 @@
 import type {
+  AuthContext,
   Credential,
   CredentialStore,
+  Models,
   Provider,
 } from "@earendil-works/pi-ai";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   ProviderAuthStorageError,
   isValidProviderId,
@@ -23,6 +25,61 @@ export interface ProviderAuthStatus {
   readonly configured: boolean;
   readonly source: ProviderAuthSource;
 }
+export type ProviderLoginPrompt = {
+  readonly signal?: AbortSignal;
+} & (
+  | {
+      readonly type: "text";
+      readonly message: string;
+      readonly placeholder?: string;
+    }
+  | {
+      readonly type: "secret";
+      readonly message: string;
+      readonly placeholder?: string;
+    }
+  | {
+      readonly type: "select";
+      readonly message: string;
+      readonly options: readonly {
+        readonly id: string;
+        readonly label: string;
+        readonly description?: string;
+      }[];
+    }
+  | {
+      readonly type: "manual_code";
+      readonly message: string;
+      readonly placeholder?: string;
+    }
+);
+export type ProviderLoginEvent =
+  | {
+      readonly type: "info";
+      readonly message: string;
+      readonly links?: readonly {
+        readonly url: string;
+        readonly label?: string;
+      }[];
+    }
+  | {
+      readonly type: "auth_url";
+      readonly url: string;
+      readonly instructions?: string;
+    }
+  | {
+      readonly type: "device_code";
+      readonly userCode: string;
+      readonly verificationUri: string;
+      readonly intervalSeconds?: number;
+      readonly expiresInSeconds?: number;
+    }
+  | { readonly type: "progress"; readonly message: string };
+export interface ProviderLoginInteraction {
+  readonly signal?: AbortSignal;
+  readonly prompt: (prompt: ProviderLoginPrompt) => Promise<string>;
+  readonly notify: (event: ProviderLoginEvent) => void;
+}
 
 export type ProviderAuthErrorCode =
   | "invalid_provider"
@@ -39,6 +96,10 @@ export class ProviderAuthError extends Error {
 export interface ProviderAuthService {
   readonly listOptions: () => Promise<readonly ProviderAuthOption[]>;
   readonly status: (providerId: string) => Promise<ProviderAuthStatus>;
+  readonly loginOAuth: (
+    providerId: string,
+    interaction: ProviderLoginInteraction,
+  ) => Promise<ProviderAuthStatus>;
   readonly setApiKey: (
     providerId: string,
     apiKey: string,
@@ -46,14 +107,21 @@ export interface ProviderAuthService {
   readonly removeApiKey: (providerId: string) => Promise<ProviderAuthStatus>;
 }
 
-const supportedProviders = new Map<string, Provider>(
-  builtinProviders().map((provider) => [provider.id, provider]),
-);
+export interface ProviderAuthServiceOptions {
+  readonly credentials: CredentialStore;
+  readonly models?: Models;
+  readonly authContext?: AuthContext;
+}
 
-const providerFor = (providerId: string): Provider => {
+const noAmbientAuthContext: AuthContext = {
+  env: async () => undefined,
+  fileExists: async () => false,
+};
+
+const providerFor = (models: Models, providerId: string): Provider => {
   if (!isValidProviderId(providerId))
     throw new ProviderAuthError("invalid_provider");
-  const provider = supportedProviders.get(providerId);
+  const provider = models.getProvider(providerId);
   if (!provider) throw new ProviderAuthError("provider_not_supported");
   return provider;
 };
@@ -77,9 +145,16 @@ const supportsCredential = (
   credential: Credential,
 ): boolean => methodForCredential(provider, credential) !== undefined;
 
-const assertApiKeyProvider = (providerId: string): Provider => {
-  const provider = providerFor(providerId);
+const assertApiKeyProvider = (models: Models, providerId: string): Provider => {
+  const provider = providerFor(models, providerId);
   if (!provider.auth.apiKey)
+    throw new ProviderAuthError("provider_not_supported");
+  return provider;
+};
+
+const assertOAuthProvider = (models: Models, providerId: string): Provider => {
+  const provider = providerFor(models, providerId);
+  if (!provider.auth.oauth)
     throw new ProviderAuthError("provider_not_supported");
   return provider;
 };
@@ -100,11 +175,22 @@ const mapStorageError = (error: unknown): ProviderAuthError => {
 };
 
 export const createProviderAuthService = (
-  credentials: CredentialStore,
+  options: CredentialStore | ProviderAuthServiceOptions,
 ): ProviderAuthService => {
+  const credentials = "credentials" in options ? options.credentials : options;
+  const models =
+    "credentials" in options && options.models
+      ? options.models
+      : builtinModels({
+          credentials,
+          authContext:
+            "credentials" in options
+              ? (options.authContext ?? noAmbientAuthContext)
+              : noAmbientAuthContext,
+        });
   const status = async (providerId: string): Promise<ProviderAuthStatus> => {
     try {
-      const provider = providerFor(providerId);
+      const provider = providerFor(models, providerId);
       const credential = await credentials.read(providerId);
       return credential && supportsCredential(provider, credential)
         ? { providerId, configured: true, source: "stored" }
@@ -117,7 +203,7 @@ export const createProviderAuthService = (
     listOptions: async () => {
       try {
         const options = await Promise.all(
-          [...supportedProviders.values()].map(async (provider) => {
+          models.getProviders().map(async (provider) => {
             const credential = await credentials.read(provider.id);
             const configuredMethod = credential
               ? methodForCredential(provider, credential)
@@ -139,9 +225,18 @@ export const createProviderAuthService = (
       }
     },
     status,
+    loginOAuth: async (providerId, interaction) => {
+      try {
+        assertOAuthProvider(models, providerId);
+        await models.login(providerId, "oauth", interaction);
+        return await status(providerId);
+      } catch (error) {
+        throw mapStorageError(error);
+      }
+    },
     setApiKey: async (providerId, apiKey) => {
       try {
-        assertApiKeyProvider(providerId);
+        assertApiKeyProvider(models, providerId);
         await credentials.modify(providerId, async () => ({
           type: "api_key",
           key: apiKey,
@@ -153,7 +248,7 @@ export const createProviderAuthService = (
     },
     removeApiKey: async (providerId) => {
       try {
-        providerFor(providerId);
+        providerFor(models, providerId);
         await credentials.delete(providerId);
         return await status(providerId);
       } catch (error) {

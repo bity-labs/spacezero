@@ -10,6 +10,7 @@ import {
   parseHostConnectionDescriptor,
   parseListProviderAuthOptionsResult,
   parseProviderAuthStatusResult,
+  parseStartProviderOAuthLoginResult,
   type HostConnectionDescriptor,
   type ProviderAuthOption,
   type ProviderAuthStatus,
@@ -22,6 +23,9 @@ export interface HarnessAuthClient {
   readonly getProviderAuthStatus: (
     providerId: string,
   ) => Promise<ProviderAuthStatus>;
+  readonly startProviderOAuthLogin: (
+    providerId: string,
+  ) => Promise<{ readonly flowId: string }>;
   readonly setProviderApiKey: (
     providerId: string,
     apiKey: string,
@@ -42,6 +46,10 @@ interface GeneratedHarnessAuthApiClient {
       readonly headers: { readonly authorization: string };
     }) => Effect.Effect<unknown, unknown, never>;
     readonly getProviderAuthStatus: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly providerId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly startProviderOAuthLogin: (input: {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly providerId: string };
     }) => Effect.Effect<unknown, unknown, never>;
@@ -133,6 +141,18 @@ export const createHarnessAuthClient = (
         }),
       );
       return statusFromResult(result);
+    },
+    startProviderOAuthLogin: async (providerId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.harnessAuth.startProviderOAuthLogin({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { providerId },
+        }),
+      );
+      return parseStartProviderOAuthLoginResult(
+        Array.isArray(result) ? result[0] : result,
+      );
     },
     setProviderApiKey: async (providerId, apiKey) => {
       const current = await descriptor();

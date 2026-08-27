@@ -13,8 +13,8 @@ describe("local Host startup schemas", () => {
         issuedAt: "2026-01-01T00:00:00.000Z",
         allowedRendererOrigin: "spacezero://renderer",
         spaceZeroHome: "/tmp/SpaceZero",
-        protocolMin: "2",
-        protocolMax: "2",
+        protocolMin: "3",
+        protocolMax: "3",
       }),
     ).toMatchObject({
       allowedRendererOrigin: "spacezero://renderer",
@@ -24,8 +24,8 @@ describe("local Host startup schemas", () => {
       parseLocalHostReadyFrame({
         endpoint: "http://127.0.0.1:1234/",
         instanceId: "0123456789abcdef0123456789abcdef",
-        protocolMin: "2",
-        protocolMax: "2",
+        protocolMin: "3",
+        protocolMax: "3",
       }),
     ).toMatchObject({ endpoint: "http://127.0.0.1:1234/" });
     expect(
@@ -41,16 +41,16 @@ describe("local Host startup schemas", () => {
         issuedAt: "2026-01-01T00:00:00.000Z",
         allowedRendererOrigin: "null",
         spaceZeroHome: "/tmp/SpaceZero",
-        protocolMin: "2",
-        protocolMax: "2",
+        protocolMin: "3",
+        protocolMax: "3",
       }),
     ).toThrow();
     expect(() =>
       parseLocalHostReadyFrame({
         endpoint: "http://localhost:1234/",
         instanceId: "0123456789abcdef0123456789abcdef",
-        protocolMin: "2",
-        protocolMax: "2",
+        protocolMin: "3",
+        protocolMax: "3",
       }),
     ).toThrow();
   });

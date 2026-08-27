@@ -3,7 +3,7 @@ import * as hostContracts from "@spacezero/host-contracts";
 
 describe("host-contracts public surface", () => {
   it("exports authenticated local Host tracer contracts", () => {
-    expect(hostContracts.HOST_PROTOCOL_VERSION).toBe("2");
+    expect(hostContracts.HOST_PROTOCOL_VERSION).toBe("3");
     expect(hostContracts.LOCAL_HOST_CLIENT_SCOPES).toEqual([
       "host:connection:read",
       "host:events:subscribe",
@@ -11,6 +11,8 @@ describe("host-contracts public surface", () => {
       "projects:register",
       "harness-auth:read",
       "harness-auth:write",
+      "flows:read",
+      "flows:write",
       "project-sessions:read",
       "project-sessions:create",
       "project-sessions:prompt",

@@ -13,7 +13,7 @@ const descriptor = (
 ): HostConnectionDescriptor => ({
   endpoint,
   instanceId: capability === "second" ? "b".repeat(32) : "a".repeat(32),
-  protocolVersion: "2",
+  protocolVersion: "3",
   clientCapability: `client-${capability}`.padEnd(32, "x"),
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
   scopes: LOCAL_HOST_CLIENT_SCOPES,
@@ -44,8 +44,8 @@ const controlledHost = (
       ready: {
         endpoint,
         instanceId: "c".repeat(32),
-        protocolMin: "2",
-        protocolMax: "2",
+        protocolMin: "3",
+        protocolMax: "3",
       },
       supervisorCapability,
       lifetime: {} as LaunchedLocalHost["lifetime"],

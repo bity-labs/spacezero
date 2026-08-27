@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import {
+  HOST_PROTOCOL_VERSION,
   LOCAL_HOST_CLIENT_SCOPES,
   type HostConnectionDescriptor,
   type LocalHostClientScope,
@@ -67,7 +68,7 @@ export const createCapabilityService = (options: {
       return {
         endpoint: options.endpoint,
         instanceId: options.instanceId,
-        protocolVersion: "2",
+        protocolVersion: HOST_PROTOCOL_VERSION,
         clientCapability,
         expiresAt: new Date(expiresAtMillis).toISOString(),
         scopes: LOCAL_HOST_CLIENT_SCOPES,

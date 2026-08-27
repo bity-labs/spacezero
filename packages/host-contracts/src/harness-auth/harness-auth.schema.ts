@@ -23,6 +23,9 @@ export interface SetProviderApiKeyRequest {
 export interface ProviderAuthStatusResult {
   readonly status: ProviderAuthStatus;
 }
+export interface StartProviderOAuthLoginResult {
+  readonly flowId: string;
+}
 
 export const ProviderAuthMethodSchema = Schema.Literals(["api_key", "oauth"]);
 export const ProviderIdSchema = Schema.String;
@@ -46,6 +49,9 @@ export const ListProviderAuthOptionsResultSchema = Schema.Struct({
 });
 export const ProviderAuthStatusResultSchema = Schema.Struct({
   status: ProviderAuthStatusSchema,
+});
+export const StartProviderOAuthLoginResultSchema = Schema.Struct({
+  flowId: Schema.String,
 });
 export const SetProviderApiKeyRequestSchema = Schema.Struct({
   apiKey: Schema.String,
@@ -150,6 +156,22 @@ export function parseProviderAuthStatusResult(
     throw new Error("invalid provider auth status result");
   }
   return value as unknown as ProviderAuthStatusResult;
+}
+
+export function parseStartProviderOAuthLoginResult(
+  value: unknown,
+): StartProviderOAuthLoginResult {
+  if (!isRecord(value) || !exactKeys(value, ["flowId"]))
+    throw new Error("invalid provider OAuth login result");
+  if (
+    typeof value.flowId !== "string" ||
+    value.flowId.length === 0 ||
+    textByteLength(value.flowId) > 128 ||
+    !/^[A-Za-z0-9_-]+$/.test(value.flowId)
+  ) {
+    throw new Error("invalid provider OAuth login result");
+  }
+  return value as unknown as StartProviderOAuthLoginResult;
 }
 
 export function parseSetProviderApiKeyRequest(
