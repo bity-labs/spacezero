@@ -532,7 +532,38 @@ describe("Session prompt Host protocol", () => {
       "AgentTurnStartedV1",
       "AgentMessageCompletedV1",
     ]);
-    expect(JSON.stringify(frames)).not.toContain("sk-");
+    const streamedEvents = frames.map(
+      (frame) => (frame.data as { event: Record<string, unknown> }).event,
+    );
+    expect(Object.keys(streamedEvents[0]!).sort()).toEqual(
+      [
+        "type",
+        "version",
+        "sessionId",
+        "projectId",
+        "name",
+        "sourceBranch",
+        "sourceDetached",
+        "sourceCommit",
+        "uncommittedChangesExcluded",
+        "managedBranch",
+        "timestamp",
+      ].sort(),
+    );
+    expect(Object.keys(streamedEvents[2]!).sort()).toEqual(
+      ["type", "version", "sessionId", "timestamp"].sort(),
+    );
+    const serializedFrames = JSON.stringify(frames);
+    expect(serializedFrames).not.toContain("sk-");
+    expect(serializedFrames).not.toContain("hostId");
+    expect(serializedFrames).not.toContain(root);
+    expect(serializedFrames).not.toContain("SpaceZero");
+    expect(serializedFrames).not.toContain("worktreePath");
+    expect(serializedFrames).not.toContain("worktreeRoot");
+    expect(serializedFrames).not.toContain("canonicalWorktreePath");
+    expect(serializedFrames).not.toContain("canonicalGitDirPath");
+    expect(serializedFrames).not.toContain("canonicalGitCommonDirPath");
+    expect(serializedFrames).not.toMatch(/DeviceId|FileId/);
 
     const controller = new AbortController();
     const afterLast = await subscribeEvents(

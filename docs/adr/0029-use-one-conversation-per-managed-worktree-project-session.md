@@ -59,7 +59,7 @@ Space Zero Home defaults to `~/SpaceZero`.
 
 Space Zero does not create `.worktrees` inside registered repositories, write managed worktrees beside arbitrary Project folders, or modify a Project's `.gitignore`. Existing Projects may remain anywhere and are registered rather than moved.
 
-Private SQLite databases, Pi transcripts, credentials, logs, and caches remain in operating-system application data rather than Space Zero Home or Session worktrees.
+Private SQLite databases, Pi transcripts, adapter-private Pi runtime/session state, credentials, logs, and caches remain in operating-system application data rather than Space Zero Home or Session worktrees.
 
 Future Remote Hosts use a Host-managed equivalent and must not assume the local `~/SpaceZero` path.
 
@@ -108,20 +108,21 @@ Explicitly quitting Desktop:
 - retains each managed worktree and branch; and
 - then stops the Local Host.
 
-Restoring Desktop may resume the same Project Session only after worktree authentication and Pi reconciliation.
+Restoring Desktop may resume the same Project Session only after worktree authentication and Pi reconciliation. Missing, corrupt, mismatched, ahead/behind, or ambiguous private Pi state makes the Project Session `recovery_required` rather than falling back to text-only replay.
 
 Archiving a Project Session:
 
 - requires active execution to stop;
 - authenticates and removes the managed worktree and branch;
-- preserves the Session Event Journal, projections needed for history, source revision, and diagnostic metadata; and
+- preserves the Session Event Journal, projections needed for history, source revision, and diagnostic metadata;
+- purges adapter-private Pi runtime/session state by default because archive is history-only; and
 - makes the archived Session history-only unless a future explicit continuation workflow is designed.
 
 Permanently deleting a Project Session:
 
 - stops active execution;
 - authenticates and removes any remaining managed worktree and branch;
-- then deletes the Session Event Journal, projections, command receipts, Pi transcript reference/data according to retention policy, and metadata.
+- then deletes the Session Event Journal, projections, command receipts, Pi transcript reference/data, adapter-private Pi runtime/session state, and metadata.
 
 If stop or cleanup fails, archive or deletion does not claim success. Recovery metadata remains durable and the failure is visible.
 

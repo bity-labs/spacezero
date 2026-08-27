@@ -7,7 +7,6 @@ import type {
   CreateProjectSessionRequest,
   CreateProjectSessionResult,
   ProjectSessionErrorCode,
-  ProjectSessionEvent,
   ProjectSessionSummary,
   ProjectSessionTurn,
   SessionMessage,
@@ -18,6 +17,10 @@ import {
   chooseSessionNameCandidate,
   type SessionNameEntropy,
 } from "./project-session-name.service.js";
+import {
+  parseInternalProjectSessionEvent,
+  type InternalProjectSessionEvent,
+} from "./project-session-event.internal.js";
 import {
   ProjectSessionServiceError,
   type PreparedWorktreeIdentity,
@@ -106,7 +109,7 @@ export interface DurableSessionEventRow {
   readonly sessionId: string;
   readonly sequence: number;
   readonly eventType: string;
-  readonly event: ProjectSessionEvent;
+  readonly event: InternalProjectSessionEvent;
   readonly createdAt: string;
 }
 
@@ -201,13 +204,20 @@ const toTurn = (row: TurnRow): ProjectSessionTurn => ({
   updatedAt: row.updated_at,
 });
 
-const toEvent = (row: EventRow): DurableSessionEventRow => ({
-  sessionId: row.session_id,
-  sequence: row.sequence,
-  eventType: row.event_type,
-  event: JSON.parse(row.event_payload_json) as ProjectSessionEvent,
-  createdAt: row.created_at,
-});
+const toEvent = (row: EventRow): DurableSessionEventRow => {
+  const event = parseInternalProjectSessionEvent(
+    JSON.parse(row.event_payload_json),
+  );
+  if (row.event_type !== event.type)
+    throw new ProjectSessionServiceError("project_session_catalog_unavailable");
+  return {
+    sessionId: row.session_id,
+    sequence: row.sequence,
+    eventType: event.type,
+    event,
+    createdAt: row.created_at,
+  };
+};
 
 const toWorktreeIdentity = (
   row: SessionRow,
@@ -304,11 +314,10 @@ const appendEvent = (input: {
   readonly sql: SqlClient;
   readonly sessionId: string;
   readonly sequence: number;
-  readonly eventType: string;
-  readonly payload: unknown;
+  readonly payload: InternalProjectSessionEvent;
   readonly createdAt: string;
 }) =>
-  input.sql`INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.eventType}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
+  input.sql`INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.payload.type}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
 
 export const createProjectSessionRepository = (options: {
   readonly databasePath: string;
@@ -370,7 +379,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: 1,
-              eventType: "ProjectSessionCreationRequestedV1",
               payload: {
                 type: "ProjectSessionCreationRequestedV1",
                 version: 1,
@@ -393,7 +401,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: 2,
-              eventType: "SessionWorkspacePreparationStartedV1",
               payload: {
                 type: "SessionWorkspacePreparationStartedV1",
                 version: 1,
@@ -449,7 +456,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: row.last_sequence + 1,
-              eventType: "SessionWorkspacePreparedV1",
               payload: {
                 type: "SessionWorkspacePreparedV1",
                 version: 1,
@@ -463,7 +469,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: row.last_sequence + 2,
-              eventType: "ProjectSessionReadyV1",
               payload: {
                 type: "ProjectSessionReadyV1",
                 version: 1,
@@ -509,7 +514,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: row.last_sequence + 1,
-              eventType: "ProjectSessionRecoveryRequiredV1",
               payload: {
                 type: "ProjectSessionRecoveryRequiredV1",
                 version: 1,
@@ -567,7 +571,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId,
               sequence: row.last_sequence + 1,
-              eventType: "ProjectSessionRecoveryRequiredV1",
               payload: {
                 type: "ProjectSessionRecoveryRequiredV1",
                 version: 1,
@@ -684,7 +687,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence: baseSequence + 1,
-              eventType: "UserMessageSubmittedV1",
               payload: {
                 type: "UserMessageSubmittedV1",
                 version: 1,
@@ -700,7 +702,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence: baseSequence + 2,
-              eventType: "AgentTurnStartedV1",
               payload: {
                 type: "AgentTurnStartedV1",
                 version: 1,
@@ -777,7 +778,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence: agentSequence,
-              eventType: "AgentMessageCompletedV1",
               payload: {
                 type: "AgentMessageCompletedV1",
                 version: 1,
@@ -847,7 +847,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence,
-              eventType: "AgentTurnFailedV1",
               payload: {
                 type: "AgentTurnFailedV1",
                 version: 1,
@@ -899,7 +898,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence,
-              eventType: "AgentTurnInterruptedV1",
               payload: {
                 type: "AgentTurnInterruptedV1",
                 version: 1,
@@ -970,7 +968,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence,
-              eventType: "AgentToolCallStartedV1",
               payload: {
                 type: "AgentToolCallStartedV1",
                 version: 1,
@@ -1016,7 +1013,6 @@ export const createProjectSessionRepository = (options: {
               sql,
               sessionId: input.sessionId,
               sequence,
-              eventType: "AgentToolCallCompletedV1",
               payload: {
                 type: "AgentToolCallCompletedV1",
                 version: 1,

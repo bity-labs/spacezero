@@ -11,7 +11,7 @@ import {
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentTurnInput } from "./conversation.model.js";
+import type { AgentTurnError, AgentTurnInput } from "./conversation.model.js";
 import { createPiConversationRunner } from "./pi-conversation.adapter.js";
 
 const temps: string[] = [];
@@ -193,6 +193,68 @@ describe("createPiConversationRunner", () => {
 
     await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
+  });
+
+  it("fails the turn when Pi finishes with a terminal stream error", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage("partial before error", {
+        stopReason: "error",
+      }),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(runner.submitTurn(await input())).rejects.toMatchObject({
+      code: "agent_turn_failed",
+    } satisfies Partial<AgentTurnError>);
+  });
+
+  it("does not treat a provider-side terminal abort as a successful turn", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage("partial before abort", {
+        stopReason: "aborted",
+      }),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(runner.submitTurn(await input())).rejects.toMatchObject({
+      code: "agent_turn_failed",
+    } satisfies Partial<AgentTurnError>);
+  });
+
+  it("maps a caller-signalled abort to an interrupted turn", async () => {
+    const faux = fauxProvider();
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const controller = new AbortController();
+    controller.abort();
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    await expect(
+      runner.submitTurn(await input({ signal: controller.signal })),
+    ).rejects.toMatchObject({
+      code: "agent_turn_interrupted",
+    } satisfies Partial<AgentTurnError>);
   });
 
   it("configures only bounded file mutation tools for the managed worktree", async () => {

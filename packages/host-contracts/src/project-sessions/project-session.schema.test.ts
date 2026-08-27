@@ -158,6 +158,48 @@ describe("Project Session schemas", () => {
     ).toMatchObject({ messages: [userMessage, agentMessage] });
   });
 
+  it("keeps public provisioning events free of private Host filesystem identity", () => {
+    const creation = parseSync(ProjectSessionEventSchema)({
+      type: "ProjectSessionCreationRequestedV1",
+      version: 1,
+      sessionId: uuid,
+      projectId: uuid,
+      name: "saint-emilion",
+      hostId: "22222222-2222-4333-8444-555555555555",
+      sourceBranch: "main",
+      sourceDetached: false,
+      sourceCommit: commit,
+      uncommittedChangesExcluded: true,
+      managedBranch: `spacezero/saint-emilion-${uuid}`,
+      worktreePath: "/tmp/private/SpaceZero/worktrees/project/session",
+      worktreeRoot: "/tmp/private/SpaceZero/worktrees/project",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    expect(creation).not.toHaveProperty("hostId");
+    expect(creation).not.toHaveProperty("worktreePath");
+    expect(creation).not.toHaveProperty("worktreeRoot");
+
+    const prepared = parseSync(ProjectSessionEventSchema)({
+      type: "SessionWorkspacePreparedV1",
+      version: 1,
+      sessionId: uuid,
+      canonicalWorktreePath: "/tmp/private/worktree",
+      canonicalGitDirPath: "/tmp/private/worktree/.git",
+      canonicalGitCommonDirPath: "/tmp/private/repo/.git/worktrees/session",
+      worktreeDeviceId: "dev-1",
+      worktreeFileId: "file-1",
+      gitDirDeviceId: "dev-2",
+      gitDirFileId: "file-2",
+      commonDirDeviceId: "dev-3",
+      commonDirFileId: "file-3",
+      timestamp: "2026-01-01T00:00:01.000Z",
+    });
+    expect(prepared).not.toHaveProperty("canonicalWorktreePath");
+    expect(prepared).not.toHaveProperty("canonicalGitDirPath");
+    expect(prepared).not.toHaveProperty("canonicalGitCommonDirPath");
+    expect(JSON.stringify(prepared)).not.toMatch(/DeviceId|FileId/);
+  });
+
   it("defines prompt and agent-turn journal events", () => {
     expect(
       parseSync(ProjectSessionEventSchema)({

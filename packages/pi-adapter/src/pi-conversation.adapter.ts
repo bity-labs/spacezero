@@ -303,15 +303,20 @@ const workspaceTools = (env: ExecutionEnv): AgentTool[] => {
   ];
 };
 
-const textFromAgentState = (messages: readonly AgentMessage[]): string => {
+const lastAssistantMessage = (
+  messages: readonly AgentMessage[],
+): AssistantMessage | undefined => {
   const lastMsg = messages.at(-1);
   if (lastMsg?.role !== "assistant" || !Array.isArray(lastMsg.content))
-    return "";
-  return lastMsg.content
+    return undefined;
+  return lastMsg as AssistantMessage;
+};
+
+const textFromAssistantMessage = (message: AssistantMessage): string =>
+  message.content
     .filter((content) => content.type === "text")
     .map((content) => content.text)
     .join("");
-};
 
 export function createPiConversationRunner(
   config: PiConversationConfig,
@@ -370,8 +375,8 @@ export function createPiConversationRunner(
       const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
         switch (event.type) {
           case "message_update": {
-            const fullText = textFromAgentState(agent.state.messages);
-            const delta = fullText.slice(textParts.join("").length);
+            if (event.assistantMessageEvent.type !== "text_delta") break;
+            const delta = event.assistantMessageEvent.delta;
             if (delta.length > 0) {
               textParts.push(delta);
               input.onDelta?.({ kind: "assistant_text", text: delta });
@@ -414,7 +419,17 @@ export function createPiConversationRunner(
       try {
         await agent.prompt(input.prompt);
         await agent.waitForIdle();
-        const assistantText = textFromAgentState(agent.state.messages);
+        const assistant = lastAssistantMessage(agent.state.messages);
+        if (assistant?.stopReason === "error" || assistant?.errorMessage)
+          throw new AgentTurnError("agent_turn_failed");
+        if (assistant?.stopReason === "aborted") {
+          if (input.signal?.aborted)
+            throw new AgentTurnError("agent_turn_interrupted");
+          throw new AgentTurnError("agent_turn_failed");
+        }
+        const assistantText = assistant
+          ? textFromAssistantMessage(assistant)
+          : textParts.join("");
         return {
           text: assistantText.length > 0 ? assistantText : textParts.join(""),
         };
