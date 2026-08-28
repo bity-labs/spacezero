@@ -15,6 +15,7 @@ Desktop renderer
   -> Host Protocol HTTP command
   -> Workspace Host Project Session service
   -> managed worktree authentication
+  -> Session runtime snapshot
   -> Pi Adapter conversation runner
   -> Pi SDK turn
   -> Workspace Host SQLite events/messages
@@ -31,22 +32,27 @@ Desktop renderer
 6. Workspace Host replays or rejects the command receipt by command id.
 7. Workspace Host authenticates the Project and managed worktree identity.
 8. Workspace Host appends the user prompt event/message to SQLite.
-9. Workspace Host calls the Pi Adapter with:
-   - stable Session identity;
-   - Pi conversation id;
-   - previous turn history;
-   - canonical managed worktree path;
-   - currently enabled tools: `read`, `write`, `edit`.
-10. Pi Adapter runs the Pi turn with tools bounded to the managed worktree.
-11. Workspace Host records either assistant output or a turn failure.
-12. The renderer receives the submitted prompt result and updates the visible chat.
+9. Workspace Host snapshots the Session runtime onto the admitted turn: provider id, model id, and thinking level.
+10. Workspace Host calls the Pi Adapter with:
+    - stable Session identity;
+    - Pi conversation id;
+    - previous turn history;
+    - canonical managed worktree path;
+    - snapshotted runtime configuration;
+    - currently enabled tools from the Workspace Tool registry: `read`, `write`, `edit`.
+11. Pi Adapter validates the selected model is authenticated, available, and supports the requested thinking level.
+12. Pi Adapter runs the Pi turn with tools bounded to the managed worktree.
+13. Workspace Host records assistant output, bounded checkpoints/tool facts, or a classified turn failure.
+14. The renderer receives the submitted prompt result and updates the visible chat.
 
 ## What is durable today
 
 - command receipts;
-- Project Session events;
+- Project Session events, including runtime-configuration and turn lifecycle facts;
 - user and assistant messages;
-- one Pi conversation context id per Project Session;
+- bounded assistant checkpoints for reconnect/reload;
+- one Pi conversation context id plus private adapter state per Project Session;
+- per-turn provider/model/thinking snapshots;
 - managed worktree identity fields.
 
 ## Important limitation
@@ -57,10 +63,9 @@ The renderer currently updates chat from the prompt response and initial message
 
 Later prompt flow needs to include:
 
-- streaming assistant output;
-- Workspace Tool calls;
+- richer streaming-driven visible chat projection;
+- Workspace Tool calls beyond the initial bounded file tool registry;
 - approval requests and decisions;
-- interruption/cancellation;
 - changed-file and diff events;
 - commit/push/PR workflow events;
 - richer client-side projections from durable event cursors.
