@@ -69,6 +69,21 @@ export interface AgentTurnRuntimeConfiguration {
     "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
 
+export interface AgentTurnPrivateStateContext {
+  readonly stateId: string;
+  readonly operationId: string;
+}
+
+export interface AgentSkillResource {
+  readonly name: string;
+  readonly description: string;
+  readonly body: string;
+}
+
+export interface AgentTurnResources {
+  readonly skills: readonly AgentSkillResource[];
+}
+
 export interface AgentTurnInput {
   /** Project Session identity that owns this one Pi conversation. */
   readonly sessionId: string;
@@ -82,6 +97,10 @@ export interface AgentTurnInput {
   readonly tools: AgentToolConfiguration;
   /** Effective model and thinking configuration snapshotted for this turn. */
   readonly runtime: AgentTurnRuntimeConfiguration;
+  /** Opaque adapter-private state context. */
+  readonly privateState?: AgentTurnPrivateStateContext;
+  /** Explicit Host-approved resources for this turn. */
+  readonly resources?: AgentTurnResources;
   /** Accepted user prompt text. */
   readonly prompt: string;
   /** Optional cancellation signal for the active turn. */

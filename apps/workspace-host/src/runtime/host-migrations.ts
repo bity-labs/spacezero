@@ -307,6 +307,36 @@ export const enrichProjectSessionPiContextsMigration = Effect.gen(function* () {
   yield* sql`ALTER TABLE project_session_pi_contexts ADD COLUMN last_turn_id TEXT`;
 });
 
+export const createProjectSessionFollowUpsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_follow_ups (
+  session_id TEXT NOT NULL,
+  follow_up_id TEXT NOT NULL UNIQUE,
+  command_id TEXT NOT NULL UNIQUE,
+  prompt TEXT NOT NULL CHECK (length(prompt) BETWEEN 1 AND 16000),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'dispatched', 'consumed', 'cancelled', 'recovery_required')),
+  position INTEGER NOT NULL CHECK (position > 0),
+  dispatched_turn_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, follow_up_id),
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX project_session_follow_ups_queue ON project_session_follow_ups(session_id, state, position)`;
+});
+
+export const createWorkspaceToolPolicyMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE workspace_tool_policies (
+  tool_name TEXT PRIMARY KEY NOT NULL,
+  confirmation TEXT NOT NULL CHECK (confirmation IN ('never', 'ask')),
+  updated_at TEXT NOT NULL
+)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [
@@ -343,6 +373,16 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     8,
     "enrich_project_session_pi_contexts",
     Effect.succeed(enrichProjectSessionPiContextsMigration),
+  ],
+  [
+    9,
+    "create_project_session_follow_ups",
+    Effect.succeed(createProjectSessionFollowUpsMigration),
+  ],
+  [
+    10,
+    "create_workspace_tool_policies",
+    Effect.succeed(createWorkspaceToolPolicyMigration),
   ],
 ] as const);
 

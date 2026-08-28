@@ -16,6 +16,7 @@ import {
   HostConnectionDescriptorSchema,
   HostConnectionSnapshotSchema,
 } from "./host-connection.schema.js";
+import { AgentResourcesApiGroup } from "../agent-resources/agent-resources-api.contract.js";
 import { AgentRuntimeApiGroup } from "../agent-runtime/agent-runtime-api.contract.js";
 import { FlowApiGroup } from "../flows/flow-api.contract.js";
 import { HarnessAuthApiGroup } from "../harness-auth/harness-auth-api.contract.js";
@@ -75,6 +76,7 @@ export const HostApi = HttpApi.make("SpaceZeroHostApi")
   .add(HostAdminGroup)
   .add(HarnessAuthApiGroup)
   .add(AgentRuntimeApiGroup)
+  .add(AgentResourcesApiGroup)
   .add(FlowApiGroup)
   .add(ProjectApiGroup)
   .add(ProjectSessionApiGroup)

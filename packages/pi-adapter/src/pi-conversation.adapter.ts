@@ -320,6 +320,26 @@ const textFromAssistantMessage = (message: AssistantMessage): string =>
     .map((content) => content.text)
     .join("");
 
+const expandSkillPrompt = (input: AgentTurnInput): string => {
+  const match = /^\/skill:([a-z0-9][a-z0-9-]{0,127})(?:\s+([\s\S]*))?$/.exec(
+    input.prompt,
+  );
+  if (!match) return input.prompt;
+  const skill = input.resources?.skills.find(
+    (candidate) => candidate.name === match[1],
+  );
+  if (!skill) return input.prompt;
+  const userMessage = match[2]?.trim();
+  return [
+    `<skill name="${skill.name}">`,
+    skill.body,
+    "</skill>",
+    userMessage ? `User request: ${userMessage}` : undefined,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join("\n\n");
+};
+
 export function createPiConversationRunner(
   config: PiConversationConfig,
 ): ConversationRunner {
@@ -430,7 +450,7 @@ export function createPiConversationRunner(
       });
 
       try {
-        await agent.prompt(input.prompt);
+        await agent.prompt(expandSkillPrompt(input));
         await agent.waitForIdle();
         const assistant = lastAssistantMessage(agent.state.messages);
         if (assistant?.stopReason === "error" || assistant?.errorMessage)

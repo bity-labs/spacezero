@@ -15,6 +15,9 @@ export type ProjectSessionErrorCode =
   | "session_not_ready"
   | "session_turn_in_progress"
   | "session_runtime_revision_conflict"
+  | "follow_up_not_found"
+  | "follow_up_not_cancellable"
+  | "follow_up_queue_unavailable"
   | "agent_configuration_invalid"
   | "agent_authentication_required"
   | "turn_not_found"
@@ -88,6 +91,18 @@ export const SessionRuntimeRevisionConflictErrorSchema = projectSessionError(
   "session_runtime_revision_conflict",
   409,
 );
+export const FollowUpNotFoundErrorSchema = projectSessionError(
+  "follow_up_not_found",
+  404,
+);
+export const FollowUpNotCancellableErrorSchema = projectSessionError(
+  "follow_up_not_cancellable",
+  409,
+);
+export const FollowUpQueueUnavailableErrorSchema = projectSessionError(
+  "follow_up_queue_unavailable",
+  503,
+);
 export const AgentConfigurationInvalidErrorSchema = projectSessionError(
   "agent_configuration_invalid",
   409,
@@ -127,6 +142,9 @@ export const ProjectSessionErrorSchemas = [
   SessionNotReadyErrorSchema,
   SessionTurnInProgressErrorSchema,
   SessionRuntimeRevisionConflictErrorSchema,
+  FollowUpNotFoundErrorSchema,
+  FollowUpNotCancellableErrorSchema,
+  FollowUpQueueUnavailableErrorSchema,
   AgentConfigurationInvalidErrorSchema,
   AgentAuthenticationRequiredErrorSchema,
   TurnNotFoundErrorSchema,
@@ -202,6 +220,18 @@ export const projectSessionErrorBody = (
         code,
         message:
           "This Session runtime configuration changed. Reload and try again.",
+      };
+    case "follow_up_not_found":
+      return { code, message: "The selected follow-up does not exist." };
+    case "follow_up_not_cancellable":
+      return {
+        code,
+        message: "This follow-up can no longer be cancelled.",
+      };
+    case "follow_up_queue_unavailable":
+      return {
+        code,
+        message: "The follow-up queue is temporarily unavailable.",
       };
     case "agent_configuration_invalid":
       return {

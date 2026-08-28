@@ -14,6 +14,7 @@ registered Project
   -> create Project Session command
   -> reserve unique wine-appellation name
   -> persist default runtime configuration
+  -> create private Pi state substrate
   -> create managed branch/worktree
   -> persist worktree identity
   -> mark Session ready or recovery required
@@ -57,9 +58,11 @@ If identity is missing or inconsistent, the Session becomes recovery-required in
 3. The current Session runtime configuration is snapshotted onto the turn.
 4. Pi turn runs in the managed worktree using the snapshotted provider/model/thinking level.
 5. Bounded assistant checkpoints and tool activity facts may be appended while the turn runs.
-6. Assistant message/event is appended on success.
-7. Failure/interruption event with fail-closed retry metadata is appended on terminal failure.
-8. Current messages plus active/latest turn state can be queried, and events can be replayed by cursor.
+6. If a new prompt is submitted while the turn is active, it can be durably queued as a follow-up instead of live-steering the active turn.
+7. Assistant message/event is appended on success.
+8. Failure/interruption event with fail-closed retry metadata is appended on terminal failure.
+9. Queued follow-ups drain in order after terminal turn states; dispatched-but-not-consumed follow-ups become recovery-required on restart.
+10. Current messages plus active/latest turn state can be queried, and events can be replayed by cursor.
 
 ## Recovery lifecycle
 
@@ -72,7 +75,7 @@ Still missing from the lifecycle:
 - explicit archive/delete flows;
 - worktree cleanup UI and policy;
 - richer retry/attempt policy after side-effect tracking;
-- approval state;
+- user-facing approval Settings UI;
 - rich Workspace Tools beyond the initial bounded file tool registry;
 - changed-file projection;
 - commit/push/PR states;
