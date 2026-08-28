@@ -1,3 +1,4 @@
+import { Button } from "@spacezero/ui/components/button";
 import type { ProjectSessionSummary } from "@spacezero/host-contracts";
 import type { ReactElement } from "react";
 
@@ -19,13 +20,14 @@ export const ProjectSessionsList = ({
   onOpenSession,
 }: ProjectSessionsListProps): ReactElement => (
   <div className="project-sessions">
-    <button
+    <Button
       type="button"
       onClick={() => onStartSession(projectId)}
       disabled={creating}
+      size="sm"
     >
       {creating ? "Starting…" : "Start Session"}
-    </button>
+    </Button>
     {sessions.length === 0 ? <p>No Sessions yet.</p> : null}
     <ul className="project-sessions__list" aria-label="Project Sessions">
       {sessions.map((session) => (
@@ -33,9 +35,13 @@ export const ProjectSessionsList = ({
           <div className="project-sessions__item-header">
             <strong>{session.name}</strong>
             {session.state === "ready" ? (
-              <button type="button" onClick={() => onOpenSession(session)}>
+              <Button
+                type="button"
+                onClick={() => onOpenSession(session)}
+                size="sm"
+              >
                 Open Chat
-              </button>
+              </Button>
             ) : null}
           </div>
           <span>{session.state.replaceAll("_", " ")}</span>

@@ -1,3 +1,4 @@
+import { Button } from "@spacezero/ui/components/button";
 import type {
   ProjectSessionSummary,
   ProjectSummary,
@@ -38,9 +39,9 @@ export const ProjectsView = ({
         <p className="eyebrow">Host-owned Project catalog</p>
         <h2 id="projects-title">Projects</h2>
       </div>
-      <button type="button" onClick={onAddProject} disabled={busy}>
+      <Button type="button" onClick={onAddProject} disabled={busy} size="sm">
         {busy ? "Adding…" : "Add Project"}
-      </button>
+      </Button>
     </div>
     {state.status === "loading" ? <p role="status">Loading Projects…</p> : null}
     {state.status === "empty" ? (
