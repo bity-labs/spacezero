@@ -14,9 +14,10 @@ The v0.1 branch moved Space Zero from a broad Electron-first prototype toward a 
 - Host state is stored in SQLite.
 - Projects can be registered from a Git repository.
 - Project Sessions can be created in managed Git worktrees.
-- A Project Session owns one Pi conversation context.
-- Basic prompts run through the Host-side Pi Adapter.
-- Desktop renderer can register projects, start sessions, and submit basic chat prompts.
+- A Project Session owns one Pi conversation context and Host-owned runtime configuration.
+- Basic prompts run through the Host-side Pi Adapter with per-turn provider/model/thinking snapshots.
+- Project Session event streams expose sanitized public events, bounded assistant checkpoints, and active/latest turn projections.
+- Desktop renderer can register projects, start sessions, inspect runtime/model options through Client Runtime, and submit basic chat prompts.
 
 ## Not complete yet
 
@@ -24,7 +25,7 @@ The v0.1 branch moved Space Zero from a broad Electron-first prototype toward a 
 - Private Node packaging and Electron fuse hardening are not implemented.
 - The Desktop UI is still a minimal tracer, not the intended builder workspace.
 - Files, diffs, terminal, browser, GitHub, commits, pushes, and pull requests are deferred.
-- Workspace Tools, approvals, interruption, and richer agent event history are deferred.
+- Rich Workspace Tools beyond the initial bounded `read`/`write`/`edit` registry, approvals, and richer agent event history are deferred.
 - Remote access, mobile supervision, and cloud hosts are future work.
 
 ## Validation status
