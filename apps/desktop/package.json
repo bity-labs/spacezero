@@ -24,11 +24,13 @@
     "@spacezero/client-runtime": "workspace:*",
     "@spacezero/host-contracts": "workspace:*",
     "@spacezero/ui": "workspace:*",
+    "@tanstack/react-router": "1.170.32",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.1.18",
+    "@tanstack/router-plugin": "1.168.35",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
     "electron-vite": "5.0.0",
