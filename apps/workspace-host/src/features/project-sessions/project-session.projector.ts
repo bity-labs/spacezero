@@ -1,7 +1,5 @@
-import type {
-  ProjectSessionEvent,
-  ProjectSessionSummary,
-} from "@spacezero/host-contracts";
+import type { ProjectSessionSummary } from "@spacezero/host-contracts";
+import type { InternalProjectSessionEvent } from "./project-session-event.internal.js";
 
 export interface ProjectSessionProjection extends Omit<
   ProjectSessionSummary,
@@ -16,7 +14,7 @@ export interface ProjectSessionProjection extends Omit<
 
 export const projectSessionEvent = (
   previous: ProjectSessionProjection | undefined,
-  event: ProjectSessionEvent,
+  event: InternalProjectSessionEvent,
   sequence: number,
 ): ProjectSessionProjection => {
   if (sequence < 1) throw new Error("invalid event sequence");
@@ -49,8 +47,15 @@ export const projectSessionEvent = (
       return { ...previous, updatedAt, lastSequence: sequence };
     case "SessionWorkspacePreparedV1":
       return { ...previous, updatedAt, lastSequence: sequence };
+    case "ProjectSessionRuntimeConfiguredV1":
+    case "ProjectSessionFollowUpQueuedV1":
+    case "ProjectSessionFollowUpDispatchedV1":
+    case "ProjectSessionFollowUpConsumedV1":
+    case "ProjectSessionFollowUpCancelledV1":
+    case "ProjectSessionFollowUpRecoveryRequiredV1":
     case "UserMessageSubmittedV1":
     case "AgentTurnStartedV1":
+    case "AgentMessageCheckpointedV1":
     case "AgentMessageCompletedV1":
     case "AgentTurnFailedV1":
     case "AgentTurnInterruptedV1":

@@ -8,6 +8,8 @@ export const LOCAL_HOST_CLIENT_SCOPES = [
   "projects:register",
   "harness-auth:read",
   "harness-auth:write",
+  "agent-runtime:read",
+  "agent-resources:read",
   "flows:read",
   "flows:write",
   "project-sessions:read",

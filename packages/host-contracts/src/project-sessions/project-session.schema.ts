@@ -1,4 +1,8 @@
 import { Schema } from "effect";
+import {
+  AgentThinkingLevelSchema,
+  type AgentThinkingLevel,
+} from "../agent-runtime/agent-runtime.schema.js";
 import { ProjectIdSchema } from "../projects/project.schema.js";
 
 export type ProjectSessionId = string;
@@ -40,7 +44,12 @@ export interface ListProjectSessionsResult {
 export type SessionMessageId = string;
 export type AgentTurnId = string;
 export type AgentToolCallId = string;
+export type AgentToolApprovalStatus = "approved" | "requires_approval";
+export type AgentToolSafety = "read" | "write" | "dangerous";
+export type ProjectSessionFollowUpId = string;
 export type SessionMessageRole = "user" | "assistant";
+export type ProjectSessionFollowUpState =
+  "queued" | "dispatched" | "consumed" | "cancelled" | "recovery_required";
 export type ProjectSessionTurnState =
   | "queued"
   | "running"
@@ -62,13 +71,64 @@ export interface SubmitSessionPromptRequest {
   readonly prompt: string;
 }
 
+export interface EnqueueProjectSessionFollowUpRequest {
+  readonly commandId: ProjectSessionCommandId;
+  readonly prompt: string;
+}
+
+export interface ProjectSessionFollowUp {
+  readonly id: ProjectSessionFollowUpId;
+  readonly commandId: ProjectSessionCommandId;
+  readonly sessionId: ProjectSessionId;
+  readonly prompt: string;
+  readonly state: ProjectSessionFollowUpState;
+  readonly position: number;
+  readonly dispatchedTurnId?: AgentTurnId;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface EnqueueProjectSessionFollowUpResult {
+  readonly session: ProjectSessionSummary;
+  readonly followUp: ProjectSessionFollowUp;
+}
+
+export interface ListProjectSessionFollowUpsResult {
+  readonly session: ProjectSessionSummary;
+  readonly followUps: readonly ProjectSessionFollowUp[];
+}
+
+export interface CancelProjectSessionFollowUpResult {
+  readonly session: ProjectSessionSummary;
+  readonly followUp: ProjectSessionFollowUp;
+}
+
+export interface InterruptProjectSessionTurnRequest {
+  readonly commandId: ProjectSessionCommandId;
+}
+
+export type AgentTurnFailureCategory =
+  | "configuration"
+  | "authentication"
+  | "provider"
+  | "tool"
+  | "interrupted"
+  | "system";
+
 export interface ProjectSessionTurn {
   readonly id: AgentTurnId;
   readonly commandId: ProjectSessionCommandId;
   readonly state: ProjectSessionTurnState;
   readonly userMessageId: SessionMessageId;
   readonly assistantMessageId: SessionMessageId;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly thinkingLevel: AgentThinkingLevel;
   readonly draftText: string;
+  readonly failureReason?: string;
+  readonly failureCategory?: AgentTurnFailureCategory;
+  readonly retryable?: boolean;
+  readonly retryAfterMs?: number;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -87,6 +147,33 @@ export interface InterruptProjectSessionTurnResult {
 export interface ListSessionMessagesResult {
   readonly session: ProjectSessionSummary;
   readonly messages: readonly SessionMessage[];
+  readonly activeTurn?: ProjectSessionTurn;
+  readonly latestTurn?: ProjectSessionTurn;
+}
+
+export interface ProjectSessionRuntimeConfiguration {
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly defaultThinkingLevel: AgentThinkingLevel;
+  readonly revision: number;
+}
+
+export interface GetProjectSessionRuntimeResult {
+  readonly session: ProjectSessionSummary;
+  readonly runtime: ProjectSessionRuntimeConfiguration;
+}
+
+export interface UpdateProjectSessionRuntimeRequest {
+  readonly commandId: ProjectSessionCommandId;
+  readonly providerId: string;
+  readonly modelId: string;
+  readonly defaultThinkingLevel: AgentThinkingLevel;
+  readonly expectedRevision: number;
+}
+
+export interface UpdateProjectSessionRuntimeResult {
+  readonly session: ProjectSessionSummary;
+  readonly runtime: ProjectSessionRuntimeConfiguration;
 }
 
 export interface ProjectSessionEventStreamQuery {
@@ -140,10 +227,39 @@ export const ProjectSessionGitCommitObjectIdSchema = Schema.String.check(
 );
 export const SessionMessageIdSchema = Schema.String.check(Schema.isUUID());
 export const AgentTurnIdSchema = Schema.String.check(Schema.isUUID());
+export const ProjectSessionFollowUpIdSchema = Schema.String.check(
+  Schema.isUUID(),
+);
 export const AgentToolCallIdSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(256),
 );
+export const AgentToolSafetySchema = Schema.Literals([
+  "read",
+  "write",
+  "dangerous",
+]);
+export const AgentToolApprovalStatusSchema = Schema.Literals([
+  "approved",
+  "requires_approval",
+]);
+export const AgentTurnFailureCategorySchema = Schema.Literals([
+  "configuration",
+  "authentication",
+  "provider",
+  "tool",
+  "interrupted",
+  "system",
+]);
+
+export const ProjectSessionFollowUpStateSchema = Schema.Literals([
+  "queued",
+  "dispatched",
+  "consumed",
+  "cancelled",
+  "recovery_required",
+]);
+
 export const ProjectSessionTurnStateSchema = Schema.Literals([
   "queued",
   "running",
@@ -177,6 +293,13 @@ export const SessionMessageSchema = Schema.Struct({
 export const SubmitSessionPromptRequestSchema = Schema.Struct({
   commandId: ProjectSessionCommandIdSchema,
   prompt: SessionPromptSchema,
+});
+export const EnqueueProjectSessionFollowUpRequestSchema = Schema.Struct({
+  commandId: ProjectSessionCommandIdSchema,
+  prompt: SessionPromptSchema,
+});
+export const InterruptProjectSessionTurnRequestSchema = Schema.Struct({
+  commandId: ProjectSessionCommandIdSchema,
 });
 export const ProjectSessionSummarySchema = Schema.Struct({
   id: ProjectSessionIdSchema,
@@ -213,7 +336,17 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   state: ProjectSessionTurnStateSchema,
   userMessageId: SessionMessageIdSchema,
   assistantMessageId: SessionMessageIdSchema,
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  failureReason: Schema.optionalKey(Schema.String),
+  failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
+  retryable: Schema.optionalKey(Schema.Boolean),
+  retryAfterMs: Schema.optionalKey(Schema.Number),
   createdAt: DateTimeUtcStringSchema,
   updatedAt: DateTimeUtcStringSchema,
 });
@@ -226,9 +359,70 @@ export const InterruptProjectSessionTurnResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   turn: ProjectSessionTurnSchema,
 });
+export const ProjectSessionFollowUpSchema = Schema.Struct({
+  id: ProjectSessionFollowUpIdSchema,
+  commandId: ProjectSessionCommandIdSchema,
+  sessionId: ProjectSessionIdSchema,
+  prompt: SessionPromptSchema,
+  state: ProjectSessionFollowUpStateSchema,
+  position: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+  dispatchedTurnId: Schema.optionalKey(AgentTurnIdSchema),
+  createdAt: DateTimeUtcStringSchema,
+  updatedAt: DateTimeUtcStringSchema,
+});
+export const EnqueueProjectSessionFollowUpResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  followUp: ProjectSessionFollowUpSchema,
+});
+export const ListProjectSessionFollowUpsResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  followUps: Schema.Array(ProjectSessionFollowUpSchema),
+});
+export const CancelProjectSessionFollowUpResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  followUp: ProjectSessionFollowUpSchema,
+});
 export const ListSessionMessagesResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   messages: Schema.Array(SessionMessageSchema),
+  activeTurn: Schema.optionalKey(ProjectSessionTurnSchema),
+  latestTurn: Schema.optionalKey(ProjectSessionTurnSchema),
+});
+export const ProjectSessionRuntimeConfigurationSchema = Schema.Struct({
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  defaultThinkingLevel: AgentThinkingLevelSchema,
+  revision: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+});
+export const GetProjectSessionRuntimeResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  runtime: ProjectSessionRuntimeConfigurationSchema,
+});
+export const UpdateProjectSessionRuntimeRequestSchema = Schema.Struct({
+  commandId: ProjectSessionCommandIdSchema,
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+  defaultThinkingLevel: AgentThinkingLevelSchema,
+  expectedRevision: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+});
+export const UpdateProjectSessionRuntimeResultSchema = Schema.Struct({
+  session: ProjectSessionSummarySchema,
+  runtime: ProjectSessionRuntimeConfigurationSchema,
 });
 
 export const ProjectSessionEventStreamQuerySchema = Schema.Struct({
@@ -244,14 +438,11 @@ export const ProjectSessionEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     projectId: ProjectIdSchema,
     name: ProjectSessionNameSchema,
-    hostId: ProjectSessionIdSchema,
     sourceBranch: Schema.NullOr(Schema.String),
     sourceDetached: Schema.Boolean,
     sourceCommit: ProjectSessionGitCommitObjectIdSchema,
     uncommittedChangesExcluded: Schema.Boolean,
     managedBranch: Schema.String,
-    worktreePath: Schema.String,
-    worktreeRoot: Schema.String,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -264,15 +455,6 @@ export const ProjectSessionEventSchema = Schema.Union([
     type: Schema.Literals(["SessionWorkspacePreparedV1"]),
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
-    canonicalWorktreePath: Schema.String,
-    canonicalGitDirPath: Schema.String,
-    canonicalGitCommonDirPath: Schema.String,
-    worktreeDeviceId: Schema.String,
-    worktreeFileId: Schema.String,
-    gitDirDeviceId: Schema.String,
-    gitDirFileId: Schema.String,
-    commonDirDeviceId: Schema.String,
-    commonDirFileId: Schema.String,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -320,6 +502,72 @@ export const ProjectSessionEventSchema = Schema.Union([
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
+    type: Schema.Literals(["ProjectSessionRuntimeConfiguredV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    providerId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    modelId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(256),
+    ),
+    defaultThinkingLevel: AgentThinkingLevelSchema,
+    revision: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["ProjectSessionFollowUpQueuedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    followUpId: ProjectSessionFollowUpIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    prompt: SessionMessageTextSchema,
+    position: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["ProjectSessionFollowUpDispatchedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    followUpId: ProjectSessionFollowUpIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["ProjectSessionFollowUpConsumedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    followUpId: ProjectSessionFollowUpIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    turnId: AgentTurnIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["ProjectSessionFollowUpCancelledV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    followUpId: ProjectSessionFollowUpIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["ProjectSessionFollowUpRecoveryRequiredV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    followUpId: ProjectSessionFollowUpIdSchema,
+    commandId: ProjectSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
     type: Schema.Literals(["UserMessageSubmittedV1"]),
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
@@ -334,6 +582,24 @@ export const ProjectSessionEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
+    providerId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(128),
+    ),
+    modelId: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(256),
+    ),
+    thinkingLevel: AgentThinkingLevelSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AgentMessageCheckpointedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    text: SessionMessageTextSchema,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -350,7 +616,10 @@ export const ProjectSessionEventSchema = Schema.Union([
     version: Schema.Literals([1]),
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
-    reason: Schema.Literals(["agent_unavailable", "agent_turn_failed"]),
+    reason: Schema.String,
+    failureCategory: AgentTurnFailureCategorySchema,
+    retryable: Schema.Boolean,
+    retryAfterMs: Schema.optionalKey(Schema.Number),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -371,6 +640,11 @@ export const ProjectSessionEventSchema = Schema.Union([
       Schema.isMinLength(1),
       Schema.isMaxLength(128),
     ),
+    safety: Schema.optionalKey(AgentToolSafetySchema),
+    approvalStatus: Schema.optionalKey(AgentToolApprovalStatusSchema),
+    approvalReason: Schema.optionalKey(
+      Schema.String.check(Schema.isMaxLength(128)),
+    ),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -384,6 +658,11 @@ export const ProjectSessionEventSchema = Schema.Union([
       Schema.isMaxLength(128),
     ),
     status: Schema.Literals(["succeeded", "failed"]),
+    safety: Schema.optionalKey(AgentToolSafetySchema),
+    approvalStatus: Schema.optionalKey(AgentToolApprovalStatusSchema),
+    approvalReason: Schema.optionalKey(
+      Schema.String.check(Schema.isMaxLength(128)),
+    ),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);

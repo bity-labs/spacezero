@@ -15,6 +15,11 @@ const input = (overrides: Partial<AgentTurnInput> = {}): AgentTurnInput => ({
     workingDirectory: "/spacezero/worktrees/project/session",
     enabledToolNames: ["read", "write", "edit"],
   },
+  runtime: {
+    providerId: "faux",
+    modelId: "faux-1",
+    thinkingLevel: "off",
+  },
   prompt: "Build the wine list view",
   ...overrides,
 });

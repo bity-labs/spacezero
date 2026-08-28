@@ -67,6 +67,8 @@ The following remain conventional or external authorities:
 
 Events may record validated facts about filesystem, Git, or Pi operations, but replaying Session events does not recreate those external systems. Recovery must reconcile recorded intent and outcome with current external state rather than silently repeat ambiguous side effects.
 
+Internal durable journal facts may contain Host-private recovery data such as canonical paths and filesystem identity, but public Host Protocol events and projections must be sanitized client-safe views. Absolute worktree/Git/app-data paths, filesystem device/file identity, raw Pi objects, provider payloads, and private transcript locations must not cross the Host Protocol.
+
 ### Event commit and projection
 
 For a successful command, the Host performs one SQLite transaction that:
@@ -90,11 +92,13 @@ The Host may publish ephemeral live deltas for responsive rendering. It also per
 
 A reconnecting client loads a projection through a stated Session sequence and then replays durable events after that cursor. It never treats an ephemeral delta as a durable publication boundary.
 
-### Pi transcript boundary
+### Pi transcript and private runtime-state boundary
 
-Pi transcripts remain private Pi Adapter data used for harness-level context and recovery. They are not Host Contracts and are not the client-facing source of truth.
+Pi transcripts and full-fidelity Pi runtime/session state remain private Pi Adapter data used for harness-level continuation, compaction, tool/message fidelity, usage context, and recovery. They are not Host Contracts, not Host SQLite event payloads, and not the client-facing source of truth.
 
 Space Zero Session events and projections are authoritative for Space Zero product behavior. The Pi Adapter must reconcile Pi runtime state with the recorded Session state during restore and report ambiguity explicitly rather than inventing a successful outcome.
+
+When private Pi state is added, it lives outside Host SQLite, Project repositories, managed worktrees, Git, and Space Zero Home, under restrictive Workspace Host application-data permissions. SQLite stores only opaque Pi-context identity, version, last-settled operation, and reconciliation metadata needed by the Host. Missing, corrupt, version-mismatched, ahead, behind, or open private Pi operations fail closed to `recovery_required`; the Host must not silently fall back to text-only reconstruction and resume.
 
 ### Initial operational limits
 

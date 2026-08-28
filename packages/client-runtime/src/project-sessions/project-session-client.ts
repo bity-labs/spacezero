@@ -10,9 +10,13 @@ import {
   parseHostConnectionDescriptor,
   parseProjectSessionEventEnvelope,
   parseProjectSessionLiveEventEnvelope,
+  type CancelProjectSessionFollowUpResult,
   type CreateProjectSessionResult,
+  type EnqueueProjectSessionFollowUpResult,
   type InterruptProjectSessionTurnResult,
   type HostConnectionDescriptor,
+  type GetProjectSessionRuntimeResult,
+  type ListProjectSessionFollowUpsResult,
   type ListSessionMessagesResult,
   type ProjectId,
   type ProjectSessionCommandId,
@@ -20,6 +24,7 @@ import {
   type ProjectSessionLiveEventEnvelope,
   type ProjectSessionSummary,
   type SubmitSessionPromptResult,
+  type UpdateProjectSessionRuntimeResult,
 } from "@spacezero/host-contracts";
 
 export interface ProjectSessionClient {
@@ -31,6 +36,30 @@ export interface ProjectSessionClient {
     sessionId: string,
     prompt: string,
   ) => Promise<SubmitSessionPromptResult>;
+  readonly getRuntime: (
+    sessionId: string,
+  ) => Promise<GetProjectSessionRuntimeResult>;
+  readonly updateRuntime: (
+    sessionId: string,
+    input: {
+      readonly providerId: string;
+      readonly modelId: string;
+      readonly defaultThinkingLevel:
+        "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+      readonly expectedRevision: number;
+    },
+  ) => Promise<UpdateProjectSessionRuntimeResult>;
+  readonly listFollowUps: (
+    sessionId: string,
+  ) => Promise<ListProjectSessionFollowUpsResult>;
+  readonly enqueueFollowUp: (
+    sessionId: string,
+    prompt: string,
+  ) => Promise<EnqueueProjectSessionFollowUpResult>;
+  readonly cancelFollowUp: (
+    sessionId: string,
+    followUpId: string,
+  ) => Promise<CancelProjectSessionFollowUpResult>;
   readonly listSessionMessages: (
     sessionId: string,
   ) => Promise<ListSessionMessagesResult>;
@@ -72,6 +101,41 @@ interface GeneratedProjectSessionApiClient {
       readonly payload: {
         readonly commandId: string;
         readonly projectId: string;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly getProjectSessionRuntime: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly updateProjectSessionRuntime: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: {
+        readonly commandId: string;
+        readonly providerId: string;
+        readonly modelId: string;
+        readonly defaultThinkingLevel:
+          "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+        readonly expectedRevision: number;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly listProjectSessionFollowUps: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly enqueueProjectSessionFollowUp: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: {
+        readonly commandId: string;
+        readonly prompt: string;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly cancelProjectSessionFollowUp: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: {
+        readonly sessionId: string;
+        readonly followUpId: string;
       };
     }) => Effect.Effect<unknown, unknown, never>;
     readonly submitSessionPrompt: (input: {
@@ -271,6 +335,68 @@ export const createProjectSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as SubmitSessionPromptResult;
+    },
+    getRuntime: async (sessionId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.getProjectSessionRuntime({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as GetProjectSessionRuntimeResult;
+    },
+    updateRuntime: async (sessionId, input) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.updateProjectSessionRuntime({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: createCommandId(), ...input },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as UpdateProjectSessionRuntimeResult;
+    },
+    listFollowUps: async (sessionId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.listProjectSessionFollowUps({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as ListProjectSessionFollowUpsResult;
+    },
+    enqueueFollowUp: async (sessionId, prompt) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.enqueueProjectSessionFollowUp({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: createCommandId(), prompt },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as EnqueueProjectSessionFollowUpResult;
+    },
+    cancelFollowUp: async (sessionId, followUpId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.projectSessions.cancelProjectSessionFollowUp({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId, followUpId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as CancelProjectSessionFollowUpResult;
     },
     listSessionMessages: async (sessionId) => {
       const current = await descriptor();

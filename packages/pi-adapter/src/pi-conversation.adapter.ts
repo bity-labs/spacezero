@@ -26,11 +26,12 @@ import {
   type FileInfo,
   type Result,
 } from "@earendil-works/pi-agent-core/node";
-import type {
-  AssistantMessage,
-  AuthContext,
-  CredentialStore,
-  Models,
+import {
+  getSupportedThinkingLevels,
+  type AssistantMessage,
+  type AuthContext,
+  type CredentialStore,
+  type Models,
 } from "@earendil-works/pi-ai";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
@@ -39,6 +40,7 @@ import {
   type AgentTurnResult,
   type ConversationRunner,
 } from "./conversation.model.js";
+import { createPiModelCatalogService } from "./model-catalog.service.js";
 
 export interface PiConversationConfig {
   /** Provider id, e.g. "anthropic" */
@@ -303,14 +305,39 @@ const workspaceTools = (env: ExecutionEnv): AgentTool[] => {
   ];
 };
 
-const textFromAgentState = (messages: readonly AgentMessage[]): string => {
+const lastAssistantMessage = (
+  messages: readonly AgentMessage[],
+): AssistantMessage | undefined => {
   const lastMsg = messages.at(-1);
   if (lastMsg?.role !== "assistant" || !Array.isArray(lastMsg.content))
-    return "";
-  return lastMsg.content
+    return undefined;
+  return lastMsg as AssistantMessage;
+};
+
+const textFromAssistantMessage = (message: AssistantMessage): string =>
+  message.content
     .filter((content) => content.type === "text")
     .map((content) => content.text)
     .join("");
+
+const expandSkillPrompt = (input: AgentTurnInput): string => {
+  const match = /^\/skill:([a-z0-9][a-z0-9-]{0,127})(?:\s+([\s\S]*))?$/.exec(
+    input.prompt,
+  );
+  if (!match) return input.prompt;
+  const skill = input.resources?.skills.find(
+    (candidate) => candidate.name === match[1],
+  );
+  if (!skill) return input.prompt;
+  const userMessage = match[2]?.trim();
+  return [
+    `<skill name="${skill.name}">`,
+    skill.body,
+    "</skill>",
+    userMessage ? `User request: ${userMessage}` : undefined,
+  ]
+    .filter((part): part is string => part !== undefined)
+    .join("\n\n");
 };
 
 export function createPiConversationRunner(
@@ -325,16 +352,27 @@ export function createPiConversationRunner(
 
   return {
     async submitTurn(input: AgentTurnInput): Promise<AgentTurnResult> {
-      const model = models.getModel(config.provider, config.model);
-      if (!model) {
-        throw new AgentTurnError("agent_unavailable");
-      }
-      const auth = await models
-        .checkAuth(config.provider)
+      const runtime = input.runtime;
+      await models
+        .refresh({ providers: [runtime.providerId] })
         .catch(() => undefined);
-      if (!auth) {
-        throw new AgentTurnError("agent_unavailable");
-      }
+      const model = models.getModel(runtime.providerId, runtime.modelId);
+      if (!model) throw new AgentTurnError("agent_configuration_invalid");
+      const auth = await models
+        .checkAuth(runtime.providerId)
+        .catch(() => undefined);
+      if (!auth) throw new AgentTurnError("agent_authentication_required");
+      const available = await models.getAvailable().catch(() => []);
+      if (
+        !available.some(
+          (candidate) =>
+            candidate.provider === runtime.providerId &&
+            candidate.id === runtime.modelId,
+        )
+      )
+        throw new AgentTurnError("agent_configuration_invalid");
+      if (!getSupportedThinkingLevels(model).includes(runtime.thinkingLevel))
+        throw new AgentTurnError("agent_configuration_invalid");
 
       if (input.signal?.aborted)
         throw new AgentTurnError("agent_turn_interrupted");
@@ -344,7 +382,7 @@ export function createPiConversationRunner(
         initialState: {
           model,
           systemPrompt: config.systemPrompt ?? "",
-          thinkingLevel: "off",
+          thinkingLevel: runtime.thinkingLevel,
           tools: workspaceTools(env).filter((tool) =>
             input.tools.enabledToolNames.includes(tool.name),
           ),
@@ -370,8 +408,8 @@ export function createPiConversationRunner(
       const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
         switch (event.type) {
           case "message_update": {
-            const fullText = textFromAgentState(agent.state.messages);
-            const delta = fullText.slice(textParts.join("").length);
+            if (event.assistantMessageEvent.type !== "text_delta") break;
+            const delta = event.assistantMessageEvent.delta;
             if (delta.length > 0) {
               textParts.push(delta);
               input.onDelta?.({ kind: "assistant_text", text: delta });
@@ -412,9 +450,19 @@ export function createPiConversationRunner(
       });
 
       try {
-        await agent.prompt(input.prompt);
+        await agent.prompt(expandSkillPrompt(input));
         await agent.waitForIdle();
-        const assistantText = textFromAgentState(agent.state.messages);
+        const assistant = lastAssistantMessage(agent.state.messages);
+        if (assistant?.stopReason === "error" || assistant?.errorMessage)
+          throw new AgentTurnError("agent_turn_failed");
+        if (assistant?.stopReason === "aborted") {
+          if (input.signal?.aborted)
+            throw new AgentTurnError("agent_turn_interrupted");
+          throw new AgentTurnError("agent_turn_failed");
+        }
+        const assistantText = assistant
+          ? textFromAssistantMessage(assistant)
+          : textParts.join("");
         return {
           text: assistantText.length > 0 ? assistantText : textParts.join(""),
         };
@@ -430,3 +478,27 @@ export function createPiConversationRunner(
     },
   };
 }
+
+export const createPiRuntimeServices = (
+  config: PiConversationConfig,
+): {
+  readonly conversationRunner: ConversationRunner;
+  readonly modelCatalog: ReturnType<typeof createPiModelCatalogService>;
+} => {
+  const models =
+    config.models ??
+    builtinModels({
+      credentials: config.credentials,
+      authContext: config.authContext ?? noAmbientAuthContext,
+    });
+  return {
+    conversationRunner: createPiConversationRunner({ ...config, models }),
+    modelCatalog: createPiModelCatalogService({
+      credentials: config.credentials,
+      ...(config.authContext === undefined
+        ? {}
+        : { authContext: config.authContext }),
+      models,
+    }),
+  };
+};

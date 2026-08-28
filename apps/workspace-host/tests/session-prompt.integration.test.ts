@@ -10,6 +10,7 @@ import {
   createScriptedConversationRunner,
   type AgentTurnInput,
   type ConversationRunner,
+  type PiModelCatalogService,
 } from "@spacezero/pi-adapter";
 import {
   startHostServer,
@@ -48,6 +49,7 @@ const start = async (
   spaceZeroHome: string,
   conversationRunner?: ConversationRunner,
   clientCapabilityTtlMs?: number,
+  modelCatalog?: PiModelCatalogService,
 ) => {
   const host = await startHostServer({
     allowedRendererOrigin: origin,
@@ -57,6 +59,7 @@ const start = async (
     conversationRunner:
       conversationRunner ?? createScriptedConversationRunner(),
     ...(clientCapabilityTtlMs === undefined ? {} : { clientCapabilityTtlMs }),
+    ...(modelCatalog === undefined ? {} : { modelCatalog }),
   });
   hosts.push(host);
   return host;
@@ -189,6 +192,47 @@ const interruptTurn = async (
     body: text.length > 0 ? (JSON.parse(text) as unknown) : undefined,
   };
 };
+const getRuntime = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+) => {
+  const response = await fetch(
+    new URL(`/v1/project-sessions/${sessionId}/runtime`, host.endpoint),
+    {
+      headers: authHeaders(clientCapability),
+    },
+  );
+  return {
+    response,
+    body: (await response.json()) as unknown,
+  };
+};
+const updateRuntime = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  input: {
+    readonly providerId: string;
+    readonly modelId: string;
+    readonly defaultThinkingLevel: string;
+    readonly expectedRevision: number;
+  },
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/project-sessions/${sessionId}/runtime`, host.endpoint),
+    {
+      method: "PUT",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, ...input }),
+    },
+  );
+  return {
+    response,
+    body: (await response.json()) as unknown,
+  };
+};
 const listMessages = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -252,6 +296,184 @@ afterEach(async () => {
 });
 
 describe("Session prompt Host protocol", () => {
+  it("persists and snapshots per-Session runtime configuration", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const seen: AgentTurnInput[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        seen.push(input);
+        await input.onEvent?.({ type: "assistant_delta", text: "ok" });
+        return { text: "ok" };
+      },
+    };
+    const validated: unknown[] = [];
+    const modelCatalog: PiModelCatalogService = {
+      listModels: async () => [],
+      validateSelection: async (selection) => {
+        validated.push(selection);
+      },
+    };
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      runner,
+      undefined,
+      modelCatalog,
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const runtime = await getRuntime(
+      host,
+      client.clientCapability,
+      created.session.id,
+    );
+    expect(runtime.response.status).toBe(200);
+    expect(runtime.body).toMatchObject({
+      runtime: {
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        defaultThinkingLevel: "off",
+        revision: 1,
+      },
+    });
+
+    const firstRuntimeCommandId = randomUUID();
+    const updated = await updateRuntime(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      },
+      firstRuntimeCommandId,
+    );
+    expect(updated.response.status).toBe(200);
+    expect(updated.body).toMatchObject({
+      runtime: {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        revision: 2,
+      },
+    });
+
+    const stale = await updateRuntime(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        providerId: "openai",
+        modelId: "gpt-5-mini",
+        defaultThinkingLevel: "off",
+        expectedRevision: 1,
+      },
+    );
+    expect(stale.response.status).toBe(409);
+    expect(stale.body).toMatchObject({
+      code: "session_runtime_revision_conflict",
+    });
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "snapshot runtime",
+    );
+    expect(submitted.response.status).toBe(200);
+    expect(submitted.body).toMatchObject({
+      turn: {
+        providerId: "openai",
+        modelId: "gpt-5",
+        thinkingLevel: "high",
+      },
+    });
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
+    expect(seen[0]?.runtime).toEqual({
+      providerId: "openai",
+      modelId: "gpt-5",
+      thinkingLevel: "high",
+    });
+    expect(validated).toContainEqual({
+      providerId: "openai",
+      modelId: "gpt-5",
+      thinkingLevel: "high",
+    });
+
+    const secondUpdate = await updateRuntime(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        providerId: "openai",
+        modelId: "gpt-5-mini",
+        defaultThinkingLevel: "off",
+        expectedRevision: 2,
+      },
+    );
+    expect(secondUpdate.response.status).toBe(200);
+    expect(secondUpdate.body).toMatchObject({
+      runtime: { modelId: "gpt-5-mini", revision: 3 },
+    });
+    const replayedFirstUpdate = await updateRuntime(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      },
+      firstRuntimeCommandId,
+    );
+    expect(replayedFirstUpdate.response.status).toBe(200);
+    expect(replayedFirstUpdate.body).toMatchObject({
+      runtime: {
+        providerId: "openai",
+        modelId: "gpt-5",
+        defaultThinkingLevel: "high",
+        revision: 2,
+      },
+    });
+
+    const database = new DatabaseSync(join(root, "host.sqlite"));
+    try {
+      const context = database
+        .prepare(
+          "SELECT adapter_name, adapter_schema_version, adapter_state_json, last_turn_id FROM project_session_pi_contexts WHERE session_id = ?",
+        )
+        .get(created.session.id) as {
+        adapter_name: string;
+        adapter_schema_version: number;
+        adapter_state_json: string;
+        last_turn_id: string;
+      };
+      expect(context).toEqual({
+        adapter_name: "pi-agent-core",
+        adapter_schema_version: 1,
+        adapter_state_json: "{}",
+        last_turn_id: (submitted.body as { turn: { id: string } }).turn.id,
+      });
+    } finally {
+      database.close();
+    }
+  });
+
   it("submits a prompt, runs the turn in the managed worktree, and journals message boundaries", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
@@ -321,6 +543,7 @@ describe("Session prompt Host protocol", () => {
     );
     expect(eventTypes(databasePath, sessionId)).toEqual([
       "ProjectSessionCreationRequestedV1",
+      "ProjectSessionRuntimeConfiguredV1",
       "SessionWorkspacePreparationStartedV1",
       "SessionWorkspacePreparedV1",
       "ProjectSessionReadyV1",
@@ -396,6 +619,7 @@ describe("Session prompt Host protocol", () => {
     });
     expect(eventTypes(databasePath, created.session.id)).toEqual([
       "ProjectSessionCreationRequestedV1",
+      "ProjectSessionRuntimeConfiguredV1",
       "SessionWorkspacePreparationStartedV1",
       "SessionWorkspacePreparedV1",
       "ProjectSessionReadyV1",
@@ -450,6 +674,12 @@ describe("Session prompt Host protocol", () => {
       second.session.id,
       "other session prompt",
     );
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      second.session.id,
+      2,
+    );
 
     const firstConversationId = piConversationId(
       databasePath,
@@ -501,6 +731,12 @@ describe("Session prompt Host protocol", () => {
     );
     expect(prompt.response.status).toBe(200);
 
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
     const catchup = await subscribeEvents(
       host,
       client.clientCapability,
@@ -508,7 +744,7 @@ describe("Session prompt Host protocol", () => {
       0,
     );
     expect(catchup.status).toBe(200);
-    const frames = await readSseFrames(catchup, 7);
+    const frames = await readSseFrames(catchup, 8);
     expect(frames.map((frame) => frame.id)).toEqual([
       "1",
       "2",
@@ -517,6 +753,7 @@ describe("Session prompt Host protocol", () => {
       "5",
       "6",
       "7",
+      "8",
     ]);
     expect(
       frames.every((frame) => frame.event === "project-session.event"),
@@ -525,6 +762,7 @@ describe("Session prompt Host protocol", () => {
       frames.map((frame) => (frame.data as { eventType: string }).eventType),
     ).toEqual([
       "ProjectSessionCreationRequestedV1",
+      "ProjectSessionRuntimeConfiguredV1",
       "SessionWorkspacePreparationStartedV1",
       "SessionWorkspacePreparedV1",
       "ProjectSessionReadyV1",
@@ -532,7 +770,38 @@ describe("Session prompt Host protocol", () => {
       "AgentTurnStartedV1",
       "AgentMessageCompletedV1",
     ]);
-    expect(JSON.stringify(frames)).not.toContain("sk-");
+    const streamedEvents = frames.map(
+      (frame) => (frame.data as { event: Record<string, unknown> }).event,
+    );
+    expect(Object.keys(streamedEvents[0]!).sort()).toEqual(
+      [
+        "type",
+        "version",
+        "sessionId",
+        "projectId",
+        "name",
+        "sourceBranch",
+        "sourceDetached",
+        "sourceCommit",
+        "uncommittedChangesExcluded",
+        "managedBranch",
+        "timestamp",
+      ].sort(),
+    );
+    expect(Object.keys(streamedEvents[3]!).sort()).toEqual(
+      ["type", "version", "sessionId", "timestamp"].sort(),
+    );
+    const serializedFrames = JSON.stringify(frames);
+    expect(serializedFrames).not.toContain("sk-");
+    expect(serializedFrames).not.toContain("hostId");
+    expect(serializedFrames).not.toContain(root);
+    expect(serializedFrames).not.toContain("SpaceZero");
+    expect(serializedFrames).not.toContain("worktreePath");
+    expect(serializedFrames).not.toContain("worktreeRoot");
+    expect(serializedFrames).not.toContain("canonicalWorktreePath");
+    expect(serializedFrames).not.toContain("canonicalGitDirPath");
+    expect(serializedFrames).not.toContain("canonicalGitCommonDirPath");
+    expect(serializedFrames).not.toMatch(/DeviceId|FileId/);
 
     const controller = new AbortController();
     const afterLast = await subscribeEvents(
@@ -603,6 +872,83 @@ describe("Session prompt Host protocol", () => {
     void reader.cancel().catch(() => undefined);
   });
 
+  it("persists bounded assistant checkpoints and exposes an active turn draft", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    let release!: () => void;
+    let checkpointed!: () => void;
+    const checkpointedPromise = new Promise<void>((resolve) => {
+      checkpointed = resolve;
+    });
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          text: "x".repeat(2_048),
+        });
+        checkpointed();
+        await releasePromise;
+        return { text: "x".repeat(2_048) };
+      },
+    };
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "checkpoint please",
+    );
+    expect(submitted.response.status).toBe(200);
+    await checkpointedPromise;
+
+    const listed = await listMessages(
+      host,
+      client.clientCapability,
+      created.session.id,
+    );
+    expect(listed.response.status).toBe(200);
+    expect(listed.body).toMatchObject({
+      activeTurn: {
+        id: (submitted.body as { turn: { id: string } }).turn.id,
+        state: "running",
+        draftText: "x".repeat(2_048),
+      },
+    });
+    const database = new DatabaseSync(join(root, "host.sqlite"));
+    try {
+      const checkpointCount = database
+        .prepare(
+          "SELECT count(*) AS count FROM project_session_events WHERE event_type = 'AgentMessageCheckpointedV1'",
+        )
+        .get() as { count: number };
+      expect(checkpointCount.count).toBe(1);
+    } finally {
+      database.close();
+    }
+    release();
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
+  });
+
   it("delivers live Session events committed after subscription", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
@@ -632,12 +978,12 @@ describe("Session prompt Host protocol", () => {
       current.id,
       "live event",
     );
-    const frames = await readSseFrames(live, 3);
+    const frames = await readSseFrames(live, 4);
     await submitted;
 
     const durableFrames = frames.filter((frame) => frame.id !== undefined);
     const liveFrames = frames.filter((frame) => frame.id === undefined);
-    expect(durableFrames.map((frame) => frame.id)).toEqual(["5", "6", "7"]);
+    expect(durableFrames.map((frame) => frame.id)).toEqual(["6", "7", "8"]);
     expect(
       liveFrames.map(
         (frame) => (frame.data as { eventType: string }).eventType,
@@ -811,12 +1157,23 @@ describe("Session prompt Host protocol", () => {
     expect(conflict.body).toMatchObject({ code: "command_id_conflict" });
   });
 
-  it("serializes concurrent prompts for one Session", async () => {
+  it("rejects additional prompts while a turn is active", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async () => {
+        await releasePromise;
+        return { text: "done" };
+      },
+    };
     const host = await start(
       join(root, "host.sqlite"),
       join(root, "SpaceZero"),
+      runner,
     );
     const client = descriptor(host);
     const project = await registerProject(host, client.clientCapability, repo);
@@ -826,39 +1183,28 @@ describe("Session prompt Host protocol", () => {
       project.project.id,
     );
 
-    const [first, second] = await Promise.all([
-      submitPrompt(host, client.clientCapability, created.session.id, "one"),
-      submitPrompt(host, client.clientCapability, created.session.id, "two"),
-    ]);
-
-    expect(first.response.status).toBe(200);
-    expect(second.response.status).toBe(200);
-    const listed = await listMessages(
+    const first = await submitPrompt(
       host,
       client.clientCapability,
       created.session.id,
+      "one",
     );
-    const messagesBody = listed.body as {
-      messages: { role: string; text: string }[];
-    };
-    const messagePairs = [
-      messagesBody.messages.slice(0, 2),
-      messagesBody.messages.slice(2, 4),
-    ];
-    expect(messagePairs).toHaveLength(2);
-    expect(
-      messagePairs.map((pair) => pair.map((message) => message.role)),
-    ).toEqual([
-      ["user", "assistant"],
-      ["user", "assistant"],
-    ]);
-    expect(
-      messagePairs.map((pair) => pair.map((message) => message.text)),
-    ).toEqual(
-      expect.arrayContaining([
-        ["one", "Echo: one"],
-        ["two", "Echo: two"],
-      ]),
+    const second = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "two",
+    );
+
+    expect(first.response.status).toBe(200);
+    expect(second.response.status).toBe(409);
+    expect(second.body).toMatchObject({ code: "session_turn_in_progress" });
+    release();
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
     );
   });
 
@@ -942,6 +1288,27 @@ describe("Session prompt Host protocol", () => {
     expect(eventTypes(databasePath, created.session.id)).toContain(
       "AgentTurnFailedV1",
     );
+    const database = new DatabaseSync(databasePath);
+    try {
+      const event = database
+        .prepare(
+          "SELECT event_payload_json FROM project_session_events WHERE event_type = 'AgentTurnFailedV1'",
+        )
+        .get() as { event_payload_json: string };
+      expect(JSON.parse(event.event_payload_json)).toMatchObject({
+        reason: "agent_turn_failed",
+        failureCategory: "provider",
+        retryable: false,
+      });
+      const turn = database
+        .prepare(
+          "SELECT failure_reason FROM project_session_turns WHERE session_id = ?",
+        )
+        .get(created.session.id) as { failure_reason: string };
+      expect(turn.failure_reason).toBe("agent_turn_failed");
+    } finally {
+      database.close();
+    }
     const listed = await listMessages(
       host,
       client.clientCapability,
@@ -949,10 +1316,22 @@ describe("Session prompt Host protocol", () => {
     );
     const messagesBody = listed.body as {
       messages: { role: string; text: string }[];
+      latestTurn: {
+        state: string;
+        failureReason: string;
+        failureCategory: string;
+        retryable: boolean;
+      };
     };
     expect(messagesBody.messages).toMatchObject([
       { role: "user", text: "hello" },
     ]);
+    expect(messagesBody.latestTurn).toMatchObject({
+      state: "failed",
+      failureReason: "agent_turn_failed",
+      failureCategory: "provider",
+      retryable: false,
+    });
   });
 
   it("rejects blank prompts, missing capabilities, and foreign origins", async () => {

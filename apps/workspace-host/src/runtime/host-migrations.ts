@@ -214,6 +214,70 @@ export const addProjectGitObjectsIdentityMigration = Effect.gen(function* () {
   yield* sql`CREATE UNIQUE INDEX projects_objects_dir_identity ON projects(objects_dir_device_id, objects_dir_file_id)`;
 });
 
+export const createProjectSessionRuntimeMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_runtime_configurations (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  provider_id TEXT NOT NULL CHECK (length(provider_id) BETWEEN 1 AND 128),
+  model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 256),
+  default_thinking_level TEXT NOT NULL CHECK (default_thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`
+INSERT INTO project_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at)
+SELECT session_id, 'anthropic', 'claude-sonnet-4-5', 'off', 1, created_at, updated_at
+FROM project_sessions`;
+  yield* sql`
+INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at)
+SELECT
+  session_id,
+  last_sequence + 1,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  'ProjectSessionRuntimeConfiguredV1',
+  1,
+  json_object(
+    'type', 'ProjectSessionRuntimeConfiguredV1',
+    'version', 1,
+    'sessionId', session_id,
+    'commandId', session_id,
+    'providerId', 'anthropic',
+    'modelId', 'claude-sonnet-4-5',
+    'defaultThinkingLevel', 'off',
+    'revision', 1,
+    'timestamp', updated_at
+  ),
+  updated_at
+FROM project_sessions`;
+  yield* sql`UPDATE project_sessions SET last_sequence = last_sequence + 1`;
+  yield* sql`ALTER TABLE project_session_turns ADD COLUMN provider_id TEXT NOT NULL DEFAULT 'anthropic'`;
+  yield* sql`ALTER TABLE project_session_turns ADD COLUMN model_id TEXT NOT NULL DEFAULT 'claude-sonnet-4-5'`;
+  yield* sql`ALTER TABLE project_session_turns ADD COLUMN thinking_level TEXT NOT NULL DEFAULT 'off'`;
+  yield* sql`
+UPDATE project_session_events
+SET event_payload_json = json_set(
+  event_payload_json,
+  '$.providerId', 'anthropic',
+  '$.modelId', 'claude-sonnet-4-5',
+  '$.thinkingLevel', 'off'
+)
+WHERE event_type = 'AgentTurnStartedV1'
+  AND json_type(event_payload_json, '$.providerId') IS NULL`;
+  yield* sql`
+UPDATE project_session_events
+SET event_payload_json = json_set(
+  event_payload_json,
+  '$.failureCategory', 'provider',
+  '$.retryable', json('false')
+)
+WHERE event_type = 'AgentTurnFailedV1'
+  AND json_type(event_payload_json, '$.failureCategory') IS NULL`;
+});
+
 export const createProjectSessionPiContextsMigration = Effect.gen(function* () {
   const sql = yield* SqlClient;
   yield* sql`
@@ -233,6 +297,44 @@ SELECT
   created_at,
   updated_at
 FROM project_sessions`;
+});
+
+export const enrichProjectSessionPiContextsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE project_session_pi_contexts ADD COLUMN adapter_name TEXT NOT NULL DEFAULT 'pi-agent-core'`;
+  yield* sql`ALTER TABLE project_session_pi_contexts ADD COLUMN adapter_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (adapter_schema_version > 0)`;
+  yield* sql`ALTER TABLE project_session_pi_contexts ADD COLUMN adapter_state_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(adapter_state_json))`;
+  yield* sql`ALTER TABLE project_session_pi_contexts ADD COLUMN last_turn_id TEXT`;
+});
+
+export const createProjectSessionFollowUpsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE project_session_follow_ups (
+  session_id TEXT NOT NULL,
+  follow_up_id TEXT NOT NULL UNIQUE,
+  command_id TEXT NOT NULL UNIQUE,
+  prompt TEXT NOT NULL CHECK (length(prompt) BETWEEN 1 AND 16000),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'dispatched', 'consumed', 'cancelled', 'recovery_required')),
+  position INTEGER NOT NULL CHECK (position > 0),
+  dispatched_turn_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, follow_up_id),
+  FOREIGN KEY (session_id) REFERENCES project_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX project_session_follow_ups_queue ON project_session_follow_ups(session_id, state, position)`;
+});
+
+export const createWorkspaceToolPolicyMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE workspace_tool_policies (
+  tool_name TEXT PRIMARY KEY NOT NULL,
+  confirmation TEXT NOT NULL CHECK (confirmation IN ('never', 'ask')),
+  updated_at TEXT NOT NULL
+)`;
 });
 
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
@@ -261,6 +363,26 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     6,
     "create_project_session_turns",
     Effect.succeed(createProjectSessionTurnsMigration),
+  ],
+  [
+    7,
+    "create_project_session_runtime_configurations",
+    Effect.succeed(createProjectSessionRuntimeMigration),
+  ],
+  [
+    8,
+    "enrich_project_session_pi_contexts",
+    Effect.succeed(enrichProjectSessionPiContextsMigration),
+  ],
+  [
+    9,
+    "create_project_session_follow_ups",
+    Effect.succeed(createProjectSessionFollowUpsMigration),
+  ],
+  [
+    10,
+    "create_workspace_tool_policies",
+    Effect.succeed(createWorkspaceToolPolicyMigration),
   ],
 ] as const);
 
