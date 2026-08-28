@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./app.js";
 
 describe("App", () => {
-  it("renders the blank application shell and connects to the Local Host", async () => {
+  it("renders the workspace shell and connects to the Local Host", async () => {
     Object.defineProperty(window, "spacezero", {
       value: {
         getAppVersion: vi.fn(),
@@ -14,8 +14,8 @@ describe("App", () => {
     render(<App />);
     await waitFor(() => {
       expect(screen.getByLabelText("Window title bar")).toBeInTheDocument();
-      expect(screen.getByText("Drag region")).toBeInTheDocument();
-      expect(screen.getByRole("main")).toBeInTheDocument();
+      expect(screen.getByLabelText("Workspace sidebar")).toBeInTheDocument();
+      expect(screen.getByRole("main", { name: "Workspace" })).toBeInTheDocument();
     });
   });
 });
