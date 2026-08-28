@@ -191,6 +191,54 @@ export const toPublicProjectSessionEvent = (
         revision: event.revision,
         timestamp: event.timestamp,
       };
+    case "ProjectSessionFollowUpQueuedV1":
+      return {
+        type: "ProjectSessionFollowUpQueuedV1",
+        version: 1,
+        sessionId: event.sessionId,
+        followUpId: event.followUpId,
+        commandId: event.commandId,
+        prompt: event.prompt,
+        position: event.position,
+        timestamp: event.timestamp,
+      };
+    case "ProjectSessionFollowUpDispatchedV1":
+      return {
+        type: "ProjectSessionFollowUpDispatchedV1",
+        version: 1,
+        sessionId: event.sessionId,
+        followUpId: event.followUpId,
+        commandId: event.commandId,
+        timestamp: event.timestamp,
+      };
+    case "ProjectSessionFollowUpConsumedV1":
+      return {
+        type: "ProjectSessionFollowUpConsumedV1",
+        version: 1,
+        sessionId: event.sessionId,
+        followUpId: event.followUpId,
+        commandId: event.commandId,
+        turnId: event.turnId,
+        timestamp: event.timestamp,
+      };
+    case "ProjectSessionFollowUpCancelledV1":
+      return {
+        type: "ProjectSessionFollowUpCancelledV1",
+        version: 1,
+        sessionId: event.sessionId,
+        followUpId: event.followUpId,
+        commandId: event.commandId,
+        timestamp: event.timestamp,
+      };
+    case "ProjectSessionFollowUpRecoveryRequiredV1":
+      return {
+        type: "ProjectSessionFollowUpRecoveryRequiredV1",
+        version: 1,
+        sessionId: event.sessionId,
+        followUpId: event.followUpId,
+        commandId: event.commandId,
+        timestamp: event.timestamp,
+      };
     case "UserMessageSubmittedV1":
       return {
         type: "UserMessageSubmittedV1",
@@ -264,6 +312,13 @@ export const toPublicProjectSessionEvent = (
         turnId: event.turnId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
+        ...(event.safety === undefined ? {} : { safety: event.safety }),
+        ...(event.approvalStatus === undefined
+          ? {}
+          : { approvalStatus: event.approvalStatus }),
+        ...(event.approvalReason === undefined
+          ? {}
+          : { approvalReason: event.approvalReason }),
         timestamp: event.timestamp,
       };
     case "AgentToolCallCompletedV1":
@@ -275,6 +330,13 @@ export const toPublicProjectSessionEvent = (
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         status: event.status,
+        ...(event.safety === undefined ? {} : { safety: event.safety }),
+        ...(event.approvalStatus === undefined
+          ? {}
+          : { approvalStatus: event.approvalStatus }),
+        ...(event.approvalReason === undefined
+          ? {}
+          : { approvalReason: event.approvalReason }),
         timestamp: event.timestamp,
       };
   }

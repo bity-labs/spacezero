@@ -16,6 +16,7 @@ const descriptor: HostConnectionDescriptor = {
     "harness-auth:read",
     "harness-auth:write",
     "agent-runtime:read",
+    "agent-resources:read",
     "flows:read",
     "flows:write",
     "project-sessions:read",

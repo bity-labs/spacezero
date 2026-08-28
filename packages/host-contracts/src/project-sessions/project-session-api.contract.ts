@@ -7,14 +7,19 @@ import {
 import { HostAuthorizationErrorSchemas } from "../authentication/host-authorization.schema.js";
 import {
   CreateProjectSessionRequestSchema,
+  CancelProjectSessionFollowUpResultSchema,
   CreateProjectSessionResultSchema,
+  EnqueueProjectSessionFollowUpRequestSchema,
+  EnqueueProjectSessionFollowUpResultSchema,
   GetProjectSessionRuntimeResultSchema,
   InterruptProjectSessionTurnResultSchema,
+  ListProjectSessionFollowUpsResultSchema,
   ListProjectSessionsResultSchema,
   ListSessionMessagesResultSchema,
   ProjectSessionEventStreamQuerySchema,
   ProjectSessionIdSchema,
   AgentTurnIdSchema,
+  ProjectSessionFollowUpIdSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
   UpdateProjectSessionRuntimeRequestSchema,
@@ -31,6 +36,10 @@ export const ProjectSessionPathParamsSchema = Schema.Struct({
 export const ProjectSessionTurnPathParamsSchema = Schema.Struct({
   sessionId: ProjectSessionIdSchema,
   turnId: AgentTurnIdSchema,
+});
+export const ProjectSessionFollowUpPathParamsSchema = Schema.Struct({
+  sessionId: ProjectSessionIdSchema,
+  followUpId: ProjectSessionFollowUpIdSchema,
 });
 export const ProjectSessionEventStream = HttpApiSchema.StreamUint8Array({
   contentType: "text/event-stream",
@@ -76,6 +85,52 @@ export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
         headers: ProjectSessionAuthorizationHeaderSchema,
         payload: UpdateProjectSessionRuntimeRequestSchema,
         success: UpdateProjectSessionRuntimeResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "listProjectSessionFollowUps",
+      "/project-sessions/:sessionId/follow-ups",
+      {
+        params: ProjectSessionPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        success: ListProjectSessionFollowUpsResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "enqueueProjectSessionFollowUp",
+      "/project-sessions/:sessionId/follow-ups",
+      {
+        params: ProjectSessionPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        payload: EnqueueProjectSessionFollowUpRequestSchema,
+        success: EnqueueProjectSessionFollowUpResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...ProjectSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "cancelProjectSessionFollowUp",
+      "/project-sessions/:sessionId/follow-ups/:followUpId/cancel",
+      {
+        params: ProjectSessionFollowUpPathParamsSchema,
+        headers: ProjectSessionAuthorizationHeaderSchema,
+        success: CancelProjectSessionFollowUpResultSchema,
         error: [
           ...HostAuthorizationErrorSchemas,
           ...ProjectSessionErrorSchemas,

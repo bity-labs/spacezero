@@ -674,6 +674,12 @@ describe("Session prompt Host protocol", () => {
       second.session.id,
       "other session prompt",
     );
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      second.session.id,
+      2,
+    );
 
     const firstConversationId = piConversationId(
       databasePath,
@@ -725,6 +731,12 @@ describe("Session prompt Host protocol", () => {
     );
     expect(prompt.response.status).toBe(200);
 
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
     const catchup = await subscribeEvents(
       host,
       client.clientCapability,
@@ -966,7 +978,7 @@ describe("Session prompt Host protocol", () => {
       current.id,
       "live event",
     );
-    const frames = await readSseFrames(live, 3);
+    const frames = await readSseFrames(live, 4);
     await submitted;
 
     const durableFrames = frames.filter((frame) => frame.id !== undefined);

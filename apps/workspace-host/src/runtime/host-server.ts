@@ -2,7 +2,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { mkdir, realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -30,10 +30,12 @@ import {
   createProjectCatalog,
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
+import { createSkillDiscoveryService } from "../features/agent-resources/skill-discovery.service.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import {
   createFileCredentialStore,
+  createPiPrivateSessionStateRepository,
   createPiRuntimeServices,
   createProviderAuthService,
   ProviderAuthError,
@@ -71,6 +73,7 @@ type AuthScope =
   | "harness-auth:read"
   | "harness-auth:write"
   | "agent-runtime:read"
+  | "agent-resources:read"
   | "flows:read"
   | "flows:write"
   | "project-sessions:read"
@@ -203,6 +206,10 @@ export const startHostServer = async (options: {
     credentials: credentialStore,
   });
   const modelCatalog = options.modelCatalog ?? piRuntimeServices.modelCatalog;
+  const privatePiStateRepository = createPiPrivateSessionStateRepository({
+    directory: join(dirname(databasePath), "private-pi-state"),
+  });
+  const skillDiscovery = createSkillDiscoveryService({ spaceZeroHome });
   const flowRegistry = createFlowRegistry();
   const conversationRunner =
     options.conversationRunner ?? piRuntimeServices.conversationRunner;
@@ -212,6 +219,8 @@ export const startHostServer = async (options: {
     databasePath,
     spaceZeroHome,
     conversationRunner,
+    listSessionSkills: skillDiscovery.listSkills,
+    privatePiStateRepository,
     ...(options.modelCatalog || !options.conversationRunner
       ? { modelCatalog }
       : {}),
@@ -555,6 +564,29 @@ export const startHostServer = async (options: {
         },
       }),
   );
+  const agentResourcesHandlers = HttpApiBuilder.group(
+    HostApi,
+    "agentResources",
+    (handlers) =>
+      handlers.handleAll({
+        listProjectSessionSkills: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-resources:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listSkills(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+      }),
+  );
   const flowHandlers = HttpApiBuilder.group(HostApi, "flows", (handlers) =>
     handlers.handleAll({
       subscribeFlowEvents: ({ headers, request, params, query }) => {
@@ -733,6 +765,59 @@ export const startHostServer = async (options: {
             projectSessions.updateRuntime(params.sessionId, payload),
           ).pipe(Effect.mapError(projectSessionHttpError));
         },
+        listProjectSessionFollowUps: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listFollowUps(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        enqueueProjectSessionFollowUp: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.enqueueFollowUp(params.sessionId, payload),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        cancelProjectSessionFollowUp: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.cancelFollowUp(params.sessionId, params.followUpId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
         submitSessionPrompt: ({ headers, request, params, payload }) => {
           try {
             auth(
@@ -843,6 +928,7 @@ export const startHostServer = async (options: {
         adminHandlers,
         harnessAuthHandlers,
         agentRuntimeHandlers,
+        agentResourcesHandlers,
         flowHandlers,
         projectHandlers,
         projectSessionHandlers,

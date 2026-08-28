@@ -1,8 +1,13 @@
 import { mkdir } from "node:fs/promises";
 import type {
+  CancelProjectSessionFollowUpResult,
   CreateProjectSessionRequest,
   CreateProjectSessionResult,
+  EnqueueProjectSessionFollowUpRequest,
+  EnqueueProjectSessionFollowUpResult,
+  ListProjectSessionFollowUpsResult,
   ListProjectSessionsResult,
+  ListProjectSessionSkillsResult,
   ProjectSessionErrorCode,
   ProjectSessionEventEnvelope,
   ProjectSessionLiveEventEnvelope,
@@ -19,8 +24,10 @@ import {
   AgentTurnError,
   PiModelCatalogError,
   createScriptedConversationRunner,
+  type AgentRuntimeEvent,
   type ConversationRunner,
   type PiModelCatalogService,
+  type PiPrivateSessionStateRepository,
 } from "@spacezero/pi-adapter";
 import {
   ProjectServiceError,
@@ -41,6 +48,7 @@ import {
   type AgentTurnFailureReason,
   type SessionWorktreeIdentity,
 } from "./project-session.repository.js";
+import type { SkillDiscoveryResult } from "../agent-resources/skill-discovery.service.js";
 import type { SessionNameEntropy } from "./project-session-name.service.js";
 import { createWorkspaceToolRegistry } from "./workspace-tool-registry.js";
 
@@ -59,6 +67,20 @@ export interface ProjectSessionService {
     sessionId: string,
     input: UpdateProjectSessionRuntimeRequest,
   ) => Promise<UpdateProjectSessionRuntimeResult>;
+  readonly listFollowUps: (
+    sessionId: string,
+  ) => Promise<ListProjectSessionFollowUpsResult>;
+  readonly enqueueFollowUp: (
+    sessionId: string,
+    input: EnqueueProjectSessionFollowUpRequest,
+  ) => Promise<EnqueueProjectSessionFollowUpResult>;
+  readonly cancelFollowUp: (
+    sessionId: string,
+    followUpId: string,
+  ) => Promise<CancelProjectSessionFollowUpResult>;
+  readonly listSkills: (
+    sessionId: string,
+  ) => Promise<ListProjectSessionSkillsResult>;
   readonly listMessages: (sessionId: string) => Promise<{
     readonly session: SubmitSessionPromptResult["session"];
     readonly messages: readonly SessionMessage[];
@@ -138,6 +160,12 @@ export const createProjectSessionService = (options: {
   readonly entropy?: SessionNameEntropy;
   readonly conversationRunner?: ConversationRunner;
   readonly modelCatalog?: PiModelCatalogService;
+  readonly privatePiStateRepository?: PiPrivateSessionStateRepository;
+  readonly listSessionSkills?: (input: {
+    readonly sessionId: string;
+    readonly projectRoot: string;
+    readonly projectTrusted: boolean;
+  }) => Promise<SkillDiscoveryResult>;
 }): ProjectSessionService => {
   const projectAuthority = createProjectAuthority(options.databasePath);
   const repository = createProjectSessionRepository(options);
@@ -147,6 +175,7 @@ export const createProjectSessionService = (options: {
   const modelCatalog = options.modelCatalog;
   const locks = new Map<string, Promise<unknown>>();
   const sessionLocks = new Map<string, Promise<unknown>>();
+  const drainingSessions = new Set<string>();
   const inFlight = new Set<Promise<unknown>>();
   const eventWaiters = new Map<string, Set<() => void>>();
   const activeTurns = new Map<
@@ -158,6 +187,7 @@ export const createProjectSessionService = (options: {
     }
   >();
   let nextLiveSequence = 0;
+  let shuttingDown = false;
   const liveEvents = new Map<
     string,
     {
@@ -280,6 +310,10 @@ export const createProjectSessionService = (options: {
         const admission = await repository.replayOrAdmit(input, project);
         if (admission.kind === "replayed")
           return { session: admission.session };
+        await options.privatePiStateRepository?.create({
+          id: admission.session.id,
+          conversationId: admission.session.id,
+        });
         await mkdir(admission.worktreeRoot, { recursive: true });
         const operation = createManagedWorktree({
           project,
@@ -417,7 +451,25 @@ export const createProjectSessionService = (options: {
               input.sessionId,
               admission.userSequence,
             );
-            const turn = await conversationRunner.submitTurn({
+            const operationId = admission.turnId;
+            await options.privatePiStateRepository?.recordOperationStarted({
+              id: input.sessionId,
+              operationId,
+              turnId: admission.turnId,
+              prompt,
+            });
+            const skills =
+              (await options
+                .listSessionSkills?.({
+                  sessionId: input.sessionId,
+                  projectRoot: project.canonicalRootPath,
+                  projectTrusted: false,
+                })
+                .then((result) => result.internalSkills)
+                .catch(() => [])) ?? [];
+            if (controller.signal.aborted)
+              throw new AgentTurnError("agent_turn_interrupted");
+            const turnInput = {
               sessionId: input.sessionId,
               conversationId: identity.conversationId,
               worktreePath: prepared.canonicalWorktreePath,
@@ -427,13 +479,18 @@ export const createProjectSessionService = (options: {
                 modelId: admission.result.turn.modelId,
                 thinkingLevel: admission.result.turn.thinkingLevel,
               },
+              privateState: {
+                stateId: input.sessionId,
+                operationId,
+              },
               tools: {
                 workingDirectory: prepared.canonicalWorktreePath,
                 enabledToolNames: workspaceTools.enabledToolNamesForTurn(),
               },
+              resources: { skills },
               prompt,
               signal: controller.signal,
-              onEvent: async (event) => {
+              onEvent: async (event: AgentRuntimeEvent) => {
                 if (controller.signal.aborted) return;
                 const timestamp = new Date().toISOString();
                 if (event.type === "assistant_delta") {
@@ -458,11 +515,20 @@ export const createProjectSessionService = (options: {
                 }
                 if (event.type === "tool_started") {
                   await checkpointDraft();
+                  const tool = workspaceTools
+                    .listTurnTools()
+                    .find((candidate) => candidate.name === event.toolName);
+                  const approval = workspaceTools.approvalForTool(
+                    event.toolName,
+                  );
                   await repository.recordToolStarted({
                     sessionId: input.sessionId,
                     turnId: admission.turnId,
                     toolCallId: event.toolCallId,
                     toolName: event.toolName,
+                    ...(tool === undefined ? {} : { safety: tool.safety }),
+                    approvalStatus: approval.status,
+                    approvalReason: approval.reason,
                   });
                   wakeEvents(input.sessionId);
                   return;
@@ -485,20 +551,47 @@ export const createProjectSessionService = (options: {
                   return;
                 }
                 await checkpointDraft();
+                const tool = workspaceTools
+                  .listTurnTools()
+                  .find((candidate) => candidate.name === event.toolName);
+                const approval = workspaceTools.approvalForTool(event.toolName);
                 await repository.recordToolCompleted({
                   sessionId: input.sessionId,
                   turnId: admission.turnId,
                   toolCallId: event.toolCallId,
                   toolName: event.toolName,
                   isError: event.isError,
+                  ...(tool === undefined ? {} : { safety: tool.safety }),
+                  approvalStatus: approval.status,
+                  approvalReason: approval.reason,
                 });
                 wakeEvents(input.sessionId);
               },
+            };
+            const interrupted = new Promise<never>((_, reject) => {
+              if (controller.signal.aborted) {
+                reject(new AgentTurnError("agent_turn_interrupted"));
+                return;
+              }
+              controller.signal.addEventListener(
+                "abort",
+                () => reject(new AgentTurnError("agent_turn_interrupted")),
+                { once: true },
+              );
             });
+            const turn = await Promise.race([
+              conversationRunner.submitTurn(turnInput),
+              interrupted,
+            ]);
             if (controller.signal.aborted)
               throw new AgentTurnError("agent_turn_interrupted");
             if (typeof turn.text !== "string" || turn.text.length === 0)
               throw new AgentTurnError("agent_turn_failed");
+            await options.privatePiStateRepository?.recordOperationSettled({
+              id: input.sessionId,
+              operationId,
+              assistantText: durableAssistantText(turn.text),
+            });
             await repository.completeTurn({
               commandId: input.commandId,
               sessionId: input.sessionId,
@@ -506,12 +599,14 @@ export const createProjectSessionService = (options: {
               text: durableAssistantText(turn.text),
             });
             wakeEvents(input.sessionId);
+            scheduleFollowUpDrain(input.sessionId);
           } catch (error) {
             if (
               controller.signal.aborted &&
               error instanceof ProjectSessionServiceError &&
               error.code === "turn_not_active"
             ) {
+              scheduleFollowUpDrain(input.sessionId);
               return;
             }
             if (
@@ -527,6 +622,7 @@ export const createProjectSessionService = (options: {
                 })
                 .then(() => wakeEvents(input.sessionId))
                 .catch(() => undefined);
+              scheduleFollowUpDrain(input.sessionId);
               return;
             }
             const reason: AgentTurnFailureReason =
@@ -544,10 +640,12 @@ export const createProjectSessionService = (options: {
               })
               .then(() => wakeEvents(input.sessionId))
               .catch(() => undefined);
+            scheduleFollowUpDrain(input.sessionId);
           } finally {
             if (checkpointTimer) clearTimeout(checkpointTimer);
             await checkpointChain.catch(() => undefined);
             activeTurns.delete(admission.turnId);
+            scheduleFollowUpDrain(input.sessionId);
           }
         })();
         inFlight.add(operation);
@@ -557,6 +655,48 @@ export const createProjectSessionService = (options: {
         throw mapError(error);
       }
     });
+
+  const drainFollowUps = async (sessionId: string): Promise<void> => {
+    if (drainingSessions.has(sessionId)) return;
+    drainingSessions.add(sessionId);
+    try {
+      while (
+        ![...activeTurns.values()].some((turn) => turn.sessionId === sessionId)
+      ) {
+        const followUp = await repository.dispatchNextFollowUp(sessionId);
+        if (!followUp) return;
+        try {
+          const result = await submitPrompt({
+            sessionId,
+            commandId: followUp.commandId,
+            prompt: followUp.prompt,
+          });
+          await repository.markFollowUpConsumed({
+            sessionId,
+            followUpId: followUp.id,
+            turnId: result.turn.id,
+          });
+          wakeEvents(sessionId);
+        } catch {
+          await repository.markFollowUpRecoveryRequired({
+            sessionId,
+            followUpId: followUp.id,
+          });
+          wakeEvents(sessionId);
+          return;
+        }
+      }
+    } finally {
+      drainingSessions.delete(sessionId);
+    }
+  };
+
+  const scheduleFollowUpDrain = (sessionId: string): void => {
+    if (shuttingDown) return;
+    const operation = drainFollowUps(sessionId).catch(() => undefined);
+    inFlight.add(operation);
+    operation.finally(() => inFlight.delete(operation));
+  };
 
   return {
     create,
@@ -583,6 +723,52 @@ export const createProjectSessionService = (options: {
                 })
             : undefined,
         );
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    listFollowUps: async (sessionId) => {
+      try {
+        return await repository.listFollowUps(sessionId);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    enqueueFollowUp: async (sessionId, input) => {
+      try {
+        const result = await repository.enqueueFollowUp(sessionId, input);
+        wakeEvents(sessionId);
+        scheduleFollowUpDrain(sessionId);
+        return result;
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    cancelFollowUp: async (sessionId, followUpId) => {
+      try {
+        const result = await repository.cancelFollowUp(sessionId, followUpId);
+        wakeEvents(sessionId);
+        return result;
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    listSkills: async (sessionId) => {
+      try {
+        const identity = await repository.getSessionForPrompt(sessionId);
+        const project = await projectAuthority.authenticateProject(
+          identity.projectId,
+        );
+        const result = await options.listSessionSkills?.({
+          sessionId,
+          projectRoot: project.canonicalRootPath,
+          projectTrusted: false,
+        });
+        return (result ?? {
+          sessionId,
+          skills: [],
+          diagnostics: [],
+        }) as ListProjectSessionSkillsResult;
       } catch (error) {
         throw mapError(error);
       }
@@ -628,6 +814,7 @@ export const createProjectSessionService = (options: {
       }
     },
     reconcile: async () => {
+      await repository.markDispatchedFollowUpsRecoveryRequired();
       const candidates = await repository.recoveryCandidates();
       await Promise.all(
         candidates.map(async (session) => {
@@ -635,8 +822,12 @@ export const createProjectSessionService = (options: {
           wakeEvents(session.id);
         }),
       );
+      for (const session of await repository.list())
+        scheduleFollowUpDrain(session.id);
     },
     waitForIdle: async () => {
+      shuttingDown = true;
+      for (const active of activeTurns.values()) active.controller.abort();
       await Promise.allSettled([...inFlight]);
     },
   };

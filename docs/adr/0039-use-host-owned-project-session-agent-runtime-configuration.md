@@ -21,8 +21,9 @@ Space Zero will keep agent runtime policy Host-owned and Session-scoped.
 - Thinking levels use Space Zero-owned contract values even when they match Pi's current strings.
 - Workspace Host owns context-budget policy, compaction timing, retry eligibility, queue ordering, cancellation, and recovery decisions.
 - Pi Adapter owns Pi-specific execution mechanics, model resolution, thinking validation, compaction primitives, event translation, and private runtime/session state.
-- Queued guidance and follow-up semantics, when implemented, will use Space Zero product language and durable queue records rather than making Pi's in-memory queues authoritative.
-- Additional prompt submission while an active turn is running remains an explicit rejection until the durable queue is implemented.
+- Queued follow-up semantics use Space Zero product language and durable queue records rather than making Pi's in-memory queues authoritative.
+- Live steer/guidance remains out of scope; while a turn is active, later prompts are queued as follow-ups and run only after terminal turn state.
+- Skills/resources are selected by Workspace Host from explicit trusted roots. Pi Adapter may privately expand approved skill bodies, but public Host Protocol exposes safe descriptors only.
 
 ## Rationale
 
@@ -34,7 +35,7 @@ The desktop product needs deterministic, recoverable Session behavior and clear 
 - Project Session migrations must persist Session runtime selection, revision, and per-turn effective snapshots.
 - Pi Adapter must resolve and validate model/thinking choices immediately before each turn and fail without silent fallback.
 - Compaction summaries and private Pi state are sensitive and must not enter ordinary Session events, SSE, renderer state, logs, telemetry, or support bundles.
-- Queue, retry, and recovery implementations must preserve the no-ambiguous-replay rule from ADR 0035.
+- Queue, retry, resource, and recovery implementations must preserve the no-ambiguous-replay rule from ADR 0035.
 
 ## Alternatives Considered
 
