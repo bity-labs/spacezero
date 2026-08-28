@@ -1,4 +1,4 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, nativeTheme } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { registerAppInfoIpc } from "./app-info.ipc.js";
@@ -26,17 +26,37 @@ const rendererPolicy = createTrustedRendererPolicy({
 const isTrustedSender = (url: string): boolean =>
   rendererPolicy.canNavigateInWindow(url);
 
+/**
+ * Native window background kept in sync with the shared UI theme tokens
+ * (packages/ui globals.css: light `oklch(1 0 0)`, dark `oklch(0.148 0.004 228.8)`).
+ * It only covers the pre-render flash; the renderer theme is CSS-driven.
+ */
+const windowBackgroundColor = (): string =>
+  nativeTheme.shouldUseDarkColors ? "#090b0c" : "#ffffff";
+
 const createWindow = (): BrowserWindow => {
   const window = new BrowserWindow({
     width: 1024,
     height: 720,
+    show: false,
     title: "Space Zero",
+    backgroundColor: windowBackgroundColor(),
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hiddenInset" as const,
+          trafficLightPosition: { x: 18, y: 18 },
+        }
+      : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       preload: join(__dirname, "../preload/index.js"),
     },
+  });
+  window.once("ready-to-show", () => window.show());
+  nativeTheme.on("updated", () => {
+    window.setBackgroundColor(windowBackgroundColor());
   });
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (details) => {
