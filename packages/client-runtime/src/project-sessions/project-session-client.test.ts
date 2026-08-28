@@ -15,6 +15,8 @@ const descriptor: HostConnectionDescriptor = {
     "projects:register",
     "harness-auth:read",
     "harness-auth:write",
+    "agent-runtime:read",
+    "agent-resources:read",
     "flows:read",
     "flows:write",
     "project-sessions:read",
@@ -64,7 +66,9 @@ const requestDetails = async (input: RequestInfo | URL, init?: RequestInit) => {
     url: request.url,
     method: request.method,
     authorization: request.headers.get("authorization"),
-    body: request.method === "POST" ? await request.json() : undefined,
+    body: ["POST", "PUT"].includes(request.method)
+      ? await request.json()
+      : undefined,
   };
 };
 
@@ -110,6 +114,65 @@ describe("Project Session client", () => {
     });
   });
 
+  it("gets and updates Session runtime configuration", async () => {
+    const runtime = {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "off" as const,
+      revision: 1,
+    };
+    const updated = {
+      ...runtime,
+      modelId: "claude-opus-4-1",
+      defaultThinkingLevel: "high" as const,
+      revision: 2,
+    };
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = await requestDetails(input, init);
+        expect(request.authorization).toBe(
+          `Bearer ${descriptor.clientCapability}`,
+        );
+        if (request.method === "GET") {
+          expect(request.url).toBe(
+            `http://127.0.0.1:1234/v1/project-sessions/${uuid}/runtime`,
+          );
+          return json({ session, runtime });
+        }
+        expect(request.method).toBe("PUT");
+        expect(request.url).toBe(
+          `http://127.0.0.1:1234/v1/project-sessions/${uuid}/runtime`,
+        );
+        expect(request.body).toEqual({
+          commandId: uuid,
+          providerId: "anthropic",
+          modelId: "claude-opus-4-1",
+          defaultThinkingLevel: "high",
+          expectedRevision: 1,
+        });
+        return json({ session, runtime: updated });
+      },
+    );
+    const client = createProjectSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => uuid,
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(client.getRuntime(uuid)).resolves.toEqual({
+      session,
+      runtime,
+    });
+    await expect(
+      client.updateRuntime(uuid, {
+        providerId: "anthropic",
+        modelId: "claude-opus-4-1",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      }),
+    ).resolves.toEqual({ session, runtime: updated });
+  });
+
   it("submits a prompt to the Session prompt endpoint", async () => {
     const userMessage = {
       id: uuid,
@@ -124,6 +187,9 @@ describe("Project Session client", () => {
       state: "running",
       userMessageId: uuid,
       assistantMessageId: "33333333-3333-4333-8333-333333333333",
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      thinkingLevel: "off",
       draftText: "",
       createdAt: "2026-01-01T00:01:00.000Z",
       updatedAt: "2026-01-01T00:01:00.000Z",
@@ -180,6 +246,9 @@ describe("Project Session client", () => {
         sessionId: uuid,
         turnId: "22222222-2222-4222-8222-222222222222",
         messageId: "33333333-3333-4333-8333-333333333333",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
         timestamp: "2026-01-01T00:01:00.000Z",
       },
     };
@@ -271,6 +340,9 @@ describe("Project Session client", () => {
         sessionId: uuid,
         turnId: "22222222-2222-4222-8222-222222222222",
         messageId: uuid,
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
         timestamp: "2026-01-01T00:01:00.000Z",
       },
     };

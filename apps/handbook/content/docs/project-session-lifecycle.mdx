@@ -13,6 +13,8 @@ A Project Session is the current core workflow unit. In v0.1 it means one Pi con
 registered Project
   -> create Project Session command
   -> reserve unique wine-appellation name
+  -> persist default runtime configuration
+  -> create private Pi state substrate
   -> create managed branch/worktree
   -> persist worktree identity
   -> mark Session ready or recovery required
@@ -29,7 +31,8 @@ A Project Session currently owns:
 - managed branch name;
 - intended worktree path under Space Zero Home;
 - canonical worktree, git dir, and common git dir identity;
-- one Pi conversation id;
+- one Pi conversation id plus private adapter state fields;
+- Host-owned provider/model/default-thinking runtime configuration;
 - append-only event sequence.
 
 ## Managed worktree rule
@@ -52,10 +55,14 @@ If identity is missing or inconsistent, the Session becomes recovery-required in
 
 1. Prompt command is admitted or replayed by command id.
 2. User message/event is appended.
-3. Pi turn runs in the managed worktree.
-4. Assistant message/event is appended on success.
-5. Failure event is appended on agent failure.
-6. Current messages can be queried and events can be replayed by cursor.
+3. The current Session runtime configuration is snapshotted onto the turn.
+4. Pi turn runs in the managed worktree using the snapshotted provider/model/thinking level.
+5. Bounded assistant checkpoints and tool activity facts may be appended while the turn runs.
+6. If a new prompt is submitted while the turn is active, it can be durably queued as a follow-up instead of live-steering the active turn.
+7. Assistant message/event is appended on success.
+8. Failure/interruption event with fail-closed retry metadata is appended on terminal failure.
+9. Queued follow-ups drain in order after terminal turn states; dispatched-but-not-consumed follow-ups become recovery-required on restart.
+10. Current messages plus active/latest turn state can be queried, and events can be replayed by cursor.
 
 ## Recovery lifecycle
 
@@ -67,9 +74,9 @@ Still missing from the lifecycle:
 
 - explicit archive/delete flows;
 - worktree cleanup UI and policy;
-- interruption/cancellation;
-- approval state;
-- tool call history;
+- richer retry/attempt policy after side-effect tracking;
+- user-facing approval Settings UI;
+- rich Workspace Tools beyond the initial bounded file tool registry;
 - changed-file projection;
 - commit/push/PR states;
 - user-facing recovery actions.

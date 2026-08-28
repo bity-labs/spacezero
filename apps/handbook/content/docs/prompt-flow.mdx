@@ -15,6 +15,8 @@ Desktop renderer
   -> Host Protocol HTTP command
   -> Workspace Host Project Session service
   -> managed worktree authentication
+  -> Session runtime snapshot
+  -> follow-up queue admission when a turn is active
   -> Pi Adapter conversation runner
   -> Pi SDK turn
   -> Workspace Host SQLite events/messages
@@ -31,22 +33,32 @@ Desktop renderer
 6. Workspace Host replays or rejects the command receipt by command id.
 7. Workspace Host authenticates the Project and managed worktree identity.
 8. Workspace Host appends the user prompt event/message to SQLite.
-9. Workspace Host calls the Pi Adapter with:
-   - stable Session identity;
-   - Pi conversation id;
-   - previous turn history;
-   - canonical managed worktree path;
-   - currently enabled tools: `read`, `write`, `edit`.
-10. Pi Adapter runs the Pi turn with tools bounded to the managed worktree.
-11. Workspace Host records either assistant output or a turn failure.
-12. The renderer receives the submitted prompt result and updates the visible chat.
+9. Workspace Host snapshots the Session runtime onto the admitted turn: provider id, model id, and thinking level.
+10. If another turn is active, Workspace Host can durably queue a follow-up prompt instead of live-steering the running turn.
+11. Workspace Host resolves the allowed skill/resource descriptors for the Session from explicit trusted roots.
+12. Workspace Host calls the Pi Adapter with:
+    - stable Session identity;
+    - Pi conversation id;
+    - previous turn history;
+    - canonical managed worktree path;
+    - snapshotted runtime configuration;
+    - currently enabled tools from the Workspace Tool registry: `read`, `write`, `edit`;
+    - approved skill resources for private `/skill:name` expansion.
+13. Pi Adapter validates the selected model is authenticated, available, and supports the requested thinking level.
+14. Pi Adapter runs the Pi turn with tools bounded to the managed worktree.
+15. Workspace Host records assistant output, bounded checkpoints/tool facts, approval-policy metadata, or a classified turn failure.
+16. Workspace Host drains the next queued follow-up after the active turn terminalizes.
+17. The renderer receives the submitted prompt result and updates the visible chat.
 
 ## What is durable today
 
 - command receipts;
-- Project Session events;
+- Project Session events, including runtime-configuration and turn lifecycle facts;
 - user and assistant messages;
-- one Pi conversation context id per Project Session;
+- bounded assistant checkpoints for reconnect/reload;
+- queued follow-up prompts and their lifecycle state;
+- one Pi conversation context id plus private adapter state per Project Session;
+- per-turn provider/model/thinking snapshots;
 - managed worktree identity fields.
 
 ## Important limitation
@@ -57,10 +69,9 @@ The renderer currently updates chat from the prompt response and initial message
 
 Later prompt flow needs to include:
 
-- streaming assistant output;
-- Workspace Tool calls;
-- approval requests and decisions;
-- interruption/cancellation;
+- richer streaming-driven visible chat projection;
+- Workspace Tool calls beyond the initial bounded file tool registry;
+- approval Settings UI and per-tool confirmation toggles;
 - changed-file and diff events;
 - commit/push/PR workflow events;
 - richer client-side projections from durable event cursors.

@@ -2,7 +2,7 @@ import { NodeHttpServer } from "@effect/platform-node";
 import { mkdir, realpath } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { randomBytes } from "node:crypto";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { Effect, Exit, Layer, Option, Scope, Stream } from "effect";
 import { HttpMiddleware, HttpRouter } from "effect/unstable/http";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
@@ -30,14 +30,17 @@ import {
   createProjectCatalog,
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
+import { createSkillDiscoveryService } from "../features/agent-resources/skill-discovery.service.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import {
   createFileCredentialStore,
-  createPiConversationRunner,
+  createPiPrivateSessionStateRepository,
+  createPiRuntimeServices,
   createProviderAuthService,
   ProviderAuthError,
   type ConversationRunner,
+  type PiModelCatalogService,
   type ProviderAuthService,
 } from "@spacezero/pi-adapter";
 import { runHostDatabaseMigrations } from "./host-database.js";
@@ -69,6 +72,8 @@ type AuthScope =
   | "projects:register"
   | "harness-auth:read"
   | "harness-auth:write"
+  | "agent-runtime:read"
+  | "agent-resources:read"
   | "flows:read"
   | "flows:write"
   | "project-sessions:read"
@@ -168,6 +173,7 @@ export const startHostServer = async (options: {
   readonly harnessAuthDirectory?: string;
   readonly conversationRunner?: ConversationRunner;
   readonly providerAuth?: ProviderAuthService;
+  readonly modelCatalog?: PiModelCatalogService;
   readonly clientCapabilityTtlMs?: number;
 }): Promise<StartedHostServer> => {
   let stopPromise: Promise<void> | undefined;
@@ -194,20 +200,30 @@ export const startHostServer = async (options: {
   });
   const providerAuth =
     options.providerAuth ?? createProviderAuthService(credentialStore);
+  const piRuntimeServices = createPiRuntimeServices({
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
+    credentials: credentialStore,
+  });
+  const modelCatalog = options.modelCatalog ?? piRuntimeServices.modelCatalog;
+  const privatePiStateRepository = createPiPrivateSessionStateRepository({
+    directory: join(dirname(databasePath), "private-pi-state"),
+  });
+  const skillDiscovery = createSkillDiscoveryService({ spaceZeroHome });
   const flowRegistry = createFlowRegistry();
   const conversationRunner =
-    options.conversationRunner ??
-    createPiConversationRunner({
-      provider: "anthropic",
-      model: "claude-sonnet-4-5",
-      credentials: credentialStore,
-    });
+    options.conversationRunner ?? piRuntimeServices.conversationRunner;
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
     conversationRunner,
+    listSessionSkills: skillDiscovery.listSkills,
+    privatePiStateRepository,
+    ...(options.modelCatalog || !options.conversationRunner
+      ? { modelCatalog }
+      : {}),
   });
   await projectSessions.reconcile();
   const sessionEventStream = (
@@ -520,6 +536,57 @@ export const startHostServer = async (options: {
         },
       }),
   );
+  const agentRuntimeHandlers = HttpApiBuilder.group(
+    HostApi,
+    "agentRuntime",
+    (handlers) =>
+      handlers.handleAll({
+        listAgentRuntimeModels: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-runtime:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => modelCatalog.listModels()).pipe(
+            Effect.map((models) => ({ models })),
+            Effect.mapError((error) => {
+              if (error instanceof Error)
+                return authorizationError("forbidden");
+              return authorizationError("forbidden");
+            }),
+          );
+        },
+      }),
+  );
+  const agentResourcesHandlers = HttpApiBuilder.group(
+    HostApi,
+    "agentResources",
+    (handlers) =>
+      handlers.handleAll({
+        listProjectSessionSkills: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-resources:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listSkills(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+      }),
+  );
   const flowHandlers = HttpApiBuilder.group(HostApi, "flows", (handlers) =>
     handlers.handleAll({
       subscribeFlowEvents: ({ headers, request, params, query }) => {
@@ -661,6 +728,96 @@ export const startHostServer = async (options: {
             Effect.mapError(projectSessionHttpError),
           );
         },
+        getProjectSessionRuntime: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.getRuntime(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        updateProjectSessionRuntime: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.updateRuntime(params.sessionId, payload),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        listProjectSessionFollowUps: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.listFollowUps(params.sessionId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        enqueueProjectSessionFollowUp: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.enqueueFollowUp(params.sessionId, payload),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
+        cancelProjectSessionFollowUp: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "project-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            projectSessions.cancelFollowUp(params.sessionId, params.followUpId),
+          ).pipe(Effect.mapError(projectSessionHttpError));
+        },
         submitSessionPrompt: ({ headers, request, params, payload }) => {
           try {
             auth(
@@ -770,6 +927,8 @@ export const startHostServer = async (options: {
         connectionHandlers,
         adminHandlers,
         harnessAuthHandlers,
+        agentRuntimeHandlers,
+        agentResourcesHandlers,
         flowHandlers,
         projectHandlers,
         projectSessionHandlers,

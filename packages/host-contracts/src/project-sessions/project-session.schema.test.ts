@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   CreateProjectSessionRequestSchema,
+  GetProjectSessionRuntimeResultSchema,
   ListSessionMessagesResultSchema,
   ProjectSessionEventEnvelopeSchema,
   ProjectSessionEventSchema,
@@ -15,6 +16,7 @@ import {
   SessionMessageSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
+  UpdateProjectSessionRuntimeRequestSchema,
 } from "./project-session.schema.js";
 
 const parseSync = Schema.decodeUnknownSync;
@@ -139,6 +141,9 @@ describe("Project Session schemas", () => {
       state: "running" as const,
       userMessageId: messageId,
       assistantMessageId: turnId,
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      thinkingLevel: "off" as const,
       draftText: "",
       createdAt: "2026-01-01T00:01:00.000Z",
       updatedAt: "2026-01-01T00:01:00.000Z",
@@ -154,8 +159,89 @@ describe("Project Session schemas", () => {
       parseSync(ListSessionMessagesResultSchema)({
         session: readySession,
         messages: [userMessage, agentMessage],
+        activeTurn: turn,
+        latestTurn: turn,
       }),
-    ).toMatchObject({ messages: [userMessage, agentMessage] });
+    ).toMatchObject({
+      messages: [userMessage, agentMessage],
+      activeTurn: turn,
+      latestTurn: turn,
+    });
+  });
+
+  it("keeps public provisioning events free of private Host filesystem identity", () => {
+    const creation = parseSync(ProjectSessionEventSchema)({
+      type: "ProjectSessionCreationRequestedV1",
+      version: 1,
+      sessionId: uuid,
+      projectId: uuid,
+      name: "saint-emilion",
+      hostId: "22222222-2222-4333-8444-555555555555",
+      sourceBranch: "main",
+      sourceDetached: false,
+      sourceCommit: commit,
+      uncommittedChangesExcluded: true,
+      managedBranch: `spacezero/saint-emilion-${uuid}`,
+      worktreePath: "/tmp/private/SpaceZero/worktrees/project/session",
+      worktreeRoot: "/tmp/private/SpaceZero/worktrees/project",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    expect(creation).not.toHaveProperty("hostId");
+    expect(creation).not.toHaveProperty("worktreePath");
+    expect(creation).not.toHaveProperty("worktreeRoot");
+
+    const prepared = parseSync(ProjectSessionEventSchema)({
+      type: "SessionWorkspacePreparedV1",
+      version: 1,
+      sessionId: uuid,
+      canonicalWorktreePath: "/tmp/private/worktree",
+      canonicalGitDirPath: "/tmp/private/worktree/.git",
+      canonicalGitCommonDirPath: "/tmp/private/repo/.git/worktrees/session",
+      worktreeDeviceId: "dev-1",
+      worktreeFileId: "file-1",
+      gitDirDeviceId: "dev-2",
+      gitDirFileId: "file-2",
+      commonDirDeviceId: "dev-3",
+      commonDirFileId: "file-3",
+      timestamp: "2026-01-01T00:00:01.000Z",
+    });
+    expect(prepared).not.toHaveProperty("canonicalWorktreePath");
+    expect(prepared).not.toHaveProperty("canonicalGitDirPath");
+    expect(prepared).not.toHaveProperty("canonicalGitCommonDirPath");
+    expect(JSON.stringify(prepared)).not.toMatch(/DeviceId|FileId/);
+  });
+
+  it("models Session runtime configuration and updates", () => {
+    const runtime = {
+      providerId: "anthropic",
+      modelId: "claude-sonnet-4-5",
+      defaultThinkingLevel: "off" as const,
+      revision: 1,
+    };
+    expect(
+      parseSync(GetProjectSessionRuntimeResultSchema)({
+        session: readySession,
+        runtime,
+      }),
+    ).toEqual({ session: readySession, runtime });
+    expect(
+      parseSync(UpdateProjectSessionRuntimeRequestSchema)({
+        commandId: uuid,
+        providerId: "anthropic",
+        modelId: "claude-opus-4-1",
+        defaultThinkingLevel: "high",
+        expectedRevision: 1,
+      }),
+    ).toMatchObject({ modelId: "claude-opus-4-1" });
+    expect(() =>
+      parseSync(UpdateProjectSessionRuntimeRequestSchema)({
+        commandId: uuid,
+        providerId: "anthropic",
+        modelId: "claude-opus-4-1",
+        defaultThinkingLevel: "secret",
+        expectedRevision: 1,
+      }),
+    ).toThrow();
   });
 
   it("defines prompt and agent-turn journal events", () => {
@@ -177,9 +263,23 @@ describe("Project Session schemas", () => {
         sessionId: uuid,
         turnId,
         messageId,
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
         timestamp: "2026-01-01T00:01:00.000Z",
       }),
     ).toMatchObject({ type: "AgentTurnStartedV1" });
+    expect(
+      parseSync(ProjectSessionEventSchema)({
+        type: "AgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId,
+        messageId: turnId,
+        text: "Partial draft",
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({ type: "AgentMessageCheckpointedV1" });
     expect(
       parseSync(ProjectSessionEventSchema)({
         type: "AgentMessageCompletedV1",
@@ -197,10 +297,16 @@ describe("Project Session schemas", () => {
         version: 1,
         sessionId: uuid,
         turnId,
-        reason: "agent_turn_failed",
+        reason: "provider_error",
+        failureCategory: "provider",
+        retryable: false,
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
-    ).toMatchObject({ type: "AgentTurnFailedV1" });
+    ).toMatchObject({
+      type: "AgentTurnFailedV1",
+      failureCategory: "provider",
+      retryable: false,
+    });
     expect(
       parseSync(ProjectSessionEventSchema)({
         type: "AgentTurnInterruptedV1",
@@ -229,6 +335,7 @@ describe("Project Session schemas", () => {
         sessionId: uuid,
         turnId,
         reason: "unknown_reason",
+        retryable: false,
         timestamp: "2026-01-01T00:01:01.000Z",
       }),
     ).toThrow();

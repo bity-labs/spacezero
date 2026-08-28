@@ -14,9 +14,13 @@ The v0.1 branch moved Space Zero from a broad Electron-first prototype toward a 
 - Host state is stored in SQLite.
 - Projects can be registered from a Git repository.
 - Project Sessions can be created in managed Git worktrees.
-- A Project Session owns one Pi conversation context.
-- Basic prompts run through the Host-side Pi Adapter.
-- Desktop renderer can register projects, start sessions, and submit basic chat prompts.
+- A Project Session owns one Pi conversation context and Host-owned runtime configuration.
+- Basic prompts run through the Host-side Pi Adapter with per-turn provider/model/thinking snapshots.
+- Project Session event streams expose sanitized public events, bounded assistant checkpoints, follow-up queue lifecycle events, and active/latest turn projections.
+- Active Sessions accept durable queued follow-up prompts and drain them automatically after the current turn reaches a terminal state.
+- Workspace Tool execution has an approved-by-default policy scaffold, including safety classification and approval-decision metadata for later Settings UI.
+- The Host owns curated skill/resource discovery from explicit trusted roots; the Pi Adapter privately expands approved `/skill:name` resources without exposing raw skill bodies on public streams.
+- Desktop renderer can register projects, start sessions, inspect runtime/model/resource options through Client Runtime, and submit basic chat prompts.
 
 ## Not complete yet
 
@@ -24,7 +28,7 @@ The v0.1 branch moved Space Zero from a broad Electron-first prototype toward a 
 - Private Node packaging and Electron fuse hardening are not implemented.
 - The Desktop UI is still a minimal tracer, not the intended builder workspace.
 - Files, diffs, terminal, browser, GitHub, commits, pushes, and pull requests are deferred.
-- Workspace Tools, approvals, interruption, and richer agent event history are deferred.
+- Rich Workspace Tools beyond the initial bounded `read`/`write`/`edit` registry and approval Settings UI are deferred.
 - Remote access, mobile supervision, and cloud hosts are future work.
 
 ## Validation status
