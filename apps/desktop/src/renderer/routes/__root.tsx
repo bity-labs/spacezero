@@ -6,5 +6,14 @@ export const Route = createRootRoute({
 });
 
 function RootRoute(): ReactElement {
-  return <Outlet />;
+  return (
+    <div className="app-shell">
+      <header className="window-titlebar" aria-label="Window title bar">
+        <span className="window-titlebar-label">Drag region</span>
+      </header>
+      <main className="app-root">
+        <Outlet />
+      </main>
+    </div>
+  );
 }

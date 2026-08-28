@@ -44,7 +44,7 @@ const createWindow = (): BrowserWindow => {
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hiddenInset" as const,
-          trafficLightPosition: { x: 18, y: 18 },
+          trafficLightPosition: { x: 18, y: 12 },
         }
       : {}),
     webPreferences: {

@@ -12,6 +12,10 @@ describe("App", () => {
       configurable: true,
     });
     render(<App />);
-    await waitFor(() => expect(screen.getByRole("main")).toBeInTheDocument());
+    await waitFor(() => {
+      expect(screen.getByLabelText("Window title bar")).toBeInTheDocument();
+      expect(screen.getByText("Drag region")).toBeInTheDocument();
+      expect(screen.getByRole("main")).toBeInTheDocument();
+    });
   });
 });

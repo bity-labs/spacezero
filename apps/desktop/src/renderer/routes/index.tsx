@@ -6,5 +6,5 @@ export const Route = createFileRoute("/")({
 });
 
 function IndexRoute(): ReactElement {
-  return <main className="app-root" />;
+  return <></>;
 }
