@@ -31,12 +31,17 @@ test("real Desktop reaches real Local Host query and SSE, then reconnects after 
     app = await launchApp();
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByText("connected")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("main.app-root")).toBeVisible();
+    await expect(page.locator("[data-host-status='connected']")).toBeVisible({
+      timeout: 10000,
+    });
     expect(await page.evaluate(() => window.location.origin)).toBe(
       "spacezero://renderer",
     );
     await page.reload();
-    await expect(page.getByText("connected")).toBeVisible({ timeout: 10000 });
+    await expect(page.locator("[data-host-status='connected']")).toBeVisible({
+      timeout: 10000,
+    });
     const keys = await page.evaluate(() => Object.keys(window.spacezero));
     expect(keys).toEqual([
       "getAppVersion",
