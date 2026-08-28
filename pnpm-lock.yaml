@@ -80,6 +80,9 @@ importers:
       '@spacezero/host-contracts':
         specifier: workspace:*
         version: link:../../packages/host-contracts
+      '@spacezero/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -87,6 +90,9 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      '@tailwindcss/vite':
+        specifier: 4.1.18
+        version: 4.1.18(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
       electron:
         specifier: 43.4.0
         version: 43.4.0
@@ -96,6 +102,9 @@ importers:
       electron-vite:
         specifier: 5.0.0
         version: 5.0.0(@swc/core@1.16.0(@swc/helpers@0.5.23))(vite@7.3.6(@types/node@22.20.1)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.0)(yaml@2.9.0))
+      tailwindcss:
+        specifier: 4.1.18
+        version: 4.1.18
 
   apps/handbook:
     dependencies:

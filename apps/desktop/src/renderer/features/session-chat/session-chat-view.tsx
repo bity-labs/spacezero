@@ -1,3 +1,4 @@
+import { Button } from "@spacezero/ui/components/button";
 import type { SessionMessage } from "@spacezero/host-contracts";
 import { useState, type FormEvent, type ReactElement } from "react";
 
@@ -37,9 +38,9 @@ export const SessionChatView = ({
   return (
     <section className="session-chat" aria-labelledby="session-chat-title">
       <div className="session-chat__header">
-        <button type="button" onClick={onBack}>
+        <Button type="button" variant="ghost" size="sm" onClick={onBack}>
           Back to Projects
-        </button>
+        </Button>
         <h2 id="session-chat-title">{sessionName}</h2>
       </div>
       {status === "loading" ? (
@@ -90,9 +91,9 @@ export const SessionChatView = ({
               disabled={busy}
               onChange={(event) => setPrompt(event.target.value)}
             />
-            <button type="submit" disabled={busy}>
+            <Button type="submit" disabled={busy} size="sm">
               {busy ? "Sending…" : "Send prompt"}
-            </button>
+            </Button>
           </form>
         </>
       ) : null}
