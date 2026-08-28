@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "./app.js";
 
@@ -12,6 +12,6 @@ describe("App", () => {
       configurable: true,
     });
     render(<App />);
-    expect(screen.getByRole("main")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("main")).toBeInTheDocument());
   });
 });

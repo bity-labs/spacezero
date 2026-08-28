@@ -1,10 +1,12 @@
 import { createLocalHostConnectionClient } from "@spacezero/client-runtime";
+import { RouterProvider } from "@tanstack/react-router";
 import { useEffect, type ReactElement } from "react";
 
+import { router } from "./router.js";
+
 /**
- * Blank application shell. The renderer UI is intentionally empty; features
- * will be built on top of this root. Host connection state is exposed on the
- * document element for tooling while the UI is being rebuilt.
+ * Application shell hosting the router. Feature screens are registered as
+ * file-based routes under `src/renderer/routes/`.
  */
 export const App = (): ReactElement => {
   useEffect(() => {
@@ -26,5 +28,5 @@ export const App = (): ReactElement => {
       client.dispose();
     };
   }, []);
-  return <main className="app-root" />;
+  return <RouterProvider router={router} />;
 };
