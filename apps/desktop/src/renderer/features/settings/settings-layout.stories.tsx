@@ -16,6 +16,7 @@ const labels: SettingsLayoutViewLabels = {
   title: "Settings",
   resizeSidebar: "Resize settings sidebar",
   sections: {
+    models: "Models",
     appearance: "Appearance",
   },
 };

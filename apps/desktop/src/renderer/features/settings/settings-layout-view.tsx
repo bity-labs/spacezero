@@ -1,4 +1,4 @@
-import { ArrowLeft, Palette } from "@phosphor-icons/react";
+import { ArrowLeft, Cube, Palette } from "@phosphor-icons/react";
 import { Button } from "@spacezero/ui/components/button";
 import {
   SidebarMenu,
@@ -15,7 +15,10 @@ import {
 import { SidebarResizeHandle } from "../../components/sidebar/sidebar-resize-handle";
 import type { SettingsSectionId } from "./settings-navigation";
 
-const settingsNavigation = [{ id: "appearance", icon: Palette }] as const;
+const settingsNavigation = [
+  { id: "models", icon: Cube },
+  { id: "appearance", icon: Palette },
+] as const;
 
 type SettingsLayoutViewLabels = {
   backToWorkspace: string;
