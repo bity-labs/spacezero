@@ -8,5 +8,5 @@ export const Route = createFileRoute("/settings")({
 });
 
 function SettingsRoute(): ReactElement {
-  return <SettingsLayout selectedSection="appearance" />;
+  return <SettingsLayout selectedSection="models" />;
 }

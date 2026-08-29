@@ -5,6 +5,7 @@ import { useState, type ReactElement } from "react";
 import { SIDEBAR_DEFAULT_WIDTH } from "../../components/sidebar/sidebar-layout";
 import { useSidebarResize } from "../../hooks/use-sidebar-resize";
 import { AppearanceSettingsPage } from "./appearance-settings-page";
+import { ModelsSettingsPage } from "./models-settings-page";
 import { SettingsLayoutView, type SettingsLayoutViewLabels } from "./settings-layout-view";
 import type { SettingsSectionId } from "./settings-navigation";
 
@@ -14,6 +15,7 @@ export function SettingsLayout({
   selectedSection: SettingsSectionId;
 }): ReactElement {
   const navigate = useNavigate();
+  const [currentSection, setCurrentSection] = useState<SettingsSectionId>(selectedSection);
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const leftSidebarResize = useSidebarResize({ width: sidebarWidth, setWidth: setSidebarWidth });
 
@@ -24,6 +26,7 @@ export function SettingsLayout({
     title: "Settings",
     resizeSidebar: "Resize settings sidebar",
     sections: {
+      models: "Models",
       appearance: "Appearance",
     },
   };
@@ -31,12 +34,12 @@ export function SettingsLayout({
   return (
     <SettingsLayoutView
       sidebarWidth={sidebarWidth}
-      selectedSection={selectedSection}
+      selectedSection={currentSection}
       accountMenu={<AccountMenu onCloseSettings={() => void navigate({ to: "/" })} />}
-      mainContent={<AppearanceSettingsPage />}
+      mainContent={currentSection === "models" ? <ModelsSettingsPage /> : <AppearanceSettingsPage />}
       labels={labels}
       onBackToWorkspace={() => void navigate({ to: "/" })}
-      onSelectSection={() => undefined}
+      onSelectSection={setCurrentSection}
       onResizePointerDown={leftSidebarResize.startResize}
       onResizeKeyDown={leftSidebarResize.resizeWithKeyboard}
     />
