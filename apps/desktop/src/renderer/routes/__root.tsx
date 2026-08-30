@@ -5,6 +5,7 @@ import {
   useRouterState,
 } from "@tanstack/react-router";
 import { useState, type ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 
 import { SIDEBAR_DEFAULT_WIDTH } from "../components/sidebar/sidebar-layout";
 import { WorkspaceShellLayout } from "../components/workspace-shell-layout";
@@ -19,6 +20,7 @@ export const Route = createRootRoute({
 });
 
 function RootRoute(): ReactElement {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -41,8 +43,8 @@ function RootRoute(): ReactElement {
     ? "agent-capabilities"
     : activeView;
   const titlebarLabel = isAgentCapabilitiesRoute
-    ? "Agent Capabilities"
-    : "Workspace";
+    ? t("workspace.agentCapabilities")
+    : t("workspace.title");
 
   if (pathname === "/settings") {
     return <Outlet />;
@@ -54,11 +56,11 @@ function RootRoute(): ReactElement {
       leftSidebarWidth={leftSidebarWidth}
       sidePaneHeaderWidth="0px"
       labels={{
-        hideLeftSidebar: "Hide left sidebar",
-        showLeftSidebar: "Show left sidebar",
-        openCommandPalette: "Open command palette",
-        mainContent: "Workspace",
-        resizeLeftSidebar: "Resize left sidebar",
+        hideLeftSidebar: t("workspace.hideLeftSidebar"),
+        showLeftSidebar: t("workspace.showLeftSidebar"),
+        openCommandPalette: t("workspace.openCommandPalette"),
+        mainContent: t("workspace.mainContent"),
+        resizeLeftSidebar: t("workspace.resizeLeftSidebar"),
       }}
       onToggleLeftSidebar={() => setLeftSidebarOpen((open) => !open)}
       onOpenCommandPalette={() => undefined}

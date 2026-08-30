@@ -14,6 +14,7 @@ import {
   SidebarMenuItem,
 } from "@spacezero/ui/components/sidebar";
 import type { ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 
 import { AppSidebarView } from "./sidebar/app-sidebar";
 import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
@@ -56,34 +57,36 @@ export function WorkspaceSidebar({
   onAddProject,
   onOpenSettings,
 }: WorkspaceSidebarProps): ReactElement {
+  const { t } = useTranslation();
+
   return (
     <AppSidebarView
       open={open}
       onOpenChange={onOpenChange}
-      aria-label="Workspace sidebar"
+      aria-label={t("workspace.sidebar")}
       className="pt-4"
       contentClassName="overflow-hidden px-0"
       header={
         <SidebarMenu
           className="px-0"
-          aria-label="Workspace navigation"
+          aria-label={t("workspace.navigation")}
           role="menu"
         >
           <SidebarNavItem
             icon={BookOpenText}
-            label="Knowledge Base"
+            label={t("workspace.knowledgeBase")}
             active={activeView === "knowledge-base"}
             onClick={onSelectKnowledgeBase}
           />
           <SidebarNavItem
             icon={PaperPlaneTilt}
-            label="Chat"
+            label={t("workspace.chat")}
             active={activeView === "global-chat"}
             onClick={onSelectGlobalChat}
           />
           <SidebarNavItem
             icon={Plugs}
-            label="Agent Capabilities"
+            label={t("workspace.agentCapabilities")}
             active={activeView === "agent-capabilities"}
             onClick={onSelectAgentCapabilities}
           />
@@ -93,20 +96,20 @@ export function WorkspaceSidebar({
     >
       <SidebarGroup
         className="mt-8 min-h-0 flex-1 overflow-hidden"
-        aria-label="Projects"
+        aria-label={t("workspace.projects")}
       >
         <SidebarSectionHeader
-          label="Projects"
+          label={t("workspace.projects")}
           expandable
           expanded={projectsExpanded}
           onToggle={onToggleProjects}
           actions={[
             {
-              label: "Filter projects",
+              label: t("workspace.filterProjects"),
               icon: FunnelSimple,
               onClick: onFilterProjects,
             },
-            { label: "Add project", icon: FolderPlus, onClick: onAddProject },
+            { label: t("workspace.addProject"), icon: FolderPlus, onClick: onAddProject },
           ]}
         />
         {projectsExpanded ? (
@@ -134,23 +137,25 @@ function AccountMenu({
 }: {
   onOpenSettings: () => void;
 }): ReactElement {
+  const { t } = useTranslation();
+
   return (
     <section
       className="flex items-center gap-2 rounded-lg px-1 py-1"
-      aria-label="Account menu"
+      aria-label={t("workspace.accountMenu")}
     >
       <div className="flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground">
         <User className="size-4" aria-hidden="true" />
       </div>
       <div className="min-w-0 flex-1">
         <span className="truncate text-sm leading-5 text-muted-foreground">
-          Not connected
+          {t("workspace.notConnected")}
         </span>
       </div>
       <button
         type="button"
         className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        aria-label="Open app settings"
+        aria-label={t("workspace.openAppSettings")}
         onClick={onOpenSettings}
       >
         <GearSix className="size-5" aria-hidden="true" />

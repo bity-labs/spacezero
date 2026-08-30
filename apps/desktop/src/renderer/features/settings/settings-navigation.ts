@@ -1,1 +1,1 @@
-export type SettingsSectionId = "models" | "appearance";
+export type SettingsSectionId = "general" | "models" | "appearance";

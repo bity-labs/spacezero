@@ -2,6 +2,7 @@ import { DotsSixVertical, MagnifyingGlass, Sidebar } from "@phosphor-icons/react
 import { Button } from "@spacezero/ui/components/button";
 import { cn } from "@spacezero/ui/lib/utils";
 import type { KeyboardEvent, PointerEvent, ReactElement, ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from "./sidebar/sidebar-layout";
 
@@ -46,6 +47,7 @@ export function WorkspaceShellLayout({
   onResizeLeftSidebarKeyDown,
   overlay,
 }: WorkspaceShellLayoutProps): ReactElement {
+  const { t } = useTranslation();
   const bodyGridTemplateColumns = [
     isLeftSidebarOpen ? `${leftSidebarWidth}px ${RESIZE_HANDLE_WIDTH}px` : "",
     "minmax(0, 1fr)",
@@ -63,7 +65,7 @@ export function WorkspaceShellLayout({
       <header
         className="app-titlebar grid h-12 items-stretch bg-background"
         style={{ gridTemplateColumns: titlebarGridTemplateColumns }}
-        aria-label="Window title bar"
+        aria-label={t("app.windowTitleBar")}
       >
         <div
           className={cn(

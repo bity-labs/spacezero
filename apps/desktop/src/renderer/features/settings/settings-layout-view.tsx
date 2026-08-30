@@ -1,4 +1,4 @@
-import { ArrowLeft, Cube, Palette } from "@phosphor-icons/react";
+import { ArrowLeft, Cube, Gear, Palette } from "@phosphor-icons/react";
 import { Button } from "@spacezero/ui/components/button";
 import {
   SidebarMenu,
@@ -16,6 +16,7 @@ import { SidebarResizeHandle } from "../../components/sidebar/sidebar-resize-han
 import type { SettingsSectionId } from "./settings-navigation";
 
 const settingsNavigation = [
+  { id: "general", icon: Gear },
   { id: "models", icon: Cube },
   { id: "appearance", icon: Palette },
 ] as const;
