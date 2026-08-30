@@ -6,6 +6,7 @@ import { installAppLifecycle } from "./app-lifecycle.js";
 import { registerExternalUrlIpc } from "./external-url.ipc.js";
 import { registerLocalHostIpc } from "./local-host/local-host.ipc.js";
 import { registerProjectFolderPickerIpc } from "./project-folder-picker.ipc.js";
+import { registerSettingsIpc } from "./settings.ipc.js";
 import { createLocalHostSupervisor } from "./local-host/local-host-supervisor.js";
 import { createTrustedRendererPolicy } from "./navigation-policy.js";
 import {
@@ -74,6 +75,7 @@ const createWindow = (): BrowserWindow => {
 registerAppInfoIpc({ isTrustedSender });
 registerExternalUrlIpc({ isTrustedSender });
 registerLocalHostIpc({ supervisor, isTrustedSender });
+registerSettingsIpc({ isTrustedSender });
 
 app.whenReady().then(async () => {
   await supervisor

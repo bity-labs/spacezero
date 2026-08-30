@@ -7,36 +7,57 @@ import {
   SelectValue,
 } from "@spacezero/ui/components/select";
 import type { ReactElement } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import {
-  getLanguagePreference,
-  setLanguagePreference,
-  type LanguagePreference,
-} from "../../i18n";
+import { i18n, type LanguagePreference } from "../../i18n";
 import { SettingsPageHeader } from "./components/settings-page-header";
 import { SettingsRow } from "./components/settings-row";
 import { SettingsSection } from "./components/settings-section";
 
 export function GeneralSettingsScreen(): ReactElement {
   const { t } = useTranslation();
-  const [languagePreference, setCurrentLanguagePreference] = useState(getLanguagePreference);
+  const [languagePreference, setCurrentLanguagePreference] = useState<LanguagePreference>("system");
+  const [languageError, setLanguageError] = useState(false);
 
-  const changeLanguagePreference = (preference: LanguagePreference): void => {
+  useEffect(() => {
+    let isCurrent = true;
+    window.spacezero.settings.getLanguageSettings().then(
+      (settings) => {
+        if (!isCurrent) return;
+        setCurrentLanguagePreference(settings.preference);
+      },
+      () => {
+        if (!isCurrent) return;
+        setLanguageError(true);
+      },
+    );
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
+  const changeLanguagePreference = async (preference: LanguagePreference): Promise<void> => {
+    setLanguageError(false);
     setCurrentLanguagePreference(preference);
-    setLanguagePreference(preference);
+    try {
+      const settings = await window.spacezero.settings.updateLanguagePreference(preference);
+      setCurrentLanguagePreference(settings.preference);
+      await i18n.changeLanguage(settings.resolvedLanguage);
+    } catch {
+      setLanguageError(true);
+    }
   };
 
   return (
     <>
       <SettingsPageHeader title={t("settings.general.title")} />
       <div className="flex flex-col gap-8">
-        <SettingsSection>
+        <SettingsSection error={languageError ? t("settings.general.languageUpdateError") : null}>
           <SettingsRow title={t("settings.general.language")} description={t("settings.general.languageDescription")}>
             <Select
               value={languagePreference}
-              onValueChange={(value) => changeLanguagePreference(value as LanguagePreference)}
+              onValueChange={(value) => void changeLanguagePreference(value as LanguagePreference)}
             >
               <SelectTrigger size="sm" className="w-48" aria-label={t("settings.general.language")}>
                 <SelectValue>{(value: LanguagePreference) => getLanguagePreferenceLabel(value, t)}</SelectValue>

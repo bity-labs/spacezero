@@ -41,6 +41,7 @@
       "title": "Général",
       "language": "Langue",
       "languageDescription": "Choisissez comment Space Zero sélectionne la langue de l’interface.",
+      "languageUpdateError": "Impossible de mettre à jour la préférence de langue.",
       "languageOptions": {
         "system": "Système",
         "en": "Anglais",
