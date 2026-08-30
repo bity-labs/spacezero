@@ -10,8 +10,6 @@ export const LANGUAGE_PREFERENCES = ["system", ...SUPPORTED_LANGUAGES] as const;
 export type SupportedLanguage = (typeof SUPPORTED_LANGUAGES)[number];
 export type LanguagePreference = (typeof LANGUAGE_PREFERENCES)[number];
 
-const LANGUAGE_PREFERENCE_STORAGE_KEY = "spacezero.languagePreference";
-
 const resources = {
   en: { translation: en },
   fr: { translation: fr },
@@ -25,7 +23,7 @@ export function isLanguagePreference(preference: unknown): preference is Languag
   return typeof preference === "string" && LANGUAGE_PREFERENCES.includes(preference as LanguagePreference);
 }
 
-export function resolveLanguage(preference: LanguagePreference, systemLanguage = navigator.language): SupportedLanguage {
+export function resolveLanguage(preference: LanguagePreference, systemLanguage: string): SupportedLanguage {
   if (preference !== "system") return preference;
 
   const baseLanguage = systemLanguage.split("-")[0]?.toLowerCase();
@@ -34,19 +32,14 @@ export function resolveLanguage(preference: LanguagePreference, systemLanguage =
   return "en";
 }
 
-export function getLanguagePreference(): LanguagePreference {
-  const storedPreference = window.localStorage.getItem(LANGUAGE_PREFERENCE_STORAGE_KEY);
-  return isLanguagePreference(storedPreference) ? storedPreference : "system";
-}
-
-export function setLanguagePreference(preference: LanguagePreference): void {
-  window.localStorage.setItem(LANGUAGE_PREFERENCE_STORAGE_KEY, preference);
-  void i18n.changeLanguage(resolveLanguage(preference));
+export async function initializeRendererI18n(): Promise<void> {
+  const settings = await window.spacezero.settings.getLanguageSettings();
+  await i18n.changeLanguage(settings.resolvedLanguage);
 }
 
 void i18n.use(initReactI18next).init({
   resources,
-  lng: resolveLanguage(getLanguagePreference()),
+  lng: "en",
   fallbackLng: "en",
   interpolation: {
     escapeValue: false,

@@ -41,6 +41,7 @@
       "title": "General",
       "language": "Language",
       "languageDescription": "Choose how Space Zero picks the interface language.",
+      "languageUpdateError": "Could not update language preference.",
       "languageOptions": {
         "system": "System",
         "en": "English",
