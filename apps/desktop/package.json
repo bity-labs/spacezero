@@ -26,8 +26,10 @@
     "@spacezero/host-contracts": "workspace:*",
     "@spacezero/ui": "workspace:*",
     "@tanstack/react-router": "1.170.32",
+    "i18next": "26.4.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-i18next": "17.0.12"
   },
   "devDependencies": {
     "@storybook/react-vite": "10.5.10",

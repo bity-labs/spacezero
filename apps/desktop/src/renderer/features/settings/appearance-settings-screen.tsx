@@ -8,6 +8,7 @@ import {
 } from "@spacezero/ui/components/select";
 import { Switch } from "@spacezero/ui/components/switch";
 import type { ReactElement } from "react";
+import { useTranslation } from "react-i18next";
 
 import { SettingsPageHeader } from "./components/settings-page-header";
 import { SettingsRow } from "./components/settings-row";
@@ -46,54 +47,56 @@ export function AppearanceSettingsScreen({
   onFontFamilyChange,
   onThinFontAntialiasingChange,
 }: AppearanceSettingsScreenProps): ReactElement {
+  const { t } = useTranslation();
+
   return (
     <>
-      <SettingsPageHeader title="Appearance" />
+      <SettingsPageHeader title={t("settings.appearance.title")} />
       <div className="flex flex-col gap-8">
-        <SettingsSection error={appearanceError ? "Could not update appearance settings." : null}>
-          <SettingsRow title="Theme" description="Choose the interface color theme.">
+        <SettingsSection error={appearanceError ? t("settings.appearance.updateError") : null}>
+          <SettingsRow title={t("settings.appearance.theme")} description={t("settings.appearance.themeDescription")}>
             <Select
               value={themePreference}
               onValueChange={(value) => onThemePreferenceChange(value as ThemePreference)}
             >
-              <SelectTrigger size="sm" className="w-48" aria-label="Theme">
-                <SelectValue>{(value: ThemePreference) => getThemePreferenceLabel(value)}</SelectValue>
+              <SelectTrigger size="sm" className="w-48" aria-label={t("settings.appearance.theme")}>
+                <SelectValue>{(value: ThemePreference) => getThemePreferenceLabel(value, t)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="system">System</SelectItem>
-                  <SelectItem value="light">Light</SelectItem>
-                  <SelectItem value="dark">Dark</SelectItem>
-                  <SelectItem value="dark-high-contrast">Dark high contrast</SelectItem>
+                  <SelectItem value="system">{t("settings.appearance.themeOptions.system")}</SelectItem>
+                  <SelectItem value="light">{t("settings.appearance.themeOptions.light")}</SelectItem>
+                  <SelectItem value="dark">{t("settings.appearance.themeOptions.dark")}</SelectItem>
+                  <SelectItem value="dark-high-contrast">{t("settings.appearance.themeOptions.darkHighContrast")}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
           </SettingsRow>
-          <SettingsRow title="Font" description="Choose the interface typeface.">
+          <SettingsRow title={t("settings.appearance.font")} description={t("settings.appearance.fontDescription")}>
             <Select value={fontFamily} onValueChange={(value) => onFontFamilyChange(value as FontFamilyPreference)}>
-              <SelectTrigger size="sm" className="w-48" aria-label="Font">
-                <SelectValue>{(value: FontFamilyPreference) => getFontFamilyLabel(value)}</SelectValue>
+              <SelectTrigger size="sm" className="w-48" aria-label={t("settings.appearance.font")}>
+                <SelectValue>{(value: FontFamilyPreference) => getFontFamilyLabel(value, t)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectGroup>
-                  <SelectItem value="system">System font</SelectItem>
-                  <SelectItem value="geist">Geist</SelectItem>
-                  <SelectItem value="sf-pro">SF Pro Text</SelectItem>
-                  <SelectItem value="inter">Inter</SelectItem>
-                  <SelectItem value="helvetica">Helvetica Neue</SelectItem>
-                  <SelectItem value="arial">Arial</SelectItem>
-                  <SelectItem value="sf-mono">SF Mono</SelectItem>
-                  <SelectItem value="menlo">Menlo</SelectItem>
-                  <SelectItem value="monaco">Monaco</SelectItem>
-                  <SelectItem value="jetbrains-mono">JetBrains Mono</SelectItem>
-                  <SelectItem value="monospace">Generic monospace</SelectItem>
+                  <SelectItem value="system">{t("settings.appearance.fontOptions.system")}</SelectItem>
+                  <SelectItem value="geist">{t("settings.appearance.fontOptions.geist")}</SelectItem>
+                  <SelectItem value="sf-pro">{t("settings.appearance.fontOptions.sfPro")}</SelectItem>
+                  <SelectItem value="inter">{t("settings.appearance.fontOptions.inter")}</SelectItem>
+                  <SelectItem value="helvetica">{t("settings.appearance.fontOptions.helvetica")}</SelectItem>
+                  <SelectItem value="arial">{t("settings.appearance.fontOptions.arial")}</SelectItem>
+                  <SelectItem value="sf-mono">{t("settings.appearance.fontOptions.sfMono")}</SelectItem>
+                  <SelectItem value="menlo">{t("settings.appearance.fontOptions.menlo")}</SelectItem>
+                  <SelectItem value="monaco">{t("settings.appearance.fontOptions.monaco")}</SelectItem>
+                  <SelectItem value="jetbrains-mono">{t("settings.appearance.fontOptions.jetbrainsMono")}</SelectItem>
+                  <SelectItem value="monospace">{t("settings.appearance.fontOptions.monospace")}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
           </SettingsRow>
-          <SettingsRow title="Use thin font anti-aliasing" description="Use thinner browser-style font rendering.">
+          <SettingsRow title={t("settings.appearance.thinFontAntialiasing")} description={t("settings.appearance.thinFontAntialiasingDescription")}>
             <Switch
-              aria-label="Use thin font anti-aliasing"
+              aria-label={t("settings.appearance.thinFontAntialiasing")}
               checked={thinFontAntialiasing}
               onCheckedChange={(checked) => onThinFontAntialiasingChange(Boolean(checked))}
             />
@@ -104,36 +107,36 @@ export function AppearanceSettingsScreen({
   );
 }
 
-function getThemePreferenceLabel(preference: ThemePreference): string {
-  if (preference === "system") return "System";
-  if (preference === "dark") return "Dark";
-  if (preference === "dark-high-contrast") return "Dark high contrast";
-  return "Light";
+function getThemePreferenceLabel(preference: ThemePreference, t: (key: string) => string): string {
+  if (preference === "system") return t("settings.appearance.themeOptions.system");
+  if (preference === "dark") return t("settings.appearance.themeOptions.dark");
+  if (preference === "dark-high-contrast") return t("settings.appearance.themeOptions.darkHighContrast");
+  return t("settings.appearance.themeOptions.light");
 }
 
-function getFontFamilyLabel(fontFamily: FontFamilyPreference): string {
+function getFontFamilyLabel(fontFamily: FontFamilyPreference, t: (key: string) => string): string {
   switch (fontFamily) {
     case "system":
-      return "System font";
+      return t("settings.appearance.fontOptions.system");
     case "geist":
-      return "Geist";
+      return t("settings.appearance.fontOptions.geist");
     case "sf-pro":
-      return "SF Pro Text";
+      return t("settings.appearance.fontOptions.sfPro");
     case "inter":
-      return "Inter";
+      return t("settings.appearance.fontOptions.inter");
     case "helvetica":
-      return "Helvetica Neue";
+      return t("settings.appearance.fontOptions.helvetica");
     case "arial":
-      return "Arial";
+      return t("settings.appearance.fontOptions.arial");
     case "sf-mono":
-      return "SF Mono";
+      return t("settings.appearance.fontOptions.sfMono");
     case "menlo":
-      return "Menlo";
+      return t("settings.appearance.fontOptions.menlo");
     case "monaco":
-      return "Monaco";
+      return t("settings.appearance.fontOptions.monaco");
     case "jetbrains-mono":
-      return "JetBrains Mono";
+      return t("settings.appearance.fontOptions.jetbrainsMono");
     case "monospace":
-      return "Generic monospace";
+      return t("settings.appearance.fontOptions.monospace");
   }
 }
