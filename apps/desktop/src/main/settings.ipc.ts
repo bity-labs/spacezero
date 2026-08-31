@@ -1,6 +1,13 @@
-import { ipcMain } from "electron";
+import { ipcMain, nativeTheme } from "electron";
 
-import { DesktopSettingsStore, isLanguagePreference } from "./settings-store.js";
+import {
+  DesktopSettingsStore,
+  isFontFamilyPreference,
+  isLanguagePreference,
+  isThemePreference,
+  type AppearanceSettings,
+  type ThemePreference,
+} from "./settings-store.js";
 import {
   assertTrustedMainFrame,
   type TrustedSenderPredicate,
@@ -34,9 +41,39 @@ export const registerSettingsIpc = (options: SettingsIpcOptions): (() => void) =
     return store.updateLanguagePreference(preference);
   });
 
+  ipcMain.handle("spacezero:settings:get-appearance", (event, ...args: readonly unknown[]) => {
+    if (args.length !== 0) throw new Error("invalid appearance settings request");
+    assertTrustedMainFrame(event, options.isTrustedSender, "untrusted appearance settings sender");
+    return store.getAppearanceSettings();
+  });
+
+  ipcMain.handle("spacezero:settings:update-appearance", async (event, settings: unknown, ...args: readonly unknown[]) => {
+    if (args.length !== 0 || !isAppearanceSettings(settings)) {
+      throw new Error("invalid appearance settings request");
+    }
+    assertTrustedMainFrame(event, options.isTrustedSender, "untrusted appearance settings sender");
+    const updatedSettings = await store.updateAppearanceSettings(settings);
+    nativeTheme.themeSource = toNativeThemeSource(updatedSettings.themePreference);
+    return updatedSettings;
+  });
+
   return () => {
     ipcMain.removeHandler("spacezero:settings:get");
     ipcMain.removeHandler("spacezero:settings:get-language");
     ipcMain.removeHandler("spacezero:settings:update-language");
+    ipcMain.removeHandler("spacezero:settings:get-appearance");
+    ipcMain.removeHandler("spacezero:settings:update-appearance");
   };
 };
+
+function isAppearanceSettings(value: unknown): value is AppearanceSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as { readonly themePreference?: unknown; readonly fontFamily?: unknown; readonly thinFontAntialiasing?: unknown };
+  return (
+    isThemePreference(settings.themePreference) &&
+    isFontFamilyPreference(settings.fontFamily) &&
+    typeof settings.thinFontAntialiasing === "boolean"
+  );
+}
+
+export const toNativeThemeSource = (preference: ThemePreference): "system" | "light" | "dark" => preference;

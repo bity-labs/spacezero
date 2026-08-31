@@ -60,8 +60,7 @@
       "themeOptions": {
         "system": "System",
         "light": "Light",
-        "dark": "Dark",
-        "darkHighContrast": "Dark high contrast"
+        "dark": "Dark"
       },
       "fontOptions": {
         "system": "System font",
