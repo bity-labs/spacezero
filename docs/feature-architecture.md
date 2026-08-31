@@ -26,6 +26,8 @@ Do not restore the archived v0 repository-root `src/main`, `src/preload`, `src/r
 apps/
   desktop/          Electron shell, React client, native integration, Local Host supervision
   workspace-host/   Headless Effect application, Host Protocol, SQLite, Projects, Sessions, Git
+  website/          Astro commercial public website and landing/download pages
+  account/          Next.js 16 Space Zero Account web app and Convex backend for auth, entitlement, activation
   handbook/         Private Fumadocs engineering handbook for human build memory
 
 packages/
@@ -35,7 +37,7 @@ packages/
   ui/               Browser-safe React UI primitives and Tailwind v4 theme entrypoint
 ```
 
-`apps/handbook` is active as a private Fumadocs handbook. `packages/ui` is active as a private browser-safe React source package for domain-free shadcn-compatible UI primitives and the Tailwind v4 theme entrypoint. Do not create future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
+`apps/handbook` is active as a private Fumadocs handbook. `apps/website` owns the public commercial/landing site and uses Astro. `apps/account` owns Space Zero Account sign-in and the Convex backend used for account, entitlement, and desktop activation flows, using Next.js 16 for the web app. `packages/ui` is active as a private browser-safe React source package for domain-free shadcn-compatible UI primitives and the Tailwind v4 theme entrypoint. Do not create additional future applications, domain packages, infrastructure packages, or empty feature folders speculatively.
 
 ## Dependency Graph
 
@@ -48,11 +50,17 @@ apps/workspace-host
   -> packages/host-contracts
   -> packages/pi-adapter
 
+apps/account
+  -> Convex / Convex Auth
+
 packages/pi-adapter
   -> Pi SDK
 
 apps/desktop/src/renderer
   -> packages/ui
+
+apps/website and apps/account browser UI
+  -> packages/ui when shared primitives are useful
 ```
 
 Rules:
@@ -64,7 +72,7 @@ Rules:
 - Client Runtime remains browser-safe and does not depend on Electron, Pi, SQLite, Git, or Workspace Host source;
 - Pi Adapter remains Host-side and does not depend on Desktop, React, or Client Runtime;
 - Electron-native behavior remains inside Desktop;
-- `@spacezero/ui` may be imported by Desktop renderer source only, never Desktop main/preload;
+- `@spacezero/ui` may be imported by browser UI source in `apps/desktop` renderer, `apps/website`, and `apps/account`, never Desktop main/preload;
 - Project catalog, Session domain, Pi execution, worktrees, Session Git, and Host persistence remain inside Workspace Host or Pi Adapter; and
 - React and generic UI consume plain Client Runtime values rather than Host services or Effect runtime types.
 
@@ -110,6 +118,18 @@ Preload contains no product business rules, Host persistence, filesystem policy,
 - Desktop-native calls through preload when a use case actually belongs to Electron.
 
 The renderer never imports Electron, Node.js, Workspace Host source, Pi, SQLite, Git/process adapters, or secret stores. It may hold only a short-lived scoped Host client capability in memory.
+
+### `apps/website`
+
+Website is the Astro public commercial site for Space Zero. It owns landing pages, product marketing pages, pricing entry points, public download entry points, and other commercial web content.
+
+Website may link to account signup, checkout, and download flows, but it does not own checkout, account identity, entitlement state, desktop activation, Convex Auth configuration, Local Host behavior, Project Sessions, GitHub repository authorization, or desktop credentials.
+
+### `apps/account`
+
+Account is the Next.js 16 Space Zero Account web/backend application. It owns Convex Auth configuration, email OTP and GitHub OAuth account identity flows, account linking policy, checkout after account sign-in, checkout success/download handoff, minimal account dashboard, account-facing activation state, product communication consent, Polar entitlement integration, the desktop sign-in/deep-link exchange endpoint, and the backend account/entitlement/version status endpoint used by public desktop builds.
+
+Account may have browser UI for sign-in, minimal account management, checkout, checkout success/download handoff, and desktop authorization, plus a `convex/` directory for Convex backend functions. Account does not own Desktop windows, Local Host supervision, Workspace Host Project/Session state, Pi credentials, GitHub repository grants, or Session worktrees.
 
 ### `apps/handbook`
 
@@ -383,6 +403,8 @@ Use names that describe the behavior hidden by the file. Do not use `.shared.ts`
 ```text
 apps/desktop renderer       -> packages/client-runtime public exports
 apps/desktop renderer       -> packages/ui public subpath exports
+apps/website browser UI     -> packages/ui public subpath exports
+apps/account browser UI     -> packages/ui public subpath exports
 apps/desktop                -> packages/host-contracts public exports when genuinely needed
 apps/workspace-host         -> packages/host-contracts public exports
 apps/workspace-host         -> packages/pi-adapter public exports
@@ -457,7 +479,8 @@ This guide implements the active architecture decisions, especially:
 - ADR 0030 — pnpm monorepo and explicit runtime packages;
 - ADR 0032 — bootstrap, supervisor, and client capabilities;
 - ADR 0034 — Host-owned Project catalog;
-- ADR 0036 — Host, mock-Host Electron, real-Host Electron, and packaged tests; and
-- ADR 0037 — Effect HttpApi and HTTP Client implementation.
+- ADR 0036 — Host, mock-Host Electron, real-Host Electron, and packaged tests;
+- ADR 0037 — Effect HttpApi and HTTP Client implementation; and
+- ADR 0041 — Convex Auth for Space Zero accounts.
 
 Archived v0 ADRs are historical context only and are not normative for new source placement.
