@@ -84,11 +84,11 @@ Desktop has three internal surfaces:
 
 ### Electron main
 
-Owns app lifecycle, windows, native integration, Local Host launch/supervision, protected bootstrap, and supervisor authority.
+Owns app lifecycle, windows, native integration, Local Host launch/supervision, protected bootstrap, supervisor authority, and Desktop-local settings stored in app data.
 
 ### Preload
 
-Exposes only a narrow, typed browser-safe bridge to the renderer. It can deliver Host connection information and short-lived scoped client capabilities.
+Exposes only a narrow, typed browser-safe bridge to the renderer. It can deliver Host connection information, short-lived scoped client capabilities, and validated Desktop-local settings APIs.
 
 ### Renderer
 
@@ -134,7 +134,7 @@ flowchart TB
 
 Workspace Host owns the Project catalog, Project Session behavior, event journal, relational projections, SQLite migrations, managed Git worktrees, and recovery policy.
 
-Desktop can display and request this behavior, but does not duplicate or persist it.
+Desktop can display and request this behavior, but does not duplicate or persist it. Desktop-local preferences such as language are kept separately in the Desktop settings JSON file, not in Host SQLite.
 
 ## 6. Pi boundary drill-down
 

@@ -1,0 +1,80 @@
+{
+  "app": {
+    "name": "Space Zero",
+    "workspace": "Espace de travail",
+    "welcome": "Bienvenue dans Space Zero",
+    "welcomeDescription": "Sélectionnez une zone de l’espace de travail dans la barre latérale pour commencer à brancher les surfaces desktop.",
+    "windowTitleBar": "Barre de titre de la fenêtre"
+  },
+  "workspace": {
+    "title": "Espace de travail",
+    "hideLeftSidebar": "Masquer la barre latérale gauche",
+    "showLeftSidebar": "Afficher la barre latérale gauche",
+    "openCommandPalette": "Ouvrir la palette de commandes",
+    "mainContent": "Espace de travail",
+    "resizeLeftSidebar": "Redimensionner la barre latérale gauche",
+    "sidebar": "Barre latérale de l’espace de travail",
+    "navigation": "Navigation de l’espace de travail",
+    "knowledgeBase": "Base de connaissances",
+    "chat": "Chat",
+    "agentCapabilities": "Capacités des agents",
+    "projects": "Projets",
+    "filterProjects": "Filtrer les projets",
+    "addProject": "Ajouter un projet",
+    "accountMenu": "Menu du compte",
+    "notConnected": "Non connecté",
+    "openAppSettings": "Ouvrir les paramètres de l’application"
+  },
+  "settings": {
+    "title": "Paramètres",
+    "backToWorkspace": "Retour à l’espace de travail",
+    "navigation": "Navigation des paramètres",
+    "main": "Paramètres",
+    "close": "Fermer les paramètres",
+    "resizeSidebar": "Redimensionner la barre latérale des paramètres",
+    "sections": {
+      "general": "Général",
+      "models": "Modèles",
+      "appearance": "Apparence"
+    },
+    "general": {
+      "title": "Général",
+      "language": "Langue",
+      "languageDescription": "Choisissez comment Space Zero sélectionne la langue de l’interface.",
+      "languageUpdateError": "Impossible de mettre à jour la préférence de langue.",
+      "languageOptions": {
+        "system": "Système",
+        "en": "Anglais",
+        "fr": "Français"
+      }
+    },
+    "appearance": {
+      "title": "Apparence",
+      "updateError": "Impossible de mettre à jour les paramètres d’apparence.",
+      "theme": "Thème",
+      "themeDescription": "Choisissez le thème de couleur de l’interface.",
+      "font": "Police",
+      "fontDescription": "Choisissez la police de l’interface.",
+      "thinFontAntialiasing": "Utiliser un anticrénelage fin",
+      "thinFontAntialiasingDescription": "Utiliser un rendu de police plus fin, de style navigateur.",
+      "themeOptions": {
+        "system": "Système",
+        "light": "Clair",
+        "dark": "Sombre"
+      },
+      "fontOptions": {
+        "system": "Police système",
+        "geist": "Geist",
+        "sfPro": "SF Pro Text",
+        "inter": "Inter",
+        "helvetica": "Helvetica Neue",
+        "arial": "Arial",
+        "sfMono": "SF Mono",
+        "menlo": "Menlo",
+        "monaco": "Monaco",
+        "jetbrainsMono": "JetBrains Mono",
+        "monospace": "Monospace générique"
+      }
+    }
+  }
+}

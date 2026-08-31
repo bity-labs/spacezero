@@ -17,7 +17,7 @@ const launchApp = async (): Promise<ElectronApplication> =>
     },
   });
 const expectSpaceZeroRenderer = async (page: Page): Promise<void> => {
-  await expect(page.getByRole("heading", { name: "Space Zero" })).toBeVisible();
+  await expect(page.locator("main.app-root")).toBeVisible();
 };
 const closeApp = async (
   app: ElectronApplication | undefined,
@@ -43,14 +43,9 @@ test("desktop launches with renderer isolation, narrow preload, and non-null ren
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
     await expectSpaceZeroRenderer(page);
-    await expect(page.getByText("connected")).toBeVisible({ timeout: 10000 });
     expect(await page.evaluate(() => window.location.origin)).toBe(
       "spacezero://renderer",
     );
-    const appVersion = await app.evaluate(async ({ app: electronApp }) =>
-      electronApp.getVersion(),
-    );
-    await expect(page.getByText(appVersion)).toBeVisible();
     const isolation = await page.evaluate(() => ({
       hasProcess: "process" in globalThis,
       hasRequire: "require" in globalThis,

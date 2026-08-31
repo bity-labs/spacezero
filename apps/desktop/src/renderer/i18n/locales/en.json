@@ -1,0 +1,80 @@
+{
+  "app": {
+    "name": "Space Zero",
+    "workspace": "Workspace",
+    "welcome": "Welcome to Space Zero",
+    "welcomeDescription": "Select a workspace area from the sidebar to begin wiring the desktop surfaces.",
+    "windowTitleBar": "Window title bar"
+  },
+  "workspace": {
+    "title": "Workspace",
+    "hideLeftSidebar": "Hide left sidebar",
+    "showLeftSidebar": "Show left sidebar",
+    "openCommandPalette": "Open command palette",
+    "mainContent": "Workspace",
+    "resizeLeftSidebar": "Resize left sidebar",
+    "sidebar": "Workspace sidebar",
+    "navigation": "Workspace navigation",
+    "knowledgeBase": "Knowledge Base",
+    "chat": "Chat",
+    "agentCapabilities": "Agent Capabilities",
+    "projects": "Projects",
+    "filterProjects": "Filter projects",
+    "addProject": "Add project",
+    "accountMenu": "Account menu",
+    "notConnected": "Not connected",
+    "openAppSettings": "Open app settings"
+  },
+  "settings": {
+    "title": "Settings",
+    "backToWorkspace": "Back to Workspace",
+    "navigation": "Settings navigation",
+    "main": "Settings",
+    "close": "Close settings",
+    "resizeSidebar": "Resize settings sidebar",
+    "sections": {
+      "general": "General",
+      "models": "Models",
+      "appearance": "Appearance"
+    },
+    "general": {
+      "title": "General",
+      "language": "Language",
+      "languageDescription": "Choose how Space Zero picks the interface language.",
+      "languageUpdateError": "Could not update language preference.",
+      "languageOptions": {
+        "system": "System",
+        "en": "English",
+        "fr": "French"
+      }
+    },
+    "appearance": {
+      "title": "Appearance",
+      "updateError": "Could not update appearance settings.",
+      "theme": "Theme",
+      "themeDescription": "Choose the interface color theme.",
+      "font": "Font",
+      "fontDescription": "Choose the interface typeface.",
+      "thinFontAntialiasing": "Use thin font anti-aliasing",
+      "thinFontAntialiasingDescription": "Use thinner browser-style font rendering.",
+      "themeOptions": {
+        "system": "System",
+        "light": "Light",
+        "dark": "Dark"
+      },
+      "fontOptions": {
+        "system": "System font",
+        "geist": "Geist",
+        "sfPro": "SF Pro Text",
+        "inter": "Inter",
+        "helvetica": "Helvetica Neue",
+        "arial": "Arial",
+        "sfMono": "SF Mono",
+        "menlo": "Menlo",
+        "monaco": "Monaco",
+        "jetbrainsMono": "JetBrains Mono",
+        "monospace": "Generic monospace"
+      }
+    }
+  }
+}
