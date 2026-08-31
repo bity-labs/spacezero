@@ -13,8 +13,7 @@ import { useTranslation } from "react-i18next";
 import { SettingsPageHeader } from "./components/settings-page-header";
 import { SettingsRow } from "./components/settings-row";
 import { SettingsSection } from "./components/settings-section";
-
-export type ThemePreference = "system" | "light" | "dark" | "dark-high-contrast";
+import type { ThemePreference } from "./appearance-preferences";
 export type FontFamilyPreference =
   | "system"
   | "geist"
@@ -27,6 +26,12 @@ export type FontFamilyPreference =
   | "monaco"
   | "jetbrains-mono"
   | "monospace";
+
+export type AppearanceSettings = {
+  readonly themePreference: ThemePreference;
+  readonly fontFamily: FontFamilyPreference;
+  readonly thinFontAntialiasing: boolean;
+};
 
 export type AppearanceSettingsScreenProps = {
   themePreference: ThemePreference;
@@ -67,7 +72,6 @@ export function AppearanceSettingsScreen({
                   <SelectItem value="system">{t("settings.appearance.themeOptions.system")}</SelectItem>
                   <SelectItem value="light">{t("settings.appearance.themeOptions.light")}</SelectItem>
                   <SelectItem value="dark">{t("settings.appearance.themeOptions.dark")}</SelectItem>
-                  <SelectItem value="dark-high-contrast">{t("settings.appearance.themeOptions.darkHighContrast")}</SelectItem>
                 </SelectGroup>
               </SelectContent>
             </Select>
@@ -110,7 +114,6 @@ export function AppearanceSettingsScreen({
 function getThemePreferenceLabel(preference: ThemePreference, t: (key: string) => string): string {
   if (preference === "system") return t("settings.appearance.themeOptions.system");
   if (preference === "dark") return t("settings.appearance.themeOptions.dark");
-  if (preference === "dark-high-contrast") return t("settings.appearance.themeOptions.darkHighContrast");
   return t("settings.appearance.themeOptions.light");
 }
 

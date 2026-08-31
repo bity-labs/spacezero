@@ -6,6 +6,19 @@ type ProjectFolderPickerResult =
 
 type LanguagePreference = "system" | "en" | "fr";
 type SupportedLanguage = "en" | "fr";
+type ThemePreference = "system" | "light" | "dark";
+type FontFamilyPreference =
+  | "system"
+  | "geist"
+  | "sf-pro"
+  | "inter"
+  | "helvetica"
+  | "arial"
+  | "sf-mono"
+  | "menlo"
+  | "monaco"
+  | "jetbrains-mono"
+  | "monospace";
 
 type LanguageSettings = {
   readonly preference: LanguagePreference;
@@ -13,8 +26,17 @@ type LanguageSettings = {
   readonly systemLanguage: string;
 };
 
+type AppearanceSettings = {
+  readonly themePreference: ThemePreference;
+  readonly fontFamily: FontFamilyPreference;
+  readonly thinFontAntialiasing: boolean;
+};
+
 type DesktopSettings = {
   readonly languagePreference: LanguagePreference;
+  readonly themePreference: ThemePreference;
+  readonly fontFamily: FontFamilyPreference;
+  readonly thinFontAntialiasing: boolean;
 };
 
 declare global {
@@ -32,6 +54,10 @@ declare global {
         readonly updateLanguagePreference: (
           preference: LanguagePreference,
         ) => Promise<LanguageSettings>;
+        readonly getAppearanceSettings: () => Promise<AppearanceSettings>;
+        readonly updateAppearanceSettings: (
+          settings: AppearanceSettings,
+        ) => Promise<AppearanceSettings>;
       };
     };
   }

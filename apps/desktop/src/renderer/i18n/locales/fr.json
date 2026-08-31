@@ -60,8 +60,7 @@
       "themeOptions": {
         "system": "Système",
         "light": "Clair",
-        "dark": "Sombre",
-        "darkHighContrast": "Sombre à contraste élevé"
+        "dark": "Sombre"
       },
       "fontOptions": {
         "system": "Police système",
