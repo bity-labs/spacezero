@@ -335,6 +335,32 @@ Current Settings navigation order:
 General owns language and product behavior preferences such as chat link handling
 and Git primary action. Theme no longer lives in General.
 
+### Account
+
+Account owns Space Zero Account and GitHub App access status inside Desktop
+Settings.
+
+Rules:
+
+- Use only the page title “Account”; do not add a page subtitle.
+- Show account identity as a compact status row: email for email accounts or
+  GitHub username when the account identity comes from GitHub, with avatar when
+  available.
+- Show current plan/entitlement state as a separate row.
+- Show GitHub App repository access as its own row, distinct from Space Zero
+  Account identity.
+- The GitHub App row should preserve the existing v0 repository-management
+  capability rather than becoming a shallow status-only row.
+- The row should expose current access state, accessible repository status, and
+  actions for the GitHub App/device-flow connection, opening installation
+  management for selected repositories, explicit recheck, and disconnect when
+  available.
+- If no live installation query finds a usable repository, use the honest
+  “Repository access required” state with manage and recheck actions. Do not
+  invent a pending organization approval state.
+- The App Sidebar account affordance should remain compact and link users toward
+  Settings → Account for details rather than duplicating account management UI.
+
 ### Providers
 
 The former “Models” settings page is now “Providers” because setup starts with
