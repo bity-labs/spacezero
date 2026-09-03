@@ -86,7 +86,11 @@ try {
   const accountId = requiredArg(args, "account-id");
   const tag = requiredArg(args, "tag");
   const rootPrefix = normalizePrefix(args.get("prefix") ?? "");
+  const platform = args.get("platform")?.trim() ?? "macos";
 
+  if (platform !== "macos" && platform !== "linux") {
+    throw new Error("--platform must be macos or linux");
+  }
   if (bucket.includes("/")) {
     throw new Error("--bucket must be a bucket name, not a path");
   }
@@ -99,8 +103,8 @@ try {
   ensureArtifactDirectory(dir);
 
   const endpoint = `https://${accountId}.r2.cloudflarestorage.com`;
-  const channelPrefix = joinKey(rootPrefix, "macos", "beta");
-  const versionPrefix = joinKey(rootPrefix, "macos", "releases", tag);
+  const channelPrefix = joinKey(rootPrefix, platform, "beta");
+  const versionPrefix = joinKey(rootPrefix, platform, "releases", tag);
   const baseAwsArgs = ["--endpoint-url", endpoint, "--no-progress"];
 
   runAws([
@@ -125,7 +129,7 @@ try {
   ]);
 
   console.log(
-    `uploaded macOS beta artifacts to ${s3Uri(bucket, channelPrefix)} and ${s3Uri(bucket, versionPrefix)}`,
+    `uploaded ${platform} beta artifacts to ${s3Uri(bucket, channelPrefix)} and ${s3Uri(bucket, versionPrefix)}`,
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));

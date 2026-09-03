@@ -19,6 +19,8 @@ test("runs only for beta version tags with read-only default permissions", () =>
   assert.match(workflow, /permissions:\n\s+contents:\s+read/);
   assert.match(workflow, /concurrency:/);
   assert.match(workflow, /runner:\s+macos-15-intel/);
+  assert.match(workflow, /package-linux:/);
+  assert.match(workflow, /runs-on:\s+ubuntu-24\.04/);
   assert.doesNotMatch(workflow, /macos-13/);
 });
 
@@ -32,7 +34,7 @@ test("uses pinned GitHub Action commits instead of mutable tags", () => {
   const checkoutCredentialsDisabled = [
     ...workflow.matchAll(/persist-credentials:\s+false/g),
   ];
-  assert.equal(checkoutCredentialsDisabled.length, 3);
+  assert.equal(checkoutCredentialsDisabled.length, 5);
 });
 
 test("validates, tests, and builds before signing credentials are exposed", () => {
@@ -53,15 +55,16 @@ test("validates, tests, and builds before signing credentials are exposed", () =
   assert.ok(packageInputBuild < appleSecret);
 });
 
-test("embeds the configured R2 update base URL before packaging", () => {
+test("embeds configured R2 update base URLs before packaging", () => {
   assert.match(
     workflow,
-    /SPACEZERO_MACOS_UPDATE_BASE_URL: \$\{\{ vars\.SPACEZERO_MACOS_UPDATE_BASE_URL \}\}/,
+    /SPACEZERO_UPDATE_BASE_URL: \$\{\{ vars\.SPACEZERO_MACOS_UPDATE_BASE_URL \}\}/,
   );
   assert.match(
     workflow,
-    /SPACEZERO_GITHUB_APP_SLUG SPACEZERO_MACOS_UPDATE_BASE_URL/,
+    /SPACEZERO_UPDATE_BASE_URL: \$\{\{ vars\.SPACEZERO_LINUX_UPDATE_BASE_URL \}\}/,
   );
+  assert.match(workflow, /SPACEZERO_GITHUB_APP_SLUG SPACEZERO_UPDATE_BASE_URL/);
 });
 
 test("uses App Store Connect API-key notarization and cleans up the temporary key", () => {
@@ -81,8 +84,8 @@ test("uses App Store Connect API-key notarization and cleans up the temporary ke
   assert.doesNotMatch(workflow, /APPLE_APP_SPECIFIC_PASSWORD|APPLE_ID:/);
 });
 
-test("publishes to R2 only after verified artifacts are downloaded and rechecked", () => {
-  const publish = indexOfRequired("publish-r2-release:");
+test("publishes macOS artifacts to R2 only after verified artifacts are downloaded and rechecked", () => {
+  const publish = indexOfRequired("publish-r2-macos-release:");
   const publishGate = indexOfRequired(
     "SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true'",
   );
@@ -103,4 +106,25 @@ test("publishes to R2 only after verified artifacts are downloaded and rechecked
   assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID/);
   assert.doesNotMatch(workflow, /contents:\s+write/);
   assert.doesNotMatch(workflow, /gh release create|gh release upload|GH_TOKEN/);
+});
+
+test("packages and publishes Linux AppImage artifacts to R2", () => {
+  const packageLinux = indexOfRequired("package-linux:");
+  const buildAppImage = indexOfRequired("Build Linux AppImage");
+  const verifyPackage = indexOfRequired("pnpm release:verify-linux-artifacts");
+  const uploadArtifact = indexOfRequired("name: linux-x64");
+  const publishLinux = indexOfRequired("publish-r2-linux-release:");
+  const download = indexOfRequired("Download verified Linux artifacts");
+  const reverify = workflow.lastIndexOf("pnpm release:verify-linux-artifacts");
+  const uploadR2 = workflow.lastIndexOf("--platform linux");
+
+  assert.ok(packageLinux < buildAppImage);
+  assert.ok(buildAppImage < verifyPackage);
+  assert.ok(verifyPackage < uploadArtifact);
+  assert.ok(uploadArtifact < publishLinux);
+  assert.ok(publishLinux < download);
+  assert.ok(download < reverify);
+  assert.ok(reverify < uploadR2);
+  assert.match(workflow, /SPACEZERO_LINUX_UPDATE_BASE_URL/);
+  assert.match(workflow, /Space-Zero-\$\{version\}-x64\.AppImage/);
 });

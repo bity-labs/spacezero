@@ -101,11 +101,11 @@ jobs:
           APPLE_ISSUER: ${{ secrets.APPLE_ISSUER }}
           SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
           SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
-          SPACEZERO_MACOS_UPDATE_BASE_URL: ${{ vars.SPACEZERO_MACOS_UPDATE_BASE_URL }}
+          SPACEZERO_UPDATE_BASE_URL: ${{ vars.SPACEZERO_MACOS_UPDATE_BASE_URL }}
         run: |
           set -euo pipefail
           missing=0
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_ISSUER SPACEZERO_GITHUB_CLIENT_ID SPACEZERO_GITHUB_APP_SLUG SPACEZERO_MACOS_UPDATE_BASE_URL; do
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_ISSUER SPACEZERO_GITHUB_CLIENT_ID SPACEZERO_GITHUB_APP_SLUG SPACEZERO_UPDATE_BASE_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required release input: ${name}"
               missing=1
@@ -157,8 +157,80 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish-r2-release:
-    name: Publish R2 release
+  package-linux:
+    name: Package Linux x64 AppImage
+    needs: quality
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 10.28.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Resolve release version
+        id: release-version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        run: pnpm release:validate-tag
+      - name: Prepare packaged public GitHub App config
+        env:
+          SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
+          SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+        run: pnpm package:prepare-github
+      - name: Build Linux package inputs
+        run: pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build
+      - name: Build Linux AppImage
+        env:
+          SPACEZERO_UPDATE_BASE_URL: ${{ vars.SPACEZERO_LINUX_UPDATE_BASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPACEZERO_UPDATE_BASE_URL" ]; then
+            echo "::error::Missing required Linux release input: SPACEZERO_LINUX_UPDATE_BASE_URL"
+            exit 1
+          fi
+          pnpm release:linux:ci -- --x64
+      - name: Normalize Linux updater metadata
+        run: |
+          set -euo pipefail
+          cd apps/desktop/dist-builder
+          if [ ! -f beta-linux.yml ] && [ -f latest-linux.yml ]; then
+            cp latest-linux.yml beta-linux.yml
+          fi
+      - name: Verify Linux artifacts
+        run: pnpm release:verify-linux-artifacts -- --dir apps/desktop/dist-builder --version "${{ steps.release-version.outputs.version }}" --arch x64
+      - name: Stage verified Linux artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          version="${{ steps.release-version.outputs.version }}"
+          cp "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage" release-artifacts/
+          if [ -f "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage.blockmap" ]; then
+            cp "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage.blockmap" release-artifacts/
+          fi
+          cp "apps/desktop/dist-builder/beta-linux.yml" release-artifacts/
+      - name: Upload verified Linux artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: linux-x64
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-r2-macos-release:
+    name: Publish R2 macOS release
     needs: package-macos
     if: ${{ vars.SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true' }}
     runs-on: ubuntu-24.04
@@ -243,4 +315,77 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit "$missing"
           fi
-          pnpm release:upload-r2-artifacts -- --dir release-artifacts --bucket "$SPACEZERO_R2_BUCKET" --account-id "$CLOUDFLARE_ACCOUNT_ID" --prefix "${SPACEZERO_R2_RELEASE_PREFIX:-}" --tag "$GITHUB_REF_NAME"
+          pnpm release:upload-r2-artifacts -- --dir release-artifacts --bucket "$SPACEZERO_R2_BUCKET" --account-id "$CLOUDFLARE_ACCOUNT_ID" --prefix "${SPACEZERO_R2_RELEASE_PREFIX:-}" --tag "$GITHUB_REF_NAME" --platform macos
+
+  publish-r2-linux-release:
+    name: Publish R2 Linux release
+    needs: package-linux
+    if: ${{ vars.SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 10.28.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Resolve release version
+        id: release-version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        run: pnpm release:validate-tag
+      - name: Download verified Linux artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          name: linux-x64
+          path: release-artifacts
+      - name: Re-verify Linux artifacts
+        run: pnpm release:verify-linux-artifacts -- --dir release-artifacts --version "${{ steps.release-version.outputs.version }}" --arch x64
+      - name: Write checksums
+        run: |
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+      - name: Ensure AWS CLI is available
+        run: |
+          set -euo pipefail
+          if command -v aws >/dev/null 2>&1; then
+            aws --version
+            exit 0
+          fi
+          python_user_bin="$(python3 -m site --user-base)/bin"
+          python3 -m pip install --user awscli
+          echo "$python_user_bin" >> "$GITHUB_PATH"
+          "$python_user_bin/aws" --version
+      - name: Upload verified Linux artifacts to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          SPACEZERO_R2_BUCKET: ${{ vars.SPACEZERO_R2_BUCKET }}
+          SPACEZERO_R2_RELEASE_PREFIX: ${{ vars.SPACEZERO_R2_RELEASE_PREFIX }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY CLOUDFLARE_ACCOUNT_ID SPACEZERO_R2_BUCKET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required R2 release input: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit "$missing"
+          fi
+          pnpm release:upload-r2-artifacts -- --dir release-artifacts --bucket "$SPACEZERO_R2_BUCKET" --account-id "$CLOUDFLARE_ACCOUNT_ID" --prefix "${SPACEZERO_R2_RELEASE_PREFIX:-}" --tag "$GITHUB_REF_NAME" --platform linux

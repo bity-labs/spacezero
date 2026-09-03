@@ -89,8 +89,40 @@ test("uploads immutable versioned artifacts and short-cached beta channel artifa
   ]);
   assert.match(
     result.stdout,
-    /uploaded macOS beta artifacts to s3:\/\/spacezero-downloads\/spacezero\/macos\/beta/,
+    /uploaded macos beta artifacts to s3:\/\/spacezero-downloads\/spacezero\/macos\/beta/,
   );
+});
+
+test("uploads Linux artifacts to Linux R2 prefixes", () => {
+  const { artifacts, bin, log } = makeFixture();
+  const result = runUpload(
+    [
+      "--dir",
+      artifacts,
+      "--bucket",
+      "spacezero-downloads",
+      "--account-id",
+      "account-id",
+      "--prefix",
+      "spacezero",
+      "--tag",
+      "v0.1.0-beta.11",
+      "--platform",
+      "linux",
+    ],
+    { PATH: `${bin}${delimiter}${process.env.PATH}` },
+  );
+
+  assert.equal(result.status, 0, result.stderr);
+  const calls = readFileSync(log, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(
+    calls[0][3],
+    "s3://spacezero-downloads/spacezero/linux/releases/v0.1.0-beta.11",
+  );
+  assert.equal(calls[1][3], "s3://spacezero-downloads/spacezero/linux/beta");
 });
 
 test("rejects missing R2 upload credentials", () => {

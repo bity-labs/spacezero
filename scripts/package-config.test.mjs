@@ -27,12 +27,13 @@ test("Electron Builder config declares macOS beta updater artifacts", () => {
   assert.match(config, /generateUpdatesFilesForAllChannels:\s*true/);
   assert.match(config, /mac:\n(?:.|\n)*target:\n\s*- dmg/);
   assert.match(config, /mac:\n(?:.|\n)*target:\n(?:.|\n)*- zip/);
+  assert.match(config, /linux:\n(?:.|\n)*target:\n\s*- AppImage/);
   assert.match(config, /category:\s*public\.app-category\.developer-tools/);
   assert.match(config, /hardenedRuntime:\s*true/);
   assert.match(config, /notarize:\s*true/);
   assert.match(
     config,
-    /publish:\n(?:.|\n)*provider:\s*generic\n(?:.|\n)*url:\s*\$\{env\.SPACEZERO_MACOS_UPDATE_BASE_URL\}\n(?:.|\n)*channel:\s*beta/,
+    /publish:\n(?:.|\n)*provider:\s*generic\n(?:.|\n)*url:\s*\$\{env\.SPACEZERO_UPDATE_BASE_URL\}\n(?:.|\n)*channel:\s*beta/,
   );
 });
 
