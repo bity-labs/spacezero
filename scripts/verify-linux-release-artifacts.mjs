@@ -85,6 +85,11 @@ function sha512Base64(path) {
   return createHash("sha512").update(readFileSync(path)).digest("base64");
 }
 
+function artifactArchName(arch) {
+  if (arch === "x64") return "x86_64";
+  return arch;
+}
+
 try {
   const options = parseArgs(process.argv.slice(2));
   const metadata = readFileSync(join(options.dir, options.metadata), "utf8");
@@ -119,7 +124,7 @@ try {
   const references = metadataReferences(metadata);
   for (const reference of references) validateReferenceName(reference);
   for (const arch of options.arches) {
-    const base = `Space-Zero-${options.version}-${arch}`;
+    const base = `Space-Zero-${options.version}-${artifactArchName(arch)}`;
     if (!references.includes(`${base}.AppImage`)) {
       throw new Error(
         `${options.metadata} does not reference ${base}.AppImage`,
@@ -129,7 +134,7 @@ try {
   for (const reference of references) ensureFile(join(options.dir, reference));
 
   for (const arch of options.arches) {
-    const base = `Space-Zero-${options.version}-${arch}`;
+    const base = `Space-Zero-${options.version}-${artifactArchName(arch)}`;
     ensureFile(join(options.dir, `${base}.AppImage`));
   }
 

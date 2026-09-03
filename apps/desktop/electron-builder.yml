@@ -1,5 +1,6 @@
 appId: app.spacezero.desktop
 productName: Space Zero
+executableName: space-zero
 artifactName: Space-Zero-${version}-${arch}.${ext}
 generateUpdatesFilesForAllChannels: true
 forceCodeSigning: true

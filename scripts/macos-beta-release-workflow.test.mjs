@@ -126,5 +126,5 @@ test("packages and publishes Linux AppImage artifacts to R2", () => {
   assert.ok(download < reverify);
   assert.ok(reverify < uploadR2);
   assert.match(workflow, /SPACEZERO_LINUX_UPDATE_BASE_URL/);
-  assert.match(workflow, /Space-Zero-\$\{version\}-x64\.AppImage/);
+  assert.match(workflow, /Space-Zero-\$\{version\}-x86_64\.AppImage/);
 });
