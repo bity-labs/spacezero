@@ -57,6 +57,37 @@ test("accepts a complete macOS artifact set for one architecture", () => {
   assert.match(result.stdout, /verified macOS release artifacts/);
 });
 
+test("accepts merged updater metadata that lists both architecture ZIP files", () => {
+  const arm64Base = `Space-Zero-${version}-arm64`;
+  const x64Base = `Space-Zero-${version}-x64`;
+  const arm64Zip = `fake ${arm64Base}.zip`;
+  const x64Zip = `fake ${x64Base}.zip`;
+  const dir = makeArtifacts({
+    arch: "arm64",
+    metadata: `version: ${version}\nfiles:\n  - url: ${x64Base}.zip\n    sha512: ${sha512Base64(x64Zip)}\n    size: ${x64Zip.length}\n  - url: ${arm64Base}.zip\n    sha512: ${sha512Base64(arm64Zip)}\n    size: ${arm64Zip.length}\npath: ${x64Base}.zip\nsha512: ${sha512Base64(x64Zip)}\nreleaseDate: '2026-01-01T00:00:00.000Z'\n`,
+  });
+  writeFileSync(join(dir, `${x64Base}.dmg`), `fake ${x64Base}.dmg`);
+  writeFileSync(join(dir, `${x64Base}.zip`), x64Zip);
+  writeFileSync(
+    join(dir, `${x64Base}.zip.blockmap`),
+    `fake ${x64Base}.zip.blockmap`,
+  );
+
+  const result = run([
+    "--dir",
+    dir,
+    "--version",
+    version,
+    "--arch",
+    "x64",
+    "--arch",
+    "arm64",
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /verified macOS release artifacts/);
+});
+
 test("rejects missing expected artifacts", () => {
   const missing = `Space-Zero-${version}-arm64.zip.blockmap`;
   const dir = makeArtifacts({ arch: "arm64", omit: [missing] });

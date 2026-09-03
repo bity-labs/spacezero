@@ -74,7 +74,7 @@ function metadataFileEntries(metadata) {
 function metadataReferences(metadata) {
   const references = [];
   for (const line of metadata.split(/\r?\n/)) {
-    const match = /^\s*(?:url|path):\s*(.+?)\s*$/.exec(line);
+    const match = /^\s*(?:-\s+)?(?:url|path):\s*(.+?)\s*$/.exec(line);
     if (!match) continue;
     references.push(cleanScalar(match[1]));
   }
