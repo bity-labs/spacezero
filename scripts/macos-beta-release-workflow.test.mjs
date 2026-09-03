@@ -53,6 +53,17 @@ test("validates, tests, and builds before signing credentials are exposed", () =
   assert.ok(packageInputBuild < appleSecret);
 });
 
+test("embeds the configured R2 update base URL before packaging", () => {
+  assert.match(
+    workflow,
+    /SPACEZERO_MACOS_UPDATE_BASE_URL: \$\{\{ vars\.SPACEZERO_MACOS_UPDATE_BASE_URL \}\}/,
+  );
+  assert.match(
+    workflow,
+    /SPACEZERO_GITHUB_APP_SLUG SPACEZERO_MACOS_UPDATE_BASE_URL/,
+  );
+});
+
 test("uses App Store Connect API-key notarization and cleans up the temporary key", () => {
   assert.match(
     workflow,
@@ -70,18 +81,24 @@ test("uses App Store Connect API-key notarization and cleans up the temporary ke
   assert.doesNotMatch(workflow, /APPLE_APP_SPECIFIC_PASSWORD|APPLE_ID:/);
 });
 
-test("publishes only after verified artifacts are downloaded and rechecked", () => {
-  const publish = indexOfRequired("publish-github-release:");
+test("publishes to R2 only after verified artifacts are downloaded and rechecked", () => {
+  const publish = indexOfRequired("publish-r2-release:");
   const publishGate = indexOfRequired(
     "SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true'",
   );
-  const writePermission = indexOfRequired("contents: write");
+  const readPermission = workflow.lastIndexOf("contents: read");
   const merge = indexOfRequired("pnpm release:merge-macos-update-metadata");
   const verify = workflow.lastIndexOf("pnpm release:verify-macos-artifacts");
-  const releaseCreate = indexOfRequired("gh release create");
+  const upload = indexOfRequired("pnpm release:upload-r2-artifacts");
   assert.ok(publish < publishGate);
-  assert.ok(publish < writePermission);
+  assert.ok(publish < readPermission);
   assert.ok(publish < merge);
   assert.ok(merge < verify);
-  assert.ok(verify < releaseCreate);
+  assert.ok(verify < upload);
+  assert.match(workflow, /CLOUDFLARE_R2_ACCESS_KEY_ID/);
+  assert.match(workflow, /CLOUDFLARE_R2_SECRET_ACCESS_KEY/);
+  assert.match(workflow, /SPACEZERO_R2_BUCKET/);
+  assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID/);
+  assert.doesNotMatch(workflow, /contents:\s+write/);
+  assert.doesNotMatch(workflow, /gh release create|gh release upload|GH_TOKEN/);
 });

@@ -32,7 +32,7 @@ test("Electron Builder config declares macOS beta updater artifacts", () => {
   assert.match(config, /notarize:\s*true/);
   assert.match(
     config,
-    /publish:\n(?:.|\n)*provider:\s*github\n(?:.|\n)*owner:\s*bity-labs\n(?:.|\n)*repo:\s*spacezero\n(?:.|\n)*channel:\s*beta/,
+    /publish:\n(?:.|\n)*provider:\s*generic\n(?:.|\n)*url:\s*\$\{env\.SPACEZERO_MACOS_UPDATE_BASE_URL\}\n(?:.|\n)*channel:\s*beta/,
   );
 });
 

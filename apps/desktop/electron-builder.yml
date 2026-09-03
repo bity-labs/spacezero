@@ -22,7 +22,6 @@ mac:
 dmg:
   sign: true
 publish:
-  provider: github
-  owner: bity-labs
-  repo: spacezero
+  provider: generic
+  url: ${env.SPACEZERO_MACOS_UPDATE_BASE_URL}
   channel: beta
