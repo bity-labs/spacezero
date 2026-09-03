@@ -20,12 +20,18 @@
     "typecheck": "pnpm build:packages && pnpm --filter @spacezero/host-contracts typecheck && pnpm --filter @spacezero/client-runtime typecheck && pnpm --filter @spacezero/pi-adapter typecheck && pnpm --filter @spacezero/ui typecheck && pnpm --filter @spacezero/workspace-host typecheck && pnpm --filter @spacezero/desktop typecheck && pnpm --filter @spacezero/handbook typecheck",
     "lint": "eslint \"{apps,packages,scripts}/**/*.{ts,tsx,mjs}\" && pnpm check:boundaries",
     "check:boundaries": "node scripts/check-boundaries.mjs",
-    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs scripts/check-storybook.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
+    "release:validate-tag": "node scripts/validate-release-tag.mjs",
+    "package:prepare-github": "node scripts/prepare-github-app-config.mjs",
+    "release:verify-macos-artifacts": "node scripts/verify-macos-release-artifacts.mjs",
+    "release:merge-macos-update-metadata": "node scripts/merge-macos-update-metadata.mjs",
+    "release:notarize-macos-dmg": "node scripts/notarize-macos-dmg.mjs",
+    "release:macos:ci": "pnpm --filter @spacezero/desktop package:mac:beta",
+    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs scripts/check-storybook.test.mjs scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/macos-beta-release-workflow.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
     "test:e2e": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop test:e2e",
     "test:host-connectivity": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/desktop test:e2e:real-host",
     "clean": "node scripts/clean.mjs",
-    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\"",
-    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\""
+    "format": "prettier --write package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \".github/**/*.yml\" \"resources/github-app.example.json\" \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\"",
+    "format:check": "prettier --check package.json pnpm-workspace.yaml tsconfig.base.json eslint.config.mjs \".github/**/*.yml\" \"resources/github-app.example.json\" \"apps/{desktop,handbook}/**/*.{ts,tsx,mjs,json,yml,html,css,md,mdx}\" \"apps/workspace-host/**/*.{ts,tsx,mjs,json,md}\" \"packages/{host-contracts,client-runtime,pi-adapter,ui}/**/*.{ts,tsx,mjs,json,md,css}\" \"scripts/**/*.mjs\""
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

@@ -1,32 +1,12 @@
 # Public macOS beta release workflow
 
-Space Zero public macOS beta artifacts may be produced by the resumable local release pipeline or by GitHub Actions. Artifact production never implies publication: uploading assets and creating a public prerelease remain separate, explicit release-owner actions. Do not use ad hoc Electron Builder commands as a release process.
+Space Zero public macOS beta artifacts are produced by GitHub Actions and published only after signing, notarization, update metadata generation, and artifact verification succeed. Publication is additionally guarded by the `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable so the workflow can be merged and exercised without accidentally shipping an incomplete packaged runtime. Do not use ad hoc Electron Builder commands as a release process.
 
-For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local artifact-production decision is recorded in [ADR 0021](./adr/archive/v0/0021-local-multi-architecture-macos-release-artifacts.md).
-
-## Local multi-architecture artifacts
-
-After committing the intended beta version and ensuring the Developer ID G2 intermediate is installed in the login keychain, inspect the non-publishing plan:
-
-```bash
-pnpm release:macos:local -- --plan
-```
-
-Then create separate Apple Silicon and Intel artifacts:
-
-```bash
-pnpm release:macos:local
-```
-
-The command prompts locally for the Developer ID `.p12` password and Apple Issuer UUID. It creates an ephemeral signing keychain, builds shared JavaScript once, and serially processes `arm64` and `x64`. For each architecture it signs, notarizes, and staples the app; creates the updater ZIP and securely timestamped DMG; then notarizes and staples the DMG. It finally regenerates architecture-aware updater metadata and verifies both mounted disk images.
-
-Each Apple submission ID is retained in the run's logs. If a submission is rejected or does not reach `Accepted`, the command stops and preserves its payload. Inspect that submission instead of starting another release blindly.
-
-The command refuses tracked repository changes and never publishes, pushes, tags, or creates a GitHub release. A final x64 smoke test on a real Intel Mac or Intel runner is recommended before publication.
+For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local multi-architecture artifact-production target is recorded in [ADR 0021](./adr/archive/v0/0021-local-multi-architecture-macos-release-artifacts.md); the repository-owned v0 slice currently prioritizes the GitHub Actions beta path and shared verification scripts.
 
 ## Trigger and version rule
 
-Push a beta SemVer tag whose version exactly matches `package.json`:
+Push a beta SemVer tag whose version exactly matches both the root `package.json` and `apps/desktop/package.json`:
 
 ```bash
 pnpm release:validate-tag v0.1.0-beta.1
@@ -34,7 +14,7 @@ git tag v0.1.0-beta.1
 git push origin v0.1.0-beta.1
 ```
 
-The workflow only listens to tags shaped like `v*-beta.*`, then runs `pnpm release:validate-tag` before packaging. Missing `v` prefixes, non-beta tags, and tags that do not match `package.json` fail before publishing.
+The workflow only listens to tags shaped like `v*-beta.*`, then runs `pnpm release:validate-tag` before packaging. Missing `v` prefixes, non-beta tags, root/Desktop package version mismatches, and tags that do not match package versions fail before publishing.
 
 ## Required repository configuration
 
@@ -51,6 +31,8 @@ Repository variables must exist with these exact names:
 - `SPACEZERO_GITHUB_CLIENT_ID`
 - `SPACEZERO_GITHUB_APP_SLUG`
 
+Set `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` to `true` only when the release owner intends the final job to create or update a public GitHub prerelease. Leave it unset or any other value while validating the packaging path without publishing.
+
 The GitHub App values are public client configuration only. Never add a GitHub App client secret, private key, Apple credential value, or certificate password to source control or release notes.
 
 ## What the workflow publishes
@@ -58,27 +40,33 @@ The GitHub App values are public client configuration only. Never add a GitHub A
 `.github/workflows/macos-beta-release.yml` uses deterministic `pnpm@10.28.1`, keeps setup/install/build under read-only repository permissions, and scopes release credentials only to the steps that need them. It:
 
 1. Installs dependencies with `pnpm install --frozen-lockfile`.
-2. Validates the pushed tag against `package.json` with `pnpm release:validate-tag`.
+2. Validates the pushed tag against both package manifests with `pnpm release:validate-tag`.
 3. Prepares the public packaged GitHub App config from repository variables.
-4. Builds the Electron main and renderer bundles.
-5. Writes the App Store Connect API key to a temporary runner file inside the signing/notarization step, with owner-only permissions and trap-based cleanup.
-6. Runs Electron Builder for macOS with forced code signing and publishing disabled.
-7. Verifies the complete signed/notarized DMG, ZIP, blockmap, and `beta-mac.yml` updater artifact set.
-8. Publishes the verified artifacts to a GitHub prerelease in a separate write-scoped job.
+4. Runs typecheck, lint, tests, and build before any signing/notarization step.
+5. Builds separate `arm64` and `x64` macOS artifacts on separate macOS runners.
+6. Writes the App Store Connect API key to a temporary owner-only runner file inside the signing/notarization step, with trap-based cleanup.
+7. Runs Electron Builder for macOS with forced code signing, App Store Connect API-key notarization, and publishing disabled.
+8. Explicitly notarizes and staples the signed DMG after Electron Builder creates it.
+9. Verifies the signed/notarized DMG, ZIP, ZIP blockmap, per-architecture update metadata, and updater ZIP size/SHA-512 integrity.
+10. Merges the per-architecture updater metadata into the final `beta-mac.yml`.
+11. Re-verifies the downloaded artifact set, writes `SHA256SUMS.txt`, and publishes a GitHub prerelease from a separate write-scoped job only when publication is enabled.
 
-Electron Builder uses the existing macOS beta channel config to produce the signed/notarized DMG plus updater ZIP/blockmap/metadata artifacts required by `electron-updater`. The GitHub Release is not created or updated until signing, notarization, packaging, update metadata generation, and artifact verification have succeeded.
+The GitHub Release is not created or updated until signing, notarization, packaging, update metadata generation, and artifact verification have succeeded, and it is skipped entirely unless `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` is set to `true`.
 
-## Safe validation before the first public beta
+## Repository-owned local checks
 
-Before pushing a real public tag, validate without creating a public release:
+Before pushing a real public tag, validate the release automation without creating a public release:
 
 ```bash
-./scripts/run_silent "release tag validation" pnpm release:validate-tag v0.1.0-beta.1
-./scripts/run_silent "workflow tests" pnpm exec vitest run scripts/macos-beta-release-workflow.test.ts scripts/package-config.test.ts scripts/validate-release-tag.test.ts
+./scripts/run_silent "release script tests" node --test scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/macos-beta-release-workflow.test.mjs
 ./scripts/run_silent "typecheck" pnpm typecheck
 ./scripts/run_silent "lint" pnpm lint
 ./scripts/run_silent "unit tests" pnpm test
 ./scripts/run_silent "build" pnpm build
 ```
 
-A release owner can also validate the packaging path on a protected throwaway repository or private fork with the same secret and variable names, using a disposable beta tag that matches that repository's `package.json`. Do not validate by pushing a production tag to `bity-labs/spacezero` until the release owner is ready for a public GitHub Release.
+A release owner can also validate the packaging path on a protected throwaway repository or private fork with the same secret and variable names, using a disposable beta tag that matches that repository's package manifests. Do not validate by pushing a production tag to `bity-labs/spacezero` until the release owner is ready for a public GitHub Release.
+
+## Local multi-architecture artifact production
+
+ADR 0021 keeps a fully resumable local, non-publishing, multi-architecture artifact-production command as the target for release-owner diagnostics when Apple notarization or CI availability is unreliable. That local production command is not part of this CI-first skeleton yet; until it is ported into the repository, use the GitHub Actions workflow as the canonical public release path and do not publish locally produced artifacts as an ad hoc release.
