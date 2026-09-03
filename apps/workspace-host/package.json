@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "pnpm build && node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "typecheck": "pnpm build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
     "start": "node dist/main.js",
     "pretest": "pnpm build",
     "test": "vitest run"
