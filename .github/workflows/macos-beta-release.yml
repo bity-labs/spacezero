@@ -1,0 +1,215 @@
+name: macOS beta release
+
+on:
+  push:
+    tags:
+      - "v*-beta.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-beta-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Validate, test, and build
+    runs-on: macos-15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 10.28.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate release tag
+        run: pnpm release:validate-tag
+      - name: Prepare packaged public GitHub App config
+        env:
+          SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
+          SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+        run: pnpm package:prepare-github
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Test
+        run: pnpm test
+      - name: Build
+        run: pnpm build
+
+  package-macos:
+    name: Package macOS ${{ matrix.arch }}
+    needs: quality
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 10.28.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Resolve release version
+        id: release-version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        run: pnpm release:validate-tag
+      - name: Prepare packaged public GitHub App config
+        env:
+          SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
+          SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+        run: pnpm package:prepare-github
+      - name: Build package inputs without release credentials
+        run: pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build
+      - name: Build, sign, and notarize macOS package
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_ISSUER: ${{ secrets.APPLE_ISSUER }}
+          SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
+          SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_ISSUER SPACEZERO_GITHUB_CLIENT_ID SPACEZERO_GITHUB_APP_SLUG; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required release input: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit "$missing"
+          fi
+          key_dir="$RUNNER_TEMP/spacezero-notarization"
+          api_key_path="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          cleanup() {
+            rm -f "$api_key_path"
+          }
+          trap cleanup EXIT
+          mkdir -p "$key_dir"
+          chmod 700 "$key_dir"
+          printf '%s' "$APPLE_API_KEY_P8" > "$api_key_path"
+          chmod 600 "$api_key_path"
+          export APPLE_API_KEY="$api_key_path"
+          export APPLE_API_KEY_ID="$APPLE_API_KEY_ID"
+          export APPLE_API_ISSUER="$APPLE_ISSUER"
+          pnpm release:macos:ci -- --${{ matrix.arch }}
+          pnpm release:notarize-macos-dmg -- --dir apps/desktop/dist-builder --version "${{ steps.release-version.outputs.version }}" --arch "${{ matrix.arch }}"
+      - name: Normalize per-architecture updater metadata
+        run: |
+          set -euo pipefail
+          cd apps/desktop/dist-builder
+          if [ ! -f beta-mac.yml ] && [ -f latest-mac.yml ]; then
+            cp latest-mac.yml beta-mac.yml
+          fi
+          cp beta-mac.yml "beta-mac-${{ matrix.arch }}.yml"
+      - name: Verify macOS artifacts
+        run: pnpm release:verify-macos-artifacts -- --dir apps/desktop/dist-builder --version "${{ steps.release-version.outputs.version }}" --arch "${{ matrix.arch }}" --require-macos-trust
+      - name: Stage verified artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          version="${{ steps.release-version.outputs.version }}"
+          arch="${{ matrix.arch }}"
+          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.dmg" release-artifacts/
+          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.zip" release-artifacts/
+          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.zip.blockmap" release-artifacts/
+          cp "apps/desktop/dist-builder/beta-mac-${arch}.yml" release-artifacts/
+      - name: Upload verified macOS artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: macos-${{ matrix.arch }}
+          path: release-artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-github-release:
+    name: Publish GitHub prerelease
+    needs: package-macos
+    if: ${{ vars.SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true' }}
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa
+        with:
+          version: 10.28.1
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22.23.1
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Resolve release version
+        id: release-version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Validate release tag
+        run: pnpm release:validate-tag
+      - name: Download verified artifacts
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
+        with:
+          pattern: macos-*
+          path: release-artifacts
+          merge-multiple: true
+      - name: Merge macOS update metadata
+        run: pnpm release:merge-macos-update-metadata -- --dir release-artifacts --version "${{ steps.release-version.outputs.version }}"
+      - name: Re-verify macOS artifacts
+        run: |
+          pnpm release:verify-macos-artifacts -- --dir release-artifacts --version "${{ steps.release-version.outputs.version }}" --arch x64
+          pnpm release:verify-macos-artifacts -- --dir release-artifacts --version "${{ steps.release-version.outputs.version }}" --arch arm64
+      - name: Write checksums
+        run: |
+          cd release-artifacts
+          shasum -a 256 * > SHA256SUMS.txt
+      - name: Create or update GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Space Zero ${{ steps.release-version.outputs.version }}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-artifacts/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$title" --prerelease
+          else
+            gh release create "$GITHUB_REF_NAME" release-artifacts/* --verify-tag --prerelease --title "$title" --generate-notes
+          fi

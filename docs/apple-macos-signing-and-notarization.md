@@ -67,14 +67,15 @@ The Apple material is stored as GitHub Actions repository secrets with these exa
 | `APPLE_API_KEY_ID` | App Store Connect API Key ID                                               |
 | `APPLE_ISSUER`     | App Store Connect API Issuer ID                                            |
 
-The packaged application also needs these public GitHub App repository variables:
+The workflow also needs these repository variables:
 
-| Variable                     | Purpose                                                  |
-| ---------------------------- | -------------------------------------------------------- |
-| `SPACEZERO_GITHUB_CLIENT_ID` | Public GitHub App client ID embedded in the packaged app |
-| `SPACEZERO_GITHUB_APP_SLUG`  | Public GitHub App slug embedded in the packaged app      |
+| Variable                                  | Purpose                                                                 |
+| ----------------------------------------- | ----------------------------------------------------------------------- |
+| `SPACEZERO_GITHUB_CLIENT_ID`              | Public GitHub App client ID embedded in the packaged app                |
+| `SPACEZERO_GITHUB_APP_SLUG`               | Public GitHub App slug embedded in the packaged app                     |
+| `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` | Explicit `true` gate for creating/updating the public GitHub prerelease |
 
-The source values for the GitHub App variables may exist locally in the ignored `resources/github-app.json`, but a GitHub Actions runner starts from a fresh checkout and cannot read that ignored file. The repository variables provide the values to the release workflow.
+The source values for the GitHub App variables may exist locally in the ignored `resources/github-app.json`, but a GitHub Actions runner starts from a fresh checkout and cannot read that ignored file. The repository variables provide the values to the release workflow; the publish gate must be explicitly set to `true` only when a public prerelease should be created or updated.
 
 List configured names without revealing their values:
 
@@ -90,17 +91,17 @@ GitHub never reveals a stored secret. Updating a secret replaces its value.
 `.github/workflows/macos-beta-release.yml` separates packaging from publication:
 
 1. A tag shaped like `v*-beta.*` starts the workflow.
-2. The tag must exactly match the beta version in `package.json`.
+2. The tag must exactly match the beta version in the root `package.json` and `apps/desktop/package.json`.
 3. Dependencies are installed and the Electron application is built without write access or release credentials.
 4. Only the package/sign/notarize step receives the Apple and certificate secrets.
 5. `CSC_LINK` and `CSC_KEY_PASSWORD` let Electron Builder import the Developer ID identity and require code signing.
 6. The workflow writes `APPLE_API_KEY_P8` to a deterministic, owner-only temporary file on the runner.
 7. A shell trap removes the temporary `.p8` on success, failure, or interruption.
-8. The temporary path, Key ID, and Issuer ID are exposed using the environment names expected by Electron Builder.
-9. Electron Builder signs and notarizes the macOS build with publishing disabled.
-10. Repository scripts verify the complete DMG, ZIP, blockmap, and `beta-mac.yml` artifact set.
+8. The temporary path, Key ID, and Issuer ID are exposed using the environment names expected by Electron Builder and the repository DMG notarization script.
+9. Electron Builder signs and notarizes the macOS app with publishing disabled, then the repository script submits and staples the signed DMG.
+10. Repository scripts verify the complete DMG, ZIP, blockmap, `beta-mac.yml` artifact set, and updater ZIP size/SHA-512 integrity.
 11. Only verified artifacts move into a separate job with `contents: write` permission.
-12. That job verifies the downloaded artifacts again and creates the GitHub prerelease.
+12. That job verifies the downloaded artifacts again and creates the GitHub prerelease only when the explicit `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable is set.
 
 This ordering prevents a partial GitHub Release from being published when signing, notarization, metadata generation, or artifact verification fails.
 

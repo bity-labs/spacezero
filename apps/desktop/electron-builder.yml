@@ -1,6 +1,34 @@
 appId: app.spacezero.desktop
 productName: Space Zero
+artifactName: ${productName}-${version}-${arch}.${ext}
+generateUpdatesFilesForAllChannels: true
+forceCodeSigning: true
 directories:
   output: dist-builder
 files:
   - out/**
+extraResources:
+  - from: ../../resources/github-app.json
+    to: github-app.json
+mac:
+  category: public.app-category.developer-tools
+  hardenedRuntime: true
+  strictVerify: true
+  gatekeeperAssess: false
+  notarize: true
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+dmg:
+  sign: true
+publish:
+  provider: github
+  owner: bity-labs
+  repo: spacezero
+  channel: beta

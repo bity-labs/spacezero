@@ -16,6 +16,7 @@
     "typecheck:renderer": "tsc -p tsconfig.renderer.json --noEmit",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "test": "vitest run",
+    "package:mac:beta": "electron-builder --config electron-builder.yml --mac --publish never",
     "pretest:e2e": "pnpm build",
     "test:e2e": "playwright test -c playwright.config.ts",
     "test:e2e:real-host": "playwright test -c playwright.config.ts tests/e2e/local-host-connectivity.spec.ts"
