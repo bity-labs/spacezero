@@ -15,7 +15,7 @@ function makeDir() {
   const dir = mkdtempSync(join(tmpdir(), "spacezero-merge-mac-"));
   mkdirSync(dir, { recursive: true });
   for (const arch of ["x64", "arm64"]) {
-    const zip = `Space Zero-${version}-${arch}.zip`;
+    const zip = `Space-Zero-${version}-${arch}.zip`;
     writeFileSync(join(dir, zip), `${arch} zip`);
     writeFileSync(
       join(dir, `beta-mac-${arch}.yml`),
@@ -37,9 +37,9 @@ test("merges per-architecture updater manifests into beta-mac.yml", () => {
   assert.equal(result.status, 0, result.stderr);
   const merged = readFileSync(join(dir, "beta-mac.yml"), "utf8");
   assert.match(merged, new RegExp(`version: ${version}`));
-  assert.match(merged, /url: Space Zero-0\.1\.0-beta\.1-x64\.zip/);
-  assert.match(merged, /url: Space Zero-0\.1\.0-beta\.1-arm64\.zip/);
-  assert.match(merged, /path: Space Zero-0\.1\.0-beta\.1-x64\.zip/);
+  assert.match(merged, /url: Space-Zero-0\.1\.0-beta\.1-x64\.zip/);
+  assert.match(merged, /url: Space-Zero-0\.1\.0-beta\.1-arm64\.zip/);
+  assert.match(merged, /path: Space-Zero-0\.1\.0-beta\.1-x64\.zip/);
 });
 
 test("fails when an architecture manifest is missing", () => {
@@ -56,7 +56,7 @@ test("rejects manifests for the wrong version", () => {
   const dir = makeDir();
   writeFileSync(
     join(dir, "beta-mac-arm64.yml"),
-    `version: 0.1.0-beta.2\nfiles:\n  - url: Space Zero-0.1.0-beta.2-arm64.zip\n    sha512: arm64-sha512\n    size: 10\npath: Space Zero-0.1.0-beta.2-arm64.zip\nsha512: arm64-sha512\n`,
+    `version: 0.1.0-beta.2\nfiles:\n  - url: Space-Zero-0.1.0-beta.2-arm64.zip\n    sha512: arm64-sha512\n    size: 10\npath: Space-Zero-0.1.0-beta.2-arm64.zip\nsha512: arm64-sha512\n`,
   );
   const result = run(["--dir", dir, "--version", version]);
   assert.notEqual(result.status, 0);

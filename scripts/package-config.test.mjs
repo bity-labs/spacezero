@@ -22,11 +22,11 @@ test("Electron Builder config declares macOS beta updater artifacts", () => {
   const config = readText("apps/desktop/electron-builder.yml");
   assert.match(
     config,
-    /artifactName:\s*\$\{productName\}-\$\{version\}-\$\{arch\}\.\$\{ext\}/,
+    /artifactName:\s*Space-Zero-\$\{version\}-\$\{arch\}\.\$\{ext\}/,
   );
   assert.match(config, /generateUpdatesFilesForAllChannels:\s*true/);
-  assert.match(config, /mac:\n(?:.|\n)*target:\n(?:.|\n)*target:\s*dmg/);
-  assert.match(config, /mac:\n(?:.|\n)*target:\n(?:.|\n)*target:\s*zip/);
+  assert.match(config, /mac:\n(?:.|\n)*target:\n\s*- dmg/);
+  assert.match(config, /mac:\n(?:.|\n)*target:\n(?:.|\n)*- zip/);
   assert.match(config, /category:\s*public\.app-category\.developer-tools/);
   assert.match(config, /hardenedRuntime:\s*true/);
   assert.match(config, /notarize:\s*true/);

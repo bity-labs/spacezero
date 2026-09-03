@@ -1,6 +1,6 @@
 appId: app.spacezero.desktop
 productName: Space Zero
-artifactName: ${productName}-${version}-${arch}.${ext}
+artifactName: Space-Zero-${version}-${arch}.${ext}
 generateUpdatesFilesForAllChannels: true
 forceCodeSigning: true
 directories:
@@ -17,14 +17,8 @@ mac:
   gatekeeperAssess: false
   notarize: true
   target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
-    - target: zip
-      arch:
-        - x64
-        - arm64
+    - dmg
+    - zip
 dmg:
   sign: true
 publish:

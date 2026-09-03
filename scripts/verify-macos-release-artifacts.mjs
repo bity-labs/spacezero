@@ -187,7 +187,7 @@ try {
   const references = metadataReferences(metadata);
   for (const reference of references) validateReferenceName(reference);
   for (const arch of options.arches) {
-    const base = `Space Zero-${options.version}-${arch}`;
+    const base = `Space-Zero-${options.version}-${arch}`;
     if (!references.includes(`${base}.zip`)) {
       throw new Error(`${options.metadata} does not reference ${base}.zip`);
     }
@@ -195,7 +195,7 @@ try {
   for (const reference of references) ensureFile(join(options.dir, reference));
 
   for (const arch of options.arches) {
-    const base = `Space Zero-${options.version}-${arch}`;
+    const base = `Space-Zero-${options.version}-${arch}`;
     const dmg = join(options.dir, `${base}.dmg`);
     const zip = join(options.dir, `${base}.zip`);
     ensureFile(dmg);
