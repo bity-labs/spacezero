@@ -1,6 +1,6 @@
-# Public macOS beta release workflow
+# Public desktop beta release workflow
 
-Space Zero public macOS beta artifacts are produced by GitHub Actions and uploaded to Cloudflare R2 only after signing, notarization, update metadata generation, and artifact verification succeed. Publication is additionally guarded by the `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable so the workflow can be merged and exercised without accidentally shipping an incomplete packaged runtime. Do not use ad hoc Electron Builder commands as a release process.
+Space Zero public macOS and Linux beta artifacts are produced by GitHub Actions and uploaded to Cloudflare R2 only after packaging, update metadata generation, and artifact verification succeed. macOS artifacts are also signed, notarized, and stapled before upload. Publication is additionally guarded by the `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable so the workflow can be merged and exercised without accidentally shipping an incomplete packaged runtime. Do not use ad hoc Electron Builder commands as a release process.
 
 For certificate creation, notarization credentials, GitHub secret setup, credential handling, and rotation, see [`apple-macos-signing-and-notarization.md`](./apple-macos-signing-and-notarization.md). The local multi-architecture artifact-production target is recorded in [ADR 0021](./adr/archive/v0/0021-local-multi-architecture-macos-release-artifacts.md); the repository-owned v0 slice currently prioritizes the GitHub Actions beta path and shared verification scripts.
 
@@ -35,10 +35,11 @@ Repository variables must exist with these exact names:
 - `CLOUDFLARE_ACCOUNT_ID`
 - `SPACEZERO_R2_BUCKET`
 - `SPACEZERO_MACOS_UPDATE_BASE_URL`
+- `SPACEZERO_LINUX_UPDATE_BASE_URL`
 
 Optional repository variables:
 
-- `SPACEZERO_R2_RELEASE_PREFIX` — root prefix inside the R2 bucket. Leave unset for bucket-root `macos/beta` and `macos/releases/<tag>` paths, or set to a value such as `spacezero` to publish under `spacezero/macos/...`.
+- `SPACEZERO_R2_RELEASE_PREFIX` — root prefix inside the R2 bucket. Leave unset for bucket-root platform paths, or set to a value such as `spacezero` to publish under `spacezero/macos/...` and `spacezero/linux/...`.
 
 Set `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` to `true` only when the release owner intends the final job to upload verified artifacts to the public R2 bucket. Leave it unset or any other value while validating the packaging path without publishing.
 
@@ -53,28 +54,33 @@ The GitHub App values are public client configuration only. Never add a GitHub A
 3. Prepares the public packaged GitHub App config from repository variables.
 4. Runs typecheck, lint, tests, and build before any signing/notarization step.
 5. Builds separate `arm64` and `x64` macOS artifacts on separate macOS runners.
-6. Writes the App Store Connect API key to a temporary owner-only runner file inside the signing/notarization step, with trap-based cleanup.
-7. Runs Electron Builder for macOS with forced code signing, App Store Connect API-key notarization, and publishing disabled.
-8. Explicitly notarizes and staples the signed DMG after Electron Builder creates it.
-9. Verifies the signed/notarized DMG, ZIP, ZIP blockmap, per-architecture update metadata, and updater ZIP size/SHA-512 integrity.
-10. Merges the per-architecture updater metadata into the final `beta-mac.yml`.
-11. Re-verifies the downloaded artifact set, writes `SHA256SUMS.txt`, and uploads the verified artifact set to Cloudflare R2 only when publication is enabled.
+6. Builds a Linux `x64` AppImage on Ubuntu.
+7. Writes the App Store Connect API key to a temporary owner-only runner file inside the macOS signing/notarization step, with trap-based cleanup.
+8. Runs Electron Builder for macOS with forced code signing, App Store Connect API-key notarization, and publishing disabled.
+9. Explicitly notarizes and staples the signed DMG after Electron Builder creates it.
+10. Runs Electron Builder for Linux AppImage packaging with publishing disabled.
+11. Verifies the signed/notarized macOS DMG, ZIP, ZIP blockmap, per-architecture update metadata, and updater ZIP size/SHA-512 integrity.
+12. Verifies the Linux AppImage metadata and AppImage size/SHA-512 integrity.
+13. Merges the per-architecture macOS updater metadata into the final `beta-mac.yml`.
+14. Re-verifies the downloaded artifact sets, writes `SHA256SUMS.txt`, and uploads the verified artifact sets to Cloudflare R2 only when publication is enabled.
 
-The R2 upload is not attempted until signing, notarization, packaging, update metadata generation, and artifact verification have succeeded, and it is skipped entirely unless `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` is set to `true`.
+R2 uploads are not attempted until packaging, update metadata generation, and artifact verification have succeeded. They are skipped entirely unless `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` is set to `true`.
 
-When enabled, the upload job writes the same final artifact set to two S3-compatible prefixes:
+When enabled, the upload jobs write each final artifact set to two S3-compatible prefixes:
 
-- immutable archive: `<SPACEZERO_R2_RELEASE_PREFIX>/macos/releases/<tag>/`
-- current beta channel: `<SPACEZERO_R2_RELEASE_PREFIX>/macos/beta/`
+- macOS immutable archive: `<SPACEZERO_R2_RELEASE_PREFIX>/macos/releases/<tag>/`
+- macOS current beta channel: `<SPACEZERO_R2_RELEASE_PREFIX>/macos/beta/`
+- Linux immutable archive: `<SPACEZERO_R2_RELEASE_PREFIX>/linux/releases/<tag>/`
+- Linux current beta channel: `<SPACEZERO_R2_RELEASE_PREFIX>/linux/beta/`
 
-`SPACEZERO_MACOS_UPDATE_BASE_URL` must be the public HTTPS URL for the current beta channel prefix, because Electron Builder embeds it into the packaged app's generic updater configuration.
+`SPACEZERO_MACOS_UPDATE_BASE_URL` and `SPACEZERO_LINUX_UPDATE_BASE_URL` must be the public HTTPS URLs for the current beta channel prefixes, because Electron Builder embeds the relevant generic updater URL into each packaged app.
 
 ## Repository-owned local checks
 
 Before pushing a real public tag, validate the release automation without creating a public release:
 
 ```bash
-./scripts/run_silent "release script tests" node --test scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/package-macos-ci.test.mjs scripts/macos-beta-release-workflow.test.mjs
+./scripts/run_silent "release script tests" node --test scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/verify-linux-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/package-macos-ci.test.mjs scripts/package-linux-ci.test.mjs scripts/upload-r2-release-artifacts.test.mjs scripts/macos-beta-release-workflow.test.mjs
 ./scripts/run_silent "typecheck" pnpm typecheck
 ./scripts/run_silent "lint" pnpm lint
 ./scripts/run_silent "unit tests" pnpm test

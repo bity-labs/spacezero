@@ -71,15 +71,16 @@ The Apple and R2 publication material is stored as GitHub Actions repository sec
 
 The workflow also needs these repository variables:
 
-| Variable                                  | Purpose                                                                                 |
-| ----------------------------------------- | --------------------------------------------------------------------------------------- |
-| `SPACEZERO_GITHUB_CLIENT_ID`              | Public GitHub App client ID embedded in the packaged app                                |
-| `SPACEZERO_GITHUB_APP_SLUG`               | Public GitHub App slug embedded in the packaged app                                     |
-| `CLOUDFLARE_ACCOUNT_ID`                   | Cloudflare account id for the R2 S3-compatible endpoint                                 |
-| `SPACEZERO_R2_BUCKET`                     | R2 bucket that stores public release downloads                                          |
-| `SPACEZERO_R2_RELEASE_PREFIX`             | Optional bucket prefix before `macos/beta` and `macos/releases/<tag>`                   |
-| `SPACEZERO_MACOS_UPDATE_BASE_URL`         | Public HTTPS URL for the current beta channel prefix used by Electron's generic updater |
-| `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` | Explicit `true` gate for uploading verified artifacts to R2                             |
+| Variable                                  | Purpose                                                                               |
+| ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| `SPACEZERO_GITHUB_CLIENT_ID`              | Public GitHub App client ID embedded in the packaged app                              |
+| `SPACEZERO_GITHUB_APP_SLUG`               | Public GitHub App slug embedded in the packaged app                                   |
+| `CLOUDFLARE_ACCOUNT_ID`                   | Cloudflare account id for the R2 S3-compatible endpoint                               |
+| `SPACEZERO_R2_BUCKET`                     | R2 bucket that stores public release downloads                                        |
+| `SPACEZERO_R2_RELEASE_PREFIX`             | Optional bucket prefix before platform release paths                                  |
+| `SPACEZERO_MACOS_UPDATE_BASE_URL`         | Public HTTPS URL for the macOS beta channel prefix used by Electron's generic updater |
+| `SPACEZERO_LINUX_UPDATE_BASE_URL`         | Public HTTPS URL for the Linux beta channel prefix used by Electron's generic updater |
+| `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED` | Explicit `true` gate for uploading verified artifacts to R2                           |
 
 The source values for the GitHub App variables may exist locally in the ignored `resources/github-app.json`, but a GitHub Actions runner starts from a fresh checkout and cannot read that ignored file. The repository variables provide the values to the release workflow; the publish gate must be explicitly set to `true` only when a public R2 upload should run.
 
@@ -105,9 +106,9 @@ GitHub never reveals a stored secret. Updating a secret replaces its value.
 7. A shell trap removes the temporary `.p8` on success, failure, or interruption.
 8. The temporary path, Key ID, and Issuer ID are exposed using the environment names expected by Electron Builder and the repository DMG notarization script.
 9. Electron Builder signs and notarizes the macOS app with publishing disabled, then the repository script submits and staples the signed DMG.
-10. Repository scripts verify the complete DMG, ZIP, blockmap, `beta-mac.yml` artifact set, and updater ZIP size/SHA-512 integrity.
-11. Only verified artifacts move into a separate R2 upload job with read-only repository permissions.
-12. That job verifies the downloaded artifacts again and uploads to Cloudflare R2 only when the explicit `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable is set.
+10. Repository scripts verify the complete macOS DMG, ZIP, blockmap, `beta-mac.yml` artifact set, Linux AppImage metadata, and updater payload size/SHA-512 integrity.
+11. Only verified artifacts move into separate R2 upload jobs with read-only repository permissions.
+12. Those jobs verify the downloaded artifacts again and upload to Cloudflare R2 only when the explicit `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` repository variable is set.
 
 This ordering prevents a partial R2 release from being published when signing, notarization, metadata generation, or artifact verification fails.
 
