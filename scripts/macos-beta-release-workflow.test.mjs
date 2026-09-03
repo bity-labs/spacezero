@@ -87,12 +87,14 @@ test("publishes to R2 only after verified artifacts are downloaded and rechecked
     "SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true'",
   );
   const readPermission = workflow.lastIndexOf("contents: read");
+  const flatten = indexOfRequired("Flatten downloaded artifacts");
   const merge = indexOfRequired("pnpm release:merge-macos-update-metadata");
   const verify = workflow.lastIndexOf("pnpm release:verify-macos-artifacts");
   const upload = indexOfRequired("pnpm release:upload-r2-artifacts");
   assert.ok(publish < publishGate);
   assert.ok(publish < readPermission);
-  assert.ok(publish < merge);
+  assert.ok(publish < flatten);
+  assert.ok(flatten < merge);
   assert.ok(merge < verify);
   assert.ok(verify < upload);
   assert.match(workflow, /CLOUDFLARE_R2_ACCESS_KEY_ID/);

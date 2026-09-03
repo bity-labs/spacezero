@@ -190,8 +190,18 @@ jobs:
         uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53
         with:
           pattern: macos-*
-          path: release-artifacts
-          merge-multiple: true
+          path: release-artifact-downloads
+      - name: Flatten downloaded artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts
+          for artifact_dir in release-artifact-downloads/macos-*; do
+            if [ ! -d "$artifact_dir" ]; then
+              continue
+            fi
+            cp "$artifact_dir"/* release-artifacts/
+          done
+          find release-artifacts -maxdepth 1 -type f -print | sort
       - name: Merge macOS update metadata
         run: pnpm release:merge-macos-update-metadata -- --dir release-artifacts --version "${{ steps.release-version.outputs.version }}"
       - name: Re-verify macOS artifacts
