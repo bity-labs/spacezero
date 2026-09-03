@@ -58,7 +58,7 @@ The GitHub Release is not created or updated until signing, notarization, packag
 Before pushing a real public tag, validate the release automation without creating a public release:
 
 ```bash
-./scripts/run_silent "release script tests" node --test scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/macos-beta-release-workflow.test.mjs
+./scripts/run_silent "release script tests" node --test scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/package-macos-ci.test.mjs scripts/macos-beta-release-workflow.test.mjs
 ./scripts/run_silent "typecheck" pnpm typecheck
 ./scripts/run_silent "lint" pnpm lint
 ./scripts/run_silent "unit tests" pnpm test

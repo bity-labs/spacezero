@@ -1,6 +1,6 @@
 {
   "name": "spacezero",
-  "version": "0.1.0-beta.6",
+  "version": "0.1.0-beta.7",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.1",
@@ -25,8 +25,8 @@
     "release:verify-macos-artifacts": "node scripts/verify-macos-release-artifacts.mjs",
     "release:merge-macos-update-metadata": "node scripts/merge-macos-update-metadata.mjs",
     "release:notarize-macos-dmg": "node scripts/notarize-macos-dmg.mjs",
-    "release:macos:ci": "pnpm --filter @spacezero/desktop package:mac:beta",
-    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs scripts/check-storybook.test.mjs scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/macos-beta-release-workflow.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
+    "release:macos:ci": "node scripts/package-macos-ci.mjs",
+    "test": "pnpm build:packages && node --test scripts/check-boundaries.test.mjs scripts/check-storybook.test.mjs scripts/validate-release-tag.test.mjs scripts/prepare-github-app-config.test.mjs scripts/package-config.test.mjs scripts/verify-macos-release-artifacts.test.mjs scripts/merge-macos-update-metadata.test.mjs scripts/notarize-macos-dmg.test.mjs scripts/package-macos-ci.test.mjs scripts/macos-beta-release-workflow.test.mjs && pnpm --filter @spacezero/host-contracts test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/pi-adapter test && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/handbook test",
     "test:e2e": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop test:e2e",
     "test:host-connectivity": "pnpm build:packages && pnpm --filter @spacezero/workspace-host build && pnpm --filter @spacezero/desktop build && pnpm --filter @spacezero/workspace-host test && pnpm --filter @spacezero/client-runtime test && pnpm --filter @spacezero/desktop test && pnpm --filter @spacezero/desktop test:e2e:real-host",
     "clean": "node scripts/clean.mjs",

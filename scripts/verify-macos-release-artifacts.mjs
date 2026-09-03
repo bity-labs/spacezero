@@ -19,6 +19,7 @@ function parseArgs(argv) {
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
+    if (arg === "--") continue;
     if (arg === "--dir") options.dir = argv[++i];
     else if (arg === "--version") options.version = argv[++i];
     else if (arg === "--arch") options.arches.push(argv[++i]);
