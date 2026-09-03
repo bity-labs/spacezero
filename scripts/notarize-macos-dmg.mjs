@@ -53,7 +53,7 @@ try {
   const issuer = requireEnv("APPLE_API_ISSUER");
   const dmgPath = join(
     options.dir,
-    `Space Zero-${options.version}-${options.arch}.dmg`,
+    `Space-Zero-${options.version}-${options.arch}.dmg`,
   );
   ensureDmg(dmgPath);
   run("xcrun", [

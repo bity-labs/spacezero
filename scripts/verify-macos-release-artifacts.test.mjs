@@ -27,7 +27,7 @@ function makeArtifacts({
   omit = [],
 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "spacezero-macos-artifacts-"));
-  const base = `Space Zero-${version}-${arch}`;
+  const base = `Space-Zero-${version}-${arch}`;
   const zipContents = `fake ${base}.zip`;
   const contentsByName = {
     [`${base}.dmg`]: `fake ${base}.dmg`,
@@ -58,7 +58,7 @@ test("accepts a complete macOS artifact set for one architecture", () => {
 });
 
 test("rejects missing expected artifacts", () => {
-  const missing = `Space Zero-${version}-arm64.zip.blockmap`;
+  const missing = `Space-Zero-${version}-arm64.zip.blockmap`;
   const dir = makeArtifacts({ arch: "arm64", omit: [missing] });
   const result = run(["--dir", dir, "--version", version, "--arch", "arm64"]);
   assert.notEqual(result.status, 0);
@@ -68,7 +68,7 @@ test("rejects missing expected artifacts", () => {
 
 test("rejects updater metadata that points at a local absolute path", () => {
   const dir = makeArtifacts({
-    metadata: `version: ${version}\nfiles:\n  - url: /tmp/Space Zero-${version}-arm64.zip\n    sha512: fake\n    size: 10\npath: /tmp/Space Zero-${version}-arm64.zip\nsha512: fake\n`,
+    metadata: `version: ${version}\nfiles:\n  - url: /tmp/Space-Zero-${version}-arm64.zip\n    sha512: fake\n    size: 10\npath: /tmp/Space-Zero-${version}-arm64.zip\nsha512: fake\n`,
   });
   const result = run(["--dir", dir, "--version", version, "--arch", "arm64"]);
   assert.notEqual(result.status, 0);
@@ -76,21 +76,21 @@ test("rejects updater metadata that points at a local absolute path", () => {
 });
 
 test("rejects updater metadata that does not reference the architecture zip", () => {
-  const x64Zip = `fake Space Zero-${version}-x64.zip`;
+  const x64Zip = `fake Space-Zero-${version}-x64.zip`;
   const dir = makeArtifacts({
-    metadata: `version: ${version}\nfiles:\n  - url: Space Zero-${version}-x64.zip\n    sha512: ${sha512Base64(x64Zip)}\n    size: ${x64Zip.length}\npath: Space Zero-${version}-x64.zip\nsha512: ${sha512Base64(x64Zip)}\n`,
+    metadata: `version: ${version}\nfiles:\n  - url: Space-Zero-${version}-x64.zip\n    sha512: ${sha512Base64(x64Zip)}\n    size: ${x64Zip.length}\npath: Space-Zero-${version}-x64.zip\nsha512: ${sha512Base64(x64Zip)}\n`,
   });
-  writeFileSync(join(dir, `Space Zero-${version}-x64.zip`), x64Zip);
+  writeFileSync(join(dir, `Space-Zero-${version}-x64.zip`), x64Zip);
   const result = run(["--dir", dir, "--version", version, "--arch", "arm64"]);
   assert.notEqual(result.status, 0);
   assert.match(
     result.stderr,
-    /does not reference Space Zero-0\.1\.0-beta\.1-arm64\.zip/,
+    /does not reference Space-Zero-0\.1\.0-beta\.1-arm64\.zip/,
   );
 });
 
 test("rejects updater metadata whose sha512 does not match the zip", () => {
-  const base = `Space Zero-${version}-arm64`;
+  const base = `Space-Zero-${version}-arm64`;
   const zipContents = `fake ${base}.zip`;
   const dir = makeArtifacts({
     metadata: `version: ${version}\nfiles:\n  - url: ${base}.zip\n    sha512: fake\n    size: ${zipContents.length}\npath: ${base}.zip\nsha512: fake\n`,
@@ -101,7 +101,7 @@ test("rejects updater metadata whose sha512 does not match the zip", () => {
 });
 
 test("rejects updater metadata whose size does not match the zip", () => {
-  const base = `Space Zero-${version}-arm64`;
+  const base = `Space-Zero-${version}-arm64`;
   const dir = makeArtifacts({
     metadata: `version: ${version}\nfiles:\n  - url: ${base}.zip\n    sha512: ${sha512Base64(`fake ${base}.zip`)}\n    size: 1\npath: ${base}.zip\nsha512: ${sha512Base64(`fake ${base}.zip`)}\n`,
   });
