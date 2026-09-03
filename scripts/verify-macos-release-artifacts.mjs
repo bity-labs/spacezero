@@ -166,14 +166,15 @@ try {
     throw new Error(`${options.metadata} does not reference any update assets`);
   }
   for (const entry of fileEntries) {
-    if (!entry.sha512 || typeof entry.size !== "number") {
-      throw new Error(
-        `${options.metadata} file entries must include sha512 and size`,
-      );
-    }
     validateReferenceName(entry.url);
     const artifactPath = join(options.dir, entry.url);
     ensureFile(artifactPath);
+    if (!entry.url.endsWith(".zip")) continue;
+    if (!entry.sha512 || typeof entry.size !== "number") {
+      throw new Error(
+        `${options.metadata} ZIP file entries must include sha512 and size`,
+      );
+    }
     const stats = statSync(artifactPath);
     if (stats.size !== entry.size) {
       throw new Error(`${entry.url} size does not match ${options.metadata}`);
