@@ -24,6 +24,7 @@ test("Electron Builder config declares macOS beta updater artifacts", () => {
     config,
     /artifactName:\s*Space-Zero-\$\{version\}-\$\{arch\}\.\$\{ext\}/,
   );
+  assert.match(config, /executableName:\s*space-zero/);
   assert.match(config, /generateUpdatesFilesForAllChannels:\s*true/);
   assert.match(config, /mac:\n(?:.|\n)*target:\n\s*- dmg/);
   assert.match(config, /mac:\n(?:.|\n)*target:\n(?:.|\n)*- zip/);

@@ -23,7 +23,7 @@ function metadataFor(base, appImageContents) {
 
 function makeArtifacts({ metadata = undefined, omit = [] } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "spacezero-linux-artifacts-"));
-  const base = `Space-Zero-${version}-x64`;
+  const base = `Space-Zero-${version}-x86_64`;
   const appImageContents = `fake ${base}.AppImage`;
   if (!omit.includes(`${base}.AppImage`)) {
     writeFileSync(join(dir, `${base}.AppImage`), appImageContents, {
@@ -51,7 +51,9 @@ test("accepts a complete Linux AppImage artifact set", () => {
 });
 
 test("rejects missing AppImage artifacts", () => {
-  const dir = makeArtifacts({ omit: [`Space-Zero-${version}-x64.AppImage`] });
+  const dir = makeArtifacts({
+    omit: [`Space-Zero-${version}-x86_64.AppImage`],
+  });
   const result = run(["--dir", dir, "--version", version, "--arch", "x64"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Missing artifact/);
@@ -59,7 +61,7 @@ test("rejects missing AppImage artifacts", () => {
 });
 
 test("rejects updater metadata that points at an absolute path", () => {
-  const base = `Space-Zero-${version}-x64`;
+  const base = `Space-Zero-${version}-x86_64`;
   const contents = `fake ${base}.AppImage`;
   const dir = makeArtifacts({
     metadata: `version: ${version}\nfiles:\n  - url: /tmp/${base}.AppImage\n    sha512: ${sha512Base64(contents)}\n    size: ${contents.length}\npath: /tmp/${base}.AppImage\nsha512: ${sha512Base64(contents)}\n`,
@@ -70,7 +72,7 @@ test("rejects updater metadata that points at an absolute path", () => {
 });
 
 test("rejects updater metadata whose sha512 does not match the AppImage", () => {
-  const base = `Space-Zero-${version}-x64`;
+  const base = `Space-Zero-${version}-x86_64`;
   const dir = makeArtifacts({
     metadata: `version: ${version}\nfiles:\n  - url: ${base}.AppImage\n    sha512: fake\n    size: ${`fake ${base}.AppImage`.length}\npath: ${base}.AppImage\nsha512: fake\n`,
   });
@@ -80,7 +82,7 @@ test("rejects updater metadata whose sha512 does not match the AppImage", () => 
 });
 
 test("rejects updater metadata whose size does not match the AppImage", () => {
-  const base = `Space-Zero-${version}-x64`;
+  const base = `Space-Zero-${version}-x86_64`;
   const appImageContents = `fake ${base}.AppImage`;
   const dir = makeArtifacts({
     metadata: `version: ${version}\nfiles:\n  - url: ${base}.AppImage\n    sha512: ${sha512Base64(appImageContents)}\n    size: 1\npath: ${base}.AppImage\nsha512: ${sha512Base64(appImageContents)}\n`,

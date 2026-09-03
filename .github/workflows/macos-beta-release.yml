@@ -216,9 +216,9 @@ jobs:
           set -euo pipefail
           mkdir -p release-artifacts
           version="${{ steps.release-version.outputs.version }}"
-          cp "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage" release-artifacts/
-          if [ -f "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage.blockmap" ]; then
-            cp "apps/desktop/dist-builder/Space-Zero-${version}-x64.AppImage.blockmap" release-artifacts/
+          cp "apps/desktop/dist-builder/Space-Zero-${version}-x86_64.AppImage" release-artifacts/
+          if [ -f "apps/desktop/dist-builder/Space-Zero-${version}-x86_64.AppImage.blockmap" ]; then
+            cp "apps/desktop/dist-builder/Space-Zero-${version}-x86_64.AppImage.blockmap" release-artifacts/
           fi
           cp "apps/desktop/dist-builder/beta-linux.yml" release-artifacts/
       - name: Upload verified Linux artifacts
