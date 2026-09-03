@@ -10,5 +10,6 @@ Current release helpers:
 - `notarize-macos-dmg.mjs` — submits the signed DMG to Apple notarization and staples it using the temporary App Store Connect API-key file prepared by CI.
 - `package-macos-ci.mjs` — invokes Electron Builder for exactly one requested macOS architecture from CI.
 - `merge-macos-update-metadata.mjs` — merges per-architecture Electron Builder updater manifests into the final `beta-mac.yml`.
+- `upload-r2-release-artifacts.mjs` — uploads the verified macOS artifact set to immutable and current Cloudflare R2 prefixes using S3-compatible credentials.
 
 Likely future responsibilities include packaged application smoke tests, artifact and Electron-fuse verification, Workspace Host health checks, and local release-owner artifact production.

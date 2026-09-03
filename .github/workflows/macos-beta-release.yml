@@ -101,10 +101,11 @@ jobs:
           APPLE_ISSUER: ${{ secrets.APPLE_ISSUER }}
           SPACEZERO_GITHUB_CLIENT_ID: ${{ vars.SPACEZERO_GITHUB_CLIENT_ID }}
           SPACEZERO_GITHUB_APP_SLUG: ${{ vars.SPACEZERO_GITHUB_APP_SLUG }}
+          SPACEZERO_MACOS_UPDATE_BASE_URL: ${{ vars.SPACEZERO_MACOS_UPDATE_BASE_URL }}
         run: |
           set -euo pipefail
           missing=0
-          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_ISSUER SPACEZERO_GITHUB_CLIENT_ID SPACEZERO_GITHUB_APP_SLUG; do
+          for name in CSC_LINK CSC_KEY_PASSWORD APPLE_API_KEY_P8 APPLE_API_KEY_ID APPLE_ISSUER SPACEZERO_GITHUB_CLIENT_ID SPACEZERO_GITHUB_APP_SLUG SPACEZERO_MACOS_UPDATE_BASE_URL; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required release input: ${name}"
               missing=1
@@ -156,13 +157,13 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish-github-release:
-    name: Publish GitHub prerelease
+  publish-r2-release:
+    name: Publish R2 release
     needs: package-macos
     if: ${{ vars.SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED == 'true' }}
-    runs-on: macos-15
+    runs-on: ubuntu-24.04
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
@@ -200,16 +201,36 @@ jobs:
       - name: Write checksums
         run: |
           cd release-artifacts
-          shasum -a 256 * > SHA256SUMS.txt
-      - name: Create or update GitHub prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
+          sha256sum * > SHA256SUMS.txt
+      - name: Ensure AWS CLI is available
         run: |
           set -euo pipefail
-          title="Space Zero ${{ steps.release-version.outputs.version }}"
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" release-artifacts/* --clobber
-            gh release edit "$GITHUB_REF_NAME" --title "$title" --prerelease
-          else
-            gh release create "$GITHUB_REF_NAME" release-artifacts/* --verify-tag --prerelease --title "$title" --generate-notes
+          if command -v aws >/dev/null 2>&1; then
+            aws --version
+            exit 0
           fi
+          python_user_bin="$(python3 -m site --user-base)/bin"
+          python3 -m pip install --user awscli
+          echo "$python_user_bin" >> "$GITHUB_PATH"
+          "$python_user_bin/aws" --version
+      - name: Upload verified artifacts to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          SPACEZERO_R2_BUCKET: ${{ vars.SPACEZERO_R2_BUCKET }}
+          SPACEZERO_R2_RELEASE_PREFIX: ${{ vars.SPACEZERO_R2_RELEASE_PREFIX }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY CLOUDFLARE_ACCOUNT_ID SPACEZERO_R2_BUCKET; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Missing required R2 release input: ${name}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit "$missing"
+          fi
+          pnpm release:upload-r2-artifacts -- --dir release-artifacts --bucket "$SPACEZERO_R2_BUCKET" --account-id "$CLOUDFLARE_ACCOUNT_ID" --prefix "${SPACEZERO_R2_RELEASE_PREFIX:-}" --tag "$GITHUB_REF_NAME"
