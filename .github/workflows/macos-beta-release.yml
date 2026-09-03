@@ -144,9 +144,9 @@ jobs:
           mkdir -p release-artifacts
           version="${{ steps.release-version.outputs.version }}"
           arch="${{ matrix.arch }}"
-          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.dmg" release-artifacts/
-          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.zip" release-artifacts/
-          cp "apps/desktop/dist-builder/Space Zero-${version}-${arch}.zip.blockmap" release-artifacts/
+          cp "apps/desktop/dist-builder/Space-Zero-${version}-${arch}.dmg" release-artifacts/
+          cp "apps/desktop/dist-builder/Space-Zero-${version}-${arch}.zip" release-artifacts/
+          cp "apps/desktop/dist-builder/Space-Zero-${version}-${arch}.zip.blockmap" release-artifacts/
           cp "apps/desktop/dist-builder/beta-mac-${arch}.yml" release-artifacts/
       - name: Upload verified macOS artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

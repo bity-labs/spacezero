@@ -10,7 +10,7 @@ const version = "0.1.0-beta.1";
 
 function makeDir() {
   const dir = mkdtempSync(join(tmpdir(), "spacezero-dmg-notary-"));
-  writeFileSync(join(dir, `Space Zero-${version}-arm64.dmg`), "fake dmg");
+  writeFileSync(join(dir, `Space-Zero-${version}-arm64.dmg`), "fake dmg");
   return dir;
 }
 
