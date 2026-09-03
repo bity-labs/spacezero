@@ -134,7 +134,15 @@ function verifyZipTrust(zipPath) {
 
 function verifyDmgTrust(dmgPath) {
   run("xcrun", ["stapler", "validate", dmgPath]);
-  run("spctl", ["--assess", "--type", "open", "--verbose=4", dmgPath]);
+  run("spctl", [
+    "--assess",
+    "--type",
+    "open",
+    "--context",
+    "context:primary-signature",
+    "--verbose=4",
+    dmgPath,
+  ]);
   const mountDir = mkdtempSync(join(tmpdir(), "spacezero-dmg-"));
   try {
     run("hdiutil", [
