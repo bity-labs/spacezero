@@ -337,6 +337,55 @@ CREATE TABLE workspace_tool_policies (
 )`;
 });
 
+export const createGlobalChatSessionsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE global_chat_session_events (
+  session_id TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
+  event_id TEXT NOT NULL UNIQUE,
+  event_type TEXT NOT NULL,
+  event_version INTEGER NOT NULL CHECK (event_version = 1),
+  event_payload_json TEXT NOT NULL CHECK (json_valid(event_payload_json)),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, sequence)
+)`;
+  yield* sql`
+CREATE TABLE global_chat_sessions (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  title TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 60 AND instr(title, char(10)) = 0 AND instr(title, char(13)) = 0),
+  archived_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  last_sequence INTEGER NOT NULL CHECK (last_sequence > 0)
+)`;
+  yield* sql`
+CREATE TABLE global_chat_messages (
+  session_id TEXT NOT NULL,
+  message_id TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  text TEXT NOT NULL CHECK (length(text) > 0),
+  sequence INTEGER NOT NULL CHECK (sequence > 0),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, sequence),
+  FOREIGN KEY (session_id) REFERENCES global_chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`
+CREATE TABLE global_chat_session_command_receipts (
+  command_id TEXT PRIMARY KEY NOT NULL,
+  request_fingerprint TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  committed_sequence INTEGER NOT NULL CHECK (committed_sequence > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES global_chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX global_chat_sessions_updated_order ON global_chat_sessions(archived_at, updated_at, session_id)`;
+  yield* sql`CREATE INDEX global_chat_messages_list_order ON global_chat_messages(session_id, sequence)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [
@@ -383,6 +432,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     10,
     "create_workspace_tool_policies",
     Effect.succeed(createWorkspaceToolPolicyMigration),
+  ],
+  [
+    11,
+    "create_global_chat_sessions",
+    Effect.succeed(createGlobalChatSessionsMigration),
   ],
 ] as const);
 

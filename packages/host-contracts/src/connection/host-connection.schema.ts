@@ -12,6 +12,7 @@ export const LOCAL_HOST_CLIENT_SCOPES = [
   "agent-resources:read",
   "flows:read",
   "flows:write",
+  "global-chat-sessions:create",
   "project-sessions:read",
   "project-sessions:create",
   "project-sessions:prompt",

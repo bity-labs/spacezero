@@ -16,6 +16,7 @@ const descriptor = {
     "harness-auth:write",
     "flows:read",
     "flows:write",
+    "global-chat-sessions:create",
     "project-sessions:read",
     "project-sessions:create",
     "project-sessions:prompt",
