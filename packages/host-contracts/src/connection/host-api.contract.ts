@@ -19,6 +19,7 @@ import {
 import { AgentResourcesApiGroup } from "../agent-resources/agent-resources-api.contract.js";
 import { AgentRuntimeApiGroup } from "../agent-runtime/agent-runtime-api.contract.js";
 import { FlowApiGroup } from "../flows/flow-api.contract.js";
+import { GlobalChatSessionApiGroup } from "../global-chat-sessions/global-chat-session-api.contract.js";
 import { HarnessAuthApiGroup } from "../harness-auth/harness-auth-api.contract.js";
 import { ProjectApiGroup } from "../projects/project-api.contract.js";
 import { ProjectSessionApiGroup } from "../project-sessions/project-session-api.contract.js";
@@ -78,6 +79,7 @@ export const HostApi = HttpApi.make("SpaceZeroHostApi")
   .add(AgentRuntimeApiGroup)
   .add(AgentResourcesApiGroup)
   .add(FlowApiGroup)
+  .add(GlobalChatSessionApiGroup)
   .add(ProjectApiGroup)
   .add(ProjectSessionApiGroup)
   .prefix("/v1");

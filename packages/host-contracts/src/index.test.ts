@@ -15,6 +15,7 @@ describe("host-contracts public surface", () => {
       "agent-resources:read",
       "flows:read",
       "flows:write",
+      "global-chat-sessions:create",
       "project-sessions:read",
       "project-sessions:create",
       "project-sessions:prompt",
