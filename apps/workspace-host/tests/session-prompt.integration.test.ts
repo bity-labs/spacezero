@@ -263,7 +263,7 @@ const piConversationId = (databasePath: string, sessionId: string): string => {
   try {
     const row = db
       .prepare(
-        "SELECT conversation_id FROM project_session_pi_contexts WHERE session_id = ?",
+        "SELECT conversation_id FROM chat_session_pi_contexts WHERE session_id = ?",
       )
       .get(sessionId) as { conversation_id: string } | undefined;
     expect(row).toBeDefined();
@@ -277,7 +277,7 @@ const eventTypes = (databasePath: string, sessionId: string): string[] => {
   try {
     const rows = db
       .prepare(
-        "SELECT event_type FROM project_session_events WHERE session_id = ? ORDER BY sequence ASC",
+        "SELECT event_type FROM chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
       )
       .all(sessionId) as { event_type: string }[];
     return rows.map((row) => row.event_type);
@@ -455,7 +455,7 @@ describe("Session prompt Host protocol", () => {
     try {
       const context = database
         .prepare(
-          "SELECT adapter_name, adapter_schema_version, adapter_state_json, last_turn_id FROM project_session_pi_contexts WHERE session_id = ?",
+          "SELECT adapter_name, adapter_schema_version, adapter_state_json, last_turn_id FROM chat_session_pi_contexts WHERE session_id = ?",
         )
         .get(created.session.id) as {
         adapter_name: string;
@@ -538,9 +538,16 @@ describe("Session prompt Host protocol", () => {
     expect(agentMessage.sequence).toBe(body.userMessage.sequence + 2);
     expect(seen).toHaveLength(1);
     const canonicalHome = await realpath(join(root, "SpaceZero"));
-    expect(seen[0]?.worktreePath).toBe(
-      join(canonicalHome, "worktrees", project.project.id, sessionId),
-    );
+    expect(seen[0]?.tools).toMatchObject({
+      kind: "managedWorktree",
+      workingDirectory: join(
+        canonicalHome,
+        "worktrees",
+        project.project.id,
+        sessionId,
+      ),
+      enabledToolNames: ["read", "write", "edit"],
+    });
     expect(eventTypes(databasePath, sessionId)).toEqual([
       "ProjectSessionCreationRequestedV1",
       "ProjectSessionRuntimeConfiguredV1",
@@ -702,8 +709,8 @@ describe("Session prompt Host protocol", () => {
       { role: "user", text: "first prompt" },
       { role: "assistant", text: "history=0; prompt=first prompt" },
     ]);
-    expect(seen[1]?.tools).toEqual({
-      workingDirectory: seen[1]?.worktreePath,
+    expect(seen[1]?.tools).toMatchObject({
+      kind: "managedWorktree",
       enabledToolNames: ["read", "write", "edit"],
     });
     expect(seen[2]?.history).toEqual([]);
@@ -933,7 +940,7 @@ describe("Session prompt Host protocol", () => {
     try {
       const checkpointCount = database
         .prepare(
-          "SELECT count(*) AS count FROM project_session_events WHERE event_type = 'AgentMessageCheckpointedV1'",
+          "SELECT count(*) AS count FROM chat_session_events WHERE event_type = 'AgentMessageCheckpointedV1'",
         )
         .get() as { count: number };
       expect(checkpointCount.count).toBe(1);
@@ -1231,7 +1238,7 @@ describe("Session prompt Host protocol", () => {
     expect(missing.body).toMatchObject({ code: "session_not_found" });
 
     const db = new DatabaseSync(databasePath);
-    db.prepare("UPDATE project_sessions SET state = 'recovery_required'").run();
+    db.prepare("UPDATE project_session_bindings SET state = 'recovery_required'").run();
     db.close();
 
     const notReady = await submitPrompt(
@@ -1292,7 +1299,7 @@ describe("Session prompt Host protocol", () => {
     try {
       const event = database
         .prepare(
-          "SELECT event_payload_json FROM project_session_events WHERE event_type = 'AgentTurnFailedV1'",
+          "SELECT event_payload_json FROM chat_session_events WHERE event_type = 'AgentTurnFailedV1'",
         )
         .get() as { event_payload_json: string };
       expect(JSON.parse(event.event_payload_json)).toMatchObject({
@@ -1302,7 +1309,7 @@ describe("Session prompt Host protocol", () => {
       });
       const turn = database
         .prepare(
-          "SELECT failure_reason FROM project_session_turns WHERE session_id = ?",
+          "SELECT failure_reason FROM chat_session_turns WHERE session_id = ?",
         )
         .get(created.session.id) as { failure_reason: string };
       expect(turn.failure_reason).toBe("agent_turn_failed");

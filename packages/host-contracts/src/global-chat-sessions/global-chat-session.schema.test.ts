@@ -11,6 +11,8 @@ import {
 const parseSync = Schema.decodeUnknownSync;
 const uuid = "01234567-89ab-4def-8123-456789abcdef";
 const messageId = "11111111-2222-4333-8444-555555555555";
+const turnId = "22222222-3333-4444-8555-666666666666";
+const assistantMessageId = "33333333-4444-4555-8666-777777777777";
 
 const session = {
   id: uuid,
@@ -29,6 +31,20 @@ const firstMessage = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
+const turn = {
+  id: turnId,
+  commandId: uuid,
+  state: "running" as const,
+  userMessageId: messageId,
+  assistantMessageId,
+  providerId: "anthropic",
+  modelId: "claude-sonnet-4-5",
+  thinkingLevel: "off" as const,
+  draftText: "",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
 describe("Global Chat Session schemas", () => {
   it("accepts a create-with-first-prompt command and returns a durable unarchived session plus first message", () => {
     expect(
@@ -41,9 +57,11 @@ describe("Global Chat Session schemas", () => {
     expect(
       parseSync(CreateGlobalChatSessionWithFirstPromptResultSchema)({
         session,
+        turn,
+        userMessage: firstMessage,
         firstMessage,
       }),
-    ).toEqual({ session, firstMessage });
+    ).toEqual({ session, turn, userMessage: firstMessage, firstMessage });
   });
 
   it("rejects blank or oversized first prompts", () => {

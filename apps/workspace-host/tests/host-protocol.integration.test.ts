@@ -201,6 +201,8 @@ describe("workspace host protocol", () => {
         "flows:read",
         "flows:write",
         "global-chat-sessions:create",
+        "global-chat-sessions:read",
+        "global-chat-sessions:prompt",
         "project-sessions:read",
         "project-sessions:create",
         "project-sessions:prompt",

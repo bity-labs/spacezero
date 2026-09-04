@@ -2,9 +2,10 @@
  * Pi SDK-backed ConversationRunner implementation.
  *
  * Creates a Pi Agent for each submitted turn, but seeds it with the stable
- * Project Session conversation id and the durable Space Zero message history for
- * that one Session. Tool execution is explicitly configured with a bounded
- * filesystem rooted at the authenticated managed worktree.
+ * Chat Session conversation id and the durable Space Zero message history for
+ * that one Session. Project-bound tool execution is explicitly configured with
+ * a bounded filesystem rooted at the authenticated managed worktree; Global
+ * Chat can run with no filesystem tools.
  */
 import { realpathSync } from "node:fs";
 import { access, lstat, realpath } from "node:fs/promises";
@@ -376,26 +377,33 @@ export function createPiConversationRunner(
 
       if (input.signal?.aborted)
         throw new AgentTurnError("agent_turn_interrupted");
-      const env = new BoundedExecutionEnv(input.tools.workingDirectory);
+      const env =
+        input.tools.kind === "managedWorktree"
+          ? new BoundedExecutionEnv(input.tools.workingDirectory)
+          : undefined;
+      const enabledToolNames = input.tools.enabledToolNames;
       const agent = new Agent({
         streamFn: models.streamSimple.bind(models),
         initialState: {
           model,
           systemPrompt: config.systemPrompt ?? "",
           thinkingLevel: runtime.thinkingLevel,
-          tools: workspaceTools(env).filter((tool) =>
-            input.tools.enabledToolNames.includes(tool.name),
-          ),
+          tools:
+            env === undefined
+              ? []
+              : workspaceTools(env).filter((tool) =>
+                  enabledToolNames.includes(tool.name),
+                ),
           messages: input.history.map(toAgentMessage),
         },
         sessionId: input.conversationId,
         toolExecution: "sequential",
         beforeToolCall: async ({ toolCall }) => {
-          if (!input.tools.enabledToolNames.includes(toolCall.name))
+          if (!enabledToolNames.includes(toolCall.name))
             return {
               block: true,
               terminate: true,
-              reason: "Tool is not enabled for this Project Session",
+              reason: "Tool is not enabled for this Chat Session",
             };
           return undefined;
         },
@@ -473,7 +481,7 @@ export function createPiConversationRunner(
       } finally {
         unsubscribe();
         input.signal?.removeEventListener("abort", abort);
-        await env.cleanup();
+        await env?.cleanup();
       }
     },
   };

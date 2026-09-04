@@ -28,9 +28,9 @@ const input = async (
   return {
     sessionId: "11111111-1111-4111-8111-111111111111",
     conversationId: "22222222-2222-4222-8222-222222222222",
-    worktreePath,
     history: [],
     tools: {
+      kind: "managedWorktree",
       workingDirectory: worktreePath,
       enabledToolNames: ["read", "write", "edit"],
     },
@@ -136,9 +136,9 @@ describe("createPiConversationRunner", () => {
     const turn = await input();
 
     await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
-    await expect(
-      access(join(turn.worktreePath, "..", "escape.txt")),
-    ).rejects.toThrow();
+    const workingDirectory =
+      turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
+    await expect(access(join(workingDirectory, "..", "escape.txt"))).rejects.toThrow();
   });
 
   it("blocks writes through in-worktree dangling file symlinks", async () => {
@@ -163,9 +163,11 @@ describe("createPiConversationRunner", () => {
     });
     const turn = await input();
     const outside = await tempRoot();
+    const workingDirectory =
+      turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
     await symlink(
       join(outside, "escaped.txt"),
-      join(turn.worktreePath, "linked-file.txt"),
+      join(workingDirectory, "linked-file.txt"),
     );
 
     await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
@@ -194,7 +196,9 @@ describe("createPiConversationRunner", () => {
     });
     const turn = await input();
     const outside = await tempRoot();
-    await symlink(outside, join(turn.worktreePath, "linked"), "dir");
+    const workingDirectory =
+      turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
+    await symlink(outside, join(workingDirectory, "linked"), "dir");
 
     await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
