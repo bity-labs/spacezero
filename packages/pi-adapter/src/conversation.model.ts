@@ -55,12 +55,19 @@ export interface AgentTurnMessage {
   readonly text: string;
 }
 
-export interface AgentToolConfiguration {
-  /** Authenticated managed worktree path; tools must operate here. */
-  readonly workingDirectory: string;
-  /** Explicit initial Workspace Tool names enabled for this turn. */
-  readonly enabledToolNames: readonly string[];
-}
+export type AgentToolConfiguration =
+  | {
+      readonly kind: "managedWorktree";
+      /** Authenticated managed worktree path; tools must operate here. */
+      readonly workingDirectory: string;
+      /** Explicit initial Workspace Tool names enabled for this turn. */
+      readonly enabledToolNames: readonly string[];
+    }
+  | {
+      readonly kind: "none";
+      /** Global/tool-less chat turns must not enable worktree, Files, or Git tools. */
+      readonly enabledToolNames: readonly string[];
+    };
 
 export interface AgentTurnRuntimeConfiguration {
   readonly providerId: string;
@@ -85,15 +92,13 @@ export interface AgentTurnResources {
 }
 
 export interface AgentTurnInput {
-  /** Project Session identity that owns this one Pi conversation. */
+  /** Chat Session identity that owns this one Pi conversation. */
   readonly sessionId: string;
-  /** Durable Pi conversation/context identity for the Project Session. */
+  /** Durable Pi conversation/context identity for the Chat Session. */
   readonly conversationId: string;
-  /** Authenticated managed worktree path; the agent must operate here. */
-  readonly worktreePath: string;
   /** Prior completed Session messages, ordered oldest first. */
   readonly history: readonly AgentTurnMessage[];
-  /** Explicit tool configuration for the authenticated worktree. */
+  /** Explicit Host-approved tool configuration for this chat context. */
   readonly tools: AgentToolConfiguration;
   /** Effective model and thinking configuration snapshotted for this turn. */
   readonly runtime: AgentTurnRuntimeConfiguration;

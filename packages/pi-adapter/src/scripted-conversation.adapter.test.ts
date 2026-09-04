@@ -9,9 +9,9 @@ import { createScriptedConversationRunner } from "./scripted-conversation.adapte
 const input = (overrides: Partial<AgentTurnInput> = {}): AgentTurnInput => ({
   sessionId: "11111111-1111-4111-8111-111111111111",
   conversationId: "22222222-2222-4222-8222-222222222222",
-  worktreePath: "/spacezero/worktrees/project/session",
   history: [],
   tools: {
+    kind: "managedWorktree",
     workingDirectory: "/spacezero/worktrees/project/session",
     enabledToolNames: ["read", "write", "edit"],
   },
@@ -32,7 +32,7 @@ describe("scripted conversation runner", () => {
     });
   });
 
-  it("passes the authenticated worktree path and prompt to the script", async () => {
+  it("passes the authenticated worktree tool context and prompt to the script", async () => {
     const seen: AgentTurnInput[] = [];
     const runner = createScriptedConversationRunner({
       respond: (turn) => {
@@ -42,7 +42,10 @@ describe("scripted conversation runner", () => {
     });
     await runner.submitTurn(input());
     expect(seen).toHaveLength(1);
-    expect(seen[0]?.worktreePath).toBe("/spacezero/worktrees/project/session");
+    expect(seen[0]?.tools).toMatchObject({
+      kind: "managedWorktree",
+      workingDirectory: "/spacezero/worktrees/project/session",
+    });
     expect(seen[0]?.prompt).toBe("Build the wine list view");
   });
 

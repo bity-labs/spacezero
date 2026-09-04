@@ -19,6 +19,8 @@ import {
   projectSessionErrorBody,
   type FlowError,
   type GlobalChatSessionError,
+  type GlobalChatSessionEventEnvelope,
+  type GlobalChatSessionSseEnvelope,
   type FlowEventEnvelope,
   type HarnessAuthError,
   type HostAuthorizationError,
@@ -81,6 +83,8 @@ type AuthScope =
   | "flows:read"
   | "flows:write"
   | "global-chat-sessions:create"
+  | "global-chat-sessions:read"
+  | "global-chat-sessions:prompt"
   | "project-sessions:read"
   | "project-sessions:create"
   | "project-sessions:prompt";
@@ -156,6 +160,17 @@ const encodeSessionEvent = (
     `event: project-session.live\ndata: ${JSON.stringify(envelope)}\n\n`,
   );
 };
+const encodeGlobalChatSessionEvent = (
+  envelope: GlobalChatSessionSseEnvelope,
+): Uint8Array => {
+  if ("sequence" in envelope)
+    return textEncoder.encode(
+      `id: ${envelope.sequence}\nevent: global-chat-session.event\ndata: ${JSON.stringify(envelope)}\n\n`,
+    );
+  return textEncoder.encode(
+    `event: global-chat-session.live\ndata: ${JSON.stringify(envelope)}\n\n`,
+  );
+};
 const encodeFlowEvent = (envelope: FlowEventEnvelope): Uint8Array =>
   textEncoder.encode(
     `id: ${envelope.sequence}\nevent: flow.event\ndata: ${JSON.stringify(envelope)}\n\n`,
@@ -227,7 +242,14 @@ export const startHostServer = async (options: {
     options.conversationRunner ?? piRuntimeServices.conversationRunner;
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
-  const globalChatSessions = createGlobalChatSessionService({ databasePath });
+  const globalChatSessions = createGlobalChatSessionService({
+    databasePath,
+    conversationRunner,
+    privatePiStateRepository,
+    ...(options.modelCatalog || !options.conversationRunner
+      ? { modelCatalog }
+      : {}),
+  });
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
@@ -238,6 +260,7 @@ export const startHostServer = async (options: {
       ? { modelCatalog }
       : {}),
   });
+  await globalChatSessions.reconcile();
   await projectSessions.reconcile();
   const sessionEventStream = (
     sessionId: string,
@@ -308,6 +331,79 @@ export const startHostServer = async (options: {
             ] as const;
           },
           catch: projectSessionHttpError,
+        }),
+    );
+  };
+
+  const globalChatSessionEventStream = (
+    sessionId: string,
+    after: number,
+    initialEvents: readonly GlobalChatSessionEventEnvelope[],
+    initialLiveCursor: number,
+    expiresAt: number,
+  ): Stream.Stream<Uint8Array, GlobalChatSessionError> => {
+    const initialComment = textEncoder.encode(": spacezero\n\n");
+    const encodeEvents = (events: readonly GlobalChatSessionEventEnvelope[]) => {
+      let nextCursor = after;
+      const chunks = events.map((event) => {
+        nextCursor = event.sequence;
+        return encodeGlobalChatSessionEvent(event);
+      });
+      return { chunks, nextCursor };
+    };
+    const initial = encodeEvents(initialEvents);
+    return Stream.paginate(
+      {
+        cursor: initial.nextCursor,
+        liveCursor: initialLiveCursor,
+        first: true,
+      },
+      (state: {
+        readonly cursor: number;
+        readonly liveCursor: number;
+        readonly first: boolean;
+      }) =>
+        Effect.tryPromise({
+          try: async (signal) => {
+            if (Date.now() >= expiresAt) return [[], Option.none()] as const;
+            if (state.first) {
+              return [
+                [initialComment, ...initial.chunks],
+                Option.some({
+                  cursor: initial.nextCursor,
+                  liveCursor: state.liveCursor,
+                  first: false,
+                }),
+              ] as const;
+            }
+            const timeoutMs = Math.max(0, expiresAt - Date.now());
+            const waitSignal = AbortSignal.any([
+              signal,
+              AbortSignal.timeout(timeoutMs),
+            ]);
+            const sse = await globalChatSessions.waitForSseAfter(
+              sessionId,
+              state.cursor,
+              state.liveCursor,
+              waitSignal,
+            );
+            if (Date.now() >= expiresAt || sse.envelopes.length === 0)
+              return [[], Option.none()] as const;
+            let nextCursor = state.cursor;
+            const chunks = sse.envelopes.map((event) => {
+              if ("sequence" in event) nextCursor = event.sequence;
+              return encodeGlobalChatSessionEvent(event);
+            });
+            return [
+              chunks,
+              Option.some({
+                cursor: nextCursor,
+                liveCursor: sse.liveCursor,
+                first: false,
+              }),
+            ] as const;
+          },
+          catch: globalChatSessionHttpError,
         }),
     );
   };
@@ -690,6 +786,156 @@ export const startHostServer = async (options: {
             globalChatSessions.createWithFirstPrompt(payload),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
+        listGlobalChatSessions: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => globalChatSessions.list()).pipe(
+            Effect.mapError(globalChatSessionHttpError),
+          );
+        },
+        submitGlobalChatSessionPrompt: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.submitPrompt({
+              sessionId: params.sessionId,
+              commandId: payload.commandId,
+              prompt: payload.prompt,
+            }),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        listGlobalChatSessionMessages: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.listMessages(params.sessionId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        getGlobalChatSessionRuntime: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.getRuntime(params.sessionId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        updateGlobalChatSessionRuntime: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.updateRuntime(params.sessionId, payload),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        interruptGlobalChatSessionTurn: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.interruptTurn(params.sessionId, params.turnId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        subscribeGlobalChatSessionEvents: ({
+          headers,
+          request,
+          params,
+          query,
+        }) => {
+          let expiresAt: number | undefined;
+          try {
+            const token = bearerValue(headers.authorization);
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+            expiresAt = token ? state.cap!.expiresAt(token) : undefined;
+            if (expiresAt === undefined)
+              throw authorizationError("unauthorized");
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          const initialLiveCursor = globalChatSessions.liveCursor(
+            params.sessionId,
+          );
+          return effectPromise(() =>
+            globalChatSessions.listEventsAfter(params.sessionId, query.after),
+          ).pipe(
+            Effect.map((initialEvents) =>
+              globalChatSessionEventStream(
+                params.sessionId,
+                query.after,
+                initialEvents,
+                initialLiveCursor,
+                expiresAt,
+              ),
+            ),
+            Effect.mapError(globalChatSessionHttpError),
+          );
+        },
       }),
   );
   const projectHandlers = HttpApiBuilder.group(
@@ -996,7 +1242,10 @@ export const startHostServer = async (options: {
   }
   const address = server.address();
   if (!address || typeof address === "string") {
-    await projectSessions.waitForIdle();
+    await Promise.all([
+      globalChatSessions.waitForIdle(),
+      projectSessions.waitForIdle(),
+    ]);
     await Effect.runPromiseExit(
       Scope.close(scope, Exit.fail(new Error("listen failed"))),
     );
@@ -1024,8 +1273,10 @@ export const startHostServer = async (options: {
       : { clientTtlMs: options.clientCapabilityTtlMs }),
   });
   const stop = async (): Promise<void> => {
-    stopPromise ??= projectSessions
-      .waitForIdle()
+    stopPromise ??= Promise.all([
+      globalChatSessions.waitForIdle(),
+      projectSessions.waitForIdle(),
+    ])
       .then(() =>
         Effect.runPromiseExit(Scope.close(scope, Exit.succeed(undefined))),
       )

@@ -3,7 +3,18 @@ import { HttpApiSchema } from "effect/unstable/httpapi";
 
 export type GlobalChatSessionErrorCode =
   | "command_id_conflict"
-  | "global_chat_session_unavailable";
+  | "global_chat_session_unavailable"
+  | "global_chat_session_not_found"
+  | "global_chat_session_archived"
+  | "global_chat_session_turn_in_progress"
+  | "global_chat_session_runtime_revision_conflict"
+  | "global_chat_session_recovery_required"
+  | "turn_not_found"
+  | "turn_not_active"
+  | "agent_configuration_invalid"
+  | "agent_authentication_required"
+  | "agent_turn_failed"
+  | "agent_unavailable";
 
 export interface GlobalChatSessionError {
   readonly code: GlobalChatSessionErrorCode;
@@ -12,7 +23,7 @@ export interface GlobalChatSessionError {
 
 const globalChatSessionError = <Code extends GlobalChatSessionErrorCode>(
   code: Code,
-  status: 409 | 503,
+  status: 404 | 409 | 502 | 503,
 ) =>
   Schema.Struct({
     code: Schema.Literals([code]),
@@ -25,10 +36,51 @@ export const GlobalChatSessionUnavailableErrorSchema = globalChatSessionError(
   "global_chat_session_unavailable",
   503,
 );
+export const GlobalChatSessionNotFoundErrorSchema = globalChatSessionError(
+  "global_chat_session_not_found",
+  404,
+);
+export const GlobalChatSessionArchivedErrorSchema = globalChatSessionError(
+  "global_chat_session_archived",
+  409,
+);
+export const GlobalChatSessionTurnInProgressErrorSchema =
+  globalChatSessionError("global_chat_session_turn_in_progress", 409);
+export const GlobalChatSessionRuntimeRevisionConflictErrorSchema =
+  globalChatSessionError("global_chat_session_runtime_revision_conflict", 409);
+export const GlobalChatSessionRecoveryRequiredErrorSchema =
+  globalChatSessionError("global_chat_session_recovery_required", 409);
+export const GlobalChatSessionTurnNotFoundErrorSchema = globalChatSessionError(
+  "turn_not_found",
+  404,
+);
+export const GlobalChatSessionTurnNotActiveErrorSchema = globalChatSessionError(
+  "turn_not_active",
+  409,
+);
+export const GlobalChatSessionAgentConfigurationInvalidErrorSchema =
+  globalChatSessionError("agent_configuration_invalid", 409);
+export const GlobalChatSessionAgentAuthenticationRequiredErrorSchema =
+  globalChatSessionError("agent_authentication_required", 409);
+export const GlobalChatSessionAgentTurnFailedErrorSchema =
+  globalChatSessionError("agent_turn_failed", 502);
+export const GlobalChatSessionAgentUnavailableErrorSchema =
+  globalChatSessionError("agent_unavailable", 503);
 
 export const GlobalChatSessionErrorSchemas = [
   GlobalChatSessionCommandIdConflictErrorSchema,
   GlobalChatSessionUnavailableErrorSchema,
+  GlobalChatSessionNotFoundErrorSchema,
+  GlobalChatSessionArchivedErrorSchema,
+  GlobalChatSessionTurnInProgressErrorSchema,
+  GlobalChatSessionRuntimeRevisionConflictErrorSchema,
+  GlobalChatSessionRecoveryRequiredErrorSchema,
+  GlobalChatSessionTurnNotFoundErrorSchema,
+  GlobalChatSessionTurnNotActiveErrorSchema,
+  GlobalChatSessionAgentConfigurationInvalidErrorSchema,
+  GlobalChatSessionAgentAuthenticationRequiredErrorSchema,
+  GlobalChatSessionAgentTurnFailedErrorSchema,
+  GlobalChatSessionAgentUnavailableErrorSchema,
 ] as const;
 
 export const globalChatSessionErrorBody = (
@@ -45,6 +97,58 @@ export const globalChatSessionErrorBody = (
       return {
         code,
         message: "Global Chat Sessions are temporarily unavailable.",
+      };
+    case "global_chat_session_not_found":
+      return { code, message: "The selected Global Chat Session does not exist." };
+    case "global_chat_session_archived":
+      return {
+        code,
+        message: "Archived Global Chat Sessions must be unarchived before continuing.",
+      };
+    case "global_chat_session_turn_in_progress":
+      return {
+        code,
+        message:
+          "An agent turn is already in progress for this Global Chat Session.",
+      };
+    case "global_chat_session_runtime_revision_conflict":
+      return {
+        code,
+        message:
+          "This Global Chat Session runtime configuration changed. Reload and try again.",
+      };
+    case "global_chat_session_recovery_required":
+      return {
+        code,
+        message: "This Global Chat Session needs recovery before it can be used.",
+      };
+    case "turn_not_found":
+      return { code, message: "The selected agent turn does not exist." };
+    case "turn_not_active":
+      return {
+        code,
+        message: "The selected agent turn is not currently running.",
+      };
+    case "agent_configuration_invalid":
+      return {
+        code,
+        message:
+          "The selected agent runtime configuration is unavailable or unsupported.",
+      };
+    case "agent_authentication_required":
+      return {
+        code,
+        message: "The selected agent provider needs authentication.",
+      };
+    case "agent_turn_failed":
+      return {
+        code,
+        message: "The agent turn failed. Try the prompt again.",
+      };
+    case "agent_unavailable":
+      return {
+        code,
+        message: "The agent is unavailable right now. Try again shortly.",
       };
   }
 };

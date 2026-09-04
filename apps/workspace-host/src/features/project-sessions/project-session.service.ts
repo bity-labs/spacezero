@@ -21,10 +21,8 @@ import type {
   UpdateProjectSessionRuntimeResult,
 } from "@spacezero/host-contracts";
 import {
-  AgentTurnError,
   PiModelCatalogError,
   createScriptedConversationRunner,
-  type AgentRuntimeEvent,
   type ConversationRunner,
   type PiModelCatalogService,
   type PiPrivateSessionStateRepository,
@@ -45,12 +43,12 @@ import {
 import { toPublicProjectSessionEvent } from "./project-session-event.internal.js";
 import {
   createProjectSessionRepository,
-  type AgentTurnFailureReason,
   type SessionWorktreeIdentity,
 } from "./project-session.repository.js";
 import type { SkillDiscoveryResult } from "../agent-resources/skill-discovery.service.js";
 import type { SessionNameEntropy } from "./project-session-name.service.js";
 import { createWorkspaceToolRegistry } from "./workspace-tool-registry.js";
+import { createChatTurnRunner } from "../chat-sessions/chat-turn-runner.service.js";
 
 export interface ProjectSessionService {
   readonly create: (
@@ -108,9 +106,6 @@ export interface ProjectSessionService {
   readonly reconcile: () => Promise<void>;
   readonly waitForIdle: () => Promise<void>;
 }
-
-const durableAssistantText = (text: string): string =>
-  text.length <= 1_000_000 ? text : text.slice(0, 1_000_000);
 
 const mapProjectError = (
   error: ProjectServiceError,
@@ -177,24 +172,16 @@ export const createProjectSessionService = (options: {
   const sessionLocks = new Map<string, Promise<unknown>>();
   const drainingSessions = new Set<string>();
   const inFlight = new Set<Promise<unknown>>();
-  const eventWaiters = new Map<string, Set<() => void>>();
-  const activeTurns = new Map<
-    string,
-    {
-      readonly sessionId: string;
-      readonly controller: AbortController;
-      readonly flushDraft: () => Promise<void>;
-    }
-  >();
-  let nextLiveSequence = 0;
+  const turnRunner = createChatTurnRunner<
+    ProjectSessionEventEnvelope,
+    ProjectSessionLiveEventEnvelope
+  >({
+    conversationRunner,
+    ...(options.privatePiStateRepository === undefined
+      ? {}
+      : { privatePiStateRepository: options.privatePiStateRepository }),
+  });
   let shuttingDown = false;
-  const liveEvents = new Map<
-    string,
-    {
-      readonly liveSequence: number;
-      readonly envelope: ProjectSessionLiveEventEnvelope;
-    }[]
-  >();
 
   const withLock = async <A>(
     registry: Map<string, Promise<unknown>>,
@@ -214,12 +201,7 @@ export const createProjectSessionService = (options: {
     withLock(locks, projectId, run);
   const withSessionLock = async <A>(sessionId: string, run: () => Promise<A>) =>
     withLock(sessionLocks, sessionId, run);
-  const wakeEvents = (sessionId: string): void => {
-    const waiters = eventWaiters.get(sessionId);
-    if (!waiters) return;
-    eventWaiters.delete(sessionId);
-    for (const resolve of waiters) resolve();
-  };
+  const wakeEvents = turnRunner.wakeEvents;
   const toEnvelopes = (
     events: Awaited<ReturnType<typeof repository.listEventsAfter>>,
   ): readonly ProjectSessionEventEnvelope[] =>
@@ -231,40 +213,7 @@ export const createProjectSessionService = (options: {
         event: publicEvent,
       };
     });
-  const waitForEvent = (
-    sessionId: string,
-    signal?: AbortSignal,
-  ): Promise<void> =>
-    new Promise((resolve) => {
-      if (signal?.aborted) {
-        resolve();
-        return;
-      }
-      const waiters = eventWaiters.get(sessionId) ?? new Set<() => void>();
-      const complete = (): void => {
-        waiters.delete(complete);
-        if (waiters.size === 0) eventWaiters.delete(sessionId);
-        signal?.removeEventListener("abort", complete);
-        resolve();
-      };
-      waiters.add(complete);
-      eventWaiters.set(sessionId, waiters);
-      signal?.addEventListener("abort", complete, { once: true });
-    });
-  const publishLive = (
-    sessionId: string,
-    envelope: ProjectSessionLiveEventEnvelope,
-  ): number => {
-    const liveSequence = ++nextLiveSequence;
-    const current = liveEvents.get(sessionId) ?? [];
-    current.push({ liveSequence, envelope });
-    if (current.length > 200) current.splice(0, current.length - 200);
-    liveEvents.set(sessionId, current);
-    wakeEvents(sessionId);
-    return liveSequence;
-  };
-  const liveCursor = (sessionId: string): number =>
-    liveEvents.get(sessionId)?.at(-1)?.liveSequence ?? nextLiveSequence;
+  const liveCursor = turnRunner.liveCursor;
   const waitForSseAfter = async (
     sessionId: string,
     after: number,
@@ -273,31 +222,13 @@ export const createProjectSessionService = (options: {
   ): Promise<{
     readonly envelopes: readonly ProjectSessionSseEnvelope[];
     readonly liveCursor: number;
-  }> => {
-    const waiting = waitForEvent(sessionId, signal);
-    const events = toEnvelopes(
-      await repository.listEventsAfter(sessionId, after),
-    );
-    const live = (liveEvents.get(sessionId) ?? []).filter(
-      (event) => event.liveSequence > afterLive,
-    );
-    if (events.length > 0 || live.length > 0 || signal?.aborted)
-      return {
-        envelopes: [...events, ...live.map((event) => event.envelope)],
-        liveCursor: live.at(-1)?.liveSequence ?? afterLive,
-      };
-    await waiting;
-    const nextEvents = toEnvelopes(
-      await repository.listEventsAfter(sessionId, after),
-    );
-    const nextLive = (liveEvents.get(sessionId) ?? []).filter(
-      (event) => event.liveSequence > afterLive,
-    );
-    return {
-      envelopes: [...nextEvents, ...nextLive.map((event) => event.envelope)],
-      liveCursor: nextLive.at(-1)?.liveSequence ?? afterLive,
-    };
-  };
+  }> => turnRunner.waitForSseAfter(
+    sessionId,
+    after,
+    afterLive,
+    async (id, cursor) => toEnvelopes(await repository.listEventsAfter(id, cursor)),
+    signal,
+  );
 
   const create = async (
     input: CreateProjectSessionRequest,
@@ -402,254 +333,71 @@ export const createProjectSessionService = (options: {
         if (admission.kind === "replayed") return admission.result;
         wakeEvents(input.sessionId);
 
-        const controller = new AbortController();
-        let draftText = "";
-        let checkpointedTextLength = 0;
-        let checkpointedDurableText = "";
-        let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
-        let checkpointChain = Promise.resolve();
-        const checkpointDraft = async (): Promise<void> => {
-          const capturedLength = draftText.length;
-          if (capturedLength === checkpointedTextLength) return;
-          const text = durableAssistantText(draftText);
-          if (text === checkpointedDurableText) {
-            checkpointedTextLength = capturedLength;
-            return;
-          }
-          const operation = checkpointChain
-            .catch(() => undefined)
-            .then(async () => {
-              if (capturedLength <= checkpointedTextLength) return;
-              await repository.checkpointTurnDraft({
-                sessionId: input.sessionId,
-                turnId: admission.turnId,
-                text,
-              });
-              checkpointedTextLength = capturedLength;
-              checkpointedDurableText = text;
-              wakeEvents(input.sessionId);
-            });
-          checkpointChain = operation;
-          await operation;
-        };
-        const scheduleCheckpoint = (): void => {
-          if (checkpointTimer) return;
-          checkpointTimer = setTimeout(() => {
-            checkpointTimer = undefined;
-            void checkpointDraft().catch(() => undefined);
-          }, 250);
-          checkpointTimer.unref?.();
-        };
-        activeTurns.set(admission.turnId, {
+        const skills =
+          (await options
+            .listSessionSkills?.({
+              sessionId: input.sessionId,
+              projectRoot: project.canonicalRootPath,
+              projectTrusted: false,
+            })
+            .then((result) => result.internalSkills)
+            .catch(() => [])) ?? [];
+        turnRunner.runAdmittedTurn({
           sessionId: input.sessionId,
-          controller,
-          flushDraft: checkpointDraft,
+          commandId: input.commandId,
+          prompt,
+          conversationId: identity.conversationId,
+          admission,
+          repository,
+          tools: {
+            kind: "managedWorktree" as const,
+            workingDirectory: prepared.canonicalWorktreePath,
+            enabledToolNames: workspaceTools.enabledToolNamesForTurn(),
+          },
+          toolPolicy: workspaceTools,
+          resources: { skills },
+          makeAssistantTextDelta: ({
+            sessionId,
+            turnId,
+            messageId,
+            text,
+            timestamp,
+          }) => ({
+            live: true,
+            eventType: "AssistantTextDeltaV1",
+            event: {
+              type: "AssistantTextDeltaV1",
+              version: 1,
+              sessionId,
+              turnId,
+              messageId,
+              text,
+              timestamp,
+            },
+          }),
+          makeToolCallUpdated: ({
+            sessionId,
+            turnId,
+            toolCallId,
+            toolName,
+            summary,
+            timestamp,
+          }) => ({
+            live: true,
+            eventType: "AgentToolCallUpdatedV1",
+            event: {
+              type: "AgentToolCallUpdatedV1",
+              version: 1,
+              sessionId,
+              turnId,
+              toolCallId,
+              toolName,
+              summary,
+              timestamp,
+            },
+          }),
+          onTurnSettled: scheduleFollowUpDrain,
         });
-        const operation = (async () => {
-          try {
-            const history = await repository.listTurnHistoryBefore(
-              input.sessionId,
-              admission.userSequence,
-            );
-            const operationId = admission.turnId;
-            await options.privatePiStateRepository?.recordOperationStarted({
-              id: input.sessionId,
-              operationId,
-              turnId: admission.turnId,
-              prompt,
-            });
-            const skills =
-              (await options
-                .listSessionSkills?.({
-                  sessionId: input.sessionId,
-                  projectRoot: project.canonicalRootPath,
-                  projectTrusted: false,
-                })
-                .then((result) => result.internalSkills)
-                .catch(() => [])) ?? [];
-            if (controller.signal.aborted)
-              throw new AgentTurnError("agent_turn_interrupted");
-            const turnInput = {
-              sessionId: input.sessionId,
-              conversationId: identity.conversationId,
-              worktreePath: prepared.canonicalWorktreePath,
-              history,
-              runtime: {
-                providerId: admission.result.turn.providerId,
-                modelId: admission.result.turn.modelId,
-                thinkingLevel: admission.result.turn.thinkingLevel,
-              },
-              privateState: {
-                stateId: input.sessionId,
-                operationId,
-              },
-              tools: {
-                workingDirectory: prepared.canonicalWorktreePath,
-                enabledToolNames: workspaceTools.enabledToolNamesForTurn(),
-              },
-              resources: { skills },
-              prompt,
-              signal: controller.signal,
-              onEvent: async (event: AgentRuntimeEvent) => {
-                if (controller.signal.aborted) return;
-                const timestamp = new Date().toISOString();
-                if (event.type === "assistant_delta") {
-                  draftText = durableAssistantText(draftText + event.text);
-                  if (draftText.length - checkpointedTextLength >= 2_048)
-                    await checkpointDraft();
-                  else scheduleCheckpoint();
-                  publishLive(input.sessionId, {
-                    live: true,
-                    eventType: "AssistantTextDeltaV1",
-                    event: {
-                      type: "AssistantTextDeltaV1",
-                      version: 1,
-                      sessionId: input.sessionId,
-                      turnId: admission.turnId,
-                      messageId: admission.result.turn.assistantMessageId,
-                      text: event.text,
-                      timestamp,
-                    },
-                  });
-                  return;
-                }
-                if (event.type === "tool_started") {
-                  await checkpointDraft();
-                  const tool = workspaceTools
-                    .listTurnTools()
-                    .find((candidate) => candidate.name === event.toolName);
-                  const approval = workspaceTools.approvalForTool(
-                    event.toolName,
-                  );
-                  await repository.recordToolStarted({
-                    sessionId: input.sessionId,
-                    turnId: admission.turnId,
-                    toolCallId: event.toolCallId,
-                    toolName: event.toolName,
-                    ...(tool === undefined ? {} : { safety: tool.safety }),
-                    approvalStatus: approval.status,
-                    approvalReason: approval.reason,
-                  });
-                  wakeEvents(input.sessionId);
-                  return;
-                }
-                if (event.type === "tool_updated") {
-                  publishLive(input.sessionId, {
-                    live: true,
-                    eventType: "AgentToolCallUpdatedV1",
-                    event: {
-                      type: "AgentToolCallUpdatedV1",
-                      version: 1,
-                      sessionId: input.sessionId,
-                      turnId: admission.turnId,
-                      toolCallId: event.toolCallId,
-                      toolName: event.toolName,
-                      summary: event.summary,
-                      timestamp,
-                    },
-                  });
-                  return;
-                }
-                await checkpointDraft();
-                const tool = workspaceTools
-                  .listTurnTools()
-                  .find((candidate) => candidate.name === event.toolName);
-                const approval = workspaceTools.approvalForTool(event.toolName);
-                await repository.recordToolCompleted({
-                  sessionId: input.sessionId,
-                  turnId: admission.turnId,
-                  toolCallId: event.toolCallId,
-                  toolName: event.toolName,
-                  isError: event.isError,
-                  ...(tool === undefined ? {} : { safety: tool.safety }),
-                  approvalStatus: approval.status,
-                  approvalReason: approval.reason,
-                });
-                wakeEvents(input.sessionId);
-              },
-            };
-            const interrupted = new Promise<never>((_, reject) => {
-              if (controller.signal.aborted) {
-                reject(new AgentTurnError("agent_turn_interrupted"));
-                return;
-              }
-              controller.signal.addEventListener(
-                "abort",
-                () => reject(new AgentTurnError("agent_turn_interrupted")),
-                { once: true },
-              );
-            });
-            const turn = await Promise.race([
-              conversationRunner.submitTurn(turnInput),
-              interrupted,
-            ]);
-            if (controller.signal.aborted)
-              throw new AgentTurnError("agent_turn_interrupted");
-            if (typeof turn.text !== "string" || turn.text.length === 0)
-              throw new AgentTurnError("agent_turn_failed");
-            await options.privatePiStateRepository?.recordOperationSettled({
-              id: input.sessionId,
-              operationId,
-              assistantText: durableAssistantText(turn.text),
-            });
-            await repository.completeTurn({
-              commandId: input.commandId,
-              sessionId: input.sessionId,
-              turnId: admission.turnId,
-              text: durableAssistantText(turn.text),
-            });
-            wakeEvents(input.sessionId);
-            scheduleFollowUpDrain(input.sessionId);
-          } catch (error) {
-            if (
-              controller.signal.aborted &&
-              error instanceof ProjectSessionServiceError &&
-              error.code === "turn_not_active"
-            ) {
-              scheduleFollowUpDrain(input.sessionId);
-              return;
-            }
-            if (
-              error instanceof AgentTurnError &&
-              error.code === "agent_turn_interrupted"
-            ) {
-              await checkpointDraft().catch(() => undefined);
-              await repository
-                .interruptTurn({
-                  sessionId: input.sessionId,
-                  turnId: admission.turnId,
-                  reason: "user_interrupted",
-                })
-                .then(() => wakeEvents(input.sessionId))
-                .catch(() => undefined);
-              scheduleFollowUpDrain(input.sessionId);
-              return;
-            }
-            const reason: AgentTurnFailureReason =
-              error instanceof AgentTurnError &&
-              error.code !== "agent_turn_interrupted"
-                ? error.code
-                : "agent_turn_failed";
-            await checkpointDraft().catch(() => undefined);
-            await repository
-              .failTurn({
-                commandId: input.commandId,
-                sessionId: input.sessionId,
-                turnId: admission.turnId,
-                reason,
-              })
-              .then(() => wakeEvents(input.sessionId))
-              .catch(() => undefined);
-            scheduleFollowUpDrain(input.sessionId);
-          } finally {
-            if (checkpointTimer) clearTimeout(checkpointTimer);
-            await checkpointChain.catch(() => undefined);
-            activeTurns.delete(admission.turnId);
-            scheduleFollowUpDrain(input.sessionId);
-          }
-        })();
-        inFlight.add(operation);
-        operation.finally(() => inFlight.delete(operation));
         return admission.result;
       } catch (error) {
         throw mapError(error);
@@ -660,9 +408,7 @@ export const createProjectSessionService = (options: {
     if (drainingSessions.has(sessionId)) return;
     drainingSessions.add(sessionId);
     try {
-      while (
-        ![...activeTurns.values()].some((turn) => turn.sessionId === sessionId)
-      ) {
+      while (!turnRunner.hasActiveTurn(sessionId)) {
         const followUp = await repository.dispatchNextFollowUp(sessionId);
         if (!followUp) return;
         try {
@@ -797,11 +543,7 @@ export const createProjectSessionService = (options: {
     liveCursor,
     interruptTurn: async (sessionId, turnId) => {
       try {
-        const active = activeTurns.get(turnId);
-        if (active?.sessionId === sessionId) {
-          await active.flushDraft();
-          active.controller.abort();
-        }
+        await turnRunner.interruptActiveTurn(sessionId, turnId);
         const result = await repository.interruptTurn({
           sessionId,
           turnId,
@@ -827,7 +569,7 @@ export const createProjectSessionService = (options: {
     },
     waitForIdle: async () => {
       shuttingDown = true;
-      for (const active of activeTurns.values()) active.controller.abort();
+      await turnRunner.waitForIdle();
       await Promise.allSettled([...inFlight]);
     },
   };

@@ -79,7 +79,10 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO project_sessions (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, created_at, updated_at, last_sequence) VALUES (?, ?, 'margaux', (SELECT host_id FROM host_metadata WHERE singleton = 1), 'provisioning', 'main', 0, ?, 0, ?, ?, ?, ?, ?, 2)",
+      "INSERT INTO chat_sessions (session_id, kind, title, archived_at, created_at, updated_at, last_sequence) VALUES (?, 'project', NULL, NULL, ?, ?, 2)",
+    ).run(sessionId, now, now);
+    db.prepare(
+      "INSERT INTO project_session_bindings (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root) VALUES (?, ?, 'margaux', (SELECT host_id FROM host_metadata WHERE singleton = 1), 'provisioning', 'main', 0, ?, 0, ?, ?, ?)",
     ).run(
       sessionId,
       projectId,
@@ -87,14 +90,12 @@ describe("Project Session startup recovery", () => {
       `spacezero/margaux-${sessionId}`,
       join(root, "SpaceZero", "worktrees", projectId, sessionId),
       join(root, "SpaceZero", "worktrees", projectId),
-      now,
-      now,
     );
     db.prepare(
       "INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES ('margaux', 'margaux', ?, ?)",
     ).run(sessionId, now);
     db.prepare(
-      "INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (?, 'fp', ?, 'pending', 2, ?, ?)",
+      "INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (?, 'fp', ?, 'pending', 2, ?, ?)",
     ).run(randomUUID(), sessionId, now, now);
     db.close();
 
@@ -165,7 +166,10 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO project_sessions (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, canonical_worktree_path, canonical_git_dir_path, canonical_git_common_dir_path, worktree_device_id, worktree_file_id, git_dir_device_id, git_dir_file_id, common_dir_device_id, common_dir_file_id, created_at, updated_at, last_sequence) VALUES (?, ?, 'margaux2', (SELECT host_id FROM host_metadata WHERE singleton = 1), 'ready', 'main', 0, ?, 0, ?, ?, ?, ?, ?, ?, '5', '6', '7', '8', '9', '10', ?, ?, 5)",
+      "INSERT INTO chat_sessions (session_id, kind, title, archived_at, created_at, updated_at, last_sequence) VALUES (?, 'project', NULL, NULL, ?, ?, 5)",
+    ).run(sessionId, now, now);
+    db.prepare(
+      "INSERT INTO project_session_bindings (session_id, project_id, name, host_id, state, source_branch, source_detached, source_commit, uncommitted_changes_excluded, managed_branch, intended_worktree_path, intended_worktree_root, canonical_worktree_path, canonical_git_dir_path, canonical_git_common_dir_path, worktree_device_id, worktree_file_id, git_dir_device_id, git_dir_file_id, common_dir_device_id, common_dir_file_id) VALUES (?, ?, 'margaux2', (SELECT host_id FROM host_metadata WHERE singleton = 1), 'ready', 'main', 0, ?, 0, ?, ?, ?, ?, ?, ?, '5', '6', '7', '8', '9', '10')",
     ).run(
       sessionId,
       projectId,
@@ -176,14 +180,12 @@ describe("Project Session startup recovery", () => {
       join(root, "SpaceZero", "worktrees", projectId, sessionId),
       join(root, "SpaceZero", "worktrees", projectId, sessionId, ".git"),
       join(root, "repo-pending", ".git"),
-      now,
-      now,
     );
     db.prepare(
       "INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES ('margaux2', 'margaux', ?, ?)",
     ).run(sessionId, now);
     db.prepare(
-      "INSERT INTO project_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (?, 1, ?, 'UserMessageSubmittedV1', 1, ?, ?), (?, 2, ?, 'AgentTurnStartedV1', 1, ?, ?), (?, 3, ?, 'AgentMessageCompletedV1', 1, ?, ?), (?, 4, ?, 'UserMessageSubmittedV1', 1, ?, ?), (?, 5, ?, 'AgentTurnStartedV1', 1, ?, ?)",
+      "INSERT INTO chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (?, 1, ?, 'UserMessageSubmittedV1', 1, ?, ?), (?, 2, ?, 'AgentTurnStartedV1', 1, ?, ?), (?, 3, ?, 'AgentMessageCompletedV1', 1, ?, ?), (?, 4, ?, 'UserMessageSubmittedV1', 1, ?, ?), (?, 5, ?, 'AgentTurnStartedV1', 1, ?, ?)",
     ).run(
       sessionId,
       randomUUID(),
@@ -245,7 +247,7 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO project_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (?, ?, 'user', ?, 1, ?, ?), (?, ?, 'assistant', ?, 3, ?, ?), (?, ?, 'user', ?, 4, ?, ?)",
+      "INSERT INTO chat_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (?, ?, 'user', ?, 1, ?, ?), (?, ?, 'assistant', ?, 3, ?, ?), (?, ?, 'user', ?, 4, ?, ?)",
     ).run(
       sessionId,
       completedUserMessageId,
@@ -264,7 +266,7 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO project_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, state, draft_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?), (?, ?, ?, ?, ?, 'running', '', ?, ?)",
+      "INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, state, draft_text, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?), (?, ?, ?, ?, ?, 'running', '', ?, ?)",
     ).run(
       sessionId,
       completedTurnId,
@@ -283,7 +285,7 @@ describe("Project Session startup recovery", () => {
       now,
     );
     db.prepare(
-      "INSERT INTO project_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (?, ?, ?, 'succeeded', 3, ?, ?), (?, ?, ?, 'pending', 5, ?, ?)",
+      "INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (?, ?, ?, 'succeeded', 3, ?, ?), (?, ?, ?, 'pending', 5, ?, ?)",
     ).run(
       completedCommandId,
       promptFingerprint({ sessionId, prompt: completedPrompt }),
@@ -375,7 +377,7 @@ describe("Project Session startup recovery", () => {
     try {
       const receipts = check
         .prepare(
-          "SELECT status, terminal_error_code FROM project_session_command_receipts WHERE command_id = ?",
+          "SELECT status, terminal_error_code FROM chat_session_command_receipts WHERE command_id = ?",
         )
         .all(commandId);
       expect(receipts).toEqual([
@@ -386,7 +388,7 @@ describe("Project Session startup recovery", () => {
       ]);
       const turns = check
         .prepare(
-          "SELECT state, failure_reason FROM project_session_turns WHERE session_id = ? AND turn_id = ?",
+          "SELECT state, failure_reason FROM chat_session_turns WHERE session_id = ? AND turn_id = ?",
         )
         .all(sessionId, turnId);
       expect(turns).toEqual([
@@ -397,7 +399,7 @@ describe("Project Session startup recovery", () => {
       ]);
       const events = check
         .prepare(
-          "SELECT event_type FROM project_session_events WHERE session_id = ? ORDER BY sequence ASC",
+          "SELECT event_type FROM chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
         )
         .all(sessionId)
         .map((row) => (row as { event_type: string }).event_type);
