@@ -69,6 +69,20 @@ const readRows = <A>(
     db.close();
   }
 };
+const waitFor = async (assertion: () => void | Promise<void>) => {
+  const deadline = Date.now() + 2_000;
+  let lastError: unknown;
+  while (Date.now() < deadline) {
+    try {
+      await assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+  if (lastError) throw lastError;
+};
 
 afterEach(async () => {
   await Promise.all(hosts.map((host) => host.stop().catch(() => undefined)));
@@ -80,14 +94,16 @@ afterEach(async () => {
 });
 
 describe("Global Chat Session Host protocol", () => {
-  it("creates a durable unarchived Global Chat Session from the first prompt without Project, worktree, Git, source identity, or a Pi turn", async () => {
+  it("creates a durable unarchived Global Chat Session from the first prompt and starts a tool-less Pi turn", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");
     let providerCalls = 0;
+    const seenTools: unknown[] = [];
     const runner: ConversationRunner = {
-      submitTurn: async () => {
+      submitTurn: async (input) => {
         providerCalls += 1;
-        return { text: "should not be called" };
+        seenTools.push(input.tools);
+        return { text: "Global answer" };
       },
     };
     const host = await start(databasePath, join(root, "SpaceZero"), runner);
@@ -103,11 +119,13 @@ describe("Global Chat Session Host protocol", () => {
     const body = created.body as {
       session: Record<string, unknown>;
       firstMessage: Record<string, unknown>;
+      turn: Record<string, unknown>;
+      userMessage: Record<string, unknown>;
     };
     expect(body.session).toMatchObject({
       title: "Release plan Release plan Release plan Release plan Release ",
       archived: false,
-      lastSequence: 2,
+      lastSequence: 4,
     });
     expect(body.session.id).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
@@ -119,9 +137,32 @@ describe("Global Chat Session Host protocol", () => {
     expect(body.firstMessage).toMatchObject({
       role: "user",
       text: `${"Release plan ".repeat(8)}\nsecond line is ignored`,
-      sequence: 2,
+      sequence: 3,
     });
-    expect(providerCalls).toBe(0);
+    expect(body.userMessage).toEqual(body.firstMessage);
+    expect(body.turn).toMatchObject({ state: "running" });
+    await waitFor(() => {
+      expect(providerCalls).toBe(1);
+      expect(seenTools).toEqual([{ kind: "none", enabledToolNames: [] }]);
+      expect(
+        readRows<{ role: string; text: string; sequence: number }>(
+          databasePath,
+          "SELECT role, text, sequence FROM global_chat_messages WHERE session_id = ? ORDER BY sequence ASC",
+          body.session.id as string,
+        ),
+      ).toEqual([
+        {
+          role: "user",
+          text: body.firstMessage.text as string,
+          sequence: 3,
+        },
+        {
+          role: "assistant",
+          text: "Global answer",
+          sequence: 5,
+        },
+      ]);
+    });
 
     const sessions = readRows<{
       session_id: string;
@@ -137,7 +178,7 @@ describe("Global Chat Session Host protocol", () => {
         session_id: body.session.id as string,
         title: body.session.title as string,
         archived_at: null,
-        last_sequence: 2,
+        last_sequence: 5,
       },
     ]);
     const sessionColumns = readRows<{ name: string }>(
@@ -149,19 +190,6 @@ describe("Global Chat Session Host protocol", () => {
     expect(sessionColumns).not.toContain("managed_branch");
     expect(sessionColumns).not.toContain("source_commit");
     expect(
-      readRows<{ role: string; text: string; sequence: number }>(
-        databasePath,
-        "SELECT role, text, sequence FROM global_chat_messages WHERE session_id = ? ORDER BY sequence ASC",
-        body.session.id as string,
-      ),
-    ).toEqual([
-      {
-        role: "user",
-        text: body.firstMessage.text as string,
-        sequence: 2,
-      },
-    ]);
-    expect(
       readRows<{ event_type: string; sequence: number }>(
         databasePath,
         "SELECT event_type, sequence FROM global_chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
@@ -169,15 +197,22 @@ describe("Global Chat Session Host protocol", () => {
       ),
     ).toEqual([
       { event_type: "GlobalChatSessionCreatedV1", sequence: 1 },
-      { event_type: "GlobalChatUserMessageSubmittedV1", sequence: 2 },
+      { event_type: "GlobalChatSessionRuntimeConfiguredV1", sequence: 2 },
+      { event_type: "GlobalChatUserMessageSubmittedV1", sequence: 3 },
+      { event_type: "GlobalChatAgentTurnStartedV1", sequence: 4 },
+      { event_type: "GlobalChatAgentMessageCompletedV1", sequence: 5 },
     ]);
   });
 
   it("replays duplicate create commands with the same input and rejects command ID conflicts", async () => {
     const root = await temp();
+    const runner: ConversationRunner = {
+      submitTurn: async () => ({ text: "planned" }),
+    };
     const host = await start(
       join(root, "host.sqlite"),
       join(root, "SpaceZero"),
+      runner,
     );
     const client = descriptor(host);
     const commandId = randomUUID();
@@ -203,7 +238,13 @@ describe("Global Chat Session Host protocol", () => {
 
     expect(first.response.status).toBe(200);
     expect(replayed.response.status).toBe(200);
-    expect(replayed.body).toEqual(first.body);
+    expect(replayed.body).toMatchObject({
+      session: { id: (first.body as { session: { id: string } }).session.id },
+      firstMessage: {
+        text: "Plan agent capabilities",
+        role: "user",
+      },
+    });
     expect(conflict.response.status).toBe(409);
     expect(conflict.body).toMatchObject({ code: "command_id_conflict" });
   });

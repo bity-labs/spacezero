@@ -538,9 +538,16 @@ describe("Session prompt Host protocol", () => {
     expect(agentMessage.sequence).toBe(body.userMessage.sequence + 2);
     expect(seen).toHaveLength(1);
     const canonicalHome = await realpath(join(root, "SpaceZero"));
-    expect(seen[0]?.worktreePath).toBe(
-      join(canonicalHome, "worktrees", project.project.id, sessionId),
-    );
+    expect(seen[0]?.tools).toMatchObject({
+      kind: "managedWorktree",
+      workingDirectory: join(
+        canonicalHome,
+        "worktrees",
+        project.project.id,
+        sessionId,
+      ),
+      enabledToolNames: ["read", "write", "edit"],
+    });
     expect(eventTypes(databasePath, sessionId)).toEqual([
       "ProjectSessionCreationRequestedV1",
       "ProjectSessionRuntimeConfiguredV1",
@@ -702,8 +709,8 @@ describe("Session prompt Host protocol", () => {
       { role: "user", text: "first prompt" },
       { role: "assistant", text: "history=0; prompt=first prompt" },
     ]);
-    expect(seen[1]?.tools).toEqual({
-      workingDirectory: seen[1]?.worktreePath,
+    expect(seen[1]?.tools).toMatchObject({
+      kind: "managedWorktree",
       enabledToolNames: ["read", "write", "edit"],
     });
     expect(seen[2]?.history).toEqual([]);

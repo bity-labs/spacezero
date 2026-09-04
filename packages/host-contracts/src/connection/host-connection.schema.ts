@@ -13,6 +13,8 @@ export const LOCAL_HOST_CLIENT_SCOPES = [
   "flows:read",
   "flows:write",
   "global-chat-sessions:create",
+  "global-chat-sessions:read",
+  "global-chat-sessions:prompt",
   "project-sessions:read",
   "project-sessions:create",
   "project-sessions:prompt",

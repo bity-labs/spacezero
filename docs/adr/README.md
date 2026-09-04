@@ -24,6 +24,8 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0038-package-the-workspace-host-as-a-hardened-normal-node-deployment.md`](0038-package-the-workspace-host-as-a-hardened-normal-node-deployment.md)
 - [`0039-use-host-owned-project-session-agent-runtime-configuration.md`](0039-use-host-owned-project-session-agent-runtime-configuration.md)
 - [`0040-store-desktop-settings-in-main-owned-json.md`](0040-store-desktop-settings-in-main-owned-json.md)
+- [`0041-use-convex-auth-for-space-zero-accounts.md`](0041-use-convex-auth-for-space-zero-accounts.md)
+- [`0042-use-first-class-host-owned-global-chat-sessions.md`](0042-use-first-class-host-owned-global-chat-sessions.md)
 
 ## Historical decisions
 

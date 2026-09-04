@@ -386,6 +386,249 @@ CREATE TABLE global_chat_session_command_receipts (
   yield* sql`CREATE INDEX global_chat_messages_list_order ON global_chat_messages(session_id, sequence)`;
 });
 
+export const addGlobalChatSessionTurnsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE global_chat_messages ADD COLUMN turn_id TEXT`;
+  yield* sql`ALTER TABLE global_chat_session_command_receipts ADD COLUMN status TEXT NOT NULL DEFAULT 'succeeded' CHECK (status IN ('pending', 'succeeded', 'failed', 'recovery_required'))`;
+  yield* sql`ALTER TABLE global_chat_session_command_receipts ADD COLUMN terminal_error_code TEXT`;
+  yield* sql`
+CREATE TABLE global_chat_session_turns (
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  command_id TEXT NOT NULL UNIQUE,
+  user_message_id TEXT NOT NULL,
+  assistant_message_id TEXT NOT NULL UNIQUE,
+  provider_id TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  thinking_level TEXT NOT NULL CHECK (thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'failed', 'interrupted', 'recovery_required')),
+  draft_text TEXT NOT NULL DEFAULT '',
+  failure_reason TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, turn_id),
+  FOREIGN KEY (session_id) REFERENCES global_chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX global_chat_session_turns_state ON global_chat_session_turns(session_id, state)`;
+  yield* sql`
+CREATE TABLE global_chat_session_runtime_configurations (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  provider_id TEXT NOT NULL CHECK (length(provider_id) BETWEEN 1 AND 128),
+  model_id TEXT NOT NULL CHECK (length(model_id) BETWEEN 1 AND 256),
+  default_thinking_level TEXT NOT NULL CHECK (default_thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+  revision INTEGER NOT NULL CHECK (revision > 0),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES global_chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`
+INSERT INTO global_chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at)
+SELECT session_id, 'anthropic', 'claude-sonnet-4-5', 'off', 1, created_at, updated_at
+FROM global_chat_sessions`;
+  yield* sql`
+CREATE TABLE global_chat_session_pi_contexts (
+  session_id TEXT PRIMARY KEY NOT NULL,
+  conversation_id TEXT NOT NULL UNIQUE,
+  adapter_name TEXT NOT NULL DEFAULT 'pi-agent-core',
+  adapter_schema_version INTEGER NOT NULL DEFAULT 1 CHECK (adapter_schema_version > 0),
+  adapter_state_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(adapter_state_json)),
+  last_turn_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (session_id) REFERENCES global_chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`
+INSERT INTO global_chat_session_pi_contexts (session_id, conversation_id, created_at, updated_at)
+SELECT session_id, session_id, created_at, updated_at
+FROM global_chat_sessions`;
+  yield* sql`
+INSERT INTO global_chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at)
+SELECT
+  session_id,
+  last_sequence + 1,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  'GlobalChatSessionRuntimeConfiguredV1',
+  1,
+  json_object(
+    'type', 'GlobalChatSessionRuntimeConfiguredV1',
+    'version', 1,
+    'sessionId', session_id,
+    'commandId', session_id,
+    'providerId', 'anthropic',
+    'modelId', 'claude-sonnet-4-5',
+    'defaultThinkingLevel', 'off',
+    'revision', 1,
+    'timestamp', updated_at
+  ),
+  updated_at
+FROM global_chat_sessions`;
+  yield* sql`UPDATE global_chat_sessions SET last_sequence = last_sequence + 1`;
+  yield* sql`
+INSERT INTO global_chat_session_turns (
+  session_id,
+  turn_id,
+  command_id,
+  user_message_id,
+  assistant_message_id,
+  provider_id,
+  model_id,
+  thinking_level,
+  state,
+  draft_text,
+  failure_reason,
+  created_at,
+  updated_at
+)
+SELECT
+  receipt.session_id,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  receipt.command_id,
+  message.message_id,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  'anthropic',
+  'claude-sonnet-4-5',
+  'off',
+  'recovery_required',
+  '',
+  'global_chat_session_recovery_required',
+  receipt.created_at,
+  receipt.updated_at
+FROM global_chat_session_command_receipts receipt
+JOIN global_chat_messages message
+  ON message.session_id = receipt.session_id
+  AND message.role = 'user'
+  AND message.sequence = (
+    SELECT min(candidate.sequence)
+    FROM global_chat_messages candidate
+    WHERE candidate.session_id = receipt.session_id
+      AND candidate.role = 'user'
+  )
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM global_chat_session_turns existing
+  WHERE existing.command_id = receipt.command_id
+)`;
+  yield* sql`
+UPDATE global_chat_messages
+SET turn_id = (
+  SELECT turn.turn_id
+  FROM global_chat_session_turns turn
+  JOIN global_chat_session_command_receipts receipt
+    ON receipt.command_id = turn.command_id
+  WHERE receipt.session_id = global_chat_messages.session_id
+    AND turn.user_message_id = global_chat_messages.message_id
+)
+WHERE turn_id IS NULL`;
+  yield* sql`
+INSERT INTO global_chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at)
+SELECT
+  session.session_id,
+  session.last_sequence + 1,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  'GlobalChatAgentTurnStartedV1',
+  1,
+  json_object(
+    'type', 'GlobalChatAgentTurnStartedV1',
+    'version', 1,
+    'sessionId', session.session_id,
+    'turnId', turn.turn_id,
+    'messageId', turn.assistant_message_id,
+    'providerId', turn.provider_id,
+    'modelId', turn.model_id,
+    'thinkingLevel', turn.thinking_level,
+    'timestamp', session.updated_at
+  ),
+  session.updated_at
+FROM global_chat_sessions session
+JOIN global_chat_session_turns turn
+  ON turn.session_id = session.session_id
+  AND turn.state = 'recovery_required'
+  AND turn.failure_reason = 'global_chat_session_recovery_required'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM global_chat_session_events existing
+  WHERE existing.session_id = session.session_id
+    AND existing.event_type = 'GlobalChatAgentTurnStartedV1'
+    AND json_extract(existing.event_payload_json, '$.turnId') = turn.turn_id
+)`;
+  yield* sql`
+UPDATE global_chat_sessions
+SET last_sequence = last_sequence + 1
+WHERE EXISTS (
+  SELECT 1
+  FROM global_chat_session_turns turn
+  WHERE turn.session_id = global_chat_sessions.session_id
+    AND turn.state = 'recovery_required'
+    AND turn.failure_reason = 'global_chat_session_recovery_required'
+)`;
+  yield* sql`
+INSERT INTO global_chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at)
+SELECT
+  session.session_id,
+  session.last_sequence + 1,
+  lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)), 2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6))),
+  'GlobalChatAgentTurnFailedV1',
+  1,
+  json_object(
+    'type', 'GlobalChatAgentTurnFailedV1',
+    'version', 1,
+    'sessionId', session.session_id,
+    'turnId', turn.turn_id,
+    'reason', 'global_chat_session_recovery_required',
+    'failureCategory', 'system',
+    'retryable', json('false'),
+    'timestamp', session.updated_at
+  ),
+  session.updated_at
+FROM global_chat_sessions session
+JOIN global_chat_session_turns turn
+  ON turn.session_id = session.session_id
+  AND turn.state = 'recovery_required'
+  AND turn.failure_reason = 'global_chat_session_recovery_required'
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM global_chat_session_events existing
+  WHERE existing.session_id = session.session_id
+    AND existing.event_type = 'GlobalChatAgentTurnFailedV1'
+    AND json_extract(existing.event_payload_json, '$.turnId') = turn.turn_id
+)`;
+  yield* sql`
+UPDATE global_chat_sessions
+SET last_sequence = last_sequence + 1
+WHERE EXISTS (
+  SELECT 1
+  FROM global_chat_session_turns turn
+  WHERE turn.session_id = global_chat_sessions.session_id
+    AND turn.state = 'recovery_required'
+    AND turn.failure_reason = 'global_chat_session_recovery_required'
+)`;
+  yield* sql`
+UPDATE global_chat_session_command_receipts
+SET
+  status = 'recovery_required',
+  terminal_error_code = 'global_chat_session_recovery_required',
+  committed_sequence = (
+    SELECT session.last_sequence
+    FROM global_chat_sessions session
+    WHERE session.session_id = global_chat_session_command_receipts.session_id
+  ),
+  updated_at = (
+    SELECT session.updated_at
+    FROM global_chat_sessions session
+    WHERE session.session_id = global_chat_session_command_receipts.session_id
+  )
+WHERE EXISTS (
+  SELECT 1
+  FROM global_chat_session_turns turn
+  WHERE turn.command_id = global_chat_session_command_receipts.command_id
+    AND turn.state = 'recovery_required'
+    AND turn.failure_reason = 'global_chat_session_recovery_required'
+)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [
@@ -437,6 +680,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     11,
     "create_global_chat_sessions",
     Effect.succeed(createGlobalChatSessionsMigration),
+  ],
+  [
+    12,
+    "add_global_chat_session_turns",
+    Effect.succeed(addGlobalChatSessionTurnsMigration),
   ],
 ] as const);
 
