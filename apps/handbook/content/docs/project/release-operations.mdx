@@ -1,0 +1,135 @@
+---
+title: Release Operations
+description: How to trigger and verify Space Zero beta desktop releases.
+---
+
+# Release Operations
+
+Space Zero beta desktop releases are tag-driven. A pushed beta tag starts the **Desktop beta release** GitHub Actions workflow, which builds macOS and Linux artifacts, verifies them, and uploads public downloads to Cloudflare R2 when the publish gate is enabled.
+
+Normative details live in [`docs/macos-beta-release.md`](../../../../../docs/macos-beta-release.md) and [`docs/apple-macos-signing-and-notarization.md`](../../../../../docs/apple-macos-signing-and-notarization.md). This handbook page is the operator checklist.
+
+## What the release currently produces
+
+For each beta tag, CI produces:
+
+- macOS Apple Silicon DMG/ZIP/update metadata
+- macOS Intel DMG/ZIP/update metadata
+- Linux x64 AppImage/update metadata
+- SHA-256 checksum files for each public platform prefix
+
+Public current-channel URLs:
+
+```txt
+https://downloads.spacezero.dev/spacezero/macos/beta/
+https://downloads.spacezero.dev/spacezero/linux/beta/
+```
+
+Immutable archive URLs:
+
+```txt
+https://downloads.spacezero.dev/spacezero/macos/releases/<tag>/
+https://downloads.spacezero.dev/spacezero/linux/releases/<tag>/
+```
+
+## Before triggering
+
+Check that the publish gate is intentionally set:
+
+```bash
+gh variable list --repo bity-labs/spacezero
+```
+
+Important variables:
+
+- `SPACEZERO_MACOS_RELEASE_PUBLISH_ENABLED=true` uploads verified artifacts to R2.
+- Any other value skips R2 publication after packaging.
+- `SPACEZERO_MACOS_UPDATE_BASE_URL` should point at `https://downloads.spacezero.dev/spacezero/macos/beta`.
+- `SPACEZERO_LINUX_UPDATE_BASE_URL` should point at `https://downloads.spacezero.dev/spacezero/linux/beta`.
+- `SPACEZERO_R2_RELEASE_PREFIX` should be `spacezero` for the current public URL shape.
+
+Do not print, paste, or log secret values.
+
+## Triggering a beta release
+
+1. Pick the next unused beta version.
+2. Bump both package manifests to the same version:
+
+```txt
+package.json
+apps/desktop/package.json
+```
+
+3. Validate the future tag locally:
+
+```bash
+pnpm release:validate-tag v0.1.0-beta.N
+```
+
+4. Commit and push the version bump:
+
+```bash
+git add package.json apps/desktop/package.json
+git commit -m "Bump version to v0.1.0-beta.N"
+git push origin main
+```
+
+5. Create and push the matching tag:
+
+```bash
+git tag v0.1.0-beta.N
+git push origin v0.1.0-beta.N
+```
+
+## Watching the run
+
+Find and watch the tag run:
+
+```bash
+gh run list --repo bity-labs/spacezero --workflow "Desktop beta release" --limit 5
+gh run watch <run-id> --repo bity-labs/spacezero --exit-status
+```
+
+Expected successful jobs:
+
+- `Validate, test, and build`
+- `Package macOS arm64`
+- `Package macOS x64`
+- `Package Linux x64 AppImage`
+- `Publish R2 macOS release` when the publish gate is `true`
+- `Publish R2 Linux release` when the publish gate is `true`
+
+## Verifying public downloads
+
+After a successful published run, check metadata and at least one payload per platform:
+
+```bash
+curl -I https://downloads.spacezero.dev/spacezero/macos/beta/beta-mac.yml
+curl -I https://downloads.spacezero.dev/spacezero/linux/beta/beta-linux.yml
+curl -I https://downloads.spacezero.dev/spacezero/macos/releases/v0.1.0-beta.N/beta-mac.yml
+curl -I https://downloads.spacezero.dev/spacezero/linux/releases/v0.1.0-beta.N/beta-linux.yml
+```
+
+Then manually download and smoke-test the platform artifact appropriate for the machine.
+
+For macOS, install from the DMG and verify Gatekeeper trust if needed:
+
+```bash
+codesign --verify --deep --strict --verbose=2 '/Applications/Space Zero.app'
+spctl --assess --type execute --verbose=4 '/Applications/Space Zero.app'
+xcrun stapler validate '/Applications/Space Zero.app'
+```
+
+For Linux, make the AppImage executable and launch it from a desktop session:
+
+```bash
+chmod +x Space-Zero-0.1.0-beta.N-x86_64.AppImage
+./Space-Zero-0.1.0-beta.N-x86_64.AppImage
+```
+
+## Known operational notes
+
+- The current workflow file is still `.github/workflows/macos-beta-release.yml`, but the GitHub Actions display name is **Desktop beta release**.
+- macOS release publication previously failed until R2 credentials were corrected. R2 access key id should be the short access key, and secret access key should be the longer secret.
+- Linux AppImage output uses Electron Builder's `x86_64` artifact architecture name.
+- Packaged Local Host launch is still fail-closed until private Node and Host payload packaging are complete.

@@ -1,4 +1,4 @@
 {
   "title": "Project",
-  "pages": ["monorepo", "architecture"]
+  "pages": ["monorepo", "architecture", "release-operations"]
 }
