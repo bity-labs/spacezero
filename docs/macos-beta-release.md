@@ -47,7 +47,7 @@ The GitHub App values are public client configuration only. Never add a GitHub A
 
 ## What the workflow uploads
 
-`.github/workflows/macos-beta-release.yml` uses deterministic `pnpm@10.28.1`, keeps setup/install/build under read-only repository permissions, and scopes release credentials only to the steps that need them. It:
+`.github/workflows/macos-beta-release.yml` is named **Desktop beta release** in GitHub Actions. It uses deterministic `pnpm@10.28.1`, keeps setup/install/build under read-only repository permissions, and scopes release credentials only to the steps that need them. It:
 
 1. Installs dependencies with `pnpm install --frozen-lockfile`.
 2. Validates the pushed tag against both package manifests with `pnpm release:validate-tag`.
