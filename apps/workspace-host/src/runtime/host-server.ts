@@ -13,10 +13,12 @@ import {
   parseHostConnectedEvent,
   parseHostConnectionSnapshot,
   flowErrorBody,
+  globalChatSessionErrorBody,
   harnessAuthErrorBody,
   projectErrorBody,
   projectSessionErrorBody,
   type FlowError,
+  type GlobalChatSessionError,
   type FlowEventEnvelope,
   type HarnessAuthError,
   type HostAuthorizationError,
@@ -31,6 +33,8 @@ import {
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
 import { createSkillDiscoveryService } from "../features/agent-resources/skill-discovery.service.js";
+import { createGlobalChatSessionService } from "../features/global-chat-sessions/global-chat-session.service.js";
+import { GlobalChatSessionServiceError } from "../features/global-chat-sessions/global-chat-session.model.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
 import { ProjectSessionServiceError } from "../features/project-sessions/project-session.model.js";
 import {
@@ -76,6 +80,7 @@ type AuthScope =
   | "agent-resources:read"
   | "flows:read"
   | "flows:write"
+  | "global-chat-sessions:create"
   | "project-sessions:read"
   | "project-sessions:create"
   | "project-sessions:prompt";
@@ -164,6 +169,13 @@ const flowHttpError = (error: unknown): FlowError => {
   if (error instanceof FlowRegistryError) return flowErrorBody(error.code);
   return flowErrorBody("flow_unavailable");
 };
+const globalChatSessionHttpError = (
+  error: unknown,
+): GlobalChatSessionError => {
+  if (error instanceof GlobalChatSessionServiceError)
+    return globalChatSessionErrorBody(error.code);
+  return globalChatSessionErrorBody("global_chat_session_unavailable");
+};
 export const startHostServer = async (options: {
   readonly allowedRendererOrigin: string;
   readonly bootstrap: BootstrapAuthority;
@@ -215,6 +227,7 @@ export const startHostServer = async (options: {
     options.conversationRunner ?? piRuntimeServices.conversationRunner;
   await Effect.runPromise(runHostDatabaseMigrations(databasePath));
   const projectCatalog = createProjectCatalog(databasePath);
+  const globalChatSessions = createGlobalChatSessionService({ databasePath });
   const projectSessions = createProjectSessionService({
     databasePath,
     spaceZeroHome,
@@ -652,6 +665,33 @@ export const startHostServer = async (options: {
       },
     }),
   );
+  const globalChatSessionHandlers = HttpApiBuilder.group(
+    HostApi,
+    "globalChatSessions",
+    (handlers) =>
+      handlers.handleAll({
+        createGlobalChatSessionWithFirstPrompt: ({
+          headers,
+          request,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:create",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.createWithFirstPrompt(payload),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+      }),
+  );
   const projectHandlers = HttpApiBuilder.group(
     HostApi,
     "projects",
@@ -930,6 +970,7 @@ export const startHostServer = async (options: {
         agentRuntimeHandlers,
         agentResourcesHandlers,
         flowHandlers,
+        globalChatSessionHandlers,
         projectHandlers,
         projectSessionHandlers,
       ]),
