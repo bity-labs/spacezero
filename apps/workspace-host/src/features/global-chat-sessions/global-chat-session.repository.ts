@@ -264,21 +264,21 @@ const runSql = async <A>(
   );
 
 const getSession = (sql: SqlClient, sessionId: string) =>
-  sql<SessionRow>`SELECT * FROM global_chat_sessions WHERE session_id = ${sessionId}`;
+  sql<SessionRow>`SELECT * FROM chat_sessions WHERE session_id = ${sessionId} AND kind = 'global'`;
 
 const getMessageById = (
   sql: SqlClient,
   sessionId: string,
   messageId: string,
 ) =>
-  sql<MessageRow>`SELECT * FROM global_chat_messages WHERE session_id = ${sessionId} AND message_id = ${messageId}`;
+  sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND message_id = ${messageId}`;
 
 const getFirstMessage = (sql: SqlClient, sessionId: string) =>
-  sql<MessageRow>`SELECT * FROM global_chat_messages WHERE session_id = ${sessionId} AND role = 'user' ORDER BY sequence ASC LIMIT 1`;
+  sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND role = 'user' ORDER BY sequence ASC LIMIT 1`;
 
 const getPiConversationId = (sql: SqlClient, sessionId: string) =>
   Effect.gen(function* () {
-    const rows = yield* sql<PiContextRow>`SELECT conversation_id FROM global_chat_session_pi_contexts WHERE session_id = ${sessionId}`;
+    const rows = yield* sql<PiContextRow>`SELECT conversation_id FROM chat_session_pi_contexts WHERE session_id = ${sessionId}`;
     if (!rows[0])
       throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
     return rows[0].conversation_id;
@@ -291,7 +291,7 @@ const appendEvent = (input: {
   readonly payload: GlobalChatSessionEvent;
   readonly createdAt: string;
 }) =>
-  input.sql`INSERT INTO global_chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.payload.type}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
+  input.sql`INSERT INTO chat_session_events (session_id, sequence, event_id, event_type, event_version, event_payload_json, created_at) VALUES (${input.sessionId}, ${input.sequence}, ${randomUUID()}, ${input.payload.type}, 1, ${JSON.stringify(input.payload)}, ${input.createdAt})`;
 
 const replayPromptResult = <Result extends SubmitGlobalChatSessionPromptResult>(
   sql: SqlClient,
@@ -308,7 +308,7 @@ const replayPromptResult = <Result extends SubmitGlobalChatSessionPromptResult>(
         "global_chat_session_recovery_required",
       );
     const sessions = yield* getSession(sql, sessionId);
-    const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE command_id = ${receipt.command_id}`;
+    const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE command_id = ${receipt.command_id}`;
     if (!sessions[0] || !turnRows[0])
       throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
     const messages = yield* getMessageById(
@@ -330,7 +330,7 @@ const replayCreateResult = (sql: SqlClient, sessionId: string) =>
     const result = yield* replayPromptResult<CreateGlobalChatSessionWithFirstPromptResult>(
       sql,
       sessionId,
-      (yield* sql<ReceiptRow>`SELECT * FROM global_chat_session_command_receipts WHERE session_id = ${sessionId} ORDER BY created_at ASC LIMIT 1`)[0]!,
+      (yield* sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE session_id = ${sessionId} ORDER BY created_at ASC LIMIT 1`)[0]!,
     );
     const firstMessage = yield* getFirstMessage(sql, sessionId);
     if (!firstMessage[0])
@@ -353,7 +353,7 @@ const admitPromptInTransaction = <Result extends SubmitGlobalChatSessionPromptRe
   },
 ) =>
   Effect.gen(function* () {
-    const receipt = yield* input.sql<ReceiptRow>`SELECT * FROM global_chat_session_command_receipts WHERE command_id = ${input.commandId}`;
+    const receipt = yield* input.sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE command_id = ${input.commandId}`;
     if (receipt[0]) {
       if (receipt[0].request_fingerprint !== input.fingerprint)
         throw new GlobalChatSessionServiceError("command_id_conflict");
@@ -369,10 +369,10 @@ const admitPromptInTransaction = <Result extends SubmitGlobalChatSessionPromptRe
     if (!rows[0])
       throw new GlobalChatSessionServiceError("global_chat_session_not_found");
     ensureOpen(rows[0]);
-    const runtimeRows = yield* input.sql<RuntimeConfigurationRow>`SELECT * FROM global_chat_session_runtime_configurations WHERE session_id = ${input.sessionId}`;
+    const runtimeRows = yield* input.sql<RuntimeConfigurationRow>`SELECT * FROM chat_session_runtime_configurations WHERE session_id = ${input.sessionId}`;
     if (!runtimeRows[0])
       throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
-    const activeTurns = yield* input.sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+    const activeTurns = yield* input.sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running') LIMIT 1`;
     if (activeTurns[0])
       throw new GlobalChatSessionServiceError(
         "global_chat_session_turn_in_progress",
@@ -417,15 +417,15 @@ const admitPromptInTransaction = <Result extends SubmitGlobalChatSessionPromptRe
       },
       createdAt: now,
     });
-    yield* input.sql`INSERT INTO global_chat_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${userMessageId}, 'user', ${input.prompt}, ${baseSequence + 1}, ${turnId}, ${now})`;
-    yield* input.sql`INSERT INTO global_chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, provider_id, model_id, thinking_level, state, draft_text, created_at, updated_at) VALUES (${input.sessionId}, ${turnId}, ${input.commandId}, ${userMessageId}, ${assistantMessageId}, ${runtime.providerId}, ${runtime.modelId}, ${runtime.defaultThinkingLevel}, 'running', '', ${now}, ${now})`;
-    yield* input.sql`UPDATE global_chat_session_pi_contexts SET last_turn_id = ${turnId}, updated_at = ${now} WHERE session_id = ${input.sessionId}`;
-    yield* input.sql`INSERT INTO global_chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${input.fingerprint}, ${input.sessionId}, 'pending', ${baseSequence + 2}, ${now}, ${now})`;
-    yield* input.sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${baseSequence + 2} WHERE session_id = ${input.sessionId}`;
+    yield* input.sql`INSERT INTO chat_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${userMessageId}, 'user', ${input.prompt}, ${baseSequence + 1}, ${turnId}, ${now})`;
+    yield* input.sql`INSERT INTO chat_session_turns (session_id, turn_id, command_id, user_message_id, assistant_message_id, provider_id, model_id, thinking_level, state, draft_text, created_at, updated_at) VALUES (${input.sessionId}, ${turnId}, ${input.commandId}, ${userMessageId}, ${assistantMessageId}, ${runtime.providerId}, ${runtime.modelId}, ${runtime.defaultThinkingLevel}, 'running', '', ${now}, ${now})`;
+    yield* input.sql`UPDATE chat_session_pi_contexts SET last_turn_id = ${turnId}, updated_at = ${now} WHERE session_id = ${input.sessionId}`;
+    yield* input.sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${input.fingerprint}, ${input.sessionId}, 'pending', ${baseSequence + 2}, ${now}, ${now})`;
+    yield* input.sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${baseSequence + 2} WHERE session_id = ${input.sessionId}`;
 
     const updated = yield* getSession(input.sql, input.sessionId);
     const userRows = yield* getMessageById(input.sql, input.sessionId, userMessageId);
-    const turnRows = yield* input.sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${turnId}`;
+    const turnRows = yield* input.sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${turnId}`;
     if (!updated[0] || !userRows[0] || !turnRows[0])
       throw new GlobalChatSessionServiceError("global_chat_session_unavailable");
     return {
@@ -449,7 +449,7 @@ export const createGlobalChatSessionRepository = (options: {
       options.databasePath,
       Effect.gen(function* () {
         const sql = yield* SqlClient;
-        const rows = yield* sql<SessionRow>`SELECT * FROM global_chat_sessions ORDER BY updated_at DESC, session_id DESC`;
+        const rows = yield* sql<SessionRow>`SELECT * FROM chat_sessions WHERE kind = 'global' ORDER BY updated_at DESC, session_id DESC`;
         return { sessions: rows.map(toSummary) };
       }),
     ),
@@ -467,7 +467,7 @@ export const createGlobalChatSessionRepository = (options: {
         const fp = createFingerprint(input);
         return yield* sql.withTransaction(
           Effect.gen(function* () {
-            const receipt = yield* sql<ReceiptRow>`SELECT * FROM global_chat_session_command_receipts WHERE command_id = ${input.commandId}`;
+            const receipt = yield* sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE command_id = ${input.commandId}`;
             if (receipt[0]) {
               if (receipt[0].request_fingerprint !== fp)
                 throw new GlobalChatSessionServiceError("command_id_conflict");
@@ -481,6 +481,7 @@ export const createGlobalChatSessionRepository = (options: {
             const now = new Date().toISOString();
             const firstPrompt = input.firstPrompt.trim();
             const title = deriveGlobalChatSessionInitialTitle(firstPrompt);
+            yield* sql`INSERT INTO chat_sessions (session_id, kind, title, archived_at, created_at, updated_at, last_sequence) VALUES (${sessionId}, 'global', ${title}, NULL, ${now}, ${now}, 2)`;
             yield* appendEvent({
               sql,
               sessionId,
@@ -511,9 +512,8 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`INSERT INTO global_chat_sessions (session_id, title, archived_at, created_at, updated_at, last_sequence) VALUES (${sessionId}, ${title}, NULL, ${now}, ${now}, 2)`;
-            yield* sql`INSERT INTO global_chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, 'anthropic', 'claude-sonnet-4-5', 'off', 1, ${now}, ${now})`;
-            yield* sql`INSERT INTO global_chat_session_pi_contexts (session_id, conversation_id, created_at, updated_at) VALUES (${sessionId}, ${sessionId}, ${now}, ${now})`;
+            yield* sql`INSERT INTO chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, 'anthropic', 'claude-sonnet-4-5', 'off', 1, ${now}, ${now})`;
+            yield* sql`INSERT INTO chat_session_pi_contexts (session_id, conversation_id, created_at, updated_at) VALUES (${sessionId}, ${sessionId}, ${now}, ${now})`;
             const admitted = yield* admitPromptInTransaction<CreateGlobalChatSessionWithFirstPromptResult>({
               sql,
               sessionId,
@@ -577,7 +577,7 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const runtimeRows = yield* sql<RuntimeConfigurationRow>`SELECT * FROM global_chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
+        const runtimeRows = yield* sql<RuntimeConfigurationRow>`SELECT * FROM chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
         if (!runtimeRows[0])
           throw new GlobalChatSessionServiceError(
             "global_chat_session_unavailable",
@@ -601,14 +601,14 @@ export const createGlobalChatSessionRepository = (options: {
         const fp = runtimeFingerprint(sessionId, input);
         return yield* sql.withTransaction(
           Effect.gen(function* () {
-            const receipt = yield* sql<ReceiptRow>`SELECT * FROM global_chat_session_command_receipts WHERE command_id = ${input.commandId}`;
+            const receipt = yield* sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE command_id = ${input.commandId}`;
             if (receipt[0]) {
               if (receipt[0].request_fingerprint !== fp)
                 throw new GlobalChatSessionServiceError("command_id_conflict");
               const rows = yield* getSession(sql, sessionId);
               const runtimeEvents = yield* sql<{
                 event_payload_json: string;
-              }>`SELECT event_payload_json FROM global_chat_session_events WHERE session_id = ${sessionId} AND event_type = 'GlobalChatSessionRuntimeConfiguredV1' AND json_extract(event_payload_json, '$.commandId') = ${input.commandId} LIMIT 1`;
+              }>`SELECT event_payload_json FROM chat_session_events WHERE session_id = ${sessionId} AND event_type = 'GlobalChatSessionRuntimeConfiguredV1' AND json_extract(event_payload_json, '$.commandId') = ${input.commandId} LIMIT 1`;
               if (!rows[0] || !runtimeEvents[0])
                 throw new GlobalChatSessionServiceError(
                   "global_chat_session_unavailable",
@@ -633,12 +633,12 @@ export const createGlobalChatSessionRepository = (options: {
                 "global_chat_session_not_found",
               );
             ensureOpen(rows[0]);
-            const activeTurns = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+            const activeTurns = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
             if (activeTurns[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_turn_in_progress",
               );
-            const runtimeRows = yield* sql<RuntimeConfigurationRow>`SELECT * FROM global_chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
+            const runtimeRows = yield* sql<RuntimeConfigurationRow>`SELECT * FROM chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
             if (!runtimeRows[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_unavailable",
@@ -668,11 +668,11 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`UPDATE global_chat_session_runtime_configurations SET provider_id = ${input.providerId}, model_id = ${input.modelId}, default_thinking_level = ${input.defaultThinkingLevel}, revision = ${nextRevision}, updated_at = ${now} WHERE session_id = ${sessionId}`;
-            yield* sql`INSERT INTO global_chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${sessionId}, 'succeeded', ${sequence}, ${now}, ${now})`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${sessionId}`;
+            yield* sql`UPDATE chat_session_runtime_configurations SET provider_id = ${input.providerId}, model_id = ${input.modelId}, default_thinking_level = ${input.defaultThinkingLevel}, revision = ${nextRevision}, updated_at = ${now} WHERE session_id = ${sessionId}`;
+            yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${sessionId}, 'succeeded', ${sequence}, ${now}, ${now})`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${sessionId}`;
             const updated = yield* getSession(sql, sessionId);
-            const updatedRuntime = yield* sql<RuntimeConfigurationRow>`SELECT * FROM global_chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
+            const updatedRuntime = yield* sql<RuntimeConfigurationRow>`SELECT * FROM chat_session_runtime_configurations WHERE session_id = ${sessionId}`;
             if (!updated[0] || !updatedRuntime[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_unavailable",
@@ -699,7 +699,7 @@ export const createGlobalChatSessionRepository = (options: {
         return yield* sql.withTransaction(
           Effect.gen(function* () {
             const rows = yield* getSession(sql, input.sessionId);
-            const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!rows[0] || !turnRows[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_unavailable",
@@ -724,13 +724,13 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`INSERT INTO global_chat_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${messageId}, 'assistant', ${input.text}, ${sequence}, ${input.turnId}, ${now})`;
-            yield* sql`UPDATE global_chat_session_turns SET state = 'completed', draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
-            yield* sql`UPDATE global_chat_session_command_receipts SET status = 'succeeded', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
+            yield* sql`INSERT INTO chat_session_messages (session_id, message_id, role, text, sequence, turn_id, created_at) VALUES (${input.sessionId}, ${messageId}, 'assistant', ${input.text}, ${sequence}, ${input.turnId}, ${now})`;
+            yield* sql`UPDATE chat_session_turns SET state = 'completed', draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE chat_session_command_receipts SET status = 'succeeded', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
             const userRows = yield* getMessageById(sql, input.sessionId, turnRows[0].user_message_id);
             const updated = yield* getSession(sql, input.sessionId);
-            const updatedTurn = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const updatedTurn = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!userRows[0] || !updated[0] || !updatedTurn[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_unavailable",
@@ -758,7 +758,7 @@ export const createGlobalChatSessionRepository = (options: {
         return yield* sql.withTransaction(
           Effect.gen(function* () {
             const rows = yield* getSession(sql, input.sessionId);
-            const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!rows[0] || !turnRows[0]) return;
             if (!["queued", "running"].includes(turnRows[0].state)) return;
             const details = failureDetails(input.reason);
@@ -784,9 +784,9 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`UPDATE global_chat_session_turns SET state = 'failed', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
-            yield* sql`UPDATE global_chat_session_command_receipts SET status = 'failed', terminal_error_code = ${input.reason}, committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
+            yield* sql`UPDATE chat_session_turns SET state = 'failed', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE chat_session_command_receipts SET status = 'failed', terminal_error_code = ${input.reason}, committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${input.commandId}`;
           }),
         );
       }),
@@ -809,7 +809,7 @@ export const createGlobalChatSessionRepository = (options: {
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_not_found",
               );
-            const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!turnRows[0])
               throw new GlobalChatSessionServiceError("turn_not_found");
             if (turnRows[0].state === "interrupted")
@@ -832,11 +832,11 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`UPDATE global_chat_session_turns SET state = 'interrupted', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
-            yield* sql`UPDATE global_chat_session_command_receipts SET status = 'failed', terminal_error_code = 'agent_turn_failed', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
+            yield* sql`UPDATE chat_session_turns SET state = 'interrupted', failure_reason = ${input.reason}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE chat_session_command_receipts SET status = 'failed', terminal_error_code = 'agent_turn_failed', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
             const updated = yield* getSession(sql, input.sessionId);
-            const updatedTurn = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const updatedTurn = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!updated[0] || !updatedTurn[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_unavailable",
@@ -862,7 +862,7 @@ export const createGlobalChatSessionRepository = (options: {
         return yield* sql.withTransaction(
           Effect.gen(function* () {
             const rows = yield* getSession(sql, input.sessionId);
-            const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             if (!rows[0] || !turnRows[0]) return;
             if (!["queued", "running"].includes(turnRows[0].state)) return;
             const now = new Date().toISOString();
@@ -882,8 +882,8 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`UPDATE global_chat_session_turns SET draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE chat_session_turns SET draft_text = ${input.text}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
           }),
         );
       }),
@@ -929,7 +929,7 @@ export const createGlobalChatSessionRepository = (options: {
           },
           createdAt: now,
         });
-        yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+        yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
       }),
     );
   },
@@ -975,7 +975,7 @@ export const createGlobalChatSessionRepository = (options: {
           },
           createdAt: now,
         });
-        yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+        yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
       }),
     );
   },
@@ -993,7 +993,7 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const messages = yield* sql<MessageRow>`SELECT * FROM global_chat_messages WHERE session_id = ${sessionId} AND sequence < ${sequence} ORDER BY sequence ASC`;
+        const messages = yield* sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND sequence < ${sequence} ORDER BY sequence ASC`;
         return messages.map((message) => ({
           role: message.role,
           text: message.text,
@@ -1013,9 +1013,9 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const messages = yield* sql<MessageRow>`SELECT * FROM global_chat_messages WHERE session_id = ${sessionId} ORDER BY sequence ASC`;
-        const activeTurns = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') ORDER BY updated_at DESC LIMIT 1`;
-        const latestTurns = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${sessionId} ORDER BY updated_at DESC, turn_id DESC LIMIT 1`;
+        const messages = yield* sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} ORDER BY sequence ASC`;
+        const activeTurns = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') ORDER BY updated_at DESC LIMIT 1`;
+        const latestTurns = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} ORDER BY updated_at DESC, turn_id DESC LIMIT 1`;
         return {
           session: toSummary(rows[0]),
           messages: messages.map(toMessage),
@@ -1038,7 +1038,7 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const eventRows = yield* sql<EventRow>`SELECT session_id, sequence, event_type, event_payload_json, created_at FROM global_chat_session_events WHERE session_id = ${sessionId} AND sequence > ${after} ORDER BY sequence ASC`;
+        const eventRows = yield* sql<EventRow>`SELECT session_id, sequence, event_type, event_payload_json, created_at FROM chat_session_events WHERE session_id = ${sessionId} AND sequence > ${after} ORDER BY sequence ASC`;
         return eventRows.map(toEventEnvelope);
       }),
     ),
@@ -1053,7 +1053,7 @@ export const createGlobalChatSessionRepository = (options: {
         const sql = yield* SqlClient;
         return yield* sql.withTransaction(
           Effect.gen(function* () {
-            const turnRows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            const turnRows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
             const sessions = yield* getSession(sql, input.sessionId);
             if (!turnRows[0] || !sessions[0]) return;
             if (!["queued", "running"].includes(turnRows[0].state)) return;
@@ -1075,9 +1075,9 @@ export const createGlobalChatSessionRepository = (options: {
               },
               createdAt: now,
             });
-            yield* sql`UPDATE global_chat_session_turns SET state = 'recovery_required', failure_reason = 'global_chat_session_recovery_required', updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
-            yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
-            yield* sql`UPDATE global_chat_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'global_chat_session_recovery_required', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
+            yield* sql`UPDATE chat_session_turns SET state = 'recovery_required', failure_reason = 'global_chat_session_recovery_required', updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+            yield* sql`UPDATE chat_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'global_chat_session_recovery_required', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
           }),
         );
       }),
@@ -1089,7 +1089,7 @@ export const createGlobalChatSessionRepository = (options: {
       options.databasePath,
       Effect.gen(function* () {
         const sql = yield* SqlClient;
-        const rows = yield* sql<TurnRow>`SELECT * FROM global_chat_session_turns WHERE state IN ('queued', 'running')`;
+        const rows = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE state IN ('queued', 'running')`;
         for (const turn of rows) {
           yield* sql.withTransaction(
             Effect.gen(function* () {
@@ -1113,9 +1113,9 @@ export const createGlobalChatSessionRepository = (options: {
                 },
                 createdAt: now,
               });
-              yield* sql`UPDATE global_chat_session_turns SET state = 'recovery_required', failure_reason = 'global_chat_session_recovery_required', updated_at = ${now} WHERE session_id = ${turn.session_id} AND turn_id = ${turn.turn_id}`;
-              yield* sql`UPDATE global_chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${turn.session_id}`;
-              yield* sql`UPDATE global_chat_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'global_chat_session_recovery_required', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turn.command_id}`;
+              yield* sql`UPDATE chat_session_turns SET state = 'recovery_required', failure_reason = 'global_chat_session_recovery_required', updated_at = ${now} WHERE session_id = ${turn.session_id} AND turn_id = ${turn.turn_id}`;
+              yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${turn.session_id}`;
+              yield* sql`UPDATE chat_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'global_chat_session_recovery_required', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turn.command_id}`;
             }),
           );
         }

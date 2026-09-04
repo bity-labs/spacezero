@@ -147,7 +147,7 @@ describe("Global Chat Session Host protocol", () => {
       expect(
         readRows<{ role: string; text: string; sequence: number }>(
           databasePath,
-          "SELECT role, text, sequence FROM global_chat_messages WHERE session_id = ? ORDER BY sequence ASC",
+          "SELECT role, text, sequence FROM chat_session_messages WHERE session_id = ? ORDER BY sequence ASC",
           body.session.id as string,
         ),
       ).toEqual([
@@ -171,7 +171,7 @@ describe("Global Chat Session Host protocol", () => {
       last_sequence: number;
     }>(
       databasePath,
-      "SELECT session_id, title, archived_at, last_sequence FROM global_chat_sessions",
+      "SELECT session_id, title, archived_at, last_sequence FROM chat_sessions WHERE kind = 'global'",
     );
     expect(sessions).toEqual([
       {
@@ -183,16 +183,23 @@ describe("Global Chat Session Host protocol", () => {
     ]);
     const sessionColumns = readRows<{ name: string }>(
       databasePath,
-      "PRAGMA table_info(global_chat_sessions)",
+      "PRAGMA table_info(chat_sessions)",
     ).map((row) => row.name);
     expect(sessionColumns).not.toContain("project_id");
     expect(sessionColumns).not.toContain("worktree_path");
     expect(sessionColumns).not.toContain("managed_branch");
     expect(sessionColumns).not.toContain("source_commit");
     expect(
+      readRows<{ count: number }>(
+        databasePath,
+        "SELECT count(*) AS count FROM project_session_bindings WHERE session_id = ?",
+        body.session.id as string,
+      )[0]?.count,
+    ).toBe(0);
+    expect(
       readRows<{ event_type: string; sequence: number }>(
         databasePath,
-        "SELECT event_type, sequence FROM global_chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
+        "SELECT event_type, sequence FROM chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
         body.session.id as string,
       ),
     ).toEqual([
