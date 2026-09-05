@@ -13,6 +13,7 @@ const availableModels = [
     modelLabel: "Claude Sonnet 4.5",
     description: "Fast, capable model for everyday coding work.",
     supportsThinking: true,
+    supportedThinkingLevels: ["off", "low", "medium", "high", "max"],
   },
   {
     providerId: "anthropic",
@@ -21,6 +22,7 @@ const availableModels = [
     modelLabel: "Claude Opus 4.1",
     description: "Highest-capability model for complex tasks.",
     supportsThinking: true,
+    supportedThinkingLevels: ["off", "low", "medium", "high", "max"],
   },
   {
     providerId: "openai",
@@ -29,6 +31,7 @@ const availableModels = [
     modelLabel: "GPT-5.2",
     description: "General-purpose reasoning and coding model.",
     supportsThinking: true,
+    supportedThinkingLevels: ["off", "low", "medium", "high"],
   },
 ] satisfies ModelsSettingsScreenProps["availableModels"];
 
@@ -146,7 +149,45 @@ export const Empty: Story = {
       },
     },
     availableModels: [],
-    modelDefaults: { defaultThinking: "medium" },
+    modelDefaults: null,
+  },
+};
+
+export const AvailableModels: Story = {
+  args: {
+    ...connectedArgs,
+    modelDefaults: null,
+  },
+};
+
+export const UnavailableDefault: Story = {
+  args: {
+    ...connectedArgs,
+    availableModels: [availableModels[2]!],
+    modelDefaults: {
+      defaultModel: { providerId: "anthropic", modelId: "claude-opus-4-1" },
+      defaultThinking: "high",
+    },
+  },
+};
+
+export const ThinkingFallback: Story = {
+  args: {
+    ...connectedArgs,
+    availableModels: [
+      {
+        providerId: "mistral",
+        providerLabel: "Mistral",
+        modelId: "mistral-medium",
+        modelLabel: "Mistral Medium",
+        supportsThinking: false,
+        supportedThinkingLevels: ["off"],
+      },
+    ],
+    modelDefaults: {
+      defaultModel: { providerId: "mistral", modelId: "mistral-medium" },
+      defaultThinking: "off",
+    },
   },
 };
 

@@ -28,13 +28,13 @@ import { SettingsPageHeader } from "./components/settings-page-header";
 import { SettingsRow } from "./components/settings-row";
 import { SettingsSection } from "./components/settings-section";
 
-type AuthProviderOption = {
+export type AuthProviderOption = {
   providerId: string;
   label: string;
   description?: string;
 };
 
-type AuthProviderStatus = {
+export type AuthProviderStatus = {
   providerId: string;
   label: string;
   configured: boolean;
@@ -43,7 +43,7 @@ type AuthProviderStatus = {
   removable: boolean;
 };
 
-type ModelAuthSettings = {
+export type ModelAuthSettings = {
   subscriptions: {
     connected: AuthProviderStatus[];
     availableProviders: AuthProviderOption[];
@@ -54,21 +54,22 @@ type ModelAuthSettings = {
   };
 };
 
-type AvailableModel = {
+export type AvailableModel = {
   providerId: string;
   providerLabel: string;
   modelId: string;
   modelLabel: string;
   description?: string;
   supportsThinking: boolean;
+  supportedThinkingLevels?: readonly ThinkingLevel[];
 };
 
-type ModelDefaults = {
+export type ModelDefaults = {
   defaultModel?: { providerId: string; modelId: string };
   defaultThinking?: ThinkingLevel;
 };
 
-type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
@@ -245,6 +246,7 @@ function ModelDefaultsCard({
 }): ReactElement {
   const selectedModel = findSelectedModel(availableModels, modelDefaults?.defaultModel);
   const hasUnavailableDefault = Boolean(modelDefaults?.defaultModel && !selectedModel);
+  const thinkingOptions = defaultThinkingOptions(selectedModel);
 
   return (
     <>
@@ -270,7 +272,7 @@ function ModelDefaultsCard({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    {THINKING_LEVELS.map((level) => (
+                    {thinkingOptions.map((level) => (
                       <SelectItem key={level} value={level}>{getThinkingLevelLabel(level)}</SelectItem>
                     ))}
                   </SelectGroup>
@@ -560,6 +562,17 @@ function filterModels(models: AvailableModel[], query: string): AvailableModel[]
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return models;
   return models.filter((model) => `${model.providerLabel} ${model.modelLabel} ${model.modelId}`.toLowerCase().includes(normalizedQuery));
+}
+
+/**
+ * The default thinking picker only offers thinking levels supported by the
+ * selected default model. Without a selected model (or thinking metadata)
+ * every supported level is offered so the picker stays usable.
+ */
+export function defaultThinkingOptions(selectedModel?: AvailableModel): ThinkingLevel[] {
+  const supported = selectedModel?.supportedThinkingLevels;
+  if (supported && supported.length > 0) return [...supported];
+  return [...THINKING_LEVELS];
 }
 
 function getThinkingLevelLabel(level: ThinkingLevel): string {
