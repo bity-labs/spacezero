@@ -47,7 +47,10 @@ export function authSettingsFromProviderOptions(
           label: provider.displayName,
           configured: true,
           displayLabel: SUBSCRIPTION_CONNECTED_LABEL,
-          removable: false,
+          // Removing the stored credential (OAuth included) is a supported
+          // Host capability; removal also auto-reconciles Host-global
+          // defaults so new Session creation keeps working.
+          removable: true,
         })),
       availableProviders: providers
         .filter(
