@@ -247,6 +247,32 @@ export const startHostServer = async (options: {
     databasePath,
     modelCatalog,
   });
+
+  /**
+   * Runs a defaults sync after successful provider auth without masking the
+   * auth result. A failed sync is diagnosed on stderr (client-safe context
+   * only: operation, provider id, and error code) so it is never silent;
+   * the next auth operation or defaults update retries the sync.
+   */
+  const bestEffortDefaultsSync = (
+    operation: "initializeAfterAuth" | "reconcileAfterAuthRemoval",
+    providerId: string,
+    sync: Promise<unknown>,
+  ): Promise<void> =>
+    sync.then(
+      () => undefined,
+      (cause: unknown) => {
+        const error =
+          cause instanceof AgentRuntimeDefaultsServiceError
+            ? cause.code
+            : "unknown";
+        console.warn("agent-runtime defaults sync failed", {
+          operation,
+          providerId,
+          error,
+        });
+      },
+    );
   const privatePiStateRepository = createPiPrivateSessionStateRepository({
     directory: join(dirname(databasePath), "private-pi-state"),
   });
@@ -613,9 +639,11 @@ export const startHostServer = async (options: {
                 .then(async (status) => {
                   // The login completed; initialize Host-global defaults
                   // best-effort before reporting the completed flow.
-                  await agentRuntimeDefaults
-                    .initializeAfterAuth(params.providerId)
-                    .catch(() => undefined);
+                  await bestEffortDefaultsSync(
+                    "initializeAfterAuth",
+                    params.providerId,
+                    agentRuntimeDefaults.initializeAfterAuth(params.providerId),
+                  );
                   return status;
                 }),
             );
@@ -648,9 +676,11 @@ export const startHostServer = async (options: {
             // The auth save succeeded; keep Host-global defaults in sync
             // best-effort so a failed catalog read never masks the auth
             // result. Retrying the auth operation retries the sync.
-            await agentRuntimeDefaults
-              .initializeAfterAuth(params.providerId)
-              .catch(() => undefined);
+            await bestEffortDefaultsSync(
+              "initializeAfterAuth",
+              params.providerId,
+              agentRuntimeDefaults.initializeAfterAuth(params.providerId),
+            );
             return { status: result };
           }).pipe(Effect.mapError(harnessAuthHttpError));
         },
@@ -670,9 +700,11 @@ export const startHostServer = async (options: {
             const result = await providerAuth.removeApiKey(params.providerId);
             // Best-effort sync: clearing or replacing an unavailable default
             // must never mask a successful auth removal.
-            await agentRuntimeDefaults
-              .reconcileAfterAuthRemoval(params.providerId)
-              .catch(() => undefined);
+            await bestEffortDefaultsSync(
+              "reconcileAfterAuthRemoval",
+              params.providerId,
+              agentRuntimeDefaults.reconcileAfterAuthRemoval(params.providerId),
+            );
             return { status: result };
           }).pipe(Effect.mapError(harnessAuthHttpError));
         },

@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HostConnectionDescriptor } from "@spacezero/host-contracts";
 import { parseFlowEventEnvelope } from "@spacezero/host-contracts";
 import type {
@@ -458,8 +458,21 @@ describe("Host-global defaults sync with provider auth", () => {
       },
     });
 
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const set = await setApiKey(descriptor, "anthropic", "sk-ant-secret-marker");
     expect(set.status).toBe(200);
+
+    // The skipped sync is diagnosed, not silent; the warning carries only
+    // client-safe context (no secrets, no raw errors).
+    expect(warn).toHaveBeenCalledWith(
+      "agent-runtime defaults sync failed",
+      expect.objectContaining({
+        operation: "initializeAfterAuth",
+        providerId: "anthropic",
+        error: expect.any(String),
+      }),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-ant-secret-marker");
 
     const defaults = await getDefaults(descriptor);
     expect(defaults.status).toBe(200);
