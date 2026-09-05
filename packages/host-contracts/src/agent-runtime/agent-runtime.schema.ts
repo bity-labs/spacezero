@@ -59,3 +59,52 @@ export const AgentModelDescriptorSchema = Schema.Struct({
 export const ListAgentRuntimeModelsResultSchema = Schema.Struct({
   models: Schema.Array(AgentModelDescriptorSchema),
 });
+
+export interface AgentRuntimeDefaultModel {
+  readonly providerId: string;
+  readonly modelId: string;
+}
+
+export interface AgentRuntimeDefaults {
+  readonly defaultModel: AgentRuntimeDefaultModel | null;
+  readonly defaultThinkingLevel: AgentThinkingLevel | null;
+}
+
+export interface GetAgentRuntimeDefaultsResult {
+  readonly defaults: AgentRuntimeDefaults;
+}
+
+export interface UpdateAgentRuntimeDefaultsRequest {
+  readonly defaultModel?: AgentRuntimeDefaultModel;
+  readonly defaultThinkingLevel?: AgentThinkingLevel;
+}
+
+export interface UpdateAgentRuntimeDefaultsResult {
+  readonly defaults: AgentRuntimeDefaults;
+}
+
+export const AgentRuntimeDefaultModelSchema = Schema.Struct({
+  providerId: Schema.String.check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(128),
+  ),
+  modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
+});
+
+export const AgentRuntimeDefaultsSchema = Schema.Struct({
+  defaultModel: Schema.NullOr(AgentRuntimeDefaultModelSchema),
+  defaultThinkingLevel: Schema.NullOr(AgentThinkingLevelSchema),
+});
+
+export const GetAgentRuntimeDefaultsResultSchema = Schema.Struct({
+  defaults: AgentRuntimeDefaultsSchema,
+});
+
+export const UpdateAgentRuntimeDefaultsRequestSchema = Schema.Struct({
+  defaultModel: Schema.optionalKey(AgentRuntimeDefaultModelSchema),
+  defaultThinkingLevel: Schema.optionalKey(AgentThinkingLevelSchema),
+});
+
+export const UpdateAgentRuntimeDefaultsResultSchema = Schema.Struct({
+  defaults: AgentRuntimeDefaultsSchema,
+});

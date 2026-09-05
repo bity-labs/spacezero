@@ -4,7 +4,7 @@ import { createLocalHostConnectionClient } from "./local-host-connection-client.
 const descriptor = {
   endpoint: "http://127.0.0.1:1234/",
   instanceId: "0123456789abcdef0123456789abcdef",
-  protocolVersion: "3" as const,
+  protocolVersion: "4" as const,
   clientCapability: "abcdefghijklmnopqrstuvwxyzabcdef0123456789ABCD",
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
   scopes: [
@@ -27,7 +27,7 @@ const sse = (): ReadableStream<Uint8Array> =>
     start(controller) {
       controller.enqueue(
         new TextEncoder().encode(
-          `id: 1\nevent: host.connected\ndata: {"type":"host.connected","instanceId":"${descriptor.instanceId}","protocolVersion":"3"}\n\n`,
+          `id: 1\nevent: host.connected\ndata: {"type":"host.connected","instanceId":"${descriptor.instanceId}","protocolVersion":"4"}\n\n`,
         ),
       );
     },
@@ -44,7 +44,7 @@ describe("createLocalHostConnectionClient", () => {
           return new Response(
             JSON.stringify({
               instanceId: descriptor.instanceId,
-              protocolVersion: "3",
+              protocolVersion: "4",
               status: "ready",
             }),
           );
@@ -60,13 +60,13 @@ describe("createLocalHostConnectionClient", () => {
     await expect(client.connect()).resolves.toEqual({
       snapshot: {
         instanceId: descriptor.instanceId,
-        protocolVersion: "3",
+        protocolVersion: "4",
         status: "ready",
       },
       event: {
         type: "host.connected",
         instanceId: descriptor.instanceId,
-        protocolVersion: "3",
+        protocolVersion: "4",
       },
     });
     expect(requests).toHaveLength(2);
@@ -114,7 +114,7 @@ describe("createLocalHostConnectionClient", () => {
           return new Response(
             JSON.stringify({
               instanceId: descriptor.instanceId,
-              protocolVersion: "3",
+              protocolVersion: "4",
               status: "ready",
             }),
             { headers: { "content-type": "application/json" } },

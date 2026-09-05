@@ -15,8 +15,10 @@ import {
   flowErrorBody,
   globalChatSessionErrorBody,
   harnessAuthErrorBody,
+  agentRuntimeErrorBody,
   projectErrorBody,
   projectSessionErrorBody,
+  type AgentRuntimeError,
   type FlowError,
   type GlobalChatSessionError,
   type GlobalChatSessionEventEnvelope,
@@ -35,6 +37,8 @@ import {
   ProjectServiceError,
 } from "../features/projects/projects.service.js";
 import { createSkillDiscoveryService } from "../features/agent-resources/skill-discovery.service.js";
+import { createAgentRuntimeDefaultsService } from "../features/agent-runtime/agent-runtime-defaults.service.js";
+import { AgentRuntimeDefaultsServiceError } from "../features/agent-runtime/agent-runtime-defaults.model.js";
 import { createGlobalChatSessionService } from "../features/global-chat-sessions/global-chat-session.service.js";
 import { GlobalChatSessionServiceError } from "../features/global-chat-sessions/global-chat-session.model.js";
 import { createProjectSessionService } from "../features/project-sessions/project-session.service.js";
@@ -79,6 +83,7 @@ type AuthScope =
   | "harness-auth:read"
   | "harness-auth:write"
   | "agent-runtime:read"
+  | "agent-runtime:write"
   | "agent-resources:read"
   | "flows:read"
   | "flows:write"
@@ -180,6 +185,11 @@ const harnessAuthHttpError = (error: unknown): HarnessAuthError => {
     return harnessAuthErrorBody(error.code);
   return harnessAuthErrorBody("harness_auth_unavailable");
 };
+const agentRuntimeHttpError = (error: unknown): AgentRuntimeError => {
+  if (error instanceof AgentRuntimeDefaultsServiceError)
+    return agentRuntimeErrorBody(error.code);
+  return agentRuntimeErrorBody("agent_runtime_unavailable");
+};
 const flowHttpError = (error: unknown): FlowError => {
   if (error instanceof FlowRegistryError) return flowErrorBody(error.code);
   return flowErrorBody("flow_unavailable");
@@ -233,6 +243,10 @@ export const startHostServer = async (options: {
     credentials: credentialStore,
   });
   const modelCatalog = options.modelCatalog ?? piRuntimeServices.modelCatalog;
+  const agentRuntimeDefaults = createAgentRuntimeDefaultsService({
+    databasePath,
+    modelCatalog,
+  });
   const privatePiStateRepository = createPiPrivateSessionStateRepository({
     directory: join(dirname(databasePath), "private-pi-state"),
   });
@@ -669,6 +683,38 @@ export const startHostServer = async (options: {
                 return authorizationError("forbidden");
               return authorizationError("forbidden");
             }),
+          );
+        },
+        getAgentRuntimeDefaults: ({ headers, request }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-runtime:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => agentRuntimeDefaults.get()).pipe(
+            Effect.mapError(agentRuntimeHttpError),
+          );
+        },
+        updateAgentRuntimeDefaults: ({ headers, request, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "agent-runtime:write",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() => agentRuntimeDefaults.update(payload)).pipe(
+            Effect.mapError(agentRuntimeHttpError),
           );
         },
       }),
