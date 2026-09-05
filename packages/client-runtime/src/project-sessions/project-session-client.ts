@@ -56,6 +56,7 @@ export interface ProjectSessionClient {
   readonly enqueueFollowUp: (
     sessionId: string,
     prompt: string,
+    commandId?: ProjectSessionCommandId,
   ) => Promise<EnqueueProjectSessionFollowUpResult>;
   readonly cancelFollowUp: (
     sessionId: string,
@@ -376,13 +377,13 @@ export const createProjectSessionClient = (
         Array.isArray(result) ? result[0] : result
       ) as ListProjectSessionFollowUpsResult;
     },
-    enqueueFollowUp: async (sessionId, prompt) => {
+    enqueueFollowUp: async (sessionId, prompt, commandId) => {
       const current = await descriptor();
       const result = await runClient(current, fetchImpl, (client) =>
         client.projectSessions.enqueueProjectSessionFollowUp({
           headers: { authorization: `Bearer ${current.clientCapability}` },
           params: { sessionId },
-          payload: { commandId: createCommandId(), prompt },
+          payload: { commandId: commandId ?? createCommandId(), prompt },
         }),
       );
       return (
