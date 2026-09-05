@@ -6,7 +6,10 @@ import {
   createSavedConversationStore,
   type SavedConversationProjection,
 } from "./saved-conversation-projection.js";
-import type { ProjectSessionLiveEventEnvelope } from "@spacezero/host-contracts";
+import type {
+  ProjectSessionEventEnvelope,
+  ProjectSessionLiveEventEnvelope,
+} from "@spacezero/host-contracts";
 import type {
   GlobalChatSessionClient,
   ProjectSessionClient,
@@ -452,6 +455,87 @@ describe("saved conversation projection", () => {
       id: "active-assistant",
       text: "draft continues",
     });
+  });
+
+  it("does not advance the durable cursor past events excluded from an older history page", async () => {
+    let onEvent: ((event: ProjectSessionEventEnvelope) => void) | undefined;
+    const load = vi.fn(
+      async (options?: { beforeSequence?: number; limit?: number }) => {
+        if (options?.beforeSequence !== undefined) {
+          return {
+            lastSequence: 105,
+            messages: [
+              {
+                id: "old-user",
+                role: "user" as const,
+                text: "old prompt",
+                sequence: 1,
+                createdAt: timestamp,
+              },
+            ],
+            hasMoreOlder: false,
+          };
+        }
+        return {
+          lastSequence: 101,
+          messages: [
+            {
+              id: "recent-user",
+              role: "user" as const,
+              text: "recent prompt",
+              sequence: 100,
+              createdAt: timestamp,
+            },
+            {
+              id: "recent-assistant",
+              role: "assistant" as const,
+              text: "recent answer",
+              sequence: 101,
+              createdAt: timestamp,
+            },
+          ],
+          hasMoreOlder: true,
+        };
+      },
+    );
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load,
+      subscribeEvents: (input) => {
+        onEvent = input.onEvent;
+        return { cancel: () => undefined, closed: Promise.resolve() };
+      },
+    });
+
+    await store.load();
+    expect(store.getSnapshot().lastSequence).toBe(101);
+
+    await store.loadOlder();
+    expect(load).toHaveBeenLastCalledWith({ beforeSequence: 100, limit: 50 });
+    expect(store.getSnapshot().lastSequence).toBe(101);
+
+    onEvent?.({
+      sequence: 103,
+      eventType: "UserMessageSubmittedV1",
+      event: {
+        type: "UserMessageSubmittedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        messageId: "durable-user-after-page",
+        commandId: "command-after-older-page",
+        prompt: "durable prompt after older page",
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot().lastSequence).toBe(103);
+    expect(store.getSnapshot().messages.map((message) => message.id)).toEqual([
+      "old-user",
+      "recent-user",
+      "recent-assistant",
+      "durable-user-after-page",
+    ]);
   });
 
   it("loads Global Chat saved messages through the Global Chat client into the same projection shape", async () => {

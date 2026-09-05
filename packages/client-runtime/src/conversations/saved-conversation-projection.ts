@@ -1132,6 +1132,7 @@ export const createSavedConversationStore = ({
     readonly beforeSequence?: number;
     readonly limit?: number;
   }): Promise<SavedConversationProjection> => {
+    const isOlderPageLoad = options?.beforeSequence !== undefined;
     const loaded = await load(options);
     const loadedMessages = appendActiveDraft(
       sortMessages(loaded.messages),
@@ -1168,7 +1169,9 @@ export const createSavedConversationStore = ({
         loadingOlder: false,
       },
       queue: { followUps },
-      lastSequence: Math.max(snapshot.lastSequence, loaded.lastSequence),
+      lastSequence: isOlderPageLoad
+        ? snapshot.lastSequence
+        : Math.max(snapshot.lastSequence, loaded.lastSequence),
       runtime,
       connection: { status: "connected" },
       actions: actions({
