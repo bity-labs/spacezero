@@ -58,7 +58,7 @@ describe("authSettingsFromProviderOptions", () => {
         label: "Claude Pro/Max",
         configured: true,
         displayLabel: "Connected with subscription",
-        removable: false,
+        removable: true,
       },
     ]);
     expect(settings.subscriptions.availableProviders).toEqual([
