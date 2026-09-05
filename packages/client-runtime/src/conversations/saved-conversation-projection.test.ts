@@ -1203,7 +1203,7 @@ describe("saved conversation projection", () => {
       });
       await store.load();
 
-      const stopping = store.stop();
+      const stopping = store.stop({ sessionId, turnId: "turn-1" });
       expect(interruptTurn).toHaveBeenCalledWith({
         sessionId,
         turnId: "turn-1",
@@ -1243,12 +1243,107 @@ describe("saved conversation projection", () => {
         activeTurnId: "turn-2",
       });
       expect(store.getSnapshot().actions.stop).toBe("unavailable");
-      await expect(store.stop()).rejects.toThrow("stop unavailable");
+      await expect(store.stop({ sessionId, turnId: "turn-2" })).rejects.toThrow(
+        "stop unavailable",
+      );
       expect(interruptTurn).toHaveBeenCalledTimes(1);
 
       releaseInterrupt();
       await stopping;
       expect(store.getSnapshot().actions.stop).toBe("available");
+    },
+  );
+
+  it.each([
+    {
+      kind: "project" as const,
+      sessionId: "project-session-1",
+      interruptedEventType: "AgentTurnInterruptedV1" as const,
+      startedEventType: "AgentTurnStartedV1" as const,
+    },
+    {
+      kind: "global" as const,
+      sessionId: "global-session-1",
+      interruptedEventType: "GlobalChatAgentTurnInterruptedV1" as const,
+      startedEventType: "GlobalChatAgentTurnStartedV1" as const,
+    },
+  ])(
+    "ignores a stale $kind stop target after a follow-up turn becomes active",
+    async ({ kind, sessionId, interruptedEventType, startedEventType }) => {
+      let onEvent: ((event: unknown) => void) | undefined;
+      const interruptTurn = vi.fn(async () => undefined);
+      const store = createSavedConversationStore({
+        kind,
+        sessionId,
+        load: async () => ({
+          title: kind === "project" ? "margaux" : "Global prompt",
+          lastSequence: 4,
+          messages: [],
+          activeTurn: {
+            id: "turn-1",
+            commandId: "command-1",
+            state: "running" as const,
+            userMessageId: "user-1",
+            assistantMessageId: "assistant-1",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "partial answer",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        }),
+        subscribeEvents: (input) => {
+          onEvent = (event) => input.onEvent(event as never);
+          return { cancel: vi.fn(), closed: Promise.resolve() };
+        },
+        interruptTurn,
+      });
+      await store.load();
+
+      const staleStop = () => store.stop({ sessionId, turnId: "turn-1" });
+
+      onEvent?.({
+        sequence: 5,
+        eventType: interruptedEventType,
+        event: {
+          type: interruptedEventType,
+          version: 1,
+          sessionId,
+          turnId: "turn-1",
+          reason: "user_interrupted",
+          timestamp: "2026-01-01T00:00:05.000Z",
+        },
+      });
+      onEvent?.({
+        sequence: 6,
+        eventType: startedEventType,
+        event: {
+          type: startedEventType,
+          version: 1,
+          sessionId,
+          turnId: "turn-2",
+          messageId: "assistant-2",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off",
+          timestamp: "2026-01-01T00:00:06.000Z",
+        },
+      });
+
+      expect(store.getSnapshot().runtime).toMatchObject({
+        status: "running",
+        activeTurnId: "turn-2",
+      });
+      expect(store.getSnapshot().actions.stop).toBe("available");
+      await staleStop();
+      expect(interruptTurn).not.toHaveBeenCalled();
+
+      await store.stop({ sessionId, turnId: "turn-2" });
+      expect(interruptTurn).toHaveBeenCalledWith({
+        sessionId,
+        turnId: "turn-2",
+      });
     },
   );
 

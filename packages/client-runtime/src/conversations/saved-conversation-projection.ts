@@ -161,13 +161,18 @@ export interface SavedConversationProjection {
   };
 }
 
+export interface SavedConversationStopTarget {
+  readonly sessionId: string;
+  readonly turnId: string;
+}
+
 export interface SavedConversationStore {
   readonly getSnapshot: () => SavedConversationProjection;
   readonly subscribe: (listener: () => void) => () => void;
   readonly load: () => Promise<SavedConversationProjection>;
   readonly send: (prompt: string) => Promise<void>;
   readonly cancelFollowUp: (followUpId: string) => Promise<void>;
-  readonly stop: () => Promise<void>;
+  readonly stop: (target: SavedConversationStopTarget) => Promise<void>;
   readonly dispose: () => void;
 }
 
@@ -1408,13 +1413,16 @@ export const createSavedConversationStore = ({
         throw error;
       }
     },
-    stop: async () => {
+    stop: async (target) => {
+      if (target.sessionId !== currentSessionId) return;
       const turnId = snapshot.runtime.activeTurnId;
-      if (!turnId || !canStopActiveTurn()) throw new Error("stop unavailable");
+      if (snapshot.runtime.status !== "running" || turnId !== target.turnId)
+        return;
+      if (!canStopActiveTurn()) throw new Error("stop unavailable");
       const interrupt = interruptTurn;
       if (!interrupt) throw new Error("stop unavailable");
-      const interruptedSessionId = currentSessionId;
-      interruptingTurnId = turnId;
+      const interruptedSessionId = target.sessionId;
+      interruptingTurnId = target.turnId;
       publish({
         ...snapshot,
         actions: actions({
