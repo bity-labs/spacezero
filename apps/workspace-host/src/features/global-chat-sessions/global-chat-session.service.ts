@@ -109,7 +109,10 @@ export const createGlobalChatSessionService = (options: {
   });
   const locks = new Map<string, Promise<unknown>>();
 
-  const withSessionLock = async <A>(sessionId: string, run: () => Promise<A>) => {
+  const withSessionLock = async <A>(
+    sessionId: string,
+    run: () => Promise<A>,
+  ) => {
     const previous = locks.get(sessionId) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(run);
     locks.set(sessionId, current);
@@ -130,7 +133,18 @@ export const createGlobalChatSessionService = (options: {
     }
   };
 
-  const runTurn = async <Result extends { readonly turn: { readonly id: string; readonly assistantMessageId: string; readonly providerId: string; readonly modelId: string; readonly thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" } }>(input: {
+  const runTurn = async <
+    Result extends {
+      readonly turn: {
+        readonly id: string;
+        readonly assistantMessageId: string;
+        readonly providerId: string;
+        readonly modelId: string;
+        readonly thinkingLevel:
+          "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+      };
+    },
+  >(input: {
     readonly sessionId: string;
     readonly commandId: string;
     readonly prompt: string;
@@ -199,6 +213,7 @@ export const createGlobalChatSessionService = (options: {
         toolCallId,
         toolName,
         summary,
+        progress,
         timestamp,
       }) => ({
         live: true,
@@ -211,6 +226,7 @@ export const createGlobalChatSessionService = (options: {
           toolCallId,
           toolName,
           summary,
+          ...(progress === undefined ? {} : { progress }),
           timestamp,
         },
       }),

@@ -23,35 +23,92 @@ export class AgentTurnError extends Error {
  * Ephemeral live fragment of an agent turn. Deltas never advance the Session
  * Event Journal cursor; only completed message boundaries are durable.
  */
-export interface AgentTurnContentPart {
-  readonly type: "text" | "reasoning";
+export type AgentToolJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly AgentToolJsonValue[]
+  | { readonly [key: string]: AgentToolJsonValue };
+
+export interface AgentToolJsonObject {
+  readonly [key: string]: AgentToolJsonValue;
+}
+
+export type AgentToolDisplayContent =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    };
+
+export interface AgentToolDisplayResult {
+  readonly content: readonly AgentToolDisplayContent[];
+  readonly truncated?: boolean;
+}
+
+export interface AgentTurnTextPart {
+  readonly type: "text";
   readonly order: number;
   readonly text: string;
 }
 
+export interface AgentTurnReasoningPart {
+  readonly type: "reasoning";
+  readonly order: number;
+  readonly text: string;
+}
+
+export interface AgentTurnToolCallPart {
+  readonly type: "tool-call";
+  readonly order: number;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly status: "running" | "succeeded" | "failed";
+  readonly arguments?: AgentToolJsonObject;
+  readonly progress?: string;
+  readonly result?: AgentToolDisplayResult;
+  readonly safety?: "read" | "write" | "dangerous";
+  readonly approvalStatus?: "approved" | "requires_approval";
+  readonly approvalReason?: string;
+}
+
+export type AgentTurnContentPart =
+  AgentTurnTextPart | AgentTurnReasoningPart | AgentTurnToolCallPart;
+
+export type AgentTurnAssistantContentPart =
+  AgentTurnTextPart | AgentTurnReasoningPart;
+
 export interface AgentTurnDelta {
   readonly kind: "assistant_content";
-  readonly part: AgentTurnContentPart;
+  readonly part: AgentTurnAssistantContentPart;
 }
 
 export type AgentRuntimeEvent =
-  | { readonly type: "assistant_delta"; readonly part: AgentTurnContentPart }
+  | {
+      readonly type: "assistant_delta";
+      readonly part: AgentTurnAssistantContentPart;
+    }
   | {
       readonly type: "tool_started";
       readonly toolCallId: string;
       readonly toolName: string;
+      readonly arguments?: AgentToolJsonObject;
     }
   | {
       readonly type: "tool_updated";
       readonly toolCallId: string;
       readonly toolName: string;
       readonly summary: string;
+      readonly progress?: AgentToolDisplayResult;
     }
   | {
       readonly type: "tool_completed";
       readonly toolCallId: string;
       readonly toolName: string;
       readonly isError: boolean;
+      readonly result?: AgentToolDisplayResult;
     };
 
 export interface AgentTurnMessage {

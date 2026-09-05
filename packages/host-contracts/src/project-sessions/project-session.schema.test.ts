@@ -14,6 +14,7 @@ import {
   parseProjectSessionEventStreamQuery,
   parseProjectSessionLiveEventEnvelope,
   SessionMessageSchema,
+  SessionToolCallPartSchema,
   SubmitSessionPromptRequestSchema,
   SubmitSessionPromptResultSchema,
   UpdateProjectSessionRuntimeRequestSchema,
@@ -116,6 +117,41 @@ describe("Project Session schemas", () => {
         text: "",
         sequence: 5,
         createdAt: "2026-01-01T00:01:00.000Z",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts safe tool-call parts with allowlisted public arguments and results", () => {
+    expect(
+      parseSync(SessionToolCallPartSchema)({
+        id: `${messageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 2,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "read",
+        status: "succeeded",
+        arguments: { path: "src/app.ts", nested: { ok: true } },
+        result: {
+          content: [{ type: "text", text: "file contents" }],
+          truncated: true,
+        },
+        safety: "read",
+        approvalStatus: "approved",
+      }),
+    ).toMatchObject({ type: "tool-call", status: "succeeded" });
+    expect(() =>
+      parseSync(SessionToolCallPartSchema)({
+        id: `${messageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 2,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "read",
+        status: "succeeded",
+        result: {
+          content: [{ type: "unsupported", raw: "not public" }],
+        },
       }),
     ).toThrow();
   });

@@ -65,6 +65,10 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly toolCallId: string;
     readonly toolName: string;
+    readonly arguments?: Extract<
+      AgentTurnContentPart,
+      { readonly type: "tool-call" }
+    >["arguments"];
     readonly safety?: "read" | "write" | "dangerous";
     readonly approvalStatus?: "approved" | "requires_approval";
     readonly approvalReason?: string;
@@ -75,6 +79,10 @@ export interface ChatTurnRepository {
     readonly toolCallId: string;
     readonly toolName: string;
     readonly isError: boolean;
+    readonly result?: Extract<
+      AgentTurnContentPart,
+      { readonly type: "tool-call" }
+    >["result"];
     readonly safety?: "read" | "write" | "dangerous";
     readonly approvalStatus?: "approved" | "requires_approval";
     readonly approvalReason?: string;
@@ -134,6 +142,10 @@ export interface RunAdmittedChatTurnInput<
     readonly toolCallId: string;
     readonly toolName: string;
     readonly summary: string;
+    readonly progress?: Extract<
+      AgentTurnContentPart,
+      { readonly type: "tool-call" }
+    >["result"];
     readonly timestamp: string;
   }) => LiveEnvelope;
   readonly onTurnSettled?: (sessionId: string) => void;
@@ -172,6 +184,34 @@ const failureReason = (error: unknown): ChatTurnFailureReason =>
   error instanceof AgentTurnError && error.code !== "agent_turn_interrupted"
     ? error.code
     : "agent_turn_failed";
+
+const partDisplayLength = (part: AgentTurnContentPart): number => {
+  if (part.type === "text" || part.type === "reasoning")
+    return part.text.length;
+  const argumentLength = JSON.stringify(part.arguments ?? {}).length;
+  const resultLength = JSON.stringify(part.result ?? {}).length;
+  return argumentLength + resultLength + (part.progress?.length ?? 0);
+};
+
+const mergeParts = (
+  existing: readonly AgentTurnContentPart[],
+  completed: readonly AgentTurnContentPart[] | undefined,
+  fallbackText: string,
+): readonly AgentTurnContentPart[] => {
+  const parts = new Map<number, AgentTurnContentPart>();
+  for (const part of existing) parts.set(part.order, part);
+  for (const part of completed ?? []) parts.set(part.order, part);
+  if (
+    fallbackText.length > 0 &&
+    ![...parts.values()].some((part) => part.type === "text")
+  )
+    parts.set(Math.max(0, ...parts.keys()) + 1, {
+      type: "text",
+      order: Math.max(0, ...parts.keys()) + 1,
+      text: fallbackText,
+    });
+  return [...parts.values()].sort((left, right) => left.order - right.order);
+};
 
 export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
   readonly conversationRunner: ConversationRunner;
@@ -212,7 +252,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     const checkpointDraft = async (): Promise<void> => {
       const parts = currentParts();
       const capturedLength = parts.reduce(
-        (total, part) => total + part.text.length,
+        (total, part) => total + partDisplayLength(part),
         0,
       );
       if (capturedLength === checkpointedContentLength) return;
@@ -295,17 +335,22 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               const timestamp = new Date().toISOString();
               if (event.type === "assistant_delta") {
                 const existing = draftParts.get(event.part.order);
+                const existingText =
+                  existing?.type === "text" || existing?.type === "reasoning"
+                    ? existing.text
+                    : "";
                 const nextPart = {
                   ...event.part,
-                  text: `${existing?.text ?? ""}${event.part.text}`,
+                  text: `${existingText}${event.part.text}`,
                 };
                 draftParts.set(event.part.order, nextPart);
                 if (event.part.type === "text") draftText += event.part.text;
                 if (
                   currentParts().reduce(
-                    (total, part) => total + part.text.length,
+                    (total, part) => total + partDisplayLength(part),
                     0,
-                  ) - checkpointedContentLength >=
+                  ) -
+                    checkpointedContentLength >=
                   2_048
                 )
                   await checkpointDraft();
@@ -333,18 +378,43 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 return;
               }
               if (event.type === "tool_started") {
-                await checkpointDraft();
                 const tool = input.toolPolicy
                   .listTurnTools()
                   .find((candidate) => candidate.name === event.toolName);
                 const approval = input.toolPolicy.approvalForTool(
                   event.toolName,
                 );
+                const toolPart = {
+                  type: "tool-call" as const,
+                  order: currentParts().at(-1)?.order
+                    ? currentParts().at(-1)!.order + 1
+                    : 1,
+                  toolCallId: event.toolCallId,
+                  toolName: event.toolName,
+                  status: "running" as const,
+                  ...(event.arguments === undefined
+                    ? {}
+                    : { arguments: event.arguments }),
+                  ...(tool?.safety === undefined
+                    ? {}
+                    : { safety: tool.safety }),
+                  ...(approval.status === undefined
+                    ? {}
+                    : { approvalStatus: approval.status }),
+                  ...(approval.reason === undefined
+                    ? {}
+                    : { approvalReason: approval.reason }),
+                };
+                draftParts.set(toolPart.order, toolPart);
+                await checkpointDraft();
                 await input.repository.recordToolStarted({
                   sessionId: input.sessionId,
                   turnId: input.admission.turnId,
                   toolCallId: event.toolCallId,
                   toolName: event.toolName,
+                  ...(event.arguments === undefined
+                    ? {}
+                    : { arguments: event.arguments }),
                   ...(tool?.safety === undefined
                     ? {}
                     : { safety: tool.safety }),
@@ -367,22 +437,55 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                     toolCallId: event.toolCallId,
                     toolName: event.toolName,
                     summary: event.summary,
+                    ...(event.progress === undefined
+                      ? {}
+                      : { progress: event.progress }),
                     timestamp,
                   }),
                 );
                 return;
               }
-              await checkpointDraft();
               const tool = input.toolPolicy
                 .listTurnTools()
                 .find((candidate) => candidate.name === event.toolName);
               const approval = input.toolPolicy.approvalForTool(event.toolName);
+              const existingTool = [...draftParts.values()].find(
+                (part) =>
+                  part.type === "tool-call" &&
+                  part.toolCallId === event.toolCallId,
+              );
+              const completedToolPart = {
+                ...(existingTool?.type === "tool-call"
+                  ? existingTool
+                  : {
+                      type: "tool-call" as const,
+                      order: currentParts().at(-1)?.order
+                        ? currentParts().at(-1)!.order + 1
+                        : 1,
+                      toolCallId: event.toolCallId,
+                      toolName: event.toolName,
+                    }),
+                status: event.isError
+                  ? ("failed" as const)
+                  : ("succeeded" as const),
+                ...(event.result === undefined ? {} : { result: event.result }),
+                ...(tool?.safety === undefined ? {} : { safety: tool.safety }),
+                ...(approval.status === undefined
+                  ? {}
+                  : { approvalStatus: approval.status }),
+                ...(approval.reason === undefined
+                  ? {}
+                  : { approvalReason: approval.reason }),
+              };
+              draftParts.set(completedToolPart.order, completedToolPart);
+              await checkpointDraft();
               await input.repository.recordToolCompleted({
                 sessionId: input.sessionId,
                 turnId: input.admission.turnId,
                 toolCallId: event.toolCallId,
                 toolName: event.toolName,
                 isError: event.isError,
+                ...(event.result === undefined ? {} : { result: event.result }),
                 ...(tool?.safety === undefined ? {} : { safety: tool.safety }),
                 ...(approval.status === undefined
                   ? {}
@@ -415,12 +518,17 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           operationId,
           assistantText: completed.text,
         });
+        const finalParts = mergeParts(
+          currentParts(),
+          completed.parts,
+          completed.text,
+        );
         await input.repository.completeTurn({
           commandId: input.commandId,
           sessionId: input.sessionId,
           turnId: input.admission.turnId,
           text: completed.text,
-          ...(completed.parts === undefined ? {} : { parts: completed.parts }),
+          parts: finalParts,
         });
         stream.wakeEvents(input.sessionId);
         input.onTurnSettled?.(input.sessionId);

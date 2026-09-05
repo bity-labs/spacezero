@@ -260,15 +260,40 @@ const toSummary = (row: SessionRow): ProjectSessionSummary => ({
   lastSequence: row.last_sequence,
 });
 
-
-interface StoredConversationPart {
-  readonly type: "text" | "reasoning";
-  readonly order: number;
-  readonly text: string;
-}
+type StoredConversationPart = SessionMessagePart extends infer Part
+  ? Part extends unknown
+    ? Omit<Part, "id" | "turnId">
+    : never
+  : never;
 
 const partId = (messageId: string, part: StoredConversationPart): string =>
-  `${messageId}:${part.type}:${part.order}`;
+  part.type === "tool-call"
+    ? `${messageId}:tool-call:${part.toolCallId}`
+    : `${messageId}:${part.type}:${part.order}`;
+
+const isStoredTextPart = (
+  part: StoredConversationPart,
+): part is Extract<
+  StoredConversationPart,
+  { readonly type: "text" | "reasoning" }
+> =>
+  (part.type === "text" || part.type === "reasoning") &&
+  Number.isInteger(part.order) &&
+  part.order >= 1 &&
+  typeof part.text === "string" &&
+  (part.type === "text" || part.text.length > 0);
+
+const isStoredToolPart = (
+  part: StoredConversationPart,
+): part is Extract<StoredConversationPart, { readonly type: "tool-call" }> =>
+  part.type === "tool-call" &&
+  Number.isInteger(part.order) &&
+  part.order >= 1 &&
+  typeof part.toolCallId === "string" &&
+  part.toolCallId.length > 0 &&
+  typeof part.toolName === "string" &&
+  part.toolName.length > 0 &&
+  ["running", "succeeded", "failed"].includes(part.status);
 
 const hydrateParts = (input: {
   readonly messageId: string;
@@ -286,38 +311,59 @@ const hydrateParts = (input: {
     },
   ];
   if (input.partsJson === null) return fallback;
-  const parsed = JSON.parse(input.partsJson) as readonly StoredConversationPart[];
+  const parsed = JSON.parse(
+    input.partsJson,
+  ) as readonly StoredConversationPart[];
   const parts = parsed.flatMap((part): SessionMessagePart[] => {
-    if (
-      (part.type !== "text" && part.type !== "reasoning") ||
-      !Number.isInteger(part.order) ||
-      part.order < 1 ||
-      typeof part.text !== "string" ||
-      (part.type === "reasoning" && part.text.length === 0)
-    )
-      return [];
+    if (!isStoredTextPart(part) && !isStoredToolPart(part)) return [];
     return [
       {
+        ...part,
         id: partId(input.messageId, part),
-        type: part.type,
-        order: part.order,
-        text: part.text,
         ...(input.turnId === null ? {} : { turnId: input.turnId }),
       } as SessionMessagePart,
     ];
   });
-  return parts.length === 0 ? fallback : parts.sort((l, r) => l.order - r.order);
+  return parts.length === 0
+    ? fallback
+    : parts.sort((l, r) => l.order - r.order);
 };
 
-const storedPartsJson = (parts: readonly StoredConversationPart[] | undefined): string | null =>
+const storedPartsJson = (
+  parts: readonly StoredConversationPart[] | undefined,
+): string | null =>
   parts === undefined
     ? null
     : JSON.stringify(
-        parts.map((part) => ({
-          type: part.type,
-          order: part.order,
-          text: part.text,
-        })),
+        parts.map((part) => {
+          if (part.type === "tool-call")
+            return {
+              type: part.type,
+              order: part.order,
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              status: part.status,
+              ...(part.arguments === undefined
+                ? {}
+                : { arguments: part.arguments }),
+              ...(part.progress === undefined
+                ? {}
+                : { progress: part.progress }),
+              ...(part.result === undefined ? {} : { result: part.result }),
+              ...(part.safety === undefined ? {} : { safety: part.safety }),
+              ...(part.approvalStatus === undefined
+                ? {}
+                : { approvalStatus: part.approvalStatus }),
+              ...(part.approvalReason === undefined
+                ? {}
+                : { approvalReason: part.approvalReason }),
+            };
+          return {
+            type: part.type,
+            order: part.order,
+            text: part.text,
+          };
+        }),
       );
 
 const toMessage = (row: MessageRow): SessionMessage => ({
@@ -1770,6 +1816,10 @@ export const createProjectSessionRepository = (options: {
       readonly turnId: string;
       readonly toolCallId: string;
       readonly toolName: string;
+      readonly arguments?: Extract<
+        StoredConversationPart,
+        { readonly type: "tool-call" }
+      >["arguments"];
       readonly safety?: "read" | "write" | "dangerous";
       readonly approvalStatus?: "approved" | "requires_approval";
       readonly approvalReason?: string;
@@ -1801,6 +1851,9 @@ export const createProjectSessionRepository = (options: {
                   turnId: input.turnId,
                   toolCallId: input.toolCallId,
                   toolName: input.toolName,
+                  ...(input.arguments === undefined
+                    ? {}
+                    : { arguments: input.arguments }),
                   ...(input.safety === undefined
                     ? {}
                     : { safety: input.safety }),
@@ -1827,6 +1880,10 @@ export const createProjectSessionRepository = (options: {
       readonly toolCallId: string;
       readonly toolName: string;
       readonly isError: boolean;
+      readonly result?: Extract<
+        StoredConversationPart,
+        { readonly type: "tool-call" }
+      >["result"];
       readonly safety?: "read" | "write" | "dangerous";
       readonly approvalStatus?: "approved" | "requires_approval";
       readonly approvalReason?: string;
@@ -1859,6 +1916,9 @@ export const createProjectSessionRepository = (options: {
                   toolCallId: input.toolCallId,
                   toolName: input.toolName,
                   status: input.isError ? "failed" : "succeeded",
+                  ...(input.result === undefined
+                    ? {}
+                    : { result: input.result }),
                   ...(input.safety === undefined
                     ? {}
                     : { safety: input.safety }),
