@@ -858,6 +858,78 @@ describe("saved conversation projection", () => {
     ]);
   });
 
+  it("resumes Project Session events from the lowest split snapshot sequence", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: { ...projectSession, lastSequence: 4 },
+        messages: [],
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: { ...projectSession, lastSequence: 6 },
+        followUps: [
+          {
+            id: "follow-up-1",
+            commandId: "command-1",
+            sessionId: "project-session-1",
+            prompt: "continue after current turn",
+            state: "consumed" as const,
+            position: 1,
+            createdAt: "2026-01-01T00:00:05.000Z",
+            updatedAt: "2026-01-01T00:00:07.000Z",
+            dispatchedTurnId: "turn-from-follow-up",
+          },
+        ],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+
+    expect(client.subscribeProjectSessionEvents).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "project-session-1",
+        after: 4,
+      }),
+    );
+
+    onEvent?.({
+      sequence: 5,
+      eventType: "UserMessageSubmittedV1",
+      event: {
+        type: "UserMessageSubmittedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        messageId: "message-from-split-window",
+        commandId: "command-from-split-window",
+        prompt: "message committed between split queries",
+        timestamp: "2026-01-01T00:00:06.000Z",
+      },
+    });
+
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: "message-from-split-window",
+        text: "message committed between split queries",
+      },
+    ]);
+    expect(store.getSnapshot().lastSequence).toBe(5);
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "follow-up-1",
+        state: "consumed",
+        dispatchedTurnId: "turn-from-follow-up",
+      },
+    ]);
+  });
+
   it("keeps an ambiguous follow-up enqueue unresolved by command identity across reload", async () => {
     let loadCount = 0;
     const client = {

@@ -1420,10 +1420,13 @@ export const createProjectSessionSavedConversationStore = ({
       ]);
       return {
         title: result.session.name,
-        lastSequence: Math.max(
-          result.session.lastSequence,
-          followUpResult?.session.lastSequence ?? 0,
-        ),
+        lastSequence:
+          followUpResult === undefined
+            ? result.session.lastSequence
+            : Math.min(
+                result.session.lastSequence,
+                followUpResult.session.lastSequence,
+              ),
         messages: result.messages,
         ...(followUpResult === undefined
           ? {}
