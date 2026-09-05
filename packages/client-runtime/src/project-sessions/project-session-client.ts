@@ -35,6 +35,7 @@ export interface ProjectSessionClient {
   readonly submitPrompt: (
     sessionId: string,
     prompt: string,
+    commandId?: ProjectSessionCommandId,
   ) => Promise<SubmitSessionPromptResult>;
   readonly getRuntime: (
     sessionId: string,
@@ -323,13 +324,13 @@ export const createProjectSessionClient = (
         Array.isArray(result) ? result[0] : result
       ) as CreateProjectSessionResult;
     },
-    submitPrompt: async (sessionId, prompt) => {
+    submitPrompt: async (sessionId, prompt, commandId) => {
       const current = await descriptor();
       const result = await runClient(current, fetchImpl, (client) =>
         client.projectSessions.submitSessionPrompt({
           headers: { authorization: `Bearer ${current.clientCapability}` },
           params: { sessionId },
-          payload: { commandId: createCommandId(), prompt },
+          payload: { commandId: commandId ?? createCommandId(), prompt },
         }),
       );
       return (

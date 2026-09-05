@@ -21,16 +21,12 @@ export interface ChatTurnView {
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel:
-    | "off"
-    | "minimal"
-    | "low"
-    | "medium"
-    | "high"
-    | "xhigh"
-    | "max";
+    "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 }
 
-export interface ChatPromptAdmission<PromptResult extends { readonly turn: ChatTurnView }> {
+export interface ChatPromptAdmission<
+  PromptResult extends { readonly turn: ChatTurnView },
+> {
   readonly kind: "admitted";
   readonly turnId: string;
   readonly userSequence: number;
@@ -132,7 +128,9 @@ export interface RunAdmittedChatTurnInput<
 }
 
 export interface ChatTurnRunner<DurableEnvelope, LiveEnvelope> {
-  readonly runAdmittedTurn: <PromptResult extends { readonly turn: ChatTurnView }>(
+  readonly runAdmittedTurn: <
+    PromptResult extends { readonly turn: ChatTurnView },
+  >(
     input: RunAdmittedChatTurnInput<PromptResult, LiveEnvelope>,
   ) => void;
   readonly wakeEvents: (sessionId: string) => void;
@@ -158,9 +156,6 @@ export interface ChatTurnRunner<DurableEnvelope, LiveEnvelope> {
   readonly waitForIdle: () => Promise<void>;
 }
 
-const durableAssistantText = (text: string): string =>
-  text.length <= 1_000_000 ? text : text.slice(0, 1_000_000);
-
 const failureReason = (error: unknown): ChatTurnFailureReason =>
   error instanceof AgentTurnError && error.code !== "agent_turn_interrupted"
     ? error.code
@@ -170,7 +165,10 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
   readonly conversationRunner: ConversationRunner;
   readonly privatePiStateRepository?: PiPrivateSessionStateRepository;
 }): ChatTurnRunner<DurableEnvelope, LiveEnvelope> => {
-  const stream = createChatSessionStreamService<DurableEnvelope, LiveEnvelope>();
+  const stream = createChatSessionStreamService<
+    DurableEnvelope,
+    LiveEnvelope
+  >();
   const inFlight = new Set<Promise<unknown>>();
   const activeTurns = new Map<
     string,
@@ -182,7 +180,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
   >();
   let shuttingDown = false;
 
-  const runAdmittedTurn = <PromptResult extends { readonly turn: ChatTurnView }>(
+  const runAdmittedTurn = <
+    PromptResult extends { readonly turn: ChatTurnView },
+  >(
     input: RunAdmittedChatTurnInput<PromptResult, LiveEnvelope>,
   ): void => {
     const controller = new AbortController();
@@ -196,22 +196,24 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     const checkpointDraft = async (): Promise<void> => {
       const capturedLength = draftText.length;
       if (capturedLength === checkpointedTextLength) return;
-      const text = durableAssistantText(draftText);
+      const text = draftText;
       if (text === checkpointedDurableText) {
         checkpointedTextLength = capturedLength;
         return;
       }
-      const operation = checkpointChain.catch(() => undefined).then(async () => {
-        if (capturedLength <= checkpointedTextLength) return;
-        await input.repository.checkpointTurnDraft({
-          sessionId: input.sessionId,
-          turnId: input.admission.turnId,
-          text,
+      const operation = checkpointChain
+        .catch(() => undefined)
+        .then(async () => {
+          if (capturedLength <= checkpointedTextLength) return;
+          await input.repository.checkpointTurnDraft({
+            sessionId: input.sessionId,
+            turnId: input.admission.turnId,
+            text,
+          });
+          checkpointedTextLength = capturedLength;
+          checkpointedDurableText = text;
+          stream.wakeEvents(input.sessionId);
         });
-        checkpointedTextLength = capturedLength;
-        checkpointedDurableText = text;
-        stream.wakeEvents(input.sessionId);
-      });
       checkpointChain = operation;
       await operation;
     };
@@ -261,14 +263,16 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               operationId,
             },
             tools: input.tools,
-            ...(input.resources === undefined ? {} : { resources: input.resources }),
+            ...(input.resources === undefined
+              ? {}
+              : { resources: input.resources }),
             prompt: input.prompt,
             signal: controller.signal,
             onEvent: async (event: AgentRuntimeEvent) => {
               if (controller.signal.aborted) return;
               const timestamp = new Date().toISOString();
               if (event.type === "assistant_delta") {
-                draftText = durableAssistantText(draftText + event.text);
+                draftText += event.text;
                 if (draftText.length - checkpointedTextLength >= 2_048)
                   await checkpointDraft();
                 else scheduleCheckpoint();
@@ -286,8 +290,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               }
               if (event.type === "tool_started") {
                 await checkpointDraft();
-                const tool = input
-                  .toolPolicy
+                const tool = input.toolPolicy
                   .listTurnTools()
                   .find((candidate) => candidate.name === event.toolName);
                 const approval = input.toolPolicy.approvalForTool(
@@ -298,7 +301,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                   turnId: input.admission.turnId,
                   toolCallId: event.toolCallId,
                   toolName: event.toolName,
-                  ...(tool?.safety === undefined ? {} : { safety: tool.safety }),
+                  ...(tool?.safety === undefined
+                    ? {}
+                    : { safety: tool.safety }),
                   ...(approval.status === undefined
                     ? {}
                     : { approvalStatus: approval.status }),
@@ -324,8 +329,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 return;
               }
               await checkpointDraft();
-              const tool = input
-                .toolPolicy
+              const tool = input.toolPolicy
                 .listTurnTools()
                 .find((candidate) => candidate.name === event.toolName);
               const approval = input.toolPolicy.approvalForTool(event.toolName);
@@ -365,13 +369,13 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
         await options.privatePiStateRepository?.recordOperationSettled({
           id: input.sessionId,
           operationId,
-          assistantText: durableAssistantText(completed.text),
+          assistantText: completed.text,
         });
         await input.repository.completeTurn({
           commandId: input.commandId,
           sessionId: input.sessionId,
           turnId: input.admission.turnId,
-          text: durableAssistantText(completed.text),
+          text: completed.text,
         });
         stream.wakeEvents(input.sessionId);
         input.onTurnSettled?.(input.sessionId);
@@ -419,13 +423,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     runAdmittedTurn,
     wakeEvents: stream.wakeEvents,
     liveCursor: stream.liveCursor,
-    waitForSseAfter: (
-      sessionId,
-      after,
-      afterLive,
-      listEventsAfter,
-      signal,
-    ) => stream.waitForSseAfter(sessionId, after, afterLive, listEventsAfter, signal),
+    waitForSseAfter: (sessionId, after, afterLive, listEventsAfter, signal) =>
+      stream.waitForSseAfter(
+        sessionId,
+        after,
+        afterLive,
+        listEventsAfter,
+        signal,
+      ),
     interruptActiveTurn: async (sessionId, turnId) => {
       const active = activeTurns.get(turnId);
       if (active?.sessionId !== sessionId) return;

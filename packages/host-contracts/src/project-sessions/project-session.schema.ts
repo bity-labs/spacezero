@@ -58,12 +58,22 @@ export type ProjectSessionTurnState =
   | "interrupted"
   | "recovery_required";
 
+export interface SessionTextPart {
+  readonly id: string;
+  readonly type: "text";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: AgentTurnId;
+}
+
 export interface SessionMessage {
   readonly id: SessionMessageId;
   readonly role: SessionMessageRole;
   readonly text: string;
   readonly sequence: number;
   readonly createdAt: string;
+  readonly turnId?: AgentTurnId;
+  readonly parts?: readonly SessionTextPart[];
 }
 
 export interface SubmitSessionPromptRequest {
@@ -277,9 +287,15 @@ export const SessionPromptSchema = Schema.String.check(
 );
 export const SessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(1_000_000),
 );
 export const SessionMessageRoleSchema = Schema.Literals(["user", "assistant"]);
+export const SessionTextPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["text"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  text: Schema.String,
+  turnId: Schema.optionalKey(AgentTurnIdSchema),
+});
 export const SessionMessageSchema = Schema.Struct({
   id: SessionMessageIdSchema,
   role: SessionMessageRoleSchema,
@@ -289,6 +305,8 @@ export const SessionMessageSchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
   createdAt: DateTimeUtcStringSchema,
+  turnId: Schema.optionalKey(AgentTurnIdSchema),
+  parts: Schema.optionalKey(Schema.Array(SessionTextPartSchema)),
 });
 export const SubmitSessionPromptRequestSchema = Schema.Struct({
   commandId: ProjectSessionCommandIdSchema,
@@ -342,7 +360,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   ),
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
-  draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  draftText: Schema.String,
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
   retryable: Schema.optionalKey(Schema.Boolean),
