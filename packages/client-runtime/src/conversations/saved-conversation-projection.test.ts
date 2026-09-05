@@ -232,34 +232,41 @@ describe("saved conversation projection", () => {
         session: projectSession,
         messages: [],
       })),
-      submitPrompt: vi.fn(async (_sessionId: string, prompt: string, commandId: string) => ({
-        session: { ...projectSession, lastSequence: 2 },
-        userMessage: {
-          id: "host-user-message-1",
-          role: "user" as const,
-          text: prompt,
-          sequence: 1,
-          createdAt: "2026-01-01T00:00:01.000Z",
+      submitPrompt: vi.fn(
+        async (_sessionId: string, prompt: string, commandId: string) => ({
+          session: { ...projectSession, lastSequence: 2 },
+          userMessage: {
+            id: "host-user-message-1",
+            role: "user" as const,
+            text: prompt,
+            sequence: 1,
+            createdAt: "2026-01-01T00:00:01.000Z",
+          },
+          turn: {
+            id: "turn-1",
+            commandId,
+            state: "running" as const,
+            userMessageId: "host-user-message-1",
+            assistantMessageId: "assistant-message-1",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        }),
+      ),
+      subscribeProjectSessionEvents: vi.fn(
+        (input: {
+          onEvent: (event: unknown) => void;
+          onLiveEvent?: (event: unknown) => void;
+        }) => {
+          onEvent = input.onEvent;
+          onLiveEvent = input.onLiveEvent;
+          return { cancel: vi.fn(), closed: Promise.resolve() };
         },
-        turn: {
-          id: "turn-1",
-          commandId,
-          state: "running" as const,
-          userMessageId: "host-user-message-1",
-          assistantMessageId: "assistant-message-1",
-          providerId: "anthropic",
-          modelId: "claude-sonnet-4-5",
-          thinkingLevel: "off" as const,
-          draftText: "",
-          createdAt: timestamp,
-          updatedAt: timestamp,
-        },
-      })),
-      subscribeProjectSessionEvents: vi.fn((input: { onEvent: (event: unknown) => void; onLiveEvent?: (event: unknown) => void }) => {
-        onEvent = input.onEvent;
-        onLiveEvent = input.onLiveEvent;
-        return { cancel: vi.fn(), closed: Promise.resolve() };
-      }),
+      ),
     } as unknown as ProjectSessionClient;
     const store = createProjectSessionSavedConversationStore({
       client,
@@ -352,40 +359,118 @@ describe("saved conversation projection", () => {
     });
   });
 
+  it("keeps an ambiguous prompt submission unresolved under the original command identity", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      submitPrompt: vi.fn(async () => {
+        throw new TypeError("fetch failed after request was sent");
+      }),
+      subscribeProjectSessionEvents: vi.fn(
+        (input: { onEvent: (event: unknown) => void }) => {
+          onEvent = input.onEvent;
+          return { cancel: vi.fn(), closed: Promise.resolve() };
+        },
+      ),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    await expect(store.send("may have committed")).rejects.toThrow(
+      "fetch failed after request was sent",
+    );
+
+    const pending = store.getSnapshot().messages[0]!;
+    expect(pending).toMatchObject({
+      id: expect.stringContaining("pending:"),
+      role: "user",
+      text: "may have committed",
+      status: "pending",
+      commandId: expect.any(String),
+    });
+    expect(store.getSnapshot().actions.send).toBe("unresolved");
+
+    await expect(store.send("do not duplicate")).rejects.toThrow(
+      "send unavailable",
+    );
+    expect(client.submitPrompt).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot().messages[0]?.commandId).toBe(pending.commandId);
+
+    onEvent?.({
+      sequence: 5,
+      eventType: "UserMessageSubmittedV1",
+      event: {
+        type: "UserMessageSubmittedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        messageId: "reconciled-user-message",
+        commandId: pending.commandId,
+        prompt: "may have committed",
+        timestamp: "2026-01-01T00:00:05.000Z",
+      },
+    });
+
+    expect(store.getSnapshot().actions.send).toBe("available");
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: "reconciled-user-message",
+        role: "user",
+        text: "may have committed",
+        commandId: pending.commandId,
+      },
+    ]);
+    expect(store.getSnapshot().messages[0]?.status).toBeUndefined();
+  });
+
   it("creates a Global Chat Session only on first draft send without duplicating the prompt", async () => {
-    const createWithFirstPrompt = vi.fn(async (prompt: string, commandId: string) => ({
-      session: { ...globalSession, id: "created-global-session", lastSequence: 4 },
-      userMessage: {
-        id: "created-user-message",
-        role: "user" as const,
-        text: prompt,
-        sequence: 3,
-        createdAt: "2026-01-01T00:00:03.000Z",
-      },
-      firstMessage: {
-        id: "created-user-message",
-        role: "user" as const,
-        text: prompt,
-        sequence: 3,
-        createdAt: "2026-01-01T00:00:03.000Z",
-      },
-      turn: {
-        id: "global-turn-1",
-        commandId,
-        state: "running" as const,
-        userMessageId: "created-user-message",
-        assistantMessageId: "created-assistant-message",
-        providerId: "anthropic",
-        modelId: "claude-sonnet-4-5",
-        thinkingLevel: "off" as const,
-        draftText: "",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-    }));
+    const createWithFirstPrompt = vi.fn(
+      async (prompt: string, commandId: string) => ({
+        session: {
+          ...globalSession,
+          id: "created-global-session",
+          lastSequence: 4,
+        },
+        userMessage: {
+          id: "created-user-message",
+          role: "user" as const,
+          text: prompt,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+        firstMessage: {
+          id: "created-user-message",
+          role: "user" as const,
+          text: prompt,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+        turn: {
+          id: "global-turn-1",
+          commandId,
+          state: "running" as const,
+          userMessageId: "created-user-message",
+          assistantMessageId: "created-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    );
     const client = {
       createWithFirstPrompt,
-      subscribeEvents: vi.fn(() => ({ cancel: vi.fn(), closed: Promise.resolve() })),
+      subscribeEvents: vi.fn(() => ({
+        cancel: vi.fn(),
+        closed: Promise.resolve(),
+      })),
       interruptTurn: vi.fn(),
     } as unknown as GlobalChatSessionClient;
     const store = createGlobalChatDraftConversationStore({ client });
@@ -420,16 +505,136 @@ describe("saved conversation projection", () => {
     ).toHaveLength(1);
   });
 
+  it("sends subsequent Global Chat draft prompts to the created Session", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const createWithFirstPrompt = vi.fn(
+      async (prompt: string, commandId: string) => ({
+        session: {
+          ...globalSession,
+          id: "created-global-session",
+          lastSequence: 4,
+        },
+        userMessage: {
+          id: "created-user-message",
+          role: "user" as const,
+          text: prompt,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+        firstMessage: {
+          id: "created-user-message",
+          role: "user" as const,
+          text: prompt,
+          sequence: 3,
+          createdAt: "2026-01-01T00:00:03.000Z",
+        },
+        turn: {
+          id: "global-turn-1",
+          commandId,
+          state: "running" as const,
+          userMessageId: "created-user-message",
+          assistantMessageId: "created-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    );
+    const submitPrompt = vi.fn(
+      async (_sessionId: string, prompt: string, commandId: string) => ({
+        session: {
+          ...globalSession,
+          id: "created-global-session",
+          lastSequence: 6,
+        },
+        userMessage: {
+          id: "second-user-message",
+          role: "user" as const,
+          text: prompt,
+          sequence: 5,
+          createdAt: "2026-01-01T00:00:05.000Z",
+        },
+        turn: {
+          id: "global-turn-2",
+          commandId,
+          state: "running" as const,
+          userMessageId: "second-user-message",
+          assistantMessageId: "second-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    );
+    const client = {
+      createWithFirstPrompt,
+      submitPrompt,
+      subscribeEvents: vi.fn((input: { onEvent: (event: unknown) => void }) => {
+        onEvent = input.onEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatDraftConversationStore({ client });
+
+    await store.load();
+    await store.send("First global prompt");
+    onEvent?.({
+      sequence: 4,
+      eventType: "GlobalChatAgentMessageCompletedV1",
+      event: {
+        type: "GlobalChatAgentMessageCompletedV1",
+        version: 1,
+        sessionId: "created-global-session",
+        turnId: "global-turn-1",
+        messageId: "created-assistant-message",
+        text: "settled",
+        timestamp: "2026-01-01T00:00:04.000Z",
+      },
+    });
+    await store.send("Second global prompt");
+
+    expect(createWithFirstPrompt).toHaveBeenCalledTimes(1);
+    expect(submitPrompt).toHaveBeenCalledTimes(1);
+    expect(submitPrompt).toHaveBeenCalledWith(
+      "created-global-session",
+      "Second global prompt",
+      expect.any(String),
+    );
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "created-global-session" },
+      messages: [
+        { id: "created-user-message", text: "First global prompt" },
+        { id: "created-assistant-message", text: "settled" },
+        { id: "second-user-message", text: "Second global prompt" },
+      ],
+    });
+  });
+
   it("preserves failed submissions in the composer projection without retrying", async () => {
+    const definitiveError = Object.assign(
+      new Error("definitive host rejection"),
+      {
+        response: { status: 422 },
+      },
+    );
     const client = {
       listSessionMessages: vi.fn(async () => ({
         session: projectSession,
         messages: [],
       })),
       submitPrompt: vi.fn(async () => {
-        throw new Error("definitive host rejection");
+        throw definitiveError;
       }),
-      subscribeProjectSessionEvents: vi.fn(() => ({ cancel: vi.fn(), closed: Promise.resolve() })),
+      subscribeProjectSessionEvents: vi.fn(() => ({
+        cancel: vi.fn(),
+        closed: Promise.resolve(),
+      })),
     } as unknown as ProjectSessionClient;
     const store = createProjectSessionSavedConversationStore({
       client,

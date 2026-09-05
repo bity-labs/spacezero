@@ -287,17 +287,13 @@ export const SessionPromptSchema = Schema.String.check(
 );
 export const SessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(1_000_000),
 );
 export const SessionMessageRoleSchema = Schema.Literals(["user", "assistant"]);
 export const SessionTextPartSchema = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
   type: Schema.Literals(["text"]),
-  order: Schema.Number.check(
-    Schema.isInt(),
-    Schema.isGreaterThanOrEqualTo(1),
-  ),
-  text: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  text: Schema.String,
   turnId: Schema.optionalKey(AgentTurnIdSchema),
 });
 export const SessionMessageSchema = Schema.Struct({
@@ -364,7 +360,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   ),
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
-  draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  draftText: Schema.String,
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
   retryable: Schema.optionalKey(Schema.Boolean),

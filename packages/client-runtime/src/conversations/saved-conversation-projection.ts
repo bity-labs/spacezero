@@ -15,12 +15,7 @@ import type { ProjectSessionClient } from "../project-sessions/project-session-c
 
 export type SavedConversationKind = "project" | "global";
 export type SavedConversationStatus =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "empty"
-  | "unavailable"
-  | "error";
+  "idle" | "loading" | "ready" | "empty" | "unavailable" | "error";
 export type SavedConversationRuntimeStatus =
   | "idle"
   | "running"
@@ -29,10 +24,7 @@ export type SavedConversationRuntimeStatus =
   | "failed"
   | "recovery_required";
 export type SavedConversationSendState =
-  | "available"
-  | "submitting"
-  | "unresolved"
-  | "unavailable";
+  "available" | "submitting" | "unresolved" | "unavailable";
 export type SavedConversationMessageStatus = "pending" | "failed";
 
 export interface SavedConversationTextPart {
@@ -132,8 +124,7 @@ interface CreateSavedConversationStoreInput {
     ) => void;
     readonly onLiveEvent?: (
       event:
-        | ProjectSessionLiveEventEnvelope
-        | GlobalChatSessionLiveEventEnvelope,
+        ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
     ) => void;
     readonly onError?: (error: Error) => void;
   }) => SavedConversationEventSubscription;
@@ -173,15 +164,13 @@ const messageWithParts = (
   },
 ): SavedConversationMessage => ({
   ...message,
-  parts:
-    message.parts ??
-    [
-      textPart({
-        messageId: message.id,
-        text: message.text,
-        ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
-      }),
-    ],
+  parts: message.parts ?? [
+    textPart({
+      messageId: message.id,
+      text: message.text,
+      ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
+    }),
+  ],
 });
 
 const actions = (input: {
@@ -209,6 +198,27 @@ const initialSnapshot = (
 
 const toErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "conversation unavailable";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const submitErrorStatus = (error: unknown): number | undefined => {
+  if (!isRecord(error)) return undefined;
+  const response = error.response;
+  if (isRecord(response) && typeof response.status === "number")
+    return response.status;
+  const reason = error.reason;
+  if (!isRecord(reason)) return undefined;
+  const reasonResponse = reason.response;
+  if (isRecord(reasonResponse) && typeof reasonResponse.status === "number")
+    return reasonResponse.status;
+  return undefined;
+};
+
+const isDefinitiveSubmitError = (error: unknown): boolean => {
+  const status = submitErrorStatus(error);
+  return status !== undefined && status >= 400 && status < 500;
+};
 
 const sortMessages = (
   messages: readonly (SessionMessage | GlobalChatSessionMessage)[],
@@ -291,7 +301,9 @@ const upsertMessage = (
     candidate.id === message.id,
 ): readonly SavedConversationMessage[] => {
   const without = messages.filter((candidate) => !replace(candidate));
-  return [...without, message].sort((left, right) => left.sequence - right.sequence);
+  return [...without, message].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
 };
 
 const setAssistantText = (
@@ -322,7 +334,10 @@ const applyDurableEvent = (
   canSend: boolean,
 ): SavedConversationProjection => {
   const event = envelope.event;
-  const base = { ...projection, lastSequence: Math.max(projection.lastSequence, envelope.sequence) };
+  const base = {
+    ...projection,
+    lastSequence: Math.max(projection.lastSequence, envelope.sequence),
+  };
   switch (event.type) {
     case "UserMessageSubmittedV1":
     case "GlobalChatUserMessageSubmittedV1":
@@ -344,6 +359,11 @@ const applyDurableEvent = (
             (candidate.status === "pending" &&
               candidate.commandId === event.commandId),
         ),
+        actions: actions({
+          canSend,
+          send: "available",
+          canStop: base.actions.stop === "available",
+        }),
       };
     case "AgentTurnStartedV1":
     case "GlobalChatAgentTurnStartedV1":
@@ -423,7 +443,8 @@ const applyDurableEvent = (
 
 const applyLiveEvent = (
   projection: SavedConversationProjection,
-  envelope: ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
+  envelope:
+    ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
 ): SavedConversationProjection => {
   const event = envelope.event;
   if (
@@ -467,8 +488,10 @@ export const createSavedConversationStore = ({
   const listeners = new Set<() => void>();
   let disposed = false;
   let currentSessionId = sessionId;
-  const canSend = submitPrompt !== undefined || createWithFirstPrompt !== undefined;
-  let snapshot = initialSnapshot(kind, sessionId, canSend);
+  const canSend = () =>
+    submitPrompt !== undefined ||
+    (createWithFirstPrompt !== undefined && currentSessionId === sessionId);
+  let snapshot = initialSnapshot(kind, sessionId, canSend());
   let subscription: SavedConversationEventSubscription | undefined;
 
   const publish = (next: SavedConversationProjection): void => {
@@ -484,12 +507,16 @@ export const createSavedConversationStore = ({
       sessionId: currentSessionId,
       after,
       onEvent: (event) =>
-        publish(applyDurableEvent(snapshot, event, canSend)),
+        publish(applyDurableEvent(snapshot, event, canSend())),
       onLiveEvent: (event) => publish(applyLiveEvent(snapshot, event)),
       onError: (error) => {
         publish({
           ...snapshot,
-          actions: actions({ canSend, send: "unresolved", canStop: false }),
+          actions: actions({
+            canSend: canSend(),
+            send: "unresolved",
+            canStop: false,
+          }),
           error: { message: error.message },
         });
       },
@@ -512,7 +539,7 @@ export const createSavedConversationStore = ({
       lastSequence: loaded.lastSequence,
       runtime,
       actions: actions({
-        canSend,
+        canSend: canSend(),
         send: "available",
         canStop: runtime.status === "running" && interruptTurn !== undefined,
       }),
@@ -546,7 +573,8 @@ export const createSavedConversationStore = ({
       }
     },
     send: async (prompt) => {
-      if (!canSend) throw new Error("send unavailable");
+      if (!canSend() || snapshot.actions.send !== "available")
+        throw new Error("send unavailable");
       const trimmed = prompt.trim();
       if (trimmed.length === 0) throw new Error("prompt must not be blank");
       const commandId = createCommandId();
@@ -563,19 +591,26 @@ export const createSavedConversationStore = ({
         ...snapshot,
         status: "ready",
         messages: upsertMessage(snapshot.messages, pending),
-        actions: actions({ canSend, send: "submitting", canStop: false }),
+        actions: actions({
+          canSend: canSend(),
+          send: "submitting",
+          canStop: false,
+        }),
       });
       try {
-        const result = createWithFirstPrompt
-          ? await createWithFirstPrompt({ prompt: trimmed, commandId })
-          : await submitPrompt!({
-              sessionId: currentSessionId,
-              prompt: trimmed,
-              commandId,
-            });
+        const result =
+          createWithFirstPrompt !== undefined && currentSessionId === sessionId
+            ? await createWithFirstPrompt({ prompt: trimmed, commandId })
+            : await submitPrompt!({
+                sessionId: currentSessionId,
+                prompt: trimmed,
+                commandId,
+              });
         currentSessionId = result.session.id;
         const title =
-          "title" in result.session ? result.session.title : result.session.name;
+          "title" in result.session
+            ? result.session.title
+            : result.session.name;
         const reconciled = applyDurableEvent(
           {
             ...snapshot,
@@ -602,33 +637,49 @@ export const createSavedConversationStore = ({
               timestamp: result.userMessage.createdAt,
             } as never,
           },
-          canSend,
+          canSend(),
         );
         publish({
           ...reconciled,
           runtime: runtimeStatus(result.turn, result.turn),
           actions: actions({
-            canSend,
+            canSend: canSend(),
             send: "available",
             canStop: interruptTurn !== undefined,
           }),
         });
         resubscribe(result.userMessage.sequence);
       } catch (error) {
-        publish({
-          ...snapshot,
-          messages: snapshot.messages.map((message) =>
-            message.id === pending.id
-              ? messageWithParts({
-                  ...message,
-                  status: "failed",
-                  errorMessage: toErrorMessage(error),
-                })
-              : message,
-          ),
-          actions: actions({ canSend, send: "available", canStop: false }),
-          error: { message: toErrorMessage(error) },
-        });
+        if (isDefinitiveSubmitError(error)) {
+          publish({
+            ...snapshot,
+            messages: snapshot.messages.map((message) =>
+              message.id === pending.id
+                ? messageWithParts({
+                    ...message,
+                    status: "failed",
+                    errorMessage: toErrorMessage(error),
+                  })
+                : message,
+            ),
+            actions: actions({
+              canSend: canSend(),
+              send: "available",
+              canStop: false,
+            }),
+            error: { message: toErrorMessage(error) },
+          });
+        } else {
+          publish({
+            ...snapshot,
+            actions: actions({
+              canSend: canSend(),
+              send: "unresolved",
+              canStop: false,
+            }),
+            error: { message: toErrorMessage(error) },
+          });
+        }
         throw error;
       }
     },
@@ -687,7 +738,9 @@ export const createProjectSessionSavedConversationStore = ({
               ...(input.onLiveEvent === undefined
                 ? {}
                 : { onLiveEvent: input.onLiveEvent }),
-              ...(input.onError === undefined ? {} : { onError: input.onError }),
+              ...(input.onError === undefined
+                ? {}
+                : { onError: input.onError }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -741,7 +794,9 @@ export const createGlobalChatSessionSavedConversationStore = ({
               ...(input.onLiveEvent === undefined
                 ? {}
                 : { onLiveEvent: input.onLiveEvent }),
-              ...(input.onError === undefined ? {} : { onError: input.onError }),
+              ...(input.onError === undefined
+                ? {}
+                : { onError: input.onError }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -765,6 +820,12 @@ export const createGlobalChatDraftConversationStore = ({
     load: async () => ({ title: "New chat", lastSequence: 0, messages: [] }),
     createWithFirstPrompt: ({ prompt, commandId }) =>
       client.createWithFirstPrompt(prompt, commandId),
+    ...(optionalClient.submitPrompt === undefined
+      ? {}
+      : {
+          submitPrompt: ({ sessionId: id, prompt, commandId }) =>
+            optionalClient.submitPrompt!(id, prompt, commandId),
+        }),
     ...(optionalClient.subscribeEvents === undefined
       ? {}
       : {
@@ -776,7 +837,9 @@ export const createGlobalChatDraftConversationStore = ({
               ...(input.onLiveEvent === undefined
                 ? {}
                 : { onLiveEvent: input.onLiveEvent }),
-              ...(input.onError === undefined ? {} : { onError: input.onError }),
+              ...(input.onError === undefined
+                ? {}
+                : { onError: input.onError }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined

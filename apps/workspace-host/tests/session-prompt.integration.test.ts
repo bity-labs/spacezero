@@ -608,6 +608,73 @@ describe("Session prompt Host protocol", () => {
     ]);
   });
 
+  it("retains assistant text over the previous one-megabyte limit across projection reload", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    const assistantText = `${"x".repeat(1_000_000)}not-truncated`;
+    const runner = createScriptedConversationRunner({
+      respond: () => assistantText,
+    });
+    const databasePath = join(root, "host.sqlite");
+    const spaceZeroHome = join(root, "SpaceZero");
+    const host = await start(databasePath, spaceZeroHome, runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const sessionId = created.session.id;
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Return a large assistant response",
+    );
+
+    expect(submitted.response.status).toBe(200);
+    const listed = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      sessionId,
+      2,
+    );
+    const messagesBody = listed.body as {
+      messages: { role: string; text: string; parts?: { text: string }[] }[];
+    };
+    const assistantMessage = messagesBody.messages.find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistantMessage?.text.length).toBe(assistantText.length);
+    expect(assistantMessage?.text.endsWith("not-truncated")).toBe(true);
+    expect(assistantMessage?.parts?.[0]?.text.length).toBe(
+      assistantText.length,
+    );
+
+    await host.stop();
+    const restarted = await start(databasePath, spaceZeroHome, runner);
+    const restartedClient = descriptor(restarted);
+    const reloaded = await listMessages(
+      restarted,
+      restartedClient.clientCapability,
+      sessionId,
+    );
+    const reloadedBody = reloaded.body as {
+      messages: { role: string; text: string; parts?: { text: string }[] }[];
+    };
+    const reloadedAssistantMessage = reloadedBody.messages.find(
+      (message) => message.role === "assistant",
+    );
+    expect(reloaded.response.status).toBe(200);
+    expect(reloadedAssistantMessage?.text.length).toBe(assistantText.length);
+    expect(reloadedAssistantMessage?.text.endsWith("not-truncated")).toBe(true);
+    expect(reloadedAssistantMessage?.parts?.[0]?.text.length).toBe(
+      assistantText.length,
+    );
+  });
+
   it("completes turns after durable tool activity events", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
@@ -1271,7 +1338,9 @@ describe("Session prompt Host protocol", () => {
     expect(missing.body).toMatchObject({ code: "session_not_found" });
 
     const db = new DatabaseSync(databasePath);
-    db.prepare("UPDATE project_session_bindings SET state = 'recovery_required'").run();
+    db.prepare(
+      "UPDATE project_session_bindings SET state = 'recovery_required'",
+    ).run();
     db.close();
 
     const notReady = await submitPrompt(
