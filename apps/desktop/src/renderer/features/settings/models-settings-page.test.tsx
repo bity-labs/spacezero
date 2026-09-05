@@ -49,15 +49,22 @@ function createFakeClients(overrides?: {
   models?: AgentModelDescriptor[];
   defaults?: AgentRuntimeDefaults;
   flowId?: string;
+  /** Flow IDs handed out by startProviderOAuthLogin, in call order. */
+  flowIds?: string[];
 }): ModelsSettingsClients & { readonly flowSinks: FlowEventSink[] } {
   const providers = overrides?.providers ?? [];
   const flowSinks: FlowEventSink[] = [];
   const flowId = overrides?.flowId ?? "flow-abc123";
+  let flowIdCall = 0;
+  const startLogin = overrides?.flowIds
+    ? vi.fn(async () => ({ flowId: overrides.flowIds![flowIdCall++] ?? flowId }))
+    : undefined;
   return {
     flowSinks,
     harnessAuth: {
       listProviderAuthOptions: vi.fn(async () => providers),
-      startProviderOAuthLogin: vi.fn(async () => ({ flowId })),
+      startProviderOAuthLogin:
+        startLogin ?? vi.fn(async () => ({ flowId })),
       setProviderApiKey: vi.fn(async () => ({
         providerId: "openai",
         configured: true,
@@ -206,6 +213,34 @@ describe("ModelsSettingsPage", () => {
     });
   });
 
+  it("disconnects a connected subscription and refreshes Host state", async () => {
+    const clients = createFakeClients({
+      providers: [
+        providerOption({
+          providerId: "anthropic-subscription",
+          displayName: "Claude Pro/Max",
+          authMethods: ["oauth"],
+          configured: true,
+          configuredMethod: "oauth",
+        }),
+      ],
+    });
+
+    render(<ModelsSettingsPage clients={clients} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Disconnect subscription" }),
+    );
+
+    await waitFor(() => {
+      expect(clients.harnessAuth.removeProviderApiKey).toHaveBeenCalledWith(
+        "anthropic-subscription",
+      );
+    });
+    await waitFor(() => {
+      expect(clients.harnessAuth.listProviderAuthOptions).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it("browses models and persists the Host-global default model", async () => {
     const clients = createFakeClients({
       models: [modelDescriptor()],
@@ -295,6 +330,73 @@ describe("ModelsSettingsPage", () => {
       expect.objectContaining({ flowId: "flow-abc123" }),
     );
     expect(screen.queryByRole("button", { name: /ChatGPT Plus\/Pro/ })).not.toBeInTheDocument();
+  });
+
+  it("abandons the active flow when the user connects another subscription", async () => {
+    const clients = createFakeClients({
+      providers: [
+        providerOption({ providerId: "openai-subscription", displayName: "ChatGPT Plus/Pro", authMethods: ["oauth"] }),
+        providerOption({ providerId: "anthropic-subscription", displayName: "Claude Pro/Max", authMethods: ["oauth"] }),
+      ],
+      flowIds: ["flow-first", "flow-second"],
+    });
+
+    render(<ModelsSettingsPage clients={clients} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add subscription" }));
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Plus\/Pro/ }));
+    await waitFor(() => {
+      expect(clients.flows.subscribeFlowEvents).toHaveBeenCalledTimes(1);
+    });
+
+    // Start a second connect while the first flow is still active.
+    fireEvent.click(await screen.findByRole("button", { name: "Add subscription" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Claude Pro\/Max/ }));
+    await waitFor(() => {
+      expect(clients.flows.subscribeFlowEvents).toHaveBeenCalledTimes(2);
+    });
+
+    // The first flow was cancelled Host-side and its subscription dropped.
+    await waitFor(() => {
+      expect(clients.flows.cancelFlow).toHaveBeenCalledWith("flow-first");
+    });
+    expect(clients.flowSinks[0]!.cancel).toHaveBeenCalled();
+    expect(clients.flows.subscribeFlowEvents).toHaveBeenLastCalledWith(
+      expect.objectContaining({ flowId: "flow-second" }),
+    );
+
+    // Stale events from the abandoned flow never reach the UI.
+    clients.flowSinks[1]!.emit({ type: "flow.started" });
+    expect(await screen.findByText("Connecting to Claude Pro/Max…")).toBeInTheDocument();
+    clients.flowSinks[0]!.emit({ type: "flow.completed" });
+    expect(screen.getByText("Connecting to Claude Pro/Max…")).toBeInTheDocument();
+  });
+
+  it("cancels a Host flow that resolves after unmount instead of subscribing to it", async () => {
+    const clients = createFakeClients({
+      providers: [
+        providerOption({ providerId: "openai-subscription", displayName: "ChatGPT Plus/Pro", authMethods: ["oauth"] }),
+      ],
+    });
+    let resolveStart: (value: { flowId: string }) => void = () => undefined;
+    vi.mocked(clients.harnessAuth.startProviderOAuthLogin).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveStart = resolve;
+      }),
+    );
+
+    const { unmount } = render(<ModelsSettingsPage clients={clients} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add subscription" }));
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Plus\/Pro/ }));
+    await waitFor(() => {
+      expect(clients.harnessAuth.startProviderOAuthLogin).toHaveBeenCalled();
+    });
+
+    unmount();
+    resolveStart({ flowId: "flow-late" });
+    await waitFor(() => {
+      expect(clients.flows.cancelFlow).toHaveBeenCalledWith("flow-late");
+    });
+    expect(clients.flows.subscribeFlowEvents).not.toHaveBeenCalled();
   });
 
   it("surfaces flow progress and opens external auth URLs through the desktop-safe path", async () => {

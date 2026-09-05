@@ -71,6 +71,8 @@ const LOAD_ERROR =
   "Model settings could not be loaded. Check your connection and try again.";
 const SAVE_API_KEY_ERROR = "The API key could not be saved.";
 const REMOVE_API_KEY_ERROR = "The API key could not be removed.";
+const DISCONNECT_SUBSCRIPTION_ERROR =
+  "The subscription could not be disconnected.";
 const UPDATE_DEFAULTS_ERROR = "The default model settings could not be updated.";
 const CONNECT_SUBSCRIPTION_ERROR =
   "The subscription could not be connected. Check your connection and try again.";
@@ -78,7 +80,7 @@ const FLOW_INTERRUPTED_ERROR =
   "The sign-in connection was interrupted. Check your connection and try again.";
 const FLOW_PROMPT_ERROR =
   "The sign-in response could not be submitted. Check your connection and try again.";
-const FLOW_CANCEL_ERROR = "The sign-in flow could not be cancelled."
+const FLOW_CANCEL_ERROR = "The sign-in flow could not be cancelled.";
 
 export type ModelsSettingsController = ModelsSettingsScreenProps;
 
@@ -99,6 +101,10 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
   const [flowPrompt, setFlowPrompt] = useState<FlowPrompt | null>(null);
   const flowSubscriptionRef = useRef<FlowEventSubscription | null>(null);
   const activeFlowRef = useRef<{ flowId: string; providerLabel: string } | null>(null);
+  /** Bumped on every connect; stale flow starts are abandoned. */
+  const flowStartSeqRef = useRef(0);
+  /** Set on unmount; a flow that resolves afterwards is cancelled Host-side. */
+  const disposedRef = useRef(false);
   const [subscriptionPickerOpen, setSubscriptionPickerOpen] = useState(false);
   const [apiKeyPickerOpen, setApiKeyPickerOpen] = useState(false);
   const [selectedApiKeyProvider, setSelectedApiKeyProvider] = useState<AuthProviderOption | null>(null);
@@ -172,6 +178,20 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
     setPendingProviderId(null);
   }, [endFlowSubscription]);
 
+  /**
+   * Abandons the active or superseded flow: drops its event subscription and
+   * cancels it Host-side so an orphaned OAuth flow cannot keep running.
+   */
+  const abandonFlow = useCallback(
+    (flow: { flowId: string } | null) => {
+      endFlowSubscription();
+      activeFlowRef.current = null;
+      setFlowPrompt(null);
+      if (flow) void clients.flows.cancelFlow(flow.flowId).catch(() => undefined);
+    },
+    [clients, endFlowSubscription],
+  );
+
   const handleFlowEvent = useCallback(
     (envelope: FlowEventEnvelope) => {
       const flow = activeFlowRef.current;
@@ -199,12 +219,23 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
   const handleConnectSubscription = useCallback(
     (provider: AuthProviderOption) => {
       setSubscriptionPickerOpen(false);
+      // Re-entry guard: abandon any active flow and invalidate any in-flight
+      // start before beginning a new one, so stale flows can never overwrite
+      // the active refs or race the newer flow.
+      const seq = ++flowStartSeqRef.current;
+      abandonFlow(activeFlowRef.current);
       setPendingProviderId(provider.providerId);
       setSubscriptionStatusMessage(null);
       setSubscriptionStatusTone("info");
       setFlowPrompt(null);
       clients.harnessAuth.startProviderOAuthLogin(provider.providerId).then(
         ({ flowId }) => {
+          if (disposedRef.current || seq !== flowStartSeqRef.current) {
+            // The flow started after unmount or was superseded by a newer
+            // connect: cancel it Host-side instead of subscribing.
+            void clients.flows.cancelFlow(flowId).catch(() => undefined);
+            return;
+          }
           activeFlowRef.current = { flowId, providerLabel: provider.label };
           flowSubscriptionRef.current = clients.flows.subscribeFlowEvents({
             flowId,
@@ -216,13 +247,14 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
           });
         },
         (cause: unknown) => {
+          if (disposedRef.current || seq !== flowStartSeqRef.current) return;
           setPendingProviderId(null);
           setSubscriptionStatusMessage(clientErrorMessage(cause, CONNECT_SUBSCRIPTION_ERROR));
           setSubscriptionStatusTone("error");
         },
       );
     },
-    [clients, handleFlowEvent],
+    [abandonFlow, clients, handleFlowEvent],
   );
 
   const handleFlowPromptSubmit = useCallback(
@@ -249,9 +281,11 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
     });
   }, [clients]);
 
-  // Stop flow event subscriptions when the settings container unmounts.
+  // Stop flow event subscriptions when the settings container unmounts. A
+  // start that resolves afterwards is cancelled Host-side via disposedRef.
   useEffect(
     () => () => {
+      disposedRef.current = true;
       flowSubscriptionRef.current?.cancel();
       flowSubscriptionRef.current = null;
       activeFlowRef.current = null;
@@ -304,6 +338,26 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
         (cause: unknown) => {
           setPendingProviderId(null);
           setError(clientErrorMessage(cause, REMOVE_API_KEY_ERROR));
+        },
+      );
+    },
+    [clients, handleLoadError, refresh],
+  );
+
+  const handleDisconnectSubscription = useCallback(
+    (provider: AuthProviderStatus) => {
+      setPendingProviderId(provider.providerId);
+      // Removing the stored credential also covers OAuth-configured
+      // subscriptions; the Host reconciles defaults after removal.
+      clients.harnessAuth.removeProviderApiKey(provider.providerId).then(
+        () => {
+          setPendingProviderId(null);
+          setError(null);
+          refresh().catch(handleLoadError);
+        },
+        (cause: unknown) => {
+          setPendingProviderId(null);
+          setError(clientErrorMessage(cause, DISCONNECT_SUBSCRIPTION_ERROR));
         },
       );
     },
@@ -366,7 +420,7 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
     onApiKeyChange: setApiKey,
     onApiKeyDialogClose: handleApiKeyDialogClose,
     onConnectSubscription: handleConnectSubscription,
-    onDisconnectSubscription: () => undefined,
+    onDisconnectSubscription: handleDisconnectSubscription,
     onFlowPromptSubmit: handleFlowPromptSubmit,
     onFlowPromptCancel: handleFlowPromptCancel,
     onSaveApiKey: handleSaveApiKey,
