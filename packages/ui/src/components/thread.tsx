@@ -387,11 +387,7 @@ const ThreadComposer = ({
         >
           {labels.stop}
         </button>
-      ) : (
-        <ComposerPrimitive.Cancel className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">
-          {labels.stop}
-        </ComposerPrimitive.Cancel>
-      )}
+      ) : null}
     </div>
   </ComposerPrimitive.Root>
 );
