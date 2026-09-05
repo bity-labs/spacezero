@@ -133,7 +133,14 @@ describe("Project Session schemas", () => {
         status: "succeeded",
         arguments: { path: "src/app.ts", nested: { ok: true } },
         result: {
-          content: [{ type: "text", text: "file contents" }],
+          content: [
+            { type: "text", text: "file contents" },
+            { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+            {
+              type: "unsupported",
+              label: "Unsupported tool result content type: html.",
+            },
+          ],
           truncated: true,
         },
         safety: "read",
@@ -151,6 +158,22 @@ describe("Project Session schemas", () => {
         status: "succeeded",
         result: {
           content: [{ type: "unsupported", raw: "not public" }],
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(SessionToolCallPartSchema)({
+        id: `${messageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 2,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "read",
+        status: "succeeded",
+        result: {
+          content: [
+            { type: "image", mimeType: "image/svg+xml", data: "PHN2Zy8+" },
+          ],
         },
       }),
     ).toThrow();

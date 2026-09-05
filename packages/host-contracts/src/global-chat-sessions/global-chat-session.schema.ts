@@ -65,12 +65,19 @@ export interface GlobalChatSessionAgentToolJsonObject {
   readonly [key: string]: GlobalChatSessionAgentToolJsonValue;
 }
 
+export type GlobalChatSessionAgentToolImageMimeType =
+  "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
 export type GlobalChatSessionAgentToolDisplayContent =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "image";
       readonly data: string;
-      readonly mimeType: string;
+      readonly mimeType: GlobalChatSessionAgentToolImageMimeType;
+    }
+  | {
+      readonly type: "unsupported";
+      readonly label: string;
     };
 
 export interface GlobalChatSessionAgentToolDisplayResult {
@@ -315,6 +322,18 @@ const GlobalChatSessionAgentToolJsonObjectSchema = Schema.Record(
   Schema.String,
   Schema.Json,
 );
+const GlobalChatSessionAgentToolImageMimeTypeSchema = Schema.Literals([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const GlobalChatSessionAgentToolImageDataSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isPattern(
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u,
+  ),
+);
 const GlobalChatSessionAgentToolDisplayContentSchema = Schema.Union([
   Schema.Struct({
     type: Schema.Literals(["text"]),
@@ -322,8 +341,12 @@ const GlobalChatSessionAgentToolDisplayContentSchema = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literals(["image"]),
-    data: Schema.String,
-    mimeType: Schema.String.check(Schema.isMinLength(1)),
+    data: GlobalChatSessionAgentToolImageDataSchema,
+    mimeType: GlobalChatSessionAgentToolImageMimeTypeSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["unsupported"]),
+    label: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
   }),
 ]);
 const GlobalChatSessionAgentToolDisplayResultSchema = Schema.Struct({
