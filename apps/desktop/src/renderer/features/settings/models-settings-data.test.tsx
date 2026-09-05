@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentModelDescriptor, AgentRuntimeDefaults, ProviderAuthOption } from "@spacezero/host-contracts";
+import type {
+  AgentModelDescriptor,
+  AgentRuntimeDefaults,
+  FlowEvent,
+  ProviderAuthOption,
+} from "@spacezero/host-contracts";
 
 import {
   availableModelsFromDescriptors,
   authSettingsFromProviderOptions,
   clientErrorMessage,
+  flowStatusUpdateFromEvent,
   modelDefaultsFromAgentRuntimeDefaults,
 } from "./models-settings-data";
 
@@ -172,6 +178,100 @@ describe("modelDefaultsFromAgentRuntimeDefaults", () => {
       defaultModel: { providerId: "openai", modelId: "gpt-5.2" },
       defaultThinking: "high",
     });
+  });
+});
+
+describe("flowStatusUpdateFromEvent", () => {
+  it("maps progress events to informational status messages without finishing the flow", () => {
+    const events: FlowEvent[] = [
+      { type: "flow.started" },
+      { type: "flow.info", message: "Opening browser…" },
+      { type: "flow.progress", message: "Waiting for approval…" },
+    ];
+
+    expect(events.map((event) => flowStatusUpdateFromEvent(event, "ChatGPT Plus/Pro"))).toEqual([
+      { tone: "info", terminal: false, message: "Connecting to ChatGPT Plus/Pro…" },
+      { tone: "info", terminal: false, message: "Opening browser…" },
+      { tone: "info", terminal: false, message: "Waiting for approval…" },
+    ]);
+  });
+
+  it("maps external URL events to desktop-safe opening plus instructions", () => {
+    expect(
+      flowStatusUpdateFromEvent(
+        { type: "flow.external_url", url: "https://auth.example.com", instructions: "Finish in your browser." },
+        "ChatGPT Plus/Pro",
+      ),
+    ).toEqual({
+      tone: "info",
+      terminal: false,
+      message: "Finish in your browser.",
+      openUrl: "https://auth.example.com",
+    });
+    expect(
+      flowStatusUpdateFromEvent(
+        { type: "flow.external_url", url: "https://auth.example.com" },
+        "ChatGPT Plus/Pro",
+      ),
+    ).toEqual({
+      tone: "info",
+      terminal: false,
+      message: "Finish signing in to ChatGPT Plus/Pro in your browser.",
+      openUrl: "https://auth.example.com",
+    });
+  });
+
+  it("maps device-code events to a displayable code with desktop-safe verification URL opening", () => {
+    expect(
+      flowStatusUpdateFromEvent(
+        { type: "flow.device_code", userCode: "WTX-J4TQ", verificationUri: "https://claude.ai/device" },
+        "Claude Pro/Max",
+      ),
+    ).toEqual({
+      tone: "info",
+      terminal: false,
+      message: "Enter the code WTX-J4TQ at https://claude.ai/device to finish signing in to Claude Pro/Max.",
+      openUrl: "https://claude.ai/device",
+    });
+  });
+
+  it("maps prompt events to a flow prompt without changing the status message", () => {
+    const update = flowStatusUpdateFromEvent(
+      {
+        type: "flow.prompt",
+        promptId: "prompt-1",
+        promptType: "select",
+        message: "Choose an organization.",
+        options: [{ id: "org-1", label: "Acme Inc" }],
+      },
+      "ChatGPT Plus/Pro",
+    );
+
+    expect(update).toEqual({
+      tone: "info",
+      terminal: false,
+      prompt: {
+        promptId: "prompt-1",
+        promptType: "select",
+        message: "Choose an organization.",
+        options: [{ id: "org-1", label: "Acme Inc" }],
+      },
+    });
+  });
+
+  it("maps terminal events to completion, cancellation, and failure states", () => {
+    expect(
+      flowStatusUpdateFromEvent({ type: "flow.completed" }, "ChatGPT Plus/Pro"),
+    ).toEqual({ tone: "info", terminal: true, message: "ChatGPT Plus/Pro connected." });
+    expect(
+      flowStatusUpdateFromEvent({ type: "flow.cancelled" }, "ChatGPT Plus/Pro"),
+    ).toEqual({ tone: "info", terminal: true, message: "Sign-in to ChatGPT Plus/Pro was cancelled." });
+    expect(
+      flowStatusUpdateFromEvent({ type: "flow.failed", reason: "Sign-in was denied." }, "ChatGPT Plus/Pro"),
+    ).toEqual({ tone: "error", terminal: true, message: "Sign-in was denied." });
+    expect(
+      flowStatusUpdateFromEvent({ type: "flow.failed", reason: "" }, "ChatGPT Plus/Pro"),
+    ).toEqual({ tone: "error", terminal: true, message: "Sign-in to ChatGPT Plus/Pro failed." });
   });
 });
 

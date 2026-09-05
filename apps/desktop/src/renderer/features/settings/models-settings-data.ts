@@ -1,14 +1,17 @@
 import type {
   AgentModelDescriptor,
   AgentRuntimeDefaults,
+  FlowEvent,
   ProviderAuthMethod,
   ProviderAuthOption,
 } from "@spacezero/host-contracts";
 
 import type {
   AvailableModel,
+  FlowPrompt,
   ModelAuthSettings,
   ModelDefaults,
+  SubscriptionStatusTone,
 } from "./models-settings-screen";
 
 /**
@@ -125,4 +128,76 @@ export function clientErrorMessage(error: unknown, fallback: string): string {
     if (typeof message === "string" && message.length > 0) return message;
   }
   return fallback;
+}
+
+export type FlowStatusUpdate = {
+  /** Client-safe status line for the Subscriptions card, when it changes. */
+  readonly message?: string;
+  readonly tone: SubscriptionStatusTone;
+  /** Whether this event ends the flow and the container should clean up. */
+  readonly terminal: boolean;
+  /** External provider URL to open through the Desktop-safe path. */
+  readonly openUrl?: string;
+  /** Provider sign-in prompt awaiting a response. */
+  readonly prompt?: FlowPrompt;
+};
+
+/**
+ * Maps a Host OAuth flow event to the client-safe subscription status update.
+ * Only sanitized flow payloads (messages, codes, verification URLs, prompts)
+ * reach the renderer; tokens and callback secrets never appear in flow events.
+ */
+export function flowStatusUpdateFromEvent(
+  event: FlowEvent,
+  providerLabel: string,
+): FlowStatusUpdate {
+  switch (event.type) {
+    case "flow.started":
+      return { tone: "info", terminal: false, message: `Connecting to ${providerLabel}…` };
+    case "flow.info":
+      return { tone: "info", terminal: false, message: event.message };
+    case "flow.external_url":
+      return {
+        tone: "info",
+        terminal: false,
+        message:
+          event.instructions ?? `Finish signing in to ${providerLabel} in your browser.`,
+        openUrl: event.url,
+      };
+    case "flow.device_code":
+      return {
+        tone: "info",
+        terminal: false,
+        message: `Enter the code ${event.userCode} at ${event.verificationUri} to finish signing in to ${providerLabel}.`,
+        openUrl: event.verificationUri,
+      };
+    case "flow.progress":
+      return { tone: "info", terminal: false, message: event.message };
+    case "flow.prompt":
+      return {
+        tone: "info",
+        terminal: false,
+        prompt: {
+          promptId: event.promptId,
+          promptType: event.promptType,
+          message: event.message,
+          ...(event.placeholder ? { placeholder: event.placeholder } : {}),
+          ...(event.options ? { options: event.options } : {}),
+        },
+      };
+    case "flow.completed":
+      return { tone: "info", terminal: true, message: `${providerLabel} connected.` };
+    case "flow.failed":
+      return {
+        tone: "error",
+        terminal: true,
+        message: event.reason || `Sign-in to ${providerLabel} failed.`,
+      };
+    case "flow.cancelled":
+      return {
+        tone: "info",
+        terminal: true,
+        message: `Sign-in to ${providerLabel} was cancelled.`,
+      };
+  }
 }
