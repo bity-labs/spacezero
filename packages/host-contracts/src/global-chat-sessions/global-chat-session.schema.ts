@@ -18,8 +18,7 @@ export type GlobalChatSessionTurnState =
   | "interrupted"
   | "recovery_required";
 export type GlobalChatSessionAgentToolApprovalStatus =
-  | "approved"
-  | "requires_approval";
+  "approved" | "requires_approval";
 export type GlobalChatSessionAgentToolSafety = "read" | "write" | "dangerous";
 export type GlobalChatSessionTurnFailureCategory =
   | "configuration"
@@ -38,12 +37,22 @@ export interface GlobalChatSessionSummary {
   readonly lastSequence: number;
 }
 
+export interface GlobalChatSessionTextPart {
+  readonly id: string;
+  readonly type: "text";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: GlobalChatSessionTurnId;
+}
+
 export interface GlobalChatSessionMessage {
   readonly id: GlobalChatSessionMessageId;
   readonly role: GlobalChatSessionMessageRole;
   readonly text: string;
   readonly sequence: number;
   readonly createdAt: string;
+  readonly turnId?: GlobalChatSessionTurnId;
+  readonly parts?: readonly GlobalChatSessionTextPart[];
 }
 
 export interface GlobalChatSessionTurn {
@@ -150,8 +159,7 @@ export interface GlobalChatSessionLiveEventEnvelope {
 }
 
 export type GlobalChatSessionSseEnvelope =
-  | GlobalChatSessionEventEnvelope
-  | GlobalChatSessionLiveEventEnvelope;
+  GlobalChatSessionEventEnvelope | GlobalChatSessionLiveEventEnvelope;
 
 const DateTimeUtcStringSchema = Schema.String.check(
   Schema.makeFilter((value: string) => {
@@ -178,8 +186,7 @@ export const GlobalChatSessionTitleSchema = Schema.String.check(
   Schema.isMinLength(1),
   Schema.isMaxLength(60),
   Schema.makeFilter(
-    (value: string) =>
-      !/[\r\n]/.test(value) || "title must be a single line",
+    (value: string) => !/[\r\n]/.test(value) || "title must be a single line",
   ),
 );
 export const GlobalChatSessionPromptSchema = Schema.String.check(
@@ -191,7 +198,6 @@ export const GlobalChatSessionPromptSchema = Schema.String.check(
 );
 export const GlobalChatSessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
-  Schema.isMaxLength(1_000_000),
 );
 export const GlobalChatSessionMessageRoleSchema = Schema.Literals([
   "user",
@@ -234,6 +240,13 @@ export const GlobalChatSessionSummarySchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
 });
+export const GlobalChatSessionTextPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["text"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  text: Schema.String,
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+});
 export const GlobalChatSessionMessageSchema = Schema.Struct({
   id: GlobalChatSessionMessageIdSchema,
   role: GlobalChatSessionMessageRoleSchema,
@@ -243,6 +256,8 @@ export const GlobalChatSessionMessageSchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
   createdAt: DateTimeUtcStringSchema,
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+  parts: Schema.optionalKey(Schema.Array(GlobalChatSessionTextPartSchema)),
 });
 export const GlobalChatSessionTurnSchema = Schema.Struct({
   id: GlobalChatSessionTurnIdSchema,
@@ -256,9 +271,11 @@ export const GlobalChatSessionTurnSchema = Schema.Struct({
   ),
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
-  draftText: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  draftText: Schema.String,
   failureReason: Schema.optionalKey(Schema.String),
-  failureCategory: Schema.optionalKey(GlobalChatSessionTurnFailureCategorySchema),
+  failureCategory: Schema.optionalKey(
+    GlobalChatSessionTurnFailureCategorySchema,
+  ),
   retryable: Schema.optionalKey(Schema.Boolean),
   retryAfterMs: Schema.optionalKey(Schema.Number),
   createdAt: DateTimeUtcStringSchema,
@@ -281,13 +298,14 @@ export const CreateGlobalChatSessionWithFirstPromptRequestSchema =
     commandId: GlobalChatSessionCommandIdSchema,
     firstPrompt: GlobalChatSessionPromptSchema,
   });
-export const CreateGlobalChatSessionWithFirstPromptResultSchema =
-  Schema.Struct({
+export const CreateGlobalChatSessionWithFirstPromptResultSchema = Schema.Struct(
+  {
     session: GlobalChatSessionSummarySchema,
     turn: GlobalChatSessionTurnSchema,
     userMessage: GlobalChatSessionMessageSchema,
     firstMessage: GlobalChatSessionMessageSchema,
-  });
+  },
+);
 export const ListGlobalChatSessionsResultSchema = Schema.Struct({
   sessions: Schema.Array(GlobalChatSessionSummarySchema),
 });
@@ -534,9 +552,9 @@ export function parseGlobalChatSessionEventEnvelope(
 ): GlobalChatSessionEventEnvelope {
   if (!isRecord(value) || !exactKeys(value, ["sequence", "eventType", "event"]))
     throw new Error("invalid global chat session event envelope");
-  const decoded = Schema.decodeUnknownSync(GlobalChatSessionEventEnvelopeSchema)(
-    value,
-  );
+  const decoded = Schema.decodeUnknownSync(
+    GlobalChatSessionEventEnvelopeSchema,
+  )(value);
   if (decoded.event.type !== decoded.eventType)
     throw new Error("invalid global chat session event envelope");
   return decoded;

@@ -262,6 +262,16 @@ const toMessage = (row: MessageRow): SessionMessage => ({
   text: row.text,
   sequence: row.sequence,
   createdAt: row.created_at,
+  ...(row.turn_id === null ? {} : { turnId: row.turn_id }),
+  parts: [
+    {
+      id: `${row.message_id}:text:1`,
+      type: "text",
+      order: 1,
+      text: row.text,
+      ...(row.turn_id === null ? {} : { turnId: row.turn_id }),
+    },
+  ],
 });
 
 const failureDetails = (

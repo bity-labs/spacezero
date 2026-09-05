@@ -1,4 +1,5 @@
 import {
+  ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   type ThreadAssistantMessagePart,
@@ -21,6 +22,9 @@ export interface ThreadLabels {
   readonly unsupportedPart?: string;
   readonly user?: string;
   readonly assistant?: string;
+  readonly composer?: string;
+  readonly send?: string;
+  readonly stop?: string;
 }
 
 export interface ThreadProps {
@@ -36,9 +40,12 @@ const defaultLabels = {
   empty: "No saved messages yet.",
   unavailable: "Conversation unavailable.",
   error: "Conversation failed to load.",
-  unsupportedPart: "This saved content is unavailable in this read-only view.",
+  unsupportedPart: "This saved content is unavailable in this view.",
   user: "You",
   assistant: "Assistant",
+  composer: "Message",
+  send: "Send",
+  stop: "Stop",
 } satisfies Required<ThreadLabels>;
 
 type RenderablePart = ThreadUserMessagePart | ThreadAssistantMessagePart;
@@ -110,6 +117,28 @@ const ThreadMessageView = ({
   );
 };
 
+const ThreadComposer = ({
+  labels,
+}: {
+  readonly labels: Required<ThreadLabels>;
+}): ReactElement => (
+  <ComposerPrimitive.Root className="border-t border-border p-4">
+    <div className="flex items-end gap-2 rounded-lg border border-input bg-background p-2 shadow-sm">
+      <ComposerPrimitive.Input
+        aria-label={labels.composer}
+        placeholder={labels.composer}
+        className="min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      <ComposerPrimitive.Send className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
+        {labels.send}
+      </ComposerPrimitive.Send>
+      <ComposerPrimitive.Cancel className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">
+        {labels.stop}
+      </ComposerPrimitive.Cancel>
+    </div>
+  </ComposerPrimitive.Root>
+);
+
 export function Thread({
   state = "ready",
   errorMessage,
@@ -163,6 +192,7 @@ export function Thread({
             </ThreadPrimitive.Messages>
           </div>
         </ThreadPrimitive.Viewport>
+        {state === "unavailable" ? null : <ThreadComposer labels={labels} />}
       </ThreadPrimitive.Root>
     </section>
   );
