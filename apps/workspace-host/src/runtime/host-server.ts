@@ -608,7 +608,16 @@ export const startHostServer = async (options: {
             if (!option?.authMethods.includes("oauth"))
               throw new ProviderAuthError("provider_not_supported");
             const flowId = flowRegistry.start((interaction) =>
-              providerAuth.loginOAuth(params.providerId, interaction),
+              providerAuth
+                .loginOAuth(params.providerId, interaction)
+                .then(async (status) => {
+                  // The login completed; initialize Host-global defaults
+                  // best-effort before reporting the completed flow.
+                  await agentRuntimeDefaults
+                    .initializeAfterAuth(params.providerId)
+                    .catch(() => undefined);
+                  return status;
+                }),
             );
             return { flowId };
           }).pipe(
@@ -631,12 +640,19 @@ export const startHostServer = async (options: {
           } catch (error) {
             return Effect.fail(error as HostAuthorizationError);
           }
-          return effectPromise(() =>
-            providerAuth.setApiKey(params.providerId, payload.apiKey),
-          ).pipe(
-            Effect.map((status) => ({ status })),
-            Effect.mapError(harnessAuthHttpError),
-          );
+          return effectPromise(async () => {
+            const result = await providerAuth.setApiKey(
+              params.providerId,
+              payload.apiKey,
+            );
+            // The auth save succeeded; keep Host-global defaults in sync
+            // best-effort so a failed catalog read never masks the auth
+            // result. Retrying the auth operation retries the sync.
+            await agentRuntimeDefaults
+              .initializeAfterAuth(params.providerId)
+              .catch(() => undefined);
+            return { status: result };
+          }).pipe(Effect.mapError(harnessAuthHttpError));
         },
         removeProviderApiKey: ({ headers, request, params }) => {
           try {
@@ -650,12 +666,15 @@ export const startHostServer = async (options: {
           } catch (error) {
             return Effect.fail(error as HostAuthorizationError);
           }
-          return effectPromise(() =>
-            providerAuth.removeApiKey(params.providerId),
-          ).pipe(
-            Effect.map((status) => ({ status })),
-            Effect.mapError(harnessAuthHttpError),
-          );
+          return effectPromise(async () => {
+            const result = await providerAuth.removeApiKey(params.providerId);
+            // Best-effort sync: clearing or replacing an unavailable default
+            // must never mask a successful auth removal.
+            await agentRuntimeDefaults
+              .reconcileAfterAuthRemoval(params.providerId)
+              .catch(() => undefined);
+            return { status: result };
+          }).pipe(Effect.mapError(harnessAuthHttpError));
         },
       }),
   );

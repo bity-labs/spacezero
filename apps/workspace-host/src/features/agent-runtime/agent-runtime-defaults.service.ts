@@ -16,6 +16,16 @@ export interface AgentRuntimeDefaultsService {
   readonly update: (
     request: UpdateAgentRuntimeDefaultsRequest,
   ) => Promise<UpdateAgentRuntimeDefaultsResult>;
+  /** Initialize Host-global defaults after successful provider auth when no
+   * default model exists. Never overwrites an existing default. */
+  readonly initializeAfterAuth: (
+    providerId: string,
+  ) => Promise<GetAgentRuntimeDefaultsResult>;
+  /** Clear or replace the Host-global default when removing provider auth
+   * makes the selected default model unavailable. */
+  readonly reconcileAfterAuthRemoval: (
+    providerId: string,
+  ) => Promise<GetAgentRuntimeDefaultsResult>;
 }
 
 const findCatalogModel = (
@@ -38,6 +48,22 @@ const isSupportedThinkingLevel = (
   model: AgentModelDescriptor,
   thinkingLevel: AgentThinkingLevel,
 ): boolean => model.supportedThinkingLevels.includes(thinkingLevel);
+
+const firstAvailableDefaults = (
+  catalog: readonly AgentModelDescriptor[],
+  providerId?: string,
+): AgentRuntimeDefaults | null => {
+  const model = catalog.find(
+    (candidate) =>
+      candidate.available &&
+      (providerId === undefined || candidate.providerId === providerId),
+  );
+  if (!model) return null;
+  return {
+    defaultModel: { providerId: model.providerId, modelId: model.modelId },
+    defaultThinkingLevel: model.supportedThinkingLevels[0] ?? null,
+  };
+};
 
 export const createAgentRuntimeDefaultsService = (options: {
   readonly databasePath: string;
@@ -93,6 +119,39 @@ export const createAgentRuntimeDefaultsService = (options: {
           ? { providerId: nextModel.providerId, modelId: nextModel.modelId }
           : null,
         defaultThinkingLevel: nextThinking,
+      };
+      await repository.put(defaults);
+      return { defaults };
+    },
+
+    initializeAfterAuth: async (providerId) => {
+      const current = await repository.get();
+      if (current.defaultModel) return { defaults: current };
+      const catalog = await listCatalog();
+      const initialized = firstAvailableDefaults(catalog, providerId);
+      if (!initialized) return { defaults: current };
+      await repository.put(initialized);
+      return { defaults: initialized };
+    },
+
+    reconcileAfterAuthRemoval: async (providerId) => {
+      const current = await repository.get();
+      if (!current.defaultModel) return { defaults: current };
+      const catalog = await listCatalog();
+      const descriptor = catalog.find(
+        (candidate) =>
+          candidate.providerId === current.defaultModel?.providerId &&
+          candidate.modelId === current.defaultModel?.modelId,
+      );
+      if (descriptor && descriptor.available) return { defaults: current };
+      // The removed provider no longer offers usable models; pick the first
+      // available replacement from the remaining catalog ordering.
+      const replacement = firstAvailableDefaults(
+        catalog.filter((candidate) => candidate.providerId !== providerId),
+      );
+      const defaults = replacement ?? {
+        defaultModel: null,
+        defaultThinkingLevel: null,
       };
       await repository.put(defaults);
       return { defaults };
