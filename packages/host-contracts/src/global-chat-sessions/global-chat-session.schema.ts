@@ -213,6 +213,7 @@ export const GlobalChatSessionPromptSchema = Schema.String.check(
 export const GlobalChatSessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
 );
+export const GlobalChatSessionMessageDraftTextSchema = Schema.String;
 export const GlobalChatSessionMessageRoleSchema = Schema.Literals([
   "user",
   "assistant",
@@ -445,7 +446,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     sessionId: GlobalChatSessionIdSchema,
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
-    text: GlobalChatSessionMessageTextSchema,
+    text: GlobalChatSessionMessageDraftTextSchema,
     parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),

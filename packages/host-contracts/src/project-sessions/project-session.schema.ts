@@ -300,6 +300,7 @@ export const SessionPromptSchema = Schema.String.check(
 export const SessionMessageTextSchema = Schema.String.check(
   Schema.isMinLength(1),
 );
+export const SessionMessageDraftTextSchema = Schema.String;
 export const SessionMessageRoleSchema = Schema.Literals(["user", "assistant"]);
 export const SessionTextPartSchema = Schema.Struct({
   id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
@@ -642,7 +643,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
-    text: SessionMessageTextSchema,
+    text: SessionMessageDraftTextSchema,
     parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),
