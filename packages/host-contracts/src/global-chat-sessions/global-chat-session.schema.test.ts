@@ -6,6 +6,7 @@ import {
   GlobalChatSessionEventSchema,
   GlobalChatSessionMessageSchema,
   GlobalChatSessionSummarySchema,
+  GlobalChatSessionToolCallPartSchema,
   deriveGlobalChatSessionInitialTitle,
 } from "./global-chat-session.schema.js";
 
@@ -98,9 +99,9 @@ describe("Global Chat Session schemas", () => {
   });
 
   it("derives the initial title from the trimmed first line with deterministic 60-character truncation", () => {
-    expect(deriveGlobalChatSessionInitialTitle("  First line  \nsecond line")).toBe(
-      "First line",
-    );
+    expect(
+      deriveGlobalChatSessionInitialTitle("  First line  \nsecond line"),
+    ).toBe("First line");
     expect(
       deriveGlobalChatSessionInitialTitle(
         `  ${"a".repeat(61)}\nignored second line`,
@@ -119,6 +120,34 @@ describe("Global Chat Session schemas", () => {
       parseSync(GlobalChatSessionMessageSchema)({
         ...firstMessage,
         role: "tool",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts safe global-chat tool parts without unsupported result metadata", () => {
+    expect(
+      parseSync(GlobalChatSessionToolCallPartSchema)({
+        id: `${assistantMessageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 1,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "workspace.inspect",
+        status: "failed",
+        arguments: { target: "sidebar" },
+        result: { content: [] },
+      }),
+    ).toMatchObject({ toolName: "workspace.inspect", status: "failed" });
+    expect(() =>
+      parseSync(GlobalChatSessionToolCallPartSchema)({
+        id: `${assistantMessageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 1,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "workspace.inspect",
+        status: "failed",
+        result: { rawProviderObject: { private: true } },
       }),
     ).toThrow();
   });

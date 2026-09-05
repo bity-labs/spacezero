@@ -17,10 +17,7 @@ export type SavedConversationKind = "project" | "global";
 export type SavedConversationStatus =
   "idle" | "loading" | "ready" | "empty" | "unavailable" | "error";
 export type SavedConversationConnectionStatus =
-  | "idle"
-  | "connecting"
-  | "connected"
-  | "disconnected";
+  "idle" | "connecting" | "connected" | "disconnected";
 export type SavedConversationRuntimeStatus =
   | "idle"
   | "running"
@@ -48,9 +45,50 @@ export interface SavedConversationReasoningPart {
   readonly turnId?: string;
 }
 
+export type SavedConversationToolCallStatus =
+  "running" | "succeeded" | "failed";
+export type SavedConversationToolJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly SavedConversationToolJsonValue[]
+  | { readonly [key: string]: SavedConversationToolJsonValue };
+export interface SavedConversationToolJsonObject {
+  readonly [key: string]: SavedConversationToolJsonValue;
+}
+export type SavedConversationToolDisplayContent =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    };
+export interface SavedConversationToolDisplayResult {
+  readonly content: readonly SavedConversationToolDisplayContent[];
+  readonly truncated?: boolean;
+}
+
+export interface SavedConversationToolCallPart {
+  readonly id: string;
+  readonly type: "tool-call";
+  readonly order: number;
+  readonly turnId?: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly status: SavedConversationToolCallStatus;
+  readonly arguments?: SavedConversationToolJsonObject;
+  readonly progress?: string;
+  readonly result?: SavedConversationToolDisplayResult;
+  readonly safety?: "read" | "write" | "dangerous";
+  readonly approvalStatus?: "approved" | "requires_approval";
+  readonly approvalReason?: string;
+}
+
 export type SavedConversationMessagePart =
   | SavedConversationTextPart
-  | SavedConversationReasoningPart;
+  | SavedConversationReasoningPart
+  | SavedConversationToolCallPart;
 
 export interface SavedConversationMessage {
   readonly id: string;
@@ -314,7 +352,10 @@ const appendActiveDraft = (
       createdAt: activeTurn.updatedAt,
       turnId: activeTurn.id,
       ...("draftParts" in activeTurn && Array.isArray(activeTurn.draftParts)
-        ? { parts: activeTurn.draftParts as readonly SavedConversationMessagePart[] }
+        ? {
+            parts:
+              activeTurn.draftParts as readonly SavedConversationMessagePart[],
+          }
         : {}),
     }),
   ];
@@ -344,9 +385,7 @@ const mergeMessages = (
     (left, right) => left.sequence - right.sequence,
   );
 
-const hasPendingCommand = (
-  projection: SavedConversationProjection,
-): boolean =>
+const hasPendingCommand = (projection: SavedConversationProjection): boolean =>
   projection.messages.some(
     (message) => message.role === "user" && message.status === "pending",
   );
@@ -386,6 +425,73 @@ const setAssistantText = (
       ...(input.parts === undefined ? {} : { parts: input.parts }),
     }),
   );
+
+const findAssistantMessageForTurn = (
+  messages: readonly SavedConversationMessage[],
+  turnId: string,
+): SavedConversationMessage | undefined =>
+  [...messages]
+    .reverse()
+    .find(
+      (message) => message.role === "assistant" && message.turnId === turnId,
+    );
+
+const upsertToolPart = (
+  messages: readonly SavedConversationMessage[],
+  input: {
+    readonly turnId: string;
+    readonly toolCallId: string;
+    readonly toolName: string;
+    readonly status: SavedConversationToolCallStatus;
+    readonly sequence: number;
+    readonly timestamp: string;
+    readonly arguments?: SavedConversationToolJsonObject;
+    readonly progress?: string;
+    readonly result?: SavedConversationToolDisplayResult;
+    readonly safety?: "read" | "write" | "dangerous";
+    readonly approvalStatus?: "approved" | "requires_approval";
+    readonly approvalReason?: string;
+  },
+): readonly SavedConversationMessage[] => {
+  const existing = findAssistantMessageForTurn(messages, input.turnId);
+  if (!existing) return messages;
+  const prior = existing.parts.find(
+    (part): part is SavedConversationToolCallPart =>
+      part.type === "tool-call" && part.toolCallId === input.toolCallId,
+  );
+  const order =
+    prior?.order ??
+    Math.max(0, ...existing.parts.map((part) => part.order)) + 1;
+  const part: SavedConversationToolCallPart = {
+    ...(prior ?? {
+      id: `${existing.id}:tool-call:${input.toolCallId}`,
+      type: "tool-call" as const,
+      order,
+      toolCallId: input.toolCallId,
+      toolName: input.toolName,
+    }),
+    status: input.status,
+    ...(input.arguments === undefined ? {} : { arguments: input.arguments }),
+    ...(input.progress === undefined ? {} : { progress: input.progress }),
+    ...(input.result === undefined ? {} : { result: input.result }),
+    ...(input.safety === undefined ? {} : { safety: input.safety }),
+    ...(input.approvalStatus === undefined
+      ? {}
+      : { approvalStatus: input.approvalStatus }),
+    ...(input.approvalReason === undefined
+      ? {}
+      : { approvalReason: input.approvalReason }),
+  };
+  return upsertMessage(messages, {
+    ...existing,
+    sequence: Math.max(existing.sequence, input.sequence),
+    createdAt: existing.createdAt ?? input.timestamp,
+    parts: [
+      ...existing.parts.filter((candidate) => candidate.id !== part.id),
+      part,
+    ].sort((left, right) => left.order - right.order),
+  });
+};
 
 const applyDurableEvent = (
   projection: SavedConversationProjection,
@@ -497,6 +603,52 @@ const applyDurableEvent = (
         runtime: { status: "failed", latestTurnId: event.turnId },
         actions: actions({ canSend, send: "available", canStop: false }),
       };
+    case "AgentToolCallStartedV1":
+    case "GlobalChatAgentToolCallStartedV1":
+      return {
+        ...base,
+        messages: upsertToolPart(base.messages, {
+          turnId: event.turnId,
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          status: "running",
+          sequence: envelope.sequence,
+          timestamp: event.timestamp,
+          ...("arguments" in event && event.arguments !== undefined
+            ? { arguments: event.arguments as SavedConversationToolJsonObject }
+            : {}),
+          ...(event.safety === undefined ? {} : { safety: event.safety }),
+          ...(event.approvalStatus === undefined
+            ? {}
+            : { approvalStatus: event.approvalStatus }),
+          ...(event.approvalReason === undefined
+            ? {}
+            : { approvalReason: event.approvalReason }),
+        }),
+      };
+    case "AgentToolCallCompletedV1":
+    case "GlobalChatAgentToolCallCompletedV1":
+      return {
+        ...base,
+        messages: upsertToolPart(base.messages, {
+          turnId: event.turnId,
+          toolCallId: event.toolCallId,
+          toolName: event.toolName,
+          status: event.status,
+          sequence: envelope.sequence,
+          timestamp: event.timestamp,
+          ...("result" in event && event.result !== undefined
+            ? { result: event.result as SavedConversationToolDisplayResult }
+            : {}),
+          ...(event.safety === undefined ? {} : { safety: event.safety }),
+          ...(event.approvalStatus === undefined
+            ? {}
+            : { approvalStatus: event.approvalStatus }),
+          ...(event.approvalReason === undefined
+            ? {}
+            : { approvalReason: event.approvalReason }),
+        }),
+      };
     case "ProjectSessionRecoveryRequiredV1":
       return {
         ...base,
@@ -526,11 +678,15 @@ const appendPartDelta = (
 ): readonly SavedConversationMessagePart[] => {
   const id = livePartId(input);
   const existing = parts.find((part) => part.id === id);
+  const existingText =
+    existing?.type === "text" || existing?.type === "reasoning"
+      ? existing.text
+      : "";
   const next = {
     id,
     type: input.type,
     order: input.order,
-    text: `${existing?.text ?? ""}${input.text}`,
+    text: `${existingText}${input.text}`,
     turnId: input.turnId,
   } as SavedConversationMessagePart;
   return [...parts.filter((part) => part.id !== id), next].sort(
@@ -544,6 +700,28 @@ const applyLiveEvent = (
     ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
 ): SavedConversationProjection => {
   const event = envelope.event;
+  if (
+    event.type === "AgentToolCallUpdatedV1" ||
+    event.type === "GlobalChatAgentToolCallUpdatedV1"
+  ) {
+    if (projection.runtime.activeTurnId !== event.turnId) return projection;
+    return {
+      ...projection,
+      status: "ready",
+      messages: upsertToolPart(projection.messages, {
+        turnId: event.turnId,
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        status: "running",
+        sequence: projection.lastSequence,
+        timestamp: event.timestamp,
+        progress: event.summary,
+        ...("progress" in event && event.progress !== undefined
+          ? { result: event.progress as SavedConversationToolDisplayResult }
+          : {}),
+      }),
+    };
+  }
   if (
     event.type !== "AssistantTextDeltaV1" &&
     event.type !== "GlobalChatAssistantTextDeltaV1" &&
@@ -577,7 +755,9 @@ const applyLiveEvent = (
       messageWithParts({
         id: event.messageId,
         role: "assistant",
-        text: isReasoning ? (existing?.text ?? "") : `${existing?.text ?? ""}${event.text}`,
+        text: isReasoning
+          ? (existing?.text ?? "")
+          : `${existing?.text ?? ""}${event.text}`,
         sequence: existing?.sequence ?? projection.lastSequence + 1,
         createdAt: existing?.createdAt ?? event.timestamp,
         turnId: event.turnId,
@@ -901,9 +1081,7 @@ export const createProjectSessionSavedConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
-              ...(input.onOpen === undefined
-                ? {}
-                : { onOpen: input.onOpen }),
+              ...(input.onOpen === undefined ? {} : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -960,9 +1138,7 @@ export const createGlobalChatSessionSavedConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
-              ...(input.onOpen === undefined
-                ? {}
-                : { onOpen: input.onOpen }),
+              ...(input.onOpen === undefined ? {} : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -1006,9 +1182,7 @@ export const createGlobalChatDraftConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
-              ...(input.onOpen === undefined
-                ? {}
-                : { onOpen: input.onOpen }),
+              ...(input.onOpen === undefined ? {} : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined

@@ -224,7 +224,11 @@ describe("Global Chat Session Host protocol", () => {
 
     await host.stop();
     hosts = hosts.filter((candidate) => candidate !== host);
-    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
     const reloaded = await listGlobalChatMessages(
       restarted,
       descriptor(restarted).clientCapability,
@@ -269,9 +273,11 @@ describe("Global Chat Session Host protocol", () => {
       "delayed reasoning checkpoint",
     );
     expect(created.response.status).toBe(200);
-    const session = (created.body as {
-      session: { id: string; lastSequence: number };
-    }).session;
+    const session = (
+      created.body as {
+        session: { id: string; lastSequence: number };
+      }
+    ).session;
     await waitFor(() => {
       expect(
         readRows<{ count: number }>(
@@ -343,7 +349,11 @@ describe("Global Chat Session Host protocol", () => {
 
     await host.stop();
     hosts = hosts.filter((candidate) => candidate !== host);
-    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
     const reloaded = await listGlobalChatMessages(
       restarted,
       descriptor(restarted).clientCapability,
@@ -507,6 +517,83 @@ describe("Global Chat Session Host protocol", () => {
         },
       ],
     });
+  });
+
+  it("retains Global Chat tool activity with no-output failures across reload", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "global-tool-1",
+          toolName: "workspace.inspect",
+          arguments: { target: "app-shell" },
+        });
+        await input.onEvent?.({
+          type: "tool_updated",
+          toolCallId: "global-tool-1",
+          toolName: "workspace.inspect",
+          summary: "Inspecting workspace",
+        });
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "global-tool-1",
+          toolName: "workspace.inspect",
+          isError: true,
+          result: { content: [] },
+        });
+        return { text: "Could not inspect." };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "inspect globally",
+    );
+    const session = (created.body as { session: { id: string } }).session;
+    let retainedMessages: { role: string; parts?: unknown[] }[] = [];
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        session.id,
+      );
+      retainedMessages = (
+        listed.body as { messages: { role: string; parts?: unknown[] }[] }
+      ).messages;
+      expect(retainedMessages).toHaveLength(2);
+    });
+
+    expect(retainedMessages[1]).toMatchObject({
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-call",
+          toolCallId: "global-tool-1",
+          toolName: "workspace.inspect",
+          status: "failed",
+          arguments: { target: "app-shell" },
+          result: { content: [] },
+        },
+        { type: "text", text: "Could not inspect." },
+      ],
+    });
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const reloaded = await listGlobalChatMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.id,
+    );
+    expect(reloaded.body).toMatchObject({ messages: retainedMessages });
   });
 
   it("replays duplicate create commands with the same input and rejects command ID conflicts", async () => {

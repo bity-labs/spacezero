@@ -628,8 +628,7 @@ describe("saved conversation projection", () => {
     const client = {
       listSessionMessages: vi.fn(async () => {
         loadCount += 1;
-        if (loadCount === 1)
-          return { session: projectSession, messages: [] };
+        if (loadCount === 1) return { session: projectSession, messages: [] };
         return {
           session: { ...projectSession, lastSequence: 5 },
           messages: [
@@ -1113,6 +1112,134 @@ describe("saved conversation projection", () => {
         },
       ],
     });
+  });
+
+  it("keeps interleaved tool calls associated with their call identities through durable and live updates", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    let onLiveEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        onLiveEvent = input.onLiveEvent;
+        input.onOpen?.();
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    onEvent?.({
+      sequence: 5,
+      eventType: "AgentTurnStartedV1",
+      event: {
+        type: "AgentTurnStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-1",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
+        timestamp,
+      },
+    });
+    onEvent?.({
+      sequence: 6,
+      eventType: "AgentToolCallStartedV1",
+      event: {
+        type: "AgentToolCallStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        toolCallId: "tool-b",
+        toolName: "write",
+        arguments: { path: "src/b.ts" },
+        timestamp,
+      },
+    });
+    onEvent?.({
+      sequence: 7,
+      eventType: "AgentToolCallStartedV1",
+      event: {
+        type: "AgentToolCallStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        toolCallId: "tool-a",
+        toolName: "read",
+        arguments: { path: "src/a.ts" },
+        timestamp,
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AgentToolCallUpdatedV1",
+      event: {
+        type: "AgentToolCallUpdatedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        toolCallId: "tool-a",
+        toolName: "read",
+        summary: "Reading file",
+        timestamp,
+      },
+    });
+    onEvent?.({
+      sequence: 8,
+      eventType: "AgentToolCallCompletedV1",
+      event: {
+        type: "AgentToolCallCompletedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        toolCallId: "tool-a",
+        toolName: "read",
+        status: "succeeded",
+        result: { content: [{ type: "text", text: "A" }] },
+        timestamp,
+      },
+    });
+    onEvent?.({
+      sequence: 9,
+      eventType: "AgentToolCallCompletedV1",
+      event: {
+        type: "AgentToolCallCompletedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        toolCallId: "tool-b",
+        toolName: "write",
+        status: "failed",
+        result: { content: [] },
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot().messages[0]?.parts).toMatchObject([
+      {
+        type: "tool-call",
+        toolCallId: "tool-b",
+        status: "failed",
+        arguments: { path: "src/b.ts" },
+        result: { content: [] },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-a",
+        status: "succeeded",
+        progress: "Reading file",
+        arguments: { path: "src/a.ts" },
+        result: { content: [{ type: "text", text: "A" }] },
+      },
+    ]);
   });
 
   it("reports empty and query-failure states honestly", async () => {

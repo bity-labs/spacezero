@@ -10,14 +10,18 @@ export interface ScriptedConversationOptions {
    * Deterministic turn script. Defaults to echoing the prompt so Host flows
    * stay testable before the real Pi SDK runner is introduced.
    */
-  readonly respond?: (
-    input: AgentTurnInput,
-  ) =>
+  readonly respond?: (input: AgentTurnInput) =>
     | string
-    | { readonly text: string; readonly parts?: readonly AgentTurnContentPart[] }
+    | {
+        readonly text: string;
+        readonly parts?: readonly AgentTurnContentPart[];
+      }
     | Promise<
         | string
-        | { readonly text: string; readonly parts?: readonly AgentTurnContentPart[] }
+        | {
+            readonly text: string;
+            readonly parts?: readonly AgentTurnContentPart[];
+          }
       >;
   /** Typed failure raised before any turn output is produced. */
   readonly error?: AgentTurnError;
@@ -37,14 +41,14 @@ export const createScriptedConversationRunner = (
     if (options.error) throw options.error;
     const respond = options.respond ?? ((current) => `Echo: ${current.prompt}`);
     const response = await respond(input);
-    const result =
-      typeof response === "string" ? { text: response } : response;
+    const result = typeof response === "string" ? { text: response } : response;
     const parts = result.parts ?? [
       { type: "text" as const, order: 1, text: result.text },
     ];
     if (input.signal?.aborted)
       throw new AgentTurnError("agent_turn_interrupted");
     for (const part of parts) {
+      if (part.type !== "text" && part.type !== "reasoning") continue;
       input.onDelta?.({ kind: "assistant_content", part });
       await input.onEvent?.({ type: "assistant_delta", part });
     }
