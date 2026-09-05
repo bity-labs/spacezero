@@ -1681,19 +1681,46 @@ describe("Session prompt Host protocol", () => {
     ]);
   });
 
-  it("interrupts an active background turn and journals the interruption", async () => {
+  it("interrupts only the current Project Session turn and drains the next queued follow-up", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
     const databasePath = join(root, "host.sqlite");
+    const submittedPrompts: string[] = [];
+    let partialEmitted!: () => void;
+    const partialEmittedPromise = new Promise<void>((resolve) => {
+      partialEmitted = resolve;
+    });
+    let nextStarted!: () => void;
+    const nextStartedPromise = new Promise<void>((resolve) => {
+      nextStarted = resolve;
+    });
+    let releaseNext!: () => void;
+    const releaseNextPromise = new Promise<void>((resolve) => {
+      releaseNext = resolve;
+    });
     const runner: ConversationRunner = {
-      submitTurn: (input) =>
-        new Promise((_, reject) => {
-          input.signal?.addEventListener(
-            "abort",
-            () => reject(new AgentTurnError("agent_turn_interrupted")),
-            { once: true },
-          );
-        }),
+      submitTurn: async (input) => {
+        submittedPrompts.push(input.prompt);
+        if (input.prompt === "please wait") {
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: "partial project" },
+          });
+          partialEmitted();
+          await new Promise<never>((_, reject) => {
+            if (input.signal?.aborted)
+              reject(new AgentTurnError("agent_turn_interrupted"));
+            input.signal?.addEventListener(
+              "abort",
+              () => reject(new AgentTurnError("agent_turn_interrupted")),
+              { once: true },
+            );
+          });
+        }
+        nextStarted();
+        await releaseNextPromise;
+        return { text: "queued project answer" };
+      },
     };
     const host = await start(databasePath, join(root, "SpaceZero"), runner);
     const client = descriptor(host);
@@ -1711,6 +1738,16 @@ describe("Session prompt Host protocol", () => {
     );
     expect(submitted.response.status).toBe(200);
     const turnId = (submitted.body as { turn: { id: string } }).turn.id;
+    const followUpCommandId = randomUUID();
+    const queued = await enqueueFollowUp(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "run queued work",
+      followUpCommandId,
+    );
+    expect(queued.response.status).toBe(200);
+    await partialEmittedPromise;
 
     const interrupted = await interruptTurn(
       host,
@@ -1721,8 +1758,9 @@ describe("Session prompt Host protocol", () => {
 
     expect(interrupted.response.status).toBe(200);
     expect(interrupted.body).toMatchObject({
-      turn: { id: turnId, state: "interrupted" },
+      turn: { id: turnId, state: "interrupted", draftText: "partial project" },
     });
+    await nextStartedPromise;
     const secondInterrupt = await interruptTurn(
       host,
       client.clientCapability,
@@ -1733,9 +1771,45 @@ describe("Session prompt Host protocol", () => {
     expect(secondInterrupt.body).toMatchObject({
       turn: { id: turnId, state: "interrupted" },
     });
+    const runningFollowUp = await listMessages(
+      host,
+      client.clientCapability,
+      created.session.id,
+    );
+    expect(runningFollowUp.body).toMatchObject({
+      activeTurn: { state: "running" },
+      latestTurn: { id: expect.not.stringMatching(turnId), state: "running" },
+      messages: [
+        { role: "user", text: "please wait" },
+        { role: "user", text: "run queued work", commandId: followUpCommandId },
+      ],
+    });
+    const followUps = await listFollowUps(
+      host,
+      client.clientCapability,
+      created.session.id,
+    );
+    expect(followUps.body).toMatchObject({
+      followUps: [
+        {
+          commandId: followUpCommandId,
+          state: "consumed",
+          dispatchedTurnId: expect.any(String),
+        },
+      ],
+    });
+    expect(submittedPrompts).toEqual(["please wait", "run queued work"]);
     const events = eventTypes(databasePath, created.session.id);
     expect(events).toContain("AgentTurnInterruptedV1");
     expect(events).not.toContain("AgentTurnFailedV1");
+
+    releaseNext();
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      4,
+    );
   });
 
   it("denies unauthorized or wrong-origin Session event streams", async () => {

@@ -176,8 +176,7 @@ interface SavedConversationConnectorResult {
   readonly lastSequence: number;
   readonly messages: readonly (SessionMessage | GlobalChatSessionMessage)[];
   readonly followUps?: readonly (
-    | ProjectSessionFollowUp
-    | GlobalChatSessionFollowUp
+    ProjectSessionFollowUp | GlobalChatSessionFollowUp
   )[];
   readonly activeTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
   readonly latestTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
@@ -654,6 +653,7 @@ const applyDurableEvent = (
   envelope: ProjectSessionEventEnvelope | GlobalChatSessionEventEnvelope,
   canSend: boolean,
   canQueueFollowUp = false,
+  canStopAvailable = true,
 ): SavedConversationProjection => {
   if (envelope.sequence <= projection.lastSequence) return projection;
   const event = envelope.event;
@@ -713,7 +713,7 @@ const applyDurableEvent = (
         actions: actions({
           canSend,
           send: canQueueFollowUp ? "available" : "unavailable",
-          canStop: true,
+          canStop: canStopAvailable,
         }),
       };
     case "AgentMessageCheckpointedV1":
@@ -1027,6 +1027,10 @@ export const createSavedConversationStore = ({
   const canSend = () => canSubmitPrompt() || canEnqueueFollowUp();
   let snapshot = initialSnapshot(kind, sessionId, canSend());
   let subscription: SavedConversationEventSubscription | undefined;
+  let interruptingTurnId: string | undefined;
+
+  const canStopActiveTurn = (): boolean =>
+    interruptTurn !== undefined && interruptingTurnId === undefined;
 
   const publish = (next: SavedConversationProjection): void => {
     if (disposed) return;
@@ -1068,6 +1072,7 @@ export const createSavedConversationStore = ({
           event,
           canSend(),
           canEnqueueFollowUp(),
+          canStopActiveTurn(),
         );
         publish({ ...next, connection: { status: "connected" } });
       },
@@ -1131,7 +1136,7 @@ export const createSavedConversationStore = ({
           : runtime.status === "running" && enqueueFollowUp === undefined
             ? "unavailable"
             : "available",
-        canStop: runtime.status === "running" && interruptTurn !== undefined,
+        canStop: runtime.status === "running" && canStopActiveTurn(),
       }),
     };
   };
@@ -1327,6 +1332,7 @@ export const createSavedConversationStore = ({
           },
           canSend(),
           canEnqueueFollowUp(),
+          canStopActiveTurn(),
         );
         publish({
           ...reconciled,
@@ -1337,7 +1343,7 @@ export const createSavedConversationStore = ({
               result.turn.state === "running" && enqueueFollowUp === undefined
                 ? "unavailable"
                 : "available",
-            canStop: interruptTurn !== undefined,
+            canStop: canStopActiveTurn(),
           }),
         });
         resubscribe(result.userMessage.sequence);
@@ -1404,8 +1410,33 @@ export const createSavedConversationStore = ({
     },
     stop: async () => {
       const turnId = snapshot.runtime.activeTurnId;
-      if (!turnId || !interruptTurn) throw new Error("stop unavailable");
-      await interruptTurn({ sessionId: currentSessionId, turnId });
+      if (!turnId || !canStopActiveTurn()) throw new Error("stop unavailable");
+      const interrupt = interruptTurn;
+      if (!interrupt) throw new Error("stop unavailable");
+      const interruptedSessionId = currentSessionId;
+      interruptingTurnId = turnId;
+      publish({
+        ...snapshot,
+        actions: actions({
+          canSend: canSend(),
+          send: snapshot.actions.send,
+          canStop: false,
+        }),
+      });
+      try {
+        await interrupt({ sessionId: interruptedSessionId, turnId });
+      } finally {
+        if (interruptingTurnId === turnId) interruptingTurnId = undefined;
+        publish({
+          ...snapshot,
+          actions: actions({
+            canSend: canSend(),
+            send: snapshot.actions.send,
+            canStop:
+              snapshot.runtime.status === "running" && canStopActiveTurn(),
+          }),
+        });
+      }
     },
     dispose: () => {
       disposed = true;
