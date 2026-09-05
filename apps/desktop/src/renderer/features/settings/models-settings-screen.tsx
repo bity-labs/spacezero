@@ -71,6 +71,27 @@ export type ModelDefaults = {
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
+export type SubscriptionStatusTone = "info" | "error";
+
+export type FlowPromptOption = {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+};
+
+/**
+ * A provider sign-in prompt surfaced by a Host OAuth flow. The prompt itself
+ * is client-safe; submitted secret responses are held only transiently in
+ * dialog input state and cleared as soon as they are submitted.
+ */
+export type FlowPrompt = {
+  readonly promptId: string;
+  readonly promptType: "text" | "secret" | "select" | "manual_code";
+  readonly message: string;
+  readonly placeholder?: string;
+  readonly options?: readonly FlowPromptOption[];
+};
+
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 export type ModelsSettingsScreenProps = {
@@ -81,6 +102,8 @@ export type ModelsSettingsScreenProps = {
   error: string | null;
   pendingProviderId: string | null;
   subscriptionStatusMessage: string | null;
+  subscriptionStatusTone?: SubscriptionStatusTone;
+  flowPrompt: FlowPrompt | null;
   subscriptionPickerOpen: boolean;
   apiKeyPickerOpen: boolean;
   selectedApiKeyProvider: AuthProviderOption | null;
@@ -93,6 +116,8 @@ export type ModelsSettingsScreenProps = {
   onApiKeyDialogClose: () => void;
   onConnectSubscription: (provider: AuthProviderOption) => void;
   onDisconnectSubscription: (provider: AuthProviderStatus) => void;
+  onFlowPromptSubmit: (response: string) => void;
+  onFlowPromptCancel: () => void;
   onSaveApiKey: () => void;
   onRemoveApiKey: (provider: AuthProviderStatus) => void;
   onDefaultModelPickerOpenChange: (open: boolean) => void;
@@ -108,6 +133,8 @@ export function ModelsSettingsScreen({
   error,
   pendingProviderId,
   subscriptionStatusMessage,
+  subscriptionStatusTone = "info",
+  flowPrompt,
   subscriptionPickerOpen,
   apiKeyPickerOpen,
   selectedApiKeyProvider,
@@ -120,6 +147,8 @@ export function ModelsSettingsScreen({
   onApiKeyDialogClose,
   onConnectSubscription,
   onDisconnectSubscription,
+  onFlowPromptSubmit,
+  onFlowPromptCancel,
   onSaveApiKey,
   onRemoveApiKey,
   onDefaultModelPickerOpenChange,
@@ -147,6 +176,7 @@ export function ModelsSettingsScreen({
           providers={authSettings?.subscriptions.connected ?? []}
           pendingProviderId={pendingProviderId}
           statusMessage={subscriptionStatusMessage}
+          statusTone={subscriptionStatusTone}
           onAdd={() => onSubscriptionPickerOpenChange(true)}
           onRemove={onDisconnectSubscription}
           removeLabel="Disconnect subscription"
@@ -223,7 +253,72 @@ export function ModelsSettingsScreen({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {flowPrompt ? (
+        <FlowPromptDialog prompt={flowPrompt} onSubmit={onFlowPromptSubmit} onCancel={onFlowPromptCancel} />
+      ) : null}
     </>
+  );
+}
+
+function FlowPromptDialog({
+  prompt,
+  onSubmit,
+  onCancel,
+}: {
+  prompt: FlowPrompt;
+  onSubmit: (response: string) => void;
+  onCancel: () => void;
+}): ReactElement {
+  const [value, setValue] = useState("");
+  const options = prompt.promptType === "select" ? prompt.options ?? [] : [];
+  const isSecret = prompt.promptType === "secret";
+
+  const submitText = () => {
+    const response = value.trim();
+    if (!response) return;
+    // Raw responses are held only transiently: clear them as soon as
+    // submission starts so secrets never linger in renderer state.
+    setValue("");
+    onSubmit(response);
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Finish sign-in</DialogTitle>
+          <DialogDescription>{prompt.message}</DialogDescription>
+        </DialogHeader>
+        {options.length > 0 ? (
+          <div className="flex max-h-72 flex-col gap-2 overflow-auto">
+            {options.map((option) => (
+              <Button key={option.id} variant="outline" className="h-auto w-full justify-start px-3 py-3 text-left" onClick={() => onSubmit(option.id)}>
+                <span>
+                  <span className="block text-sm font-medium">{option.label}</span>
+                  {option.description ? <span className="mt-1 block text-xs text-muted-foreground">{option.description}</span> : null}
+                </span>
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <Input
+            type={isSecret ? "password" : "text"}
+            value={value}
+            aria-label="Sign-in response"
+            placeholder={prompt.placeholder ?? (prompt.promptType === "manual_code" ? "Enter code" : undefined)}
+            autoComplete="off"
+            onChange={(event) => setValue(event.target.value)}
+          />
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          {options.length === 0 ? (
+            <Button disabled={!value.trim()} onClick={submitText}>Submit</Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -308,6 +403,7 @@ function ModelAuthCard({
   pendingProviderId,
   removeLabel,
   statusMessage,
+  statusTone = "info",
   onAdd,
   onRemove,
 }: {
@@ -322,12 +418,22 @@ function ModelAuthCard({
   pendingProviderId: string | null;
   removeLabel: string;
   statusMessage?: string | null;
+  statusTone?: SubscriptionStatusTone;
   onAdd: () => void;
   onRemove: (provider: AuthProviderStatus) => void;
 }): ReactElement {
   return (
     <SettingsSection title={title} description={description}>
-      {statusMessage ? <Text role="status" aria-live="polite" variant="muted" className="border-b border-border/70 px-4 py-3">{statusMessage}</Text> : null}
+      {statusMessage ? (
+        <Text
+          role="status"
+          aria-live="polite"
+          variant={statusTone === "error" ? "danger" : "muted"}
+          className="border-b border-border/70 px-4 py-3"
+        >
+          {statusMessage}
+        </Text>
+      ) : null}
       {isLoading ? (
         <SettingsContentPlaceholder rows={2} />
       ) : providers.length === 0 ? (
