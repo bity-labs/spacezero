@@ -596,6 +596,92 @@ describe("Global Chat Session Host protocol", () => {
     expect(reloaded.body).toMatchObject({ messages: retainedMessages });
   });
 
+  it("retains Global Chat safe image tool results and explicit fallbacks across reload", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "tool_started",
+          toolCallId: "global-image-tool-1",
+          toolName: "workspace.inspect",
+          arguments: { target: "image-result" },
+        });
+        await input.onEvent?.({
+          type: "tool_completed",
+          toolCallId: "global-image-tool-1",
+          toolName: "workspace.inspect",
+          isError: false,
+          result: {
+            content: [
+              { type: "image", mimeType: "image/webp", data: "UklGRg==" },
+              {
+                type: "unsupported",
+                label: "Unsupported tool result content type: html.",
+              },
+            ],
+          },
+        });
+        return { text: "Rendered safe rich content." };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "inspect rich content",
+    );
+    const session = (created.body as { session: { id: string } }).session;
+    let retainedMessages: { role: string; parts?: unknown[] }[] = [];
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        session.id,
+      );
+      retainedMessages = (
+        listed.body as { messages: { role: string; parts?: unknown[] }[] }
+      ).messages;
+      expect(retainedMessages).toHaveLength(2);
+    });
+
+    expect(retainedMessages[1]).toMatchObject({
+      role: "assistant",
+      parts: [
+        {
+          type: "tool-call",
+          toolCallId: "global-image-tool-1",
+          toolName: "workspace.inspect",
+          status: "succeeded",
+          result: {
+            content: [
+              { type: "image", mimeType: "image/webp", data: "UklGRg==" },
+              {
+                type: "unsupported",
+                label: "Unsupported tool result content type: html.",
+              },
+            ],
+          },
+        },
+        { type: "text", text: "Rendered safe rich content." },
+      ],
+    });
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const reloaded = await listGlobalChatMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.id,
+    );
+    expect(reloaded.body).toMatchObject({ messages: retainedMessages });
+  });
+
   it("replays duplicate create commands with the same input and rejects command ID conflicts", async () => {
     const root = await temp();
     const runner: ConversationRunner = {

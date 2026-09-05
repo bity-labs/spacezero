@@ -135,7 +135,15 @@ describe("Global Chat Session schemas", () => {
         toolName: "workspace.inspect",
         status: "failed",
         arguments: { target: "sidebar" },
-        result: { content: [] },
+        result: {
+          content: [
+            { type: "image", mimeType: "image/webp", data: "UklGRg==" },
+            {
+              type: "unsupported",
+              label: "Unsupported tool result content type: html.",
+            },
+          ],
+        },
       }),
     ).toMatchObject({ toolName: "workspace.inspect", status: "failed" });
     expect(() =>
@@ -148,6 +156,22 @@ describe("Global Chat Session schemas", () => {
         toolName: "workspace.inspect",
         status: "failed",
         result: { rawProviderObject: { private: true } },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSync(GlobalChatSessionToolCallPartSchema)({
+        id: `${assistantMessageId}:tool-call:call-1`,
+        type: "tool-call",
+        order: 1,
+        turnId,
+        toolCallId: "call-1",
+        toolName: "workspace.inspect",
+        status: "failed",
+        result: {
+          content: [
+            { type: "image", mimeType: "image/svg+xml", data: "PHN2Zy8+" },
+          ],
+        },
       }),
     ).toThrow();
   });

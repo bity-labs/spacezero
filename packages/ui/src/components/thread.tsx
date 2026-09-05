@@ -63,7 +63,12 @@ type ToolDisplayContent =
   | {
       readonly type: "image";
       readonly data: string;
-      readonly mimeType: string;
+      readonly mimeType:
+        "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+    }
+  | {
+      readonly type: "unsupported";
+      readonly label: string;
     };
 
 type ToolDisplayResult = {
@@ -102,20 +107,36 @@ const isToolCallPart = (part: RenderablePart): part is RenderableToolCallPart =>
 
 const renderToolResult = (result: ToolDisplayResult): ReactNode => (
   <div className="space-y-2">
-    {result.content.map((content, index) =>
-      content.type === "text" ? (
-        <pre
+    {result.content.map((content, index) => {
+      if (content.type === "text")
+        return (
+          <pre
+            key={index}
+            className="overflow-x-auto whitespace-pre-wrap rounded bg-background p-2"
+          >
+            {content.text}
+          </pre>
+        );
+      if (content.type === "image")
+        return (
+          <img
+            key={index}
+            alt={`Tool result image (${content.mimeType})`}
+            src={`data:${content.mimeType};base64,${content.data}`}
+            loading="lazy"
+            decoding="async"
+            className="max-h-96 max-w-full rounded border border-border bg-background object-contain"
+          />
+        );
+      return (
+        <div
           key={index}
-          className="overflow-x-auto whitespace-pre-wrap rounded bg-background p-2"
+          className="rounded border border-border bg-background p-2 text-muted-foreground"
         >
-          {content.text}
-        </pre>
-      ) : (
-        <div key={index} className="text-muted-foreground">
-          Image result: {content.mimeType}
+          {content.label}
         </div>
-      ),
-    )}
+      );
+    })}
   </div>
 );
 

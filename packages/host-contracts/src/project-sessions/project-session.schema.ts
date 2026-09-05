@@ -86,12 +86,19 @@ export interface AgentToolJsonObject {
   readonly [key: string]: AgentToolJsonValue;
 }
 
+export type AgentToolImageMimeType =
+  "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
 export type AgentToolDisplayContent =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "image";
       readonly data: string;
-      readonly mimeType: string;
+      readonly mimeType: AgentToolImageMimeType;
+    }
+  | {
+      readonly type: "unsupported";
+      readonly label: string;
     };
 
 export interface AgentToolDisplayResult {
@@ -359,6 +366,18 @@ export const SessionReasoningPartSchema = Schema.Struct({
   turnId: Schema.optionalKey(AgentTurnIdSchema),
 });
 const AgentToolJsonObjectSchema = Schema.Record(Schema.String, Schema.Json);
+const AgentToolImageMimeTypeSchema = Schema.Literals([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const AgentToolImageDataSchema = Schema.String.check(
+  Schema.isMinLength(1),
+  Schema.isPattern(
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u,
+  ),
+);
 const AgentToolDisplayContentSchema = Schema.Union([
   Schema.Struct({
     type: Schema.Literals(["text"]),
@@ -366,8 +385,12 @@ const AgentToolDisplayContentSchema = Schema.Union([
   }),
   Schema.Struct({
     type: Schema.Literals(["image"]),
-    data: Schema.String,
-    mimeType: Schema.String.check(Schema.isMinLength(1)),
+    data: AgentToolImageDataSchema,
+    mimeType: AgentToolImageMimeTypeSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["unsupported"]),
+    label: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(160)),
   }),
 ]);
 const AgentToolDisplayResultSchema = Schema.Struct({

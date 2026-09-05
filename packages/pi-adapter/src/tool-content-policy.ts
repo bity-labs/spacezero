@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import type {
   AgentToolDisplayContent,
   AgentToolDisplayResult,
+  AgentToolImageMimeType,
   AgentToolJsonObject,
   AgentToolJsonValue,
 } from "./conversation.model.js";
@@ -39,6 +40,15 @@ const displayWorktreePath = (root: string, candidate: string): string => {
 };
 
 const absolutePathPattern = /(?:~|\/)[^\s`'"<>\])}]*/gu;
+const base64Pattern =
+  /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u;
+const supportedImageMimeTypes = new Set<AgentToolImageMimeType>([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+]);
+const safeTypeLabelPattern = /^[a-z0-9][a-z0-9+./_-]{0,63}$/iu;
 
 export interface PublicToolContentPolicy {
   readonly sanitizeJsonObject: (
@@ -69,6 +79,9 @@ export const createPublicToolContentPolicy = ({
       (current, secret) => current.split(secret).join(redacted),
       value,
     );
+
+  const containsProtectedSecret = (value: string): boolean =>
+    secrets.some((secret) => value.includes(secret));
 
   const transformPath = (value: string, forceProtected = false): string => {
     const withoutSecrets = replaceSecrets(value);
@@ -128,6 +141,26 @@ export const createPublicToolContentPolicy = ({
     return sanitizeJsonValue(value, "") as AgentToolJsonObject;
   };
 
+  const unsupportedContent = (label: string): AgentToolDisplayContent[] => [
+    { type: "unsupported", label },
+  ];
+
+  const safeContentTypeLabel = (value: unknown): string => {
+    if (typeof value !== "string") return "unknown";
+    const sanitized = replaceSecrets(value);
+    return safeTypeLabelPattern.test(sanitized) ? sanitized : "unknown";
+  };
+
+  const normalizeImageMimeType = (
+    value: string,
+  ): AgentToolImageMimeType | undefined => {
+    const normalized =
+      value.toLowerCase() === "image/jpg" ? "image/jpeg" : value.toLowerCase();
+    return supportedImageMimeTypes.has(normalized as AgentToolImageMimeType)
+      ? (normalized as AgentToolImageMimeType)
+      : undefined;
+  };
+
   const sanitizeContent = (
     value: unknown,
   ): readonly AgentToolDisplayContent[] => {
@@ -141,19 +174,36 @@ export const createPublicToolContentPolicy = ({
         ? [{ type: "text", text: value }]
         : [];
     return content.flatMap((part): AgentToolDisplayContent[] => {
-      if (typeof part !== "object" || part === null) return [];
+      if (typeof part !== "object" || part === null)
+        return unsupportedContent(
+          "Unsupported tool result content type: unknown.",
+        );
       const current = part as Record<string, unknown>;
       if (current.type === "text" && typeof current.text === "string")
         return [{ type: "text", text: sanitizeText(current.text) }];
-      if (
-        current.type === "image" &&
-        typeof current.data === "string" &&
-        typeof current.mimeType === "string"
-      )
-        return [
-          { type: "image", data: current.data, mimeType: current.mimeType },
-        ];
-      return [];
+      if (current.type === "image") {
+        const mimeType =
+          typeof current.mimeType === "string"
+            ? normalizeImageMimeType(current.mimeType)
+            : undefined;
+        const originalMimeType = safeContentTypeLabel(current.mimeType);
+        if (mimeType === undefined)
+          return unsupportedContent(
+            `Unsupported image result (${originalMimeType}).`,
+          );
+        if (
+          typeof current.data !== "string" ||
+          current.data.length === 0 ||
+          !base64Pattern.test(current.data)
+        )
+          return unsupportedContent(`Malformed image result (${mimeType}).`);
+        if (containsProtectedSecret(current.data))
+          return unsupportedContent(`Redacted image result (${mimeType}).`);
+        return [{ type: "image", data: current.data, mimeType }];
+      }
+      return unsupportedContent(
+        `Unsupported tool result content type: ${safeContentTypeLabel(current.type)}.`,
+      );
     });
   };
 

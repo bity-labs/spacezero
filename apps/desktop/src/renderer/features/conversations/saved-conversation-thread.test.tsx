@@ -46,7 +46,12 @@ const loadedStore = (input: {
               | {
                   readonly type: "image";
                   readonly data: string;
-                  readonly mimeType: string;
+                  readonly mimeType:
+                    "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+                }
+              | {
+                  readonly type: "unsupported";
+                  readonly label: string;
                 }
             )[];
             readonly truncated?: boolean;
@@ -208,6 +213,60 @@ describe("SavedConversationThread", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText("Output was truncated by the tool provider."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders safe image tool results and explicit unsupported-content fallbacks", async () => {
+    const store = loadedStore({
+      kind: "global",
+      sessionId: "global-session-1",
+      title: "Global prompt",
+      messages: [
+        {
+          id: "global-assistant-message-1",
+          role: "assistant",
+          text: "Generated image",
+          sequence: 1,
+          createdAt: timestamp,
+          parts: [
+            {
+              id: "global-assistant-message-1:tool-call:image-call",
+              type: "tool-call",
+              order: 1,
+              toolCallId: "image-call",
+              toolName: "image.preview",
+              status: "succeeded",
+              result: {
+                content: [
+                  {
+                    type: "image",
+                    mimeType: "image/png",
+                    data: "iVBORw0KGgo=",
+                  },
+                  {
+                    type: "unsupported",
+                    label: "Unsupported tool result content type: html.",
+                  },
+                ],
+              },
+            },
+            {
+              id: "global-assistant-message-1:text:2",
+              type: "text",
+              order: 2,
+              text: "Generated image",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const image = await screen.findByAltText("Tool result image (image/png)");
+    expect(image).toHaveAttribute("src", "data:image/png;base64,iVBORw0KGgo=");
+    expect(
+      screen.getByText("Unsupported tool result content type: html."),
     ).toBeInTheDocument();
   });
 
