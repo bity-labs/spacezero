@@ -1224,7 +1224,7 @@ export const createGlobalChatSessionRepository = (options: {
               );
             ensureOpen(rows[0]);
             const activeTurns =
-              yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+              yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
             if (activeTurns[0])
               throw new GlobalChatSessionServiceError(
                 "global_chat_session_turn_in_progress",
