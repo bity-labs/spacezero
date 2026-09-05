@@ -538,6 +538,56 @@ describe("SavedConversationThread", () => {
     ).toHaveLength(0);
   });
 
+  it("targets the visible turn when stopping and hides local cancel while interruption is pending", async () => {
+    let releaseInterrupt!: () => void;
+    const interruptReleased = new Promise<void>((resolve) => {
+      releaseInterrupt = resolve;
+    });
+    const interrupted: { sessionId: string; turnId: string }[] = [];
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 4,
+        messages: [],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "running-user-message",
+          assistantMessageId: "running-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Partial answer",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+      interruptTurn: async ({ sessionId, turnId }) => {
+        interrupted.push({ sessionId, turnId });
+        await interruptReleased;
+      },
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    fireEvent.click(stop);
+
+    await waitFor(() => {
+      expect(interrupted).toEqual([
+        {
+          sessionId: "project-session-1",
+          turnId: "11111111-1111-4111-8111-111111111111",
+        },
+      ]);
+    });
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    releaseInterrupt();
+  });
+
   it("uses the same composer queue UI for Global Chat while a turn is running", async () => {
     const enqueued: string[] = [];
     const store = createSavedConversationStore({

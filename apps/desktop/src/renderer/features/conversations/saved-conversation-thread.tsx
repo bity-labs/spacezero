@@ -254,6 +254,7 @@ export function SavedConversationThread({
         await store.send(text);
       },
       onCancel: async () => {
+        if (projection.actions.stop !== "available") return;
         await store.stop();
       },
       convertMessage: (message: SavedConversationMessage) =>
@@ -277,10 +278,17 @@ export function SavedConversationThread({
           onCancelQueueItem={(id) => {
             void store.cancelFollowUp(id).catch(() => undefined);
           }}
-          isRunning={projection.runtime.status === "running"}
-          onStop={() => {
-            void store.stop().catch(() => undefined);
-          }}
+          isRunning={
+            projection.runtime.status === "running" &&
+            projection.actions.stop === "available"
+          }
+          {...(projection.actions.stop === "available"
+            ? {
+                onStop: () => {
+                  void store.stop().catch(() => undefined);
+                },
+              }
+            : {})}
         />
       </div>
     </AssistantRuntimeProvider>
