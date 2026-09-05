@@ -359,7 +359,7 @@ describe("saved conversation projection", () => {
     });
   });
 
-  it("keeps an ambiguous prompt submission unresolved under the original command identity", async () => {
+  it("keeps an ambiguous prompt submission unresolved under the original command identity across reload", async () => {
     let onEvent: ((event: unknown) => void) | undefined;
     const client = {
       listSessionMessages: vi.fn(async () => ({
@@ -394,6 +394,20 @@ describe("saved conversation projection", () => {
       status: "pending",
       commandId: expect.any(String),
     });
+    expect(store.getSnapshot().actions.send).toBe("unresolved");
+
+    await store.load();
+
+    expect(client.listSessionMessages).toHaveBeenCalledTimes(2);
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: pending.id,
+        role: "user",
+        text: "may have committed",
+        status: "pending",
+        commandId: pending.commandId,
+      },
+    ]);
     expect(store.getSnapshot().actions.send).toBe("unresolved");
 
     await expect(store.send("do not duplicate")).rejects.toThrow(
