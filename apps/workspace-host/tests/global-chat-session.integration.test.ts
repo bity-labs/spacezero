@@ -70,6 +70,55 @@ const listGlobalChatMessages = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const subscribeGlobalChatSessionEvents = (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  after: number,
+) =>
+  fetch(
+    new URL(
+      `/v1/global-chat-sessions/${sessionId}/events?after=${after}`,
+      host.endpoint,
+    ),
+    { headers: authHeaders(clientCapability) },
+  );
+const readSseFrames = async (
+  response: Response,
+  frameCount: number,
+): Promise<readonly { id?: string; event?: string; data: unknown }[]> => {
+  if (!response.body) throw new Error("missing SSE body");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  const frames: { id?: string; event?: string; data: unknown }[] = [];
+  while (frames.length < frameCount) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffered += decoder.decode(chunk.value, { stream: true });
+    const parts = buffered.split("\n\n");
+    buffered = parts.pop() ?? "";
+    for (const part of parts) {
+      let id: string | undefined;
+      let event: string | undefined;
+      let data = "";
+      for (const line of part.split("\n")) {
+        if (line.startsWith("id:")) id = line.slice(3).trim();
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        if (line.startsWith("data:")) data += line.slice(5).trimStart();
+      }
+      if (data) {
+        frames.push({
+          ...(id === undefined ? {} : { id }),
+          ...(event === undefined ? {} : { event }),
+          data: JSON.parse(data) as unknown,
+        });
+      }
+    }
+  }
+  void reader.cancel().catch(() => undefined);
+  return frames;
+};
 const readRows = <A>(
   databasePath: string,
   sql: string,
@@ -182,6 +231,140 @@ describe("Global Chat Session Host protocol", () => {
       sessionId,
     );
     expect(reloaded.body).toMatchObject({ messages: retainedMessages });
+  });
+
+  it("keeps delayed reasoning-before-text checkpoints schema-valid through Global Chat SSE and reload", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "reasoning", order: 1, text: "Think before text." },
+        });
+        await releasePromise;
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 2, text: "Final global answer." },
+        });
+        return {
+          text: "Final global answer.",
+          parts: [
+            { type: "reasoning", order: 1, text: "Think before text." },
+            { type: "text", order: 2, text: "Final global answer." },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "delayed reasoning checkpoint",
+    );
+    expect(created.response.status).toBe(200);
+    const session = (created.body as {
+      session: { id: string; lastSequence: number };
+    }).session;
+    await waitFor(() => {
+      expect(
+        readRows<{ count: number }>(
+          databasePath,
+          "SELECT count(*) AS count FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatAgentMessageCheckpointedV1'",
+          session.id,
+        )[0]?.count,
+      ).toBe(1);
+    });
+    const events = await subscribeGlobalChatSessionEvents(
+      host,
+      client.clientCapability,
+      session.id,
+      session.lastSequence,
+    );
+    expect(events.status).toBe(200);
+
+    const frames = await Promise.race([
+      readSseFrames(events, 1),
+      new Promise<readonly { data: unknown }[]>((resolve) =>
+        setTimeout(() => resolve([]), 2_000),
+      ),
+    ]);
+    expect(frames).toHaveLength(1);
+    expect(frames[0]).toMatchObject({ event: "global-chat-session.event" });
+    expect(frames[0]?.data).toMatchObject({
+      event: {
+        type: "GlobalChatAgentMessageCheckpointedV1",
+        text: "",
+        parts: [{ type: "reasoning", text: "Think before text." }],
+      },
+    });
+
+    const listed = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      session.id,
+    );
+    expect(listed.body).toMatchObject({
+      activeTurn: {
+        draftText: "",
+        draftParts: [{ type: "reasoning", text: "Think before text." }],
+      },
+    });
+
+    release();
+    let retainedMessages: {
+      id: string;
+      role: string;
+      text: string;
+      parts?: { id: string; type: string; order: number; text: string }[];
+    }[] = [];
+    await waitFor(async () => {
+      const completed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        session.id,
+      );
+      const body = completed.body as { messages: typeof retainedMessages };
+      const assistant = body.messages.find(
+        (message) => message.role === "assistant",
+      );
+      expect(assistant?.parts).toMatchObject([
+        { type: "reasoning", text: "Think before text." },
+        { type: "text", text: "Final global answer." },
+      ]);
+      retainedMessages = body.messages;
+    });
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const reloaded = await listGlobalChatMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.id,
+    );
+    expect(reloaded.body).toMatchObject({ messages: retainedMessages });
+    const replayed = await subscribeGlobalChatSessionEvents(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.id,
+      session.lastSequence,
+    );
+    expect(replayed.status).toBe(200);
+    const replayedFrames = await readSseFrames(replayed, 1);
+    expect(replayedFrames[0]?.data).toMatchObject({
+      event: {
+        type: "GlobalChatAgentMessageCheckpointedV1",
+        text: "",
+        parts: [{ type: "reasoning", text: "Think before text." }],
+      },
+    });
   });
 
   it("creates a durable unarchived Global Chat Session from the first prompt and starts a tool-less Pi turn", async () => {

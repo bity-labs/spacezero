@@ -284,6 +284,30 @@ describe("Project Session schemas", () => {
     ).toMatchObject({ type: "AgentMessageCheckpointedV1" });
     expect(
       parseSync(ProjectSessionEventSchema)({
+        type: "AgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId,
+        messageId: turnId,
+        text: "",
+        parts: [
+          {
+            id: `${turnId}:reasoning:1`,
+            type: "reasoning",
+            order: 1,
+            text: "Planning before answering.",
+            turnId,
+          },
+        ],
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({
+      type: "AgentMessageCheckpointedV1",
+      text: "",
+      parts: [{ type: "reasoning", text: "Planning before answering." }],
+    });
+    expect(
+      parseSync(ProjectSessionEventSchema)({
         type: "AgentMessageCompletedV1",
         version: 1,
         sessionId: uuid,

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   CreateGlobalChatSessionWithFirstPromptRequestSchema,
   CreateGlobalChatSessionWithFirstPromptResultSchema,
+  GlobalChatSessionEventSchema,
   GlobalChatSessionMessageSchema,
   GlobalChatSessionSummarySchema,
   deriveGlobalChatSessionInitialTitle,
@@ -120,5 +121,32 @@ describe("Global Chat Session schemas", () => {
         role: "tool",
       }),
     ).toThrow();
+  });
+
+  it("accepts reasoning-only in-progress checkpoints", () => {
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatAgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: uuid,
+        turnId,
+        messageId: assistantMessageId,
+        text: "",
+        parts: [
+          {
+            id: `${assistantMessageId}:reasoning:1`,
+            type: "reasoning",
+            order: 1,
+            text: "Plan before answering.",
+            turnId,
+          },
+        ],
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({
+      type: "GlobalChatAgentMessageCheckpointedV1",
+      text: "",
+      parts: [{ type: "reasoning", text: "Plan before answering." }],
+    });
   });
 });
