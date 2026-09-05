@@ -38,12 +38,22 @@ export interface GlobalChatSessionSummary {
   readonly lastSequence: number;
 }
 
+export interface GlobalChatSessionTextPart {
+  readonly id: string;
+  readonly type: "text";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: GlobalChatSessionTurnId;
+}
+
 export interface GlobalChatSessionMessage {
   readonly id: GlobalChatSessionMessageId;
   readonly role: GlobalChatSessionMessageRole;
   readonly text: string;
   readonly sequence: number;
   readonly createdAt: string;
+  readonly turnId?: GlobalChatSessionTurnId;
+  readonly parts?: readonly GlobalChatSessionTextPart[];
 }
 
 export interface GlobalChatSessionTurn {
@@ -234,6 +244,16 @@ export const GlobalChatSessionSummarySchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
 });
+export const GlobalChatSessionTextPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["text"]),
+  order: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+  text: Schema.String.check(Schema.isMaxLength(1_000_000)),
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+});
 export const GlobalChatSessionMessageSchema = Schema.Struct({
   id: GlobalChatSessionMessageIdSchema,
   role: GlobalChatSessionMessageRoleSchema,
@@ -243,6 +263,8 @@ export const GlobalChatSessionMessageSchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
   createdAt: DateTimeUtcStringSchema,
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+  parts: Schema.optionalKey(Schema.Array(GlobalChatSessionTextPartSchema)),
 });
 export const GlobalChatSessionTurnSchema = Schema.Struct({
   id: GlobalChatSessionTurnIdSchema,

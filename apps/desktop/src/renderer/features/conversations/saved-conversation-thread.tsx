@@ -1,6 +1,7 @@
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
+  type AppendMessage,
   type ThreadMessage,
 } from "@assistant-ui/react";
 import { Thread, type ThreadViewState } from "@spacezero/ui/components/thread";
@@ -20,15 +21,20 @@ import {
   type SavedConversationStore,
 } from "@spacezero/client-runtime";
 
-const readOnlyActionError = new Error(
-  "Saved conversations are read-only until Host-backed conversation actions are implemented.",
-);
-
 const completedAssistantStatus = {
   type: "complete",
   reason: "stop",
 } as const;
 const runningAssistantStatus = { type: "running" } as const;
+
+const textFromAppendMessage = (message: AppendMessage): string =>
+  message.content
+    .map((part) => {
+      if (part.type === "text") return part.text;
+      return "";
+    })
+    .join("")
+    .trim();
 
 export const toAssistantThreadMessage = (
   message: SavedConversationMessage,
@@ -40,33 +46,41 @@ export const toAssistantThreadMessage = (
       kind: projection.session.kind,
       sessionId: projection.session.id,
       sequence: message.sequence,
+      ...(message.commandId === undefined ? {} : { commandId: message.commandId }),
+      ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
+      ...(message.status === undefined ? {} : { status: message.status }),
     },
   };
+  const content = message.parts.map((part) => ({
+    type: "text" as const,
+    text: part.text,
+  }));
   if (message.role === "user")
     return {
       id: message.id,
       role: "user",
       createdAt,
-      content: [{ type: "text", text: message.text }],
+      content,
       attachments: [],
-      metadata: { custom },
+      metadata: {
+        isOptimistic: message.status === "pending",
+        custom,
+      },
     };
   const isRunningTail =
     projection.runtime.status === "running" &&
-    projection.messages.at(-1)?.id === message.id;
+    (projection.runtime.activeTurnId === message.turnId ||
+      projection.messages.at(-1)?.id === message.id);
   return {
     id: message.id,
     role: "assistant",
     createdAt,
-    content: [
-      {
-        type: "text",
-        text: message.text,
-        status: isRunningTail
-          ? runningAssistantStatus
-          : completedAssistantStatus,
-      },
-    ],
+    content: content.map((part) => ({
+      ...part,
+      status: isRunningTail
+        ? runningAssistantStatus
+        : completedAssistantStatus,
+    })),
     status: isRunningTail ? runningAssistantStatus : completedAssistantStatus,
     metadata: {
       unstable_state: null,
@@ -117,19 +131,31 @@ export function SavedConversationThread({
   const adapter = useMemo(
     () => ({
       messages: projection.messages,
-      isDisabled: true,
-      isSendDisabled: true,
+      isDisabled: projection.actions.send === "unavailable",
+      isSendDisabled:
+        projection.actions.send === "unavailable" ||
+        projection.actions.send === "submitting" ||
+        projection.actions.send === "unresolved" ||
+        projection.status === "loading" ||
+        projection.status === "idle" ||
+        projection.status === "error" ||
+        projection.runtime.status === "running",
       isLoading:
         projection.status === "loading" || projection.status === "idle",
       isRunning: projection.runtime.status === "running",
-      onNew: async () => {
-        throw readOnlyActionError;
+      onNew: async (message: AppendMessage) => {
+        const text = textFromAppendMessage(message);
+        if (text.length === 0) return;
+        await store.send(text);
+      },
+      onCancel: async () => {
+        await store.stop();
       },
       convertMessage: (message: SavedConversationMessage) =>
         toAssistantThreadMessage(message, projection),
       unstable_enableToolInvocations: false,
     }),
-    [projection],
+    [projection, store],
   );
   const runtime = useExternalStoreRuntime(adapter);
 

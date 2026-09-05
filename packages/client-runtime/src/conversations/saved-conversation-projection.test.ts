@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createGlobalChatDraftConversationStore,
   createGlobalChatSessionSavedConversationStore,
   createProjectSessionSavedConversationStore,
   type SavedConversationProjection,
@@ -61,7 +62,7 @@ const observeSnapshots = (store: {
 };
 
 describe("saved conversation projection", () => {
-  it("loads Project Session saved messages through the Project Session client without enabling actions", async () => {
+  it("loads Project Session saved messages through the Project Session client with Host-backed send available", async () => {
     const client = {
       listSessionMessages: vi.fn(async (sessionId: string) => {
         expect(sessionId).toBe("project-session-1");
@@ -111,13 +112,21 @@ describe("saved conversation projection", () => {
       },
       runtime: { status: "completed" },
     });
-    expect(store.getSnapshot().messages).toEqual([
+    expect(store.getSnapshot().messages).toMatchObject([
       {
         id: "message-1",
         role: "user",
         text: "First user message",
         sequence: 2,
         createdAt: "2026-01-01T00:00:01.000Z",
+        parts: [
+          {
+            id: "message-1:text:1",
+            type: "text",
+            order: 1,
+            text: "First user message",
+          },
+        ],
       },
       {
         id: "message-2",
@@ -125,6 +134,14 @@ describe("saved conversation projection", () => {
         text: "Second **assistant** message",
         sequence: 3,
         createdAt: "2026-01-01T00:00:02.000Z",
+        parts: [
+          {
+            id: "message-2:text:1",
+            type: "text",
+            order: 1,
+            text: "Second **assistant** message",
+          },
+        ],
       },
     ]);
   });
@@ -204,6 +221,237 @@ describe("saved conversation projection", () => {
       status: "recovery_required",
       activeTurnId: "11111111-1111-4111-8111-111111111111",
       latestTurnId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
+  it("sends a Project Session prompt with a pending user message and reconciles by command identity", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    let onLiveEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      submitPrompt: vi.fn(async (_sessionId: string, prompt: string, commandId: string) => ({
+        session: { ...projectSession, lastSequence: 2 },
+        userMessage: {
+          id: "host-user-message-1",
+          role: "user" as const,
+          text: prompt,
+          sequence: 1,
+          createdAt: "2026-01-01T00:00:01.000Z",
+        },
+        turn: {
+          id: "turn-1",
+          commandId,
+          state: "running" as const,
+          userMessageId: "host-user-message-1",
+          assistantMessageId: "assistant-message-1",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+      subscribeProjectSessionEvents: vi.fn((input: { onEvent: (event: unknown) => void; onLiveEvent?: (event: unknown) => void }) => {
+        onEvent = input.onEvent;
+        onLiveEvent = input.onLiveEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    const sent = store.send("  Build the prompt flow  ");
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: expect.stringContaining("pending:"),
+        text: "Build the prompt flow",
+        status: "pending",
+        commandId: expect.any(String),
+      },
+    ]);
+    await sent;
+
+    expect(client.submitPrompt).toHaveBeenCalledWith(
+      "project-session-1",
+      "Build the prompt flow",
+      expect.any(String),
+    );
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: "host-user-message-1",
+        role: "user",
+        text: "Build the prompt flow",
+        commandId: expect.any(String),
+      },
+    ]);
+    expect(store.getSnapshot().messages[0]?.status).toBeUndefined();
+
+    onEvent?.({
+      sequence: 2,
+      eventType: "AgentTurnStartedV1",
+      event: {
+        type: "AgentTurnStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
+        timestamp: "2026-01-01T00:00:02.000Z",
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "Hello ",
+        timestamp: "2026-01-01T00:00:03.000Z",
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "builder",
+        timestamp: "2026-01-01T00:00:03.100Z",
+      },
+    });
+
+    expect(store.getSnapshot().messages.at(-1)).toMatchObject({
+      id: "assistant-message-1",
+      role: "assistant",
+      text: "Hello builder",
+      turnId: "turn-1",
+      parts: [
+        {
+          id: "assistant-message-1:text:1",
+          type: "text",
+          order: 1,
+          text: "Hello builder",
+          turnId: "turn-1",
+        },
+      ],
+    });
+  });
+
+  it("creates a Global Chat Session only on first draft send without duplicating the prompt", async () => {
+    const createWithFirstPrompt = vi.fn(async (prompt: string, commandId: string) => ({
+      session: { ...globalSession, id: "created-global-session", lastSequence: 4 },
+      userMessage: {
+        id: "created-user-message",
+        role: "user" as const,
+        text: prompt,
+        sequence: 3,
+        createdAt: "2026-01-01T00:00:03.000Z",
+      },
+      firstMessage: {
+        id: "created-user-message",
+        role: "user" as const,
+        text: prompt,
+        sequence: 3,
+        createdAt: "2026-01-01T00:00:03.000Z",
+      },
+      turn: {
+        id: "global-turn-1",
+        commandId,
+        state: "running" as const,
+        userMessageId: "created-user-message",
+        assistantMessageId: "created-assistant-message",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off" as const,
+        draftText: "",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    }));
+    const client = {
+      createWithFirstPrompt,
+      subscribeEvents: vi.fn(() => ({ cancel: vi.fn(), closed: Promise.resolve() })),
+      interruptTurn: vi.fn(),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatDraftConversationStore({ client });
+
+    await store.load();
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "draft" },
+      status: "empty",
+      messages: [],
+    });
+    await store.send("First global prompt");
+
+    expect(createWithFirstPrompt).toHaveBeenCalledWith(
+      "First global prompt",
+      expect.any(String),
+    );
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "created-global-session" },
+      title: "Global prompt",
+      messages: [
+        {
+          id: "created-user-message",
+          role: "user",
+          text: "First global prompt",
+        },
+      ],
+    });
+    expect(
+      store
+        .getSnapshot()
+        .messages.filter((message) => message.text === "First global prompt"),
+    ).toHaveLength(1);
+  });
+
+  it("preserves failed submissions in the composer projection without retrying", async () => {
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      submitPrompt: vi.fn(async () => {
+        throw new Error("definitive host rejection");
+      }),
+      subscribeProjectSessionEvents: vi.fn(() => ({ cancel: vi.fn(), closed: Promise.resolve() })),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    await expect(store.send("fail once")).rejects.toThrow(
+      "definitive host rejection",
+    );
+
+    expect(client.submitPrompt).toHaveBeenCalledTimes(1);
+    expect(store.getSnapshot()).toMatchObject({
+      error: { message: "definitive host rejection" },
+      messages: [
+        {
+          role: "user",
+          text: "fail once",
+          status: "failed",
+          errorMessage: "definitive host rejection",
+        },
+      ],
     });
   });
 

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createSavedConversationStore,
@@ -68,10 +68,8 @@ describe("SavedConversationThread", () => {
     expect(
       screen.getByLabelText("Conversation transcript"),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /send/i }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
   });
 
   it("uses the same Thread for Global Chat saved messages", async () => {
@@ -138,6 +136,72 @@ describe("SavedConversationThread", () => {
         screen.queryByText("Project-only history"),
       ).not.toBeInTheDocument();
     });
+  });
+
+  it("submits composer text through the Host-backed store and renders the pending prompt", async () => {
+    const submitted: string[] = [];
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load: async () => ({ title: "margaux", lastSequence: 0, messages: [] }),
+      submitPrompt: async ({ prompt, commandId }) => {
+        submitted.push(prompt);
+        return {
+          session: {
+            id: "project-session-1",
+            projectId: "project-1",
+            name: "margaux",
+            state: "ready" as const,
+            sourceBranch: "main",
+            sourceDetached: false,
+            sourceCommit: "a".repeat(40),
+            uncommittedChangesExcluded: false,
+            managedBranch:
+              "spacezero/margaux-11111111-1111-4111-8111-111111111111",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastSequence: 2,
+          },
+          userMessage: {
+            id: "host-user-message-1",
+            role: "user" as const,
+            text: prompt,
+            sequence: 1,
+            createdAt: timestamp,
+            parts: [
+              {
+                id: "host-user-message-1:text:1",
+                type: "text" as const,
+                order: 1,
+                text: prompt,
+              },
+            ],
+          },
+          turn: {
+            id: "turn-1",
+            commandId,
+            state: "running" as const,
+            userMessageId: "host-user-message-1",
+            assistantMessageId: "assistant-message-1",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+      },
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const input = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Build live streaming" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Build live streaming")).toBeInTheDocument();
+    await waitFor(() => expect(submitted).toEqual(["Build live streaming"]));
   });
 
   it("surfaces empty and query failure states", async () => {
