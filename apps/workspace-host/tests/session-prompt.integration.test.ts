@@ -938,7 +938,14 @@ describe("Session prompt Host protocol", () => {
           toolName: "read",
           isError: false,
           result: {
-            content: [{ type: "text", text: "file contents" }],
+            content: [
+              { type: "text", text: "file contents" },
+              { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+              {
+                type: "unsupported",
+                label: "Unsupported tool result content type: html.",
+              },
+            ],
             truncated: true,
           },
         });
@@ -985,7 +992,18 @@ describe("Session prompt Host protocol", () => {
                 configPath: "/home/builder/.config/some-tool/config.json",
               },
               result: {
-                content: [{ type: "text", text: "file contents" }],
+                content: [
+                  { type: "text", text: "file contents" },
+                  {
+                    type: "image",
+                    mimeType: "image/png",
+                    data: "iVBORw0KGgo=",
+                  },
+                  {
+                    type: "unsupported",
+                    label: "Unsupported tool result content type: html.",
+                  },
+                ],
                 truncated: true,
               },
             },

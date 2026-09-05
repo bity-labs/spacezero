@@ -35,12 +35,19 @@ export interface AgentToolJsonObject {
   readonly [key: string]: AgentToolJsonValue;
 }
 
+export type AgentToolImageMimeType =
+  "image/png" | "image/jpeg" | "image/webp" | "image/gif";
+
 export type AgentToolDisplayContent =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "image";
       readonly data: string;
-      readonly mimeType: string;
+      readonly mimeType: AgentToolImageMimeType;
+    }
+  | {
+      readonly type: "unsupported";
+      readonly label: string;
     };
 
 export interface AgentToolDisplayResult {

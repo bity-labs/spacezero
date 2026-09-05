@@ -53,4 +53,66 @@ describe("public tool content policy", () => {
       truncated: true,
     });
   });
+
+  it("retains safe image results and replaces unsupported or malformed display content with an explicit fallback", () => {
+    const policy = createPublicToolContentPolicy({
+      protectedSecretValues: ["private-secret"],
+    });
+
+    expect(
+      policy.sanitizeResult({
+        content: [
+          { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+          {
+            type: "image",
+            mimeType: "image/svg+xml",
+            data: "PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+PC9zdmc+",
+          },
+          { type: "image", mimeType: "image/jpeg", data: "javascript:bad" },
+          {
+            type: "html",
+            html: "<img src=x onerror=alert('not executable')>",
+          },
+          { type: "text", text: "visible private-secret" },
+        ],
+      }),
+    ).toEqual({
+      content: [
+        { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+        {
+          type: "unsupported",
+          label: "Unsupported image result (image/svg+xml).",
+        },
+        {
+          type: "unsupported",
+          label: "Malformed image result (image/jpeg).",
+        },
+        {
+          type: "unsupported",
+          label: "Unsupported tool result content type: html.",
+        },
+        { type: "text", text: "visible [redacted]" },
+      ],
+    });
+  });
+
+  it("redacts protected secret values from image result data with an explicit fallback", () => {
+    const policy = createPublicToolContentPolicy({
+      protectedSecretValues: ["abcd1234"],
+    });
+
+    const result = policy.sanitizeResult({
+      content: [{ type: "image", mimeType: "image/png", data: "abcd1234" }],
+    });
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "unsupported",
+          label: "Redacted image result (image/png).",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("abcd1234");
+  });
 });
