@@ -199,6 +199,21 @@ export function SavedConversationThread({
 }): ReactElement {
   const projection = useSavedConversationSnapshot(store);
   const sessionKey = `${projection.session.kind}:${projection.session.id}`;
+  const activeStopTarget = useMemo(
+    () =>
+      projection.runtime.status === "running" &&
+      projection.runtime.activeTurnId !== undefined
+        ? {
+            sessionId: projection.session.id,
+            turnId: projection.runtime.activeTurnId,
+          }
+        : undefined,
+    [
+      projection.runtime.activeTurnId,
+      projection.runtime.status,
+      projection.session.id,
+    ],
+  );
 
   useEffect(() => {
     void store.load().catch(() => undefined);
@@ -254,14 +269,18 @@ export function SavedConversationThread({
         await store.send(text);
       },
       onCancel: async () => {
-        if (projection.actions.stop !== "available") return;
-        await store.stop();
+        if (
+          projection.actions.stop !== "available" ||
+          activeStopTarget === undefined
+        )
+          return;
+        await store.stop(activeStopTarget);
       },
       convertMessage: (message: SavedConversationMessage) =>
         toAssistantThreadMessage(message, projection),
       unstable_enableToolInvocations: false,
     }),
-    [projection, store],
+    [activeStopTarget, projection, store],
   );
   const runtime = useExternalStoreRuntime(adapter);
 
@@ -282,10 +301,11 @@ export function SavedConversationThread({
             projection.runtime.status === "running" &&
             projection.actions.stop === "available"
           }
-          {...(projection.actions.stop === "available"
+          {...(projection.actions.stop === "available" &&
+          activeStopTarget !== undefined
             ? {
                 onStop: () => {
-                  void store.stop().catch(() => undefined);
+                  void store.stop(activeStopTarget).catch(() => undefined);
                 },
               }
             : {})}
