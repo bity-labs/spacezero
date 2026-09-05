@@ -98,6 +98,23 @@ const enqueueGlobalChatFollowUp = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const submitGlobalChatPrompt = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  prompt: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/prompts`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, prompt }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const cancelGlobalChatFollowUp = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -762,6 +779,100 @@ describe("Global Chat Session Host protocol", () => {
         { commandId: secondCommandId, state: "cancelled" },
       ],
     });
+  });
+
+  it("keeps queued Global Chat follow-ups paused after restart recovery marks an active turn", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const submittedPrompts: string[] = [];
+    let markFirstTurnStarted!: () => void;
+    const firstTurnStarted = new Promise<void>((resolve) => {
+      markFirstTurnStarted = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        submittedPrompts.push(input.prompt);
+        if (input.prompt === "initial prompt") {
+          markFirstTurnStarted();
+          await new Promise<void>(() => undefined);
+        }
+        return { text: `answer: ${input.prompt}` };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const initialCommandId = randomUUID();
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "initial prompt",
+      initialCommandId,
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await firstTurnStarted;
+
+    const followUpCommandId = randomUUID();
+    const queued = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "queued after crash",
+      followUpCommandId,
+    );
+    expect(queued.response.status).toBe(200);
+    expect(queued.body).toMatchObject({
+      followUp: { commandId: followUpCommandId, state: "queued" },
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      host.server.close((error) => (error ? reject(error) : resolve()));
+    });
+    hosts = hosts.filter((candidate) => candidate !== host);
+
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const restartedClient = descriptor(restarted);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const listed = await listGlobalChatFollowUps(
+      restarted,
+      restartedClient.clientCapability,
+      sessionId,
+    );
+    expect(listed.response.status).toBe(200);
+    expect(listed.body).toMatchObject({
+      followUps: [{ commandId: followUpCommandId, state: "queued" }],
+    });
+    expect(
+      readRows<{ command_id: string; state: string }>(
+        databasePath,
+        "SELECT command_id, state FROM chat_session_turns WHERE session_id = ? ORDER BY created_at ASC",
+        sessionId,
+      ),
+    ).toEqual([{ command_id: initialCommandId, state: "recovery_required" }]);
+    expect(
+      readRows<{ event_type: string }>(
+        databasePath,
+        "SELECT event_type FROM chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
+        sessionId,
+      ).map((row) => row.event_type),
+    ).not.toContain("GlobalChatSessionFollowUpDispatchedV1");
+
+    const blocked = await submitGlobalChatPrompt(
+      restarted,
+      restartedClient.clientCapability,
+      sessionId,
+      "manual prompt must wait for recovery",
+    );
+    expect(blocked.response.status).toBe(409);
+    expect(blocked.body).toMatchObject({
+      code: "global_chat_session_turn_in_progress",
+    });
+    expect(submittedPrompts).toEqual(["initial prompt"]);
   });
 
   it("retains Global Chat tool activity with no-output failures across reload", async () => {
