@@ -53,9 +53,51 @@ export interface GlobalChatSessionReasoningPart {
   readonly turnId?: GlobalChatSessionTurnId;
 }
 
+export type GlobalChatSessionAgentToolJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly GlobalChatSessionAgentToolJsonValue[]
+  | { readonly [key: string]: GlobalChatSessionAgentToolJsonValue };
+
+export interface GlobalChatSessionAgentToolJsonObject {
+  readonly [key: string]: GlobalChatSessionAgentToolJsonValue;
+}
+
+export type GlobalChatSessionAgentToolDisplayContent =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    };
+
+export interface GlobalChatSessionAgentToolDisplayResult {
+  readonly content: readonly GlobalChatSessionAgentToolDisplayContent[];
+  readonly truncated?: boolean;
+}
+
+export interface GlobalChatSessionToolCallPart {
+  readonly id: string;
+  readonly type: "tool-call";
+  readonly order: number;
+  readonly turnId?: GlobalChatSessionTurnId;
+  readonly toolCallId: GlobalChatSessionToolCallId;
+  readonly toolName: string;
+  readonly status: "running" | "succeeded" | "failed";
+  readonly arguments?: GlobalChatSessionAgentToolJsonObject;
+  readonly progress?: string;
+  readonly result?: GlobalChatSessionAgentToolDisplayResult;
+  readonly safety?: GlobalChatSessionAgentToolSafety;
+  readonly approvalStatus?: GlobalChatSessionAgentToolApprovalStatus;
+  readonly approvalReason?: string;
+}
+
 export type GlobalChatSessionMessagePart =
   | GlobalChatSessionTextPart
-  | GlobalChatSessionReasoningPart;
+  | GlobalChatSessionReasoningPart
+  | GlobalChatSessionToolCallPart;
 
 export interface GlobalChatSessionMessage {
   readonly id: GlobalChatSessionMessageId;
@@ -269,9 +311,48 @@ export const GlobalChatSessionReasoningPartSchema = Schema.Struct({
   text: Schema.String.check(Schema.isMinLength(1)),
   turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
 });
+const GlobalChatSessionAgentToolJsonObjectSchema = Schema.Record(
+  Schema.String,
+  Schema.Json,
+);
+const GlobalChatSessionAgentToolDisplayContentSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals(["text"]),
+    text: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["image"]),
+    data: Schema.String,
+    mimeType: Schema.String.check(Schema.isMinLength(1)),
+  }),
+]);
+const GlobalChatSessionAgentToolDisplayResultSchema = Schema.Struct({
+  content: Schema.Array(GlobalChatSessionAgentToolDisplayContentSchema),
+  truncated: Schema.optionalKey(Schema.Boolean),
+});
+export const GlobalChatSessionToolCallPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["tool-call"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+  toolCallId: GlobalChatSessionToolCallIdSchema,
+  toolName: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  status: Schema.Literals(["running", "succeeded", "failed"]),
+  arguments: Schema.optionalKey(GlobalChatSessionAgentToolJsonObjectSchema),
+  progress: Schema.optionalKey(Schema.String),
+  result: Schema.optionalKey(GlobalChatSessionAgentToolDisplayResultSchema),
+  safety: Schema.optionalKey(GlobalChatSessionAgentToolSafetySchema),
+  approvalStatus: Schema.optionalKey(
+    GlobalChatSessionAgentToolApprovalStatusSchema,
+  ),
+  approvalReason: Schema.optionalKey(
+    Schema.String.check(Schema.isMaxLength(128)),
+  ),
+});
 export const GlobalChatSessionMessagePartSchema = Schema.Union([
   GlobalChatSessionTextPartSchema,
   GlobalChatSessionReasoningPartSchema,
+  GlobalChatSessionToolCallPartSchema,
 ]);
 export const GlobalChatSessionMessageSchema = Schema.Struct({
   id: GlobalChatSessionMessageIdSchema,
@@ -299,7 +380,9 @@ export const GlobalChatSessionTurnSchema = Schema.Struct({
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String,
-  draftParts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
+  draftParts: Schema.optionalKey(
+    Schema.Array(GlobalChatSessionMessagePartSchema),
+  ),
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(
     GlobalChatSessionTurnFailureCategorySchema,
@@ -496,6 +579,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     approvalReason: Schema.optionalKey(
       Schema.String.check(Schema.isMaxLength(128)),
     ),
+    arguments: Schema.optionalKey(GlobalChatSessionAgentToolJsonObjectSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -516,6 +600,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     approvalReason: Schema.optionalKey(
       Schema.String.check(Schema.isMaxLength(128)),
     ),
+    result: Schema.optionalKey(GlobalChatSessionAgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);
@@ -543,7 +628,10 @@ export const GlobalChatSessionLiveEventSchema = Schema.Union([
     sessionId: GlobalChatSessionIdSchema,
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
-    order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    order: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
     text: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(64_000),
@@ -561,6 +649,7 @@ export const GlobalChatSessionLiveEventSchema = Schema.Union([
       Schema.isMaxLength(128),
     ),
     summary: Schema.String.check(Schema.isMaxLength(4_000)),
+    progress: Schema.optionalKey(GlobalChatSessionAgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);

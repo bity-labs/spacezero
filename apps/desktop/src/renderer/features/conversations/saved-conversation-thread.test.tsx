@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createSavedConversationStore,
@@ -16,13 +22,40 @@ const loadedStore = (input: {
     readonly text: string;
     readonly sequence: number;
     readonly createdAt: string;
-    readonly parts?: readonly {
-      readonly id: string;
-      readonly type: "text" | "reasoning";
-      readonly order: number;
-      readonly text: string;
-      readonly turnId?: string;
-    }[];
+    readonly parts?: readonly (
+      | {
+          readonly id: string;
+          readonly type: "text" | "reasoning";
+          readonly order: number;
+          readonly text: string;
+          readonly turnId?: string;
+        }
+      | {
+          readonly id: string;
+          readonly type: "tool-call";
+          readonly order: number;
+          readonly turnId?: string;
+          readonly toolCallId: string;
+          readonly toolName: string;
+          readonly status: "running" | "succeeded" | "failed";
+          readonly arguments?: Record<string, string>;
+          readonly progress?: string;
+          readonly result?: {
+            readonly content: readonly (
+              | { readonly type: "text"; readonly text: string }
+              | {
+                  readonly type: "image";
+                  readonly data: string;
+                  readonly mimeType: string;
+                }
+            )[];
+            readonly truncated?: boolean;
+          };
+          readonly safety?: "read" | "write" | "dangerous";
+          readonly approvalStatus?: "approved" | "requires_approval";
+          readonly approvalReason?: string;
+        }
+    )[];
   }[];
 }): SavedConversationStore =>
   createSavedConversationStore({
@@ -114,6 +147,68 @@ describe("SavedConversationThread", () => {
     expect(await screen.findByText("Reasoning")).toBeInTheDocument();
     expect(screen.getByText("Provider-exposed reasoning")).toBeInTheDocument();
     expect(screen.getByText("Final answer")).toBeInTheDocument();
+  });
+
+  it("renders sanitized tool arguments, progress, result, and status without executing tools", async () => {
+    const store = loadedStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      title: "margaux",
+      messages: [
+        {
+          id: "assistant-message-1",
+          role: "assistant",
+          text: "Done",
+          sequence: 2,
+          createdAt: timestamp,
+          parts: [
+            {
+              id: "assistant-message-1:tool-call:call-1",
+              type: "tool-call",
+              order: 1,
+              turnId: "turn-1",
+              toolCallId: "call-1",
+              toolName: "read",
+              status: "succeeded",
+              arguments: { path: "src/app.ts", apiKey: "[redacted]" },
+              progress: "Reading file",
+              result: {
+                content: [
+                  {
+                    type: "text",
+                    text: "<script>alert('not executable')</script>",
+                  },
+                ],
+                truncated: true,
+              },
+              safety: "read",
+              approvalStatus: "approved",
+            },
+            {
+              id: "assistant-message-1:text:2",
+              type: "text",
+              order: 2,
+              text: "Done",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(
+      await screen.findByText("Tool: read · succeeded"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/"path": "src\/app\.ts"/u)).toBeInTheDocument();
+    expect(screen.getByText(/"apiKey": "\[redacted\]"/u)).toBeInTheDocument();
+    expect(screen.getByText("Reading file")).toBeInTheDocument();
+    expect(
+      screen.getByText("<script>alert('not executable')</script>"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Output was truncated by the tool provider."),
+    ).toBeInTheDocument();
   });
 
   it("uses the same Thread for Global Chat saved messages", async () => {
@@ -311,7 +406,9 @@ describe("SavedConversationThread", () => {
     });
     const { rerender } = render(<SavedConversationThread store={running} />);
 
-    expect(await screen.findByText("Assistant is responding.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Assistant is responding."),
+    ).toBeInTheDocument();
 
     rerender(<SavedConversationThread store={recovery} />);
 

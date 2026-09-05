@@ -222,13 +222,15 @@ export const createProjectSessionService = (options: {
   ): Promise<{
     readonly envelopes: readonly ProjectSessionSseEnvelope[];
     readonly liveCursor: number;
-  }> => turnRunner.waitForSseAfter(
-    sessionId,
-    after,
-    afterLive,
-    async (id, cursor) => toEnvelopes(await repository.listEventsAfter(id, cursor)),
-    signal,
-  );
+  }> =>
+    turnRunner.waitForSseAfter(
+      sessionId,
+      after,
+      afterLive,
+      async (id, cursor) =>
+        toEnvelopes(await repository.listEventsAfter(id, cursor)),
+      signal,
+    );
 
   const create = async (
     input: CreateProjectSessionRequest,
@@ -404,6 +406,7 @@ export const createProjectSessionService = (options: {
             toolCallId,
             toolName,
             summary,
+            progress,
             timestamp,
           }) => ({
             live: true,
@@ -416,6 +419,7 @@ export const createProjectSessionService = (options: {
               toolCallId,
               toolName,
               summary,
+              ...(progress === undefined ? {} : { progress }),
               timestamp,
             },
           }),

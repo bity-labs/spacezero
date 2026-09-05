@@ -74,7 +74,49 @@ export interface SessionReasoningPart {
   readonly turnId?: AgentTurnId;
 }
 
-export type SessionMessagePart = SessionTextPart | SessionReasoningPart;
+export type AgentToolJsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly AgentToolJsonValue[]
+  | { readonly [key: string]: AgentToolJsonValue };
+
+export interface AgentToolJsonObject {
+  readonly [key: string]: AgentToolJsonValue;
+}
+
+export type AgentToolDisplayContent =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    };
+
+export interface AgentToolDisplayResult {
+  readonly content: readonly AgentToolDisplayContent[];
+  readonly truncated?: boolean;
+}
+
+export interface SessionToolCallPart {
+  readonly id: string;
+  readonly type: "tool-call";
+  readonly order: number;
+  readonly turnId?: AgentTurnId;
+  readonly toolCallId: AgentToolCallId;
+  readonly toolName: string;
+  readonly status: "running" | "succeeded" | "failed";
+  readonly arguments?: AgentToolJsonObject;
+  readonly progress?: string;
+  readonly result?: AgentToolDisplayResult;
+  readonly safety?: AgentToolSafety;
+  readonly approvalStatus?: AgentToolApprovalStatus;
+  readonly approvalReason?: string;
+}
+
+export type SessionMessagePart =
+  SessionTextPart | SessionReasoningPart | SessionToolCallPart;
 
 export interface SessionMessage {
   readonly id: SessionMessageId;
@@ -316,9 +358,43 @@ export const SessionReasoningPartSchema = Schema.Struct({
   text: Schema.String.check(Schema.isMinLength(1)),
   turnId: Schema.optionalKey(AgentTurnIdSchema),
 });
+const AgentToolJsonObjectSchema = Schema.Record(Schema.String, Schema.Json);
+const AgentToolDisplayContentSchema = Schema.Union([
+  Schema.Struct({
+    type: Schema.Literals(["text"]),
+    text: Schema.String,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["image"]),
+    data: Schema.String,
+    mimeType: Schema.String.check(Schema.isMinLength(1)),
+  }),
+]);
+const AgentToolDisplayResultSchema = Schema.Struct({
+  content: Schema.Array(AgentToolDisplayContentSchema),
+  truncated: Schema.optionalKey(Schema.Boolean),
+});
+export const SessionToolCallPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["tool-call"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  turnId: Schema.optionalKey(AgentTurnIdSchema),
+  toolCallId: AgentToolCallIdSchema,
+  toolName: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
+  status: Schema.Literals(["running", "succeeded", "failed"]),
+  arguments: Schema.optionalKey(AgentToolJsonObjectSchema),
+  progress: Schema.optionalKey(Schema.String),
+  result: Schema.optionalKey(AgentToolDisplayResultSchema),
+  safety: Schema.optionalKey(AgentToolSafetySchema),
+  approvalStatus: Schema.optionalKey(AgentToolApprovalStatusSchema),
+  approvalReason: Schema.optionalKey(
+    Schema.String.check(Schema.isMaxLength(128)),
+  ),
+});
 export const SessionMessagePartSchema = Schema.Union([
   SessionTextPartSchema,
   SessionReasoningPartSchema,
+  SessionToolCallPartSchema,
 ]);
 export const SessionMessageSchema = Schema.Struct({
   id: SessionMessageIdSchema,
@@ -691,6 +767,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     approvalReason: Schema.optionalKey(
       Schema.String.check(Schema.isMaxLength(128)),
     ),
+    arguments: Schema.optionalKey(AgentToolJsonObjectSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -709,6 +786,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     approvalReason: Schema.optionalKey(
       Schema.String.check(Schema.isMaxLength(128)),
     ),
+    result: Schema.optionalKey(AgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);
@@ -737,7 +815,10 @@ export const ProjectSessionLiveEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
-    order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    order: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
     text: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(64_000),
@@ -755,6 +836,7 @@ export const ProjectSessionLiveEventSchema = Schema.Union([
       Schema.isMaxLength(128),
     ),
     summary: Schema.String.check(Schema.isMaxLength(4_000)),
+    progress: Schema.optionalKey(AgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
 ]);

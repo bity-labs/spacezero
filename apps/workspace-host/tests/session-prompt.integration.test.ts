@@ -355,7 +355,9 @@ describe("Session prompt Host protocol", () => {
         parts?: { id: string; type: string; order: number; text: string }[];
       }[];
     };
-    const assistant = body.messages.find((message) => message.role === "assistant");
+    const assistant = body.messages.find(
+      (message) => message.role === "assistant",
+    );
     expect(assistant).toMatchObject({ text: "Project answer." });
     expect(assistant?.parts).toMatchObject([
       {
@@ -375,7 +377,11 @@ describe("Session prompt Host protocol", () => {
 
     await host.stop();
     hosts = hosts.filter((candidate) => candidate !== host);
-    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
     const reloaded = await listMessages(
       restarted,
       descriptor(restarted).clientCapability,
@@ -434,9 +440,11 @@ describe("Session prompt Host protocol", () => {
       "threshold reasoning checkpoint",
     );
     expect(submitted.response.status).toBe(200);
-    const checkpointAfterSequence = (submitted.body as {
-      session: { lastSequence: number };
-    }).session.lastSequence;
+    const checkpointAfterSequence = (
+      submitted.body as {
+        session: { lastSequence: number };
+      }
+    ).session.lastSequence;
     await checkpointedPromise;
 
     const events = await subscribeEvents(
@@ -494,7 +502,11 @@ describe("Session prompt Host protocol", () => {
 
     await host.stop();
     hosts = hosts.filter((candidate) => candidate !== host);
-    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
     const reloaded = await listMessages(
       restarted,
       descriptor(restarted).clientCapability,
@@ -905,7 +917,7 @@ describe("Session prompt Host protocol", () => {
     );
   });
 
-  it("completes turns after durable tool activity events", async () => {
+  it("completes turns after durable tool activity events and reloads safe tool details", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
     const databasePath = join(root, "host.sqlite");
@@ -915,12 +927,20 @@ describe("Session prompt Host protocol", () => {
           type: "tool_started",
           toolCallId: "tool-1",
           toolName: "read",
+          arguments: {
+            path: "src/app.ts",
+            configPath: "/home/builder/.config/some-tool/config.json",
+          },
         });
         await input.onEvent?.({
           type: "tool_completed",
           toolCallId: "tool-1",
           toolName: "read",
           isError: false,
+          result: {
+            content: [{ type: "text", text: "file contents" }],
+            truncated: true,
+          },
         });
         return { text: "tool-assisted answer" };
       },
@@ -951,7 +971,27 @@ describe("Session prompt Host protocol", () => {
     expect(listed.body).toMatchObject({
       messages: [
         { role: "user", text: "use a tool" },
-        { role: "assistant", text: "tool-assisted answer" },
+        {
+          role: "assistant",
+          text: "tool-assisted answer",
+          parts: [
+            {
+              type: "tool-call",
+              toolCallId: "tool-1",
+              toolName: "read",
+              status: "succeeded",
+              arguments: {
+                path: "src/app.ts",
+                configPath: "/home/builder/.config/some-tool/config.json",
+              },
+              result: {
+                content: [{ type: "text", text: "file contents" }],
+                truncated: true,
+              },
+            },
+            { type: "text", text: "tool-assisted answer" },
+          ],
+        },
       ],
     });
     expect(eventTypes(databasePath, created.session.id)).toEqual([
@@ -962,10 +1002,25 @@ describe("Session prompt Host protocol", () => {
       "ProjectSessionReadyV1",
       "UserMessageSubmittedV1",
       "AgentTurnStartedV1",
+      "AgentMessageCheckpointedV1",
       "AgentToolCallStartedV1",
+      "AgentMessageCheckpointedV1",
       "AgentToolCallCompletedV1",
       "AgentMessageCompletedV1",
     ]);
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const reloaded = await listMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      created.session.id,
+    );
+    expect(reloaded.body).toMatchObject(listed.body as object);
   });
 
   it("uses one durable Pi conversation context per Session and carries prior messages into later turns", async () => {
