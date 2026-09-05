@@ -119,6 +119,27 @@ const installHostBackedConversationFetch = () => {
         });
       if (
         request.url ===
+        `http://127.0.0.1:1234/v1/project-sessions/${projectSessionId}/follow-ups`
+      )
+        return json({
+          session: {
+            id: projectSessionId,
+            projectId: "33333333-3333-4333-8333-333333333333",
+            name: "margaux",
+            state: "ready",
+            sourceBranch: "main",
+            sourceDetached: false,
+            sourceCommit: "a".repeat(40),
+            uncommittedChangesExcluded: false,
+            managedBranch: `spacezero/margaux-${projectSessionId}`,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastSequence: 2,
+          },
+          followUps: [],
+        });
+      if (
+        request.url ===
         `http://127.0.0.1:1234/v1/global-chat-sessions/${globalChatSessionId}/messages`
       )
         return json({

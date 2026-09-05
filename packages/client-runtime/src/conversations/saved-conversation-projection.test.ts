@@ -675,6 +675,316 @@ describe("saved conversation projection", () => {
     expect(client.submitPrompt).toHaveBeenCalledTimes(1);
   });
 
+  it("enqueues a Project Session follow-up through the Host while a turn is running", async () => {
+    const enqueueFollowUp = vi.fn(
+      async (_sessionId: string, prompt: string, commandId: string) => ({
+        session: { ...projectSession, lastSequence: 5 },
+        followUp: {
+          id: "follow-up-1",
+          commandId,
+          sessionId: "project-session-1",
+          prompt,
+          state: "queued" as const,
+          position: 1,
+          createdAt: "2026-01-01T00:00:05.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      }),
+    );
+    const submitPrompt = vi.fn();
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [
+          {
+            id: "user-message-1",
+            role: "user" as const,
+            text: "first",
+            commandId: "command-running",
+            sequence: 1,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "turn-running",
+          commandId: "command-running",
+          state: "running" as const,
+          userMessageId: "user-message-1",
+          assistantMessageId: "assistant-message-1",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "working",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: projectSession,
+        followUps: [],
+      })),
+      submitPrompt,
+      enqueueFollowUp,
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    expect(store.getSnapshot().actions.send).toBe("available");
+    const sent = store.send("  do this next  ");
+
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: expect.stringContaining("pending:"),
+        prompt: "do this next",
+        state: "queued",
+        status: "pending",
+      },
+    ]);
+    await sent;
+
+    expect(submitPrompt).not.toHaveBeenCalled();
+    expect(enqueueFollowUp).toHaveBeenCalledWith(
+      "project-session-1",
+      "do this next",
+      expect.any(String),
+    );
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "follow-up-1",
+        prompt: "do this next",
+        state: "queued",
+      },
+    ]);
+    expect(store.getSnapshot().queue.followUps[0]?.status).toBeUndefined();
+  });
+
+  it("restores Host follow-up ordering and state transitions from query and events", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: projectSession,
+        followUps: [
+          {
+            id: "follow-up-2",
+            commandId: "command-2",
+            sessionId: "project-session-1",
+            prompt: "second",
+            state: "queued" as const,
+            position: 2,
+            createdAt: "2026-01-01T00:00:06.000Z",
+            updatedAt: "2026-01-01T00:00:06.000Z",
+          },
+          {
+            id: "follow-up-1",
+            commandId: "command-1",
+            sessionId: "project-session-1",
+            prompt: "first",
+            state: "queued" as const,
+            position: 1,
+            createdAt: "2026-01-01T00:00:05.000Z",
+            updatedAt: "2026-01-01T00:00:05.000Z",
+          },
+        ],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+
+    expect(store.getSnapshot().queue.followUps.map((item) => item.id)).toEqual([
+      "follow-up-1",
+      "follow-up-2",
+    ]);
+
+    onEvent?.({
+      sequence: 5,
+      eventType: "ProjectSessionFollowUpDispatchedV1",
+      event: {
+        type: "ProjectSessionFollowUpDispatchedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        followUpId: "follow-up-1",
+        commandId: "command-1",
+        timestamp: "2026-01-01T00:00:07.000Z",
+      },
+    });
+    onEvent?.({
+      sequence: 6,
+      eventType: "ProjectSessionFollowUpConsumedV1",
+      event: {
+        type: "ProjectSessionFollowUpConsumedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        followUpId: "follow-up-1",
+        commandId: "command-1",
+        turnId: "turn-from-follow-up",
+        timestamp: "2026-01-01T00:00:08.000Z",
+      },
+    });
+    onEvent?.({
+      sequence: 7,
+      eventType: "ProjectSessionFollowUpCancelledV1",
+      event: {
+        type: "ProjectSessionFollowUpCancelledV1",
+        version: 1,
+        sessionId: "project-session-1",
+        followUpId: "follow-up-2",
+        commandId: "command-2",
+        timestamp: "2026-01-01T00:00:09.000Z",
+      },
+    });
+
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "follow-up-1",
+        state: "consumed",
+        dispatchedTurnId: "turn-from-follow-up",
+      },
+      { id: "follow-up-2", state: "cancelled" },
+    ]);
+  });
+
+  it("keeps an ambiguous follow-up enqueue unresolved by command identity across reload", async () => {
+    let loadCount = 0;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+        activeTurn: {
+          id: "turn-running",
+          commandId: "command-running",
+          state: "running" as const,
+          userMessageId: "user-message-1",
+          assistantMessageId: "assistant-message-1",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "working",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+      listFollowUps: vi.fn(async () => {
+        loadCount += 1;
+        if (loadCount === 1) return { session: projectSession, followUps: [] };
+        return {
+          session: projectSession,
+          followUps: [
+            {
+              id: "other-follow-up",
+              commandId: "other-command",
+              sessionId: "project-session-1",
+              prompt: "same text",
+              state: "queued" as const,
+              position: 1,
+              createdAt: "2026-01-01T00:00:06.000Z",
+              updatedAt: "2026-01-01T00:00:06.000Z",
+            },
+          ],
+        };
+      }),
+      enqueueFollowUp: vi.fn(async () => {
+        throw new TypeError("fetch failed after enqueue may have committed");
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    await expect(store.send("same text")).rejects.toThrow("fetch failed");
+    const pendingCommandId = store.getSnapshot().queue.followUps[0]!.commandId;
+
+    await store.load();
+
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "other-follow-up",
+        commandId: "other-command",
+        prompt: "same text",
+      },
+      {
+        id: expect.stringContaining("pending:"),
+        commandId: pendingCommandId,
+        prompt: "same text",
+        status: "pending",
+      },
+    ]);
+    expect(store.getSnapshot().actions.send).toBe("unresolved");
+    await expect(store.send("do not duplicate")).rejects.toThrow(
+      "send unavailable",
+    );
+  });
+
+  it("refreshes authoritative queue state when a queued follow-up cancellation races dispatch", async () => {
+    const cancelFollowUp = vi.fn(async () => {
+      const error = new Error("follow-up already dispatched") as Error & {
+        response?: { status: number };
+      };
+      error.response = { status: 409 };
+      throw error;
+    });
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: projectSession,
+        followUps: [
+          {
+            id: "follow-up-1",
+            commandId: "command-1",
+            sessionId: "project-session-1",
+            prompt: "race dispatch",
+            state: "dispatched" as const,
+            position: 1,
+            dispatchedTurnId: "turn-1",
+            createdAt: "2026-01-01T00:00:05.000Z",
+            updatedAt: "2026-01-01T00:00:08.000Z",
+          },
+        ],
+      })),
+      cancelFollowUp,
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+    await store.load();
+
+    await expect(store.cancelFollowUp("follow-up-1")).rejects.toThrow(
+      "follow-up already dispatched",
+    );
+
+    expect(cancelFollowUp).toHaveBeenCalledWith(
+      "project-session-1",
+      "follow-up-1",
+    );
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "follow-up-1",
+        state: "dispatched",
+        dispatchedTurnId: "turn-1",
+      },
+    ]);
+  });
+
   it("ignores duplicate durable events and late live deltas after completion", async () => {
     let onEvent: ((event: unknown) => void) | undefined;
     let onLiveEvent: ((event: unknown) => void) | undefined;

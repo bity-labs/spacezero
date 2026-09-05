@@ -402,6 +402,142 @@ describe("SavedConversationThread", () => {
     await waitFor(() => expect(submitted).toEqual(["Build live streaming"]));
   });
 
+  it("renders Host queued follow-ups and cancels eligible items through the store", async () => {
+    const cancelled: string[] = [];
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 4,
+        messages: [],
+        followUps: [
+          {
+            id: "follow-up-1",
+            commandId: "command-1",
+            sessionId: "project-session-1",
+            prompt: "Queued host instruction",
+            state: "queued" as const,
+            position: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          {
+            id: "follow-up-2",
+            commandId: "command-2",
+            sessionId: "project-session-1",
+            prompt: "Already consumed instruction",
+            state: "consumed" as const,
+            position: 2,
+            dispatchedTurnId: "turn-2",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        ],
+      }),
+      cancelFollowUp: async ({ followUpId }) => {
+        cancelled.push(followUpId);
+        return {
+          followUp: {
+            id: followUpId,
+            commandId: "command-1",
+            sessionId: "project-session-1",
+            prompt: "Queued host instruction",
+            state: "cancelled" as const,
+            position: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+      },
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(await screen.findByText("Queued follow-ups")).toBeInTheDocument();
+    expect(screen.getByText("Queued host instruction")).toBeInTheDocument();
+    expect(
+      screen.getByText("Already consumed instruction"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Cancel follow-up" }),
+    ).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel follow-up" }));
+
+    await waitFor(() => expect(cancelled).toEqual(["follow-up-1"]));
+    expect(await screen.findByText(/Cancelled/u)).toBeInTheDocument();
+  });
+
+  it("uses the composer to enqueue during a running Project Session without rendering a transcript message", async () => {
+    const enqueued: string[] = [];
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "running-user-message",
+            role: "user" as const,
+            text: "Current work",
+            sequence: 3,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "running-user-message",
+          assistantMessageId: "running-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Partial answer",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+      enqueueFollowUp: async ({ prompt, commandId }) => {
+        enqueued.push(prompt);
+        return {
+          followUp: {
+            id: "follow-up-1",
+            commandId,
+            sessionId: "project-session-1",
+            prompt,
+            state: "queued" as const,
+            position: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+      },
+      interruptTurn: async () => ({}),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(
+      await screen.findByText("Assistant is responding."),
+    ).toBeInTheDocument();
+    const input = screen.getByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Follow up while running" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(enqueued).toEqual(["Follow up while running"]));
+    expect(
+      await screen.findByText("Follow up while running"),
+    ).toBeInTheDocument();
+    expect(
+      screen
+        .queryAllByText("Follow up while running")
+        .filter((node) => node.closest("[data-role='user']")),
+    ).toHaveLength(0);
+  });
+
   it("shows honest running and recovery states without marking the turn complete", async () => {
     const running = createSavedConversationStore({
       kind: "project",
