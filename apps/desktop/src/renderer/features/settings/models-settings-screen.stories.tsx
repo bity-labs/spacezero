@@ -87,6 +87,8 @@ const connectedArgs = {
   error: null,
   pendingProviderId: null,
   subscriptionStatusMessage: null,
+  subscriptionStatusTone: "info",
+  flowPrompt: null,
   subscriptionPickerOpen: false,
   apiKeyPickerOpen: false,
   selectedApiKeyProvider: null,
@@ -99,6 +101,8 @@ const connectedArgs = {
   onApiKeyDialogClose: noOp,
   onConnectSubscription: noOp,
   onDisconnectSubscription: noOp,
+  onFlowPromptSubmit: noOp,
+  onFlowPromptCancel: noOp,
   onSaveApiKey: noOp,
   onRemoveApiKey: noOp,
   onDefaultModelPickerOpenChange: noOp,
@@ -260,3 +264,110 @@ function ApiKeySetupFlowStory() {
     />
   );
 }
+
+export const SubscriptionConnectPending: Story = {
+  args: {
+    ...connectedArgs,
+    authSettings: {
+      ...connectedArgs.authSettings,
+      subscriptions: {
+        connected: [],
+        availableProviders: connectedArgs.authSettings.subscriptions.availableProviders,
+      },
+    },
+    pendingProviderId: "openai-subscription",
+    subscriptionStatusMessage: "Connecting to ChatGPT Plus/Pro…",
+  },
+};
+
+export const SubscriptionExternalUrlWaiting: Story = {
+  args: {
+    ...connectedArgs,
+    authSettings: {
+      ...connectedArgs.authSettings,
+      subscriptions: {
+        connected: [],
+        availableProviders: connectedArgs.authSettings.subscriptions.availableProviders,
+      },
+    },
+    subscriptionStatusMessage: "Finish signing in to ChatGPT Plus/Pro in your browser.",
+  },
+};
+
+export const SubscriptionDeviceCode: Story = {
+  args: {
+    ...connectedArgs,
+    authSettings: {
+      ...connectedArgs.authSettings,
+      subscriptions: {
+        connected: [],
+        availableProviders: connectedArgs.authSettings.subscriptions.availableProviders,
+      },
+    },
+    subscriptionStatusMessage:
+      "Enter the code WTX-J4TQ at https://claude.ai/device to finish signing in to Claude Pro/Max.",
+  },
+};
+
+export const SubscriptionFlowPrompt: Story = {
+  args: {
+    ...connectedArgs,
+    authSettings: {
+      ...connectedArgs.authSettings,
+      subscriptions: {
+        connected: [],
+        availableProviders: connectedArgs.authSettings.subscriptions.availableProviders,
+      },
+    },
+    flowPrompt: {
+      promptId: "prompt-1",
+      promptType: "select",
+      message: "Choose an organization.",
+      options: [
+        { id: "org-1", label: "Acme Inc" },
+        { id: "org-2", label: "Globex", description: "Personal workspace" },
+      ],
+    },
+  },
+};
+
+export const SubscriptionManualCodePrompt: Story = {
+  args: {
+    ...connectedArgs,
+    authSettings: {
+      ...connectedArgs.authSettings,
+      subscriptions: {
+        connected: [],
+        availableProviders: connectedArgs.authSettings.subscriptions.availableProviders,
+      },
+    },
+    flowPrompt: {
+      promptId: "prompt-2",
+      promptType: "manual_code",
+      message: "Paste the code shown in your browser.",
+      placeholder: "XXXX-XXXX",
+    },
+  },
+};
+
+export const SubscriptionConnected: Story = {
+  args: {
+    ...connectedArgs,
+    subscriptionStatusMessage: "ChatGPT Plus/Pro connected.",
+  },
+};
+
+export const SubscriptionFailed: Story = {
+  args: {
+    ...connectedArgs,
+    subscriptionStatusMessage: "Sign-in was denied in the browser.",
+    subscriptionStatusTone: "error",
+  },
+};
+
+export const SubscriptionCancelled: Story = {
+  args: {
+    ...connectedArgs,
+    subscriptionStatusMessage: "Sign-in to ChatGPT Plus/Pro was cancelled.",
+  },
+};
