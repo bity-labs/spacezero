@@ -173,6 +173,40 @@ describe("saved conversation projection", () => {
     ]);
   });
 
+  it("surfaces recovery-required active turns distinctly from running turns", async () => {
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages,
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "recovery_required" as const,
+          userMessageId: "33333333-3333-4333-8333-333333333333",
+          assistantMessageId: "44444444-4444-4444-8444-444444444444",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "partial",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+
+    expect(store.getSnapshot().runtime).toEqual({
+      status: "recovery_required",
+      activeTurnId: "11111111-1111-4111-8111-111111111111",
+      latestTurnId: "11111111-1111-4111-8111-111111111111",
+    });
+  });
+
   it("reports empty and query-failure states honestly", async () => {
     const emptyClient = {
       listMessages: vi.fn(async () => ({

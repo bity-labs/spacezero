@@ -39,12 +39,24 @@ function RootRoute(): ReactElement {
   });
 
   const isAgentCapabilitiesRoute = pathname === "/agent-capabilities";
+  const isProjectSessionRoute = pathname.startsWith("/project-sessions/");
+  const isGlobalChatSessionRoute = pathname.startsWith(
+    "/global-chat-sessions/",
+  );
   const sidebarActiveView: WorkspaceSidebarView = isAgentCapabilitiesRoute
     ? "agent-capabilities"
-    : activeView;
+    : isGlobalChatSessionRoute
+      ? "global-chat"
+      : isProjectSessionRoute
+        ? "workspace"
+        : activeView;
   const titlebarLabel = isAgentCapabilitiesRoute
     ? t("workspace.agentCapabilities")
-    : t("workspace.title");
+    : isGlobalChatSessionRoute
+      ? t("conversations.globalChatSession")
+      : isProjectSessionRoute
+        ? t("conversations.projectSession")
+        : t("workspace.title");
 
   if (pathname === "/settings") {
     return <Outlet />;

@@ -115,7 +115,10 @@ const runtimeStatus = (
 ): SavedConversationProjection["runtime"] => {
   if (activeTurn)
     return {
-      status: "running",
+      status:
+        activeTurn.state === "recovery_required"
+          ? "recovery_required"
+          : "running",
       activeTurnId: activeTurn.id,
       latestTurnId: latestTurn?.id ?? activeTurn.id,
     };

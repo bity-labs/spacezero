@@ -25,6 +25,12 @@
     "notConnected": "Not connected",
     "openAppSettings": "Open app settings"
   },
+  "conversations": {
+    "projectSession": "Project Session",
+    "projectSessionSurface": "Project Session conversation",
+    "globalChatSession": "Global Chat Session",
+    "globalChatSessionSurface": "Global Chat Session conversation"
+  },
   "settings": {
     "title": "Settings",
     "backToWorkspace": "Back to Workspace",
