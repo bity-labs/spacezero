@@ -13,6 +13,7 @@ export type GlobalChatSessionErrorCode =
   | "turn_not_active"
   | "agent_configuration_invalid"
   | "agent_authentication_required"
+  | "agent_default_model_missing"
   | "agent_turn_failed"
   | "agent_unavailable";
 
@@ -62,6 +63,8 @@ export const GlobalChatSessionAgentConfigurationInvalidErrorSchema =
   globalChatSessionError("agent_configuration_invalid", 409);
 export const GlobalChatSessionAgentAuthenticationRequiredErrorSchema =
   globalChatSessionError("agent_authentication_required", 409);
+export const GlobalChatSessionAgentDefaultModelMissingErrorSchema =
+  globalChatSessionError("agent_default_model_missing", 409);
 export const GlobalChatSessionAgentTurnFailedErrorSchema =
   globalChatSessionError("agent_turn_failed", 502);
 export const GlobalChatSessionAgentUnavailableErrorSchema =
@@ -79,6 +82,7 @@ export const GlobalChatSessionErrorSchemas = [
   GlobalChatSessionTurnNotActiveErrorSchema,
   GlobalChatSessionAgentConfigurationInvalidErrorSchema,
   GlobalChatSessionAgentAuthenticationRequiredErrorSchema,
+  GlobalChatSessionAgentDefaultModelMissingErrorSchema,
   GlobalChatSessionAgentTurnFailedErrorSchema,
   GlobalChatSessionAgentUnavailableErrorSchema,
 ] as const;
@@ -139,6 +143,12 @@ export const globalChatSessionErrorBody = (
       return {
         code,
         message: "The selected agent provider needs authentication.",
+      };
+    case "agent_default_model_missing":
+      return {
+        code,
+        message:
+          "No default agent model is configured. Choose a default model in Settings → Models.",
       };
     case "agent_turn_failed":
       return {

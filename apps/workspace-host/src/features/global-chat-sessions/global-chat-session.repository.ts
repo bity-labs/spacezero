@@ -26,6 +26,7 @@ import {
   type GlobalChatSessionTurnFailureReason,
   type GlobalChatSessionTurnInterruptReason,
 } from "./global-chat-session.model.js";
+import { getAgentRuntimeDefaults } from "../agent-runtime/agent-runtime-defaults.repository.js";
 
 interface SessionRow {
   readonly session_id: string;
@@ -477,6 +478,20 @@ export const createGlobalChatSessionRepository = (options: {
               };
             }
 
+            const defaults = yield* getAgentRuntimeDefaults(sql);
+            if (
+              !defaults.defaultModel ||
+              defaults.defaultThinkingLevel === null
+            )
+              throw new GlobalChatSessionServiceError(
+                "agent_default_model_missing",
+              );
+            const seededRuntime = {
+              providerId: defaults.defaultModel.providerId,
+              modelId: defaults.defaultModel.modelId,
+              defaultThinkingLevel: defaults.defaultThinkingLevel,
+            };
+
             const sessionId = randomUUID();
             const now = new Date().toISOString();
             const firstPrompt = input.firstPrompt.trim();
@@ -504,15 +519,15 @@ export const createGlobalChatSessionRepository = (options: {
                 version: 1,
                 sessionId,
                 commandId: sessionId,
-                providerId: "anthropic",
-                modelId: "claude-sonnet-4-5",
-                defaultThinkingLevel: "off",
+                providerId: seededRuntime.providerId,
+                modelId: seededRuntime.modelId,
+                defaultThinkingLevel: seededRuntime.defaultThinkingLevel,
                 revision: 1,
                 timestamp: now,
               },
               createdAt: now,
             });
-            yield* sql`INSERT INTO chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, 'anthropic', 'claude-sonnet-4-5', 'off', 1, ${now}, ${now})`;
+            yield* sql`INSERT INTO chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, ${seededRuntime.providerId}, ${seededRuntime.modelId}, ${seededRuntime.defaultThinkingLevel}, 1, ${now}, ${now})`;
             yield* sql`INSERT INTO chat_session_pi_contexts (session_id, conversation_id, created_at, updated_at) VALUES (${sessionId}, ${sessionId}, ${now}, ${now})`;
             const admitted = yield* admitPromptInTransaction<CreateGlobalChatSessionWithFirstPromptResult>({
               sql,

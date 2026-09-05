@@ -9,6 +9,7 @@ import {
   startHostServer,
   type StartedHostServer,
 } from "../dist/runtime/host-server.js";
+import { seedAgentRuntimeDefaults } from "./agent-runtime-defaults.helpers.js";
 
 const origin = "spacezero://renderer";
 const temps: string[] = [];
@@ -31,6 +32,7 @@ const start = async (
     spaceZeroHome,
     ...(conversationRunner === undefined ? {} : { conversationRunner }),
   });
+  seedAgentRuntimeDefaults(databasePath);
   hosts.push(host);
   return host;
 };
