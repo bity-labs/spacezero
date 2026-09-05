@@ -107,6 +107,83 @@ afterEach(async () => {
 });
 
 describe("Global Chat Session Host protocol", () => {
+  it("preserves provider-exposed reasoning parts through Global Chat history and reload", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "reasoning", order: 1, text: "Think globally." },
+        });
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 2, text: "Global answer." },
+        });
+        return {
+          text: "Global answer.",
+          parts: [
+            { type: "reasoning", order: 1, text: "Think globally." },
+            { type: "text", order: 2, text: "Global answer." },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "global reasoning",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    let retainedMessages: {
+      id: string;
+      role: string;
+      text: string;
+      parts?: { id: string; type: string; order: number; text: string }[];
+    }[] = [];
+    await waitFor(async () => {
+      const listed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        sessionId,
+      );
+      const body = listed.body as { messages: typeof retainedMessages };
+      const assistant = body.messages.find(
+        (message) => message.role === "assistant",
+      );
+      expect(assistant?.parts).toMatchObject([
+        {
+          id: `${assistant?.id}:reasoning:1`,
+          type: "reasoning",
+          order: 1,
+          text: "Think globally.",
+        },
+        {
+          id: `${assistant?.id}:text:2`,
+          type: "text",
+          order: 2,
+          text: "Global answer.",
+        },
+      ]);
+      expect(JSON.stringify(listed.body)).not.toContain("thinkingSignature");
+      retainedMessages = body.messages;
+    });
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const reloaded = await listGlobalChatMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      sessionId,
+    );
+    expect(reloaded.body).toMatchObject({ messages: retainedMessages });
+  });
+
   it("creates a durable unarchived Global Chat Session from the first prompt and starts a tool-less Pi turn", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");

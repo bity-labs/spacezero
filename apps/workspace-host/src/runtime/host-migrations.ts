@@ -237,6 +237,12 @@ CREATE TABLE agent_runtime_defaults (
 )`;
 });
 
+export const addChatSessionReasoningPartsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`ALTER TABLE chat_session_messages ADD COLUMN content_parts_json TEXT CHECK (content_parts_json IS NULL OR json_valid(content_parts_json))`;
+  yield* sql`ALTER TABLE chat_session_turns ADD COLUMN draft_parts_json TEXT CHECK (draft_parts_json IS NULL OR json_valid(draft_parts_json))`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -259,6 +265,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     6,
     "create_agent_runtime_defaults",
     Effect.succeed(createAgentRuntimeDefaultsMigration),
+  ],
+  [
+    7,
+    "add_chat_session_reasoning_parts",
+    Effect.succeed(addChatSessionReasoningPartsMigration),
   ],
 ] as const);
 

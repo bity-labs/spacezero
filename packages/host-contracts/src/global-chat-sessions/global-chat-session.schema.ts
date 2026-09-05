@@ -45,6 +45,18 @@ export interface GlobalChatSessionTextPart {
   readonly turnId?: GlobalChatSessionTurnId;
 }
 
+export interface GlobalChatSessionReasoningPart {
+  readonly id: string;
+  readonly type: "reasoning";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: GlobalChatSessionTurnId;
+}
+
+export type GlobalChatSessionMessagePart =
+  | GlobalChatSessionTextPart
+  | GlobalChatSessionReasoningPart;
+
 export interface GlobalChatSessionMessage {
   readonly id: GlobalChatSessionMessageId;
   readonly role: GlobalChatSessionMessageRole;
@@ -53,7 +65,7 @@ export interface GlobalChatSessionMessage {
   readonly createdAt: string;
   readonly commandId?: GlobalChatSessionCommandId;
   readonly turnId?: GlobalChatSessionTurnId;
-  readonly parts?: readonly GlobalChatSessionTextPart[];
+  readonly parts?: readonly GlobalChatSessionMessagePart[];
 }
 
 export interface GlobalChatSessionTurn {
@@ -66,6 +78,7 @@ export interface GlobalChatSessionTurn {
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
   readonly draftText: string;
+  readonly draftParts?: readonly GlobalChatSessionMessagePart[];
   readonly failureReason?: string;
   readonly failureCategory?: GlobalChatSessionTurnFailureCategory;
   readonly retryable?: boolean;
@@ -248,6 +261,17 @@ export const GlobalChatSessionTextPartSchema = Schema.Struct({
   text: Schema.String,
   turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
 });
+export const GlobalChatSessionReasoningPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["reasoning"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  text: Schema.String.check(Schema.isMinLength(1)),
+  turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+});
+export const GlobalChatSessionMessagePartSchema = Schema.Union([
+  GlobalChatSessionTextPartSchema,
+  GlobalChatSessionReasoningPartSchema,
+]);
 export const GlobalChatSessionMessageSchema = Schema.Struct({
   id: GlobalChatSessionMessageIdSchema,
   role: GlobalChatSessionMessageRoleSchema,
@@ -259,7 +283,7 @@ export const GlobalChatSessionMessageSchema = Schema.Struct({
   createdAt: DateTimeUtcStringSchema,
   commandId: Schema.optionalKey(GlobalChatSessionCommandIdSchema),
   turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
-  parts: Schema.optionalKey(Schema.Array(GlobalChatSessionTextPartSchema)),
+  parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
 });
 export const GlobalChatSessionTurnSchema = Schema.Struct({
   id: GlobalChatSessionTurnIdSchema,
@@ -274,6 +298,7 @@ export const GlobalChatSessionTurnSchema = Schema.Struct({
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String,
+  draftParts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(
     GlobalChatSessionTurnFailureCategorySchema,
@@ -421,6 +446,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
     text: GlobalChatSessionMessageTextSchema,
+    parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -430,6 +456,7 @@ export const GlobalChatSessionEventSchema = Schema.Union([
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
     text: GlobalChatSessionMessageTextSchema,
+    parts: Schema.optionalKey(Schema.Array(GlobalChatSessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -500,6 +527,22 @@ export const GlobalChatSessionLiveEventSchema = Schema.Union([
     sessionId: GlobalChatSessionIdSchema,
     turnId: GlobalChatSessionTurnIdSchema,
     messageId: GlobalChatSessionMessageIdSchema,
+    text: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(64_000),
+    ),
+    order: Schema.optionalKey(
+      Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatAssistantReasoningDeltaV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    turnId: GlobalChatSessionTurnIdSchema,
+    messageId: GlobalChatSessionMessageIdSchema,
+    order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
     text: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(64_000),

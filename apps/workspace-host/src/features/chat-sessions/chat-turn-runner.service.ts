@@ -2,6 +2,7 @@ import {
   AgentTurnError,
   type AgentRuntimeEvent,
   type AgentToolConfiguration,
+  type AgentTurnContentPart,
   type AgentTurnMessage,
   type AgentTurnResources,
   type ConversationRunner,
@@ -57,6 +58,7 @@ export interface ChatTurnRepository {
     readonly sessionId: string;
     readonly turnId: string;
     readonly text: string;
+    readonly parts?: readonly AgentTurnContentPart[];
   }) => Promise<void>;
   readonly recordToolStarted: (input: {
     readonly sessionId: string;
@@ -82,6 +84,7 @@ export interface ChatTurnRepository {
     readonly sessionId: string;
     readonly turnId: string;
     readonly text: string;
+    readonly parts?: readonly AgentTurnContentPart[];
   }) => Promise<unknown>;
   readonly failTurn: (input: {
     readonly commandId: string;
@@ -113,6 +116,15 @@ export interface RunAdmittedChatTurnInput<
     readonly sessionId: string;
     readonly turnId: string;
     readonly messageId: string;
+    readonly text: string;
+    readonly order?: number;
+    readonly timestamp: string;
+  }) => LiveEnvelope;
+  readonly makeAssistantReasoningDelta: (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly messageId: string;
+    readonly order: number;
     readonly text: string;
     readonly timestamp: string;
   }) => LiveEnvelope;
@@ -187,31 +199,41 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
   ): void => {
     const controller = new AbortController();
     let draftText = "";
-    let checkpointedTextLength = 0;
-    let checkpointedDurableText = "";
+    const draftParts = new Map<number, AgentTurnContentPart>();
+    let checkpointedContentLength = 0;
+    let checkpointedDurableFingerprint = "";
     let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     let checkpointChain = Promise.resolve();
     const turn = input.admission.result.turn;
 
+    const currentParts = (): readonly AgentTurnContentPart[] =>
+      [...draftParts.values()].sort((left, right) => left.order - right.order);
+
     const checkpointDraft = async (): Promise<void> => {
-      const capturedLength = draftText.length;
-      if (capturedLength === checkpointedTextLength) return;
+      const parts = currentParts();
+      const capturedLength = parts.reduce(
+        (total, part) => total + part.text.length,
+        0,
+      );
+      if (capturedLength === checkpointedContentLength) return;
       const text = draftText;
-      if (text === checkpointedDurableText) {
-        checkpointedTextLength = capturedLength;
+      const fingerprint = JSON.stringify({ text, parts });
+      if (fingerprint === checkpointedDurableFingerprint) {
+        checkpointedContentLength = capturedLength;
         return;
       }
       const operation = checkpointChain
         .catch(() => undefined)
         .then(async () => {
-          if (capturedLength <= checkpointedTextLength) return;
+          if (capturedLength <= checkpointedContentLength) return;
           await input.repository.checkpointTurnDraft({
             sessionId: input.sessionId,
             turnId: input.admission.turnId,
             text,
+            parts,
           });
-          checkpointedTextLength = capturedLength;
-          checkpointedDurableText = text;
+          checkpointedContentLength = capturedLength;
+          checkpointedDurableFingerprint = fingerprint;
           stream.wakeEvents(input.sessionId);
         });
       checkpointChain = operation;
@@ -272,19 +294,41 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               if (controller.signal.aborted) return;
               const timestamp = new Date().toISOString();
               if (event.type === "assistant_delta") {
-                draftText += event.text;
-                if (draftText.length - checkpointedTextLength >= 2_048)
+                const existing = draftParts.get(event.part.order);
+                const nextPart = {
+                  ...event.part,
+                  text: `${existing?.text ?? ""}${event.part.text}`,
+                };
+                draftParts.set(event.part.order, nextPart);
+                if (event.part.type === "text") draftText += event.part.text;
+                if (
+                  currentParts().reduce(
+                    (total, part) => total + part.text.length,
+                    0,
+                  ) - checkpointedContentLength >=
+                  2_048
+                )
                   await checkpointDraft();
                 else scheduleCheckpoint();
                 stream.publishLive(
                   input.sessionId,
-                  input.makeAssistantTextDelta({
-                    sessionId: input.sessionId,
-                    turnId: input.admission.turnId,
-                    messageId: turn.assistantMessageId,
-                    text: event.text,
-                    timestamp,
-                  }),
+                  event.part.type === "reasoning"
+                    ? input.makeAssistantReasoningDelta({
+                        sessionId: input.sessionId,
+                        turnId: input.admission.turnId,
+                        messageId: turn.assistantMessageId,
+                        order: event.part.order,
+                        text: event.part.text,
+                        timestamp,
+                      })
+                    : input.makeAssistantTextDelta({
+                        sessionId: input.sessionId,
+                        turnId: input.admission.turnId,
+                        messageId: turn.assistantMessageId,
+                        text: event.part.text,
+                        order: event.part.order,
+                        timestamp,
+                      }),
                 );
                 return;
               }
@@ -376,6 +420,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           sessionId: input.sessionId,
           turnId: input.admission.turnId,
           text: completed.text,
+          ...(completed.parts === undefined ? {} : { parts: completed.parts }),
         });
         stream.wakeEvents(input.sessionId);
         input.onTurnSettled?.(input.sessionId);

@@ -40,6 +40,18 @@ export interface SavedConversationTextPart {
   readonly turnId?: string;
 }
 
+export interface SavedConversationReasoningPart {
+  readonly id: string;
+  readonly type: "reasoning";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: string;
+}
+
+export type SavedConversationMessagePart =
+  | SavedConversationTextPart
+  | SavedConversationReasoningPart;
+
 export interface SavedConversationMessage {
   readonly id: string;
   readonly role: "user" | "assistant";
@@ -50,7 +62,7 @@ export interface SavedConversationMessage {
   readonly turnId?: string;
   readonly status?: SavedConversationMessageStatus;
   readonly errorMessage?: string;
-  readonly parts: readonly SavedConversationTextPart[];
+  readonly parts: readonly SavedConversationMessagePart[];
 }
 
 export interface SavedConversationProjection {
@@ -170,7 +182,7 @@ const textPart = (input: {
 
 const messageWithParts = (
   message: Omit<SavedConversationMessage, "parts"> & {
-    readonly parts?: readonly SavedConversationTextPart[];
+    readonly parts?: readonly SavedConversationMessagePart[];
   },
 ): SavedConversationMessage => ({
   ...message,
@@ -250,7 +262,7 @@ const sortMessages = (
           ? { turnId: message.turnId }
           : {}),
         ...("parts" in message && Array.isArray(message.parts)
-          ? { parts: message.parts as readonly SavedConversationTextPart[] }
+          ? { parts: message.parts as readonly SavedConversationMessagePart[] }
           : {}),
       }),
     );
@@ -301,6 +313,9 @@ const appendActiveDraft = (
       sequence: Math.max(...messages.map((message) => message.sequence), 0) + 1,
       createdAt: activeTurn.updatedAt,
       turnId: activeTurn.id,
+      ...("draftParts" in activeTurn && Array.isArray(activeTurn.draftParts)
+        ? { parts: activeTurn.draftParts as readonly SavedConversationMessagePart[] }
+        : {}),
     }),
   ];
 };
@@ -356,6 +371,7 @@ const setAssistantText = (
     readonly sequence: number;
     readonly createdAt: string;
     readonly turnId: string;
+    readonly parts?: readonly SavedConversationMessagePart[];
   },
 ): readonly SavedConversationMessage[] =>
   upsertMessage(
@@ -367,6 +383,7 @@ const setAssistantText = (
       sequence: input.sequence,
       createdAt: input.createdAt,
       turnId: input.turnId,
+      ...(input.parts === undefined ? {} : { parts: input.parts }),
     }),
   );
 
@@ -427,6 +444,7 @@ const applyDurableEvent = (
             sequence: envelope.sequence,
             createdAt: event.timestamp,
             turnId: event.turnId,
+            parts: [],
           }),
         ),
         actions: actions({ canSend, send: "available", canStop: true }),
@@ -442,6 +460,9 @@ const applyDurableEvent = (
           sequence: envelope.sequence,
           createdAt: event.timestamp,
           turnId: event.turnId,
+          ...("parts" in event && Array.isArray(event.parts)
+            ? { parts: event.parts as readonly SavedConversationMessagePart[] }
+            : {}),
         }),
       };
     case "AgentMessageCompletedV1":
@@ -456,6 +477,9 @@ const applyDurableEvent = (
           sequence: envelope.sequence,
           createdAt: event.timestamp,
           turnId: event.turnId,
+          ...("parts" in event && Array.isArray(event.parts)
+            ? { parts: event.parts as readonly SavedConversationMessagePart[] }
+            : {}),
         }),
         actions: actions({ canSend, send: "available", canStop: false }),
       };
@@ -484,6 +508,36 @@ const applyDurableEvent = (
   }
 };
 
+const livePartId = (input: {
+  readonly messageId: string;
+  readonly type: "text" | "reasoning";
+  readonly order: number;
+}): string => `${input.messageId}:${input.type}:${input.order}`;
+
+const appendPartDelta = (
+  parts: readonly SavedConversationMessagePart[],
+  input: {
+    readonly messageId: string;
+    readonly turnId: string;
+    readonly type: "text" | "reasoning";
+    readonly order: number;
+    readonly text: string;
+  },
+): readonly SavedConversationMessagePart[] => {
+  const id = livePartId(input);
+  const existing = parts.find((part) => part.id === id);
+  const next = {
+    id,
+    type: input.type,
+    order: input.order,
+    text: `${existing?.text ?? ""}${input.text}`,
+    turnId: input.turnId,
+  } as SavedConversationMessagePart;
+  return [...parts.filter((part) => part.id !== id), next].sort(
+    (left, right) => left.order - right.order,
+  );
+};
+
 const applyLiveEvent = (
   projection: SavedConversationProjection,
   envelope:
@@ -492,7 +546,9 @@ const applyLiveEvent = (
   const event = envelope.event;
   if (
     event.type !== "AssistantTextDeltaV1" &&
-    event.type !== "GlobalChatAssistantTextDeltaV1"
+    event.type !== "GlobalChatAssistantTextDeltaV1" &&
+    event.type !== "AssistantReasoningDeltaV1" &&
+    event.type !== "GlobalChatAssistantReasoningDeltaV1"
   )
     return projection;
   const isActiveTurn =
@@ -500,6 +556,19 @@ const applyLiveEvent = (
     (projection.runtime.activeTurnId === event.turnId ||
       projection.runtime.latestTurnId === event.turnId);
   if (!isActiveTurn) return projection;
+  const existing = projection.messages.find(
+    (message) => message.id === event.messageId,
+  );
+  const isReasoning =
+    event.type === "AssistantReasoningDeltaV1" ||
+    event.type === "GlobalChatAssistantReasoningDeltaV1";
+  const parts = appendPartDelta(existing?.parts ?? [], {
+    messageId: event.messageId,
+    turnId: event.turnId,
+    type: isReasoning ? "reasoning" : "text",
+    order: isReasoning ? event.order : (event.order ?? 1),
+    text: event.text,
+  });
   return {
     ...projection,
     status: "ready",
@@ -508,14 +577,11 @@ const applyLiveEvent = (
       messageWithParts({
         id: event.messageId,
         role: "assistant",
-        text:
-          (projection.messages.find((message) => message.id === event.messageId)
-            ?.text ?? "") + event.text,
-        sequence:
-          projection.messages.find((message) => message.id === event.messageId)
-            ?.sequence ?? projection.lastSequence + 1,
-        createdAt: event.timestamp,
+        text: isReasoning ? (existing?.text ?? "") : `${existing?.text ?? ""}${event.text}`,
+        sequence: existing?.sequence ?? projection.lastSequence + 1,
+        createdAt: existing?.createdAt ?? event.timestamp,
         turnId: event.turnId,
+        parts,
       }),
     ),
   };

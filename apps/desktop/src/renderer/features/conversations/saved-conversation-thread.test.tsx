@@ -16,6 +16,13 @@ const loadedStore = (input: {
     readonly text: string;
     readonly sequence: number;
     readonly createdAt: string;
+    readonly parts?: readonly {
+      readonly id: string;
+      readonly type: "text" | "reasoning";
+      readonly order: number;
+      readonly text: string;
+      readonly turnId?: string;
+    }[];
   }[];
 }): SavedConversationStore =>
   createSavedConversationStore({
@@ -70,6 +77,43 @@ describe("SavedConversationThread", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+  });
+
+  it("renders provider-exposed reasoning as expandable content separate from answer text", async () => {
+    const store = loadedStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      title: "margaux",
+      messages: [
+        {
+          id: "assistant-message-1",
+          role: "assistant",
+          text: "Final answer",
+          sequence: 2,
+          createdAt: timestamp,
+          parts: [
+            {
+              id: "assistant-message-1:reasoning:1",
+              type: "reasoning",
+              order: 1,
+              text: "Provider-exposed reasoning",
+            },
+            {
+              id: "assistant-message-1:text:2",
+              type: "text",
+              order: 2,
+              text: "Final answer",
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    expect(await screen.findByText("Reasoning")).toBeInTheDocument();
+    expect(screen.getByText("Provider-exposed reasoning")).toBeInTheDocument();
+    expect(screen.getByText("Final answer")).toBeInTheDocument();
   });
 
   it("uses the same Thread for Global Chat saved messages", async () => {
