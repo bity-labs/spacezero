@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-export const HOST_PROTOCOL_VERSION = "3" as const;
+export const HOST_PROTOCOL_VERSION = "4" as const;
 export const LOCAL_HOST_CLIENT_SCOPES = [
   "host:connection:read",
   "host:events:subscribe",
@@ -9,6 +9,7 @@ export const LOCAL_HOST_CLIENT_SCOPES = [
   "harness-auth:read",
   "harness-auth:write",
   "agent-runtime:read",
+  "agent-runtime:write",
   "agent-resources:read",
   "flows:read",
   "flows:write",

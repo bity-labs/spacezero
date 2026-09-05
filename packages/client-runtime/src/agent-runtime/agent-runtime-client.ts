@@ -9,11 +9,18 @@ import {
   HostApi,
   parseHostConnectionDescriptor,
   type HostConnectionDescriptor,
+  type GetAgentRuntimeDefaultsResult,
   type ListAgentRuntimeModelsResult,
+  type UpdateAgentRuntimeDefaultsRequest,
+  type UpdateAgentRuntimeDefaultsResult,
 } from "@spacezero/host-contracts";
 
 export interface AgentRuntimeClient {
   readonly listAgentRuntimeModels: () => Promise<ListAgentRuntimeModelsResult>;
+  readonly getAgentRuntimeDefaults: () => Promise<GetAgentRuntimeDefaultsResult>;
+  readonly updateAgentRuntimeDefaults: (
+    request: UpdateAgentRuntimeDefaultsRequest,
+  ) => Promise<UpdateAgentRuntimeDefaultsResult>;
 }
 
 export interface AgentRuntimeClientOptions {
@@ -24,6 +31,13 @@ export interface AgentRuntimeClientOptions {
 interface GeneratedAgentRuntimeApiClient {
   readonly agentRuntime: {
     readonly listAgentRuntimeModels: (input: {
+      readonly headers: { readonly authorization: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly getAgentRuntimeDefaults: (input: {
+      readonly headers: { readonly authorization: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly updateAgentRuntimeDefaults: (input: {
+      readonly payload: UpdateAgentRuntimeDefaultsRequest;
       readonly headers: { readonly authorization: string };
     }) => Effect.Effect<unknown, unknown, never>;
   };
@@ -79,6 +93,31 @@ export const createAgentRuntimeClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as ListAgentRuntimeModelsResult;
+    },
+    getAgentRuntimeDefaults: async () => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.agentRuntime.getAgentRuntimeDefaults({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as GetAgentRuntimeDefaultsResult;
+    },
+    updateAgentRuntimeDefaults: async (
+      request: UpdateAgentRuntimeDefaultsRequest,
+    ) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.agentRuntime.updateAgentRuntimeDefaults({
+          payload: request,
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as UpdateAgentRuntimeDefaultsResult;
     },
   };
 };
