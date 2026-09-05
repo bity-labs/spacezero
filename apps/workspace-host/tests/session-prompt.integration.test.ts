@@ -497,11 +497,13 @@ describe("Session prompt Host protocol", () => {
     );
     const sessionId = created.session.id;
 
+    const promptCommandId = randomUUID();
     const submitted = await submitPrompt(
       host,
       client.clientCapability,
       sessionId,
       "Build the wine list view",
+      promptCommandId,
     );
 
     expect(submitted.response.status).toBe(200);
@@ -512,6 +514,7 @@ describe("Session prompt Host protocol", () => {
         role: string;
         text: string;
         sequence: number;
+        commandId?: string;
       };
       turn: {
         id: string;
@@ -523,6 +526,7 @@ describe("Session prompt Host protocol", () => {
     expect(body.session.state).toBe("ready");
     expect(body.userMessage.role).toBe("user");
     expect(body.userMessage.text).toBe("Build the wine list view");
+    expect(body.userMessage.commandId).toBe(promptCommandId);
     expect(body.turn.state).toBe("running");
     const listed = await waitForMessageCount(
       host,
@@ -537,6 +541,7 @@ describe("Session prompt Host protocol", () => {
         role: string;
         text: string;
         sequence: number;
+        commandId?: string;
         turnId?: string;
         parts?: {
           id: string;
@@ -581,6 +586,7 @@ describe("Session prompt Host protocol", () => {
         id: body.userMessage.id,
         role: "user",
         text: "Build the wine list view",
+        commandId: promptCommandId,
         parts: [
           {
             id: `${body.userMessage.id}:text:1`,
@@ -594,6 +600,7 @@ describe("Session prompt Host protocol", () => {
         id: body.turn.assistantMessageId,
         role: "assistant",
         text: "Echo: Build the wine list view",
+        commandId: promptCommandId,
         turnId: body.turn.id,
         parts: [
           {

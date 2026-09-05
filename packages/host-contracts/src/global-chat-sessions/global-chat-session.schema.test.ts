@@ -29,6 +29,7 @@ const firstMessage = {
   text: "Plan the release",
   sequence: 2,
   createdAt: "2026-01-01T00:00:00.000Z",
+  commandId: uuid,
 };
 
 const turn = {
