@@ -2,6 +2,7 @@ import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
   type AppendMessage,
+  type ThreadAssistantMessagePart,
   type ThreadMessage,
 } from "@assistant-ui/react";
 import { Thread, type ThreadViewState } from "@spacezero/ui/components/thread";
@@ -46,23 +47,47 @@ export const toAssistantThreadMessage = (
       kind: projection.session.kind,
       sessionId: projection.session.id,
       sequence: message.sequence,
-      ...(message.commandId === undefined ? {} : { commandId: message.commandId }),
+      ...(message.commandId === undefined
+        ? {}
+        : { commandId: message.commandId }),
       ...(message.turnId === undefined ? {} : { turnId: message.turnId }),
       ...(message.status === undefined ? {} : { status: message.status }),
     },
   };
-  const content = message.parts.map((part) => ({
-    type: part.type,
-    text: part.text,
-  }));
+  const content = message.parts.map((part) => {
+    if (part.type === "tool-call")
+      return {
+        type: "tool-call" as const,
+        toolCallId: part.toolCallId,
+        toolName: part.toolName,
+        status: part.status,
+        args: part.arguments ?? {},
+        argsText: JSON.stringify(part.arguments ?? {}, null, 2),
+        ...(part.progress === undefined ? {} : { progress: part.progress }),
+        ...(part.result === undefined ? {} : { result: part.result }),
+        ...(part.safety === undefined ? {} : { safety: part.safety }),
+        ...(part.approvalStatus === undefined
+          ? {}
+          : { approvalStatus: part.approvalStatus }),
+        ...(part.approvalReason === undefined
+          ? {}
+          : { approvalReason: part.approvalReason }),
+      };
+    return {
+      type: part.type,
+      text: part.text,
+    };
+  });
   if (message.role === "user")
     return {
       id: message.id,
       role: "user",
       createdAt,
-      content: content
-        .filter((part) => part.type === "text")
-        .map((part) => ({ type: "text" as const, text: part.text })),
+      content: content.flatMap((part) =>
+        part.type === "text"
+          ? [{ type: "text" as const, text: part.text }]
+          : [],
+      ),
       attachments: [],
       metadata: {
         isOptimistic: message.status === "pending",
@@ -77,12 +102,16 @@ export const toAssistantThreadMessage = (
     id: message.id,
     role: "assistant",
     createdAt,
-    content: content.map((part) => ({
-      ...part,
-      status: isRunningTail
-        ? runningAssistantStatus
-        : completedAssistantStatus,
-    })),
+    content: content.map((part) =>
+      part.type === "tool-call"
+        ? part
+        : {
+            ...part,
+            status: isRunningTail
+              ? runningAssistantStatus
+              : completedAssistantStatus,
+          },
+    ) as readonly ThreadAssistantMessagePart[],
     status: isRunningTail ? runningAssistantStatus : completedAssistantStatus,
     metadata: {
       unstable_state: null,

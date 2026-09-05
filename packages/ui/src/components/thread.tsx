@@ -20,6 +20,11 @@ export interface ThreadLabels {
   readonly unavailable?: string;
   readonly error?: string;
   readonly unsupportedPart?: string;
+  readonly toolArguments?: string;
+  readonly toolResult?: string;
+  readonly toolProgress?: string;
+  readonly toolTruncated?: string;
+  readonly toolNoOutput?: string;
   readonly user?: string;
   readonly assistant?: string;
   readonly composer?: string;
@@ -41,6 +46,11 @@ const defaultLabels = {
   unavailable: "Conversation unavailable.",
   error: "Conversation failed to load.",
   unsupportedPart: "This saved content is unavailable in this view.",
+  toolArguments: "Arguments",
+  toolResult: "Result",
+  toolProgress: "Progress",
+  toolTruncated: "Output was truncated by the tool provider.",
+  toolNoOutput: "No displayable output.",
   user: "You",
   assistant: "Assistant",
   composer: "Message",
@@ -48,7 +58,34 @@ const defaultLabels = {
   stop: "Stop",
 } satisfies Required<ThreadLabels>;
 
-type RenderablePart = ThreadUserMessagePart | ThreadAssistantMessagePart;
+type ToolDisplayContent =
+  | { readonly type: "text"; readonly text: string }
+  | {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    };
+
+type ToolDisplayResult = {
+  readonly content: readonly ToolDisplayContent[];
+  readonly truncated?: boolean;
+};
+
+type RenderableToolCallPart = {
+  readonly type: "tool-call";
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly status?: "running" | "succeeded" | "failed";
+  readonly args?: unknown;
+  readonly progress?: string;
+  readonly result?: ToolDisplayResult;
+  readonly safety?: "read" | "write" | "dangerous";
+  readonly approvalStatus?: "approved" | "requires_approval";
+  readonly approvalReason?: string;
+};
+
+type RenderablePart =
+  ThreadUserMessagePart | ThreadAssistantMessagePart | RenderableToolCallPart;
 
 const isTextPart = (
   part: RenderablePart,
@@ -59,6 +96,28 @@ const isReasoningPart = (
   part: RenderablePart,
 ): part is Extract<RenderablePart, { readonly type: "reasoning" }> =>
   part.type === "reasoning";
+
+const isToolCallPart = (part: RenderablePart): part is RenderableToolCallPart =>
+  part.type === "tool-call";
+
+const renderToolResult = (result: ToolDisplayResult): ReactNode => (
+  <div className="space-y-2">
+    {result.content.map((content, index) =>
+      content.type === "text" ? (
+        <pre
+          key={index}
+          className="overflow-x-auto whitespace-pre-wrap rounded bg-background p-2"
+        >
+          {content.text}
+        </pre>
+      ) : (
+        <div key={index} className="text-muted-foreground">
+          Image result: {content.mimeType}
+        </div>
+      ),
+    )}
+  </div>
+);
 
 const renderPart = (
   part: RenderablePart,
@@ -85,17 +144,53 @@ const renderPart = (
         </p>
       </details>
     );
-  if (part.type === "tool-call")
+  if (isToolCallPart(part))
     return (
-      <div
+      <details
         key={part.toolCallId}
         className="rounded-md border border-border bg-muted/40 p-3 text-xs"
       >
-        <div className="font-medium">Tool: {part.toolName}</div>
-        <div className="mt-1 text-muted-foreground">
-          {labels.unsupportedPart}
+        <summary className="cursor-pointer font-medium">
+          Tool: {part.toolName}
+          {part.status ? ` · ${part.status}` : ""}
+        </summary>
+        <div className="mt-2 space-y-3 text-muted-foreground">
+          <div className="flex flex-wrap gap-2">
+            {part.safety ? <span>Safety: {part.safety}</span> : null}
+            {part.approvalStatus ? (
+              <span>Approval: {part.approvalStatus}</span>
+            ) : null}
+            {part.approvalReason ? <span>{part.approvalReason}</span> : null}
+          </div>
+          {part.args === undefined ? null : (
+            <div>
+              <div className="mb-1 font-medium">{labels.toolArguments}</div>
+              <pre className="overflow-x-auto whitespace-pre-wrap rounded bg-background p-2">
+                {JSON.stringify(part.args, null, 2)}
+              </pre>
+            </div>
+          )}
+          {part.progress ? (
+            <div>
+              <div className="mb-1 font-medium">{labels.toolProgress}</div>
+              <div>{part.progress}</div>
+            </div>
+          ) : null}
+          {part.result === undefined ? null : (
+            <div>
+              <div className="mb-1 font-medium">{labels.toolResult}</div>
+              {part.result.content.length > 0 ? (
+                renderToolResult(part.result)
+              ) : (
+                <div>{labels.toolNoOutput}</div>
+              )}
+              {part.result.truncated ? (
+                <div className="mt-2">{labels.toolTruncated}</div>
+              ) : null}
+            </div>
+          )}
         </div>
-      </div>
+      </details>
     );
   return (
     <div

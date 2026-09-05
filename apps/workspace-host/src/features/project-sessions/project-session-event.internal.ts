@@ -314,6 +314,9 @@ export const toPublicProjectSessionEvent = (
         turnId: event.turnId,
         toolCallId: event.toolCallId,
         toolName: event.toolName,
+        ...(event.arguments === undefined
+          ? {}
+          : { arguments: event.arguments }),
         ...(event.safety === undefined ? {} : { safety: event.safety }),
         ...(event.approvalStatus === undefined
           ? {}
@@ -332,6 +335,7 @@ export const toPublicProjectSessionEvent = (
         toolCallId: event.toolCallId,
         toolName: event.toolName,
         status: event.status,
+        ...(event.result === undefined ? {} : { result: event.result }),
         ...(event.safety === undefined ? {} : { safety: event.safety }),
         ...(event.approvalStatus === undefined
           ? {}

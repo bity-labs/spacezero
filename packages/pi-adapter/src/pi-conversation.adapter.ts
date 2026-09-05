@@ -37,12 +37,14 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   AgentTurnError,
+  type AgentToolJsonObject,
   type AgentTurnContentPart,
   type AgentTurnInput,
   type AgentTurnResult,
   type ConversationRunner,
 } from "./conversation.model.js";
 import { createPiModelCatalogService } from "./model-catalog.service.js";
+import { createPublicToolContentPolicy } from "./tool-content-policy.js";
 
 export interface PiConversationConfig {
   /** Provider id, e.g. "anthropic" */
@@ -57,6 +59,8 @@ export interface PiConversationConfig {
   authContext?: AuthContext;
   /** Test seam for deterministic Models implementations. */
   models?: Models;
+  /** Host-private roots whose paths must not become public tool content. */
+  protectedPathRoots?: readonly string[];
 }
 
 const noAmbientAuthContext: AuthContext = {
@@ -334,11 +338,19 @@ const safePartsFromAssistantMessage = (
       content.redacted !== true &&
       content.thinking.length > 0
     )
-      return [
-        { type: "reasoning" as const, order, text: content.thinking },
-      ];
+      return [{ type: "reasoning" as const, order, text: content.thinking }];
     return [];
   });
+
+const collectSecretValues = (value: unknown): readonly string[] => {
+  if (typeof value === "string") return value.length >= 4 ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap(collectSecretValues);
+  if (typeof value === "object" && value !== null)
+    return Object.entries(value).flatMap(([key, child]) =>
+      /signature/iu.test(key) ? [] : collectSecretValues(child),
+    );
+  return [];
+};
 
 const expandSkillPrompt = (input: AgentTurnInput): string => {
   const match = /^\/skill:([a-z0-9][a-z0-9-]{0,127})(?:\s+([\s\S]*))?$/.exec(
@@ -382,6 +394,9 @@ export function createPiConversationRunner(
         .checkAuth(runtime.providerId)
         .catch(() => undefined);
       if (!auth) throw new AgentTurnError("agent_authentication_required");
+      const credential = await config.credentials
+        .read(runtime.providerId)
+        .catch(() => undefined);
       const available = await models.getAvailable().catch(() => []);
       if (
         !available.some(
@@ -400,6 +415,17 @@ export function createPiConversationRunner(
         input.tools.kind === "managedWorktree"
           ? new BoundedExecutionEnv(input.tools.workingDirectory)
           : undefined;
+      const worktreeRoot =
+        input.tools.kind === "managedWorktree"
+          ? input.tools.workingDirectory
+          : undefined;
+      const toolContentPolicy = createPublicToolContentPolicy({
+        ...(worktreeRoot === undefined ? {} : { worktreeRoot }),
+        ...(config.protectedPathRoots === undefined
+          ? {}
+          : { protectedPathRoots: config.protectedPathRoots }),
+        protectedSecretValues: collectSecretValues(credential),
+      });
       const enabledToolNames = input.tools.enabledToolNames;
       const agent = new Agent({
         streamFn: models.streamSimple.bind(models),
@@ -430,15 +456,47 @@ export function createPiConversationRunner(
 
       const textParts: string[] = [];
       const contentByOrder = new Map<number, AgentTurnContentPart>();
+      const toolOrder = new Map<string, number>();
+      const messageContentOrders = new Map<number, number>();
+      let nextContentOrder = 1;
+
+      const orderForMessageContent = (contentIndex: number): number => {
+        const existing = messageContentOrders.get(contentIndex);
+        if (existing !== undefined) return existing;
+        const order = nextContentOrder++;
+        messageContentOrders.set(contentIndex, order);
+        return order;
+      };
+
+      const orderForTool = (toolCallId: string): number => {
+        const existing = toolOrder.get(toolCallId);
+        if (existing !== undefined) return existing;
+        const order = nextContentOrder++;
+        toolOrder.set(toolCallId, order);
+        return order;
+      };
 
       const appendSafeDelta = (
-        part: Omit<AgentTurnContentPart, "text">,
+        part: Omit<
+          Extract<
+            AgentTurnContentPart,
+            { readonly type: "text" | "reasoning" }
+          >,
+          "text"
+        >,
         delta: string,
-      ): AgentTurnContentPart => {
+      ): Extract<
+        AgentTurnContentPart,
+        { readonly type: "text" | "reasoning" }
+      > => {
         const existing = contentByOrder.get(part.order);
+        const existingText =
+          existing?.type === "text" || existing?.type === "reasoning"
+            ? existing.text
+            : "";
         const next = {
           ...part,
-          text: `${existing?.text ?? ""}${delta}`,
+          text: `${existingText}${delta}`,
         };
         contentByOrder.set(part.order, next);
         return { ...part, text: delta };
@@ -448,6 +506,10 @@ export function createPiConversationRunner(
       input.signal?.addEventListener("abort", abort, { once: true });
       const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
         switch (event.type) {
+          case "message_start": {
+            messageContentOrders.clear();
+            break;
+          }
           case "message_update": {
             const messageEvent = event.assistantMessageEvent;
             if (
@@ -457,9 +519,9 @@ export function createPiConversationRunner(
               break;
             const delta = messageEvent.delta;
             if (delta.length > 0) {
-              const sourceContent = messageEvent.partial.content[
-                messageEvent.contentIndex
-              ];
+              const sourceContent =
+                messageEvent.partial.content[messageEvent.contentIndex];
+              const order = orderForMessageContent(messageEvent.contentIndex);
               if (
                 messageEvent.type === "thinking_delta" &&
                 sourceContent?.type === "thinking" &&
@@ -470,10 +532,8 @@ export function createPiConversationRunner(
               const part = appendSafeDelta(
                 {
                   type:
-                    messageEvent.type === "text_delta"
-                      ? "text"
-                      : "reasoning",
-                  order: messageEvent.contentIndex + 1,
+                    messageEvent.type === "text_delta" ? "text" : "reasoning",
+                  order,
                 },
                 delta,
               );
@@ -486,10 +546,29 @@ export function createPiConversationRunner(
             break;
           }
           case "tool_execution_start": {
+            const order = orderForTool(event.toolCallId);
+            const toolPart = {
+              type: "tool-call" as const,
+              order,
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+              status: "running" as const,
+              ...(toolContentPolicy.sanitizeJsonObject(event.args) === undefined
+                ? {}
+                : {
+                    arguments: toolContentPolicy.sanitizeJsonObject(
+                      event.args,
+                    ) as AgentToolJsonObject,
+                  }),
+            };
+            contentByOrder.set(order, toolPart);
             await input.onEvent?.({
               type: "tool_started",
               toolCallId: event.toolCallId,
               toolName: event.toolName,
+              ...(toolPart.arguments === undefined
+                ? {}
+                : { arguments: toolPart.arguments }),
             });
             break;
           }
@@ -503,11 +582,30 @@ export function createPiConversationRunner(
             break;
           }
           case "tool_execution_end": {
+            const order = orderForTool(event.toolCallId);
+            const existing = contentByOrder.get(order);
+            const result = toolContentPolicy.sanitizeResult(event.result);
+            const nextToolPart = {
+              ...(existing?.type === "tool-call"
+                ? existing
+                : {
+                    type: "tool-call" as const,
+                    order,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                  }),
+              status: event.isError
+                ? ("failed" as const)
+                : ("succeeded" as const),
+              ...(result === undefined ? {} : { result }),
+            };
+            contentByOrder.set(order, nextToolPart);
             await input.onEvent?.({
               type: "tool_completed",
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               isError: event.isError,
+              ...(result === undefined ? {} : { result }),
             });
             break;
           }
@@ -528,12 +626,17 @@ export function createPiConversationRunner(
         const assistantText = assistant
           ? textFromAssistantMessage(assistant)
           : textParts.join("");
-        const parts = assistant
-          ? safePartsFromAssistantMessage(assistant)
-          : [...contentByOrder.values()].sort(
-              (left, right) => left.order - right.order,
-            );
-        const text = assistantText.length > 0 ? assistantText : textParts.join("");
+        const streamedParts = [...contentByOrder.values()].sort(
+          (left, right) => left.order - right.order,
+        );
+        const parts =
+          streamedParts.length > 0
+            ? streamedParts
+            : assistant
+              ? safePartsFromAssistantMessage(assistant)
+              : [];
+        const text =
+          assistantText.length > 0 ? assistantText : textParts.join("");
         return {
           text,
           parts: parts.length > 0 ? parts : [{ type: "text", order: 1, text }],

@@ -1,4 +1,11 @@
-import { access, mkdtemp, rm, symlink } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -104,7 +111,9 @@ describe("createPiConversationRunner", () => {
       prompt: "third",
     });
 
-    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({
+      text: "done",
+    });
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.options?.sessionId).toBe(turn.conversationId);
@@ -137,10 +146,14 @@ describe("createPiConversationRunner", () => {
     });
     const turn = await input();
 
-    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({
+      text: "done",
+    });
     const workingDirectory =
       turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
-    await expect(access(join(workingDirectory, "..", "escape.txt"))).rejects.toThrow();
+    await expect(
+      access(join(workingDirectory, "..", "escape.txt")),
+    ).rejects.toThrow();
   });
 
   it("blocks writes through in-worktree dangling file symlinks", async () => {
@@ -172,7 +185,9 @@ describe("createPiConversationRunner", () => {
       join(workingDirectory, "linked-file.txt"),
     );
 
-    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({
+      text: "done",
+    });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
   });
 
@@ -202,13 +217,80 @@ describe("createPiConversationRunner", () => {
       turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
     await symlink(outside, join(workingDirectory, "linked"), "dir");
 
-    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({
+      text: "done",
+    });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
+  });
+
+  it("emits safe tool arguments and results without raw protected values", async () => {
+    const faux = fauxProvider();
+    const credentials = new InMemoryCredentialStore();
+    await credentials.modify(faux.provider.id, async () => ({
+      type: "api_key",
+      key: "sk-live-secret",
+    }));
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        fauxToolCall("read", {
+          path: "src/app.ts",
+          absolutePath: "/home/builder/.config/some-tool/config.json",
+          apiKey: "sk-live-secret",
+        }),
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage("done"),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: faux.getModel().id,
+      credentials,
+      models,
+      protectedPathRoots: ["/private/pi-transcripts"],
+    });
+    const turn = await input({
+      onEvent: async (event) => {
+        events.push(event);
+      },
+    });
+    const workingDirectory =
+      turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
+    await mkdir(join(workingDirectory, "src"));
+    await writeFile(join(workingDirectory, "src/app.ts"), "export {};\n");
+
+    const result = await runner.submitTurn(turn);
+
+    expect(result.parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "read",
+          status: "succeeded",
+          arguments: {
+            path: "src/app.ts",
+            absolutePath: "/home/builder/.config/some-tool/config.json",
+            apiKey: "[redacted]",
+          },
+          result: expect.objectContaining({
+            content: expect.arrayContaining([
+              expect.objectContaining({ type: "text" }),
+            ]),
+          }),
+        }),
+      ]),
+    );
+    expect(JSON.stringify(events)).not.toContain("sk-live-secret");
+    expect(JSON.stringify(result)).not.toContain("sk-live-secret");
   });
 
   it("preserves provider-exposed readable reasoning in content order without signatures", async () => {
     const faux = fauxProvider({
-      models: [{ id: "reasoning-model", name: "Reasoning Model", reasoning: true }],
+      models: [
+        { id: "reasoning-model", name: "Reasoning Model", reasoning: true },
+      ],
     });
     const models = createModels();
     models.setProvider(faux.provider);
@@ -262,7 +344,9 @@ describe("createPiConversationRunner", () => {
 
   it("excludes redacted or opaque thinking payloads instead of fabricating reasoning", async () => {
     const faux = fauxProvider({
-      models: [{ id: "reasoning-model", name: "Reasoning Model", reasoning: true }],
+      models: [
+        { id: "reasoning-model", name: "Reasoning Model", reasoning: true },
+      ],
     });
     const models = createModels();
     models.setProvider(faux.provider);
@@ -296,9 +380,11 @@ describe("createPiConversationRunner", () => {
 
     expect(result).toEqual({
       text: "Visible answer.",
-      parts: [{ type: "text", order: 2, text: "Visible answer." }],
+      parts: [{ type: "text", order: 1, text: "Visible answer." }],
     });
-    expect(JSON.stringify(result)).not.toContain("encrypted-provider-signature");
+    expect(JSON.stringify(result)).not.toContain(
+      "encrypted-provider-signature",
+    );
   });
 
   it("resolves provider, model, and thinking level from the per-turn runtime snapshot", async () => {
