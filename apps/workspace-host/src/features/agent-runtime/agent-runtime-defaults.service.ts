@@ -53,9 +53,13 @@ const firstAvailableDefaults = (
   catalog: readonly AgentModelDescriptor[],
   providerId?: string,
 ): AgentRuntimeDefaults | null => {
+  // A model with no supported thinking levels cannot satisfy the "first
+  // supported thinking level" invariant, so skip it; initializing it would
+  // persist a default that blocks new Session creation.
   const model = catalog.find(
     (candidate) =>
       candidate.available &&
+      candidate.supportedThinkingLevels.length > 0 &&
       (providerId === undefined || candidate.providerId === providerId),
   );
   if (!model) return null;
@@ -130,8 +134,10 @@ export const createAgentRuntimeDefaultsService = (options: {
       const catalog = await listCatalog();
       const initialized = firstAvailableDefaults(catalog, providerId);
       if (!initialized) return { defaults: current };
-      await repository.put(initialized);
-      return { defaults: initialized };
+      // Single-statement conditional write: if a concurrent auth completion
+      // initialized the defaults first, this call reports the stored state
+      // instead of overwriting it.
+      return { defaults: await repository.putIfAbsentModel(initialized) };
     },
 
     reconcileAfterAuthRemoval: async (providerId) => {
