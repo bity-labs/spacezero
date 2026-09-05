@@ -899,6 +899,59 @@ export const startHostServer = async (options: {
             Effect.mapError(globalChatSessionHttpError),
           );
         },
+        listGlobalChatSessionFollowUps: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:read",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.listFollowUps(params.sessionId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        enqueueGlobalChatSessionFollowUp: ({
+          headers,
+          request,
+          params,
+          payload,
+        }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.enqueueFollowUp(params.sessionId, payload),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
+        cancelGlobalChatSessionFollowUp: ({ headers, request, params }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.cancelFollowUp(params.sessionId, params.followUpId),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
         submitGlobalChatSessionPrompt: ({
           headers,
           request,

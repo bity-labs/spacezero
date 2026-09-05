@@ -243,6 +243,34 @@ export const addChatSessionReasoningPartsMigration = Effect.gen(function* () {
   yield* sql`ALTER TABLE chat_session_turns ADD COLUMN draft_parts_json TEXT CHECK (draft_parts_json IS NULL OR json_valid(draft_parts_json))`;
 });
 
+export const createGlobalChatSessionFollowUpsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE global_chat_session_follow_ups (
+  session_id TEXT NOT NULL,
+  follow_up_id TEXT NOT NULL UNIQUE,
+  command_id TEXT NOT NULL UNIQUE,
+  prompt TEXT NOT NULL CHECK (length(prompt) BETWEEN 1 AND 16000),
+  state TEXT NOT NULL CHECK (state IN ('queued', 'dispatched', 'consumed', 'cancelled', 'recovery_required')),
+  position INTEGER NOT NULL CHECK (position > 0),
+  dispatched_turn_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (session_id, follow_up_id),
+  FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id)
+    ON UPDATE RESTRICT ON DELETE RESTRICT
+)`;
+  yield* sql`CREATE INDEX global_chat_session_follow_ups_queue ON global_chat_session_follow_ups(session_id, state, position)`;
+  yield* sql`
+CREATE TRIGGER global_chat_session_follow_ups_require_global_kind
+BEFORE INSERT ON global_chat_session_follow_ups
+FOR EACH ROW
+WHEN (SELECT kind FROM chat_sessions WHERE session_id = NEW.session_id) <> 'global'
+BEGIN
+  SELECT RAISE(ABORT, 'global_chat_follow_up_requires_global_chat_session');
+END`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -270,6 +298,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     7,
     "add_chat_session_reasoning_parts",
     Effect.succeed(addChatSessionReasoningPartsMigration),
+  ],
+  [
+    8,
+    "create_global_chat_session_follow_ups",
+    Effect.succeed(createGlobalChatSessionFollowUpsMigration),
   ],
 ] as const);
 

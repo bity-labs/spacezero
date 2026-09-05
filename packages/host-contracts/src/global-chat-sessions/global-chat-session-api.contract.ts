@@ -7,13 +7,18 @@ import {
 import { HostAuthorizationErrorSchemas } from "../authentication/host-authorization.schema.js";
 import { GlobalChatSessionErrorSchemas } from "./global-chat-session-errors.schema.js";
 import {
+  CancelGlobalChatSessionFollowUpResultSchema,
   CreateGlobalChatSessionWithFirstPromptRequestSchema,
   CreateGlobalChatSessionWithFirstPromptResultSchema,
+  EnqueueGlobalChatSessionFollowUpRequestSchema,
+  EnqueueGlobalChatSessionFollowUpResultSchema,
   GetGlobalChatSessionRuntimeResultSchema,
   GlobalChatSessionEventStreamQuerySchema,
+  GlobalChatSessionFollowUpIdSchema,
   GlobalChatSessionIdSchema,
   GlobalChatSessionTurnIdSchema,
   InterruptGlobalChatSessionTurnResultSchema,
+  ListGlobalChatSessionFollowUpsResultSchema,
   ListGlobalChatSessionMessagesResultSchema,
   ListGlobalChatSessionsResultSchema,
   SubmitGlobalChatSessionPromptRequestSchema,
@@ -31,6 +36,10 @@ export const GlobalChatSessionPathParamsSchema = Schema.Struct({
 export const GlobalChatSessionTurnPathParamsSchema = Schema.Struct({
   sessionId: GlobalChatSessionIdSchema,
   turnId: GlobalChatSessionTurnIdSchema,
+});
+export const GlobalChatSessionFollowUpPathParamsSchema = Schema.Struct({
+  sessionId: GlobalChatSessionIdSchema,
+  followUpId: GlobalChatSessionFollowUpIdSchema,
 });
 export const GlobalChatSessionEventStream = HttpApiSchema.StreamUint8Array({
   contentType: "text/event-stream",
@@ -60,6 +69,52 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make(
       success: ListGlobalChatSessionsResultSchema,
       error: [...HostAuthorizationErrorSchemas, ...GlobalChatSessionErrorSchemas],
     }),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "listGlobalChatSessionFollowUps",
+      "/global-chat-sessions/:sessionId/follow-ups",
+      {
+        params: GlobalChatSessionPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        success: ListGlobalChatSessionFollowUpsResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "enqueueGlobalChatSessionFollowUp",
+      "/global-chat-sessions/:sessionId/follow-ups",
+      {
+        params: GlobalChatSessionPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        payload: EnqueueGlobalChatSessionFollowUpRequestSchema,
+        success: EnqueueGlobalChatSessionFollowUpResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "cancelGlobalChatSessionFollowUp",
+      "/global-chat-sessions/:sessionId/follow-ups/:followUpId/cancel",
+      {
+        params: GlobalChatSessionFollowUpPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        success: CancelGlobalChatSessionFollowUpResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
   )
   .add(
     HttpApiEndpoint.post(
