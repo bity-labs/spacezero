@@ -57,12 +57,18 @@ export type SavedConversationToolJsonValue =
 export interface SavedConversationToolJsonObject {
   readonly [key: string]: SavedConversationToolJsonValue;
 }
+export type SavedConversationToolImageMimeType =
+  "image/png" | "image/jpeg" | "image/webp" | "image/gif";
 export type SavedConversationToolDisplayContent =
   | { readonly type: "text"; readonly text: string }
   | {
       readonly type: "image";
       readonly data: string;
-      readonly mimeType: string;
+      readonly mimeType: SavedConversationToolImageMimeType;
+    }
+  | {
+      readonly type: "unsupported";
+      readonly label: string;
     };
 export interface SavedConversationToolDisplayResult {
   readonly content: readonly SavedConversationToolDisplayContent[];

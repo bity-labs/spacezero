@@ -1203,7 +1203,16 @@ describe("saved conversation projection", () => {
         toolCallId: "tool-a",
         toolName: "read",
         status: "succeeded",
-        result: { content: [{ type: "text", text: "A" }] },
+        result: {
+          content: [
+            { type: "text", text: "A" },
+            { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+            {
+              type: "unsupported",
+              label: "Unsupported tool result content type: html.",
+            },
+          ],
+        },
         timestamp,
       },
     });
@@ -1237,7 +1246,16 @@ describe("saved conversation projection", () => {
         status: "succeeded",
         progress: "Reading file",
         arguments: { path: "src/a.ts" },
-        result: { content: [{ type: "text", text: "A" }] },
+        result: {
+          content: [
+            { type: "text", text: "A" },
+            { type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" },
+            {
+              type: "unsupported",
+              label: "Unsupported tool result content type: html.",
+            },
+          ],
+        },
       },
     ]);
   });
