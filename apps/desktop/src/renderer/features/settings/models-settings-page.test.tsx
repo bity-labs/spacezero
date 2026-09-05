@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -397,6 +398,42 @@ describe("ModelsSettingsPage", () => {
       expect(clients.flows.cancelFlow).toHaveBeenCalledWith("flow-late");
     });
     expect(clients.flows.subscribeFlowEvents).not.toHaveBeenCalled();
+  });
+
+  // Regression: React StrictMode (dev only) runs effects as mount → cleanup
+  // → remount on the same component instance, so the unmount cleanup fires
+  // before the container is actually used. The disposed flag must be re-armed
+  // on the remount or every connect cancels its Host flow instead of
+  // subscribing.
+  it("subscribes to flow events under StrictMode's double effect invocation", async () => {
+    const clients = createFakeClients({
+      providers: [
+        providerOption({
+          providerId: "openai-subscription",
+          displayName: "ChatGPT Plus/Pro",
+          authMethods: ["oauth"],
+        }),
+      ],
+    });
+
+    render(
+      <StrictMode>
+        <ModelsSettingsPage clients={clients} />
+      </StrictMode>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Add subscription" }));
+    fireEvent.click(await screen.findByRole("button", { name: /ChatGPT Plus\/Pro/ }));
+
+    await waitFor(() => {
+      expect(clients.harnessAuth.startProviderOAuthLogin).toHaveBeenCalledWith(
+        "openai-subscription",
+      );
+    });
+    expect(clients.flows.subscribeFlowEvents).toHaveBeenCalledTimes(1);
+    expect(clients.flows.subscribeFlowEvents).toHaveBeenCalledWith(
+      expect.objectContaining({ flowId: "flow-abc123" }),
+    );
+    expect(clients.flows.cancelFlow).not.toHaveBeenCalled();
   });
 
   it("surfaces flow progress and opens external auth URLs through the desktop-safe path", async () => {
