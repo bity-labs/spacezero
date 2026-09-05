@@ -22,6 +22,7 @@ import type {
   SubmitSessionPromptResult,
 } from "@spacezero/host-contracts";
 import type { AuthenticatedProjectRepository } from "../projects/project.model.js";
+import { getAgentRuntimeDefaults } from "../agent-runtime/agent-runtime-defaults.repository.js";
 import {
   chooseSessionNameCandidate,
   type SessionNameEntropy,
@@ -197,12 +198,6 @@ export type AgentTurnFailureReason =
   | "agent_turn_failed"
   | "agent_authentication_required";
 export type AgentTurnInterruptReason = "user_interrupted" | "host_shutdown";
-
-export interface ProjectSessionRuntimeDefaults {
-  readonly providerId: string;
-  readonly modelId: string;
-  readonly defaultThinkingLevel: RuntimeConfigurationRow["default_thinking_level"];
-}
 
 const fingerprint = (input: CreateProjectSessionRequest) =>
   createHash("sha256")
@@ -503,14 +498,7 @@ export const createProjectSessionRepository = (options: {
   readonly databasePath: string;
   readonly spaceZeroHome: string;
   readonly entropy?: SessionNameEntropy;
-  readonly runtimeDefaults?: ProjectSessionRuntimeDefaults;
 }) => {
-  const runtimeDefaults = options.runtimeDefaults ?? {
-    providerId: "anthropic",
-    modelId: "claude-sonnet-4-5",
-    defaultThinkingLevel: "off" as const,
-  };
-
   return {
     replayOrAdmit: async (
       input: CreateProjectSessionRequest,
@@ -541,6 +529,20 @@ export const createProjectSessionRepository = (options: {
                   project,
                 };
               }
+
+              const defaults = yield* getAgentRuntimeDefaults(sql);
+              if (
+                !defaults.defaultModel ||
+                defaults.defaultThinkingLevel === null
+              )
+                throw new ProjectSessionServiceError(
+                  "agent_default_model_missing",
+                );
+              const seededRuntime = {
+                providerId: defaults.defaultModel.providerId,
+                modelId: defaults.defaultModel.modelId,
+                defaultThinkingLevel: defaults.defaultThinkingLevel,
+              };
 
               const reservedRows = yield* sql<{
                 name: string;
@@ -599,9 +601,9 @@ export const createProjectSessionRepository = (options: {
                   version: 1,
                   sessionId,
                   commandId: input.commandId,
-                  providerId: runtimeDefaults.providerId,
-                  modelId: runtimeDefaults.modelId,
-                  defaultThinkingLevel: runtimeDefaults.defaultThinkingLevel,
+                  providerId: seededRuntime.providerId,
+                  modelId: seededRuntime.modelId,
+                  defaultThinkingLevel: seededRuntime.defaultThinkingLevel,
                   revision: 1,
                   timestamp: now,
                 },
@@ -621,7 +623,7 @@ export const createProjectSessionRepository = (options: {
               });
 
               yield* sql`INSERT INTO chat_session_pi_contexts (session_id, conversation_id, created_at, updated_at) VALUES (${sessionId}, ${sessionId}, ${now}, ${now})`;
-              yield* sql`INSERT INTO chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, ${runtimeDefaults.providerId}, ${runtimeDefaults.modelId}, ${runtimeDefaults.defaultThinkingLevel}, 1, ${now}, ${now})`;
+              yield* sql`INSERT INTO chat_session_runtime_configurations (session_id, provider_id, model_id, default_thinking_level, revision, created_at, updated_at) VALUES (${sessionId}, ${seededRuntime.providerId}, ${seededRuntime.modelId}, ${seededRuntime.defaultThinkingLevel}, 1, ${now}, ${now})`;
               yield* sql`INSERT INTO project_session_name_reservations (name, base_name, session_id, allocated_at) VALUES (${candidate.name}, ${candidate.baseName}, ${sessionId}, ${now})`;
               yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${sessionId}, 'pending', 3, ${now}, ${now})`;
 

@@ -20,6 +20,7 @@ export type ProjectSessionErrorCode =
   | "follow_up_queue_unavailable"
   | "agent_configuration_invalid"
   | "agent_authentication_required"
+  | "agent_default_model_missing"
   | "turn_not_found"
   | "turn_not_active"
   | "agent_turn_failed"
@@ -111,6 +112,10 @@ export const AgentAuthenticationRequiredErrorSchema = projectSessionError(
   "agent_authentication_required",
   409,
 );
+export const AgentDefaultModelMissingErrorSchema = projectSessionError(
+  "agent_default_model_missing",
+  409,
+);
 export const TurnNotFoundErrorSchema = projectSessionError(
   "turn_not_found",
   404,
@@ -147,6 +152,7 @@ export const ProjectSessionErrorSchemas = [
   FollowUpQueueUnavailableErrorSchema,
   AgentConfigurationInvalidErrorSchema,
   AgentAuthenticationRequiredErrorSchema,
+  AgentDefaultModelMissingErrorSchema,
   TurnNotFoundErrorSchema,
   TurnNotActiveErrorSchema,
   AgentTurnFailedErrorSchema,
@@ -243,6 +249,12 @@ export const projectSessionErrorBody = (
       return {
         code,
         message: "The selected agent provider needs authentication.",
+      };
+    case "agent_default_model_missing":
+      return {
+        code,
+        message:
+          "No default agent model is configured. Choose a default model in Settings → Models.",
       };
     case "turn_not_found":
       return { code, message: "The selected agent turn does not exist." };

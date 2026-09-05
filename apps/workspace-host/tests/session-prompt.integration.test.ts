@@ -16,6 +16,7 @@ import {
   startHostServer,
   type StartedHostServer,
 } from "../dist/runtime/host-server.js";
+import { seedAgentRuntimeDefaults } from "./agent-runtime-defaults.helpers.js";
 
 const origin = "spacezero://renderer";
 const temps: string[] = [];
@@ -61,6 +62,7 @@ const start = async (
     ...(clientCapabilityTtlMs === undefined ? {} : { clientCapabilityTtlMs }),
     ...(modelCatalog === undefined ? {} : { modelCatalog }),
   });
+  seedAgentRuntimeDefaults(databasePath);
   hosts.push(host);
   return host;
 };
