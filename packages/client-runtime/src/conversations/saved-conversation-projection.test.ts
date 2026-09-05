@@ -6,6 +6,7 @@ import {
   createSavedConversationStore,
   type SavedConversationProjection,
 } from "./saved-conversation-projection.js";
+import type { ProjectSessionLiveEventEnvelope } from "@spacezero/host-contracts";
 import type {
   GlobalChatSessionClient,
   ProjectSessionClient,
@@ -302,6 +303,155 @@ describe("saved conversation projection", () => {
       { type: "reasoning", text: "Reason completely." },
       { type: "text", text: "Answer" },
     ]);
+  });
+
+  it("loads older history incrementally while preserving live turn content without duplicate messages", async () => {
+    let onLiveEvent:
+      ((event: ProjectSessionLiveEventEnvelope) => void) | undefined;
+    let resolveOlder!: (value: {
+      lastSequence: number;
+      messages: readonly {
+        id: string;
+        role: "user" | "assistant";
+        text: string;
+        sequence: number;
+        createdAt: string;
+      }[];
+      hasMoreOlder: boolean;
+    }) => void;
+    const olderPage = new Promise<{
+      lastSequence: number;
+      messages: readonly {
+        id: string;
+        role: "user" | "assistant";
+        text: string;
+        sequence: number;
+        createdAt: string;
+      }[];
+      hasMoreOlder: boolean;
+    }>((resolve) => {
+      resolveOlder = resolve;
+    });
+    const load = vi.fn(
+      async (options?: { beforeSequence?: number; limit?: number }) => {
+        if (options?.beforeSequence !== undefined) return olderPage;
+        return {
+          lastSequence: 101,
+          messages: [
+            {
+              id: "recent-user",
+              role: "user" as const,
+              text: "recent prompt",
+              sequence: 100,
+              createdAt: timestamp,
+            },
+            {
+              id: "active-assistant",
+              role: "assistant" as const,
+              text: "draft",
+              sequence: 101,
+              createdAt: timestamp,
+              turnId: "turn-live",
+              parts: [
+                {
+                  id: "active-assistant:text:1",
+                  type: "text" as const,
+                  order: 1,
+                  text: "draft",
+                  turnId: "turn-live",
+                },
+              ],
+            },
+          ],
+          activeTurn: {
+            id: "turn-live",
+            commandId: "command-live",
+            state: "running" as const,
+            userMessageId: "recent-user",
+            assistantMessageId: "active-assistant",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "draft",
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+          hasMoreOlder: true,
+        };
+      },
+    );
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load,
+      subscribeEvents: (input) => {
+        onLiveEvent = input.onLiveEvent;
+        return { cancel: () => undefined, closed: Promise.resolve() };
+      },
+    });
+
+    await store.load();
+    const loadingOlder = store.loadOlder();
+    expect(store.getSnapshot().history).toEqual({
+      hasMoreOlder: true,
+      loadingOlder: true,
+    });
+    expect(store.getSnapshot().messages.map((message) => message.id)).toEqual([
+      "recent-user",
+      "active-assistant",
+    ]);
+
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-live",
+        messageId: "active-assistant",
+        text: " continues",
+        order: 1,
+        timestamp,
+      },
+    });
+    resolveOlder({
+      lastSequence: 101,
+      messages: [
+        {
+          id: "old-user",
+          role: "user" as const,
+          text: "old prompt",
+          sequence: 1,
+          createdAt: timestamp,
+        },
+        {
+          id: "old-assistant",
+          role: "assistant" as const,
+          text: "old answer",
+          sequence: 2,
+          createdAt: timestamp,
+        },
+      ],
+      hasMoreOlder: false,
+    });
+    await loadingOlder;
+
+    expect(load).toHaveBeenLastCalledWith({ beforeSequence: 100, limit: 50 });
+    expect(store.getSnapshot().history).toEqual({
+      hasMoreOlder: false,
+      loadingOlder: false,
+    });
+    expect(store.getSnapshot().messages.map((message) => message.id)).toEqual([
+      "old-user",
+      "old-assistant",
+      "recent-user",
+      "active-assistant",
+    ]);
+    expect(store.getSnapshot().messages.at(-1)).toMatchObject({
+      id: "active-assistant",
+      text: "draft continues",
+    });
   });
 
   it("loads Global Chat saved messages through the Global Chat client into the same projection shape", async () => {

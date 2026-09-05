@@ -135,6 +135,10 @@ export interface SavedConversationProjection {
   readonly status: SavedConversationStatus;
   readonly title?: string;
   readonly messages: readonly SavedConversationMessage[];
+  readonly history: {
+    readonly hasMoreOlder: boolean;
+    readonly loadingOlder: boolean;
+  };
   readonly queue: {
     readonly followUps: readonly SavedConversationFollowUp[];
   };
@@ -170,6 +174,7 @@ export interface SavedConversationStore {
   readonly getSnapshot: () => SavedConversationProjection;
   readonly subscribe: (listener: () => void) => () => void;
   readonly load: () => Promise<SavedConversationProjection>;
+  readonly loadOlder: () => Promise<SavedConversationProjection>;
   readonly send: (prompt: string) => Promise<void>;
   readonly cancelFollowUp: (followUpId: string) => Promise<void>;
   readonly stop: (target: SavedConversationStopTarget) => Promise<void>;
@@ -180,6 +185,7 @@ interface SavedConversationConnectorResult {
   readonly title?: string;
   readonly lastSequence: number;
   readonly messages: readonly (SessionMessage | GlobalChatSessionMessage)[];
+  readonly hasMoreOlder?: boolean;
   readonly followUps?: readonly (
     ProjectSessionFollowUp | GlobalChatSessionFollowUp
   )[];
@@ -201,7 +207,10 @@ interface SavedConversationEventSubscription {
 interface CreateSavedConversationStoreInput {
   readonly kind: SavedConversationKind;
   readonly sessionId: string;
-  readonly load: () => Promise<SavedConversationConnectorResult>;
+  readonly load: (options?: {
+    readonly beforeSequence?: number;
+    readonly limit?: number;
+  }) => Promise<SavedConversationConnectorResult>;
   readonly submitPrompt?: (input: {
     readonly sessionId: string;
     readonly prompt: string;
@@ -245,6 +254,8 @@ interface CreateSavedConversationStoreInput {
   readonly createPendingMessageId?: (commandId: string) => string;
   readonly now?: () => string;
 }
+
+const defaultHistoryPageSize = 50;
 
 const unavailableActions: SavedConversationProjection["actions"] = {
   send: "unavailable",
@@ -300,6 +311,7 @@ const initialSnapshot = (
   session: { kind, id: sessionId },
   status: "idle",
   messages: [],
+  history: { hasMoreOlder: false, loadingOlder: false },
   queue: { followUps: [] },
   lastSequence: 0,
   runtime: { status: "idle" },
@@ -455,9 +467,17 @@ const mergeMessages = (
   messages: readonly SavedConversationMessage[],
   pendingMessages: readonly SavedConversationMessage[],
 ): readonly SavedConversationMessage[] =>
-  [...messages, ...pendingMessages].sort(
+  uniqueMessages([...messages, ...pendingMessages]);
+
+const uniqueMessages = (
+  messages: readonly SavedConversationMessage[],
+): readonly SavedConversationMessage[] => {
+  const byId = new Map<string, SavedConversationMessage>();
+  for (const message of messages) byId.set(message.id, message);
+  return [...byId.values()].sort(
     (left, right) => left.sequence - right.sequence,
   );
+};
 
 const sortFollowUps = (
   followUps: readonly (ProjectSessionFollowUp | GlobalChatSessionFollowUp)[],
@@ -1046,7 +1066,7 @@ export const createSavedConversationStore = ({
   const reconnectFromAuthoritativeSnapshot = (
     subscriptionSessionId: string,
   ): void => {
-    void loadProjection()
+    void loadProjection({ limit: defaultHistoryPageSize })
       .then((next) => {
         if (disposed || currentSessionId !== subscriptionSessionId) return;
         publish({ ...next, connection: { status: "connected" } });
@@ -1108,19 +1128,32 @@ export const createSavedConversationStore = ({
     void subscription.closed.catch(() => undefined);
   };
 
-  const loadProjection = async (): Promise<SavedConversationProjection> => {
-    const loaded = await load();
+  const loadProjection = async (options?: {
+    readonly beforeSequence?: number;
+    readonly limit?: number;
+  }): Promise<SavedConversationProjection> => {
+    const loaded = await load(options);
     const loadedMessages = appendActiveDraft(
       sortMessages(loaded.messages),
       loaded.activeTurn,
     );
+    const savedSnapshotMessages = snapshot.messages.filter(
+      (message) => message.status === undefined,
+    );
+    const authoritativeMessages =
+      options?.limit === undefined
+        ? loadedMessages
+        : uniqueMessages([...savedSnapshotMessages, ...loadedMessages]);
     const loadedFollowUps = sortFollowUps(loaded.followUps ?? []);
-    const pendingMessages = unresolvedPendingMessages(snapshot, loadedMessages);
+    const pendingMessages = unresolvedPendingMessages(
+      snapshot,
+      authoritativeMessages,
+    );
     const pendingFollowUps = unresolvedPendingFollowUps(
       snapshot,
       loadedFollowUps,
     );
-    const messages = mergeMessages(loadedMessages, pendingMessages);
+    const messages = mergeMessages(authoritativeMessages, pendingMessages);
     const followUps = mergeFollowUps(loadedFollowUps, pendingFollowUps);
     const runtime = runtimeStatus(loaded.activeTurn, loaded.latestTurn);
     const hasUnresolved =
@@ -1130,8 +1163,12 @@ export const createSavedConversationStore = ({
       status: messages.length === 0 ? "empty" : "ready",
       ...(loaded.title === undefined ? {} : { title: loaded.title }),
       messages,
+      history: {
+        hasMoreOlder: loaded.hasMoreOlder ?? false,
+        loadingOlder: false,
+      },
       queue: { followUps },
-      lastSequence: loaded.lastSequence,
+      lastSequence: Math.max(snapshot.lastSequence, loaded.lastSequence),
       runtime,
       connection: { status: "connected" },
       actions: actions({
@@ -1162,7 +1199,7 @@ export const createSavedConversationStore = ({
         connection: { status: "connecting" },
       });
       try {
-        const next = await loadProjection();
+        const next = await loadProjection({ limit: defaultHistoryPageSize });
         publish(next);
         resubscribe(next.lastSequence);
         return next;
@@ -1174,6 +1211,37 @@ export const createSavedConversationStore = ({
             status: "disconnected",
             message: toErrorMessage(error),
           },
+          error: { message: toErrorMessage(error) },
+        };
+        publish(next);
+        throw error;
+      }
+    },
+    loadOlder: async () => {
+      if (!snapshot.history.hasMoreOlder || snapshot.history.loadingOlder)
+        return snapshot;
+      const oldestSequence = snapshot.messages.find(
+        (message) => message.status === undefined,
+      )?.sequence;
+      if (oldestSequence === undefined) return snapshot;
+      publish({
+        ...snapshot,
+        history: { ...snapshot.history, loadingOlder: true },
+      });
+      try {
+        const next = await loadProjection({
+          beforeSequence: oldestSequence,
+          limit: defaultHistoryPageSize,
+        });
+        publish({
+          ...next,
+          connection: snapshot.connection,
+        });
+        return next;
+      } catch (error) {
+        const next: SavedConversationProjection = {
+          ...snapshot,
+          history: { ...snapshot.history, loadingOlder: false },
           error: { message: toErrorMessage(error) },
         };
         publish(next);
@@ -1405,7 +1473,7 @@ export const createSavedConversationStore = ({
         });
       } catch (error) {
         try {
-          const next = await loadProjection();
+          const next = await loadProjection({ limit: defaultHistoryPageSize });
           publish({ ...next, error: { message: toErrorMessage(error) } });
         } catch {
           publish({ ...snapshot, error: { message: toErrorMessage(error) } });
@@ -1465,9 +1533,9 @@ export const createProjectSessionSavedConversationStore = ({
   return createSavedConversationStore({
     kind: "project",
     sessionId,
-    load: async () => {
+    load: async (options) => {
       const [result, followUpResult] = await Promise.all([
-        client.listSessionMessages(sessionId),
+        client.listSessionMessages(sessionId, options),
         optionalClient.listFollowUps?.(sessionId),
       ]);
       return {
@@ -1480,6 +1548,7 @@ export const createProjectSessionSavedConversationStore = ({
                 followUpResult.session.lastSequence,
               ),
         messages: result.messages,
+        hasMoreOlder: result.pageInfo?.hasMoreOlder ?? false,
         ...(followUpResult === undefined
           ? {}
           : { followUps: followUpResult.followUps }),
@@ -1546,9 +1615,9 @@ export const createGlobalChatSessionSavedConversationStore = ({
   return createSavedConversationStore({
     kind: "global",
     sessionId,
-    load: async () => {
+    load: async (options) => {
       const [result, followUpResult] = await Promise.all([
-        client.listMessages(sessionId),
+        client.listMessages(sessionId, options),
         optionalClient.listFollowUps?.(sessionId),
       ]);
       return {
@@ -1561,6 +1630,7 @@ export const createGlobalChatSessionSavedConversationStore = ({
                 followUpResult.session.lastSequence,
               ),
         messages: result.messages,
+        hasMoreOlder: result.pageInfo?.hasMoreOlder ?? false,
         ...(followUpResult === undefined
           ? {}
           : { followUps: followUpResult.followUps }),

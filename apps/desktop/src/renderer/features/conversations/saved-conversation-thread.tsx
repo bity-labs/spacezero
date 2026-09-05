@@ -294,6 +294,11 @@ export function SavedConversationThread({
             ? {}
             : { errorMessage: projection.error.message })}
           queueItems={projection.queue.followUps}
+          hasMoreOlder={projection.history.hasMoreOlder}
+          isLoadingOlder={projection.history.loadingOlder}
+          onLoadOlder={() => {
+            void store.loadOlder().catch(() => undefined);
+          }}
           onCancelQueueItem={(id) => {
             void store.cancelFollowUp(id).catch(() => undefined);
           }}

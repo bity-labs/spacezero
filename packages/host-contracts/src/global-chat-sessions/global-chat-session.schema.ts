@@ -19,11 +19,7 @@ export type GlobalChatSessionTurnState =
   | "interrupted"
   | "recovery_required";
 export type GlobalChatSessionFollowUpState =
-  | "queued"
-  | "dispatched"
-  | "consumed"
-  | "cancelled"
-  | "recovery_required";
+  "queued" | "dispatched" | "consumed" | "cancelled" | "recovery_required";
 export type GlobalChatSessionAgentToolApprovalStatus =
   "approved" | "requires_approval";
 export type GlobalChatSessionAgentToolSafety = "read" | "write" | "dangerous";
@@ -210,11 +206,24 @@ export interface SubmitGlobalChatSessionPromptResult {
   readonly userMessage: GlobalChatSessionMessage;
 }
 
+export interface GlobalChatSessionMessageHistoryPageInfo {
+  readonly pageSize: number;
+  readonly hasMoreOlder: boolean;
+  readonly oldestSequence?: number;
+  readonly newestSequence?: number;
+}
+
+export interface ListGlobalChatSessionMessagesQuery {
+  readonly beforeSequence?: number;
+  readonly limit?: number;
+}
+
 export interface ListGlobalChatSessionMessagesResult {
   readonly session: GlobalChatSessionSummary;
   readonly messages: readonly GlobalChatSessionMessage[];
   readonly activeTurn?: GlobalChatSessionTurn;
   readonly latestTurn?: GlobalChatSessionTurn;
+  readonly pageInfo?: GlobalChatSessionMessageHistoryPageInfo;
 }
 
 export interface GetGlobalChatSessionRuntimeResult {
@@ -531,11 +540,41 @@ export const SubmitGlobalChatSessionPromptResultSchema = Schema.Struct({
   turn: GlobalChatSessionTurnSchema,
   userMessage: GlobalChatSessionMessageSchema,
 });
+export const GlobalChatSessionMessageHistoryPageInfoSchema = Schema.Struct({
+  pageSize: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(0),
+  ),
+  hasMoreOlder: Schema.Boolean,
+  oldestSequence: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  ),
+  newestSequence: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  ),
+});
+export const ListGlobalChatSessionMessagesQuerySchema = Schema.Struct({
+  beforeSequence: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    ),
+  ),
+  limit: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(
+        Schema.isInt(),
+        Schema.isGreaterThanOrEqualTo(1),
+        Schema.isLessThanOrEqualTo(200),
+      ),
+    ),
+  ),
+});
 export const ListGlobalChatSessionMessagesResultSchema = Schema.Struct({
   session: GlobalChatSessionSummarySchema,
   messages: Schema.Array(GlobalChatSessionMessageSchema),
   activeTurn: Schema.optionalKey(GlobalChatSessionTurnSchema),
   latestTurn: Schema.optionalKey(GlobalChatSessionTurnSchema),
+  pageInfo: Schema.optionalKey(GlobalChatSessionMessageHistoryPageInfoSchema),
 });
 export const GetGlobalChatSessionRuntimeResultSchema = Schema.Struct({
   session: GlobalChatSessionSummarySchema,

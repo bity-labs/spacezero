@@ -8,12 +8,11 @@ import type {
   ListProjectSessionFollowUpsResult,
   ListProjectSessionsResult,
   ListProjectSessionSkillsResult,
+  ListSessionMessagesResult,
   ProjectSessionErrorCode,
   ProjectSessionEventEnvelope,
   ProjectSessionLiveEventEnvelope,
   ProjectSessionSseEnvelope,
-  ProjectSessionTurn,
-  SessionMessage,
   SubmitSessionPromptResult,
   InterruptProjectSessionTurnResult,
   GetProjectSessionRuntimeResult,
@@ -79,12 +78,10 @@ export interface ProjectSessionService {
   readonly listSkills: (
     sessionId: string,
   ) => Promise<ListProjectSessionSkillsResult>;
-  readonly listMessages: (sessionId: string) => Promise<{
-    readonly session: SubmitSessionPromptResult["session"];
-    readonly messages: readonly SessionMessage[];
-    readonly activeTurn?: ProjectSessionTurn;
-    readonly latestTurn?: ProjectSessionTurn;
-  }>;
+  readonly listMessages: (
+    sessionId: string,
+    options?: { readonly beforeSequence?: number; readonly limit?: number },
+  ) => Promise<ListSessionMessagesResult>;
   readonly listEventsAfter: (
     sessionId: string,
     after: number,
@@ -546,9 +543,9 @@ export const createProjectSessionService = (options: {
         throw mapError(error);
       }
     },
-    listMessages: async (sessionId) => {
+    listMessages: async (sessionId, options) => {
       try {
-        return await repository.listMessages(sessionId);
+        return await repository.listMessages(sessionId, options);
       } catch (error) {
         throw mapError(error);
       }
