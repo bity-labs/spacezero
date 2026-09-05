@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentCapabilitiesRouteImport } from './routes/agent-capabilities'
+import { Route as GlobalChatSessionsSessionIdRouteImport } from './routes/global-chat-sessions.$sessionId'
+import { Route as ProjectSessionsSessionIdRouteImport } from './routes/project-sessions.$sessionId'
 import { Route as SettingsRouteImport } from './routes/settings'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +25,16 @@ const AgentCapabilitiesRoute = AgentCapabilitiesRouteImport.update({
   path: '/agent-capabilities',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GlobalChatSessionsSessionIdRoute = GlobalChatSessionsSessionIdRouteImport.update({
+  id: '/global-chat-sessions/$sessionId',
+  path: '/global-chat-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectSessionsSessionIdRoute = ProjectSessionsSessionIdRouteImport.update({
+  id: '/project-sessions/$sessionId',
+  path: '/project-sessions/$sessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -32,30 +44,38 @@ const SettingsRoute = SettingsRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agent-capabilities': typeof AgentCapabilitiesRoute
+  '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agent-capabilities': typeof AgentCapabilitiesRoute
+  '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agent-capabilities': typeof AgentCapabilitiesRoute
+  '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
+  '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
   '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/agent-capabilities' | '/settings'
+  fullPaths: '/' | '/agent-capabilities' | '/global-chat-sessions/$sessionId' | '/project-sessions/$sessionId' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/agent-capabilities' | '/settings'
-  id: '__root__' | '/' | '/agent-capabilities' | '/settings'
+  to: '/' | '/agent-capabilities' | '/global-chat-sessions/$sessionId' | '/project-sessions/$sessionId' | '/settings'
+  id: '__root__' | '/' | '/agent-capabilities' | '/global-chat-sessions/$sessionId' | '/project-sessions/$sessionId' | '/settings'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentCapabilitiesRoute: typeof AgentCapabilitiesRoute
+  GlobalChatSessionsSessionIdRoute: typeof GlobalChatSessionsSessionIdRoute
+  ProjectSessionsSessionIdRoute: typeof ProjectSessionsSessionIdRoute
   SettingsRoute: typeof SettingsRoute
 }
 
@@ -75,6 +95,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentCapabilitiesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/global-chat-sessions/$sessionId': {
+      id: '/global-chat-sessions/$sessionId'
+      path: '/global-chat-sessions/$sessionId'
+      fullPath: '/global-chat-sessions/$sessionId'
+      preLoaderRoute: typeof GlobalChatSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/project-sessions/$sessionId': {
+      id: '/project-sessions/$sessionId'
+      path: '/project-sessions/$sessionId'
+      fullPath: '/project-sessions/$sessionId'
+      preLoaderRoute: typeof ProjectSessionsSessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -88,6 +122,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentCapabilitiesRoute: AgentCapabilitiesRoute,
+  GlobalChatSessionsSessionIdRoute: GlobalChatSessionsSessionIdRoute,
+  ProjectSessionsSessionIdRoute: ProjectSessionsSessionIdRoute,
   SettingsRoute: SettingsRoute,
 }
 export const routeTree = rootRouteImport

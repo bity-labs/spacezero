@@ -25,6 +25,12 @@
     "notConnected": "Non connecté",
     "openAppSettings": "Ouvrir les paramètres de l’application"
   },
+  "conversations": {
+    "projectSession": "Session de projet",
+    "projectSessionSurface": "Conversation de session de projet",
+    "globalChatSession": "Session de chat global",
+    "globalChatSessionSurface": "Conversation de session de chat global"
+  },
   "settings": {
     "title": "Paramètres",
     "backToWorkspace": "Retour à l’espace de travail",
