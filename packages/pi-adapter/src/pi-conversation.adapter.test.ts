@@ -5,6 +5,8 @@ import {
   createModels,
   fauxAssistantMessage,
   fauxProvider,
+  fauxText,
+  fauxThinking,
   fauxToolCall,
   InMemoryCredentialStore,
   type Context,
@@ -102,7 +104,7 @@ describe("createPiConversationRunner", () => {
       prompt: "third",
     });
 
-    await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.options?.sessionId).toBe(turn.conversationId);
@@ -135,7 +137,7 @@ describe("createPiConversationRunner", () => {
     });
     const turn = await input();
 
-    await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
     const workingDirectory =
       turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
     await expect(access(join(workingDirectory, "..", "escape.txt"))).rejects.toThrow();
@@ -170,7 +172,7 @@ describe("createPiConversationRunner", () => {
       join(workingDirectory, "linked-file.txt"),
     );
 
-    await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
   });
 
@@ -200,8 +202,103 @@ describe("createPiConversationRunner", () => {
       turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
     await symlink(outside, join(workingDirectory, "linked"), "dir");
 
-    await expect(runner.submitTurn(turn)).resolves.toEqual({ text: "done" });
+    await expect(runner.submitTurn(turn)).resolves.toMatchObject({ text: "done" });
     await expect(access(join(outside, "escaped.txt"))).rejects.toThrow();
+  });
+
+  it("preserves provider-exposed readable reasoning in content order without signatures", async () => {
+    const faux = fauxProvider({
+      models: [{ id: "reasoning-model", name: "Reasoning Model", reasoning: true }],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    faux.setResponses([
+      fauxAssistantMessage([
+        fauxThinking("I should inspect the request."),
+        fauxText("The answer."),
+      ]),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "reasoning-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        runtime: {
+          providerId: faux.provider.id,
+          modelId: "reasoning-model",
+          thinkingLevel: "high",
+        },
+        onEvent: async (event) => {
+          events.push(event);
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      text: "The answer.",
+      parts: [
+        {
+          type: "reasoning",
+          order: 1,
+          text: "I should inspect the request.",
+        },
+        { type: "text", order: 2, text: "The answer." },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("Signature");
+    expect(
+      events.filter(
+        (event) =>
+          (event as { readonly part?: { readonly type?: string } }).part
+            ?.type === "reasoning",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("excludes redacted or opaque thinking payloads instead of fabricating reasoning", async () => {
+    const faux = fauxProvider({
+      models: [{ id: "reasoning-model", name: "Reasoning Model", reasoning: true }],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    faux.setResponses([
+      fauxAssistantMessage([
+        {
+          type: "thinking",
+          thinking: "",
+          thinkingSignature: "encrypted-provider-signature",
+          redacted: true,
+        },
+        fauxText("Visible answer."),
+      ]),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "reasoning-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+
+    const result = await runner.submitTurn(
+      await input({
+        runtime: {
+          providerId: faux.provider.id,
+          modelId: "reasoning-model",
+          thinkingLevel: "high",
+        },
+      }),
+    );
+
+    expect(result).toEqual({
+      text: "Visible answer.",
+      parts: [{ type: "text", order: 2, text: "Visible answer." }],
+    });
+    expect(JSON.stringify(result)).not.toContain("encrypted-provider-signature");
   });
 
   it("resolves provider, model, and thinking level from the per-turn runtime snapshot", async () => {
@@ -237,7 +334,7 @@ describe("createPiConversationRunner", () => {
           },
         }),
       ),
-    ).resolves.toEqual({ text: "done" });
+    ).resolves.toMatchObject({ text: "done" });
 
     expect(seenModels).toEqual(["session-model"]);
   });
@@ -375,7 +472,7 @@ describe("createPiConversationRunner", () => {
       models,
     });
 
-    await expect(runner.submitTurn(await input())).resolves.toEqual({
+    await expect(runner.submitTurn(await input())).resolves.toMatchObject({
       text: "done",
     });
 

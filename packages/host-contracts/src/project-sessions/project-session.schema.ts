@@ -66,6 +66,16 @@ export interface SessionTextPart {
   readonly turnId?: AgentTurnId;
 }
 
+export interface SessionReasoningPart {
+  readonly id: string;
+  readonly type: "reasoning";
+  readonly order: number;
+  readonly text: string;
+  readonly turnId?: AgentTurnId;
+}
+
+export type SessionMessagePart = SessionTextPart | SessionReasoningPart;
+
 export interface SessionMessage {
   readonly id: SessionMessageId;
   readonly role: SessionMessageRole;
@@ -74,7 +84,7 @@ export interface SessionMessage {
   readonly createdAt: string;
   readonly commandId?: ProjectSessionCommandId;
   readonly turnId?: AgentTurnId;
-  readonly parts?: readonly SessionTextPart[];
+  readonly parts?: readonly SessionMessagePart[];
 }
 
 export interface SubmitSessionPromptRequest {
@@ -136,6 +146,7 @@ export interface ProjectSessionTurn {
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
   readonly draftText: string;
+  readonly draftParts?: readonly SessionMessagePart[];
   readonly failureReason?: string;
   readonly failureCategory?: AgentTurnFailureCategory;
   readonly retryable?: boolean;
@@ -297,6 +308,17 @@ export const SessionTextPartSchema = Schema.Struct({
   text: Schema.String,
   turnId: Schema.optionalKey(AgentTurnIdSchema),
 });
+export const SessionReasoningPartSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
+  type: Schema.Literals(["reasoning"]),
+  order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  text: Schema.String.check(Schema.isMinLength(1)),
+  turnId: Schema.optionalKey(AgentTurnIdSchema),
+});
+export const SessionMessagePartSchema = Schema.Union([
+  SessionTextPartSchema,
+  SessionReasoningPartSchema,
+]);
 export const SessionMessageSchema = Schema.Struct({
   id: SessionMessageIdSchema,
   role: SessionMessageRoleSchema,
@@ -308,7 +330,7 @@ export const SessionMessageSchema = Schema.Struct({
   createdAt: DateTimeUtcStringSchema,
   commandId: Schema.optionalKey(ProjectSessionCommandIdSchema),
   turnId: Schema.optionalKey(AgentTurnIdSchema),
-  parts: Schema.optionalKey(Schema.Array(SessionTextPartSchema)),
+  parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
 });
 export const SubmitSessionPromptRequestSchema = Schema.Struct({
   commandId: ProjectSessionCommandIdSchema,
@@ -363,6 +385,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   modelId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   thinkingLevel: AgentThinkingLevelSchema,
   draftText: Schema.String,
+  draftParts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
   failureReason: Schema.optionalKey(Schema.String),
   failureCategory: Schema.optionalKey(AgentTurnFailureCategorySchema),
   retryable: Schema.optionalKey(Schema.Boolean),
@@ -620,6 +643,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
     text: SessionMessageTextSchema,
+    parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -629,6 +653,7 @@ export const ProjectSessionEventSchema = Schema.Union([
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
     text: SessionMessageTextSchema,
+    parts: Schema.optionalKey(Schema.Array(SessionMessagePartSchema)),
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
@@ -696,6 +721,22 @@ export const ProjectSessionLiveEventSchema = Schema.Union([
     sessionId: ProjectSessionIdSchema,
     turnId: AgentTurnIdSchema,
     messageId: SessionMessageIdSchema,
+    text: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(64_000),
+    ),
+    order: Schema.optionalKey(
+      Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["AssistantReasoningDeltaV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    order: Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
     text: Schema.String.check(
       Schema.isMinLength(1),
       Schema.isMaxLength(64_000),
