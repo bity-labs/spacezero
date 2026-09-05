@@ -298,6 +298,22 @@ const listMessages = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const listMessagesPage = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  input: { readonly beforeSequence?: number; readonly limit: number },
+) => {
+  const url = new URL(
+    `/v1/project-sessions/${sessionId}/messages`,
+    host.endpoint,
+  );
+  url.searchParams.set("limit", String(input.limit));
+  if (input.beforeSequence !== undefined)
+    url.searchParams.set("beforeSequence", String(input.beforeSequence));
+  const response = await fetch(url, { headers: authHeaders(clientCapability) });
+  return { response, body: (await response.json()) as unknown };
+};
 const waitForMessageCount = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -1119,6 +1135,164 @@ describe("Session prompt Host protocol", () => {
         ],
       },
     ]);
+  });
+
+  it("paginates long retained history in stable ascending windows while a live turn continues", async () => {
+    const root = await temp();
+    const repo = await gitRepo(root);
+    let releaseLive!: () => void;
+    const liveGate = new Promise<void>((resolve) => {
+      releaseLive = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        if (input.prompt === "live turn") {
+          input.onDelta?.({
+            kind: "assistant_content",
+            part: { type: "text", text: "streaming", order: 1 },
+          });
+          await liveGate;
+        }
+        return { text: `answer ${input.prompt}` };
+      },
+    };
+    const databasePath = join(root, "host.sqlite");
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    for (let index = 1; index <= 12; index += 1) {
+      const prompt = `prompt ${index}`;
+      const submitted = await submitPrompt(
+        host,
+        client.clientCapability,
+        created.session.id,
+        prompt,
+      );
+      expect(submitted.response.status).toBe(200);
+      await waitForMessageCount(
+        host,
+        client.clientCapability,
+        created.session.id,
+        index * 2,
+      );
+    }
+
+    const eventLoopStart = performance.now();
+    const eventLoopDelay = new Promise<number>((resolve) => {
+      setTimeout(() => resolve(performance.now() - eventLoopStart), 0);
+    });
+    const pageStart = performance.now();
+    const latest = await listMessagesPage(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        limit: 7,
+      },
+    );
+    const historyPageLatencyMs = performance.now() - pageStart;
+    const hostEventLoopDelayMs = await eventLoopDelay;
+    expect(latest.response.status).toBe(200);
+    const latestBody = latest.body as {
+      messages: { id: string; text: string; sequence: number }[];
+      pageInfo: {
+        hasMoreOlder: boolean;
+        oldestSequence: number;
+        pageSize: number;
+      };
+    };
+    expect(latestBody.messages).toHaveLength(7);
+    expect(latestBody.pageInfo).toMatchObject({
+      hasMoreOlder: true,
+      pageSize: 7,
+    });
+    expect(latestBody.messages.map((message) => message.sequence)).toEqual(
+      [...latestBody.messages.map((message) => message.sequence)].sort(
+        (left, right) => left - right,
+      ),
+    );
+    expect(latestBody.messages.at(-1)?.text).toBe("answer prompt 12");
+    expect(historyPageLatencyMs).toBeLessThan(1_000);
+    expect(hostEventLoopDelayMs).toBeLessThan(1_000);
+
+    const older = await listMessagesPage(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        beforeSequence: latestBody.pageInfo.oldestSequence,
+        limit: 7,
+      },
+    );
+    expect(older.response.status).toBe(200);
+    const olderBody = older.body as {
+      messages: { id: string; sequence: number }[];
+      pageInfo: {
+        hasMoreOlder: boolean;
+        oldestSequence: number;
+        pageSize: number;
+      };
+    };
+    expect(olderBody.messages).toHaveLength(7);
+    expect(
+      olderBody.messages.every(
+        (message) => message.sequence < latestBody.pageInfo.oldestSequence,
+      ),
+    ).toBe(true);
+    expect(
+      new Set(
+        [...olderBody.messages, ...latestBody.messages].map(
+          (message) => message.id,
+        ),
+      ).size,
+    ).toBe(14);
+
+    const liveSubmitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "live turn",
+    );
+    expect(liveSubmitted.response.status).toBe(200);
+    const duringLive = await listMessagesPage(
+      host,
+      client.clientCapability,
+      created.session.id,
+      {
+        beforeSequence: latestBody.pageInfo.oldestSequence,
+        limit: 7,
+      },
+    );
+    const duringLiveBody = duringLive.body as {
+      activeTurn?: { state: string };
+      messages: { id: string; sequence: number }[];
+    };
+    expect(duringLive.response.status).toBe(200);
+    expect(duringLiveBody.activeTurn).toMatchObject({ state: "running" });
+    expect(duringLiveBody.messages.map((message) => message.id)).toEqual(
+      olderBody.messages.map((message) => message.id),
+    );
+    releaseLive();
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      26,
+    );
+    const checkpointEvents = eventTypes(
+      databasePath,
+      created.session.id,
+    ).filter((type) => type === "AgentMessageCheckpointedV1").length;
+    expect(checkpointEvents).toBeLessThanOrEqual(1);
+    console.info(
+      `[issue-554 measurement] fixture=12-turn-history pageLimit=7 historyPageLatencyMs=${historyPageLatencyMs.toFixed(1)} hostEventLoopDelayMs=${hostEventLoopDelayMs.toFixed(1)} checkpointEvents=${checkpointEvents}`,
+    );
   });
 
   it("retains assistant text over the previous one-megabyte limit across projection reload", async () => {

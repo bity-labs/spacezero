@@ -61,11 +61,7 @@ interface FollowUpRow {
   readonly command_id: string;
   readonly prompt: string;
   readonly state:
-    | "queued"
-    | "dispatched"
-    | "consumed"
-    | "cancelled"
-    | "recovery_required";
+    "queued" | "dispatched" | "consumed" | "cancelled" | "recovery_required";
   readonly position: number;
   readonly dispatched_turn_id: string | null;
   readonly created_at: string;
@@ -362,6 +358,53 @@ const toMessage = (row: MessageRow): GlobalChatSessionMessage => ({
     partsJson: row.content_parts_json,
   }),
 });
+
+const listMessagePage = (
+  sql: SqlClient,
+  sessionId: string,
+  options?: { readonly beforeSequence?: number; readonly limit?: number },
+) =>
+  Effect.gen(function* () {
+    const limit = options?.limit;
+    const beforeSequence = options?.beforeSequence;
+    if (limit === undefined && beforeSequence === undefined) {
+      const rows =
+        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
+      return { rows, hasMoreOlder: false };
+    }
+    if (limit === undefined) {
+      const rows =
+        yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence ASC`;
+      return { rows, hasMoreOlder: false };
+    }
+    const requested = limit + 1;
+    const rows =
+      beforeSequence === undefined
+        ? yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence DESC LIMIT ${requested}`
+        : yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.sequence < ${beforeSequence} ORDER BY m.sequence DESC LIMIT ${requested}`;
+    return {
+      rows: (rows.length > limit ? rows.slice(0, limit) : rows).toReversed(),
+      hasMoreOlder: rows.length > limit,
+    };
+  });
+
+const messagePageInfo = (
+  page: {
+    readonly rows: readonly MessageRow[];
+    readonly hasMoreOlder: boolean;
+  },
+  options?: { readonly beforeSequence?: number; readonly limit?: number },
+): NonNullable<ListGlobalChatSessionMessagesResult["pageInfo"]> | undefined => {
+  if (options?.limit === undefined) return undefined;
+  const oldestSequence = page.rows[0]?.sequence;
+  const newestSequence = page.rows.at(-1)?.sequence;
+  return {
+    pageSize: page.rows.length,
+    hasMoreOlder: page.hasMoreOlder,
+    ...(oldestSequence === undefined ? {} : { oldestSequence }),
+    ...(newestSequence === undefined ? {} : { newestSequence }),
+  };
+};
 
 const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
   const details = row.failure_reason
@@ -1596,6 +1639,7 @@ export const createGlobalChatSessionRepository = (options: {
 
   listMessages: async (
     sessionId: string,
+    pageOptions?: { readonly beforeSequence?: number; readonly limit?: number },
   ): Promise<ListGlobalChatSessionMessagesResult> =>
     runSql(
       options.databasePath,
@@ -1606,17 +1650,18 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const messages =
-          yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
+        const messagePage = yield* listMessagePage(sql, sessionId, pageOptions);
         const activeTurns =
           yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') ORDER BY updated_at DESC LIMIT 1`;
         const latestTurns =
           yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} ORDER BY updated_at DESC, turn_id DESC LIMIT 1`;
+        const pageInfo = messagePageInfo(messagePage, pageOptions);
         return {
           session: toSummary(rows[0]),
-          messages: messages.map(toMessage),
+          messages: messagePage.rows.map(toMessage),
           ...(activeTurns[0] ? { activeTurn: toTurn(activeTurns[0]) } : {}),
           ...(latestTurns[0] ? { latestTurn: toTurn(latestTurns[0]) } : {}),
+          ...(pageInfo === undefined ? {} : { pageInfo }),
         };
       }),
     ),

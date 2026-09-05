@@ -194,9 +194,7 @@ const flowHttpError = (error: unknown): FlowError => {
   if (error instanceof FlowRegistryError) return flowErrorBody(error.code);
   return flowErrorBody("flow_unavailable");
 };
-const globalChatSessionHttpError = (
-  error: unknown,
-): GlobalChatSessionError => {
+const globalChatSessionHttpError = (error: unknown): GlobalChatSessionError => {
   if (error instanceof GlobalChatSessionServiceError)
     return globalChatSessionErrorBody(error.code);
   return globalChatSessionErrorBody("global_chat_session_unavailable");
@@ -383,7 +381,9 @@ export const startHostServer = async (options: {
     expiresAt: number,
   ): Stream.Stream<Uint8Array, GlobalChatSessionError> => {
     const initialComment = textEncoder.encode(": spacezero\n\n");
-    const encodeEvents = (events: readonly GlobalChatSessionEventEnvelope[]) => {
+    const encodeEvents = (
+      events: readonly GlobalChatSessionEventEnvelope[],
+    ) => {
       let nextCursor = after;
       const chunks = events.map((event) => {
         nextCursor = event.sequence;
@@ -949,7 +949,10 @@ export const startHostServer = async (options: {
             return Effect.fail(error as HostAuthorizationError);
           }
           return effectPromise(() =>
-            globalChatSessions.cancelFollowUp(params.sessionId, params.followUpId),
+            globalChatSessions.cancelFollowUp(
+              params.sessionId,
+              params.followUpId,
+            ),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
         submitGlobalChatSessionPrompt: ({
@@ -977,7 +980,12 @@ export const startHostServer = async (options: {
             }),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
-        listGlobalChatSessionMessages: ({ headers, request, params }) => {
+        listGlobalChatSessionMessages: ({
+          headers,
+          request,
+          params,
+          query,
+        }) => {
           try {
             auth(
               headers.authorization,
@@ -990,7 +998,7 @@ export const startHostServer = async (options: {
             return Effect.fail(error as HostAuthorizationError);
           }
           return effectPromise(() =>
-            globalChatSessions.listMessages(params.sessionId),
+            globalChatSessions.listMessages(params.sessionId, query),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
         getGlobalChatSessionRuntime: ({ headers, request, params }) => {
@@ -1290,7 +1298,7 @@ export const startHostServer = async (options: {
             projectSessions.interruptTurn(params.sessionId, params.turnId),
           ).pipe(Effect.mapError(projectSessionHttpError));
         },
-        listSessionMessages: ({ headers, request, params }) => {
+        listSessionMessages: ({ headers, request, params, query }) => {
           try {
             auth(
               headers.authorization,
@@ -1303,7 +1311,7 @@ export const startHostServer = async (options: {
             return Effect.fail(error as HostAuthorizationError);
           }
           return effectPromise(() =>
-            projectSessions.listMessages(params.sessionId),
+            projectSessions.listMessages(params.sessionId, query),
           ).pipe(Effect.mapError(projectSessionHttpError));
         },
         subscribeProjectSessionEvents: ({

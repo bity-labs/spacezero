@@ -21,6 +21,7 @@ import {
   type HostConnectionDescriptor,
   type InterruptGlobalChatSessionTurnResult,
   type ListGlobalChatSessionFollowUpsResult,
+  type ListGlobalChatSessionMessagesQuery,
   type ListGlobalChatSessionMessagesResult,
   type SubmitGlobalChatSessionPromptResult,
   type UpdateGlobalChatSessionRuntimeResult,
@@ -60,19 +61,14 @@ export interface GlobalChatSessionClient {
       readonly providerId: string;
       readonly modelId: string;
       readonly defaultThinkingLevel:
-        | "off"
-        | "minimal"
-        | "low"
-        | "medium"
-        | "high"
-        | "xhigh"
-        | "max";
+        "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
       readonly expectedRevision: number;
       readonly commandId?: GlobalChatSessionCommandId;
     },
   ) => Promise<UpdateGlobalChatSessionRuntimeResult>;
   readonly listMessages: (
     sessionId: string,
+    options?: ListGlobalChatSessionMessagesQuery,
   ) => Promise<ListGlobalChatSessionMessagesResult>;
   readonly interruptTurn: (
     sessionId: string,
@@ -145,6 +141,7 @@ interface GeneratedGlobalChatSessionApiClient {
     readonly listGlobalChatSessionMessages: (input: {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly sessionId: string };
+      readonly query: ListGlobalChatSessionMessagesQuery;
     }) => Effect.Effect<unknown, unknown, never>;
     readonly getGlobalChatSessionRuntime: (input: {
       readonly headers: { readonly authorization: string };
@@ -158,13 +155,7 @@ interface GeneratedGlobalChatSessionApiClient {
         readonly providerId: string;
         readonly modelId: string;
         readonly defaultThinkingLevel:
-          | "off"
-          | "minimal"
-          | "low"
-          | "medium"
-          | "high"
-          | "xhigh"
-          | "max";
+          "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
         readonly expectedRevision: number;
       };
     }) => Effect.Effect<unknown, unknown, never>;
@@ -329,8 +320,9 @@ export const createGlobalChatSessionClient = (
         }),
       );
       const body = Array.isArray(result) ? result[0] : result;
-      return (body as { readonly sessions: readonly GlobalChatSessionSummary[] })
-        .sessions;
+      return (
+        body as { readonly sessions: readonly GlobalChatSessionSummary[] }
+      ).sessions;
     },
     createWithFirstPrompt: async (firstPrompt, commandId) => {
       const current = await descriptor();
@@ -412,19 +404,23 @@ export const createGlobalChatSessionClient = (
         client.globalChatSessions.updateGlobalChatSessionRuntime({
           headers: { authorization: `Bearer ${current.clientCapability}` },
           params: { sessionId },
-          payload: { ...input, commandId: input.commandId ?? createCommandId() },
+          payload: {
+            ...input,
+            commandId: input.commandId ?? createCommandId(),
+          },
         }),
       );
       return (
         Array.isArray(result) ? result[0] : result
       ) as UpdateGlobalChatSessionRuntimeResult;
     },
-    listMessages: async (sessionId) => {
+    listMessages: async (sessionId, options) => {
       const current = await descriptor();
       const result = await runClient(current, fetchImpl, (client) =>
         client.globalChatSessions.listGlobalChatSessionMessages({
           headers: { authorization: `Bearer ${current.clientCapability}` },
           params: { sessionId },
+          query: options ?? {},
         }),
       );
       return (

@@ -82,8 +82,8 @@ const installHostBackedConversationFetch = () => {
       if (request.url === "http://127.0.0.1:1234/v1/events")
         return hostConnectedStream();
       if (
-        request.url ===
-        `http://127.0.0.1:1234/v1/project-sessions/${projectSessionId}/messages`
+        new URL(request.url).pathname ===
+        `/v1/project-sessions/${projectSessionId}/messages`
       )
         return json({
           session: {
@@ -139,8 +139,8 @@ const installHostBackedConversationFetch = () => {
           followUps: [],
         });
       if (
-        request.url ===
-        `http://127.0.0.1:1234/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        new URL(request.url).pathname ===
+        `/v1/global-chat-sessions/${globalChatSessionId}/messages`
       )
         return json({
           session: {
@@ -255,10 +255,10 @@ describe("App", () => {
       "Project Session",
     );
     const messageRequest = await waitFor(() => {
-      const request = requests.find((current) =>
-        current.url.endsWith(
+      const request = requests.find(
+        (current) =>
+          new URL(current.url).pathname ===
           `/v1/project-sessions/${projectSessionId}/messages`,
-        ),
       );
       if (!request) throw new Error("Project Session message request missing");
       return request;
@@ -289,10 +289,10 @@ describe("App", () => {
       "Global Chat Session",
     );
     const messageRequest = await waitFor(() => {
-      const request = requests.find((current) =>
-        current.url.endsWith(
+      const request = requests.find(
+        (current) =>
+          new URL(current.url).pathname ===
           `/v1/global-chat-sessions/${globalChatSessionId}/messages`,
-        ),
       );
       if (!request)
         throw new Error("Global Chat Session message request missing");
