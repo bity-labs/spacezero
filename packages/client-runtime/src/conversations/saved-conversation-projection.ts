@@ -294,6 +294,30 @@ const appendActiveDraft = (
   ];
 };
 
+const unresolvedPendingMessages = (
+  current: SavedConversationProjection,
+  loadedMessages: readonly SavedConversationMessage[],
+): readonly SavedConversationMessage[] => {
+  if (current.actions.send !== "unresolved") return [];
+  return current.messages.filter(
+    (message) =>
+      message.role === "user" &&
+      message.status === "pending" &&
+      message.commandId !== undefined &&
+      !loadedMessages.some(
+        (loadedMessage) => loadedMessage.commandId === message.commandId,
+      ),
+  );
+};
+
+const mergeMessages = (
+  messages: readonly SavedConversationMessage[],
+  pendingMessages: readonly SavedConversationMessage[],
+): readonly SavedConversationMessage[] =>
+  [...messages, ...pendingMessages].sort(
+    (left, right) => left.sequence - right.sequence,
+  );
+
 const upsertMessage = (
   messages: readonly SavedConversationMessage[],
   message: SavedConversationMessage,
@@ -526,10 +550,12 @@ export const createSavedConversationStore = ({
 
   const loadProjection = async (): Promise<SavedConversationProjection> => {
     const loaded = await load();
-    const messages = appendActiveDraft(
+    const loadedMessages = appendActiveDraft(
       sortMessages(loaded.messages),
       loaded.activeTurn,
     );
+    const pendingMessages = unresolvedPendingMessages(snapshot, loadedMessages);
+    const messages = mergeMessages(loadedMessages, pendingMessages);
     const runtime = runtimeStatus(loaded.activeTurn, loaded.latestTurn);
     return {
       session: { kind, id: currentSessionId },
@@ -540,7 +566,7 @@ export const createSavedConversationStore = ({
       runtime,
       actions: actions({
         canSend: canSend(),
-        send: "available",
+        send: pendingMessages.length > 0 ? "unresolved" : "available",
         canStop: runtime.status === "running" && interruptTurn !== undefined,
       }),
     };
