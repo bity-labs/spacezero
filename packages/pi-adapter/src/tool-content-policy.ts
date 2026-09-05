@@ -80,6 +80,9 @@ export const createPublicToolContentPolicy = ({
       value,
     );
 
+  const containsProtectedSecret = (value: string): boolean =>
+    secrets.some((secret) => value.includes(secret));
+
   const transformPath = (value: string, forceProtected = false): string => {
     const withoutSecrets = replaceSecrets(value);
     if (forceProtected) return omittedProtectedPath;
@@ -194,6 +197,8 @@ export const createPublicToolContentPolicy = ({
           !base64Pattern.test(current.data)
         )
           return unsupportedContent(`Malformed image result (${mimeType}).`);
+        if (containsProtectedSecret(current.data))
+          return unsupportedContent(`Redacted image result (${mimeType}).`);
         return [{ type: "image", data: current.data, mimeType }];
       }
       return unsupportedContent(

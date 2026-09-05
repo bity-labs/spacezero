@@ -95,4 +95,24 @@ describe("public tool content policy", () => {
       ],
     });
   });
+
+  it("redacts protected secret values from image result data with an explicit fallback", () => {
+    const policy = createPublicToolContentPolicy({
+      protectedSecretValues: ["abcd1234"],
+    });
+
+    const result = policy.sanitizeResult({
+      content: [{ type: "image", mimeType: "image/png", data: "abcd1234" }],
+    });
+
+    expect(result).toEqual({
+      content: [
+        {
+          type: "unsupported",
+          label: "Redacted image result (image/png).",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toContain("abcd1234");
+  });
 });
