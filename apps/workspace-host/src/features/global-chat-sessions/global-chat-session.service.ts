@@ -57,6 +57,7 @@ export interface GlobalChatSessionService {
   ) => Promise<CancelGlobalChatSessionFollowUpResult>;
   readonly listMessages: (
     sessionId: string,
+    options?: { readonly beforeSequence?: number; readonly limit?: number },
   ) => Promise<ListGlobalChatSessionMessagesResult>;
   readonly listEventsAfter: (
     sessionId: string,
@@ -412,9 +413,9 @@ export const createGlobalChatSessionService = (options: {
         throw mapError(error);
       }
     },
-    listMessages: async (sessionId) => {
+    listMessages: async (sessionId, options) => {
       try {
-        return await repository.listMessages(sessionId);
+        return await repository.listMessages(sessionId, options);
       } catch (error) {
         throw mapError(error);
       }

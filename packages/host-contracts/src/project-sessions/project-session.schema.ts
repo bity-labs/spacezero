@@ -215,11 +215,24 @@ export interface InterruptProjectSessionTurnResult {
   readonly turn: ProjectSessionTurn;
 }
 
+export interface SessionMessageHistoryPageInfo {
+  readonly pageSize: number;
+  readonly hasMoreOlder: boolean;
+  readonly oldestSequence?: number;
+  readonly newestSequence?: number;
+}
+
+export interface ListSessionMessagesQuery {
+  readonly beforeSequence?: number;
+  readonly limit?: number;
+}
+
 export interface ListSessionMessagesResult {
   readonly session: ProjectSessionSummary;
   readonly messages: readonly SessionMessage[];
   readonly activeTurn?: ProjectSessionTurn;
   readonly latestTurn?: ProjectSessionTurn;
+  readonly pageInfo?: SessionMessageHistoryPageInfo;
 }
 
 export interface ProjectSessionRuntimeConfiguration {
@@ -528,11 +541,41 @@ export const CancelProjectSessionFollowUpResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   followUp: ProjectSessionFollowUpSchema,
 });
+export const SessionMessageHistoryPageInfoSchema = Schema.Struct({
+  pageSize: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(0),
+  ),
+  hasMoreOlder: Schema.Boolean,
+  oldestSequence: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  ),
+  newestSequence: Schema.optionalKey(
+    Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+  ),
+});
+export const ListSessionMessagesQuerySchema = Schema.Struct({
+  beforeSequence: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(1)),
+    ),
+  ),
+  limit: Schema.optionalKey(
+    Schema.NumberFromString.pipe(
+      Schema.check(
+        Schema.isInt(),
+        Schema.isGreaterThanOrEqualTo(1),
+        Schema.isLessThanOrEqualTo(200),
+      ),
+    ),
+  ),
+});
 export const ListSessionMessagesResultSchema = Schema.Struct({
   session: ProjectSessionSummarySchema,
   messages: Schema.Array(SessionMessageSchema),
   activeTurn: Schema.optionalKey(ProjectSessionTurnSchema),
   latestTurn: Schema.optionalKey(ProjectSessionTurnSchema),
+  pageInfo: Schema.optionalKey(SessionMessageHistoryPageInfoSchema),
 });
 export const ProjectSessionRuntimeConfigurationSchema = Schema.Struct({
   providerId: Schema.String.check(
