@@ -565,7 +565,7 @@ const admitPromptInTransaction = <
         "global_chat_session_unavailable",
       );
     const activeTurns =
-      yield* input.sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+      yield* input.sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
     if (activeTurns[0])
       throw new GlobalChatSessionServiceError(
         "global_chat_session_turn_in_progress",
@@ -958,7 +958,7 @@ export const createGlobalChatSessionRepository = (options: {
             const sessionRows = yield* getSession(sql, sessionId);
             if (!sessionRows[0]) return undefined;
             const activeTurns =
-              yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+              yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
             if (activeTurns[0]) return undefined;
             const followUpRows =
               yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND state = 'queued' ORDER BY position ASC, created_at ASC LIMIT 1`;
