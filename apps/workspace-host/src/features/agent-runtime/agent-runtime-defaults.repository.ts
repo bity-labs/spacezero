@@ -76,4 +76,36 @@ ON CONFLICT(singleton) DO UPDATE SET
   updated_at = excluded.updated_at`;
       }),
     ),
+
+  /**
+   * Atomically stores the defaults only while no default model exists. The
+   * existence check and write are a single SQLite statement, so concurrent
+   * initializations (for example simultaneous auth completions) cannot race
+   * a read-then-write window and overwrite each other. Returns the final
+   * stored defaults, whether or not this call's payload was applied.
+   */
+  putIfAbsentModel: async (
+    defaults: AgentRuntimeDefaults,
+  ): Promise<AgentRuntimeDefaults> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const now = new Date().toISOString();
+        const providerId = defaults.defaultModel?.providerId ?? null;
+        const modelId = defaults.defaultModel?.modelId ?? null;
+        const updated = yield* sql<AgentRuntimeDefaultsRow>`
+INSERT INTO agent_runtime_defaults (singleton, default_provider_id, default_model_id, default_thinking_level, updated_at)
+VALUES (1, ${providerId}, ${modelId}, ${defaults.defaultThinkingLevel}, ${now})
+ON CONFLICT(singleton) DO UPDATE SET
+  default_provider_id = excluded.default_provider_id,
+  default_model_id = excluded.default_model_id,
+  default_thinking_level = excluded.default_thinking_level,
+  updated_at = excluded.updated_at
+WHERE agent_runtime_defaults.default_provider_id IS NULL
+RETURNING default_provider_id, default_model_id, default_thinking_level`;
+        if (updated[0]) return toDefaults(updated[0]);
+        return yield* getAgentRuntimeDefaults(sql);
+      }),
+    ),
 });
