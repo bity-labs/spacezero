@@ -17,6 +17,7 @@ import {
   type HostConnectionDescriptor,
   type GetProjectSessionRuntimeResult,
   type ListProjectSessionFollowUpsResult,
+  type ListSessionMessagesQuery,
   type ListSessionMessagesResult,
   type ProjectId,
   type ProjectSessionCommandId,
@@ -64,6 +65,7 @@ export interface ProjectSessionClient {
   ) => Promise<CancelProjectSessionFollowUpResult>;
   readonly listSessionMessages: (
     sessionId: string,
+    options?: ListSessionMessagesQuery,
   ) => Promise<ListSessionMessagesResult>;
   readonly interruptTurn: (
     sessionId: string,
@@ -152,6 +154,7 @@ interface GeneratedProjectSessionApiClient {
     readonly listSessionMessages: (input: {
       readonly headers: { readonly authorization: string };
       readonly params: { readonly sessionId: string };
+      readonly query: ListSessionMessagesQuery;
     }) => Effect.Effect<unknown, unknown, never>;
     readonly interruptSessionTurn: (input: {
       readonly headers: { readonly authorization: string };
@@ -402,12 +405,13 @@ export const createProjectSessionClient = (
         Array.isArray(result) ? result[0] : result
       ) as CancelProjectSessionFollowUpResult;
     },
-    listSessionMessages: async (sessionId) => {
+    listSessionMessages: async (sessionId, options) => {
       const current = await descriptor();
       const result = await runClient(current, fetchImpl, (client) =>
         client.projectSessions.listSessionMessages({
           headers: { authorization: `Bearer ${current.clientCapability}` },
           params: { sessionId },
+          query: options ?? {},
         }),
       );
       return (

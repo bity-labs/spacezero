@@ -15,6 +15,7 @@ import {
   InterruptProjectSessionTurnResultSchema,
   ListProjectSessionFollowUpsResultSchema,
   ListProjectSessionsResultSchema,
+  ListSessionMessagesQuerySchema,
   ListSessionMessagesResultSchema,
   ProjectSessionEventStreamQuerySchema,
   ProjectSessionIdSchema,
@@ -175,6 +176,7 @@ export const ProjectSessionApiGroup = HttpApiGroup.make("projectSessions")
       "/project-sessions/:sessionId/messages",
       {
         params: ProjectSessionPathParamsSchema,
+        query: ListSessionMessagesQuerySchema,
         headers: ProjectSessionAuthorizationHeaderSchema,
         success: ListSessionMessagesResultSchema,
         error: [

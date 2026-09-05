@@ -19,6 +19,7 @@ import {
   GlobalChatSessionTurnIdSchema,
   InterruptGlobalChatSessionTurnResultSchema,
   ListGlobalChatSessionFollowUpsResultSchema,
+  ListGlobalChatSessionMessagesQuerySchema,
   ListGlobalChatSessionMessagesResultSchema,
   ListGlobalChatSessionsResultSchema,
   SubmitGlobalChatSessionPromptRequestSchema,
@@ -45,9 +46,7 @@ export const GlobalChatSessionEventStream = HttpApiSchema.StreamUint8Array({
   contentType: "text/event-stream",
 });
 
-export const GlobalChatSessionApiGroup = HttpApiGroup.make(
-  "globalChatSessions",
-)
+export const GlobalChatSessionApiGroup = HttpApiGroup.make("globalChatSessions")
   .add(
     HttpApiEndpoint.post(
       "createGlobalChatSessionWithFirstPrompt",
@@ -67,7 +66,10 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make(
     HttpApiEndpoint.get("listGlobalChatSessions", "/global-chat-sessions", {
       headers: GlobalChatSessionAuthorizationHeaderSchema,
       success: ListGlobalChatSessionsResultSchema,
-      error: [...HostAuthorizationErrorSchemas, ...GlobalChatSessionErrorSchemas],
+      error: [
+        ...HostAuthorizationErrorSchemas,
+        ...GlobalChatSessionErrorSchemas,
+      ],
     }),
   )
   .add(
@@ -138,6 +140,7 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make(
       "/global-chat-sessions/:sessionId/messages",
       {
         params: GlobalChatSessionPathParamsSchema,
+        query: ListGlobalChatSessionMessagesQuerySchema,
         headers: GlobalChatSessionAuthorizationHeaderSchema,
         success: ListGlobalChatSessionMessagesResultSchema,
         error: [

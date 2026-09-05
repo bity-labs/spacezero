@@ -25,6 +25,8 @@ export interface ThreadLabels {
   readonly toolProgress?: string;
   readonly toolTruncated?: string;
   readonly toolNoOutput?: string;
+  readonly loadOlder?: string;
+  readonly loadingOlder?: string;
   readonly user?: string;
   readonly assistant?: string;
   readonly composer?: string;
@@ -59,6 +61,9 @@ export interface ThreadProps {
   readonly queueItems?: readonly ThreadQueueItem[];
   readonly onCancelQueueItem?: (id: string) => void | Promise<void>;
   readonly isRunning?: boolean;
+  readonly hasMoreOlder?: boolean;
+  readonly isLoadingOlder?: boolean;
+  readonly onLoadOlder?: () => void | Promise<void>;
   readonly onStop?: () => void | Promise<void>;
 }
 
@@ -74,6 +79,8 @@ const defaultLabels = {
   toolProgress: "Progress",
   toolTruncated: "Output was truncated by the tool provider.",
   toolNoOutput: "No displayable output.",
+  loadOlder: "Load older messages",
+  loadingOlder: "Loading older messages…",
   user: "You",
   assistant: "Assistant",
   composer: "Message",
@@ -400,6 +407,9 @@ export function Thread({
   queueItems = [],
   onCancelQueueItem,
   isRunning = false,
+  hasMoreOlder = false,
+  isLoadingOlder = false,
+  onLoadOlder,
   onStop,
 }: ThreadProps): ReactElement {
   const labels = { ...defaultLabels, ...labelOverrides };
@@ -434,6 +444,20 @@ export function Thread({
       ) : null}
       <ThreadPrimitive.Root className="flex min-h-0 flex-1 flex-col">
         <ThreadPrimitive.Viewport className="min-h-0 flex-1 overflow-y-auto p-4">
+          {hasMoreOlder || isLoadingOlder ? (
+            <div className="mb-4 flex justify-center">
+              <button
+                type="button"
+                className="rounded-md border border-input bg-background px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => {
+                  void onLoadOlder?.();
+                }}
+                disabled={isLoadingOlder || !onLoadOlder}
+              >
+                {isLoadingOlder ? labels.loadingOlder : labels.loadOlder}
+              </button>
+            </div>
+          ) : null}
           <ThreadPrimitive.Empty>
             {state === "empty" ? (
               <div className="flex h-full min-h-40 items-center justify-center text-sm text-muted-foreground">
