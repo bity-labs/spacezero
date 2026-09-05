@@ -283,15 +283,18 @@ export function useModelsSettings(clients: ModelsSettingsClients): ModelsSetting
 
   // Stop flow event subscriptions when the settings container unmounts. A
   // start that resolves afterwards is cancelled Host-side via disposedRef.
-  useEffect(
-    () => () => {
+  // StrictMode (dev) runs this effect as mount → cleanup → remount on the
+  // same instance, so re-arm the flag on remount or every connect would
+  // silently cancel its Host flow instead of subscribing.
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => {
       disposedRef.current = true;
       flowSubscriptionRef.current?.cancel();
       flowSubscriptionRef.current = null;
       activeFlowRef.current = null;
-    },
-    [],
-  );
+    };
+  }, []);
 
   const handleApiKeyProviderSelect = useCallback((provider: AuthProviderOption) => {
     setApiKeyPickerOpen(false);
