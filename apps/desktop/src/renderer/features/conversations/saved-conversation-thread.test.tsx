@@ -538,6 +538,70 @@ describe("SavedConversationThread", () => {
     ).toHaveLength(0);
   });
 
+  it("uses the same composer queue UI for Global Chat while a turn is running", async () => {
+    const enqueued: string[] = [];
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-session-1",
+      load: async () => ({
+        title: "Global prompt",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "global-running-user-message",
+            role: "user" as const,
+            text: "Current global work",
+            sequence: 3,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "global-running-user-message",
+          assistantMessageId: "global-running-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Partial global answer",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+      enqueueFollowUp: async ({ prompt, commandId }) => {
+        enqueued.push(prompt);
+        return {
+          followUp: {
+            id: "global-follow-up-1",
+            commandId,
+            sessionId: "global-session-1",
+            prompt,
+            state: "queued" as const,
+            position: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        };
+      },
+      interruptTurn: async () => ({}),
+    });
+
+    render(<SavedConversationThread store={store} />);
+
+    const input = await screen.findByRole("textbox", { name: "Message" });
+    fireEvent.change(input, { target: { value: "Global follow-up" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(enqueued).toEqual(["Global follow-up"]));
+    expect(await screen.findByText("Global follow-up")).toBeInTheDocument();
+    expect(
+      screen
+        .queryAllByText("Global follow-up")
+        .filter((node) => node.closest("[data-role='user']")),
+    ).toHaveLength(0);
+  });
+
   it("shows honest running and recovery states without marking the turn complete", async () => {
     const running = createSavedConversationStore({
       kind: "project",

@@ -161,6 +161,21 @@ const installHostBackedConversationFetch = () => {
             },
           ],
         });
+      if (
+        request.url ===
+        `http://127.0.0.1:1234/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+      )
+        return json({
+          session: {
+            id: globalChatSessionId,
+            title: "Global prompt",
+            archived: false,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+            lastSequence: 1,
+          },
+          followUps: [],
+        });
       return new Response("not found", { status: 404 });
     }),
   );

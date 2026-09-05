@@ -10,7 +10,9 @@ import {
   parseGlobalChatSessionEventEnvelope,
   parseGlobalChatSessionLiveEventEnvelope,
   parseHostConnectionDescriptor,
+  type CancelGlobalChatSessionFollowUpResult,
   type CreateGlobalChatSessionWithFirstPromptResult,
+  type EnqueueGlobalChatSessionFollowUpResult,
   type GetGlobalChatSessionRuntimeResult,
   type GlobalChatSessionCommandId,
   type GlobalChatSessionEventEnvelope,
@@ -18,6 +20,7 @@ import {
   type GlobalChatSessionSummary,
   type HostConnectionDescriptor,
   type InterruptGlobalChatSessionTurnResult,
+  type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesResult,
   type SubmitGlobalChatSessionPromptResult,
   type UpdateGlobalChatSessionRuntimeResult,
@@ -36,6 +39,18 @@ export interface GlobalChatSessionClient {
     prompt: string,
     commandId?: GlobalChatSessionCommandId,
   ) => Promise<SubmitGlobalChatSessionPromptResult>;
+  readonly listFollowUps: (
+    sessionId: string,
+  ) => Promise<ListGlobalChatSessionFollowUpsResult>;
+  readonly enqueueFollowUp: (
+    sessionId: string,
+    prompt: string,
+    commandId?: GlobalChatSessionCommandId,
+  ) => Promise<EnqueueGlobalChatSessionFollowUpResult>;
+  readonly cancelFollowUp: (
+    sessionId: string,
+    followUpId: string,
+  ) => Promise<CancelGlobalChatSessionFollowUpResult>;
   readonly getRuntime: (
     sessionId: string,
   ) => Promise<GetGlobalChatSessionRuntimeResult>;
@@ -106,6 +121,25 @@ interface GeneratedGlobalChatSessionApiClient {
       readonly payload: {
         readonly commandId: string;
         readonly prompt: string;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly listGlobalChatSessionFollowUps: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly enqueueGlobalChatSessionFollowUp: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: { readonly sessionId: string };
+      readonly payload: {
+        readonly commandId: string;
+        readonly prompt: string;
+      };
+    }) => Effect.Effect<unknown, unknown, never>;
+    readonly cancelGlobalChatSessionFollowUp: (input: {
+      readonly headers: { readonly authorization: string };
+      readonly params: {
+        readonly sessionId: string;
+        readonly followUpId: string;
       };
     }) => Effect.Effect<unknown, unknown, never>;
     readonly listGlobalChatSessionMessages: (input: {
@@ -322,6 +356,43 @@ export const createGlobalChatSessionClient = (
       return (
         Array.isArray(result) ? result[0] : result
       ) as SubmitGlobalChatSessionPromptResult;
+    },
+    listFollowUps: async (sessionId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.listGlobalChatSessionFollowUps({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as ListGlobalChatSessionFollowUpsResult;
+    },
+    enqueueFollowUp: async (sessionId, prompt, commandId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.enqueueGlobalChatSessionFollowUp({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId },
+          payload: { commandId: commandId ?? createCommandId(), prompt },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as EnqueueGlobalChatSessionFollowUpResult;
+    },
+    cancelFollowUp: async (sessionId, followUpId) => {
+      const current = await descriptor();
+      const result = await runClient(current, fetchImpl, (client) =>
+        client.globalChatSessions.cancelGlobalChatSessionFollowUp({
+          headers: { authorization: `Bearer ${current.clientCapability}` },
+          params: { sessionId, followUpId },
+        }),
+      );
+      return (
+        Array.isArray(result) ? result[0] : result
+      ) as CancelGlobalChatSessionFollowUpResult;
     },
     getRuntime: async (sessionId) => {
       const current = await descriptor();

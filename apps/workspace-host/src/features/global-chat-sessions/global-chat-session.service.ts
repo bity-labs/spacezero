@@ -1,11 +1,15 @@
 import type {
+  CancelGlobalChatSessionFollowUpResult,
   CreateGlobalChatSessionWithFirstPromptRequest,
   CreateGlobalChatSessionWithFirstPromptResult,
+  EnqueueGlobalChatSessionFollowUpRequest,
+  EnqueueGlobalChatSessionFollowUpResult,
   GetGlobalChatSessionRuntimeResult,
   GlobalChatSessionEventEnvelope,
   GlobalChatSessionLiveEventEnvelope,
   GlobalChatSessionSseEnvelope,
   InterruptGlobalChatSessionTurnResult,
+  ListGlobalChatSessionFollowUpsResult,
   ListGlobalChatSessionMessagesResult,
   ListGlobalChatSessionsResult,
   SubmitGlobalChatSessionPromptResult,
@@ -40,6 +44,17 @@ export interface GlobalChatSessionService {
     sessionId: string,
     input: UpdateGlobalChatSessionRuntimeRequest,
   ) => Promise<UpdateGlobalChatSessionRuntimeResult>;
+  readonly listFollowUps: (
+    sessionId: string,
+  ) => Promise<ListGlobalChatSessionFollowUpsResult>;
+  readonly enqueueFollowUp: (
+    sessionId: string,
+    input: EnqueueGlobalChatSessionFollowUpRequest,
+  ) => Promise<EnqueueGlobalChatSessionFollowUpResult>;
+  readonly cancelFollowUp: (
+    sessionId: string,
+    followUpId: string,
+  ) => Promise<CancelGlobalChatSessionFollowUpResult>;
   readonly listMessages: (
     sessionId: string,
   ) => Promise<ListGlobalChatSessionMessagesResult>;
@@ -108,6 +123,9 @@ export const createGlobalChatSessionService = (options: {
       : { privatePiStateRepository: options.privatePiStateRepository }),
   });
   const locks = new Map<string, Promise<unknown>>();
+  const inFlight = new Set<Promise<unknown>>();
+  const drainingSessions = new Set<string>();
+  let shuttingDown = false;
 
   const withSessionLock = async <A>(
     sessionId: string,
@@ -230,7 +248,81 @@ export const createGlobalChatSessionService = (options: {
           timestamp,
         },
       }),
+      onTurnSettled: scheduleFollowUpDrain,
     });
+  };
+
+  const submitPrompt: GlobalChatSessionService["submitPrompt"] = async (
+    input,
+  ) =>
+    withSessionLock(input.sessionId, async () => {
+      try {
+        const result = await repository.submitPrompt({
+          ...input,
+          prompt: input.prompt.trim(),
+        });
+        if (result.kind === "replayed") return result.result;
+        try {
+          await ensurePrivateState(input.sessionId);
+        } catch (error) {
+          await repository.markTurnRecoveryRequired({
+            sessionId: input.sessionId,
+            turnId: result.turnId,
+          });
+          turnRunner.wakeEvents(input.sessionId);
+          throw error;
+        }
+        turnRunner.wakeEvents(input.sessionId);
+        await runTurn({
+          sessionId: input.sessionId,
+          commandId: input.commandId,
+          prompt: input.prompt.trim(),
+          admitted: result,
+        });
+        return result.result;
+      } catch (error) {
+        throw mapError(error);
+      }
+    });
+
+  const drainFollowUps = async (sessionId: string): Promise<void> => {
+    if (drainingSessions.has(sessionId)) return;
+    drainingSessions.add(sessionId);
+    try {
+      while (!turnRunner.hasActiveTurn(sessionId)) {
+        const followUp = await repository.dispatchNextFollowUp(sessionId);
+        if (!followUp) return;
+        try {
+          const result = await submitPrompt({
+            sessionId,
+            commandId: followUp.commandId,
+            prompt: followUp.prompt,
+          });
+          await repository.markFollowUpConsumed({
+            sessionId,
+            followUpId: followUp.id,
+            turnId: result.turn.id,
+          });
+          turnRunner.wakeEvents(sessionId);
+        } catch {
+          await repository.markFollowUpRecoveryRequired({
+            sessionId,
+            followUpId: followUp.id,
+          });
+          turnRunner.wakeEvents(sessionId);
+          return;
+        }
+      }
+    } finally {
+      drainingSessions.delete(sessionId);
+    }
+  };
+
+  const scheduleFollowUpDrain = (sessionId: string): void => {
+    if (shuttingDown) return;
+    const operation = drainFollowUps(sessionId).catch(() => undefined);
+    inFlight.add(operation);
+    operation.finally(() => inFlight.delete(operation));
   };
 
   return {
@@ -267,36 +359,7 @@ export const createGlobalChatSessionService = (options: {
         throw mapError(error);
       }
     },
-    submitPrompt: async (input) =>
-      withSessionLock(input.sessionId, async () => {
-        try {
-          const result = await repository.submitPrompt({
-            ...input,
-            prompt: input.prompt.trim(),
-          });
-          if (result.kind === "replayed") return result.result;
-          try {
-            await ensurePrivateState(input.sessionId);
-          } catch (error) {
-            await repository.markTurnRecoveryRequired({
-              sessionId: input.sessionId,
-              turnId: result.turnId,
-            });
-            turnRunner.wakeEvents(input.sessionId);
-            throw error;
-          }
-          turnRunner.wakeEvents(input.sessionId);
-          await runTurn({
-            sessionId: input.sessionId,
-            commandId: input.commandId,
-            prompt: input.prompt.trim(),
-            admitted: result,
-          });
-          return result.result;
-        } catch (error) {
-          throw mapError(error);
-        }
-      }),
+    submitPrompt,
     getRuntime: async (sessionId) => {
       try {
         return await repository.getRuntime(sessionId);
@@ -323,6 +386,32 @@ export const createGlobalChatSessionService = (options: {
           throw mapError(error);
         }
       }),
+    listFollowUps: async (sessionId) => {
+      try {
+        return await repository.listFollowUps(sessionId);
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    enqueueFollowUp: async (sessionId, input) => {
+      try {
+        const result = await repository.enqueueFollowUp(sessionId, input);
+        turnRunner.wakeEvents(sessionId);
+        scheduleFollowUpDrain(sessionId);
+        return result;
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
+    cancelFollowUp: async (sessionId, followUpId) => {
+      try {
+        const result = await repository.cancelFollowUp(sessionId, followUpId);
+        turnRunner.wakeEvents(sessionId);
+        return result;
+      } catch (error) {
+        throw mapError(error);
+      }
+    },
     listMessages: async (sessionId) => {
       try {
         return await repository.listMessages(sessionId);
@@ -366,10 +455,15 @@ export const createGlobalChatSessionService = (options: {
       }
     },
     reconcile: async () => {
+      await repository.markDispatchedFollowUpsRecoveryRequired();
       await repository.markInFlightTurnsRecoveryRequired();
+      for (const session of (await repository.list()).sessions)
+        scheduleFollowUpDrain(session.id);
     },
     waitForIdle: async () => {
+      shuttingDown = true;
       await turnRunner.waitForIdle();
+      await Promise.allSettled([...inFlight]);
     },
   };
 };
