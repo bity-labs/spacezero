@@ -115,6 +115,52 @@ const threadState = (
   }
 };
 
+const ConversationStatusBanner = ({
+  projection,
+}: {
+  readonly projection: SavedConversationProjection;
+}): ReactElement | null => {
+  if (projection.status === "error") return null;
+  if (projection.connection.status === "disconnected")
+    return (
+      <div
+        role="alert"
+        className="border-b border-amber-300/40 bg-amber-100/70 px-4 py-3 text-sm text-amber-950"
+      >
+        Connection lost. Reconnecting to the Host; running work may still be
+        active.
+      </div>
+    );
+  if (projection.runtime.status === "recovery_required")
+    return (
+      <div
+        role="alert"
+        className="border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      >
+        Conversation requires recovery before it can continue.
+      </div>
+    );
+  if (projection.runtime.status === "failed")
+    return (
+      <div
+        role="alert"
+        className="border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+      >
+        Latest agent turn failed.
+      </div>
+    );
+  if (projection.runtime.status === "running")
+    return (
+      <div
+        role="status"
+        className="border-b border-border px-4 py-3 text-sm text-muted-foreground"
+      >
+        Assistant is responding.
+      </div>
+    );
+  return null;
+};
+
 export function SavedConversationThread({
   store,
 }: {
@@ -161,12 +207,15 @@ export function SavedConversationThread({
 
   return (
     <AssistantRuntimeProvider key={sessionKey} runtime={runtime}>
-      <Thread
-        state={threadState(projection.status)}
-        {...(projection.error?.message === undefined
-          ? {}
-          : { errorMessage: projection.error.message })}
-      />
+      <div className="flex min-h-0 flex-1 flex-col">
+        <ConversationStatusBanner projection={projection} />
+        <Thread
+          state={threadState(projection.status)}
+          {...(projection.error?.message === undefined
+            ? {}
+            : { errorMessage: projection.error.message })}
+        />
+      </div>
     </AssistantRuntimeProvider>
   );
 }

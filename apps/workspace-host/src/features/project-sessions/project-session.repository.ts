@@ -80,6 +80,7 @@ interface MessageRow {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly sequence: number;
+  readonly command_id?: string | null;
   readonly turn_id: string | null;
   readonly created_at: string;
 }
@@ -262,6 +263,9 @@ const toMessage = (row: MessageRow): SessionMessage => ({
   text: row.text,
   sequence: row.sequence,
   createdAt: row.created_at,
+  ...(row.command_id === undefined || row.command_id === null
+    ? {}
+    : { commandId: row.command_id }),
   ...(row.turn_id === null ? {} : { turnId: row.turn_id }),
   parts: [
     {
@@ -464,7 +468,7 @@ const getHostId = (sql: SqlClient) =>
   });
 
 const getMessageById = (sql: SqlClient, sessionId: string, messageId: string) =>
-  sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND message_id = ${messageId}`;
+  sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.message_id = ${messageId}`;
 
 const replayPromptResult = (
   sql: SqlClient,
@@ -1823,7 +1827,7 @@ export const createProjectSessionRepository = (options: {
           if (!rows[0])
             throw new ProjectSessionServiceError("session_not_found");
           const messageRows =
-            yield* sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} ORDER BY sequence ASC`;
+            yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
           const activeTurns =
             yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') ORDER BY updated_at DESC LIMIT 1`;
           const latestTurns =

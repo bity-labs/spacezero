@@ -51,6 +51,7 @@ export interface GlobalChatSessionMessage {
   readonly text: string;
   readonly sequence: number;
   readonly createdAt: string;
+  readonly commandId?: GlobalChatSessionCommandId;
   readonly turnId?: GlobalChatSessionTurnId;
   readonly parts?: readonly GlobalChatSessionTextPart[];
 }
@@ -256,6 +257,7 @@ export const GlobalChatSessionMessageSchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
   createdAt: DateTimeUtcStringSchema,
+  commandId: Schema.optionalKey(GlobalChatSessionCommandIdSchema),
   turnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
   parts: Schema.optionalKey(Schema.Array(GlobalChatSessionTextPartSchema)),
 });

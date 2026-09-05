@@ -127,6 +127,7 @@ describe("Project Session schemas", () => {
       text: "Build the wine list view",
       sequence: 5,
       createdAt: "2026-01-01T00:01:00.000Z",
+      commandId: uuid,
     };
     const agentMessage = {
       id: turnId,
@@ -134,6 +135,7 @@ describe("Project Session schemas", () => {
       text: "Echo: Build the wine list view",
       sequence: 7,
       createdAt: "2026-01-01T00:01:01.000Z",
+      commandId: uuid,
     };
     const turn = {
       id: turnId,
