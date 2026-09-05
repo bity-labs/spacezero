@@ -39,6 +39,13 @@ const toDefaults = (row: AgentRuntimeDefaultsRow | undefined) => {
   } satisfies AgentRuntimeDefaults;
 };
 
+export const getAgentRuntimeDefaults = (sql: SqlClient) =>
+  Effect.gen(function* () {
+    const rows =
+      yield* sql<AgentRuntimeDefaultsRow>`SELECT default_provider_id, default_model_id, default_thinking_level FROM agent_runtime_defaults WHERE singleton = 1`;
+    return toDefaults(rows[0]);
+  });
+
 export const createAgentRuntimeDefaultsRepository = (options: {
   readonly databasePath: string;
 }) => ({
@@ -47,9 +54,7 @@ export const createAgentRuntimeDefaultsRepository = (options: {
       options.databasePath,
       Effect.gen(function* () {
         const sql = yield* SqlClient;
-        const rows =
-          yield* sql<AgentRuntimeDefaultsRow>`SELECT default_provider_id, default_model_id, default_thinking_level FROM agent_runtime_defaults WHERE singleton = 1`;
-        return toDefaults(rows[0]);
+        return yield* getAgentRuntimeDefaults(sql);
       }),
     ),
 
