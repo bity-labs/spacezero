@@ -52,8 +52,13 @@ type RenderablePart = ThreadUserMessagePart | ThreadAssistantMessagePart;
 
 const isTextPart = (
   part: RenderablePart,
-): part is Extract<RenderablePart, { readonly type: "text" | "reasoning" }> =>
-  part.type === "text" || part.type === "reasoning";
+): part is Extract<RenderablePart, { readonly type: "text" }> =>
+  part.type === "text";
+
+const isReasoningPart = (
+  part: RenderablePart,
+): part is Extract<RenderablePart, { readonly type: "reasoning" }> =>
+  part.type === "reasoning";
 
 const renderPart = (
   part: RenderablePart,
@@ -65,6 +70,20 @@ const renderPart = (
       <p key={index} className="whitespace-pre-wrap leading-6">
         {part.text}
       </p>
+    );
+  if (isReasoningPart(part))
+    return (
+      <details
+        key={index}
+        className="rounded-md border border-border bg-muted/40 p-3 text-xs"
+      >
+        <summary className="cursor-pointer font-medium text-muted-foreground">
+          Reasoning
+        </summary>
+        <p className="mt-2 whitespace-pre-wrap leading-5 text-muted-foreground">
+          {part.text}
+        </p>
+      </details>
     );
   if (part.type === "tool-call")
     return (

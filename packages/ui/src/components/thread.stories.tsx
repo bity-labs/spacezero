@@ -78,6 +78,38 @@ type Story = StoryObj<typeof meta>;
 
 export const SavedHistory: Story = {};
 
+export const ReasoningHistory: Story = {
+  args: {
+    messages: [
+      messages[0]!,
+      {
+        id: "fixture-assistant-reasoning-message",
+        role: "assistant",
+        createdAt: timestamp,
+        content: [
+          {
+            type: "reasoning",
+            text: "I inspected the request and identified the safe public facts to show.",
+          },
+          {
+            type: "text",
+            text: "Here is the answer without duplicating the reasoning text.",
+          },
+        ],
+        status: { type: "complete", reason: "stop" },
+        metadata: {
+          unstable_state: null,
+          unstable_annotations: [],
+          unstable_data: [],
+          steps: [],
+          custom: {},
+        },
+      },
+    ],
+    thread: { state: "ready" },
+  },
+};
+
 export const Loading: Story = {
   args: {
     messages: [],

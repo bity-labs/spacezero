@@ -23,13 +23,19 @@ export class AgentTurnError extends Error {
  * Ephemeral live fragment of an agent turn. Deltas never advance the Session
  * Event Journal cursor; only completed message boundaries are durable.
  */
-export interface AgentTurnDelta {
-  readonly kind: "assistant_text";
+export interface AgentTurnContentPart {
+  readonly type: "text" | "reasoning";
+  readonly order: number;
   readonly text: string;
 }
 
+export interface AgentTurnDelta {
+  readonly kind: "assistant_content";
+  readonly part: AgentTurnContentPart;
+}
+
 export type AgentRuntimeEvent =
-  | { readonly type: "assistant_delta"; readonly text: string }
+  | { readonly type: "assistant_delta"; readonly part: AgentTurnContentPart }
   | {
       readonly type: "tool_started";
       readonly toolCallId: string;
@@ -119,6 +125,8 @@ export interface AgentTurnInput {
 export interface AgentTurnResult {
   /** Completed assistant message text for the turn. */
   readonly text: string;
+  /** Completed safe displayable assistant content in provider order. */
+  readonly parts?: readonly AgentTurnContentPart[];
 }
 
 export interface ConversationRunner {
