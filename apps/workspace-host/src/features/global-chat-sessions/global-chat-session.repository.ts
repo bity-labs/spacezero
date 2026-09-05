@@ -43,6 +43,7 @@ interface MessageRow {
   readonly role: "user" | "assistant";
   readonly text: string;
   readonly sequence: number;
+  readonly command_id?: string | null;
   readonly turn_id: string | null;
   readonly created_at: string;
 }
@@ -207,6 +208,9 @@ const toMessage = (row: MessageRow): GlobalChatSessionMessage => ({
   text: row.text,
   sequence: row.sequence,
   createdAt: row.created_at,
+  ...(row.command_id === undefined || row.command_id === null
+    ? {}
+    : { commandId: row.command_id }),
   ...(row.turn_id === null ? {} : { turnId: row.turn_id }),
   parts: [
     {
@@ -282,10 +286,10 @@ const getMessageById = (
   sessionId: string,
   messageId: string,
 ) =>
-  sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND message_id = ${messageId}`;
+  sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} AND m.message_id = ${messageId}`;
 
 const getFirstMessage = (sql: SqlClient, sessionId: string) =>
-  sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} AND role = 'user' ORDER BY sequence ASC LIMIT 1`;
+  sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND t.user_message_id = m.message_id WHERE m.session_id = ${sessionId} AND m.role = 'user' ORDER BY m.sequence ASC LIMIT 1`;
 
 const getPiConversationId = (sql: SqlClient, sessionId: string) =>
   Effect.gen(function* () {
@@ -1038,7 +1042,7 @@ export const createGlobalChatSessionRepository = (options: {
           throw new GlobalChatSessionServiceError(
             "global_chat_session_not_found",
           );
-        const messages = yield* sql<MessageRow>`SELECT * FROM chat_session_messages WHERE session_id = ${sessionId} ORDER BY sequence ASC`;
+        const messages = yield* sql<MessageRow>`SELECT m.*, t.command_id AS command_id FROM chat_session_messages m LEFT JOIN chat_session_turns t ON t.session_id = m.session_id AND (t.user_message_id = m.message_id OR t.assistant_message_id = m.message_id) WHERE m.session_id = ${sessionId} ORDER BY m.sequence ASC`;
         const activeTurns = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') ORDER BY updated_at DESC LIMIT 1`;
         const latestTurns = yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} ORDER BY updated_at DESC, turn_id DESC LIMIT 1`;
         return {

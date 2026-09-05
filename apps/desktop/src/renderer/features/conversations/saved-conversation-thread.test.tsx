@@ -204,6 +204,126 @@ describe("SavedConversationThread", () => {
     await waitFor(() => expect(submitted).toEqual(["Build live streaming"]));
   });
 
+  it("shows honest running and recovery states without marking the turn complete", async () => {
+    const running = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-running",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "running-user-message",
+            role: "user" as const,
+            text: "Keep going",
+            sequence: 3,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "running-user-message",
+          assistantMessageId: "running-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Partial answer",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+    const recovery = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-session-recovery",
+      load: async () => ({
+        title: "Needs recovery",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "recovery-user-message",
+            role: "user" as const,
+            text: "Recover this",
+            sequence: 3,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "33333333-3333-4333-8333-333333333333",
+          commandId: "44444444-4444-4444-8444-444444444444",
+          state: "recovery_required" as const,
+          userMessageId: "recovery-user-message",
+          assistantMessageId: "recovery-assistant-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Ambiguous work",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+    });
+    const { rerender } = render(<SavedConversationThread store={running} />);
+
+    expect(await screen.findByText("Assistant is responding.")).toBeInTheDocument();
+
+    rerender(<SavedConversationThread store={recovery} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Conversation requires recovery before it can continue.",
+    );
+  });
+
+  it("shows a disconnected state for both Session kinds without clearing the running transcript", async () => {
+    let disconnectProject: ((error: Error) => void) | undefined;
+    const projectStore = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-disconnected",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 4,
+        messages: [
+          {
+            id: "project-running-message",
+            role: "assistant" as const,
+            text: "Still running",
+            sequence: 4,
+            createdAt: timestamp,
+            turnId: "11111111-1111-4111-8111-111111111111",
+          },
+        ],
+        activeTurn: {
+          id: "11111111-1111-4111-8111-111111111111",
+          commandId: "22222222-2222-4222-8222-222222222222",
+          state: "running" as const,
+          userMessageId: "33333333-3333-4333-8333-333333333333",
+          assistantMessageId: "project-running-message",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "Still running",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      }),
+      subscribeEvents: (input) => {
+        disconnectProject = input.onError;
+        return { cancel: () => undefined, closed: Promise.resolve() };
+      },
+    });
+    render(<SavedConversationThread store={projectStore} />);
+
+    expect(await screen.findByText("Still running")).toBeInTheDocument();
+    disconnectProject?.(new Error("network unavailable"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Connection lost. Reconnecting to the Host; running work may still be active.",
+    );
+    expect(screen.getByText("Still running")).toBeInTheDocument();
+  });
+
   it("surfaces empty and query failure states", async () => {
     const empty = loadedStore({
       kind: "global",

@@ -79,6 +79,7 @@ export interface SubscribeProjectSessionEventsInput {
   readonly onEvent: (event: ProjectSessionEventEnvelope) => void;
   readonly onLiveEvent?: (event: ProjectSessionLiveEventEnvelope) => void;
   readonly onError?: (error: Error) => void;
+  readonly onOpen?: () => void;
 }
 
 export interface ProjectSessionEventSubscription {
@@ -228,6 +229,7 @@ const runProjectSessionEventSubscription = async (
       });
       if (!response.ok || !response.body)
         throw new Error("project session event subscription unavailable");
+      input.onOpen?.();
       const reader = response.body.getReader();
       let buffered = "";
       for (;;) {

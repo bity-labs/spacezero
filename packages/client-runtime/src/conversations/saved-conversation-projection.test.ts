@@ -3,6 +3,7 @@ import {
   createGlobalChatDraftConversationStore,
   createGlobalChatSessionSavedConversationStore,
   createProjectSessionSavedConversationStore,
+  createSavedConversationStore,
   type SavedConversationProjection,
 } from "./saved-conversation-projection.js";
 import type {
@@ -361,11 +362,29 @@ describe("saved conversation projection", () => {
 
   it("keeps an ambiguous prompt submission unresolved under the original command identity across reload", async () => {
     let onEvent: ((event: unknown) => void) | undefined;
+    let loadCount = 0;
     const client = {
-      listSessionMessages: vi.fn(async () => ({
-        session: projectSession,
-        messages: [],
-      })),
+      listSessionMessages: vi.fn(async () => {
+        loadCount += 1;
+        if (loadCount < 3)
+          return {
+            session: projectSession,
+            messages: [],
+          };
+        return {
+          session: { ...projectSession, lastSequence: 5 },
+          messages: [
+            {
+              id: "reconciled-user-message",
+              role: "user" as const,
+              text: "may have committed",
+              commandId: pendingCommandId,
+              sequence: 5,
+              createdAt: "2026-01-01T00:00:05.000Z",
+            },
+          ],
+        };
+      }),
       submitPrompt: vi.fn(async () => {
         throw new TypeError("fetch failed after request was sent");
       }),
@@ -380,6 +399,7 @@ describe("saved conversation projection", () => {
       client,
       sessionId: "project-session-1",
     });
+    let pendingCommandId = "";
 
     await store.load();
     await expect(store.send("may have committed")).rejects.toThrow(
@@ -387,6 +407,7 @@ describe("saved conversation projection", () => {
     );
 
     const pending = store.getSnapshot().messages[0]!;
+    pendingCommandId = pending.commandId!;
     expect(pending).toMatchObject({
       id: expect.stringContaining("pending:"),
       role: "user",
@@ -416,6 +437,19 @@ describe("saved conversation projection", () => {
     expect(client.submitPrompt).toHaveBeenCalledTimes(1);
     expect(store.getSnapshot().messages[0]?.commandId).toBe(pending.commandId);
 
+    await store.load();
+
+    expect(store.getSnapshot().actions.send).toBe("available");
+    expect(store.getSnapshot().messages).toMatchObject([
+      {
+        id: "reconciled-user-message",
+        role: "user",
+        text: "may have committed",
+        commandId: pending.commandId,
+      },
+    ]);
+    expect(store.getSnapshot().messages[0]?.status).toBeUndefined();
+
     onEvent?.({
       sequence: 5,
       eventType: "UserMessageSubmittedV1",
@@ -429,17 +463,267 @@ describe("saved conversation projection", () => {
         timestamp: "2026-01-01T00:00:05.000Z",
       },
     });
+    expect(store.getSnapshot().messages).toHaveLength(1);
+  });
 
-    expect(store.getSnapshot().actions.send).toBe("available");
+  it("does not reconcile ambiguous submissions by text when two prompts have identical content", async () => {
+    let loadCount = 0;
+    const client = {
+      listSessionMessages: vi.fn(async () => {
+        loadCount += 1;
+        if (loadCount === 1)
+          return { session: projectSession, messages: [] };
+        return {
+          session: { ...projectSession, lastSequence: 5 },
+          messages: [
+            {
+              id: "different-user-message",
+              role: "user" as const,
+              text: "same text",
+              commandId: "11111111-1111-4111-8111-111111111111",
+              sequence: 5,
+              createdAt: "2026-01-01T00:00:05.000Z",
+            },
+          ],
+        };
+      }),
+      submitPrompt: vi.fn(async () => {
+        throw new TypeError("fetch failed after request was sent");
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    await expect(store.send("same text")).rejects.toThrow("fetch failed");
+    const pendingCommandId = store.getSnapshot().messages[0]!.commandId!;
+
+    await store.load();
+
     expect(store.getSnapshot().messages).toMatchObject([
       {
-        id: "reconciled-user-message",
-        role: "user",
-        text: "may have committed",
-        commandId: pending.commandId,
+        id: "different-user-message",
+        text: "same text",
+        commandId: "11111111-1111-4111-8111-111111111111",
+      },
+      {
+        id: expect.stringContaining("pending:"),
+        text: "same text",
+        commandId: pendingCommandId,
+        status: "pending",
       },
     ]);
-    expect(store.getSnapshot().messages[0]?.status).toBeUndefined();
+    expect(store.getSnapshot().actions.send).toBe("unresolved");
+    expect(client.submitPrompt).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores duplicate durable events and late live deltas after completion", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    let onLiveEvent: ((event: unknown) => void) | undefined;
+    const store = createSavedConversationStore({
+      kind: "project",
+      sessionId: "project-session-1",
+      load: async () => ({
+        title: "margaux",
+        lastSequence: 1,
+        messages: [
+          {
+            id: "user-message-1",
+            role: "user" as const,
+            text: "hello",
+            sequence: 1,
+            createdAt: timestamp,
+          },
+        ],
+      }),
+      subscribeEvents: (input) => {
+        onEvent = (event: unknown) => input.onEvent(event as never);
+        onLiveEvent = (event: unknown) => input.onLiveEvent?.(event as never);
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      },
+    });
+
+    await store.load();
+    onEvent?.({
+      sequence: 2,
+      eventType: "AgentTurnStartedV1",
+      event: {
+        type: "AgentTurnStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "off",
+        timestamp: "2026-01-01T00:00:02.000Z",
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "partial",
+        timestamp: "2026-01-01T00:00:03.000Z",
+      },
+    });
+    onEvent?.({
+      sequence: 3,
+      eventType: "AgentMessageCheckpointedV1",
+      event: {
+        type: "AgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "partial checkpoint",
+        timestamp: "2026-01-01T00:00:03.500Z",
+      },
+    });
+    onEvent?.({
+      sequence: 4,
+      eventType: "AgentMessageCompletedV1",
+      event: {
+        type: "AgentMessageCompletedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "final answer",
+        timestamp: "2026-01-01T00:00:04.000Z",
+      },
+    });
+    onEvent?.({
+      sequence: 3,
+      eventType: "AgentMessageCheckpointedV1",
+      event: {
+        type: "AgentMessageCheckpointedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "stale checkpoint",
+        timestamp: "2026-01-01T00:00:03.500Z",
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: " stale live",
+        timestamp: "2026-01-01T00:00:04.500Z",
+      },
+    });
+
+    expect(store.getSnapshot().lastSequence).toBe(4);
+    expect(store.getSnapshot().runtime.status).toBe("completed");
+    expect(store.getSnapshot().messages.at(-1)).toMatchObject({
+      id: "assistant-message-1",
+      text: "final answer",
+    });
+  });
+
+  it("reloads authoritative running state when an event subscription reconnects after missed live deltas", async () => {
+    let onOpen: (() => void) | undefined;
+    let onError: ((error: Error) => void) | undefined;
+    let loadCount = 0;
+    const store = createSavedConversationStore({
+      kind: "global",
+      sessionId: "global-session-1",
+      load: async () => {
+        loadCount += 1;
+        if (loadCount === 1)
+          return {
+            title: "Global prompt",
+            lastSequence: 4,
+            messages: [
+              {
+                id: "global-user-message-1",
+                role: "user" as const,
+                text: "hello",
+                sequence: 3,
+                createdAt: timestamp,
+              },
+            ],
+            activeTurn: {
+              id: "global-turn-1",
+              commandId: "11111111-1111-4111-8111-111111111111",
+              state: "running" as const,
+              userMessageId: "global-user-message-1",
+              assistantMessageId: "global-assistant-message-1",
+              providerId: "anthropic",
+              modelId: "claude-sonnet-4-5",
+              thinkingLevel: "off" as const,
+              draftText: "",
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            },
+          };
+        return {
+          title: "Global prompt",
+          lastSequence: 5,
+          messages: [
+            {
+              id: "global-user-message-1",
+              role: "user" as const,
+              text: "hello",
+              sequence: 3,
+              createdAt: timestamp,
+            },
+          ],
+          activeTurn: {
+            id: "global-turn-1",
+            commandId: "11111111-1111-4111-8111-111111111111",
+            state: "running" as const,
+            userMessageId: "global-user-message-1",
+            assistantMessageId: "global-assistant-message-1",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "authoritative draft",
+            createdAt: timestamp,
+            updatedAt: "2026-01-01T00:00:06.000Z",
+          },
+        };
+      },
+      subscribeEvents: (input) => {
+        onOpen = input.onOpen;
+        onError = input.onError;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      },
+    });
+
+    await store.load();
+    expect(store.getSnapshot().connection.status).toBe("connected");
+
+    onError?.(new Error("stream disconnected"));
+    expect(store.getSnapshot().connection).toMatchObject({
+      status: "disconnected",
+      message: "stream disconnected",
+    });
+    expect(store.getSnapshot().runtime.status).toBe("running");
+
+    onOpen?.();
+    await vi.waitFor(() =>
+      expect(store.getSnapshot().messages.at(-1)).toMatchObject({
+        id: "global-assistant-message-1",
+        text: "authoritative draft",
+      }),
+    );
+    expect(store.getSnapshot().connection.status).toBe("connected");
+    expect(store.getSnapshot().lastSequence).toBe(5);
   });
 
   it("creates a Global Chat Session only on first draft send without duplicating the prompt", async () => {

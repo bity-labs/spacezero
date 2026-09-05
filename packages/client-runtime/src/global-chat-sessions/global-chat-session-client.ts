@@ -74,6 +74,7 @@ export interface SubscribeGlobalChatSessionEventsInput {
   readonly onEvent: (event: GlobalChatSessionEventEnvelope) => void;
   readonly onLiveEvent?: (event: GlobalChatSessionLiveEventEnvelope) => void;
   readonly onError?: (error: Error) => void;
+  readonly onOpen?: () => void;
 }
 
 export interface GlobalChatSessionEventSubscription {
@@ -212,6 +213,7 @@ const runGlobalChatSessionEventSubscription = async (
       });
       if (!response.ok || !response.body)
         throw new Error("global chat session event subscription unavailable");
+      input.onOpen?.();
       const reader = response.body.getReader();
       let buffered = "";
       for (;;) {

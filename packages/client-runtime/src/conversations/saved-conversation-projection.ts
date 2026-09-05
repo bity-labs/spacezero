@@ -16,6 +16,11 @@ import type { ProjectSessionClient } from "../project-sessions/project-session-c
 export type SavedConversationKind = "project" | "global";
 export type SavedConversationStatus =
   "idle" | "loading" | "ready" | "empty" | "unavailable" | "error";
+export type SavedConversationConnectionStatus =
+  | "idle"
+  | "connecting"
+  | "connected"
+  | "disconnected";
 export type SavedConversationRuntimeStatus =
   | "idle"
   | "running"
@@ -61,6 +66,10 @@ export interface SavedConversationProjection {
     readonly status: SavedConversationRuntimeStatus;
     readonly activeTurnId?: string;
     readonly latestTurnId?: string;
+  };
+  readonly connection: {
+    readonly status: SavedConversationConnectionStatus;
+    readonly message?: string;
   };
   readonly actions: {
     readonly send: SavedConversationSendState;
@@ -127,6 +136,7 @@ interface CreateSavedConversationStoreInput {
         ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
     ) => void;
     readonly onError?: (error: Error) => void;
+    readonly onOpen?: () => void;
   }) => SavedConversationEventSubscription;
   readonly interruptTurn?: (input: {
     readonly sessionId: string;
@@ -193,6 +203,7 @@ const initialSnapshot = (
   messages: [],
   lastSequence: 0,
   runtime: { status: "idle" },
+  connection: { status: "idle" },
   actions: actions({ canSend, send: "available", canStop: false }),
 });
 
@@ -318,6 +329,13 @@ const mergeMessages = (
     (left, right) => left.sequence - right.sequence,
   );
 
+const hasPendingCommand = (
+  projection: SavedConversationProjection,
+): boolean =>
+  projection.messages.some(
+    (message) => message.role === "user" && message.status === "pending",
+  );
+
 const upsertMessage = (
   messages: readonly SavedConversationMessage[],
   message: SavedConversationMessage,
@@ -357,6 +375,7 @@ const applyDurableEvent = (
   envelope: ProjectSessionEventEnvelope | GlobalChatSessionEventEnvelope,
   canSend: boolean,
 ): SavedConversationProjection => {
+  if (envelope.sequence <= projection.lastSequence) return projection;
   const event = envelope.event;
   const base = {
     ...projection,
@@ -476,6 +495,11 @@ const applyLiveEvent = (
     event.type !== "GlobalChatAssistantTextDeltaV1"
   )
     return projection;
+  const isActiveTurn =
+    projection.runtime.status === "running" &&
+    (projection.runtime.activeTurnId === event.turnId ||
+      projection.runtime.latestTurnId === event.turnId);
+  if (!isActiveTurn) return projection;
   return {
     ...projection,
     status: "ready",
@@ -524,25 +548,60 @@ export const createSavedConversationStore = ({
     for (const listener of listeners) listener();
   };
 
+  const reconnectFromAuthoritativeSnapshot = (
+    subscriptionSessionId: string,
+  ): void => {
+    void loadProjection()
+      .then((next) => {
+        if (disposed || currentSessionId !== subscriptionSessionId) return;
+        publish({ ...next, connection: { status: "connected" } });
+      })
+      .catch((error) => {
+        if (disposed || currentSessionId !== subscriptionSessionId) return;
+        publish({
+          ...snapshot,
+          connection: {
+            status: "disconnected",
+            message: toErrorMessage(error),
+          },
+          error: { message: toErrorMessage(error) },
+        });
+      });
+  };
+
   const resubscribe = (after: number): void => {
     subscription?.cancel();
     if (!subscribeEvents || disposed || currentSessionId === "") return;
+    const subscriptionSessionId = currentSessionId;
     subscription = subscribeEvents({
-      sessionId: currentSessionId,
+      sessionId: subscriptionSessionId,
       after,
-      onEvent: (event) =>
-        publish(applyDurableEvent(snapshot, event, canSend())),
-      onLiveEvent: (event) => publish(applyLiveEvent(snapshot, event)),
+      onEvent: (event) => {
+        const next = applyDurableEvent(snapshot, event, canSend());
+        publish({ ...next, connection: { status: "connected" } });
+      },
+      onLiveEvent: (event) => {
+        const next = applyLiveEvent(snapshot, event);
+        publish({ ...next, connection: { status: "connected" } });
+      },
       onError: (error) => {
         publish({
           ...snapshot,
+          connection: { status: "disconnected", message: error.message },
           actions: actions({
             canSend: canSend(),
-            send: "unresolved",
+            send: hasPendingCommand(snapshot) ? "unresolved" : "unavailable",
             canStop: false,
           }),
           error: { message: error.message },
         });
+      },
+      onOpen: () => {
+        if (snapshot.connection.status === "disconnected") {
+          reconnectFromAuthoritativeSnapshot(subscriptionSessionId);
+          return;
+        }
+        publish({ ...snapshot, connection: { status: "connected" } });
       },
     });
     void subscription.closed.catch(() => undefined);
@@ -564,6 +623,7 @@ export const createSavedConversationStore = ({
       messages,
       lastSequence: loaded.lastSequence,
       runtime,
+      connection: { status: "connected" },
       actions: actions({
         canSend: canSend(),
         send: pendingMessages.length > 0 ? "unresolved" : "available",
@@ -582,7 +642,11 @@ export const createSavedConversationStore = ({
     load: async () => {
       const { error: _error, ...current } = snapshot;
       void _error;
-      publish({ ...current, status: "loading" });
+      publish({
+        ...current,
+        status: "loading",
+        connection: { status: "connecting" },
+      });
       try {
         const next = await loadProjection();
         publish(next);
@@ -592,6 +656,10 @@ export const createSavedConversationStore = ({
         const next: SavedConversationProjection = {
           ...snapshot,
           status: "error",
+          connection: {
+            status: "disconnected",
+            message: toErrorMessage(error),
+          },
           error: { message: toErrorMessage(error) },
         };
         publish(next);
@@ -767,6 +835,9 @@ export const createProjectSessionSavedConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
+              ...(input.onOpen === undefined
+                ? {}
+                : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -823,6 +894,9 @@ export const createGlobalChatSessionSavedConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
+              ...(input.onOpen === undefined
+                ? {}
+                : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
@@ -866,6 +940,9 @@ export const createGlobalChatDraftConversationStore = ({
               ...(input.onError === undefined
                 ? {}
                 : { onError: input.onError }),
+              ...(input.onOpen === undefined
+                ? {}
+                : { onOpen: input.onOpen }),
             }),
         }),
     ...(optionalClient.interruptTurn === undefined
