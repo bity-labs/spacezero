@@ -224,6 +224,19 @@ CREATE TABLE workspace_tool_policies (
 )`;
 });
 
+export const createAgentRuntimeDefaultsMigration = Effect.gen(function* () {
+  const sql = yield* SqlClient;
+  yield* sql`
+CREATE TABLE agent_runtime_defaults (
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+  default_provider_id TEXT CHECK (default_provider_id IS NULL OR length(default_provider_id) BETWEEN 1 AND 128),
+  default_model_id TEXT CHECK (default_model_id IS NULL OR length(default_model_id) BETWEEN 1 AND 256),
+  default_thinking_level TEXT CHECK (default_thinking_level IS NULL OR default_thinking_level IN ('off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')),
+  updated_at TEXT NOT NULL,
+  CHECK ((default_provider_id IS NULL) = (default_model_id IS NULL))
+)`;
+});
+
 export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
   [1, "create_project_catalog", Effect.succeed(createProjectCatalogMigration)],
   [2, "create_chat_sessions", Effect.succeed(createChatSessionsMigration)],
@@ -241,6 +254,11 @@ export const hostMigrationLoader: Migrator.Loader = Effect.succeed([
     5,
     "create_workspace_tool_policies",
     Effect.succeed(createWorkspaceToolPolicyMigration),
+  ],
+  [
+    6,
+    "create_agent_runtime_defaults",
+    Effect.succeed(createAgentRuntimeDefaultsMigration),
   ],
 ] as const);
 
