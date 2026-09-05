@@ -215,11 +215,39 @@ export function SavedConversationThread({
         projection.actions.send === "unresolved" ||
         projection.status === "loading" ||
         projection.status === "idle" ||
-        projection.status === "error" ||
-        projection.runtime.status === "running",
+        projection.status === "error",
       isLoading:
         projection.status === "loading" || projection.status === "idle",
-      isRunning: projection.runtime.status === "running",
+      isRunning:
+        projection.runtime.status === "running" &&
+        projection.actions.send !== "available",
+      queue:
+        projection.runtime.status === "running"
+          ? {
+              items: projection.queue.followUps
+                .filter(
+                  (item) =>
+                    item.state === "queued" || item.status === "pending",
+                )
+                .map((item) => ({
+                  id: item.id,
+                  prompt: item.prompt,
+                  parts: [{ type: "text" as const, text: item.prompt }],
+                })),
+              steerItems: [],
+              enqueue: (message: AppendMessage) => {
+                const text = textFromAppendMessage(message);
+                if (text.length === 0) return;
+                void store.send(text).catch(() => undefined);
+              },
+              steer: () => undefined,
+              move: () => undefined,
+              edit: () => undefined,
+              remove: (queueItemId: string) => {
+                void store.cancelFollowUp(queueItemId).catch(() => undefined);
+              },
+            }
+          : undefined,
       onNew: async (message: AppendMessage) => {
         const text = textFromAppendMessage(message);
         if (text.length === 0) return;
@@ -245,6 +273,14 @@ export function SavedConversationThread({
           {...(projection.error?.message === undefined
             ? {}
             : { errorMessage: projection.error.message })}
+          queueItems={projection.queue.followUps}
+          onCancelQueueItem={(id) => {
+            void store.cancelFollowUp(id).catch(() => undefined);
+          }}
+          isRunning={projection.runtime.status === "running"}
+          onStop={() => {
+            void store.stop().catch(() => undefined);
+          }}
         />
       </div>
     </AssistantRuntimeProvider>

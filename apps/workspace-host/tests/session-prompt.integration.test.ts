@@ -175,6 +175,58 @@ const subscribeEvents = (
     },
   );
 
+const listFollowUps = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+) => {
+  const response = await fetch(
+    new URL(`/v1/project-sessions/${sessionId}/follow-ups`, host.endpoint),
+    { headers: authHeaders(clientCapability) },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const enqueueFollowUp = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  prompt: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/project-sessions/${sessionId}/follow-ups`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, prompt }),
+    },
+  );
+  const text = await response.text();
+  return {
+    response,
+    body: text.length > 0 ? (JSON.parse(text) as unknown) : undefined,
+  };
+};
+const cancelFollowUp = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  followUpId: string,
+) => {
+  const response = await fetch(
+    new URL(
+      `/v1/project-sessions/${sessionId}/follow-ups/${followUpId}/cancel`,
+      host.endpoint,
+    ),
+    { method: "POST", headers: authHeaders(clientCapability) },
+  );
+  const text = await response.text();
+  return {
+    response,
+    body: text.length > 0 ? (JSON.parse(text) as unknown) : undefined,
+  };
+};
+
 const interruptTurn = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -298,6 +350,225 @@ afterEach(async () => {
 });
 
 describe("Session prompt Host protocol", () => {
+  it("queues, cancels, consumes, reloads, and isolates Project Session follow-ups through Host APIs", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const seenPrompts: string[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input: AgentTurnInput) => {
+        seenPrompts.push(input.prompt);
+        if (input.prompt === "active turn") await releasePromise;
+        return { text: `answer to ${input.prompt}` };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(
+      host,
+      client.clientCapability,
+      await gitRepo(root),
+    );
+    const session = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const isolatedSession = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "active turn",
+    );
+    expect(submitted.response.status).toBe(200);
+
+    const firstCommandId = randomUUID();
+    const secondCommandId = randomUUID();
+    const first = await enqueueFollowUp(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "same follow-up text",
+      firstCommandId,
+    );
+    const second = await enqueueFollowUp(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "same follow-up text",
+      secondCommandId,
+    );
+    expect(first.response.status).toBe(200);
+    expect(second.response.status).toBe(200);
+    expect(first.body).toMatchObject({
+      followUp: { commandId: firstCommandId, position: 1, state: "queued" },
+    });
+    expect(second.body).toMatchObject({
+      followUp: { commandId: secondCommandId, position: 2, state: "queued" },
+    });
+
+    const cancelled = await cancelFollowUp(
+      host,
+      client.clientCapability,
+      session.session.id,
+      (second.body as { followUp: { id: string } }).followUp.id,
+    );
+    expect(cancelled.response.status).toBe(200);
+    expect(cancelled.body).toMatchObject({
+      followUp: { commandId: secondCommandId, state: "cancelled" },
+    });
+
+    const isolatedFollowUps = await listFollowUps(
+      host,
+      client.clientCapability,
+      isolatedSession.session.id,
+    );
+    expect(isolatedFollowUps.body).toMatchObject({ followUps: [] });
+
+    release();
+    const listedMessages = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      session.session.id,
+      4,
+    );
+    expect(listedMessages.body).toMatchObject({
+      messages: [
+        { role: "user", text: "active turn" },
+        { role: "assistant", text: "answer to active turn" },
+        {
+          role: "user",
+          text: "same follow-up text",
+          commandId: firstCommandId,
+        },
+        { role: "assistant", text: "answer to same follow-up text" },
+      ],
+    });
+    expect(seenPrompts).toEqual(["active turn", "same follow-up text"]);
+
+    const listedFollowUps = await listFollowUps(
+      host,
+      client.clientCapability,
+      session.session.id,
+    );
+    expect(listedFollowUps.body).toMatchObject({
+      followUps: [
+        { commandId: firstCommandId, state: "consumed", position: 1 },
+        { commandId: secondCommandId, state: "cancelled", position: 2 },
+      ],
+    });
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const reloaded = await listFollowUps(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.session.id,
+    );
+    expect(reloaded.body).toMatchObject({
+      followUps: [
+        { commandId: firstCommandId, state: "consumed", position: 1 },
+        { commandId: secondCommandId, state: "cancelled", position: 2 },
+      ],
+    });
+  });
+
+  it("reports the authoritative Host state when follow-up cancellation races dispatch", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    let release!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input: AgentTurnInput) => {
+        if (input.prompt === "active turn") await releasePromise;
+        return { text: `answer to ${input.prompt}` };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(
+      host,
+      client.clientCapability,
+      await gitRepo(root),
+    );
+    const session = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "active turn",
+    );
+    expect(submitted.response.status).toBe(200);
+    const commandId = randomUUID();
+    const queued = await enqueueFollowUp(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "racy follow-up",
+      commandId,
+    );
+    expect(queued.response.status).toBe(200);
+    release();
+
+    let current = (queued.body as { followUp: { id: string; state: string } })
+      .followUp;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const listed = await listFollowUps(
+        host,
+        client.clientCapability,
+        session.session.id,
+      );
+      current = (listed.body as { followUps: { id: string; state: string }[] })
+        .followUps[0]!;
+      if (current.state !== "queued") break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    expect(current.state).not.toBe("queued");
+
+    const cancelled = await cancelFollowUp(
+      host,
+      client.clientCapability,
+      session.session.id,
+      current.id,
+    );
+    expect(cancelled.response.status).toBe(409);
+    expect(cancelled.body).toMatchObject({ code: "follow_up_not_cancellable" });
+    const authoritative = await listFollowUps(
+      host,
+      client.clientCapability,
+      session.session.id,
+    );
+    expect(authoritative.body).toMatchObject({
+      followUps: [{ commandId, state: current.state }],
+    });
+    await waitForMessageCount(
+      host,
+      client.clientCapability,
+      session.session.id,
+      4,
+    );
+  });
+
   it("preserves provider-exposed reasoning parts through Project Session history and replay", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");

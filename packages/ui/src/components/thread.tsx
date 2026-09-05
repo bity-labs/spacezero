@@ -30,6 +30,25 @@ export interface ThreadLabels {
   readonly composer?: string;
   readonly send?: string;
   readonly stop?: string;
+  readonly queuedFollowUps?: string;
+  readonly cancelQueuedFollowUp?: string;
+  readonly followUpQueued?: string;
+  readonly followUpDispatched?: string;
+  readonly followUpConsumed?: string;
+  readonly followUpCancelled?: string;
+  readonly followUpRecoveryRequired?: string;
+  readonly followUpPending?: string;
+  readonly followUpFailed?: string;
+}
+
+export interface ThreadQueueItem {
+  readonly id: string;
+  readonly prompt: string;
+  readonly state:
+    "queued" | "dispatched" | "consumed" | "cancelled" | "recovery_required";
+  readonly position: number;
+  readonly status?: "pending" | "failed";
+  readonly errorMessage?: string;
 }
 
 export interface ThreadProps {
@@ -37,6 +56,10 @@ export interface ThreadProps {
   readonly errorMessage?: string;
   readonly labels?: ThreadLabels;
   readonly className?: string;
+  readonly queueItems?: readonly ThreadQueueItem[];
+  readonly onCancelQueueItem?: (id: string) => void | Promise<void>;
+  readonly isRunning?: boolean;
+  readonly onStop?: () => void | Promise<void>;
 }
 
 const defaultLabels = {
@@ -56,6 +79,15 @@ const defaultLabels = {
   composer: "Message",
   send: "Send",
   stop: "Stop",
+  queuedFollowUps: "Queued follow-ups",
+  cancelQueuedFollowUp: "Cancel follow-up",
+  followUpQueued: "Queued",
+  followUpDispatched: "Dispatching",
+  followUpConsumed: "Consumed",
+  followUpCancelled: "Cancelled",
+  followUpRecoveryRequired: "Recovery required",
+  followUpPending: "Saving…",
+  followUpFailed: "Failed to queue",
 } satisfies Required<ThreadLabels>;
 
 type ToolDisplayContent =
@@ -252,10 +284,88 @@ const ThreadMessageView = ({
   );
 };
 
+const followUpLabel = (
+  item: ThreadQueueItem,
+  labels: Required<ThreadLabels>,
+): string => {
+  if (item.status === "pending") return labels.followUpPending;
+  if (item.status === "failed") return labels.followUpFailed;
+  switch (item.state) {
+    case "queued":
+      return labels.followUpQueued;
+    case "dispatched":
+      return labels.followUpDispatched;
+    case "consumed":
+      return labels.followUpConsumed;
+    case "cancelled":
+      return labels.followUpCancelled;
+    case "recovery_required":
+      return labels.followUpRecoveryRequired;
+  }
+};
+
+const ThreadQueue = ({
+  items,
+  labels,
+  onCancel,
+}: {
+  readonly items: readonly ThreadQueueItem[];
+  readonly labels: Required<ThreadLabels>;
+  readonly onCancel?: (id: string) => void | Promise<void>;
+}): ReactElement | null => {
+  if (items.length === 0) return null;
+  return (
+    <section
+      aria-label={labels.queuedFollowUps}
+      className="border-t border-border bg-muted/30 px-4 py-3 text-sm"
+    >
+      <div className="mb-2 font-medium text-muted-foreground">
+        {labels.queuedFollowUps}
+      </div>
+      <ol className="space-y-2">
+        {items.map((item) => (
+          <li
+            key={item.id}
+            className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-xs text-muted-foreground">
+                #{item.position} · {followUpLabel(item, labels)}
+              </div>
+              <div className="mt-1 whitespace-pre-wrap">{item.prompt}</div>
+              {item.errorMessage ? (
+                <div role="alert" className="mt-1 text-xs text-destructive">
+                  {item.errorMessage}
+                </div>
+              ) : null}
+            </div>
+            {item.state === "queued" && item.status !== "pending" ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-md border border-input bg-background px-2 py-1 text-xs font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => {
+                  void onCancel?.(item.id);
+                }}
+                disabled={!onCancel}
+              >
+                {labels.cancelQueuedFollowUp}
+              </button>
+            ) : null}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+};
+
 const ThreadComposer = ({
   labels,
+  isRunning,
+  onStop,
 }: {
   readonly labels: Required<ThreadLabels>;
+  readonly isRunning: boolean;
+  readonly onStop?: () => void | Promise<void>;
 }): ReactElement => (
   <ComposerPrimitive.Root className="border-t border-border p-4">
     <div className="flex items-end gap-2 rounded-lg border border-input bg-background p-2 shadow-sm">
@@ -267,9 +377,21 @@ const ThreadComposer = ({
       <ComposerPrimitive.Send className="rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50">
         {labels.send}
       </ComposerPrimitive.Send>
-      <ComposerPrimitive.Cancel className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">
-        {labels.stop}
-      </ComposerPrimitive.Cancel>
+      {isRunning && onStop ? (
+        <button
+          type="button"
+          className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+          onClick={() => {
+            void onStop();
+          }}
+        >
+          {labels.stop}
+        </button>
+      ) : (
+        <ComposerPrimitive.Cancel className="rounded-md border border-input bg-background px-3 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50">
+          {labels.stop}
+        </ComposerPrimitive.Cancel>
+      )}
     </div>
   </ComposerPrimitive.Root>
 );
@@ -279,6 +401,10 @@ export function Thread({
   errorMessage,
   labels: labelOverrides,
   className,
+  queueItems = [],
+  onCancelQueueItem,
+  isRunning = false,
+  onStop,
 }: ThreadProps): ReactElement {
   const labels = { ...defaultLabels, ...labelOverrides };
   return (
@@ -327,7 +453,20 @@ export function Thread({
             </ThreadPrimitive.Messages>
           </div>
         </ThreadPrimitive.Viewport>
-        {state === "unavailable" ? null : <ThreadComposer labels={labels} />}
+        <ThreadQueue
+          items={queueItems}
+          labels={labels}
+          {...(onCancelQueueItem === undefined
+            ? {}
+            : { onCancel: onCancelQueueItem })}
+        />
+        {state === "unavailable" ? null : (
+          <ThreadComposer
+            labels={labels}
+            isRunning={isRunning}
+            {...(onStop === undefined ? {} : { onStop })}
+          />
+        )}
       </ThreadPrimitive.Root>
     </section>
   );

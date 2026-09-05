@@ -5,6 +5,7 @@ import type {
   GlobalChatSessionSummary,
   GlobalChatSessionTurn,
   ProjectSessionEventEnvelope,
+  ProjectSessionFollowUp,
   ProjectSessionLiveEventEnvelope,
   ProjectSessionSummary,
   ProjectSessionTurn,
@@ -28,6 +29,9 @@ export type SavedConversationRuntimeStatus =
 export type SavedConversationSendState =
   "available" | "submitting" | "unresolved" | "unavailable";
 export type SavedConversationMessageStatus = "pending" | "failed";
+export type SavedConversationFollowUpState =
+  "queued" | "dispatched" | "consumed" | "cancelled" | "recovery_required";
+export type SavedConversationFollowUpStatus = "pending" | "failed";
 
 export interface SavedConversationTextPart {
   readonly id: string;
@@ -109,6 +113,19 @@ export interface SavedConversationMessage {
   readonly parts: readonly SavedConversationMessagePart[];
 }
 
+export interface SavedConversationFollowUp {
+  readonly id: string;
+  readonly commandId: string;
+  readonly prompt: string;
+  readonly state: SavedConversationFollowUpState;
+  readonly position: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly dispatchedTurnId?: string;
+  readonly status?: SavedConversationFollowUpStatus;
+  readonly errorMessage?: string;
+}
+
 export interface SavedConversationProjection {
   readonly session: {
     readonly kind: SavedConversationKind;
@@ -117,6 +134,9 @@ export interface SavedConversationProjection {
   readonly status: SavedConversationStatus;
   readonly title?: string;
   readonly messages: readonly SavedConversationMessage[];
+  readonly queue: {
+    readonly followUps: readonly SavedConversationFollowUp[];
+  };
   readonly lastSequence: number;
   readonly runtime: {
     readonly status: SavedConversationRuntimeStatus;
@@ -145,6 +165,7 @@ export interface SavedConversationStore {
   readonly subscribe: (listener: () => void) => () => void;
   readonly load: () => Promise<SavedConversationProjection>;
   readonly send: (prompt: string) => Promise<void>;
+  readonly cancelFollowUp: (followUpId: string) => Promise<void>;
   readonly stop: () => Promise<void>;
   readonly dispose: () => void;
 }
@@ -153,6 +174,7 @@ interface SavedConversationConnectorResult {
   readonly title?: string;
   readonly lastSequence: number;
   readonly messages: readonly (SessionMessage | GlobalChatSessionMessage)[];
+  readonly followUps?: readonly ProjectSessionFollowUp[];
   readonly activeTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
   readonly latestTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
 }
@@ -177,6 +199,15 @@ interface CreateSavedConversationStoreInput {
     readonly prompt: string;
     readonly commandId: string;
   }) => Promise<SavedConversationSubmitResult>;
+  readonly enqueueFollowUp?: (input: {
+    readonly sessionId: string;
+    readonly prompt: string;
+    readonly commandId: string;
+  }) => Promise<{ readonly followUp: ProjectSessionFollowUp }>;
+  readonly cancelFollowUp?: (input: {
+    readonly sessionId: string;
+    readonly followUpId: string;
+  }) => Promise<{ readonly followUp: ProjectSessionFollowUp }>;
   readonly createWithFirstPrompt?: (input: {
     readonly prompt: string;
     readonly commandId: string;
@@ -257,6 +288,7 @@ const initialSnapshot = (
   session: { kind, id: sessionId },
   status: "idle",
   messages: [],
+  queue: { followUps: [] },
   lastSequence: 0,
   runtime: { status: "idle" },
   connection: { status: "idle" },
@@ -383,6 +415,30 @@ const unresolvedPendingMessages = (
   );
 };
 
+const unresolvedPendingFollowUps = (
+  current: SavedConversationProjection,
+  loadedFollowUps: readonly SavedConversationFollowUp[],
+): readonly SavedConversationFollowUp[] => {
+  if (current.actions.send !== "unresolved") return [];
+  return current.queue.followUps.filter(
+    (followUp) =>
+      followUp.status === "pending" &&
+      !loadedFollowUps.some(
+        (loadedFollowUp) => loadedFollowUp.commandId === followUp.commandId,
+      ),
+  );
+};
+
+const mergeFollowUps = (
+  followUps: readonly SavedConversationFollowUp[],
+  pendingFollowUps: readonly SavedConversationFollowUp[],
+): readonly SavedConversationFollowUp[] =>
+  [...followUps, ...pendingFollowUps].sort((left, right) =>
+    left.position === right.position
+      ? left.createdAt.localeCompare(right.createdAt)
+      : left.position - right.position,
+  );
+
 const mergeMessages = (
   messages: readonly SavedConversationMessage[],
   pendingMessages: readonly SavedConversationMessage[],
@@ -391,10 +447,96 @@ const mergeMessages = (
     (left, right) => left.sequence - right.sequence,
   );
 
+const sortFollowUps = (
+  followUps: readonly ProjectSessionFollowUp[],
+): readonly SavedConversationFollowUp[] =>
+  [...followUps]
+    .sort((left, right) =>
+      left.position === right.position
+        ? left.createdAt.localeCompare(right.createdAt)
+        : left.position - right.position,
+    )
+    .map((followUp) => ({
+      id: followUp.id,
+      commandId: followUp.commandId,
+      prompt: followUp.prompt,
+      state: followUp.state,
+      position: followUp.position,
+      createdAt: followUp.createdAt,
+      updatedAt: followUp.updatedAt,
+      ...(followUp.dispatchedTurnId === undefined
+        ? {}
+        : { dispatchedTurnId: followUp.dispatchedTurnId }),
+    }));
+
+const upsertFollowUp = (
+  followUps: readonly SavedConversationFollowUp[],
+  followUp: SavedConversationFollowUp,
+): readonly SavedConversationFollowUp[] =>
+  [
+    ...followUps.filter(
+      (candidate) => candidate.commandId !== followUp.commandId,
+    ),
+    followUp,
+  ].sort((left, right) =>
+    left.position === right.position
+      ? left.createdAt.localeCompare(right.createdAt)
+      : left.position - right.position,
+  );
+
+const followUpFromEvent = (input: {
+  readonly followUpId: string;
+  readonly commandId: string;
+  readonly prompt: string;
+  readonly position: number;
+  readonly timestamp: string;
+  readonly state?: SavedConversationFollowUpState;
+}): SavedConversationFollowUp => ({
+  id: input.followUpId,
+  commandId: input.commandId,
+  prompt: input.prompt,
+  state: input.state ?? "queued",
+  position: input.position,
+  createdAt: input.timestamp,
+  updatedAt: input.timestamp,
+});
+
+const updateFollowUpState = (
+  followUps: readonly SavedConversationFollowUp[],
+  input: {
+    readonly followUpId: string;
+    readonly commandId: string;
+    readonly state: SavedConversationFollowUpState;
+    readonly timestamp: string;
+    readonly dispatchedTurnId?: string;
+  },
+): readonly SavedConversationFollowUp[] => {
+  const existing = followUps.find(
+    (candidate) =>
+      candidate.id === input.followUpId ||
+      candidate.commandId === input.commandId,
+  );
+  if (!existing) return followUps;
+  const { status: _status, errorMessage: _errorMessage, ...settled } = existing;
+  void _status;
+  void _errorMessage;
+  return upsertFollowUp(followUps, {
+    ...settled,
+    id: input.followUpId,
+    commandId: input.commandId,
+    state: input.state,
+    updatedAt: input.timestamp,
+    ...(input.dispatchedTurnId === undefined
+      ? {}
+      : { dispatchedTurnId: input.dispatchedTurnId }),
+  });
+};
+
 const hasPendingCommand = (projection: SavedConversationProjection): boolean =>
   projection.messages.some(
     (message) => message.role === "user" && message.status === "pending",
-  );
+  ) ||
+  projection.queue.followUps.some((followUp) => followUp.status === "pending");
 
 const upsertMessage = (
   messages: readonly SavedConversationMessage[],
@@ -503,6 +645,7 @@ const applyDurableEvent = (
   projection: SavedConversationProjection,
   envelope: ProjectSessionEventEnvelope | GlobalChatSessionEventEnvelope,
   canSend: boolean,
+  canQueueFollowUp = false,
 ): SavedConversationProjection => {
   if (envelope.sequence <= projection.lastSequence) return projection;
   const event = envelope.event;
@@ -559,7 +702,11 @@ const applyDurableEvent = (
             parts: [],
           }),
         ),
-        actions: actions({ canSend, send: "available", canStop: true }),
+        actions: actions({
+          canSend,
+          send: canQueueFollowUp ? "available" : "unavailable",
+          canStop: true,
+        }),
       };
     case "AgentMessageCheckpointedV1":
     case "GlobalChatAgentMessageCheckpointedV1":
@@ -608,6 +755,76 @@ const applyDurableEvent = (
         ...base,
         runtime: { status: "failed", latestTurnId: event.turnId },
         actions: actions({ canSend, send: "available", canStop: false }),
+      };
+    case "ProjectSessionFollowUpQueuedV1":
+      return {
+        ...base,
+        queue: {
+          followUps: upsertFollowUp(
+            base.queue.followUps,
+            followUpFromEvent({
+              followUpId: event.followUpId,
+              commandId: event.commandId,
+              prompt: event.prompt,
+              position: event.position,
+              timestamp: event.timestamp,
+            }),
+          ),
+        },
+        actions: actions({
+          canSend,
+          send: "available",
+          canStop: base.actions.stop === "available",
+        }),
+      };
+    case "ProjectSessionFollowUpDispatchedV1":
+      return {
+        ...base,
+        queue: {
+          followUps: updateFollowUpState(base.queue.followUps, {
+            followUpId: event.followUpId,
+            commandId: event.commandId,
+            state: "dispatched",
+            timestamp: event.timestamp,
+          }),
+        },
+      };
+    case "ProjectSessionFollowUpConsumedV1":
+      return {
+        ...base,
+        queue: {
+          followUps: updateFollowUpState(base.queue.followUps, {
+            followUpId: event.followUpId,
+            commandId: event.commandId,
+            state: "consumed",
+            timestamp: event.timestamp,
+            dispatchedTurnId: event.turnId,
+          }),
+        },
+      };
+    case "ProjectSessionFollowUpCancelledV1":
+      return {
+        ...base,
+        queue: {
+          followUps: updateFollowUpState(base.queue.followUps, {
+            followUpId: event.followUpId,
+            commandId: event.commandId,
+            state: "cancelled",
+            timestamp: event.timestamp,
+          }),
+        },
+      };
+    case "ProjectSessionFollowUpRecoveryRequiredV1":
+      return {
+        ...base,
+        queue: {
+          followUps: updateFollowUpState(base.queue.followUps, {
+            followUpId: event.followUpId,
+            commandId: event.commandId,
+            state: "recovery_required",
+            timestamp: event.timestamp,
+          }),
+        },
       };
     case "AgentToolCallStartedV1":
     case "GlobalChatAgentToolCallStartedV1":
@@ -778,6 +995,8 @@ export const createSavedConversationStore = ({
   sessionId,
   load,
   submitPrompt,
+  enqueueFollowUp,
+  cancelFollowUp,
   createWithFirstPrompt,
   subscribeEvents,
   interruptTurn,
@@ -788,9 +1007,11 @@ export const createSavedConversationStore = ({
   const listeners = new Set<() => void>();
   let disposed = false;
   let currentSessionId = sessionId;
-  const canSend = () =>
+  const canSubmitPrompt = () =>
     submitPrompt !== undefined ||
     (createWithFirstPrompt !== undefined && currentSessionId === sessionId);
+  const canEnqueueFollowUp = () => enqueueFollowUp !== undefined;
+  const canSend = () => canSubmitPrompt() || canEnqueueFollowUp();
   let snapshot = initialSnapshot(kind, sessionId, canSend());
   let subscription: SavedConversationEventSubscription | undefined;
 
@@ -829,7 +1050,12 @@ export const createSavedConversationStore = ({
       sessionId: subscriptionSessionId,
       after,
       onEvent: (event) => {
-        const next = applyDurableEvent(snapshot, event, canSend());
+        const next = applyDurableEvent(
+          snapshot,
+          event,
+          canSend(),
+          canEnqueueFollowUp(),
+        );
         publish({ ...next, connection: { status: "connected" } });
       },
       onLiveEvent: (event) => {
@@ -865,20 +1091,33 @@ export const createSavedConversationStore = ({
       sortMessages(loaded.messages),
       loaded.activeTurn,
     );
+    const loadedFollowUps = sortFollowUps(loaded.followUps ?? []);
     const pendingMessages = unresolvedPendingMessages(snapshot, loadedMessages);
+    const pendingFollowUps = unresolvedPendingFollowUps(
+      snapshot,
+      loadedFollowUps,
+    );
     const messages = mergeMessages(loadedMessages, pendingMessages);
+    const followUps = mergeFollowUps(loadedFollowUps, pendingFollowUps);
     const runtime = runtimeStatus(loaded.activeTurn, loaded.latestTurn);
+    const hasUnresolved =
+      pendingMessages.length > 0 || pendingFollowUps.length > 0;
     return {
       session: { kind, id: currentSessionId },
       status: messages.length === 0 ? "empty" : "ready",
       ...(loaded.title === undefined ? {} : { title: loaded.title }),
       messages,
+      queue: { followUps },
       lastSequence: loaded.lastSequence,
       runtime,
       connection: { status: "connected" },
       actions: actions({
         canSend: canSend(),
-        send: pendingMessages.length > 0 ? "unresolved" : "available",
+        send: hasUnresolved
+          ? "unresolved"
+          : runtime.status === "running" && enqueueFollowUp === undefined
+            ? "unavailable"
+            : "available",
         canStop: runtime.status === "running" && interruptTurn !== undefined,
       }),
     };
@@ -924,6 +1163,96 @@ export const createSavedConversationStore = ({
       const trimmed = prompt.trim();
       if (trimmed.length === 0) throw new Error("prompt must not be blank");
       const commandId = createCommandId();
+      const shouldEnqueue =
+        snapshot.runtime.status === "running" && enqueueFollowUp !== undefined;
+      if (shouldEnqueue) {
+        const pendingFollowUp: SavedConversationFollowUp = {
+          id: createPendingMessageId(commandId),
+          commandId,
+          prompt: trimmed,
+          state: "queued",
+          position:
+            Math.max(
+              0,
+              ...snapshot.queue.followUps.map((item) => item.position),
+            ) + 1,
+          createdAt: now(),
+          updatedAt: now(),
+          status: "pending",
+        };
+        publish({
+          ...snapshot,
+          queue: {
+            followUps: upsertFollowUp(
+              snapshot.queue.followUps,
+              pendingFollowUp,
+            ),
+          },
+          actions: actions({
+            canSend: canSend(),
+            send: "submitting",
+            canStop: snapshot.actions.stop === "available",
+          }),
+        });
+        try {
+          const result = await enqueueFollowUp({
+            sessionId: currentSessionId,
+            prompt: trimmed,
+            commandId,
+          });
+          publish({
+            ...snapshot,
+            queue: {
+              followUps: upsertFollowUp(
+                snapshot.queue.followUps,
+                sortFollowUps([result.followUp])[0]!,
+              ),
+            },
+            actions: actions({
+              canSend: canSend(),
+              send: "available",
+              canStop: snapshot.actions.stop === "available",
+            }),
+          });
+        } catch (error) {
+          if (isDefinitiveSubmitError(error)) {
+            publish({
+              ...snapshot,
+              queue: {
+                followUps: snapshot.queue.followUps.map((followUp) =>
+                  followUp.id === pendingFollowUp.id
+                    ? {
+                        ...followUp,
+                        status: "failed",
+                        errorMessage: toErrorMessage(error),
+                      }
+                    : followUp,
+                ),
+              },
+              actions: actions({
+                canSend: canSend(),
+                send: "available",
+                canStop: snapshot.actions.stop === "available",
+              }),
+              error: { message: toErrorMessage(error) },
+            });
+          } else {
+            publish({
+              ...snapshot,
+              actions: actions({
+                canSend: canSend(),
+                send: "unresolved",
+                canStop: snapshot.actions.stop === "available",
+              }),
+              error: { message: toErrorMessage(error) },
+            });
+          }
+          throw error;
+        }
+        return;
+      }
+      if (snapshot.runtime.status === "running" || !canSubmitPrompt())
+        throw new Error("send unavailable");
       const pending = messageWithParts({
         id: createPendingMessageId(commandId),
         role: "user" as const,
@@ -984,13 +1313,17 @@ export const createSavedConversationStore = ({
             } as never,
           },
           canSend(),
+          canEnqueueFollowUp(),
         );
         publish({
           ...reconciled,
           runtime: runtimeStatus(result.turn, result.turn),
           actions: actions({
             canSend: canSend(),
-            send: "available",
+            send:
+              result.turn.state === "running" && enqueueFollowUp === undefined
+                ? "unavailable"
+                : "available",
             canStop: interruptTurn !== undefined,
           }),
         });
@@ -1029,6 +1362,33 @@ export const createSavedConversationStore = ({
         throw error;
       }
     },
+    cancelFollowUp: async (followUpId) => {
+      if (!cancelFollowUp)
+        throw new Error("follow-up cancellation unavailable");
+      try {
+        const result = await cancelFollowUp({
+          sessionId: currentSessionId,
+          followUpId,
+        });
+        publish({
+          ...snapshot,
+          queue: {
+            followUps: upsertFollowUp(
+              snapshot.queue.followUps,
+              sortFollowUps([result.followUp])[0]!,
+            ),
+          },
+        });
+      } catch (error) {
+        try {
+          const next = await loadProjection();
+          publish({ ...next, error: { message: toErrorMessage(error) } });
+        } catch {
+          publish({ ...snapshot, error: { message: toErrorMessage(error) } });
+        }
+        throw error;
+      }
+    },
     stop: async () => {
       const turnId = snapshot.runtime.activeTurnId;
       if (!turnId || !interruptTurn) throw new Error("stop unavailable");
@@ -1054,11 +1414,20 @@ export const createProjectSessionSavedConversationStore = ({
     kind: "project",
     sessionId,
     load: async () => {
-      const result = await client.listSessionMessages(sessionId);
+      const [result, followUpResult] = await Promise.all([
+        client.listSessionMessages(sessionId),
+        optionalClient.listFollowUps?.(sessionId),
+      ]);
       return {
         title: result.session.name,
-        lastSequence: result.session.lastSequence,
+        lastSequence: Math.max(
+          result.session.lastSequence,
+          followUpResult?.session.lastSequence ?? 0,
+        ),
         messages: result.messages,
+        ...(followUpResult === undefined
+          ? {}
+          : { followUps: followUpResult.followUps }),
         ...(result.activeTurn === undefined
           ? {}
           : { activeTurn: result.activeTurn }),
@@ -1072,6 +1441,18 @@ export const createProjectSessionSavedConversationStore = ({
       : {
           submitPrompt: ({ sessionId: id, prompt, commandId }) =>
             optionalClient.submitPrompt!(id, prompt, commandId),
+        }),
+    ...(optionalClient.enqueueFollowUp === undefined
+      ? {}
+      : {
+          enqueueFollowUp: ({ sessionId: id, prompt, commandId }) =>
+            optionalClient.enqueueFollowUp!(id, prompt, commandId),
+        }),
+    ...(optionalClient.cancelFollowUp === undefined
+      ? {}
+      : {
+          cancelFollowUp: ({ sessionId: id, followUpId }) =>
+            optionalClient.cancelFollowUp!(id, followUpId),
         }),
     ...(optionalClient.subscribeProjectSessionEvents === undefined
       ? {}
