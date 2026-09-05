@@ -70,6 +70,53 @@ const listGlobalChatMessages = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const listGlobalChatFollowUps = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/follow-ups`, host.endpoint),
+    { headers: authHeaders(clientCapability) },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const enqueueGlobalChatFollowUp = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  prompt: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/follow-ups`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, prompt }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const cancelGlobalChatFollowUp = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  followUpId: string,
+) => {
+  const response = await fetch(
+    new URL(
+      `/v1/global-chat-sessions/${sessionId}/follow-ups/${followUpId}/cancel`,
+      host.endpoint,
+    ),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: "{}",
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const subscribeGlobalChatSessionEvents = (
   host: StartedHostServer,
   clientCapability: string,
@@ -515,6 +562,204 @@ describe("Global Chat Session Host protocol", () => {
           text: "Global answer",
           commandId: createCommandId,
         },
+      ],
+    });
+  });
+
+  it("queues, cancels, consumes, reloads, authorizes, and isolates Global Chat follow-ups", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    let releaseFirst!: () => void;
+    const firstTurnReleased = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const submittedPrompts: string[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        submittedPrompts.push(input.prompt);
+        if (input.prompt === "initial prompt") await firstTurnReleased;
+        return { text: `answer: ${input.prompt}` };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "initial prompt",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+
+    const unauthenticated = await fetch(
+      new URL(`/v1/global-chat-sessions/${sessionId}/follow-ups`, host.endpoint),
+      { headers: { Origin: origin } },
+    );
+    expect(unauthenticated.status).toBe(401);
+
+    const firstCommandId = randomUUID();
+    const secondCommandId = randomUUID();
+    const first = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "same text follow-up",
+      firstCommandId,
+    );
+    const replayed = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "same text follow-up",
+      firstCommandId,
+    );
+    const conflict = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "different prompt",
+      firstCommandId,
+    );
+    const second = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "same text follow-up",
+      secondCommandId,
+    );
+
+    expect(first.response.status).toBe(200);
+    expect(replayed.response.status).toBe(200);
+    expect(replayed.body).toMatchObject(first.body as object);
+    expect(conflict.response.status).toBe(409);
+    expect(conflict.body).toMatchObject({ code: "command_id_conflict" });
+    expect(second.response.status).toBe(200);
+    expect(first.body).toMatchObject({
+      followUp: {
+        commandId: firstCommandId,
+        prompt: "same text follow-up",
+        position: 1,
+        state: "queued",
+      },
+    });
+    expect(second.body).toMatchObject({
+      followUp: { commandId: secondCommandId, position: 2, state: "queued" },
+    });
+    const subscribed = await subscribeGlobalChatSessionEvents(
+      host,
+      client.clientCapability,
+      sessionId,
+      4,
+    );
+    expect(subscribed.status).toBe(200);
+    const queueFrames = await readSseFrames(subscribed, 2);
+    expect(queueFrames.map((frame) => frame.data)).toMatchObject([
+      {
+        event: {
+          type: "GlobalChatSessionFollowUpQueuedV1",
+          commandId: firstCommandId,
+        },
+      },
+      {
+        event: {
+          type: "GlobalChatSessionFollowUpQueuedV1",
+          commandId: secondCommandId,
+        },
+      },
+    ]);
+
+    const secondFollowUpId = (second.body as { followUp: { id: string } })
+      .followUp.id;
+    const cancelled = await cancelGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      secondFollowUpId,
+    );
+    expect(cancelled.response.status).toBe(200);
+    expect(cancelled.body).toMatchObject({
+      followUp: { commandId: secondCommandId, state: "cancelled" },
+    });
+
+    const queued = await listGlobalChatFollowUps(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(queued.response.status).toBe(200);
+    expect(queued.body).toMatchObject({
+      followUps: [
+        { commandId: firstCommandId, state: "queued", position: 1 },
+        { commandId: secondCommandId, state: "cancelled", position: 2 },
+      ],
+    });
+    expect(
+      readRows<{ count: number }>(
+        databasePath,
+        "SELECT count(*) AS count FROM project_session_bindings WHERE session_id = ?",
+        sessionId,
+      )[0]?.count,
+    ).toBe(0);
+    expect(
+      readRows<{ count: number }>(
+        databasePath,
+        "SELECT count(*) AS count FROM project_session_follow_ups WHERE session_id = ?",
+        sessionId,
+      )[0]?.count,
+    ).toBe(0);
+
+    releaseFirst();
+    await waitFor(async () => {
+      const listed = await listGlobalChatFollowUps(
+        host,
+        client.clientCapability,
+        sessionId,
+      );
+      expect(listed.body).toMatchObject({
+        followUps: [
+          {
+            commandId: firstCommandId,
+            state: "consumed",
+            dispatchedTurnId: expect.any(String),
+          },
+          { commandId: secondCommandId, state: "cancelled" },
+        ],
+      });
+    });
+    await waitFor(() => {
+      expect(submittedPrompts).toEqual(["initial prompt", "same text follow-up"]);
+    });
+    expect(
+      readRows<{ event_type: string }>(
+        databasePath,
+        "SELECT event_type FROM chat_session_events WHERE session_id = ? ORDER BY sequence ASC",
+        sessionId,
+      ).map((row) => row.event_type),
+    ).toEqual(
+      expect.arrayContaining([
+        "GlobalChatSessionFollowUpQueuedV1",
+        "GlobalChatSessionFollowUpCancelledV1",
+        "GlobalChatSessionFollowUpDispatchedV1",
+        "GlobalChatSessionFollowUpConsumedV1",
+      ]),
+    );
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(
+      databasePath,
+      join(root, "SpaceZero"),
+      runner,
+    );
+    const reloaded = await listGlobalChatFollowUps(
+      restarted,
+      descriptor(restarted).clientCapability,
+      sessionId,
+    );
+    expect(reloaded.body).toMatchObject({
+      followUps: [
+        { commandId: firstCommandId, state: "consumed" },
+        { commandId: secondCommandId, state: "cancelled" },
       ],
     });
   });

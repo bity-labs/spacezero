@@ -761,6 +761,153 @@ describe("saved conversation projection", () => {
     expect(store.getSnapshot().queue.followUps[0]?.status).toBeUndefined();
   });
 
+  it("enqueues a Global Chat follow-up through the same store behavior while a turn is running", async () => {
+    const enqueueFollowUp = vi.fn(
+      async (_sessionId: string, prompt: string, commandId: string) => ({
+        session: { ...globalSession, lastSequence: 5 },
+        followUp: {
+          id: "global-follow-up-1",
+          commandId,
+          sessionId: "global-session-1",
+          prompt,
+          state: "queued" as const,
+          position: 1,
+          createdAt: "2026-01-01T00:00:05.000Z",
+          updatedAt: "2026-01-01T00:00:05.000Z",
+        },
+      }),
+    );
+    const submitPrompt = vi.fn();
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: globalSession,
+        messages: [
+          {
+            id: "global-user-message-1",
+            role: "user" as const,
+            text: "first",
+            commandId: "command-running",
+            sequence: 1,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "global-turn-running",
+          commandId: "command-running",
+          state: "running" as const,
+          userMessageId: "global-user-message-1",
+          assistantMessageId: "global-assistant-message-1",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "working",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: globalSession,
+        followUps: [],
+      })),
+      submitPrompt,
+      enqueueFollowUp,
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+
+    await store.load();
+    await store.send("  global follow-up  ");
+
+    expect(submitPrompt).not.toHaveBeenCalled();
+    expect(enqueueFollowUp).toHaveBeenCalledWith(
+      "global-session-1",
+      "global follow-up",
+      expect.any(String),
+    );
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "global-session-1" },
+      queue: {
+        followUps: [
+          {
+            id: "global-follow-up-1",
+            prompt: "global follow-up",
+            state: "queued",
+          },
+        ],
+      },
+    });
+  });
+
+  it("restores Global Chat follow-up state transitions from query and events", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: globalSession,
+        messages: [],
+      })),
+      listFollowUps: vi.fn(async () => ({
+        session: globalSession,
+        followUps: [
+          {
+            id: "global-follow-up-1",
+            commandId: "global-command-1",
+            sessionId: "global-session-1",
+            prompt: "first",
+            state: "queued" as const,
+            position: 1,
+            createdAt: "2026-01-01T00:00:05.000Z",
+            updatedAt: "2026-01-01T00:00:05.000Z",
+          },
+        ],
+      })),
+      subscribeEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+
+    await store.load();
+    onEvent?.({
+      sequence: 5,
+      eventType: "GlobalChatSessionFollowUpDispatchedV1",
+      event: {
+        type: "GlobalChatSessionFollowUpDispatchedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        followUpId: "global-follow-up-1",
+        commandId: "global-command-1",
+        timestamp: "2026-01-01T00:00:07.000Z",
+      },
+    });
+    onEvent?.({
+      sequence: 6,
+      eventType: "GlobalChatSessionFollowUpConsumedV1",
+      event: {
+        type: "GlobalChatSessionFollowUpConsumedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        followUpId: "global-follow-up-1",
+        commandId: "global-command-1",
+        turnId: "global-turn-from-follow-up",
+        timestamp: "2026-01-01T00:00:08.000Z",
+      },
+    });
+
+    expect(store.getSnapshot().queue.followUps).toMatchObject([
+      {
+        id: "global-follow-up-1",
+        state: "consumed",
+        dispatchedTurnId: "global-turn-from-follow-up",
+      },
+    ]);
+  });
+
   it("restores Host follow-up ordering and state transitions from query and events", async () => {
     let onEvent: ((event: unknown) => void) | undefined;
     const client = {

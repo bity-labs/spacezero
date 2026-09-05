@@ -4,17 +4,22 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import {
   deriveGlobalChatSessionInitialTitle,
+  type CancelGlobalChatSessionFollowUpResult,
   type CreateGlobalChatSessionWithFirstPromptRequest,
   type CreateGlobalChatSessionWithFirstPromptResult,
+  type EnqueueGlobalChatSessionFollowUpRequest,
+  type EnqueueGlobalChatSessionFollowUpResult,
   type GetGlobalChatSessionRuntimeResult,
   type GlobalChatSessionEvent,
   type GlobalChatSessionEventEnvelope,
+  type GlobalChatSessionFollowUp,
   type GlobalChatSessionMessage,
   type GlobalChatSessionMessagePart,
   type GlobalChatSessionRuntimeConfiguration,
   type GlobalChatSessionSummary,
   type GlobalChatSessionTurn,
   type InterruptGlobalChatSessionTurnResult,
+  type ListGlobalChatSessionFollowUpsResult,
   type ListGlobalChatSessionMessagesResult,
   type ListGlobalChatSessionsResult,
   type SubmitGlobalChatSessionPromptRequest,
@@ -48,6 +53,23 @@ interface MessageRow {
   readonly command_id?: string | null;
   readonly turn_id: string | null;
   readonly created_at: string;
+}
+
+interface FollowUpRow {
+  readonly session_id: string;
+  readonly follow_up_id: string;
+  readonly command_id: string;
+  readonly prompt: string;
+  readonly state:
+    | "queued"
+    | "dispatched"
+    | "consumed"
+    | "cancelled"
+    | "recovery_required";
+  readonly position: number;
+  readonly dispatched_turn_id: string | null;
+  readonly created_at: string;
+  readonly updated_at: string;
 }
 
 interface ReceiptRow {
@@ -140,6 +162,20 @@ const promptFingerprint = (
     .update(
       JSON.stringify({
         kind: "global_chat_session_prompt",
+        sessionId,
+        prompt: input.prompt.trim(),
+      }),
+    )
+    .digest("hex");
+
+const followUpFingerprint = (
+  sessionId: string,
+  input: EnqueueGlobalChatSessionFollowUpRequest,
+): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind: "global_chat_session_follow_up",
         sessionId,
         prompt: input.prompt.trim(),
       }),
@@ -367,6 +403,20 @@ const toTurn = (row: TurnRow): GlobalChatSessionTurn => {
     updatedAt: row.updated_at,
   };
 };
+
+const toFollowUp = (row: FollowUpRow): GlobalChatSessionFollowUp => ({
+  id: row.follow_up_id,
+  commandId: row.command_id,
+  sessionId: row.session_id,
+  prompt: row.prompt,
+  state: row.state,
+  position: row.position,
+  ...(row.dispatched_turn_id === null
+    ? {}
+    : { dispatchedTurnId: row.dispatched_turn_id }),
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
 
 const toRuntimeConfiguration = (
   row: RuntimeConfigurationRow,
@@ -736,6 +786,327 @@ export const createGlobalChatSessionRepository = (options: {
         );
       }),
     ),
+
+  listFollowUps: async (
+    sessionId: string,
+  ): Promise<ListGlobalChatSessionFollowUpsResult> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const rows = yield* getSession(sql, sessionId);
+        if (!rows[0])
+          throw new GlobalChatSessionServiceError(
+            "global_chat_session_not_found",
+          );
+        const followUps =
+          yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} ORDER BY position ASC, created_at ASC`;
+        return {
+          session: toSummary(rows[0]),
+          followUps: followUps.map(toFollowUp),
+        };
+      }),
+    ),
+
+  enqueueFollowUp: async (
+    sessionId: string,
+    input: EnqueueGlobalChatSessionFollowUpRequest,
+  ): Promise<EnqueueGlobalChatSessionFollowUpResult> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        const fp = followUpFingerprint(sessionId, input);
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const existingFollowUp =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE command_id = ${input.commandId}`;
+            if (existingFollowUp[0]) {
+              if (
+                followUpFingerprint(existingFollowUp[0].session_id, {
+                  commandId: input.commandId,
+                  prompt: existingFollowUp[0].prompt,
+                }) !== fp
+              )
+                throw new GlobalChatSessionServiceError("command_id_conflict");
+              const sessionRows = yield* getSession(
+                sql,
+                existingFollowUp[0].session_id,
+              );
+              if (!sessionRows[0])
+                throw new GlobalChatSessionServiceError(
+                  "follow_up_queue_unavailable",
+                );
+              return {
+                session: toSummary(sessionRows[0]),
+                followUp: toFollowUp(existingFollowUp[0]),
+              };
+            }
+            const sessionRows = yield* getSession(sql, sessionId);
+            if (!sessionRows[0])
+              throw new GlobalChatSessionServiceError(
+                "global_chat_session_not_found",
+              );
+            ensureOpen(sessionRows[0]);
+            const positionRows = yield* sql<{
+              position: number | null;
+            }>`SELECT max(position) AS position FROM global_chat_session_follow_ups WHERE session_id = ${sessionId}`;
+            const position = (positionRows[0]?.position ?? 0) + 1;
+            const followUpId = randomUUID();
+            const now = new Date().toISOString();
+            const sequence = sessionRows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence,
+              payload: {
+                type: "GlobalChatSessionFollowUpQueuedV1",
+                version: 1,
+                sessionId,
+                followUpId,
+                commandId: input.commandId,
+                prompt: input.prompt.trim(),
+                position,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`INSERT INTO global_chat_session_follow_ups (session_id, follow_up_id, command_id, prompt, state, position, created_at, updated_at) VALUES (${sessionId}, ${followUpId}, ${input.commandId}, ${input.prompt.trim()}, 'queued', ${position}, ${now}, ${now})`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${sessionId}`;
+            const updated = yield* getSession(sql, sessionId);
+            const followUpRows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND follow_up_id = ${followUpId}`;
+            if (!updated[0] || !followUpRows[0])
+              throw new GlobalChatSessionServiceError(
+                "follow_up_queue_unavailable",
+              );
+            return {
+              session: toSummary(updated[0]),
+              followUp: toFollowUp(followUpRows[0]),
+            };
+          }),
+        );
+      }),
+    ),
+
+  cancelFollowUp: async (
+    sessionId: string,
+    followUpId: string,
+  ): Promise<CancelGlobalChatSessionFollowUpResult> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const sessionRows = yield* getSession(sql, sessionId);
+            if (!sessionRows[0])
+              throw new GlobalChatSessionServiceError(
+                "global_chat_session_not_found",
+              );
+            const followUpRows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND follow_up_id = ${followUpId}`;
+            if (!followUpRows[0])
+              throw new GlobalChatSessionServiceError("follow_up_not_found");
+            if (followUpRows[0].state !== "queued")
+              throw new GlobalChatSessionServiceError(
+                "follow_up_not_cancellable",
+              );
+            const now = new Date().toISOString();
+            const sequence = sessionRows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence,
+              payload: {
+                type: "GlobalChatSessionFollowUpCancelledV1",
+                version: 1,
+                sessionId,
+                followUpId,
+                commandId: followUpRows[0].command_id,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE global_chat_session_follow_ups SET state = 'cancelled', updated_at = ${now} WHERE session_id = ${sessionId} AND follow_up_id = ${followUpId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${sessionId}`;
+            const updated = yield* getSession(sql, sessionId);
+            const updatedFollowUp =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND follow_up_id = ${followUpId}`;
+            if (!updated[0] || !updatedFollowUp[0])
+              throw new GlobalChatSessionServiceError(
+                "follow_up_queue_unavailable",
+              );
+            return {
+              session: toSummary(updated[0]),
+              followUp: toFollowUp(updatedFollowUp[0]),
+            };
+          }),
+        );
+      }),
+    ),
+
+  dispatchNextFollowUp: async (
+    sessionId: string,
+  ): Promise<GlobalChatSessionFollowUp | undefined> =>
+    runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const sessionRows = yield* getSession(sql, sessionId);
+            if (!sessionRows[0]) return undefined;
+            const activeTurns =
+              yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+            if (activeTurns[0]) return undefined;
+            const followUpRows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND state = 'queued' ORDER BY position ASC, created_at ASC LIMIT 1`;
+            if (!followUpRows[0]) return undefined;
+            const now = new Date().toISOString();
+            const sequence = sessionRows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId,
+              sequence,
+              payload: {
+                type: "GlobalChatSessionFollowUpDispatchedV1",
+                version: 1,
+                sessionId,
+                followUpId: followUpRows[0].follow_up_id,
+                commandId: followUpRows[0].command_id,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE global_chat_session_follow_ups SET state = 'dispatched', updated_at = ${now} WHERE session_id = ${sessionId} AND follow_up_id = ${followUpRows[0].follow_up_id}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${sessionId}`;
+            const updatedFollowUp =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${sessionId} AND follow_up_id = ${followUpRows[0].follow_up_id}`;
+            return updatedFollowUp[0]
+              ? toFollowUp(updatedFollowUp[0])
+              : undefined;
+          }),
+        );
+      }),
+    ),
+
+  markFollowUpConsumed: async (input: {
+    readonly sessionId: string;
+    readonly followUpId: string;
+    readonly turnId: string;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const sessionRows = yield* getSession(sql, input.sessionId);
+            const followUpRows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${input.sessionId} AND follow_up_id = ${input.followUpId}`;
+            if (!sessionRows[0] || !followUpRows[0]) return;
+            if (followUpRows[0].state !== "dispatched") return;
+            const now = new Date().toISOString();
+            const sequence = sessionRows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId: input.sessionId,
+              sequence,
+              payload: {
+                type: "GlobalChatSessionFollowUpConsumedV1",
+                version: 1,
+                sessionId: input.sessionId,
+                followUpId: input.followUpId,
+                commandId: followUpRows[0].command_id,
+                turnId: input.turnId,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE global_chat_session_follow_ups SET state = 'consumed', dispatched_turn_id = ${input.turnId}, updated_at = ${now} WHERE session_id = ${input.sessionId} AND follow_up_id = ${input.followUpId}`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+          }),
+        );
+      }),
+    );
+  },
+
+  markFollowUpRecoveryRequired: async (input: {
+    readonly sessionId: string;
+    readonly followUpId: string;
+  }): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const sessionRows = yield* getSession(sql, input.sessionId);
+            const followUpRows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE session_id = ${input.sessionId} AND follow_up_id = ${input.followUpId}`;
+            if (!sessionRows[0] || !followUpRows[0]) return;
+            if (followUpRows[0].state !== "dispatched") return;
+            const now = new Date().toISOString();
+            const sequence = sessionRows[0].last_sequence + 1;
+            yield* appendEvent({
+              sql,
+              sessionId: input.sessionId,
+              sequence,
+              payload: {
+                type: "GlobalChatSessionFollowUpRecoveryRequiredV1",
+                version: 1,
+                sessionId: input.sessionId,
+                followUpId: input.followUpId,
+                commandId: followUpRows[0].command_id,
+                timestamp: now,
+              },
+              createdAt: now,
+            });
+            yield* sql`UPDATE global_chat_session_follow_ups SET state = 'recovery_required', updated_at = ${now} WHERE session_id = ${input.sessionId} AND follow_up_id = ${input.followUpId} AND state = 'dispatched'`;
+            yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+          }),
+        );
+      }),
+    );
+  },
+
+  markDispatchedFollowUpsRecoveryRequired: async (): Promise<void> => {
+    await runSql(
+      options.databasePath,
+      Effect.gen(function* () {
+        const sql = yield* SqlClient;
+        return yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const rows =
+              yield* sql<FollowUpRow>`SELECT * FROM global_chat_session_follow_ups WHERE state = 'dispatched' ORDER BY updated_at ASC`;
+            for (const row of rows) {
+              const sessionRows = yield* getSession(sql, row.session_id);
+              if (!sessionRows[0]) continue;
+              const now = new Date().toISOString();
+              const sequence = sessionRows[0].last_sequence + 1;
+              yield* appendEvent({
+                sql,
+                sessionId: row.session_id,
+                sequence,
+                payload: {
+                  type: "GlobalChatSessionFollowUpRecoveryRequiredV1",
+                  version: 1,
+                  sessionId: row.session_id,
+                  followUpId: row.follow_up_id,
+                  commandId: row.command_id,
+                  timestamp: now,
+                },
+                createdAt: now,
+              });
+              yield* sql`UPDATE global_chat_session_follow_ups SET state = 'recovery_required', updated_at = ${now} WHERE session_id = ${row.session_id} AND follow_up_id = ${row.follow_up_id}`;
+              yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${row.session_id}`;
+            }
+          }),
+        );
+      }),
+    );
+  },
 
   getRuntime: async (
     sessionId: string,
