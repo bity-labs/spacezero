@@ -905,6 +905,15 @@ export const ProjectSessionLiveEventSchema = Schema.Union([
     progress: Schema.optionalKey(AgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
+  Schema.Struct({
+    type: Schema.Literals(["ConversationPersistenceFailedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: ProjectSessionIdSchema,
+    turnId: AgentTurnIdSchema,
+    messageId: SessionMessageIdSchema,
+    reason: Schema.Literals(["conversation_persistence_failed"]),
+    timestamp: DateTimeUtcStringSchema,
+  }),
 ]);
 
 export type ProjectSessionLiveEvent = typeof ProjectSessionLiveEventSchema.Type;

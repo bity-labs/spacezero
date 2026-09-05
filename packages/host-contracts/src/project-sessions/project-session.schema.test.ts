@@ -475,6 +475,24 @@ describe("Project Session schemas", () => {
     expect(parseProjectSessionLiveEventEnvelope(liveEnvelope)).toEqual(
       liveEnvelope,
     );
+    const persistenceFailureEnvelope = {
+      live: true as const,
+      eventType: "ConversationPersistenceFailedV1",
+      event: {
+        type: "ConversationPersistenceFailedV1" as const,
+        version: 1 as const,
+        sessionId: uuid,
+        turnId,
+        messageId,
+        reason: "conversation_persistence_failed" as const,
+        timestamp: "2026-01-01T00:01:00.000Z",
+      },
+    };
+    expect(
+      parseSync(ProjectSessionLiveEventEnvelopeSchema)(
+        persistenceFailureEnvelope,
+      ),
+    ).toEqual(persistenceFailureEnvelope);
   });
 
   it("rejects accents, spaces, path-like values, and invalid commits", () => {

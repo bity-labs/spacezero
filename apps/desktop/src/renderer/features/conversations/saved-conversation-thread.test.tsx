@@ -270,6 +270,60 @@ describe("SavedConversationThread", () => {
     ).toBeInTheDocument();
   });
 
+  it.each(["project", "global"] as const)(
+    "shows an honest %s conversation storage recovery state",
+    async (kind) => {
+      const store = createSavedConversationStore({
+        kind,
+        sessionId: `${kind}-session-1`,
+        load: async () => ({
+          title: kind === "project" ? "margaux" : "Global prompt",
+          lastSequence: 2,
+          messages: [
+            {
+              id: "message-1",
+              role: "user" as const,
+              text: "Persisted prompt",
+              sequence: 1,
+              createdAt: timestamp,
+            },
+          ],
+          activeTurn: {
+            id: "turn-1",
+            commandId: "command-1",
+            state: "recovery_required" as const,
+            userMessageId: "message-1",
+            assistantMessageId: "assistant-message-1",
+            providerId: "anthropic",
+            modelId: "claude-sonnet-4-5",
+            thinkingLevel: "off" as const,
+            draftText: "",
+            failureReason:
+              kind === "project"
+                ? "session_recovery_required"
+                : "global_chat_session_recovery_required",
+            failureCategory: "system" as const,
+            retryable: false,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          },
+        }),
+      });
+
+      render(<SavedConversationThread store={store} />);
+
+      expect(await screen.findByText("Persisted prompt")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        /Conversation storage failed or requires recovery/u,
+      );
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
+      expect(
+        screen.queryByRole("button", { name: /stop/i }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("uses the same Thread for Global Chat saved messages", async () => {
     const store = loadedStore({
       kind: "global",
@@ -722,7 +776,7 @@ describe("SavedConversationThread", () => {
     rerender(<SavedConversationThread store={recovery} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Conversation requires recovery before it can continue.",
+      /Conversation storage failed or requires recovery/u,
     );
   });
 

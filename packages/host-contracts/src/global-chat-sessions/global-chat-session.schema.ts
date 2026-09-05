@@ -839,6 +839,15 @@ export const GlobalChatSessionLiveEventSchema = Schema.Union([
     progress: Schema.optionalKey(GlobalChatSessionAgentToolDisplayResultSchema),
     timestamp: DateTimeUtcStringSchema,
   }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatConversationPersistenceFailedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    turnId: GlobalChatSessionTurnIdSchema,
+    messageId: GlobalChatSessionMessageIdSchema,
+    reason: Schema.Literals(["conversation_persistence_failed"]),
+    timestamp: DateTimeUtcStringSchema,
+  }),
 ]);
 export type GlobalChatSessionLiveEvent =
   typeof GlobalChatSessionLiveEventSchema.Type;

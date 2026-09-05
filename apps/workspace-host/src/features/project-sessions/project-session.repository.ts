@@ -1185,7 +1185,7 @@ export const createProjectSessionRepository = (options: {
               const sessionRows = yield* getSession(sql, sessionId);
               if (!sessionRows[0]) return undefined;
               const activeTurns =
-                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
               if (activeTurns[0]) return undefined;
               const followUpRows =
                 yield* sql<FollowUpRow>`SELECT * FROM project_session_follow_ups WHERE session_id = ${sessionId} AND state = 'queued' ORDER BY position ASC, created_at ASC LIMIT 1`;
@@ -1409,7 +1409,7 @@ export const createProjectSessionRepository = (options: {
               if (rows[0].state !== "ready")
                 throw new ProjectSessionServiceError("session_not_ready");
               const activeTurns =
-                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
               if (activeTurns[0])
                 throw new ProjectSessionServiceError(
                   "session_turn_in_progress",
@@ -1524,7 +1524,7 @@ export const createProjectSessionRepository = (options: {
                 );
               const runtime = toRuntimeConfiguration(runtimeRows[0]);
               const activeTurns =
-                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running') LIMIT 1`;
+                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
               if (activeTurns[0])
                 throw new ProjectSessionServiceError(
                   "session_turn_in_progress",
@@ -1602,6 +1602,46 @@ export const createProjectSessionRepository = (options: {
           );
         }),
       ),
+
+    markTurnRecoveryRequired: async (input: {
+      readonly sessionId: string;
+      readonly turnId: string;
+    }): Promise<void> => {
+      await runSql(
+        options.databasePath,
+        Effect.gen(function* () {
+          const sql = yield* SqlClient;
+          return yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const rows = yield* getSession(sql, input.sessionId);
+              if (!rows[0]) return;
+              const turnRows =
+                yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+              if (!turnRows[0]) return;
+              if (!["queued", "running"].includes(turnRows[0].state)) return;
+              const now = new Date().toISOString();
+              const sequence = rows[0].last_sequence + 1;
+              yield* appendEvent({
+                sql,
+                sessionId: input.sessionId,
+                sequence,
+                payload: {
+                  type: "ProjectSessionRecoveryRequiredV1",
+                  version: 1,
+                  sessionId: input.sessionId,
+                  timestamp: now,
+                },
+                createdAt: now,
+              });
+              yield* sql`UPDATE project_session_bindings SET state = 'recovery_required' WHERE session_id = ${input.sessionId}`;
+              yield* sql`UPDATE chat_session_turns SET state = 'recovery_required', failure_reason = 'session_recovery_required', updated_at = ${now} WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId}`;
+              yield* sql`UPDATE chat_sessions SET updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+              yield* sql`UPDATE chat_session_command_receipts SET status = 'recovery_required', terminal_error_code = 'session_recovery_required', committed_sequence = ${sequence}, updated_at = ${now} WHERE command_id = ${turnRows[0].command_id}`;
+            }),
+          );
+        }),
+      );
+    },
 
     completeTurn: async (input: {
       readonly commandId: string;

@@ -105,6 +105,10 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly reason: "user_interrupted" | "host_shutdown";
   }) => Promise<unknown>;
+  readonly markTurnRecoveryRequired: (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+  }) => Promise<void>;
 }
 
 export interface RunAdmittedChatTurnInput<
@@ -148,6 +152,12 @@ export interface RunAdmittedChatTurnInput<
     >["result"];
     readonly timestamp: string;
   }) => LiveEnvelope;
+  readonly makeConversationPersistenceFailed: (input: {
+    readonly sessionId: string;
+    readonly turnId: string;
+    readonly messageId: string;
+    readonly timestamp: string;
+  }) => LiveEnvelope;
   readonly onTurnSettled?: (sessionId: string) => void;
 }
 
@@ -177,6 +187,14 @@ export interface ChatTurnRunner<DurableEnvelope, LiveEnvelope> {
     turnId: string,
   ) => Promise<void>;
   readonly hasActiveTurn: (sessionId: string) => boolean;
+  readonly hasStorageFault: (sessionId: string) => boolean;
+  readonly storageFaultForSession: (sessionId: string) =>
+    | {
+        readonly turnId: string;
+        readonly messageId: string;
+        readonly occurredAt: string;
+      }
+    | undefined;
   readonly waitForIdle: () => Promise<void>;
 }
 
@@ -230,6 +248,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
       readonly flushDraft: () => Promise<void>;
     }
   >();
+  const storageFaults = new Map<
+    string,
+    {
+      readonly turnId: string;
+      readonly messageId: string;
+      readonly occurredAt: string;
+    }
+  >();
   let shuttingDown = false;
 
   const runAdmittedTurn = <
@@ -244,7 +270,56 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     let checkpointedDurableFingerprint = "";
     let checkpointTimer: ReturnType<typeof setTimeout> | undefined;
     let checkpointChain = Promise.resolve();
+    let storageFaulted = false;
     const turn = input.admission.result.turn;
+
+    const reportPersistenceFailure = async (
+      operation: string,
+    ): Promise<void> => {
+      if (storageFaulted) return;
+      storageFaulted = true;
+      const timestamp = new Date().toISOString();
+      storageFaults.set(input.sessionId, {
+        turnId: input.admission.turnId,
+        messageId: turn.assistantMessageId,
+        occurredAt: timestamp,
+      });
+      console.warn("conversation persistence failed", {
+        operation,
+        sessionId: input.sessionId,
+        turnId: input.admission.turnId,
+      });
+      stream.publishLive(
+        input.sessionId,
+        input.makeConversationPersistenceFailed({
+          sessionId: input.sessionId,
+          turnId: input.admission.turnId,
+          messageId: turn.assistantMessageId,
+          timestamp,
+        }),
+      );
+      controller.abort();
+      await input.repository
+        .markTurnRecoveryRequired({
+          sessionId: input.sessionId,
+          turnId: input.admission.turnId,
+        })
+        .then(() => stream.wakeEvents(input.sessionId))
+        .catch(() => undefined);
+    };
+
+    const persistRequired = async <A>(
+      operation: string,
+      run: () => Promise<A>,
+    ): Promise<A> => {
+      if (storageFaulted) throw new AgentTurnError("agent_turn_interrupted");
+      try {
+        return await run();
+      } catch (error) {
+        await reportPersistenceFailure(operation);
+        throw error;
+      }
+    };
 
     const currentParts = (): readonly AgentTurnContentPart[] =>
       [...draftParts.values()].sort((left, right) => left.order - right.order);
@@ -266,12 +341,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
         .catch(() => undefined)
         .then(async () => {
           if (capturedLength <= checkpointedContentLength) return;
-          await input.repository.checkpointTurnDraft({
-            sessionId: input.sessionId,
-            turnId: input.admission.turnId,
-            text,
-            parts,
-          });
+          await persistRequired("checkpointTurnDraft", () =>
+            input.repository.checkpointTurnDraft({
+              sessionId: input.sessionId,
+              turnId: input.admission.turnId,
+              text,
+              parts,
+            }),
+          );
           checkpointedContentLength = capturedLength;
           checkpointedDurableFingerprint = fingerprint;
           stream.wakeEvents(input.sessionId);
@@ -284,7 +361,10 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
       if (checkpointTimer) return;
       checkpointTimer = setTimeout(() => {
         checkpointTimer = undefined;
-        void checkpointDraft().catch(() => undefined);
+        void checkpointDraft().catch(() => {
+          // The checkpoint path reports persistence failures without relying on
+          // the failing database; avoid a second diagnostic from this timer.
+        });
       }, 250);
       checkpointTimer.unref?.();
     };
@@ -407,24 +487,26 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 };
                 draftParts.set(toolPart.order, toolPart);
                 await checkpointDraft();
-                await input.repository.recordToolStarted({
-                  sessionId: input.sessionId,
-                  turnId: input.admission.turnId,
-                  toolCallId: event.toolCallId,
-                  toolName: event.toolName,
-                  ...(event.arguments === undefined
-                    ? {}
-                    : { arguments: event.arguments }),
-                  ...(tool?.safety === undefined
-                    ? {}
-                    : { safety: tool.safety }),
-                  ...(approval.status === undefined
-                    ? {}
-                    : { approvalStatus: approval.status }),
-                  ...(approval.reason === undefined
-                    ? {}
-                    : { approvalReason: approval.reason }),
-                });
+                await persistRequired("recordToolStarted", () =>
+                  input.repository.recordToolStarted({
+                    sessionId: input.sessionId,
+                    turnId: input.admission.turnId,
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    ...(event.arguments === undefined
+                      ? {}
+                      : { arguments: event.arguments }),
+                    ...(tool?.safety === undefined
+                      ? {}
+                      : { safety: tool.safety }),
+                    ...(approval.status === undefined
+                      ? {}
+                      : { approvalStatus: approval.status }),
+                    ...(approval.reason === undefined
+                      ? {}
+                      : { approvalReason: approval.reason }),
+                  }),
+                );
                 stream.wakeEvents(input.sessionId);
                 return;
               }
@@ -479,21 +561,27 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
               };
               draftParts.set(completedToolPart.order, completedToolPart);
               await checkpointDraft();
-              await input.repository.recordToolCompleted({
-                sessionId: input.sessionId,
-                turnId: input.admission.turnId,
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                isError: event.isError,
-                ...(event.result === undefined ? {} : { result: event.result }),
-                ...(tool?.safety === undefined ? {} : { safety: tool.safety }),
-                ...(approval.status === undefined
-                  ? {}
-                  : { approvalStatus: approval.status }),
-                ...(approval.reason === undefined
-                  ? {}
-                  : { approvalReason: approval.reason }),
-              });
+              await persistRequired("recordToolCompleted", () =>
+                input.repository.recordToolCompleted({
+                  sessionId: input.sessionId,
+                  turnId: input.admission.turnId,
+                  toolCallId: event.toolCallId,
+                  toolName: event.toolName,
+                  isError: event.isError,
+                  ...(event.result === undefined
+                    ? {}
+                    : { result: event.result }),
+                  ...(tool?.safety === undefined
+                    ? {}
+                    : { safety: tool.safety }),
+                  ...(approval.status === undefined
+                    ? {}
+                    : { approvalStatus: approval.status }),
+                  ...(approval.reason === undefined
+                    ? {}
+                    : { approvalReason: approval.reason }),
+                }),
+              );
               stream.wakeEvents(input.sessionId);
             },
           }),
@@ -523,15 +611,18 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           completed.parts,
           completed.text,
         );
-        await input.repository.completeTurn({
-          commandId: input.commandId,
-          sessionId: input.sessionId,
-          turnId: input.admission.turnId,
-          text: completed.text,
-          parts: finalParts,
-        });
+        await persistRequired("completeTurn", () =>
+          input.repository.completeTurn({
+            commandId: input.commandId,
+            sessionId: input.sessionId,
+            turnId: input.admission.turnId,
+            text: completed.text,
+            parts: finalParts,
+          }),
+        );
         stream.wakeEvents(input.sessionId);
       } catch (error) {
+        if (storageFaulted) return;
         if (
           error instanceof AgentTurnError &&
           error.code === "agent_turn_interrupted"
@@ -561,7 +652,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
         if (checkpointTimer) clearTimeout(checkpointTimer);
         await checkpointChain.catch(() => undefined);
         activeTurns.delete(input.admission.turnId);
-        input.onTurnSettled?.(input.sessionId);
+        if (!storageFaulted) input.onTurnSettled?.(input.sessionId);
       }
     })();
 
@@ -589,6 +680,8 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     },
     hasActiveTurn: (sessionId) =>
       [...activeTurns.values()].some((turn) => turn.sessionId === sessionId),
+    hasStorageFault: (sessionId) => storageFaults.has(sessionId),
+    storageFaultForSession: (sessionId) => storageFaults.get(sessionId),
     waitForIdle: async () => {
       shuttingDown = true;
       for (const active of activeTurns.values()) active.controller.abort();
