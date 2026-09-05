@@ -22,6 +22,7 @@
     "test:e2e:real-host": "playwright test -c playwright.config.ts tests/e2e/local-host-connectivity.spec.ts"
   },
   "dependencies": {
+    "@assistant-ui/react": "0.15.18",
     "@phosphor-icons/react": "2.1.10",
     "@spacezero/client-runtime": "workspace:*",
     "@spacezero/host-contracts": "workspace:*",
