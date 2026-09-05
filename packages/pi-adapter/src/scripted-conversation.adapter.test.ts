@@ -27,7 +27,7 @@ const input = (overrides: Partial<AgentTurnInput> = {}): AgentTurnInput => ({
 describe("scripted conversation runner", () => {
   it("echoes the prompt by default so Host flows stay deterministic", async () => {
     const runner = createScriptedConversationRunner();
-    await expect(runner.submitTurn(input())).resolves.toEqual({
+    await expect(runner.submitTurn(input())).resolves.toMatchObject({
       text: "Echo: Build the wine list view",
     });
   });
@@ -65,12 +65,54 @@ describe("scripted conversation runner", () => {
         },
       }),
     );
-    expect(result).toEqual({ text: "streamed answer" });
+    expect(result).toMatchObject({ text: "streamed answer" });
     expect(deltas).toEqual([
-      { kind: "assistant_text", text: "streamed answer" },
+      {
+        kind: "assistant_content",
+        part: { type: "text", order: 1, text: "streamed answer" },
+      },
     ]);
     expect(events).toEqual([
-      { type: "assistant_delta", text: "streamed answer" },
+      {
+        type: "assistant_delta",
+        part: { type: "text", order: 1, text: "streamed answer" },
+      },
+    ]);
+  });
+
+  it("streams scripted provider-like reasoning parts in order", async () => {
+    const events: unknown[] = [];
+    const runner = createScriptedConversationRunner({
+      respond: () => ({
+        text: "Final answer",
+        parts: [
+          { type: "reasoning", order: 1, text: "Reason safely." },
+          { type: "text", order: 2, text: "Final answer" },
+        ],
+      }),
+    });
+
+    const result = await runner.submitTurn(
+      input({
+        onEvent: (event) => {
+          events.push(event);
+        },
+      }),
+    );
+
+    expect(result.parts).toEqual([
+      { type: "reasoning", order: 1, text: "Reason safely." },
+      { type: "text", order: 2, text: "Final answer" },
+    ]);
+    expect(events).toEqual([
+      {
+        type: "assistant_delta",
+        part: { type: "reasoning", order: 1, text: "Reason safely." },
+      },
+      {
+        type: "assistant_delta",
+        part: { type: "text", order: 2, text: "Final answer" },
+      },
     ]);
   });
 
@@ -86,7 +128,7 @@ describe("scripted conversation runner", () => {
   it("supports async scripts", async () => {
     const respond = vi.fn(async () => "async answer");
     const runner = createScriptedConversationRunner({ respond });
-    await expect(runner.submitTurn(input())).resolves.toEqual({
+    await expect(runner.submitTurn(input())).resolves.toMatchObject({
       text: "async answer",
     });
   });

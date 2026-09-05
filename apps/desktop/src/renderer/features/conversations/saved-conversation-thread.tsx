@@ -52,7 +52,7 @@ export const toAssistantThreadMessage = (
     },
   };
   const content = message.parts.map((part) => ({
-    type: "text" as const,
+    type: part.type,
     text: part.text,
   }));
   if (message.role === "user")
@@ -60,7 +60,9 @@ export const toAssistantThreadMessage = (
       id: message.id,
       role: "user",
       createdAt,
-      content,
+      content: content
+        .filter((part) => part.type === "text")
+        .map((part) => ({ type: "text" as const, text: part.text })),
       attachments: [],
       metadata: {
         isOptimistic: message.status === "pending",

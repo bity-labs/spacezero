@@ -298,6 +298,226 @@ afterEach(async () => {
 });
 
 describe("Session prompt Host protocol", () => {
+  it("preserves provider-exposed reasoning parts through Project Session history and replay", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "reasoning", order: 1, text: "Check facts." },
+        });
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 2, text: "Project answer." },
+        });
+        return {
+          text: "Project answer.",
+          parts: [
+            { type: "reasoning", order: 1, text: "Check facts." },
+            { type: "text", order: 2, text: "Project answer." },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(
+      host,
+      client.clientCapability,
+      await gitRepo(root),
+    );
+    const session = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      session.session.id,
+      "explain reasoning",
+    );
+    expect(submitted.response.status).toBe(200);
+    const listed = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      session.session.id,
+      2,
+    );
+
+    const body = listed.body as {
+      messages: {
+        id: string;
+        role: string;
+        text: string;
+        parts?: { id: string; type: string; order: number; text: string }[];
+      }[];
+    };
+    const assistant = body.messages.find((message) => message.role === "assistant");
+    expect(assistant).toMatchObject({ text: "Project answer." });
+    expect(assistant?.parts).toMatchObject([
+      {
+        id: `${assistant?.id}:reasoning:1`,
+        type: "reasoning",
+        order: 1,
+        text: "Check facts.",
+      },
+      {
+        id: `${assistant?.id}:text:2`,
+        type: "text",
+        order: 2,
+        text: "Project answer.",
+      },
+    ]);
+    expect(JSON.stringify(listed.body)).not.toContain("thinkingSignature");
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const reloaded = await listMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      session.session.id,
+    );
+    expect(reloaded.body).toMatchObject({ messages: body.messages });
+  });
+
+  it("keeps threshold reasoning-before-text checkpoints schema-valid through Project Session SSE and replay", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const repo = await gitRepo(root);
+    const reasoningText = "r".repeat(2_048);
+    let release!: () => void;
+    let checkpointed!: () => void;
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const checkpointedPromise = new Promise<void>((resolve) => {
+      checkpointed = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "reasoning", order: 1, text: reasoningText },
+        });
+        checkpointed();
+        await releasePromise;
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 2, text: "Final project answer." },
+        });
+        return {
+          text: "Final project answer.",
+          parts: [
+            { type: "reasoning", order: 1, text: reasoningText },
+            { type: "text", order: 2, text: "Final project answer." },
+          ],
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const project = await registerProject(host, client.clientCapability, repo);
+    const created = await createSession(
+      host,
+      client.clientCapability,
+      project.project.id,
+    );
+
+    const submitted = await submitPrompt(
+      host,
+      client.clientCapability,
+      created.session.id,
+      "threshold reasoning checkpoint",
+    );
+    expect(submitted.response.status).toBe(200);
+    const checkpointAfterSequence = (submitted.body as {
+      session: { lastSequence: number };
+    }).session.lastSequence;
+    await checkpointedPromise;
+
+    const events = await subscribeEvents(
+      host,
+      client.clientCapability,
+      created.session.id,
+      checkpointAfterSequence,
+    );
+    expect(events.status).toBe(200);
+    const frames = await readSseFrames(events, 1);
+    expect(frames[0]).toMatchObject({ event: "project-session.event" });
+    expect(frames[0]?.data).toMatchObject({
+      event: {
+        type: "AgentMessageCheckpointedV1",
+        text: "",
+        parts: [{ type: "reasoning", text: reasoningText }],
+      },
+    });
+
+    const listed = await listMessages(
+      host,
+      client.clientCapability,
+      created.session.id,
+    );
+    expect(listed.body).toMatchObject({
+      activeTurn: {
+        draftText: "",
+        draftParts: [{ type: "reasoning", text: reasoningText }],
+      },
+    });
+
+    release();
+    const completed = await waitForMessageCount(
+      host,
+      client.clientCapability,
+      created.session.id,
+      2,
+    );
+    const completedBody = completed.body as {
+      messages: {
+        id: string;
+        role: string;
+        text: string;
+        parts?: { id: string; type: string; order: number; text: string }[];
+      }[];
+    };
+    const assistant = completedBody.messages.find(
+      (message) => message.role === "assistant",
+    );
+    expect(assistant?.text).toBe("Final project answer.");
+    expect(assistant?.parts).toMatchObject([
+      { type: "reasoning", text: reasoningText },
+      { type: "text", text: "Final project answer." },
+    ]);
+
+    await host.stop();
+    hosts = hosts.filter((candidate) => candidate !== host);
+    const restarted = await start(databasePath, join(root, "SpaceZero"), runner);
+    const reloaded = await listMessages(
+      restarted,
+      descriptor(restarted).clientCapability,
+      created.session.id,
+    );
+    expect(reloaded.body).toMatchObject({ messages: completedBody.messages });
+    const replayed = await subscribeEvents(
+      restarted,
+      descriptor(restarted).clientCapability,
+      created.session.id,
+      checkpointAfterSequence,
+    );
+    expect(replayed.status).toBe(200);
+    const replayedFrames = await readSseFrames(replayed, 1);
+    expect(replayedFrames[0]?.data).toMatchObject({
+      event: {
+        type: "AgentMessageCheckpointedV1",
+        text: "",
+        parts: [{ type: "reasoning", text: reasoningText }],
+      },
+    });
+  });
+
   it("persists and snapshots per-Session runtime configuration", async () => {
     const root = await temp();
     const repo = await gitRepo(root);
@@ -305,7 +525,10 @@ describe("Session prompt Host protocol", () => {
     const runner: ConversationRunner = {
       submitTurn: async (input) => {
         seen.push(input);
-        await input.onEvent?.({ type: "assistant_delta", text: "ok" });
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part: { type: "text", order: 1, text: "ok" },
+        });
         return { text: "ok" };
       },
     };
@@ -1001,7 +1224,7 @@ describe("Session prompt Host protocol", () => {
       submitTurn: async (input) => {
         await input.onEvent?.({
           type: "assistant_delta",
-          text: "x".repeat(2_048),
+          part: { type: "text", order: 1, text: "x".repeat(2_048) },
         });
         checkpointed();
         await releasePromise;

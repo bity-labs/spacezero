@@ -1,5 +1,6 @@
 import {
   AgentTurnError,
+  type AgentTurnContentPart,
   type AgentTurnInput,
   type ConversationRunner,
 } from "./conversation.model.js";
@@ -9,7 +10,15 @@ export interface ScriptedConversationOptions {
    * Deterministic turn script. Defaults to echoing the prompt so Host flows
    * stay testable before the real Pi SDK runner is introduced.
    */
-  readonly respond?: (input: AgentTurnInput) => string | Promise<string>;
+  readonly respond?: (
+    input: AgentTurnInput,
+  ) =>
+    | string
+    | { readonly text: string; readonly parts?: readonly AgentTurnContentPart[] }
+    | Promise<
+        | string
+        | { readonly text: string; readonly parts?: readonly AgentTurnContentPart[] }
+      >;
   /** Typed failure raised before any turn output is produced. */
   readonly error?: AgentTurnError;
 }
@@ -27,11 +36,18 @@ export const createScriptedConversationRunner = (
       throw new AgentTurnError("agent_turn_interrupted");
     if (options.error) throw options.error;
     const respond = options.respond ?? ((current) => `Echo: ${current.prompt}`);
-    const text = await respond(input);
+    const response = await respond(input);
+    const result =
+      typeof response === "string" ? { text: response } : response;
+    const parts = result.parts ?? [
+      { type: "text" as const, order: 1, text: result.text },
+    ];
     if (input.signal?.aborted)
       throw new AgentTurnError("agent_turn_interrupted");
-    input.onDelta?.({ kind: "assistant_text", text });
-    await input.onEvent?.({ type: "assistant_delta", text });
-    return { text };
+    for (const part of parts) {
+      input.onDelta?.({ kind: "assistant_content", part });
+      await input.onEvent?.({ type: "assistant_delta", part });
+    }
+    return { text: result.text, parts };
   },
 });

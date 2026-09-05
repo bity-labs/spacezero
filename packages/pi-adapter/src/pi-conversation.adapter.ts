@@ -37,6 +37,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   AgentTurnError,
+  type AgentTurnContentPart,
   type AgentTurnInput,
   type AgentTurnResult,
   type ConversationRunner,
@@ -321,6 +322,24 @@ const textFromAssistantMessage = (message: AssistantMessage): string =>
     .map((content) => content.text)
     .join("");
 
+const safePartsFromAssistantMessage = (
+  message: AssistantMessage,
+): readonly AgentTurnContentPart[] =>
+  message.content.flatMap((content, index): AgentTurnContentPart[] => {
+    const order = index + 1;
+    if (content.type === "text" && content.text.length > 0)
+      return [{ type: "text" as const, order, text: content.text }];
+    if (
+      content.type === "thinking" &&
+      content.redacted !== true &&
+      content.thinking.length > 0
+    )
+      return [
+        { type: "reasoning" as const, order, text: content.thinking },
+      ];
+    return [];
+  });
+
 const expandSkillPrompt = (input: AgentTurnInput): string => {
   const match = /^\/skill:([a-z0-9][a-z0-9-]{0,127})(?:\s+([\s\S]*))?$/.exec(
     input.prompt,
@@ -410,20 +429,58 @@ export function createPiConversationRunner(
       });
 
       const textParts: string[] = [];
+      const contentByOrder = new Map<number, AgentTurnContentPart>();
+
+      const appendSafeDelta = (
+        part: Omit<AgentTurnContentPart, "text">,
+        delta: string,
+      ): AgentTurnContentPart => {
+        const existing = contentByOrder.get(part.order);
+        const next = {
+          ...part,
+          text: `${existing?.text ?? ""}${delta}`,
+        };
+        contentByOrder.set(part.order, next);
+        return { ...part, text: delta };
+      };
 
       const abort = (): void => agent.abort();
       input.signal?.addEventListener("abort", abort, { once: true });
       const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
         switch (event.type) {
           case "message_update": {
-            if (event.assistantMessageEvent.type !== "text_delta") break;
-            const delta = event.assistantMessageEvent.delta;
+            const messageEvent = event.assistantMessageEvent;
+            if (
+              messageEvent.type !== "text_delta" &&
+              messageEvent.type !== "thinking_delta"
+            )
+              break;
+            const delta = messageEvent.delta;
             if (delta.length > 0) {
-              textParts.push(delta);
-              input.onDelta?.({ kind: "assistant_text", text: delta });
+              const sourceContent = messageEvent.partial.content[
+                messageEvent.contentIndex
+              ];
+              if (
+                messageEvent.type === "thinking_delta" &&
+                sourceContent?.type === "thinking" &&
+                sourceContent.redacted === true
+              )
+                break;
+              if (messageEvent.type === "text_delta") textParts.push(delta);
+              const part = appendSafeDelta(
+                {
+                  type:
+                    messageEvent.type === "text_delta"
+                      ? "text"
+                      : "reasoning",
+                  order: messageEvent.contentIndex + 1,
+                },
+                delta,
+              );
+              input.onDelta?.({ kind: "assistant_content", part });
               await input.onEvent?.({
                 type: "assistant_delta",
-                text: delta,
+                part,
               });
             }
             break;
@@ -471,8 +528,15 @@ export function createPiConversationRunner(
         const assistantText = assistant
           ? textFromAssistantMessage(assistant)
           : textParts.join("");
+        const parts = assistant
+          ? safePartsFromAssistantMessage(assistant)
+          : [...contentByOrder.values()].sort(
+              (left, right) => left.order - right.order,
+            );
+        const text = assistantText.length > 0 ? assistantText : textParts.join("");
         return {
-          text: assistantText.length > 0 ? assistantText : textParts.join(""),
+          text,
+          parts: parts.length > 0 ? parts : [{ type: "text", order: 1, text }],
         };
       } catch {
         if (input.signal?.aborted)

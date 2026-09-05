@@ -147,6 +147,163 @@ describe("saved conversation projection", () => {
     ]);
   });
 
+  it("loads ordered reasoning and text parts without duplicating reasoning into assistant text", async () => {
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [
+          {
+            id: "assistant-message-1",
+            role: "assistant" as const,
+            text: "Final answer",
+            sequence: 2,
+            createdAt: "2026-01-01T00:00:02.000Z",
+            turnId: "turn-1",
+            parts: [
+              {
+                id: "assistant-message-1:reasoning:1",
+                type: "reasoning" as const,
+                order: 1,
+                text: "Readable provider reasoning",
+                turnId: "turn-1",
+              },
+              {
+                id: "assistant-message-1:text:2",
+                type: "text" as const,
+                order: 2,
+                text: "Final answer",
+                turnId: "turn-1",
+              },
+            ],
+          },
+        ],
+      })),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+
+    expect(store.getSnapshot().messages[0]).toMatchObject({
+      text: "Final answer",
+      parts: [
+        { type: "reasoning", order: 1, text: "Readable provider reasoning" },
+        { type: "text", order: 2, text: "Final answer" },
+      ],
+    });
+  });
+
+  it("reconciles live reasoning deltas with settled durable parts", async () => {
+    let onEvent: ((event: unknown) => void) | undefined;
+    let onLiveEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        onLiveEvent = input.onLiveEvent;
+        input.onOpen?.();
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    onEvent?.({
+      sequence: 5,
+      eventType: "AgentTurnStartedV1",
+      event: {
+        type: "AgentTurnStartedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        providerId: "anthropic",
+        modelId: "claude-sonnet-4-5",
+        thinkingLevel: "high",
+        timestamp,
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantReasoningDeltaV1",
+      event: {
+        type: "AssistantReasoningDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        order: 1,
+        text: "Reason ",
+        timestamp,
+      },
+    });
+    onLiveEvent?.({
+      live: true,
+      eventType: "AssistantTextDeltaV1",
+      event: {
+        type: "AssistantTextDeltaV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        order: 2,
+        text: "Answer",
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot().messages[0]).toMatchObject({
+      text: "Answer",
+      parts: [
+        { type: "reasoning", order: 1, text: "Reason " },
+        { type: "text", order: 2, text: "Answer" },
+      ],
+    });
+
+    onEvent?.({
+      sequence: 6,
+      eventType: "AgentMessageCompletedV1",
+      event: {
+        type: "AgentMessageCompletedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        text: "Answer",
+        parts: [
+          {
+            id: "assistant-message-1:reasoning:1",
+            type: "reasoning",
+            order: 1,
+            text: "Reason completely.",
+            turnId: "turn-1",
+          },
+          {
+            id: "assistant-message-1:text:2",
+            type: "text",
+            order: 2,
+            text: "Answer",
+            turnId: "turn-1",
+          },
+        ],
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot().messages[0]?.parts).toMatchObject([
+      { type: "reasoning", text: "Reason completely." },
+      { type: "text", text: "Answer" },
+    ]);
+  });
+
   it("loads Global Chat saved messages through the Global Chat client into the same projection shape", async () => {
     const client = {
       listMessages: vi.fn(async (sessionId: string) => {
