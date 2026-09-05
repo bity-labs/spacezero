@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
-import type { ConversationRunner } from "@spacezero/pi-adapter";
+import { AgentTurnError, type ConversationRunner } from "@spacezero/pi-adapter";
 import {
   startHostServer,
   type StartedHostServer,
@@ -124,6 +124,25 @@ const cancelGlobalChatFollowUp = async (
   const response = await fetch(
     new URL(
       `/v1/global-chat-sessions/${sessionId}/follow-ups/${followUpId}/cancel`,
+      host.endpoint,
+    ),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: "{}",
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
+const interruptGlobalChatTurn = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  turnId: string,
+) => {
+  const response = await fetch(
+    new URL(
+      `/v1/global-chat-sessions/${sessionId}/turns/${turnId}/interrupt`,
       host.endpoint,
     ),
     {
@@ -609,7 +628,10 @@ describe("Global Chat Session Host protocol", () => {
     const sessionId = (created.body as { session: { id: string } }).session.id;
 
     const unauthenticated = await fetch(
-      new URL(`/v1/global-chat-sessions/${sessionId}/follow-ups`, host.endpoint),
+      new URL(
+        `/v1/global-chat-sessions/${sessionId}/follow-ups`,
+        host.endpoint,
+      ),
       { headers: { Origin: origin } },
     );
     expect(unauthenticated.status).toBe(401);
@@ -744,7 +766,10 @@ describe("Global Chat Session Host protocol", () => {
       });
     });
     await waitFor(() => {
-      expect(submittedPrompts).toEqual(["initial prompt", "same text follow-up"]);
+      expect(submittedPrompts).toEqual([
+        "initial prompt",
+        "same text follow-up",
+      ]);
     });
     expect(
       readRows<{ event_type: string }>(
@@ -778,6 +803,138 @@ describe("Global Chat Session Host protocol", () => {
         { commandId: firstCommandId, state: "consumed" },
         { commandId: secondCommandId, state: "cancelled" },
       ],
+    });
+  });
+
+  it("interrupts only the current Global Chat turn and drains the next queued follow-up", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    const submittedPrompts: string[] = [];
+    let partialEmitted!: () => void;
+    const partialEmittedPromise = new Promise<void>((resolve) => {
+      partialEmitted = resolve;
+    });
+    let nextStarted!: () => void;
+    const nextStartedPromise = new Promise<void>((resolve) => {
+      nextStarted = resolve;
+    });
+    let releaseNext!: () => void;
+    const releaseNextPromise = new Promise<void>((resolve) => {
+      releaseNext = resolve;
+    });
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        submittedPrompts.push(input.prompt);
+        if (input.prompt === "active prompt") {
+          await input.onEvent?.({
+            type: "assistant_delta",
+            part: { type: "text", order: 1, text: "partial global" },
+          });
+          partialEmitted();
+          await new Promise<never>((_, reject) => {
+            if (input.signal?.aborted)
+              reject(new AgentTurnError("agent_turn_interrupted"));
+            input.signal?.addEventListener(
+              "abort",
+              () => reject(new AgentTurnError("agent_turn_interrupted")),
+              { once: true },
+            );
+          });
+        }
+        nextStarted();
+        await releaseNextPromise;
+        return { text: "queued global answer" };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "active prompt",
+    );
+    expect(created.response.status).toBe(200);
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    const firstTurnId = (created.body as { turn: { id: string } }).turn.id;
+    const followUpCommandId = randomUUID();
+    const queued = await enqueueGlobalChatFollowUp(
+      host,
+      client.clientCapability,
+      sessionId,
+      "queued prompt",
+      followUpCommandId,
+    );
+    expect(queued.response.status).toBe(200);
+    await partialEmittedPromise;
+
+    const interrupted = await interruptGlobalChatTurn(
+      host,
+      client.clientCapability,
+      sessionId,
+      firstTurnId,
+    );
+
+    expect(interrupted.response.status).toBe(200);
+    expect(interrupted.body).toMatchObject({
+      turn: {
+        id: firstTurnId,
+        state: "interrupted",
+        draftText: "partial global",
+      },
+    });
+    await nextStartedPromise;
+    const stale = await interruptGlobalChatTurn(
+      host,
+      client.clientCapability,
+      sessionId,
+      firstTurnId,
+    );
+    expect(stale.response.status).toBe(200);
+    expect(stale.body).toMatchObject({
+      turn: { id: firstTurnId, state: "interrupted" },
+    });
+    const listedWhileNextRuns = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(listedWhileNextRuns.body).toMatchObject({
+      latestTurn: {
+        id: expect.not.stringMatching(firstTurnId),
+        state: "running",
+      },
+      activeTurn: { state: "running" },
+      messages: [
+        { role: "user", text: "active prompt" },
+        { role: "user", text: "queued prompt", commandId: followUpCommandId },
+      ],
+    });
+    const followUps = await listGlobalChatFollowUps(
+      host,
+      client.clientCapability,
+      sessionId,
+    );
+    expect(followUps.body).toMatchObject({
+      followUps: [
+        {
+          commandId: followUpCommandId,
+          state: "consumed",
+          dispatchedTurnId: expect.any(String),
+        },
+      ],
+    });
+    expect(submittedPrompts).toEqual(["active prompt", "queued prompt"]);
+
+    releaseNext();
+    await waitFor(async () => {
+      const completed = await listGlobalChatMessages(
+        host,
+        client.clientCapability,
+        sessionId,
+      );
+      expect(completed.body).toMatchObject({
+        latestTurn: { state: "completed" },
+      });
     });
   });
 
