@@ -59,6 +59,17 @@ const createGlobalChatSession = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const listGlobalChatMessages = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/messages`, host.endpoint),
+    { headers: authHeaders(clientCapability) },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const readRows = <A>(
   databasePath: string,
   sql: string,
@@ -111,10 +122,12 @@ describe("Global Chat Session Host protocol", () => {
     const host = await start(databasePath, join(root, "SpaceZero"), runner);
     const client = descriptor(host);
 
+    const createCommandId = randomUUID();
     const created = await createGlobalChatSession(
       host,
       client.clientCapability,
       `  ${"Release plan ".repeat(8)}\nsecond line is ignored`,
+      createCommandId,
     );
 
     expect(created.response.status).toBe(200);
@@ -140,6 +153,7 @@ describe("Global Chat Session Host protocol", () => {
       role: "user",
       text: `${"Release plan ".repeat(8)}\nsecond line is ignored`,
       sequence: 3,
+      commandId: createCommandId,
     });
     expect(body.userMessage).toEqual(body.firstMessage);
     expect(body.turn).toMatchObject({ state: "running" });
@@ -211,6 +225,28 @@ describe("Global Chat Session Host protocol", () => {
       { event_type: "GlobalChatAgentTurnStartedV1", sequence: 4 },
       { event_type: "GlobalChatAgentMessageCompletedV1", sequence: 5 },
     ]);
+
+    const listed = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      body.session.id as string,
+    );
+    expect(listed.response.status).toBe(200);
+    expect(listed.body).toMatchObject({
+      messages: [
+        {
+          id: body.userMessage.id,
+          role: "user",
+          text: body.userMessage.text,
+          commandId: createCommandId,
+        },
+        {
+          role: "assistant",
+          text: "Global answer",
+          commandId: createCommandId,
+        },
+      ],
+    });
   });
 
   it("replays duplicate create commands with the same input and rejects command ID conflicts", async () => {

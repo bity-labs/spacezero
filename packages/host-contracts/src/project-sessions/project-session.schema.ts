@@ -72,6 +72,7 @@ export interface SessionMessage {
   readonly text: string;
   readonly sequence: number;
   readonly createdAt: string;
+  readonly commandId?: ProjectSessionCommandId;
   readonly turnId?: AgentTurnId;
   readonly parts?: readonly SessionTextPart[];
 }
@@ -305,6 +306,7 @@ export const SessionMessageSchema = Schema.Struct({
     Schema.isGreaterThanOrEqualTo(1),
   ),
   createdAt: DateTimeUtcStringSchema,
+  commandId: Schema.optionalKey(ProjectSessionCommandIdSchema),
   turnId: Schema.optionalKey(AgentTurnIdSchema),
   parts: Schema.optionalKey(Schema.Array(SessionTextPartSchema)),
 });
