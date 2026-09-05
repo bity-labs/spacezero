@@ -532,7 +532,20 @@ describe("Session prompt Host protocol", () => {
     );
     const messagesBody = listed.body as {
       session: { id: string; lastSequence: number };
-      messages: { id: string; role: string; text: string; sequence: number }[];
+      messages: {
+        id: string;
+        role: string;
+        text: string;
+        sequence: number;
+        turnId?: string;
+        parts?: {
+          id: string;
+          type: string;
+          order: number;
+          text: string;
+          turnId?: string;
+        }[];
+      }[];
     };
     const agentMessage = messagesBody.messages[1]!;
     expect(agentMessage.role).toBe("assistant");
@@ -568,11 +581,29 @@ describe("Session prompt Host protocol", () => {
         id: body.userMessage.id,
         role: "user",
         text: "Build the wine list view",
+        parts: [
+          {
+            id: `${body.userMessage.id}:text:1`,
+            type: "text",
+            order: 1,
+            text: "Build the wine list view",
+          },
+        ],
       },
       {
         id: body.turn.assistantMessageId,
         role: "assistant",
         text: "Echo: Build the wine list view",
+        turnId: body.turn.id,
+        parts: [
+          {
+            id: `${body.turn.assistantMessageId}:text:1`,
+            type: "text",
+            order: 1,
+            text: "Echo: Build the wine list view",
+            turnId: body.turn.id,
+          },
+        ],
       },
     ]);
   });
