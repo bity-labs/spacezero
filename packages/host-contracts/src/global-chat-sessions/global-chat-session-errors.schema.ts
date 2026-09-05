@@ -9,6 +9,9 @@ export type GlobalChatSessionErrorCode =
   | "global_chat_session_turn_in_progress"
   | "global_chat_session_runtime_revision_conflict"
   | "global_chat_session_recovery_required"
+  | "follow_up_not_found"
+  | "follow_up_not_cancellable"
+  | "follow_up_queue_unavailable"
   | "turn_not_found"
   | "turn_not_active"
   | "agent_configuration_invalid"
@@ -51,6 +54,12 @@ export const GlobalChatSessionRuntimeRevisionConflictErrorSchema =
   globalChatSessionError("global_chat_session_runtime_revision_conflict", 409);
 export const GlobalChatSessionRecoveryRequiredErrorSchema =
   globalChatSessionError("global_chat_session_recovery_required", 409);
+export const GlobalChatSessionFollowUpNotFoundErrorSchema =
+  globalChatSessionError("follow_up_not_found", 404);
+export const GlobalChatSessionFollowUpNotCancellableErrorSchema =
+  globalChatSessionError("follow_up_not_cancellable", 409);
+export const GlobalChatSessionFollowUpQueueUnavailableErrorSchema =
+  globalChatSessionError("follow_up_queue_unavailable", 503);
 export const GlobalChatSessionTurnNotFoundErrorSchema = globalChatSessionError(
   "turn_not_found",
   404,
@@ -78,6 +87,9 @@ export const GlobalChatSessionErrorSchemas = [
   GlobalChatSessionTurnInProgressErrorSchema,
   GlobalChatSessionRuntimeRevisionConflictErrorSchema,
   GlobalChatSessionRecoveryRequiredErrorSchema,
+  GlobalChatSessionFollowUpNotFoundErrorSchema,
+  GlobalChatSessionFollowUpNotCancellableErrorSchema,
+  GlobalChatSessionFollowUpQueueUnavailableErrorSchema,
   GlobalChatSessionTurnNotFoundErrorSchema,
   GlobalChatSessionTurnNotActiveErrorSchema,
   GlobalChatSessionAgentConfigurationInvalidErrorSchema,
@@ -125,6 +137,18 @@ export const globalChatSessionErrorBody = (
       return {
         code,
         message: "This Global Chat Session needs recovery before it can be used.",
+      };
+    case "follow_up_not_found":
+      return { code, message: "The selected follow-up does not exist." };
+    case "follow_up_not_cancellable":
+      return {
+        code,
+        message: "The selected follow-up can no longer be cancelled.",
+      };
+    case "follow_up_queue_unavailable":
+      return {
+        code,
+        message: "The Global Chat follow-up queue is temporarily unavailable.",
       };
     case "turn_not_found":
       return { code, message: "The selected agent turn does not exist." };

@@ -4,6 +4,7 @@ import {
   CreateGlobalChatSessionWithFirstPromptRequestSchema,
   CreateGlobalChatSessionWithFirstPromptResultSchema,
   GlobalChatSessionEventSchema,
+  GlobalChatSessionFollowUpSchema,
   GlobalChatSessionMessageSchema,
   GlobalChatSessionSummarySchema,
   GlobalChatSessionToolCallPartSchema,
@@ -174,6 +175,45 @@ describe("Global Chat Session schemas", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("models Global Chat follow-ups and durable queue lifecycle events", () => {
+    const followUp = {
+      id: "44444444-5555-4666-8777-888888888888",
+      commandId: uuid,
+      sessionId: session.id,
+      prompt: "Follow up next",
+      state: "queued" as const,
+      position: 1,
+      createdAt: "2026-01-01T00:01:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+    };
+    expect(parseSync(GlobalChatSessionFollowUpSchema)(followUp)).toEqual(
+      followUp,
+    );
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionFollowUpQueuedV1",
+        version: 1,
+        sessionId: session.id,
+        followUpId: followUp.id,
+        commandId: uuid,
+        prompt: "Follow up next",
+        position: 1,
+        timestamp: "2026-01-01T00:01:00.000Z",
+      }),
+    ).toMatchObject({ type: "GlobalChatSessionFollowUpQueuedV1" });
+    expect(
+      parseSync(GlobalChatSessionEventSchema)({
+        type: "GlobalChatSessionFollowUpConsumedV1",
+        version: 1,
+        sessionId: session.id,
+        followUpId: followUp.id,
+        commandId: uuid,
+        turnId,
+        timestamp: "2026-01-01T00:01:01.000Z",
+      }),
+    ).toMatchObject({ type: "GlobalChatSessionFollowUpConsumedV1", turnId });
   });
 
   it("accepts reasoning-only in-progress checkpoints", () => {

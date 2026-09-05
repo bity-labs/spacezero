@@ -531,7 +531,6 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           parts: finalParts,
         });
         stream.wakeEvents(input.sessionId);
-        input.onTurnSettled?.(input.sessionId);
       } catch (error) {
         if (
           error instanceof AgentTurnError &&
@@ -546,7 +545,6 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
             })
             .then(() => stream.wakeEvents(input.sessionId))
             .catch(() => undefined);
-          input.onTurnSettled?.(input.sessionId);
           return;
         }
         await checkpointDraft().catch(() => undefined);
@@ -559,7 +557,6 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           })
           .then(() => stream.wakeEvents(input.sessionId))
           .catch(() => undefined);
-        input.onTurnSettled?.(input.sessionId);
       } finally {
         if (checkpointTimer) clearTimeout(checkpointTimer);
         await checkpointChain.catch(() => undefined);

@@ -1,5 +1,6 @@
 import type {
   GlobalChatSessionEventEnvelope,
+  GlobalChatSessionFollowUp,
   GlobalChatSessionLiveEventEnvelope,
   GlobalChatSessionMessage,
   GlobalChatSessionSummary,
@@ -174,7 +175,10 @@ interface SavedConversationConnectorResult {
   readonly title?: string;
   readonly lastSequence: number;
   readonly messages: readonly (SessionMessage | GlobalChatSessionMessage)[];
-  readonly followUps?: readonly ProjectSessionFollowUp[];
+  readonly followUps?: readonly (
+    | ProjectSessionFollowUp
+    | GlobalChatSessionFollowUp
+  )[];
   readonly activeTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
   readonly latestTurn?: ProjectSessionTurn | GlobalChatSessionTurn;
 }
@@ -203,11 +207,15 @@ interface CreateSavedConversationStoreInput {
     readonly sessionId: string;
     readonly prompt: string;
     readonly commandId: string;
-  }) => Promise<{ readonly followUp: ProjectSessionFollowUp }>;
+  }) => Promise<{
+    readonly followUp: ProjectSessionFollowUp | GlobalChatSessionFollowUp;
+  }>;
   readonly cancelFollowUp?: (input: {
     readonly sessionId: string;
     readonly followUpId: string;
-  }) => Promise<{ readonly followUp: ProjectSessionFollowUp }>;
+  }) => Promise<{
+    readonly followUp: ProjectSessionFollowUp | GlobalChatSessionFollowUp;
+  }>;
   readonly createWithFirstPrompt?: (input: {
     readonly prompt: string;
     readonly commandId: string;
@@ -448,7 +456,7 @@ const mergeMessages = (
   );
 
 const sortFollowUps = (
-  followUps: readonly ProjectSessionFollowUp[],
+  followUps: readonly (ProjectSessionFollowUp | GlobalChatSessionFollowUp)[],
 ): readonly SavedConversationFollowUp[] =>
   [...followUps]
     .sort((left, right) =>
@@ -757,6 +765,7 @@ const applyDurableEvent = (
         actions: actions({ canSend, send: "available", canStop: false }),
       };
     case "ProjectSessionFollowUpQueuedV1":
+    case "GlobalChatSessionFollowUpQueuedV1":
       return {
         ...base,
         queue: {
@@ -778,6 +787,7 @@ const applyDurableEvent = (
         }),
       };
     case "ProjectSessionFollowUpDispatchedV1":
+    case "GlobalChatSessionFollowUpDispatchedV1":
       return {
         ...base,
         queue: {
@@ -790,6 +800,7 @@ const applyDurableEvent = (
         },
       };
     case "ProjectSessionFollowUpConsumedV1":
+    case "GlobalChatSessionFollowUpConsumedV1":
       return {
         ...base,
         queue: {
@@ -803,6 +814,7 @@ const applyDurableEvent = (
         },
       };
     case "ProjectSessionFollowUpCancelledV1":
+    case "GlobalChatSessionFollowUpCancelledV1":
       return {
         ...base,
         queue: {
@@ -815,6 +827,7 @@ const applyDurableEvent = (
         },
       };
     case "ProjectSessionFollowUpRecoveryRequiredV1":
+    case "GlobalChatSessionFollowUpRecoveryRequiredV1":
       return {
         ...base,
         queue: {
@@ -1495,11 +1508,23 @@ export const createGlobalChatSessionSavedConversationStore = ({
     kind: "global",
     sessionId,
     load: async () => {
-      const result = await client.listMessages(sessionId);
+      const [result, followUpResult] = await Promise.all([
+        client.listMessages(sessionId),
+        optionalClient.listFollowUps?.(sessionId),
+      ]);
       return {
         title: result.session.title,
-        lastSequence: result.session.lastSequence,
+        lastSequence:
+          followUpResult === undefined
+            ? result.session.lastSequence
+            : Math.min(
+                result.session.lastSequence,
+                followUpResult.session.lastSequence,
+              ),
         messages: result.messages,
+        ...(followUpResult === undefined
+          ? {}
+          : { followUps: followUpResult.followUps }),
         ...(result.activeTurn === undefined
           ? {}
           : { activeTurn: result.activeTurn }),
@@ -1513,6 +1538,18 @@ export const createGlobalChatSessionSavedConversationStore = ({
       : {
           submitPrompt: ({ sessionId: id, prompt, commandId }) =>
             optionalClient.submitPrompt!(id, prompt, commandId),
+        }),
+    ...(optionalClient.enqueueFollowUp === undefined
+      ? {}
+      : {
+          enqueueFollowUp: ({ sessionId: id, prompt, commandId }) =>
+            optionalClient.enqueueFollowUp!(id, prompt, commandId),
+        }),
+    ...(optionalClient.cancelFollowUp === undefined
+      ? {}
+      : {
+          cancelFollowUp: ({ sessionId: id, followUpId }) =>
+            optionalClient.cancelFollowUp!(id, followUpId),
         }),
     ...(optionalClient.subscribeEvents === undefined
       ? {}
@@ -1557,6 +1594,18 @@ export const createGlobalChatDraftConversationStore = ({
       : {
           submitPrompt: ({ sessionId: id, prompt, commandId }) =>
             optionalClient.submitPrompt!(id, prompt, commandId),
+        }),
+    ...(optionalClient.enqueueFollowUp === undefined
+      ? {}
+      : {
+          enqueueFollowUp: ({ sessionId: id, prompt, commandId }) =>
+            optionalClient.enqueueFollowUp!(id, prompt, commandId),
+        }),
+    ...(optionalClient.cancelFollowUp === undefined
+      ? {}
+      : {
+          cancelFollowUp: ({ sessionId: id, followUpId }) =>
+            optionalClient.cancelFollowUp!(id, followUpId),
         }),
     ...(optionalClient.subscribeEvents === undefined
       ? {}

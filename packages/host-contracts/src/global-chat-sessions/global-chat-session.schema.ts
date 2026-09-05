@@ -6,6 +6,7 @@ import {
 
 export type GlobalChatSessionId = string;
 export type GlobalChatSessionCommandId = string;
+export type GlobalChatSessionFollowUpId = string;
 export type GlobalChatSessionMessageId = string;
 export type GlobalChatSessionMessageRole = "user" | "assistant";
 export type GlobalChatSessionTurnId = string;
@@ -16,6 +17,12 @@ export type GlobalChatSessionTurnState =
   | "completed"
   | "failed"
   | "interrupted"
+  | "recovery_required";
+export type GlobalChatSessionFollowUpState =
+  | "queued"
+  | "dispatched"
+  | "consumed"
+  | "cancelled"
   | "recovery_required";
 export type GlobalChatSessionAgentToolApprovalStatus =
   "approved" | "requires_approval";
@@ -165,6 +172,38 @@ export interface SubmitGlobalChatSessionPromptRequest {
   readonly prompt: string;
 }
 
+export interface EnqueueGlobalChatSessionFollowUpRequest {
+  readonly commandId: GlobalChatSessionCommandId;
+  readonly prompt: string;
+}
+
+export interface GlobalChatSessionFollowUp {
+  readonly id: GlobalChatSessionFollowUpId;
+  readonly commandId: GlobalChatSessionCommandId;
+  readonly sessionId: GlobalChatSessionId;
+  readonly prompt: string;
+  readonly state: GlobalChatSessionFollowUpState;
+  readonly position: number;
+  readonly dispatchedTurnId?: GlobalChatSessionTurnId;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
+
+export interface EnqueueGlobalChatSessionFollowUpResult {
+  readonly session: GlobalChatSessionSummary;
+  readonly followUp: GlobalChatSessionFollowUp;
+}
+
+export interface ListGlobalChatSessionFollowUpsResult {
+  readonly session: GlobalChatSessionSummary;
+  readonly followUps: readonly GlobalChatSessionFollowUp[];
+}
+
+export interface CancelGlobalChatSessionFollowUpResult {
+  readonly session: GlobalChatSessionSummary;
+  readonly followUp: GlobalChatSessionFollowUp;
+}
+
 export interface SubmitGlobalChatSessionPromptResult {
   readonly session: GlobalChatSessionSummary;
   readonly turn: GlobalChatSessionTurn;
@@ -235,6 +274,9 @@ export const GlobalChatSessionIdSchema = Schema.String.check(Schema.isUUID());
 export const GlobalChatSessionCommandIdSchema = Schema.String.check(
   Schema.isUUID(),
 );
+export const GlobalChatSessionFollowUpIdSchema = Schema.String.check(
+  Schema.isUUID(),
+);
 export const GlobalChatSessionMessageIdSchema = Schema.String.check(
   Schema.isUUID(),
 );
@@ -273,6 +315,13 @@ export const GlobalChatSessionTurnStateSchema = Schema.Literals([
   "completed",
   "failed",
   "interrupted",
+  "recovery_required",
+]);
+export const GlobalChatSessionFollowUpStateSchema = Schema.Literals([
+  "queued",
+  "dispatched",
+  "consumed",
+  "cancelled",
   "recovery_required",
 ]);
 export const GlobalChatSessionAgentToolSafetySchema = Schema.Literals([
@@ -447,6 +496,36 @@ export const SubmitGlobalChatSessionPromptRequestSchema = Schema.Struct({
   commandId: GlobalChatSessionCommandIdSchema,
   prompt: GlobalChatSessionPromptSchema,
 });
+export const EnqueueGlobalChatSessionFollowUpRequestSchema = Schema.Struct({
+  commandId: GlobalChatSessionCommandIdSchema,
+  prompt: GlobalChatSessionPromptSchema,
+});
+export const GlobalChatSessionFollowUpSchema = Schema.Struct({
+  id: GlobalChatSessionFollowUpIdSchema,
+  commandId: GlobalChatSessionCommandIdSchema,
+  sessionId: GlobalChatSessionIdSchema,
+  prompt: GlobalChatSessionPromptSchema,
+  state: GlobalChatSessionFollowUpStateSchema,
+  position: Schema.Number.check(
+    Schema.isInt(),
+    Schema.isGreaterThanOrEqualTo(1),
+  ),
+  dispatchedTurnId: Schema.optionalKey(GlobalChatSessionTurnIdSchema),
+  createdAt: DateTimeUtcStringSchema,
+  updatedAt: DateTimeUtcStringSchema,
+});
+export const EnqueueGlobalChatSessionFollowUpResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+  followUp: GlobalChatSessionFollowUpSchema,
+});
+export const ListGlobalChatSessionFollowUpsResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+  followUps: Schema.Array(GlobalChatSessionFollowUpSchema),
+});
+export const CancelGlobalChatSessionFollowUpResultSchema = Schema.Struct({
+  session: GlobalChatSessionSummarySchema,
+  followUp: GlobalChatSessionFollowUpSchema,
+});
 export const SubmitGlobalChatSessionPromptResultSchema = Schema.Struct({
   session: GlobalChatSessionSummarySchema,
   turn: GlobalChatSessionTurnSchema,
@@ -518,6 +597,52 @@ export const GlobalChatSessionEventSchema = Schema.Union([
       Schema.isInt(),
       Schema.isGreaterThanOrEqualTo(1),
     ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionFollowUpQueuedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    followUpId: GlobalChatSessionFollowUpIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    prompt: GlobalChatSessionMessageTextSchema,
+    position: Schema.Number.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+    ),
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionFollowUpDispatchedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    followUpId: GlobalChatSessionFollowUpIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionFollowUpConsumedV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    followUpId: GlobalChatSessionFollowUpIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    turnId: GlobalChatSessionTurnIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionFollowUpCancelledV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    followUpId: GlobalChatSessionFollowUpIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
+    timestamp: DateTimeUtcStringSchema,
+  }),
+  Schema.Struct({
+    type: Schema.Literals(["GlobalChatSessionFollowUpRecoveryRequiredV1"]),
+    version: Schema.Literals([1]),
+    sessionId: GlobalChatSessionIdSchema,
+    followUpId: GlobalChatSessionFollowUpIdSchema,
+    commandId: GlobalChatSessionCommandIdSchema,
     timestamp: DateTimeUtcStringSchema,
   }),
   Schema.Struct({
