@@ -95,6 +95,10 @@ describe("WorkspaceSidebar chats section", () => {
     expect(row).toBeInTheDocument();
     expect(row.textContent).toBe("First chat");
     expect(screen.queryByText(/2026-01-/)).not.toBeInTheDocument();
+    // Rename is not available from sidebar rows.
+    expect(
+      screen.queryByRole("button", { name: "Rename chat" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders chat rows in the provided recent order and highlights the active chat", () => {

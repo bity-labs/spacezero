@@ -45,7 +45,11 @@
     "loadingChats": "Loading chats",
     "allChatsLoadError": "Could not load chats.",
     "archivedReadOnly": "Archived. This chat is read-only until you unarchive it.",
-    "unarchiveToContinue": "Unarchive to continue"
+    "unarchiveToContinue": "Unarchive to continue",
+    "renameChat": "Rename chat",
+    "renameTitleBlank": "Chat titles cannot be empty.",
+    "renameTitleSingleLine": "Chat titles must be a single line.",
+    "renameTitleMaxLength": "Chat titles must be 60 characters or fewer."
   },
   "settings": {
     "title": "Settings",
