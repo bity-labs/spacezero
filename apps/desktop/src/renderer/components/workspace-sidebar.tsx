@@ -40,6 +40,7 @@ type WorkspaceSidebarProps = {
   onSelectKnowledgeBase: () => void;
   onSelectAgentCapabilities: () => void;
   onSelectChat: (sessionId: string) => void;
+  onArchiveChat: (sessionId: string) => void;
   onToggleChats: () => void;
   onNewChat: () => void;
   onAllChats: () => void;
@@ -67,6 +68,7 @@ export function WorkspaceSidebar({
   onSelectKnowledgeBase,
   onSelectAgentCapabilities,
   onSelectChat,
+  onArchiveChat,
   onToggleChats,
   onNewChat,
   onAllChats,
@@ -134,7 +136,9 @@ export function WorkspaceSidebar({
                   <SidebarMenuAction
                     aria-label={t("workspace.archive")}
                     className="text-muted-foreground"
-                    disabled
+                    onClick={() => {
+                      onArchiveChat(chat.id);
+                    }}
                   >
                     <Archive aria-hidden="true" />
                   </SidebarMenuAction>

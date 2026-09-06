@@ -18,6 +18,7 @@ import {
 } from "../components/workspace-sidebar";
 import { useSidebarResize } from "../hooks/use-sidebar-resize";
 import { selectRecentUnarchivedChats } from "../features/conversations/recent-chats.model.js";
+import { subscribeChatListRefresh } from "../features/conversations/chat-list-refresh.js";
 
 export const Route = createRootRoute({
   component: RootRoute,
@@ -36,6 +37,7 @@ function RootRoute(): ReactElement {
   const [activeView, setActiveView] =
     useState<WorkspaceSidebarView>("workspace");
   const [chats, setChats] = useState<readonly GlobalChatSessionSummary[]>([]);
+  const [chatsRefreshToken, setChatsRefreshToken] = useState(0);
   const [chatsExpanded, setChatsExpanded] = useState(true);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const leftSidebarResize = useSidebarResize({
@@ -89,7 +91,25 @@ function RootRoute(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [isGlobalChatSessionRoute, activeChatId]);
+  }, [isGlobalChatSessionRoute, activeChatId, chatsRefreshToken]);
+
+  useEffect(
+    () =>
+      subscribeChatListRefresh(() => {
+        setChatsRefreshToken((token) => token + 1);
+      }),
+    [],
+  );
+
+  const archiveSidebarChat = (sessionId: string) => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: window.spacezero.getLocalHostConnection,
+    });
+    void client
+      .archiveSession(sessionId)
+      .catch(() => undefined)
+      .finally(() => setChatsRefreshToken((token) => token + 1));
+  };
 
   if (pathname === "/settings") {
     return <Outlet />;
@@ -138,6 +158,7 @@ function RootRoute(): ReactElement {
               params: { sessionId },
             });
           }}
+          onArchiveChat={archiveSidebarChat}
           onToggleChats={() => setChatsExpanded((expanded) => !expanded)}
           onNewChat={() => {
             setActiveView("workspace");
