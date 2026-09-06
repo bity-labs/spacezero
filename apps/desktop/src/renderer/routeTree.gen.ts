@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AgentCapabilitiesRouteImport } from './routes/agent-capabilities'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as GlobalChatSessionsIndexRouteImport } from './routes/global-chat-sessions.index'
 import { Route as GlobalChatSessionsSessionIdRouteImport } from './routes/global-chat-sessions.$sessionId'
 import { Route as GlobalChatSessionsNewRouteImport } from './routes/global-chat-sessions.new'
 import { Route as ProjectSessionsSessionIdRouteImport } from './routes/project-sessions.$sessionId'
@@ -29,6 +30,11 @@ const AgentCapabilitiesRoute = AgentCapabilitiesRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GlobalChatSessionsIndexRoute = GlobalChatSessionsIndexRouteImport.update({
+  id: '/global-chat-sessions/',
+  path: '/global-chat-sessions/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GlobalChatSessionsSessionIdRoute =
@@ -56,6 +62,7 @@ export interface FileRoutesByFullPath {
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
   '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
+  '/global-chat-sessions/': typeof GlobalChatSessionsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
   '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
+  '/global-chat-sessions': typeof GlobalChatSessionsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -73,6 +81,7 @@ export interface FileRoutesById {
   '/global-chat-sessions/$sessionId': typeof GlobalChatSessionsSessionIdRoute
   '/global-chat-sessions/new': typeof GlobalChatSessionsNewRoute
   '/project-sessions/$sessionId': typeof ProjectSessionsSessionIdRoute
+  '/global-chat-sessions/': typeof GlobalChatSessionsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -83,6 +92,7 @@ export interface FileRouteTypes {
     | '/global-chat-sessions/$sessionId'
     | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
+    | '/global-chat-sessions/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -91,6 +101,7 @@ export interface FileRouteTypes {
     | '/global-chat-sessions/$sessionId'
     | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
+    | '/global-chat-sessions'
   id:
     | '__root__'
     | '/'
@@ -99,6 +110,7 @@ export interface FileRouteTypes {
     | '/global-chat-sessions/$sessionId'
     | '/global-chat-sessions/new'
     | '/project-sessions/$sessionId'
+    | '/global-chat-sessions/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -108,6 +120,7 @@ export interface RootRouteChildren {
   GlobalChatSessionsSessionIdRoute: typeof GlobalChatSessionsSessionIdRoute
   GlobalChatSessionsNewRoute: typeof GlobalChatSessionsNewRoute
   ProjectSessionsSessionIdRoute: typeof ProjectSessionsSessionIdRoute
+  GlobalChatSessionsIndexRoute: typeof GlobalChatSessionsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -131,6 +144,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/global-chat-sessions/': {
+      id: '/global-chat-sessions/'
+      path: '/global-chat-sessions'
+      fullPath: '/global-chat-sessions/'
+      preLoaderRoute: typeof GlobalChatSessionsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/global-chat-sessions/$sessionId': {
@@ -164,6 +184,7 @@ const rootRouteChildren: RootRouteChildren = {
   GlobalChatSessionsSessionIdRoute: GlobalChatSessionsSessionIdRoute,
   GlobalChatSessionsNewRoute: GlobalChatSessionsNewRoute,
   ProjectSessionsSessionIdRoute: ProjectSessionsSessionIdRoute,
+  GlobalChatSessionsIndexRoute: GlobalChatSessionsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
