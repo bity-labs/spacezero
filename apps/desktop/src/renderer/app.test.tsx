@@ -555,6 +555,119 @@ describe("App", () => {
     expect(createRequests).toHaveLength(1);
   });
 
+  it("shows up to 10 recent unarchived chats in the sidebar", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const recentChats = Array.from({ length: 12 }, (_, index) => ({
+      id: `aaaaaaaa-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+      title: `Recent chat ${String(index + 1).padStart(2, "0")}`,
+      archived: false,
+      createdAt: timestamp,
+      updatedAt: `2026-02-${String(index + 1).padStart(2, "0")}T00:00:00.000Z`,
+      lastSequence: 1,
+    }));
+    const archivedChats = [
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000001",
+        title: "Archived chat A",
+        archived: true,
+        createdAt: timestamp,
+        updatedAt: "2026-02-28T00:00:00.000Z",
+        lastSequence: 3,
+      },
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000002",
+        title: "Archived chat B",
+        archived: true,
+        createdAt: timestamp,
+        updatedAt: "2026-02-27T00:00:00.000Z",
+        lastSequence: 2,
+      },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (parsed.pathname === "/v1/global-chat-sessions")
+          return json({ sessions: [...archivedChats, ...recentChats] });
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: "Recent chat 12" }),
+    ).toBeInTheDocument();
+    const expectedTitles = Array.from(
+      { length: 10 },
+      (_, index) => `Recent chat ${String(index + 3).padStart(2, "0")}`,
+    );
+    for (const title of expectedTitles) {
+      expect(screen.getByRole("button", { name: title })).toBeInTheDocument();
+    }
+    expect(
+      screen.queryByRole("button", { name: "Recent chat 02" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Recent chat 01" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Archived chat A" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Archived chat B" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Archive" })).toHaveLength(10);
+  });
+
+  it("opens the All chats placeholder from the sidebar action", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (parsed.pathname === "/v1/global-chat-sessions")
+          return json({ sessions: [] });
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "All chats" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "All chats" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
+      "All chats",
+    );
+  });
+
   it("opens the add capability dialog and toggles row management actions", async () => {
     render(<App />);
 
