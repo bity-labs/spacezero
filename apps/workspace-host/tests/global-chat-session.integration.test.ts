@@ -602,6 +602,167 @@ describe("Global Chat Session Host protocol", () => {
     });
   });
 
+  it("appends a later prompt to the same Global Chat Session and reloads its history without project identity", async () => {
+    const root = await temp();
+    const databasePath = join(root, "host.sqlite");
+    let providerCalls = 0;
+    const seenPrompts: string[] = [];
+    const runner: ConversationRunner = {
+      submitTurn: async (input) => {
+        providerCalls += 1;
+        seenPrompts.push(input.prompt);
+        return {
+          text: providerCalls === 1 ? "Global answer" : "Global second answer",
+        };
+      },
+    };
+    const host = await start(databasePath, join(root, "SpaceZero"), runner);
+    const client = descriptor(host);
+
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "First global prompt",
+    );
+    expect(created.response.status).toBe(200);
+    const { session } = created.body as {
+      session: { id: string; updatedAt: string; lastSequence: number };
+    };
+    await waitFor(() => expect(providerCalls).toBe(1));
+
+    const before = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      session.id,
+    );
+    expect(before.response.status).toBe(200);
+    const beforeBody = before.body as {
+      session: { id: string; updatedAt: string; lastSequence: number };
+    };
+    expect(beforeBody.session).toMatchObject({
+      id: session.id,
+      lastSequence: 5,
+    });
+
+    const submitCommandId = randomUUID();
+    const submitted = await submitGlobalChatPrompt(
+      host,
+      client.clientCapability,
+      session.id,
+      "Second global prompt",
+      submitCommandId,
+    );
+    expect(submitted.response.status).toBe(200);
+    const submittedBody = submitted.body as {
+      session: {
+        id: string;
+        updatedAt: string;
+        lastSequence: number;
+        [key: string]: unknown;
+      };
+      userMessage: { id: string; text: string; commandId: string };
+      turn: { id: string; state: string; commandId: string };
+    };
+    expect(submittedBody.session.id).toBe(session.id);
+    expect(submittedBody.session.lastSequence).toBe(7);
+    expect(submittedBody.userMessage).toMatchObject({
+      role: "user",
+      text: "Second global prompt",
+      commandId: submitCommandId,
+      sequence: 6,
+    });
+    expect(submittedBody.turn).toMatchObject({
+      state: "running",
+      commandId: submitCommandId,
+    });
+    for (const record of [
+      submittedBody.session,
+      submittedBody.userMessage,
+      submittedBody.turn,
+    ]) {
+      expect(record).not.toHaveProperty("projectId");
+      expect(record).not.toHaveProperty("worktreePath");
+      expect(record).not.toHaveProperty("managedBranch");
+      expect(record).not.toHaveProperty("sourceBranch");
+      expect(record).not.toHaveProperty("sourceCommit");
+    }
+
+    await waitFor(() => expect(providerCalls).toBe(2));
+    expect(seenPrompts).toEqual([
+      "First global prompt",
+      "Second global prompt",
+    ]);
+
+    const after = await listGlobalChatMessages(
+      host,
+      client.clientCapability,
+      session.id,
+    );
+    const afterBody = after.body as {
+      session: { id: string; updatedAt: string; lastSequence: number };
+      messages: { role: string; text: string; sequence: number }[];
+    };
+    expect(afterBody.session.id).toBe(session.id);
+    expect(afterBody.session.lastSequence).toBe(8);
+    expect(
+      new Date(afterBody.session.updatedAt).getTime(),
+    ).toBeGreaterThanOrEqual(new Date(beforeBody.session.updatedAt).getTime());
+    expect(
+      afterBody.messages.map((message) => [message.role, message.text]),
+    ).toEqual([
+      ["user", "First global prompt"],
+      ["assistant", "Global answer"],
+      ["user", "Second global prompt"],
+      ["assistant", "Global second answer"],
+    ]);
+
+    expect(
+      readRows<{ event_type: string; sequence: number }>(
+        databasePath,
+        "SELECT event_type, sequence FROM chat_session_events WHERE session_id = ? AND sequence > ? ORDER BY sequence ASC",
+        session.id,
+        beforeBody.session.lastSequence,
+      ),
+    ).toEqual([
+      { event_type: "GlobalChatUserMessageSubmittedV1", sequence: 6 },
+      { event_type: "GlobalChatAgentTurnStartedV1", sequence: 7 },
+      { event_type: "GlobalChatAgentMessageCompletedV1", sequence: 8 },
+    ]);
+
+    // Cursor replay over the existing SSE subscription path delivers the
+    // appended events from the durable journal.
+    const replayed = await subscribeGlobalChatSessionEvents(
+      host,
+      client.clientCapability,
+      session.id,
+      beforeBody.session.lastSequence,
+    );
+    expect(replayed.status).toBe(200);
+    const replayFrames = await readSseFrames(replayed, 3);
+    expect(
+      replayFrames.map(
+        (frame) => (frame.data as { event: { type: string } }).event.type,
+      ),
+    ).toEqual([
+      "GlobalChatUserMessageSubmittedV1",
+      "GlobalChatAgentTurnStartedV1",
+      "GlobalChatAgentMessageCompletedV1",
+    ]);
+
+    const replaySubmit = await submitGlobalChatPrompt(
+      host,
+      client.clientCapability,
+      session.id,
+      "Second global prompt",
+      submitCommandId,
+    );
+    expect(replaySubmit.response.status).toBe(200);
+    const replayBody = replaySubmit.body as typeof submittedBody;
+    expect(replayBody.turn.id).toBe(submittedBody.turn.id);
+    expect(replayBody.userMessage.id).toBe(submittedBody.userMessage.id);
+    expect(providerCalls).toBe(2);
+  });
+
   it("queues, cancels, consumes, reloads, authorizes, and isolates Global Chat follow-ups", async () => {
     const root = await temp();
     const databasePath = join(root, "host.sqlite");
