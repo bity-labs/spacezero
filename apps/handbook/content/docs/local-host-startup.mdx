@@ -34,6 +34,45 @@ Electron main
 11. Desktop uses its supervisor capability to mint a short-lived scoped client capability.
 12. Client Runtime uses that descriptor for authenticated HTTP/SSE calls.
 
+## Development Node executable resolution
+
+The dev Local Host must run with Node `22.23.1`. `resolveLocalHostExecutable`
+(`apps/desktop/src/main/local-host/local-host-executable.ts`) resolves which
+Node binary to launch in this order:
+
+1. `SPACEZERO_DEV_NODE_EXECUTABLE` — explicit override; the real-host E2E
+   suite and CI use this to pin the Node under test.
+2. `npm_node_execpath` — set when Electron is launched from a pnpm/npm
+   lifecycle context.
+3. `node -p process.execPath` fallback — resolves the `node` first on `PATH`
+   and uses its real `execPath`.
+
+The fallback exists because `electron-vite dev` does **not** inherit
+`npm_node_execpath`: Electron is spawned outside the pnpm lifecycle, so the
+environment variable is absent and the Host previously failed closed with
+`LocalHostUnavailableError` on every renderer `spacezero:get-local-host-connection`
+call. Repeating the resolution through `PATH` keeps `pnpm dev` working when
+Electron is launched directly.
+
+The resolved binary is validated before use:
+
+- absolute POSIX path that exists on disk;
+- `node --version` must report exactly `v22.23.1` (repo pin, matching
+  `engines` and the packaged private Node); and
+- the Workspace Host entry must exist under `apps/workspace-host/dist`.
+
+Any failure throws `LocalHostUnavailableError` and the supervisor schedules a
+bounded-backoff restart instead of starting a wrong-version Host. The PATH
+fallback and the explicit-override order are covered by
+`local-host-executable.test.ts`.
+
+Practical notes:
+
+- If `pnpm dev` reports `Local Host unavailable`, check `node --version` first;
+  a PATH Node that is not `v22.23.1` reproduces the failure.
+- `nvm`/version-manager users must have the pinned Node active in the shell
+  that runs `pnpm dev`, or set `SPACEZERO_DEV_NODE_EXECUTABLE` explicitly.
+
 ## Capability ownership
 
 - Electron main owns the supervisor capability.
