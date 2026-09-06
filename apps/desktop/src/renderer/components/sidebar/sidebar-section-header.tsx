@@ -11,6 +11,7 @@ type SidebarSectionAction = {
 
 type SidebarSectionHeaderProps = {
   label: string;
+  icon?: ComponentType<{ className?: string }>;
   expandable?: boolean;
   expanded?: boolean;
   onToggle?: () => void;
@@ -20,6 +21,7 @@ type SidebarSectionHeaderProps = {
 
 function SidebarSectionHeader({
   label,
+  icon: Icon,
   expandable = false,
   expanded = true,
   onToggle,
@@ -29,20 +31,24 @@ function SidebarSectionHeader({
   return (
     <div
       className={cn(
-        "flex items-center gap-1 rounded-md px-2 py-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground",
+        "flex h-8 items-center gap-1 rounded-md px-2 text-sm text-muted-foreground hover:bg-muted hover:text-foreground",
         className,
       )}
     >
       <button
-        className="flex min-w-0 flex-1 items-center gap-1 text-left"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
         type="button"
         aria-expanded={expandable ? expanded : undefined}
         onClick={onToggle}
       >
+        {Icon ? <Icon className="size-4 shrink-0" aria-hidden="true" /> : null}
         <span className="truncate">{label}</span>
         {expandable ? (
           <CaretDown
-            className={cn("size-4 shrink-0 transition-transform", expanded ? null : "-rotate-90")}
+            className={cn(
+              "size-4 shrink-0 transition-transform",
+              expanded ? null : "-rotate-90",
+            )}
             aria-hidden="true"
           />
         ) : null}
