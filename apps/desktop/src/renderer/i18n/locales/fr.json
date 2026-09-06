@@ -33,7 +33,16 @@
     "projectSessionSurface": "Conversation de session de projet",
     "globalChatSession": "Session de chat global",
     "globalChatSessionSurface": "Conversation de session de chat global",
-    "newChatDraft": "Nouveau brouillon de chat"
+    "newChatDraft": "Nouveau brouillon de chat",
+    "allChatsDescription": "Conversations au niveau de l’application, sans lien avec un projet.",
+    "unarchivedTab": "Non archivés",
+    "archivedTab": "Archivés",
+    "noChatsTitle": "Aucun chat pour le moment",
+    "noChatsDescription": "Démarrez une conversation sans lien avec un projet.",
+    "noArchivedChatsTitle": "Aucun chat archivé",
+    "noArchivedChatsDescription": "Les chats archivés restent en lecture seule jusqu’à leur désarchivage.",
+    "loadingChats": "Chargement des chats",
+    "allChatsLoadError": "Impossible de charger les chats."
   },
   "settings": {
     "title": "Paramètres",

@@ -33,7 +33,16 @@
     "projectSessionSurface": "Project Session conversation",
     "globalChatSession": "Global Chat Session",
     "globalChatSessionSurface": "Global Chat Session conversation",
-    "newChatDraft": "New chat draft"
+    "newChatDraft": "New chat draft",
+    "allChatsDescription": "App-level conversations that are not tied to a Project.",
+    "unarchivedTab": "Unarchived",
+    "archivedTab": "Archived",
+    "noChatsTitle": "No chats yet",
+    "noChatsDescription": "Start a conversation that is not tied to any Project.",
+    "noArchivedChatsTitle": "No archived chats",
+    "noArchivedChatsDescription": "Archived chats are history-only until you unarchive them.",
+    "loadingChats": "Loading chats",
+    "allChatsLoadError": "Could not load chats."
   },
   "settings": {
     "title": "Settings",
