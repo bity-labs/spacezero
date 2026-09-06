@@ -126,6 +126,7 @@ export interface GlobalChatSessionTurn {
   readonly state: GlobalChatSessionTurnState;
   readonly userMessageId: GlobalChatSessionMessageId;
   readonly assistantMessageId: GlobalChatSessionMessageId;
+  readonly assistantMessageIds?: readonly GlobalChatSessionMessageId[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
@@ -454,6 +455,9 @@ export const GlobalChatSessionTurnSchema = Schema.Struct({
   state: GlobalChatSessionTurnStateSchema,
   userMessageId: GlobalChatSessionMessageIdSchema,
   assistantMessageId: GlobalChatSessionMessageIdSchema,
+  assistantMessageIds: Schema.optionalKey(
+    Schema.Array(GlobalChatSessionMessageIdSchema),
+  ),
   providerId: Schema.String.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(128),

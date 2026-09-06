@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import {
   AgentTurnError,
   type AgentRuntimeEvent,
   type AgentToolConfiguration,
+  type AgentTurnAssistantMessage,
   type AgentTurnContentPart,
   type AgentTurnMessage,
   type AgentTurnResources,
@@ -19,6 +21,7 @@ export type ChatTurnFailureReason =
 export interface ChatTurnView {
   readonly id: string;
   readonly assistantMessageId: string;
+  readonly assistantMessageIds?: readonly string[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel:
@@ -93,6 +96,9 @@ export interface ChatTurnRepository {
     readonly turnId: string;
     readonly text: string;
     readonly parts?: readonly AgentTurnContentPart[];
+    readonly messages?: readonly (AgentTurnAssistantMessage & {
+      readonly id: string;
+    })[];
   }) => Promise<unknown>;
   readonly failTurn: (input: {
     readonly commandId: string;
@@ -272,6 +278,16 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
     let checkpointChain = Promise.resolve();
     let storageFaulted = false;
     const turn = input.admission.result.turn;
+    const assistantMessageIds = new Map<number, string>([
+      [0, turn.assistantMessageId],
+    ]);
+    const messageIdForIndex = (messageIndex = 0): string => {
+      const existing = assistantMessageIds.get(messageIndex);
+      if (existing !== undefined) return existing;
+      const id = randomUUID();
+      assistantMessageIds.set(messageIndex, id);
+      return id;
+    };
 
     const reportPersistenceFailure = async (
       operation: string,
@@ -435,13 +451,14 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                 )
                   await checkpointDraft();
                 else scheduleCheckpoint();
+                const messageId = messageIdForIndex(event.messageIndex);
                 stream.publishLive(
                   input.sessionId,
                   event.part.type === "reasoning"
                     ? input.makeAssistantReasoningDelta({
                         sessionId: input.sessionId,
                         turnId: input.admission.turnId,
-                        messageId: turn.assistantMessageId,
+                        messageId,
                         order: event.part.order,
                         text: event.part.text,
                         timestamp,
@@ -449,7 +466,7 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
                     : input.makeAssistantTextDelta({
                         sessionId: input.sessionId,
                         turnId: input.admission.turnId,
-                        messageId: turn.assistantMessageId,
+                        messageId,
                         text: event.part.text,
                         order: event.part.order,
                         timestamp,
@@ -606,6 +623,11 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
           operationId,
           assistantText: completed.text,
         });
+        const completedMessages = completed.messages?.map((message, index) => ({
+          id: messageIdForIndex(index),
+          text: message.text,
+          ...(message.parts === undefined ? {} : { parts: message.parts }),
+        }));
         const finalParts = mergeParts(
           currentParts(),
           completed.parts,
@@ -618,6 +640,9 @@ export const createChatTurnRunner = <DurableEnvelope, LiveEnvelope>(options: {
             turnId: input.admission.turnId,
             text: completed.text,
             parts: finalParts,
+            ...(completedMessages === undefined
+              ? {}
+              : { messages: completedMessages }),
           }),
         );
         stream.wakeEvents(input.sessionId);

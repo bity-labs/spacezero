@@ -37,6 +37,7 @@ import {
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
   AgentTurnError,
+  type AgentToolDisplayContent,
   type AgentToolJsonObject,
   type AgentTurnContentPart,
   type AgentTurnInput,
@@ -311,14 +312,16 @@ const workspaceTools = (env: ExecutionEnv): AgentTool[] => {
   ];
 };
 
-const lastAssistantMessage = (
+const assistantMessagesAfter = (
   messages: readonly AgentMessage[],
-): AssistantMessage | undefined => {
-  const lastMsg = messages.at(-1);
-  if (lastMsg?.role !== "assistant" || !Array.isArray(lastMsg.content))
-    return undefined;
-  return lastMsg as AssistantMessage;
-};
+  startIndex: number,
+): readonly AssistantMessage[] =>
+  messages
+    .slice(startIndex)
+    .filter(
+      (message): message is AssistantMessage =>
+        message.role === "assistant" && Array.isArray(message.content),
+    );
 
 const textFromAssistantMessage = (message: AssistantMessage): string =>
   message.content
@@ -328,19 +331,52 @@ const textFromAssistantMessage = (message: AssistantMessage): string =>
 
 const safePartsFromAssistantMessage = (
   message: AssistantMessage,
-): readonly AgentTurnContentPart[] =>
-  message.content.flatMap((content, index): AgentTurnContentPart[] => {
-    const order = index + 1;
+  options: {
+    readonly sanitizeArguments: (
+      value: unknown,
+    ) => AgentToolJsonObject | undefined;
+    readonly completedToolParts: readonly AgentTurnContentPart[];
+  },
+): readonly AgentTurnContentPart[] => {
+  let order = 0;
+  return message.content.flatMap((content): AgentTurnContentPart[] => {
     if (content.type === "text" && content.text.length > 0)
-      return [{ type: "text" as const, order, text: content.text }];
+      return [{ type: "text" as const, order: ++order, text: content.text }];
     if (
       content.type === "thinking" &&
       content.redacted !== true &&
       content.thinking.length > 0
     )
-      return [{ type: "reasoning" as const, order, text: content.thinking }];
+      return [
+        { type: "reasoning" as const, order: ++order, text: content.thinking },
+      ];
+    if (content.type === "toolCall") {
+      const completed = options.completedToolParts.find(
+        (part) =>
+          part.type === "tool-call" &&
+          (part.toolCallId === content.id || part.toolName === content.name),
+      );
+      const sanitizedArguments = options.sanitizeArguments(content.arguments);
+      return [
+        {
+          type: "tool-call" as const,
+          order: ++order,
+          toolCallId: content.id,
+          toolName: content.name,
+          status:
+            completed?.type === "tool-call" ? completed.status : "running",
+          ...(sanitizedArguments === undefined
+            ? {}
+            : { arguments: sanitizedArguments }),
+          ...(completed?.type !== "tool-call" || completed.result === undefined
+            ? {}
+            : { result: completed.result }),
+        },
+      ];
+    }
     return [];
   });
+};
 
 const collectSecretValues = (value: unknown): readonly string[] => {
   if (typeof value === "string") return value.length >= 4 ? [value] : [];
@@ -458,6 +494,9 @@ export function createPiConversationRunner(
       const contentByOrder = new Map<number, AgentTurnContentPart>();
       const toolOrder = new Map<string, number>();
       const messageContentOrders = new Map<number, number>();
+      const initialMessageCount = input.history.length;
+      let currentAssistantMessageIndex = 0;
+      let nextAssistantMessageIndex = 0;
       let nextContentOrder = 1;
 
       const orderForMessageContent = (contentIndex: number): number => {
@@ -507,6 +546,10 @@ export function createPiConversationRunner(
       const unsubscribe = agent.subscribe(async (event: AgentEvent) => {
         switch (event.type) {
           case "message_start": {
+            if (event.message.role === "assistant") {
+              currentAssistantMessageIndex = nextAssistantMessageIndex++;
+              nextContentOrder = 1;
+            }
             messageContentOrders.clear();
             break;
           }
@@ -537,10 +580,19 @@ export function createPiConversationRunner(
                 },
                 delta,
               );
-              input.onDelta?.({ kind: "assistant_content", part });
+              input.onDelta?.({
+                kind: "assistant_content",
+                part,
+                ...(currentAssistantMessageIndex === 0
+                  ? {}
+                  : { messageIndex: currentAssistantMessageIndex }),
+              });
               await input.onEvent?.({
                 type: "assistant_delta",
                 part,
+                ...(currentAssistantMessageIndex === 0
+                  ? {}
+                  : { messageIndex: currentAssistantMessageIndex }),
               });
             }
             break;
@@ -615,31 +667,95 @@ export function createPiConversationRunner(
       try {
         await agent.prompt(expandSkillPrompt(input));
         await agent.waitForIdle();
-        const assistant = lastAssistantMessage(agent.state.messages);
-        if (assistant?.stopReason === "error" || assistant?.errorMessage)
+        const assistants = assistantMessagesAfter(
+          agent.state.messages,
+          initialMessageCount,
+        );
+        if (
+          assistants.some(
+            (assistant) =>
+              assistant.stopReason === "error" || assistant.errorMessage,
+          )
+        )
           throw new AgentTurnError("agent_turn_failed");
-        if (assistant?.stopReason === "aborted") {
+        if (
+          assistants.some((assistant) => assistant.stopReason === "aborted")
+        ) {
           if (input.signal?.aborted)
             throw new AgentTurnError("agent_turn_interrupted");
           throw new AgentTurnError("agent_turn_failed");
         }
-        const assistantText = assistant
-          ? textFromAssistantMessage(assistant)
-          : textParts.join("");
         const streamedParts = [...contentByOrder.values()].sort(
           (left, right) => left.order - right.order,
         );
-        const parts =
-          streamedParts.length > 0
-            ? streamedParts
-            : assistant
-              ? safePartsFromAssistantMessage(assistant)
-              : [];
-        const text =
-          assistantText.length > 0 ? assistantText : textParts.join("");
+        const toolResultParts = agent.state.messages
+          .slice(initialMessageCount)
+          .flatMap((message): AgentTurnContentPart[] => {
+            if (message.role !== "toolResult") return [];
+            const content = message.content.flatMap(
+              (part): AgentToolDisplayContent[] => {
+                if (part.type === "text")
+                  return [{ type: "text" as const, text: part.text }];
+                if (
+                  part.type === "image" &&
+                  [
+                    "image/png",
+                    "image/jpeg",
+                    "image/webp",
+                    "image/gif",
+                  ].includes(part.mimeType)
+                )
+                  return [
+                    {
+                      type: "image" as const,
+                      data: part.data,
+                      mimeType: part.mimeType as
+                        "image/png" | "image/jpeg" | "image/webp" | "image/gif",
+                    },
+                  ];
+                return [];
+              },
+            );
+            return [
+              {
+                type: "tool-call" as const,
+                order: 1,
+                toolCallId: message.toolCallId,
+                toolName: message.toolName,
+                status: message.isError ? "failed" : "succeeded",
+                result: { content },
+              },
+            ];
+          });
+        const completedToolParts = [...streamedParts, ...toolResultParts];
+        const completedMessages = assistants.map((assistant) => {
+          const text = textFromAssistantMessage(assistant);
+          const parts = safePartsFromAssistantMessage(assistant, {
+            sanitizeArguments: (value) =>
+              toolContentPolicy.sanitizeJsonObject(value) as
+                AgentToolJsonObject | undefined,
+            completedToolParts,
+          });
+          return parts.length > 0 ? { text, parts } : { text };
+        });
+        const fallbackText = textParts.join("");
+        const messages =
+          completedMessages.length > 0
+            ? completedMessages
+            : [{ text: fallbackText, parts: streamedParts }];
+        const text = messages
+          .map((message) => message.text)
+          .filter((part) => part.length > 0)
+          .join("\n\n");
+        const firstParts = messages[0]?.parts ?? streamedParts;
+        const legacyText = text.length > 0 ? text : fallbackText;
         return {
-          text,
-          parts: parts.length > 0 ? parts : [{ type: "text", order: 1, text }],
+          text: legacyText,
+          parts:
+            firstParts.length > 0
+              ? firstParts
+              : [{ type: "text", order: 1, text: legacyText }],
+          ...(messages.length <= 1 ? {} : { messages }),
         };
       } catch {
         if (input.signal?.aborted)

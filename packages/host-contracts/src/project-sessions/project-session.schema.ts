@@ -191,6 +191,7 @@ export interface ProjectSessionTurn {
   readonly state: ProjectSessionTurnState;
   readonly userMessageId: SessionMessageId;
   readonly assistantMessageId: SessionMessageId;
+  readonly assistantMessageIds?: readonly SessionMessageId[];
   readonly providerId: string;
   readonly modelId: string;
   readonly thinkingLevel: AgentThinkingLevel;
@@ -491,6 +492,7 @@ export const ProjectSessionTurnSchema = Schema.Struct({
   state: ProjectSessionTurnStateSchema,
   userMessageId: SessionMessageIdSchema,
   assistantMessageId: SessionMessageIdSchema,
+  assistantMessageIds: Schema.optionalKey(Schema.Array(SessionMessageIdSchema)),
   providerId: Schema.String.check(
     Schema.isMinLength(1),
     Schema.isMaxLength(128),

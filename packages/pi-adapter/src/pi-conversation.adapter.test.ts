@@ -286,6 +286,86 @@ describe("createPiConversationRunner", () => {
     expect(JSON.stringify(result)).not.toContain("sk-live-secret");
   });
 
+  it("preserves every assistant message returned during one agent turn", async () => {
+    const faux = fauxProvider({
+      models: [
+        { id: "reasoning-model", name: "Reasoning Model", reasoning: true },
+      ],
+    });
+    const models = createModels();
+    models.setProvider(faux.provider);
+    const events: unknown[] = [];
+    faux.setResponses([
+      fauxAssistantMessage(
+        [
+          fauxText("I will inspect the file."),
+          fauxToolCall("read", { path: "src/app.ts" }, { id: "call-1" }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([
+        fauxThinking("The file is small."),
+        fauxText("Done."),
+      ]),
+    ]);
+    const runner = createPiConversationRunner({
+      provider: faux.provider.id,
+      model: "reasoning-model",
+      credentials: new InMemoryCredentialStore(),
+      models,
+    });
+    const turn = await input({
+      runtime: {
+        providerId: faux.provider.id,
+        modelId: "reasoning-model",
+        thinkingLevel: "high",
+      },
+      onEvent: async (event) => {
+        events.push(event);
+      },
+    });
+    const workingDirectory =
+      turn.tools.kind === "managedWorktree" ? turn.tools.workingDirectory : "";
+    await mkdir(join(workingDirectory, "src"));
+    await writeFile(join(workingDirectory, "src/app.ts"), "export {};\n");
+
+    const result = await runner.submitTurn(turn);
+
+    expect(result.messages).toEqual([
+      {
+        text: "I will inspect the file.",
+        parts: [
+          { type: "text", order: 1, text: "I will inspect the file." },
+          expect.objectContaining({
+            type: "tool-call",
+            order: 2,
+            toolCallId: "call-1",
+            toolName: "read",
+            status: "succeeded",
+          }),
+        ],
+      },
+      {
+        text: "Done.",
+        parts: [
+          { type: "reasoning", order: 1, text: "The file is small." },
+          { type: "text", order: 2, text: "Done." },
+        ],
+      },
+    ]);
+    expect(
+      events
+        .filter(
+          (event) =>
+            (event as { readonly type?: string }).type === "assistant_delta",
+        )
+        .some(
+          (event) =>
+            (event as { readonly messageIndex?: number }).messageIndex === 1,
+        ),
+    ).toBe(true);
+  });
+
   it("preserves provider-exposed readable reasoning in content order without signatures", async () => {
     const faux = fauxProvider({
       models: [

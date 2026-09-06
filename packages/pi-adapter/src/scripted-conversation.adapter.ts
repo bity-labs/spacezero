@@ -1,5 +1,6 @@
 import {
   AgentTurnError,
+  type AgentTurnAssistantMessage,
   type AgentTurnContentPart,
   type AgentTurnInput,
   type ConversationRunner,
@@ -15,12 +16,14 @@ export interface ScriptedConversationOptions {
     | {
         readonly text: string;
         readonly parts?: readonly AgentTurnContentPart[];
+        readonly messages?: readonly AgentTurnAssistantMessage[];
       }
     | Promise<
         | string
         | {
             readonly text: string;
             readonly parts?: readonly AgentTurnContentPart[];
+            readonly messages?: readonly AgentTurnAssistantMessage[];
           }
       >;
   /** Typed failure raised before any turn output is produced. */
@@ -42,16 +45,33 @@ export const createScriptedConversationRunner = (
     const respond = options.respond ?? ((current) => `Echo: ${current.prompt}`);
     const response = await respond(input);
     const result = typeof response === "string" ? { text: response } : response;
-    const parts = result.parts ?? [
-      { type: "text" as const, order: 1, text: result.text },
-    ];
+    const messages = result.messages ?? [result];
+    const parts = result.parts ??
+      messages[0]?.parts ?? [
+        { type: "text" as const, order: 1, text: result.text },
+      ];
     if (input.signal?.aborted)
       throw new AgentTurnError("agent_turn_interrupted");
-    for (const part of parts) {
-      if (part.type !== "text" && part.type !== "reasoning") continue;
-      input.onDelta?.({ kind: "assistant_content", part });
-      await input.onEvent?.({ type: "assistant_delta", part });
+    for (const [messageIndex, message] of messages.entries()) {
+      const messageParts = message.parts ?? [
+        { type: "text" as const, order: 1, text: message.text },
+      ];
+      for (const part of messageParts) {
+        if (part.type !== "text" && part.type !== "reasoning") continue;
+        input.onDelta?.({
+          kind: "assistant_content",
+          part,
+          ...(messageIndex === 0 ? {} : { messageIndex }),
+        });
+        await input.onEvent?.({
+          type: "assistant_delta",
+          part,
+          ...(messageIndex === 0 ? {} : { messageIndex }),
+        });
+      }
     }
-    return { text: result.text, parts };
+    return result.messages === undefined
+      ? { text: result.text, parts }
+      : { text: result.text, parts, messages };
   },
 });
