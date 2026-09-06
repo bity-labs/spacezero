@@ -166,6 +166,23 @@ const unarchiveGlobalChatSession = async (
   );
   return { response, body: (await response.json()) as unknown };
 };
+const renameGlobalChatSession = async (
+  host: StartedHostServer,
+  clientCapability: string,
+  sessionId: string,
+  title: string,
+  commandId = randomUUID(),
+) => {
+  const response = await fetch(
+    new URL(`/v1/global-chat-sessions/${sessionId}/rename`, host.endpoint),
+    {
+      method: "POST",
+      headers: authHeaders(clientCapability),
+      body: JSON.stringify({ commandId, title }),
+    },
+  );
+  return { response, body: (await response.json()) as unknown };
+};
 const listGlobalChatSessions = async (
   host: StartedHostServer,
   clientCapability: string,
@@ -1721,6 +1738,259 @@ describe("Global Chat Session Host protocol", () => {
       host,
       client.clientCapability,
       randomUUID(),
+    );
+    expect(missing.response.status).toBe(404);
+    expect(missing.body).toMatchObject({
+      code: "global_chat_session_not_found",
+    });
+  });
+
+  it("renames a Global Chat Session with a durable event, projection update, and receipts", async () => {
+    const root = await temp();
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Original title",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          join(root, "host.sqlite"),
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    const renameCommandId = randomUUID();
+    const renamed = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "  Renamed through the Host  ",
+      renameCommandId,
+    );
+    expect(renamed.response.status).toBe(200);
+    expect(renamed.body).toMatchObject({
+      session: { id: sessionId, title: "Renamed through the Host" },
+    });
+
+    // The rename is idempotent: the same command replays, and a fresh
+    // command with the same trimmed title records a receipt without
+    // appending another rename event.
+    const replayed = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "  Renamed through the Host  ",
+      renameCommandId,
+    );
+    expect(replayed.response.status).toBe(200);
+    expect(replayed.body).toMatchObject({
+      session: { id: sessionId, title: "Renamed through the Host" },
+    });
+    const freshCommand = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Renamed through the Host",
+    );
+    expect(freshCommand.response.status).toBe(200);
+    expect(freshCommand.body).toMatchObject({
+      session: { id: sessionId, title: "Renamed through the Host" },
+    });
+
+    expect(
+      readRows<{ count: number }>(
+        join(root, "host.sqlite"),
+        "SELECT count(*) AS count FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatSessionRenamedV1'",
+        sessionId,
+      )[0]?.count,
+    ).toBe(1);
+    expect(
+      readRows<{ title: string }>(
+        join(root, "host.sqlite"),
+        "SELECT title FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.title,
+    ).toBe("Renamed through the Host");
+
+    // The list projection reflects the new title and sorts the renamed
+    // session by its updated time.
+    const listed = await listGlobalChatSessions(host, client.clientCapability);
+    expect(listed.body).toMatchObject({
+      sessions: [
+        { id: sessionId, title: "Renamed through the Host", archived: false },
+      ],
+    });
+
+    // Renamed titles survive a host restart through the projection.
+    const restartedHost = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const reloaded = await listGlobalChatSessions(
+      restartedHost,
+      descriptor(restartedHost).clientCapability,
+    );
+    expect(reloaded.body).toMatchObject({
+      sessions: [{ id: sessionId, title: "Renamed through the Host" }],
+    });
+  });
+
+  it("rejects blank, multiline, and oversized rename titles with typed public errors", async () => {
+    const root = await temp();
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Rename validation probe",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          join(root, "host.sqlite"),
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    for (const title of ["", "   ", "first line\nsecond line", "x".repeat(61)]) {
+      const rejected = await renameGlobalChatSession(
+        host,
+        client.clientCapability,
+        sessionId,
+        title,
+      );
+      expect(rejected.response.status).toBe(400);
+      expect(rejected.body).toMatchObject({
+        code: "global_chat_session_title_invalid",
+      });
+    }
+    // A rejected rename appends no events and leaves the projection alone.
+    expect(
+      readRows<{ count: number }>(
+        join(root, "host.sqlite"),
+        "SELECT count(*) AS count FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatSessionRenamedV1'",
+        sessionId,
+      )[0]?.count,
+    ).toBe(0);
+    expect(
+      readRows<{ title: string }>(
+        join(root, "host.sqlite"),
+        "SELECT title FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.title,
+    ).toBe("Rename validation probe");
+  });
+
+  it("renames an archived Global Chat Session and rejects rename command ID conflicts", async () => {
+    const root = await temp();
+    const host = await start(
+      join(root, "host.sqlite"),
+      join(root, "SpaceZero"),
+      { submitTurn: async () => ({ text: "answer" }) },
+    );
+    const client = descriptor(host);
+    const created = await createGlobalChatSession(
+      host,
+      client.clientCapability,
+      "Archive then rename me",
+    );
+    const sessionId = (created.body as { session: { id: string } }).session.id;
+    await waitFor(() => {
+      expect(
+        readRows<{ state: string }>(
+          join(root, "host.sqlite"),
+          "SELECT state FROM chat_session_turns WHERE session_id = ?",
+          sessionId,
+        )[0]?.state,
+      ).toBe("completed");
+    });
+
+    const archiveCommandId = randomUUID();
+    const archived = await archiveGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      archiveCommandId,
+    );
+    expect(archived.response.status).toBe(200);
+    expect(archived.body).toMatchObject({
+      session: { id: sessionId, archived: true },
+    });
+
+    // Rename is metadata management and stays available while archived.
+    const renamedWhileArchived = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Renamed while archived",
+    );
+    expect(renamedWhileArchived.response.status).toBe(200);
+    expect(renamedWhileArchived.body).toMatchObject({
+      session: {
+        id: sessionId,
+        title: "Renamed while archived",
+        archived: true,
+      },
+    });
+    expect(
+      readRows<{ archived_at: string | null }>(
+        join(root, "host.sqlite"),
+        "SELECT archived_at FROM chat_sessions WHERE session_id = ?",
+        sessionId,
+      )[0]?.archived_at,
+    ).not.toBeNull();
+    expect(
+      readRows<{ count: number }>(
+        join(root, "host.sqlite"),
+        "SELECT count(*) AS count FROM chat_session_events WHERE session_id = ? AND event_type = 'GlobalChatSessionRenamedV1'",
+        sessionId,
+      )[0]?.count,
+    ).toBe(1);
+
+    // Reusing a rename command ID with different input fails with a typed
+    // conflict, and unknown sessions fail with a typed 404.
+    const reusedCommandId = randomUUID();
+    const firstUse = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Renamed once",
+      reusedCommandId,
+    );
+    expect(firstUse.response.status).toBe(200);
+    const reusedElsewhere = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      sessionId,
+      "Renamed differently",
+      reusedCommandId,
+    );
+    expect(reusedElsewhere.response.status).toBe(409);
+    expect(reusedElsewhere.body).toMatchObject({ code: "command_id_conflict" });
+
+    const missing = await renameGlobalChatSession(
+      host,
+      client.clientCapability,
+      randomUUID(),
+      "Renamed missing",
     );
     expect(missing.response.status).toBe(404);
     expect(missing.body).toMatchObject({

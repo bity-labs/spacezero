@@ -410,7 +410,7 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: globalChatSessionId }),
+      await screen.findByRole("heading", { name: "Global prompt" }),
     ).toBeInTheDocument();
     expect(await screen.findByText("Global saved answer")).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
@@ -505,9 +505,8 @@ describe("App", () => {
     });
 
     expect(
-      await screen.findByRole("heading", { name: createdGlobalChatSessionId }),
+      await screen.findByRole("heading", { name: "First global prompt" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("First global prompt")).toBeInTheDocument();
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
       "Global Chat Session",
     );
@@ -780,7 +779,7 @@ describe("App", () => {
     fireEvent.click(row);
 
     expect(
-      await screen.findByRole("heading", { name: globalChatSessionId }),
+      await screen.findByRole("heading", { name: "Global prompt" }),
     ).toBeInTheDocument();
   });
 
@@ -883,8 +882,9 @@ describe("App", () => {
       within(surface).queryByTestId("global-chat-session-archived-banner"),
     ).not.toBeInTheDocument();
     // The chat is reachable from the sidebar recent list before archiving.
+    const sidebar = screen.getByLabelText("Workspace sidebar");
     expect(
-      screen.getByRole("button", { name: "Global prompt" }),
+      within(sidebar).getByRole("button", { name: "Global prompt" }),
     ).toBeInTheDocument();
 
     fireEvent.click(
@@ -916,7 +916,7 @@ describe("App", () => {
     });
     await waitFor(() => {
       expect(
-        screen.queryByRole("button", { name: "Global prompt" }),
+        within(sidebar).queryByRole("button", { name: "Global prompt" }),
       ).not.toBeInTheDocument();
     });
 
@@ -933,8 +933,389 @@ describe("App", () => {
       screen.queryByTestId("global-chat-session-archived-banner"),
     ).not.toBeInTheDocument();
     expect(
-      await screen.findByRole("button", { name: "Global prompt" }),
+      await within(sidebar).findByRole("button", { name: "Global prompt" }),
     ).toBeInTheDocument();
+  });
+
+  it("renames the active Global Chat from the header and reflects the new title in the sidebar", async () => {
+    window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    let title = "Global prompt";
+    const renameRequests: Request[] = [];
+    let sessionListFetches = 0;
+    const sessionSummary = () => ({
+      id: globalChatSessionId,
+      title,
+      archived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastSequence: 2,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (
+          parsed.pathname === "/v1/global-chat-sessions" &&
+          request.method === "GET"
+        ) {
+          sessionListFetches += 1;
+          return json({ sessions: [sessionSummary()] });
+        }
+        if (
+          parsed.pathname ===
+            `/v1/global-chat-sessions/${globalChatSessionId}/rename` &&
+          request.method === "POST"
+        ) {
+          renameRequests.push(request);
+          title = ((await request.clone().json()) as { title: string }).title;
+          return json({ session: sessionSummary() });
+        }
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        )
+          return json({
+            session: sessionSummary(),
+            messages: [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                role: "assistant",
+                text: "Global saved answer",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+        )
+          return json({ session: sessionSummary(), followUps: [] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/events`
+        )
+          return new Response(
+            new ReadableStream({
+              start() {
+                // Never closes during the test.
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    const surface = await screen.findByLabelText(
+      "Global Chat Session conversation",
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Global prompt" }),
+    ).toBeInTheDocument();
+    expect(
+      within(surface).getByRole("button", { name: "Global prompt" }),
+    ).toBeInTheDocument();
+
+    // Rename opens from the pencil affordance in the chat header.
+    fireEvent.click(
+      within(surface).getByRole("button", { name: "Rename chat" }),
+    );
+    const renameInput = await screen.findByRole("textbox", {
+      name: "Rename chat",
+    });
+    fireEvent.change(renameInput, {
+      target: { value: "  Renamed from the header  " },
+    });
+    fireEvent.keyDown(renameInput, { key: "Enter" });
+
+    const renameRequest = await waitFor(() => {
+      const request = renameRequests.at(-1);
+      if (!request) throw new Error("rename request missing");
+      return request;
+    });
+    expect(renameRequest.method).toBe("POST");
+    expect(await renameRequest.json()).toEqual({
+      commandId: expect.stringMatching(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      ),
+      title: "Renamed from the header",
+    });
+
+    // The header shows the new title and the sidebar recent list follows
+    // the projection update.
+    expect(
+      await screen.findByRole("heading", {
+        name: "Renamed from the header",
+      }),
+    ).toBeInTheDocument();
+    const sidebar = screen.getByLabelText("Workspace sidebar");
+    expect(
+      await within(sidebar).findByRole("button", {
+        name: "Renamed from the header",
+      }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(sessionListFetches).toBeGreaterThan(1);
+    });
+    expect(
+      screen.queryByTestId("global-chat-session-rename-error"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renames an archived Global Chat while it is open read-only", async () => {
+    window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    let title = "Archived prompt";
+    const renameRequests: Request[] = [];
+    const sessionSummary = () => ({
+      id: globalChatSessionId,
+      title,
+      archived: true,
+      archivedAt: timestamp,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastSequence: 2,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (
+          parsed.pathname ===
+            `/v1/global-chat-sessions/${globalChatSessionId}/rename` &&
+          request.method === "POST"
+        ) {
+          renameRequests.push(request);
+          title = ((await request.clone().json()) as { title: string }).title;
+          return json({ session: sessionSummary() });
+        }
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (
+          parsed.pathname === "/v1/global-chat-sessions" &&
+          request.method === "GET"
+        )
+          return json({ sessions: [sessionSummary()] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        )
+          return json({
+            session: sessionSummary(),
+            messages: [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                role: "assistant",
+                text: "Global saved answer",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+        )
+          return json({ session: sessionSummary(), followUps: [] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/events`
+        )
+          return new Response(
+            new ReadableStream({
+              start() {
+                // Never closes during the test.
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    const surface = await screen.findByLabelText(
+      "Global Chat Session conversation",
+    );
+    expect(
+      await screen.findByTestId("global-chat-session-archived-banner"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    });
+
+    // Rename stays available in the archived read-only state.
+    fireEvent.click(
+      within(surface).getByRole("button", { name: "Rename chat" }),
+    );
+    const renameInput = await screen.findByRole("textbox", {
+      name: "Rename chat",
+    });
+    fireEvent.change(renameInput, {
+      target: { value: "Renamed while archived" },
+    });
+    fireEvent.keyDown(renameInput, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(renameRequests.length).toBe(1);
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Renamed while archived" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("global-chat-session-archived-banner"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("textbox", { name: "Message" })).toBeDisabled();
+    });
+  });
+
+  it("rejects invalid rename titles with a typed, user-visible error and no Host call", async () => {
+    window.location.hash = `#/global-chat-sessions/${globalChatSessionId}`;
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const renameRequests: Request[] = [];
+    const sessionSummary = () => ({
+      id: globalChatSessionId,
+      title: "Global prompt",
+      archived: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      lastSequence: 2,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (
+          parsed.pathname ===
+            `/v1/global-chat-sessions/${globalChatSessionId}/rename` &&
+          request.method === "POST"
+        ) {
+          renameRequests.push(request);
+          return json({ session: sessionSummary() });
+        }
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (
+          parsed.pathname === "/v1/global-chat-sessions" &&
+          request.method === "GET"
+        )
+          return json({ sessions: [sessionSummary()] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        )
+          return json({
+            session: sessionSummary(),
+            messages: [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                role: "assistant",
+                text: "Global saved answer",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+        )
+          return json({ session: sessionSummary(), followUps: [] });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/events`
+        )
+          return new Response(
+            new ReadableStream({
+              start() {
+                // Never closes during the test.
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    const surface = await screen.findByLabelText(
+      "Global Chat Session conversation",
+    );
+    await screen.findByRole("heading", { name: "Global prompt" });
+
+    fireEvent.click(
+      within(surface).getByRole("button", { name: "Rename chat" }),
+    );
+    const renameInput = await screen.findByRole("textbox", {
+      name: "Rename chat",
+    });
+    fireEvent.change(renameInput, {
+      target: { value: "x".repeat(61) },
+    });
+    fireEvent.keyDown(renameInput, { key: "Enter" });
+
+    expect(
+      await screen.findByTestId("global-chat-session-rename-error"),
+    ).toHaveTextContent("Chat titles must be 60 characters or fewer.");
+    expect(renameRequests).toHaveLength(0);
+    expect(
+      screen.getByRole("heading", { name: "Global prompt" }),
+    ).toBeInTheDocument();
+
+    // Correcting the title clears the error and submits through the Host.
+    fireEvent.click(
+      within(surface).getByRole("button", { name: "Rename chat" }),
+    );
+    const correctedInput = await screen.findByRole("textbox", {
+      name: "Rename chat",
+    });
+    fireEvent.change(correctedInput, { target: { value: "Fixed title" } });
+    fireEvent.keyDown(correctedInput, { key: "Enter" });
+    await waitFor(() => {
+      expect(renameRequests).toHaveLength(1);
+    });
+    expect(
+      screen.queryByTestId("global-chat-session-rename-error"),
+    ).not.toBeInTheDocument();
   });
 
   it("opens the add capability dialog and toggles row management actions", async () => {

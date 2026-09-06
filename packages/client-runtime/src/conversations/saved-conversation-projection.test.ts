@@ -201,6 +201,51 @@ describe("saved conversation projection", () => {
     );
     expect(client.submitPrompt).not.toHaveBeenCalled();
   });
+
+  it("updates the chat title from durable rename events, including while archived", async () => {
+    let deliverEvent: ((event: unknown) => void) | undefined;
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: { ...globalSession, archived: true, archivedAt: timestamp },
+        messages,
+      })),
+      subscribeEvents: vi.fn(
+        (input: { onEvent: (event: unknown) => void }) => {
+          deliverEvent = input.onEvent;
+          return { cancel: vi.fn(), closed: Promise.resolve() };
+        },
+      ),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+    await store.load();
+    expect(store.getSnapshot()).toMatchObject({
+      title: "Global prompt",
+      archived: true,
+      actions: { send: "unavailable" },
+    });
+
+    deliverEvent?.({
+      sequence: 5,
+      eventType: "GlobalChatSessionRenamedV1",
+      event: {
+        type: "GlobalChatSessionRenamedV1",
+        version: 1,
+        sessionId: "global-session-1",
+        commandId: "command-rename",
+        title: "Renamed while archived",
+        timestamp: "2026-01-01T12:00:00.000Z",
+      },
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      title: "Renamed while archived",
+      archived: true,
+      actions: { send: "unavailable" },
+    });
+  });
   it("loads Project Session saved messages through the Project Session client with Host-backed send available", async () => {
     const client = {
       listSessionMessages: vi.fn(async (sessionId: string) => {

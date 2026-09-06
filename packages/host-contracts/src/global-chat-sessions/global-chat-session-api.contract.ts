@@ -24,6 +24,8 @@ import {
   ListGlobalChatSessionMessagesQuerySchema,
   ListGlobalChatSessionMessagesResultSchema,
   ListGlobalChatSessionsResultSchema,
+  RenameGlobalChatSessionRequestSchema,
+  RenameGlobalChatSessionResultSchema,
   SubmitGlobalChatSessionPromptRequestSchema,
   SubmitGlobalChatSessionPromptResultSchema,
   UnarchiveGlobalChatSessionRequestSchema,
@@ -210,6 +212,22 @@ export const GlobalChatSessionApiGroup = HttpApiGroup.make("globalChatSessions")
         headers: GlobalChatSessionAuthorizationHeaderSchema,
         payload: UnarchiveGlobalChatSessionRequestSchema,
         success: UnarchiveGlobalChatSessionResultSchema,
+        error: [
+          ...HostAuthorizationErrorSchemas,
+          ...GlobalChatSessionErrorSchemas,
+        ],
+      },
+    ),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "renameGlobalChatSession",
+      "/global-chat-sessions/:sessionId/rename",
+      {
+        params: GlobalChatSessionPathParamsSchema,
+        headers: GlobalChatSessionAuthorizationHeaderSchema,
+        payload: RenameGlobalChatSessionRequestSchema,
+        success: RenameGlobalChatSessionResultSchema,
         error: [
           ...HostAuthorizationErrorSchemas,
           ...GlobalChatSessionErrorSchemas,

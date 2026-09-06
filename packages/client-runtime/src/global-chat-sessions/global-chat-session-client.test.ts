@@ -238,4 +238,63 @@ describe("Global Chat Session client", () => {
         "An agent turn is already in progress for this Global Chat Session.",
     });
   });
+
+  it("renames a Global Chat Session through the generated Host API", async () => {
+    const renamedSession = { ...createResult.session, title: "Renamed chat" };
+    const requests: Request[] = [];
+    const fetch = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request =
+          input instanceof Request ? input : new Request(input, init);
+        requests.push(request);
+        return json({ session: renamedSession });
+      },
+    );
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.renameSession(sessionId, "  Renamed chat  "),
+    ).resolves.toEqual({ session: renamedSession });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(
+      `http://127.0.0.1:1234/v1/global-chat-sessions/${sessionId}/rename`,
+    );
+    expect(requests[0]?.method).toBe("POST");
+    expect(requests[0]?.headers.get("authorization")).toBe(
+      `Bearer ${descriptor.clientCapability}`,
+    );
+    await expect(requests[0]?.json()).resolves.toEqual({
+      commandId,
+      title: "  Renamed chat  ",
+    });
+  });
+
+  it("propagates typed rename validation errors", async () => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: async () => descriptor,
+      createCommandId: () => commandId,
+      fetch: (async () =>
+        json(
+          {
+            code: "global_chat_session_title_invalid",
+            message:
+              "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
+          },
+          { status: 400 },
+        )) as unknown as typeof globalThis.fetch,
+    });
+
+    await expect(
+      client.renameSession(sessionId, "x".repeat(61)),
+    ).rejects.toMatchObject({
+      code: "global_chat_session_title_invalid",
+      message:
+        "Chat titles cannot be empty and must be 60 characters or fewer on a single line.",
+    });
+  });
 });

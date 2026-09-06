@@ -993,6 +993,25 @@ export const startHostServer = async (options: {
             ),
           ).pipe(Effect.mapError(globalChatSessionHttpError));
         },
+        renameGlobalChatSession: ({ headers, request, params, payload }) => {
+          try {
+            auth(
+              headers.authorization,
+              state.cap!,
+              "global-chat-sessions:prompt",
+              options.allowedRendererOrigin,
+              request.headers.origin,
+            );
+          } catch (error) {
+            return Effect.fail(error as HostAuthorizationError);
+          }
+          return effectPromise(() =>
+            globalChatSessions.renameSession(params.sessionId, {
+              commandId: payload.commandId,
+              title: payload.title,
+            }),
+          ).pipe(Effect.mapError(globalChatSessionHttpError));
+        },
         submitGlobalChatSessionPrompt: ({
           headers,
           request,
