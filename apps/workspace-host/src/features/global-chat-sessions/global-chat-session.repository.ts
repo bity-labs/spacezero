@@ -4,6 +4,8 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql/SqlClient";
 import {
   deriveGlobalChatSessionInitialTitle,
+  type ArchiveGlobalChatSessionRequest,
+  type ArchiveGlobalChatSessionResult,
   type CancelGlobalChatSessionFollowUpResult,
   type CreateGlobalChatSessionWithFirstPromptRequest,
   type CreateGlobalChatSessionWithFirstPromptResult,
@@ -24,6 +26,8 @@ import {
   type ListGlobalChatSessionsResult,
   type SubmitGlobalChatSessionPromptRequest,
   type SubmitGlobalChatSessionPromptResult,
+  type UnarchiveGlobalChatSessionRequest,
+  type UnarchiveGlobalChatSessionResult,
   type UpdateGlobalChatSessionRuntimeRequest,
   type UpdateGlobalChatSessionRuntimeResult,
 } from "@spacezero/host-contracts";
@@ -197,6 +201,21 @@ const runtimeFingerprint = (
     )
     .digest("hex");
 
+const archiveStateFingerprint = (input: {
+  readonly sessionId: string;
+  readonly archived: boolean;
+}): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind: input.archived
+          ? "global_chat_session_archive"
+          : "global_chat_session_unarchive",
+        sessionId: input.sessionId,
+      }),
+    )
+    .digest("hex");
+
 const failureDetails = (
   reason: GlobalChatSessionTurnFailureReason,
 ):
@@ -232,6 +251,7 @@ const toSummary = (row: SessionRow): GlobalChatSessionSummary => ({
   id: row.session_id,
   title: row.title,
   archived: row.archived_at !== null,
+  ...(row.archived_at === null ? {} : { archivedAt: row.archived_at }),
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   lastSequence: row.last_sequence,
@@ -784,6 +804,94 @@ const admitPromptInTransaction = <
     };
   });
 
+/**
+ * Applies archive or unarchive state as a durable Session event plus
+ * projection update. Follows the command receipt pattern: the same command ID
+ * with the same input replays the current session summary, and a different
+ * command ID against an unchanged archive state is an idempotent no-op that
+ * still records a receipt.
+ */
+const applyArchivedStateInTransaction = (input: {
+  readonly sessionId: string;
+  readonly commandId: string;
+  readonly archived: boolean;
+}) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient;
+    const fp = archiveStateFingerprint({
+      sessionId: input.sessionId,
+      archived: input.archived,
+    });
+    return yield* sql.withTransaction(
+      Effect.gen(function* () {
+        const receipt =
+          yield* sql<ReceiptRow>`SELECT * FROM chat_session_command_receipts WHERE command_id = ${input.commandId}`;
+        if (receipt[0]) {
+          if (receipt[0].request_fingerprint !== fp)
+            throw new GlobalChatSessionServiceError("command_id_conflict");
+          if (
+            receipt[0].status === "failed" ||
+            receipt[0].status === "recovery_required"
+          )
+            throw new GlobalChatSessionServiceError(
+              (receipt[0].terminal_error_code as never) ??
+                "global_chat_session_unavailable",
+            );
+          const rows = yield* getSession(sql, receipt[0].session_id);
+          if (!rows[0])
+            throw new GlobalChatSessionServiceError(
+              "global_chat_session_unavailable",
+            );
+          return { session: toSummary(rows[0]) };
+        }
+
+        const rows = yield* getSession(sql, input.sessionId);
+        if (!rows[0])
+          throw new GlobalChatSessionServiceError(
+            "global_chat_session_not_found",
+          );
+        if (input.archived) {
+          const activeTurns =
+            yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${input.sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
+          if (activeTurns[0])
+            throw new GlobalChatSessionServiceError(
+              "global_chat_session_turn_in_progress",
+            );
+        }
+        const alreadyArchived = rows[0].archived_at !== null;
+        const now = new Date().toISOString();
+        if (alreadyArchived === input.archived) {
+          yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'succeeded', ${rows[0].last_sequence}, ${now}, ${now})`;
+          return { session: toSummary(rows[0]) };
+        }
+        const sequence = rows[0].last_sequence + 1;
+        yield* appendEvent({
+          sql,
+          sessionId: input.sessionId,
+          sequence,
+          payload: {
+            type: input.archived
+              ? "GlobalChatSessionArchivedV1"
+              : "GlobalChatSessionUnarchivedV1",
+            version: 1,
+            sessionId: input.sessionId,
+            commandId: input.commandId,
+            timestamp: now,
+          },
+          createdAt: now,
+        });
+        yield* sql`UPDATE chat_sessions SET archived_at = ${input.archived ? now : null}, updated_at = ${now}, last_sequence = ${sequence} WHERE session_id = ${input.sessionId}`;
+        yield* sql`INSERT INTO chat_session_command_receipts (command_id, request_fingerprint, session_id, status, committed_sequence, created_at, updated_at) VALUES (${input.commandId}, ${fp}, ${input.sessionId}, 'succeeded', ${sequence}, ${now}, ${now})`;
+        const updated = yield* getSession(sql, input.sessionId);
+        if (!updated[0])
+          throw new GlobalChatSessionServiceError(
+            "global_chat_session_unavailable",
+          );
+        return { session: toSummary(updated[0]) };
+      }),
+    );
+  });
+
 export const createGlobalChatSessionRepository = (options: {
   readonly databasePath: string;
 }) => ({
@@ -1097,6 +1205,9 @@ export const createGlobalChatSessionRepository = (options: {
           Effect.gen(function* () {
             const sessionRows = yield* getSession(sql, sessionId);
             if (!sessionRows[0]) return undefined;
+            // Archived sessions are history-only: queued follow-ups stay
+            // paused until the session is unarchived.
+            if (sessionRows[0].archived_at !== null) return undefined;
             const activeTurns =
               yield* sql<TurnRow>`SELECT * FROM chat_session_turns WHERE session_id = ${sessionId} AND state IN ('queued', 'running', 'recovery_required') LIMIT 1`;
             if (activeTurns[0]) return undefined;
@@ -1373,6 +1484,32 @@ export const createGlobalChatSessionRepository = (options: {
             };
           }),
         );
+      }),
+    ),
+
+  archiveSession: async (
+    sessionId: string,
+    input: ArchiveGlobalChatSessionRequest,
+  ): Promise<ArchiveGlobalChatSessionResult> =>
+    runSql(
+      options.databasePath,
+      applyArchivedStateInTransaction({
+        sessionId,
+        commandId: input.commandId,
+        archived: true,
+      }),
+    ),
+
+  unarchiveSession: async (
+    sessionId: string,
+    input: UnarchiveGlobalChatSessionRequest,
+  ): Promise<UnarchiveGlobalChatSessionResult> =>
+    runSql(
+      options.databasePath,
+      applyArchivedStateInTransaction({
+        sessionId,
+        commandId: input.commandId,
+        archived: false,
       }),
     ),
 
