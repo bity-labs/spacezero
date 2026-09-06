@@ -27,6 +27,7 @@ New decisions continue from the historical sequence and start at ADR `0025`. Use
 - [`0041-use-convex-auth-for-space-zero-accounts.md`](0041-use-convex-auth-for-space-zero-accounts.md)
 - [`0042-use-first-class-host-owned-global-chat-sessions.md`](0042-use-first-class-host-owned-global-chat-sessions.md)
 - [`0043-use-assistant-ui-over-host-owned-structured-conversations.md`](0043-use-assistant-ui-over-host-owned-structured-conversations.md)
+- [`0044-pre-release-host-data-wipe-policy.md`](0044-pre-release-host-data-wipe-policy.md)
 
 ## Historical decisions
 
