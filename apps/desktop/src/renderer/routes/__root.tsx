@@ -4,8 +4,11 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useTranslation } from "react-i18next";
+
+import type { GlobalChatSessionSummary } from "@spacezero/host-contracts";
+import { createGlobalChatSessionClient } from "@spacezero/client-runtime";
 
 import { SIDEBAR_DEFAULT_WIDTH } from "../components/sidebar/sidebar-layout";
 import { WorkspaceShellLayout } from "../components/workspace-shell-layout";
@@ -31,6 +34,8 @@ function RootRoute(): ReactElement {
   );
   const [activeView, setActiveView] =
     useState<WorkspaceSidebarView>("workspace");
+  const [chats, setChats] = useState<readonly GlobalChatSessionSummary[]>([]);
+  const [chatsExpanded, setChatsExpanded] = useState(true);
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const leftSidebarResize = useSidebarResize({
     side: "left",
@@ -43,13 +48,14 @@ function RootRoute(): ReactElement {
   const isGlobalChatSessionRoute = pathname.startsWith(
     "/global-chat-sessions/",
   );
+  const activeChatId = isGlobalChatSessionRoute
+    ? decodeURIComponent(pathname.split("/")[2] ?? "")
+    : undefined;
   const sidebarActiveView: WorkspaceSidebarView = isAgentCapabilitiesRoute
     ? "agent-capabilities"
-    : isGlobalChatSessionRoute
-      ? "global-chat"
-      : isProjectSessionRoute
-        ? "workspace"
-        : activeView;
+    : isProjectSessionRoute
+      ? "workspace"
+      : activeView;
   const titlebarLabel = isAgentCapabilitiesRoute
     ? t("workspace.agentCapabilities")
     : isGlobalChatSessionRoute
@@ -57,6 +63,25 @@ function RootRoute(): ReactElement {
       : isProjectSessionRoute
         ? t("conversations.projectSession")
         : t("workspace.title");
+
+  useEffect(() => {
+    const client = createGlobalChatSessionClient({
+      getConnectionDescriptor: window.spacezero.getLocalHostConnection,
+    });
+    let cancelled = false;
+    void client
+      .listGlobalChatSessions()
+      .then((sessions) => {
+        if (cancelled) return;
+        setChats(
+          [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [isGlobalChatSessionRoute, activeChatId]);
 
   if (pathname === "/settings") {
     return <Outlet />;
@@ -92,14 +117,22 @@ function RootRoute(): ReactElement {
             setActiveView("knowledge-base");
             void navigate({ to: "/" });
           }}
-          onSelectGlobalChat={() => {
-            setActiveView("global-chat");
-            void navigate({ to: "/" });
-          }}
           onSelectAgentCapabilities={() => {
             setActiveView("agent-capabilities");
             void navigate({ to: "/agent-capabilities" });
           }}
+          activeChatId={activeChatId}
+          chats={chats}
+          chatsExpanded={chatsExpanded}
+          onSelectChat={(sessionId) => {
+            void navigate({
+              to: "/global-chat-sessions/$sessionId",
+              params: { sessionId },
+            });
+          }}
+          onToggleChats={() => setChatsExpanded((expanded) => !expanded)}
+          onNewChat={() => undefined}
+          onAllChats={() => undefined}
           onToggleProjects={() => setProjectsExpanded((expanded) => !expanded)}
           onFilterProjects={() => undefined}
           onAddProject={() => undefined}

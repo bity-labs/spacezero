@@ -1,15 +1,21 @@
 import {
+  Archive,
   BookOpenText,
+  Folder,
   FolderPlus,
   FunnelSimple,
   GearSix,
+  List,
   PaperPlaneTilt,
   Plugs,
+  Plus,
   User,
 } from "@phosphor-icons/react";
+import type { GlobalChatSessionSummary } from "@spacezero/host-contracts";
 import {
   SidebarGroup,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@spacezero/ui/components/sidebar";
@@ -21,16 +27,22 @@ import { SidebarNavItem } from "./sidebar/sidebar-nav-item";
 import { SidebarSectionHeader } from "./sidebar/sidebar-section-header";
 
 export type WorkspaceSidebarView =
-  "workspace" | "global-chat" | "knowledge-base" | "agent-capabilities";
+  "workspace" | "knowledge-base" | "agent-capabilities";
 
 type WorkspaceSidebarProps = {
   open: boolean;
   activeView: WorkspaceSidebarView;
+  activeChatId: string | undefined;
+  chats: readonly GlobalChatSessionSummary[];
+  chatsExpanded: boolean;
   projectsExpanded: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectKnowledgeBase: () => void;
-  onSelectGlobalChat: () => void;
   onSelectAgentCapabilities: () => void;
+  onSelectChat: (sessionId: string) => void;
+  onToggleChats: () => void;
+  onNewChat: () => void;
+  onAllChats: () => void;
   onToggleProjects: () => void;
   onFilterProjects: () => void;
   onAddProject: () => void;
@@ -47,11 +59,17 @@ const projectNames = [
 export function WorkspaceSidebar({
   open,
   activeView,
+  activeChatId,
+  chats,
+  chatsExpanded,
   projectsExpanded,
   onOpenChange,
   onSelectKnowledgeBase,
-  onSelectGlobalChat,
   onSelectAgentCapabilities,
+  onSelectChat,
+  onToggleChats,
+  onNewChat,
+  onAllChats,
   onToggleProjects,
   onFilterProjects,
   onAddProject,
@@ -79,12 +97,6 @@ export function WorkspaceSidebar({
             onClick={onSelectKnowledgeBase}
           />
           <SidebarNavItem
-            icon={PaperPlaneTilt}
-            label={t("workspace.chat")}
-            active={activeView === "global-chat"}
-            onClick={onSelectGlobalChat}
-          />
-          <SidebarNavItem
             icon={Plugs}
             label={t("workspace.agentCapabilities")}
             active={activeView === "agent-capabilities"}
@@ -94,12 +106,60 @@ export function WorkspaceSidebar({
       }
       footer={<AccountMenu onOpenSettings={onOpenSettings} />}
     >
+      <SidebarGroup className="mt-8 shrink-0" aria-label={t("workspace.chats")}>
+        <SidebarSectionHeader
+          label={t("workspace.chats")}
+          icon={PaperPlaneTilt}
+          expandable
+          expanded={chatsExpanded}
+          onToggle={onToggleChats}
+          actions={[
+            { label: t("workspace.newChat"), icon: Plus, onClick: onNewChat },
+            { label: t("workspace.allChats"), icon: List, onClick: onAllChats },
+          ]}
+        />
+        {chatsExpanded ? (
+          <div className="max-h-64 overflow-auto px-2">
+            <SidebarMenu>
+              {chats.map((chat) => (
+                <SidebarMenuItem key={chat.id}>
+                  <SidebarMenuButton
+                    isActive={activeChatId === chat.id}
+                    onClick={() => {
+                      onSelectChat(chat.id);
+                    }}
+                  >
+                    <span className="truncate">{chat.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => {
+                    onSelectChat("fake-archived");
+                  }}
+                >
+                  <span className="truncate">Old conversation</span>
+                </SidebarMenuButton>
+                <SidebarMenuAction
+                  aria-label={t("workspace.archive")}
+                  className="text-muted-foreground"
+                  onClick={() => undefined}
+                >
+                  <Archive aria-hidden="true" />
+                </SidebarMenuAction>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </div>
+        ) : null}
+      </SidebarGroup>
       <SidebarGroup
-        className="mt-8 min-h-0 flex-1 overflow-hidden"
+        className="mt-4 min-h-0 flex-1 overflow-hidden"
         aria-label={t("workspace.projects")}
       >
         <SidebarSectionHeader
           label={t("workspace.projects")}
+          icon={Folder}
           expandable
           expanded={projectsExpanded}
           onToggle={onToggleProjects}
@@ -109,7 +169,11 @@ export function WorkspaceSidebar({
               icon: FunnelSimple,
               onClick: onFilterProjects,
             },
-            { label: t("workspace.addProject"), icon: FolderPlus, onClick: onAddProject },
+            {
+              label: t("workspace.addProject"),
+              icon: FolderPlus,
+              onClick: onAddProject,
+            },
           ]}
         />
         {projectsExpanded ? (
