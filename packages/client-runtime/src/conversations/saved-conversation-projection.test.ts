@@ -308,6 +308,136 @@ describe("saved conversation projection", () => {
     ]);
   });
 
+  it("turns durable storage-recovery failures into a blocked recovery runtime", async () => {
+    let onEvent: ((event: ProjectSessionEventEnvelope) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onEvent = input.onEvent;
+        input.onOpen?.();
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    onEvent?.({
+      sequence: 5,
+      eventType: "AgentTurnFailedV1",
+      event: {
+        type: "AgentTurnFailedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        reason: "session_recovery_required",
+        failureCategory: "system",
+        retryable: false,
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      runtime: { status: "recovery_required", latestTurnId: "turn-1" },
+      actions: { send: "unavailable", stop: "unavailable" },
+    });
+  });
+
+  it("turns live persistence faults into recovery-required without waiting for a durable write", async () => {
+    let onLiveEvent:
+      ((event: ProjectSessionLiveEventEnvelope) => void) | undefined;
+    const client = {
+      listSessionMessages: vi.fn(async () => ({
+        session: projectSession,
+        messages: [],
+      })),
+      subscribeProjectSessionEvents: vi.fn((input) => {
+        onLiveEvent = input.onLiveEvent;
+        input.onOpen?.();
+        return { cancel: vi.fn(), closed: Promise.resolve() };
+      }),
+    } as unknown as ProjectSessionClient;
+    const store = createProjectSessionSavedConversationStore({
+      client,
+      sessionId: "project-session-1",
+    });
+
+    await store.load();
+    onLiveEvent?.({
+      live: true,
+      eventType: "ConversationPersistenceFailedV1",
+      event: {
+        type: "ConversationPersistenceFailedV1",
+        version: 1,
+        sessionId: "project-session-1",
+        turnId: "turn-1",
+        messageId: "assistant-message-1",
+        reason: "conversation_persistence_failed",
+        timestamp,
+      },
+    });
+
+    expect(store.getSnapshot()).toMatchObject({
+      runtime: {
+        status: "recovery_required",
+        activeTurnId: "turn-1",
+        latestTurnId: "turn-1",
+      },
+      actions: { send: "unavailable", stop: "unavailable" },
+    });
+  });
+
+  it("loads recovery-required Global Chat turns with the composer blocked", async () => {
+    const client = {
+      listMessages: vi.fn(async () => ({
+        session: globalSession,
+        messages: [
+          {
+            id: "message-1",
+            role: "user" as const,
+            text: "First user message",
+            sequence: 2,
+            createdAt: timestamp,
+          },
+        ],
+        activeTurn: {
+          id: "turn-1",
+          commandId: "command-1",
+          state: "recovery_required" as const,
+          userMessageId: "message-1",
+          assistantMessageId: "message-2",
+          providerId: "anthropic",
+          modelId: "claude-sonnet-4-5",
+          thinkingLevel: "off" as const,
+          draftText: "",
+          failureReason: "global_chat_session_recovery_required",
+          failureCategory: "system" as const,
+          retryable: false,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      })),
+    } as unknown as GlobalChatSessionClient;
+    const store = createGlobalChatSessionSavedConversationStore({
+      client,
+      sessionId: "global-session-1",
+    });
+
+    await store.load();
+
+    expect(store.getSnapshot()).toMatchObject({
+      session: { kind: "global", id: "global-session-1" },
+      runtime: { status: "recovery_required", activeTurnId: "turn-1" },
+      actions: { send: "unavailable", stop: "unavailable" },
+      messages: [{ role: "user", text: "First user message" }],
+    });
+  });
+
   it("loads older history incrementally while preserving live turn content without duplicate messages", async () => {
     let onLiveEvent:
       ((event: ProjectSessionLiveEventEnvelope) => void) | undefined;

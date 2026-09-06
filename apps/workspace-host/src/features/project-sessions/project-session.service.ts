@@ -211,6 +211,29 @@ export const createProjectSessionService = (options: {
       };
     });
   const liveCursor = turnRunner.liveCursor;
+  const withStorageFaultRecovery = (
+    result: Awaited<ReturnType<typeof repository.listMessages>>,
+  ): Awaited<ReturnType<typeof repository.listMessages>> => {
+    const fault = turnRunner.storageFaultForSession(result.session.id);
+    if (!fault) return result;
+    const recoverTurn = (turn: typeof result.activeTurn | undefined) => {
+      if (!turn || turn.id !== fault.turnId) return turn;
+      return {
+        ...turn,
+        state: "recovery_required" as const,
+        failureReason: "session_recovery_required",
+        failureCategory: "system" as const,
+        retryable: false,
+      };
+    };
+    const activeTurn = recoverTurn(result.activeTurn ?? result.latestTurn);
+    const latestTurn = recoverTurn(result.latestTurn) ?? activeTurn;
+    return {
+      ...result,
+      ...(activeTurn === undefined ? {} : { activeTurn }),
+      ...(latestTurn === undefined ? {} : { latestTurn }),
+    };
+  };
   const waitForSseAfter = async (
     sessionId: string,
     after: number,
@@ -298,6 +321,8 @@ export const createProjectSessionService = (options: {
   ): Promise<SubmitSessionPromptResult> =>
     withSessionLock(input.sessionId, async () => {
       try {
+        if (turnRunner.hasStorageFault(input.sessionId))
+          throw new ProjectSessionServiceError("session_recovery_required");
         const existing = await repository.replayOrRejectPromptReceipt({
           commandId: input.commandId,
           sessionId: input.sessionId,
@@ -420,6 +445,24 @@ export const createProjectSessionService = (options: {
               timestamp,
             },
           }),
+          makeConversationPersistenceFailed: ({
+            sessionId,
+            turnId,
+            messageId,
+            timestamp,
+          }) => ({
+            live: true,
+            eventType: "ConversationPersistenceFailedV1",
+            event: {
+              type: "ConversationPersistenceFailedV1",
+              version: 1,
+              sessionId,
+              turnId,
+              messageId,
+              reason: "conversation_persistence_failed",
+              timestamp,
+            },
+          }),
           onTurnSettled: scheduleFollowUpDrain,
         });
         return admission.result;
@@ -432,7 +475,10 @@ export const createProjectSessionService = (options: {
     if (drainingSessions.has(sessionId)) return;
     drainingSessions.add(sessionId);
     try {
-      while (!turnRunner.hasActiveTurn(sessionId)) {
+      while (
+        !turnRunner.hasActiveTurn(sessionId) &&
+        !turnRunner.hasStorageFault(sessionId)
+      ) {
         const followUp = await repository.dispatchNextFollowUp(sessionId);
         if (!followUp) return;
         try {
@@ -506,6 +552,8 @@ export const createProjectSessionService = (options: {
     },
     enqueueFollowUp: async (sessionId, input) => {
       try {
+        if (turnRunner.hasStorageFault(sessionId))
+          throw new ProjectSessionServiceError("session_recovery_required");
         const result = await repository.enqueueFollowUp(sessionId, input);
         wakeEvents(sessionId);
         scheduleFollowUpDrain(sessionId);
@@ -545,7 +593,9 @@ export const createProjectSessionService = (options: {
     },
     listMessages: async (sessionId, options) => {
       try {
-        return await repository.listMessages(sessionId, options);
+        return withStorageFaultRecovery(
+          await repository.listMessages(sessionId, options),
+        );
       } catch (error) {
         throw mapError(error);
       }

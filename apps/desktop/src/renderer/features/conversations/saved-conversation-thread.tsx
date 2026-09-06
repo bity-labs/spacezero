@@ -168,7 +168,9 @@ const ConversationStatusBanner = ({
         role="alert"
         className="border-b border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
       >
-        Conversation requires recovery before it can continue.
+        Conversation storage failed or requires recovery. Space Zero requested
+        cancellation; saved history remains available where possible, and queued
+        work will not continue until recovery.
       </div>
     );
   if (projection.runtime.status === "failed")
