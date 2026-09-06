@@ -5,6 +5,7 @@ import {
   CreateGlobalChatSessionWithFirstPromptResultSchema,
   GlobalChatSessionEventSchema,
   GlobalChatSessionFollowUpSchema,
+  GlobalChatSessionLiveEventEnvelopeSchema,
   GlobalChatSessionMessageSchema,
   GlobalChatSessionSummarySchema,
   GlobalChatSessionToolCallPartSchema,
@@ -175,6 +176,26 @@ describe("Global Chat Session schemas", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("models live storage persistence failures without protected payloads", () => {
+    const envelope = {
+      live: true as const,
+      eventType: "GlobalChatConversationPersistenceFailedV1",
+      event: {
+        type: "GlobalChatConversationPersistenceFailedV1" as const,
+        version: 1 as const,
+        sessionId: session.id,
+        turnId,
+        messageId: assistantMessageId,
+        reason: "conversation_persistence_failed" as const,
+        timestamp: "2026-01-01T00:02:00.000Z",
+      },
+    };
+
+    expect(
+      parseSync(GlobalChatSessionLiveEventEnvelopeSchema)(envelope),
+    ).toEqual(envelope);
   });
 
   it("models Global Chat follow-ups and durable queue lifecycle events", () => {

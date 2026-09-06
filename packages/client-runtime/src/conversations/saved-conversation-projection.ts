@@ -367,6 +367,11 @@ const sortMessages = (
       }),
     );
 
+const isRecoveryFailureReason = (reason: string | undefined): boolean =>
+  reason === "session_recovery_required" ||
+  reason === "global_chat_session_recovery_required" ||
+  reason === "conversation_persistence_failed";
+
 const runtimeStatus = (
   activeTurn: ProjectSessionTurn | GlobalChatSessionTurn | undefined,
   latestTurn: ProjectSessionTurn | GlobalChatSessionTurn | undefined,
@@ -783,12 +788,21 @@ const applyDurableEvent = (
         actions: actions({ canSend, send: "available", canStop: false }),
       };
     case "AgentTurnFailedV1":
-    case "GlobalChatAgentTurnFailedV1":
+    case "GlobalChatAgentTurnFailedV1": {
+      const recoveryRequired = isRecoveryFailureReason(event.reason);
       return {
         ...base,
-        runtime: { status: "failed", latestTurnId: event.turnId },
-        actions: actions({ canSend, send: "available", canStop: false }),
+        runtime: {
+          status: recoveryRequired ? "recovery_required" : "failed",
+          latestTurnId: event.turnId,
+        },
+        actions: actions({
+          canSend,
+          send: recoveryRequired ? "unavailable" : "available",
+          canStop: false,
+        }),
       };
+    }
     case "ProjectSessionFollowUpQueuedV1":
     case "GlobalChatSessionFollowUpQueuedV1":
       return {
@@ -961,6 +975,20 @@ const applyLiveEvent = (
     ProjectSessionLiveEventEnvelope | GlobalChatSessionLiveEventEnvelope,
 ): SavedConversationProjection => {
   const event = envelope.event;
+  if (
+    event.type === "ConversationPersistenceFailedV1" ||
+    event.type === "GlobalChatConversationPersistenceFailedV1"
+  ) {
+    return {
+      ...projection,
+      runtime: {
+        status: "recovery_required",
+        activeTurnId: event.turnId,
+        latestTurnId: event.turnId,
+      },
+      actions: actions({ canSend: true, send: "unavailable", canStop: false }),
+    };
+  }
   if (
     event.type === "AgentToolCallUpdatedV1" ||
     event.type === "GlobalChatAgentToolCallUpdatedV1"
@@ -1178,9 +1206,11 @@ export const createSavedConversationStore = ({
         canSend: canSend(),
         send: hasUnresolved
           ? "unresolved"
-          : runtime.status === "running" && enqueueFollowUp === undefined
+          : runtime.status === "recovery_required"
             ? "unavailable"
-            : "available",
+            : runtime.status === "running" && enqueueFollowUp === undefined
+              ? "unavailable"
+              : "available",
         canStop: runtime.status === "running" && canStopActiveTurn(),
       }),
     };
