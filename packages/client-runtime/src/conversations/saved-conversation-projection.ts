@@ -957,6 +957,12 @@ const applyDurableEvent = (
         archived: true,
         archivedAt: event.timestamp,
       };
+    case "GlobalChatSessionRenamedV1":
+      // Renames are metadata management and still apply while archived.
+      return {
+        ...base,
+        title: event.title,
+      };
     case "GlobalChatSessionUnarchivedV1": {
       const { archivedAt: _archivedAt, ...withoutArchivedAt } = base;
       void _archivedAt;
