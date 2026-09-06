@@ -1,4 +1,5 @@
 import type {
+  ArchiveGlobalChatSessionResult,
   CancelGlobalChatSessionFollowUpResult,
   CreateGlobalChatSessionWithFirstPromptRequest,
   CreateGlobalChatSessionWithFirstPromptResult,
@@ -13,6 +14,7 @@ import type {
   ListGlobalChatSessionMessagesResult,
   ListGlobalChatSessionsResult,
   SubmitGlobalChatSessionPromptResult,
+  UnarchiveGlobalChatSessionResult,
   UpdateGlobalChatSessionRuntimeRequest,
   UpdateGlobalChatSessionRuntimeResult,
 } from "@spacezero/host-contracts";
@@ -55,6 +57,14 @@ export interface GlobalChatSessionService {
     sessionId: string,
     followUpId: string,
   ) => Promise<CancelGlobalChatSessionFollowUpResult>;
+  readonly archiveSession: (
+    sessionId: string,
+    commandId: string,
+  ) => Promise<ArchiveGlobalChatSessionResult>;
+  readonly unarchiveSession: (
+    sessionId: string,
+    commandId: string,
+  ) => Promise<UnarchiveGlobalChatSessionResult>;
   readonly listMessages: (
     sessionId: string,
     options?: { readonly beforeSequence?: number; readonly limit?: number },
@@ -467,6 +477,29 @@ export const createGlobalChatSessionService = (options: {
         throw mapError(error);
       }
     },
+    archiveSession: (sessionId, commandId) =>
+      withSessionLock(sessionId, async () => {
+        try {
+          return await repository.archiveSession(sessionId, { commandId });
+        } catch (error) {
+          throw mapError(error);
+        }
+      }),
+    unarchiveSession: (sessionId, commandId) =>
+      withSessionLock(sessionId, async () => {
+        try {
+          const result = await repository.unarchiveSession(sessionId, {
+            commandId,
+          });
+          // Queued follow-ups stay paused while a session is archived; drain
+          // them once the session is open again.
+          turnRunner.wakeEvents(sessionId);
+          scheduleFollowUpDrain(sessionId);
+          return result;
+        } catch (error) {
+          throw mapError(error);
+        }
+      }),
     listMessages: async (sessionId, options) => {
       try {
         return withStorageFaultRecovery(
