@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { HostConnectionDescriptor } from "@spacezero/host-contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -632,7 +633,7 @@ describe("App", () => {
     expect(screen.getAllByRole("button", { name: "Archive" })).toHaveLength(10);
   });
 
-  it("opens the All chats placeholder from the sidebar action", async () => {
+  it("opens All chats from the sidebar action with the Unarchived empty state", async () => {
     const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
     Object.defineProperty(window, "spacezero", {
       value: { getAppVersion: vi.fn(), getLocalHostConnection },
@@ -666,6 +667,121 @@ describe("App", () => {
     expect(screen.getByLabelText("Window title bar")).toHaveTextContent(
       "All chats",
     );
+    expect(
+      screen.getByRole("tab", { name: "Unarchived" }),
+    ).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("No chats yet")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Archived" })).toBeInTheDocument();
+  });
+
+  it("lists Global Chat Sessions in All chats and opens a session from a row", async () => {
+    const getLocalHostConnection = vi.fn().mockResolvedValue(descriptor);
+    Object.defineProperty(window, "spacezero", {
+      value: { getAppVersion: vi.fn(), getLocalHostConnection },
+      configurable: true,
+    });
+    const archivedChatSessionId = "88888888-8888-4888-8888-888888888888";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = requestFrom(input, init);
+        const parsed = new URL(request.url);
+        if (parsed.pathname === "/v1/connection")
+          return json({
+            instanceId: descriptor.instanceId,
+            protocolVersion: descriptor.protocolVersion,
+            status: "ready",
+          });
+        if (parsed.pathname === "/v1/events") return hostConnectedStream();
+        if (parsed.pathname === "/v1/global-chat-sessions")
+          return json({
+            sessions: [
+              {
+                id: globalChatSessionId,
+                title: "Global prompt",
+                archived: false,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                lastSequence: 2,
+              },
+              {
+                id: archivedChatSessionId,
+                title: "Archived chat",
+                archived: true,
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                lastSequence: 1,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/messages`
+        )
+          return json({
+            session: {
+              id: globalChatSessionId,
+              title: "Global prompt",
+              archived: false,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              lastSequence: 2,
+            },
+            messages: [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                role: "assistant",
+                text: "Global saved answer",
+                sequence: 2,
+                createdAt: timestamp,
+              },
+            ],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/follow-ups`
+        )
+          return json({
+            session: {
+              id: globalChatSessionId,
+              title: "Global prompt",
+              archived: false,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+              lastSequence: 2,
+            },
+            followUps: [],
+          });
+        if (
+          parsed.pathname ===
+          `/v1/global-chat-sessions/${globalChatSessionId}/events`
+        )
+          return new Response(
+            new ReadableStream({
+              start() {
+                // Never closes during the test.
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        return new Response("not found", { status: 404 });
+      }),
+    );
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "All chats" }));
+
+    const main = screen.getByRole("main", { name: "Workspace" });
+    const row = await within(main).findByText("Global prompt");
+    expect(within(main).getByText("Global saved answer")).toBeInTheDocument();
+    expect(within(main).queryByText("Archived chat")).not.toBeInTheDocument();
+
+    fireEvent.click(row);
+
+    expect(
+      await screen.findByRole("heading", { name: globalChatSessionId }),
+    ).toBeInTheDocument();
   });
 
   it("opens the add capability dialog and toggles row management actions", async () => {
